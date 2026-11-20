@@ -119,6 +119,11 @@ fn the_host_offers_side_stages_to_guests_with_joint_on_and_keeps_presence() {
     let world = World::new(&f.forms, &f.refs, SimConfig::default());
     let again = Game::restore(&f.data, world, GameConfig { strict: true, ..GameConfig::default() }, &back).unwrap();
     assert!(again.coop_presence.was_there(FormId(SIDE), 10, 77));
+    // The debug console's view (`coop.presence`).
+    let lines = again.coop_presence_lines(FormId(SIDE));
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines[1].contains("stage 10") && lines[1].contains("000000000000004d"), "{lines:?}");
+    assert_eq!(again.coop_presence_lines(FormId(MAIN)).len(), 1);
 }
 
 #[test]
@@ -158,6 +163,9 @@ fn a_guest_claims_into_its_character_and_its_own_world_replays_once() {
         guest.take_joint_offer(&own, &offer(s, &prior)).unwrap();
     }
     assert_eq!(guest.take_joint_offer(&own, &offer(100, &[1, 10, 20, 50])), Err(TurnedDown::Missed(50)));
+    // The debug console's view (`coop.ledger`).
+    let ledger = guest.coop_ledger_lines();
+    assert!(ledger[0].contains("1 quest(s) waiting") && ledger[1].contains("1, 10, 20"), "{ledger:?}");
     // The ledger travels with the character into its own save.
     let c = fnv_game::coop::Character::of(&guest.player);
     assert_eq!(c.character_id, id);

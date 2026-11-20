@@ -241,6 +241,33 @@ pub fn prerequisites_hold(g: &Game, own: &BTreeMap<FormId, QuestState>, list: &[
 }
 
 impl Game<'_> {
+    /// Debug console `coop.presence <quest>`: who this host's world saw at each stage of
+    /// `q` (character IDs; plan P3).
+    pub fn coop_presence_lines(&self, q: FormId) -> Vec<String> {
+        let name = self.data.name(q);
+        match self.coop_presence.stages.get(&q) {
+            None => vec![format!("{name}: no stage set with a guest sharing quest progress")],
+            Some(stages) => std::iter::once(format!("{name}: {} stage(s) with guests sharing", stages.len()))
+                .chain(stages.iter().map(|(s, who)| format!("  stage {s}: {}", who.iter().map(|c| format!("{c:016x}")).collect::<Vec<_>>().join(", "))))
+                .collect(),
+        }
+    }
+
+    /// Debug console `coop.ledger`: this character's ID and its claimed stages, waiting
+    /// and replayed (plan P3).
+    pub fn coop_ledger_lines(&self) -> Vec<String> {
+        let l = &self.player.claims;
+        let mut out = vec![format!("Character {:016x}: {} quest(s) waiting, {} replayed", self.player.character_id, l.stages.len(), l.done.len())];
+        for (q, s) in &l.stages {
+            let stages: Vec<String> = s.iter().map(|c| if c.line.is_some() { format!("{} (+line)", c.stage) } else { c.stage.to_string() }).collect();
+            out.push(format!("  waiting {}: {}", self.data.name(*q), stages.join(", ")));
+        }
+        for (q, s) in &l.done {
+            out.push(format!("  replayed {}: {}", self.data.name(*q), s.iter().map(i32::to_string).collect::<Vec<_>>().join(", ")));
+        }
+        out
+    }
+
     /// The host's hook in [`Game::set_stage`], after the stage is marked done (module
     /// notes). Nothing while no guest has joint progression on.
     pub fn coop_joint_stage(&mut self, q: FormId, stage: i32) {

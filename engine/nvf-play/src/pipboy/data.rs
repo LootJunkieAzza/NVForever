@@ -2793,8 +2793,22 @@ fn objectives(game: &Game, q: u32) -> Vec<Row> {
         })
         .collect();
     model::sort_objectives(&mut lines);
-    lines.into_iter().map(|o| Row { text: o.text, mark: if o.done { Mark::Filled } else { Mark::Empty }, done: o.done }).collect()
+    let mut rows: Vec<Row> = lines.into_iter().map(|o| Row { text: o.text, mark: if o.done { Mark::Filled } else { Mark::Empty }, done: o.done }).collect();
+    if let Some(line) = claimed_line(g, FormId(q)) {
+        rows.push(Row { text: line, mark: Mark::None, done: false });
+    }
+    rows
 }
+
+/// A co-op guest's quest whose stages it claimed this session (joint progression,
+/// `fnv_game::coop_joint`, plan §3.5): a last line under its objectives saying they also
+/// count in this character's own save [design: our own words].
+fn claimed_line(g: &fnv_game::game::Game, q: FormId) -> Option<String> {
+    let n = g.player.claims.stages.get(&q).map_or(0, |s| s.len());
+    (g.coop_guest && n > 0).then(|| CLAIMED_LINE.to_string())
+}
+
+const CLAIMED_LINE: &str = "Shared quest progress: also counts in your own save";
 
 /// The heading's place name, kept per cell.
 fn place(st: &mut DataState, game: &Game) -> String {
