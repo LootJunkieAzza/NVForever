@@ -383,7 +383,7 @@ fn draw(
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
-    (state, script, driven, kill_cam, hud, vats, real, tweaks, pipboy, terminal): (
+    (state, script, driven, kill_cam, hud, vats, real, tweaks, pipboy, terminal, mut rebuild): (
         Option<Res<State<crate::PlayState>>>,
         Option<Res<crate::script::ScriptState>>,
         Option<Res<crate::player::ViewDriven>>,
@@ -394,6 +394,7 @@ fn draw(
         Option<Res<crate::tweaks::TweakSettings>>,
         Option<Res<crate::pipboy::PipBoy>>,
         Option<Res<crate::terminal::TerminalScreen>>,
+        crate::interface::HudRebuild,
     ),
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
@@ -433,13 +434,21 @@ fn draw(
         return;
     }
     let dt = if over { real.delta_secs() } else { time.delta_secs() };
-    if quests.bypass_change_detection().step(dt) {
+    // The HUD's scale changed (split screen): the line on screen is drawn again at it,
+    // without its sound again.
+    let rebuilt = rebuild.stale();
+    let stepped = quests.bypass_change_detection().step(dt);
+    if stepped || rebuilt {
         for (e, _, _) in &roots {
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
         if let Some(n) = quests.showing() {
             let bc = bc_supported(formats.as_deref());
             let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
+            if !stepped {
+                spawn_area(&mut commands, n, kit, data.as_deref(), &mut images, bc);
+                return;
+            }
             info!("quest message on screen: {} ({} waiting)", describe(n), quests.waiting());
             spawn_area(&mut commands, n, kit, data.as_deref(), &mut images, bc);
             // The player's tweak: a discovered place plays the sound it names [design: docs/design/tweaks.md].

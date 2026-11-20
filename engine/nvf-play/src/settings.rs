@@ -1065,8 +1065,7 @@ pub fn fix_ui_scale(menu: Option<Res<crate::menu_scale::MenuScale>>, split: Opti
     crate::interface::fix_ui_scale();
     if let Some(s) = split {
         let half = s.layout.or(layout.map(|l| *l)).unwrap_or_default().half(s.screen);
-        let (hud, menu) = crate::interface::split_ui_factors(half);
-        crate::interface::fix_split_ui(hud, menu);
+        crate::interface::set_split_ui(Some(crate::interface::split_ui_factors(half)), None);
     }
 }
 

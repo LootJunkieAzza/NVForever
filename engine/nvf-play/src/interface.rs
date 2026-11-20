@@ -213,6 +213,9 @@ pub fn menu_scale_of(ui: f32) -> f32 {
 pub fn fix_ui_scale() {
     let s = ui_scale_setting();
     UI_SCALE.store(s.to_bits(), Ordering::Relaxed);
+    BASE_HUD.store(s.to_bits(), Ordering::Relaxed);
+    BASE_MENU.store(menu_scale().to_bits(), Ordering::Relaxed);
+    MENU_FILLS.store(false, Ordering::Relaxed);
     info!("interface: UI scale {:.0}% (the HUD drawn at {:.0}%, the menus at {:.0}% of the original's size)", s * 100.0, s * 100.0, menu_scale() * 100.0);
 }
 
@@ -231,14 +234,22 @@ pub const SPLIT_WIDE_HUD: f32 = 1.25;
 /// screen; a full 21:9 screen is 2.37, but it is never a half) [design].
 pub const SPLIT_WIDE: f32 = 2.5;
 
+/// How much wider than the 4:3 view ([`NARROWEST_MENU_VIEW`]) the menus of a narrow
+/// split-screen half are laid out, in the original's units: room for split screen's entry
+/// in the pause menu's column (End Split Screen), which keeps the settings page's rail
+/// further left than in a game without it (`crate::pause` `rail_right`), so the settings
+/// list keeps at least the room it has in a 4:3 view [design].
+pub const SPLIT_COLUMN_ROOM: f32 = 96.0;
+
 /// The HUD's and the menus' scale factors in a split-screen half of `size` (any pixels),
 /// on top of the HUD scale and menu scale settings [design: plan `split-screen.md` §5]:
 /// - a wide half (top and bottom): the HUD [`SPLIT_WIDE_HUD`] times bigger; the menus as
 ///   they are (they already fill the half's height, the most they can);
-/// - a half narrower than [`NARROWEST_MENU_VIEW`] (side by side, 8:9 on a 16:9 screen):
-///   both shrink until the 4:3 view fits across it (2/3 at 8:9), so no menu runs off its
-///   sides and the HUD's corners keep apart;
-/// - otherwise 1.
+/// - a half narrower than that (side by side, 8:9 on a 16:9 screen): the HUD shrinks until
+///   the 4:3 view fits across it (2/3 at 8:9), so its corners keep apart; the menus until
+///   the 4:3 view and [`SPLIT_COLUMN_ROOM`] do (0.62 at 8:9), so no menu runs off its
+///   sides and the pause menu's settings page keeps its room;
+/// - neither grows past 1.
 pub fn split_ui_factors(size: Vec2) -> (f32, f32) {
     if !(size.x > 0.0 && size.y > 0.0) {
         return (1.0, 1.0);
@@ -247,20 +258,96 @@ pub fn split_ui_factors(size: Vec2) -> (f32, f32) {
     if aspect > SPLIT_WIDE {
         (SPLIT_WIDE_HUD, 1.0)
     } else {
-        let fit = (aspect / NARROWEST_MENU_VIEW).min(1.0);
-        (fit, fit)
+        let hud = (aspect / NARROWEST_MENU_VIEW).min(1.0);
+        let menu = (aspect * 960.0 / (NARROWEST_MENU_VIEW * 960.0 + SPLIT_COLUMN_ROOM)).min(1.0);
+        (hud, menu)
     }
 }
 
-/// Draw this run's HUD and menus `hud` and `menu` times their settings' scales (split
-/// screen, [`split_ui_factors`]): called once at the start, after [`fix_ui_scale`], so
-/// what is drawn keeps one size for the run as the settings' scales do. The HUD may go
-/// to 150% ([`UI_SCALE_RANGE`]), the menus to their original's size.
-pub fn fix_split_ui(hud: f32, menu: f32) {
-    let h = (ui_scale() * hud).clamp(0.25, UI_SCALE_RANGE.1);
+/// The HUD's and the menus' scales this run started with ([`fix_ui_scale`]): what split
+/// screen's factors multiply, and what ending split screen gives back exactly.
+static BASE_HUD: AtomicU32 = AtomicU32::new(0x3f80_0000);
+static BASE_MENU: AtomicU32 = AtomicU32::new(0x3f80_0000);
+/// The pause menu's page takes the whole view ([`spread_frame`]): a split-screen half
+/// narrower than 4:3, where the room a smaller scale leaves is the room the page needs.
+static MENU_FILLS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The HUD scale, the menu scale and whether the pause menu's page fills the view
+/// ([`MENU_FILLS`]) for split-screen `factors` ([`split_ui_factors`]; `None`: not split) on
+/// top of the run's own scales `base_hud` and `base_menu`. The HUD may go to 150%
+/// ([`UI_SCALE_RANGE`]); a smaller menu scale is taken down to the hundredth, so the 4:3
+/// view still fits across ([`crate::menu_scale`] keeps hundredths, and at least 50%).
+pub fn split_scales(base_hud: f32, base_menu: f32, factors: Option<(f32, f32)>) -> (f32, f32, bool) {
+    match factors {
+        None => (base_hud, base_menu, false),
+        Some((hud, menu)) => {
+            let h = (base_hud * hud).clamp(0.25, UI_SCALE_RANGE.1);
+            if menu < 1.0 {
+                (h, ((base_menu * menu * 100.0).floor() / 100.0).max(0.5), true)
+            } else {
+                (h, base_menu, false)
+            }
+        }
+    }
+}
+
+/// Which making of the HUD's pieces is wanted: one more each time the HUD's scale changes
+/// while the game runs (split screen starts, ends or changes its layout,
+/// [`set_split_ui`]). Each HUD system that spawns pieces with lengths at the HUD's scale
+/// keeps a [`HudRebuild`] and, when it is stale, drops its pieces and what it remembers
+/// of them, so they are made again at the new scale [design: the HUD's lengths are fixed
+/// when a piece is made, `u` in parts of the view].
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct HudBuild(pub u32);
+
+/// A HUD system's note of the [`HudBuild`] its pieces were made in.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct HudRebuild<'w, 's> {
+    wanted: Option<Res<'w, HudBuild>>,
+    built: Local<'s, u32>,
+}
+
+impl HudRebuild<'_, '_> {
+    /// True once after each new [`HudBuild`]: the system drops the pieces it made and its
+    /// notes of them this frame (and touches them no more), and makes them again from the
+    /// next.
+    pub fn stale(&mut self) -> bool {
+        let wanted = self.wanted.as_deref().map_or(0, |b| b.0);
+        if *self.built == wanted {
+            return false;
+        }
+        *self.built = wanted;
+        true
+    }
+}
+
+/// Draw the HUD and the menus for a split-screen half (`factors`, [`split_ui_factors`]),
+/// or with `None` at the run's own scales (split screen over, or never on), while the game
+/// runs. A new HUD scale makes the HUD's pieces again (`build`, [`HudBuild`]); a new menu
+/// scale takes effect when a menu is drawn next (the pause menu draws again at once, its
+/// view's width being part of what it draws). Returns whether anything changed.
+pub fn set_split_ui(factors: Option<(f32, f32)>, build: Option<&mut HudBuild>) -> bool {
+    let base = f32::from_bits(BASE_HUD.load(Ordering::Relaxed));
+    let base_menu = f32::from_bits(BASE_MENU.load(Ordering::Relaxed));
+    let (h, m, fills) = split_scales(base, base_menu, factors);
+    let hud_changed = h != ui_scale();
+    let changed = hud_changed || m != menu_scale() || fills != MENU_FILLS.load(Ordering::Relaxed);
+    if !changed {
+        return false;
+    }
     UI_SCALE.store(h.to_bits(), Ordering::Relaxed);
-    crate::menu_scale::publish(crate::menu_scale::drawing() * menu);
-    info!("interface: split screen: the HUD drawn at {:.0}%, the menus at {:.0}%", h * 100.0, menu_scale() * 100.0);
+    crate::menu_scale::publish(m);
+    MENU_FILLS.store(fills, Ordering::Relaxed);
+    if hud_changed {
+        if let Some(b) = build {
+            b.0 = b.0.wrapping_add(1);
+        }
+    }
+    match factors {
+        Some(_) => info!("interface: split screen: the HUD drawn at {:.0}%, the menus at {:.0}%{}", h * 100.0, menu_scale() * 100.0, if fills { ", the pause menu across the view" } else { "" }),
+        None => info!("interface: the HUD drawn at {:.0}%, the menus at {:.0}% again", h * 100.0, menu_scale() * 100.0),
+    }
+    true
 }
 
 std::thread_local! {
@@ -381,6 +468,9 @@ pub const MENU_SPREAD: f32 = 0.5;
 
 /// The share of the view a spread frame takes (module notes of [`MENU_SPREAD`]).
 fn spread_share() -> f32 {
+    if MENU_FILLS.load(Ordering::Relaxed) {
+        return 1.0;
+    }
     let s = unit_scale();
     (s * (1.0 + MENU_SPREAD * (1.0 - s))).min(1.0)
 }
@@ -1080,14 +1170,33 @@ pub(crate) mod tests {
         // Top and bottom on a 2560x1440 screen: the HUD 1.25 times, the menus as they are.
         assert_eq!(split_ui_factors(Vec2::new(2560.0, 720.0)), (SPLIT_WIDE_HUD, 1.0));
         assert_eq!(split_ui_factors(Vec2::new(1920.0, 540.0)), (SPLIT_WIDE_HUD, 1.0));
-        // Side by side: 8:9, the 4:3 view fits across at 2/3.
+        // Side by side: 8:9, the HUD's 4:3 view fits across at 2/3, the menus' 4:3 view
+        // and the column's room at 0.62.
         let (hud, menu) = split_ui_factors(Vec2::new(1280.0, 1440.0));
-        assert!((hud - 2.0 / 3.0).abs() < 1e-6 && hud == menu, "{hud} {menu}");
-        assert!((1280.0 / 1440.0 * 960.0 - NARROWEST_MENU_VIEW * 960.0 * menu).abs() < 1e-3, "the 4:3 view's width is the half's");
-        // A half as wide as 4:3 or a full 16:9 view: nothing changes.
+        assert!((hud - 2.0 / 3.0).abs() < 1e-6, "{hud}");
+        assert!((1280.0 / 1440.0 * 960.0 - NARROWEST_MENU_VIEW * 960.0 * hud).abs() < 1e-3, "the 4:3 view's width is the half's");
+        assert!((1280.0 / 1440.0 * 960.0 - (NARROWEST_MENU_VIEW * 960.0 + SPLIT_COLUMN_ROOM) * menu).abs() < 1e-3, "{menu}");
+        // With the menu scale kept to the hundredth below, the half holds the page's room.
+        let (_, m, fills) = split_scales(1.0, 1.0, Some((hud, menu)));
+        assert!(fills && 1280.0 / 1440.0 * 960.0 / m >= NARROWEST_MENU_VIEW * 960.0 + SPLIT_COLUMN_ROOM, "{m}");
+        // A full 16:9 view: nothing changes; a 4:3 half keeps its HUD.
         assert_eq!(split_ui_factors(Vec2::new(1920.0, 1080.0)), (1.0, 1.0));
-        assert_eq!(split_ui_factors(Vec2::new(1280.0, 960.0)), (1.0, 1.0));
+        assert_eq!(split_ui_factors(Vec2::new(1280.0, 960.0)).0, 1.0);
         assert_eq!(split_ui_factors(Vec2::ZERO), (1.0, 1.0));
+    }
+
+    /// Split screen's scales on top of the run's own: ending it gives back exactly the
+    /// run's own; the HUD stays within its range; the menus never grow past their own.
+    #[test]
+    fn split_scales_multiply_the_runs_own_and_give_them_back() {
+        for (hud, menu) in [(1.0, 1.0), (0.5, 0.5), (0.8, 0.7)] {
+            assert_eq!(split_scales(hud, menu, None), (hud, menu, false), "split over: the run's own");
+            let (h, m, fills) = split_scales(hud, menu, Some((SPLIT_WIDE_HUD, 1.0)));
+            assert!((h - (hud * SPLIT_WIDE_HUD).min(UI_SCALE_RANGE.1)).abs() < 1e-6 && m == menu && !fills, "top and bottom {hud} {menu}");
+            let (h, m, fills) = split_scales(hud, menu, Some(split_ui_factors(Vec2::new(1280.0, 1440.0))));
+            assert!(h < hud && m <= menu && m >= 0.5 && fills, "side by side {hud} {menu}: {h} {m}");
+        }
+        assert_eq!(split_scales(1.4, 1.0, Some((SPLIT_WIDE_HUD, 1.0))).0, UI_SCALE_RANGE.1);
     }
 
     pub(crate) fn authored_rgba_dds(width: u32, height: u32) -> Vec<u8> {

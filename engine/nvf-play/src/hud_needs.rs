@@ -280,9 +280,18 @@ fn draw(
     mut root: Query<&mut Visibility, (With<WordsRoot>, Without<Word>)>,
     mut word_nodes: Query<(&Word, &mut Visibility), Without<WordsRoot>>,
     mut letters: Query<(&Letter, Option<&mut ImageNode>, Option<&mut TextColor>)>,
+    (roots, mut rebuild): (Query<Entity, With<WordsRoot>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): the words are set out again at it.
+    if rebuild.stale() {
+        for e in &roots {
+            commands.entity(e).try_despawn();
+        }
+        *spawned = false;
+        return;
+    }
     if !*spawned {
         // The first frame the HUD is wanted: set the words out.
         if !view.shown {

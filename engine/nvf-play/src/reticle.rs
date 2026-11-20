@@ -655,7 +655,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    (texts, pipboy, glance, menu, modded, no_prompt, campfires, arm, arm_seat): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>, Option<Res<crate::armwrestle::ArmScreen>>, Option<Res<crate::armwrestle_coop::ArmSeat>>),
+    (texts, pipboy, glance, menu, modded, no_prompt, campfires, arm, arm_seat, (roots, mut rebuild)): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>, Option<Res<crate::armwrestle::ArmScreen>>, Option<Res<crate::armwrestle_coop::ArmSeat>>, (Query<Entity, With<Root>>, crate::interface::HudRebuild)),
 ) {
     // Record only what this drawing pass shows, including early hidden returns
     // [design: #2528, test_aid/activation_sweep.rs].
@@ -664,6 +664,16 @@ fn draw(
     }
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): the crosshair and the prompt are made again
+    // at it.
+    if rebuild.stale() {
+        for e in &roots {
+            commands.entity(e).try_despawn();
+        }
+        *kit = None;
+        *shown = None;
+        return;
+    }
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
     // (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then [owner

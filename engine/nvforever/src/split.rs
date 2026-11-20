@@ -52,7 +52,7 @@ use bevy::window::{MonitorSelection, Monitor, PrimaryMonitor, PrimaryWindow, Raw
 use nvf_play::split_screen::{SplitAtStart, SplitLayout, SplitScreen};
 
 // The field of view of a half (view.rs).
-mod view;
+pub(crate) mod view;
 
 /// How the screen is split [owner: a setting, top and bottom by default].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -238,10 +238,10 @@ impl Plugin for SplitPlugin {
             // Its HUD and menus are drawn for its half (player 1's file says which).
             app.insert_resource(at_start(&dir, true));
             let socket = UdpSocket::bind("127.0.0.1:0").and_then(|s| s.set_nonblocking(true).map(|_| s)).map_err(|e| warn!("split: no controller relay: {e}")).ok();
-            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(nvf_play::split_screen::PlayerTwo).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false, restacked: false })
+            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(nvf_play::split_screen::PlayerTwo).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, half: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false, restacked: false })
                 .add_systems(PreUpdate, p2_receive.before(gamepad_connection_system))
                 .add_systems(PreUpdate, p2_strip_real_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
-                .add_systems(Update, (p2_session, p2_keep_character, p2_open_join, p2_back_ends));
+                .add_systems(Update, (p2_session, p2_keep_character, p2_open_join, p2_back_ends, split_ui.after(p2_session)));
         } else {
             // Player 1's game, or one that may become it (the menus' entries).
             nvf_play::split_screen::register_layout(app, "Display");
@@ -252,8 +252,33 @@ impl Plugin for SplitPlugin {
             }
             app.insert_resource(SplitScreen { available: true, ask: self.0.start.then_some(true), ..default() })
                 .add_systems(PreUpdate, p1_route_pads.run_if(resource_exists::<P1>).after(gamepad_connection_system).before(gamepad_event_processing_system))
-                .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), close_lobby_after).chain());
+                .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), close_lobby_after, split_ui).chain());
         }
+    }
+}
+
+/// The HUD and the menus drawn for this game's half while split screen is on, and at the
+/// run's own scales once it is over, as soon as either changes
+/// (`nvf_play::interface::set_split_ui`): split screen started from the pause menu, its
+/// layout changed on the settings page (both games: player 2's follows player 1's file),
+/// split screen ended (player 1's game; player 2's closes). The HUD's pieces are made
+/// again at the new scale (`nvf_play::interface::HudBuild`). A game that starts in split
+/// screen has its half's from the start (`SplitAtStart`), kept until its window is on it.
+fn split_ui(p1: Option<Res<P1>>, p2: Option<Res<P2>>, split: Option<Res<SplitScreen>>, mut build: Option<ResMut<nvf_play::interface::HudBuild>>) {
+    let asked = split.as_deref().is_some_and(|s| s.ask == Some(true));
+    let Some(half) = wanted_half(p1.as_deref().map(|p| p.half), p2.as_deref().map(|p| p.half), asked) else { return };
+    nvf_play::interface::set_split_ui(half.map(|h| nvf_play::interface::split_ui_factors(h.as_vec2())), build.as_deref_mut());
+}
+
+/// The half this game's interface is to be drawn for: `Some(Some(size))` on a half,
+/// `Some(None)` not split, `None` not known yet (no change): player 2's game (`p2`, its
+/// half from player 1's file) and player 1's (`p1`, the half its window is put on) once
+/// they know theirs; a game where split screen is neither on nor `asked` for, none.
+fn wanted_half(p1: Option<Option<UVec2>>, p2: Option<Option<UVec2>>, asked: bool) -> Option<Option<UVec2>> {
+    match (p2, p1) {
+        (Some(half), _) | (None, Some(half)) => half.map(Some),
+        (None, None) if asked => None,
+        (None, None) => Some(None),
     }
 }
 
@@ -301,6 +326,9 @@ struct P1 {
     p2_at: Option<SocketAddr>,
     file_at: f32,
     placed: Option<(IVec2, UVec2)>,
+    /// The size of this game's half once it is on it (its HUD and menus are drawn for it,
+    /// [`split_ui`]).
+    half: Option<UVec2>,
     pads: PadRoute,
     /// The host save this session belongs to (its file's stem): the one loaded, then
     /// each one written.
@@ -394,6 +422,7 @@ fn split_asks(
                     p2_at: None,
                     file_at: f32::NEG_INFINITY,
                     placed: None,
+                    half: None,
                     pads: PadRoute::default(),
                     save: last_save.clone(),
                     full_noted: false,
@@ -569,6 +598,7 @@ fn p1_session(
             if p1.before.is_none() {
                 p1.before = Some(WindowBefore::of(&window, mine));
             }
+            p1.half = Some(mine.1);
             if place(&mut window, mine) && p1.placed != Some(mine) {
                 p1.placed = Some(mine);
                 info!("split: player 1's window on {:?} at {}x{}", mine.0, mine.1.x, mine.1.y);
@@ -639,6 +669,7 @@ fn p1_session(
     let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
     // Re-applied each frame (`place`).
     let mine = halves(screen.0, screen.1, p1.layout)[0];
+    p1.half = Some(mine.1);
     if place(&mut window, mine) && p1.placed != Some(mine) {
         p1.placed = Some(mine);
         info!("split: player 1's window on {:?} at {}x{}", mine.0, mine.1.x, mine.1.y);
@@ -932,6 +963,8 @@ struct P2 {
     last: PadState,
     owner: Option<isize>,
     placed: Option<(IVec2, UVec2)>,
+    /// The size of this game's half, from player 1's file ([`split_ui`]).
+    half: Option<UVec2>,
     /// When player 1's game was last seen running (seconds).
     p1_seen: f32,
     file_at: f32,
@@ -1032,6 +1065,7 @@ fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Wind
         let n: Vec<i64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
         if let [x, y, w, h] = n[..] {
             let half = halves(IVec2::new(x as i32, y as i32), UVec2::new(w.max(2) as u32, h.max(2) as u32), layout)[1];
+            p2.half = Some(half.1);
             if place(&mut window, half) && p2.placed != Some(half) {
                 p2.placed = Some(half);
                 info!("split: player 2's window on {:?} at {}x{}", half.0, half.1.x, half.1.y);
@@ -1233,6 +1267,21 @@ mod tests {
         let mut b = line(&["--play", "--split"]);
         split_arg(&mut b, 0);
         assert_eq!(b, line(&["--play", "--split"]));
+    }
+
+    #[test]
+    fn the_interface_follows_the_half_while_split_and_comes_back_after() {
+        let half = UVec2::new(2560, 720);
+        // Player 2's game: its half once player 1's file says it; not before.
+        assert_eq!(wanted_half(None, Some(Some(half)), false), Some(Some(half)));
+        assert_eq!(wanted_half(None, Some(None), false), None);
+        // Player 1's: its half once its window is put on it (Add Player 2, a layout change).
+        assert_eq!(wanted_half(Some(Some(UVec2::new(1280, 1440))), None, false), Some(Some(UVec2::new(1280, 1440))));
+        assert_eq!(wanted_half(Some(None), None, false), None, "split on, not in the world yet: as it is");
+        // Asked for, not on yet (a game started with --split): as it is.
+        assert_eq!(wanted_half(None, None, true), None);
+        // Split screen over (or never on): the run's own scales.
+        assert_eq!(wanted_half(None, None, false), Some(None));
     }
 
     #[test]

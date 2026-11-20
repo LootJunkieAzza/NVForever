@@ -365,9 +365,19 @@ fn draw(
     mut root: Query<&mut Visibility, With<MeterRoot>>,
     texts: Query<Entity, With<Texts>>,
     mut pointer: Query<&mut Node, With<Pointer>>,
+    (roots, mut rebuild): (Query<Entity, With<MeterRoot>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): the meter is made again at it.
+    if rebuild.stale() {
+        for e in &roots {
+            commands.entity(e).try_despawn();
+        }
+        *kit = None;
+        *shown = None;
+        return;
+    }
     // Shown while rads are taken; the number is the level after Rad Resistance, as
     // GetRadiationLevel's (`Exposure::resisted`, untouched by fRadiationAccumulationRate).
     let (rate, resisted) = script.as_deref().and_then(|s| s.rt.as_ref()).map_or((0.0, 0.0), |rt| (rt.game.radiation().rate, rt.game.radiation().resisted));

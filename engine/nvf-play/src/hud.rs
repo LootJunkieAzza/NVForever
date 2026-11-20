@@ -699,6 +699,7 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudView>()
+            .init_resource::<crate::interface::HudBuild>()
             .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin, crate::hud_needs::HudNeedsPlugin, crate::hud_breath::HudBreathPlugin, crate::grenade_indicator::GrenadeIndicatorPlugin, crate::heartbeat::HeartbeatPlugin, crate::marker_added::MarkerAddedPlugin))
             .init_resource::<HudHidden>()
             .add_systems(Update, (gather, draw, pips, texts, enemy_colours, place_name, armor_row).chain().in_set(HudSet).in_set(PlaySet::Ui))
@@ -754,6 +755,10 @@ fn picture_node(picture: &Picture, color: Color) -> ImageNode {
 #[derive(Component)]
 pub(crate) struct HudRoot;
 
+/// The enemy's health piece's own root, beside [`HudRoot`] (made again with it, `draw`).
+#[derive(Component)]
+struct EnemyRoot;
+
 /// The health and compass piece, bottom left.
 #[derive(Component)]
 struct HpPiece;
@@ -804,9 +809,14 @@ fn place_name(
     (data, mut images, formats): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>),
     mut face_: Local<Option<Face>>,
     (mut shown, mut region): (Local<(Option<String>, Option<String>)>, Local<(Option<fnv_sim::FormId>, Option<String>)>),
-    text: Query<Entity, With<PlaceNameText>>,
+    (text, mut rebuild): (Query<Entity, With<PlaceNameText>>, crate::interface::HudRebuild),
 ) {
     let _hud = crate::interface::hud_units();
+    // The HUD made again (`draw`): its new line is written from the next frame.
+    if rebuild.stale() {
+        *shown = Default::default();
+        return;
+    }
     let Ok(e) = text.single() else { return };
     let words = (|| {
         let t = tweaks.as_deref().filter(|t| t.hud_marker_name && view.shown)?;
@@ -948,6 +958,8 @@ fn armor_row(
     mut row: Query<(&mut Visibility, &mut Node), (With<ArmorRow>, Without<ArmorBar>)>,
     mut bar: Query<(&mut Node, &mut BackgroundColor), (With<ArmorBar>, Without<ArmorRow>)>,
 ) {
+    // The HUD's lengths at the UI scale (`crate::interface::hud_units`), as the row was made.
+    let _hud = crate::interface::hud_units();
     let Some(t) = tweaks.as_deref() else { return };
     let look = view.armor.map(|c| (c, armor_look(c, t.armor_visible_below, t.armor_red_below, t.armor_flash_below, time.elapsed_secs().fract() < 0.5)));
     let drop = if view.weapon.condition.is_none() && t.armor_in_weapon_place { 0.0 } else { ARMOR_DROP };
@@ -1133,7 +1145,7 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
         root.spawn((SneakText, piece, DrawnByTiles));
     });
     // [design, #2659] Independent of the corner root hidden during playback.
-    commands.spawn((screen, Pickable::IGNORE)).with_children(|root| {
+    commands.spawn((EnemyRoot, screen, Pickable::IGNORE)).with_children(|root| {
         // The enemy's health, bottom middle: its long line level with the corner pieces'
         // (§8).
         let red = crime_colour();
@@ -1196,16 +1208,24 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut art: Local<Option<Art>>,
-    mut root: Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>, Without<EnemyPiece>)>,
+    (mut root, all_roots): (Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>, Without<EnemyPiece>)>, Query<Entity, Or<(With<HudRoot>, With<EnemyRoot>)>>),
     mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
     mut enemy: Query<(&mut Visibility, &mut Node), (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>, Without<ConditionBar>, Without<Strip>)>,
     mut bar: Query<(&mut Node, &mut BackgroundColor), (With<ConditionBar>, Without<Strip>, Without<EnemyPiece>)>,
     mut strip: Query<(&mut Strip, &mut Node), (Without<ConditionBar>, Without<EnemyPiece>)>,
     (tweaks, time, vats): (Option<Res<crate::tweaks::TweakSettings>>, Res<Time<Real>>, Option<Res<crate::vats_mode::VatsMode>>),
-    mut classic_bar: Local<Option<bool>>,
+    (mut classic_bar, mut rebuild): (Local<Option<bool>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): made again at the new one from the next frame.
+    if rebuild.stale() {
+        for e in &all_roots {
+            commands.entity(e).try_despawn();
+        }
+        *art = None;
+        return;
+    }
     if art.is_none() {
         // The first frame the HUD is wanted: read the game's pictures and set it up.
         if view.shown {
@@ -1280,8 +1300,13 @@ fn pips(
     real: Res<Time<Real>>,
     mut set_for: Local<Option<(f32, f32)>>,
     mut tick: Local<Option<Option<Handle<Image>>>>,
-    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (tweaks, mut rebuild): (Option<Res<crate::tweaks::TweakSettings>>, crate::interface::HudRebuild),
 ) {
+    // The HUD made again (`draw`): its new rows get their ticks.
+    if rebuild.stale() {
+        *set_for = None;
+        return;
+    }
     if !view.shown && !view.enemy_shown {
         return;
     }
@@ -1415,10 +1440,15 @@ fn texts(
     name: Query<Entity, With<EnemyName>>,
     stats: Query<Entity, With<EnemyStats>>,
     sneak: Query<Entity, With<SneakText>>,
-    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (tweaks, mut rebuild): (Option<Res<crate::tweaks::TweakSettings>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD made again (`draw`): its new texts are written from the next frame.
+    if rebuild.stale() {
+        *shown = Default::default();
+        return;
+    }
     if (!view.shown && !view.enemy_shown) || ammo.is_empty() {
         return;
     }

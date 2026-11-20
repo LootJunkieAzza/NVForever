@@ -34,6 +34,41 @@ pub fn split_vertical_fov(vfov: f32, aspect: f32) -> f32 {
     2.0 * ((vfov / 2.0).tan() * WIDEST_HOR_PLUS / aspect).atan()
 }
 
+/// The aspect (width over height) of the half the player's camera last drew while split,
+/// `None` when not split ([`put_on`]): what the first-person arms are sized for
+/// ([`HalfAspect::arms_vfov`]).
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
+pub struct HalfAspect(pub Option<f32>);
+
+impl HalfAspect {
+    /// The vertical field of view the first-person arms, weapon and Pip-Boy are sized for
+    /// (nvforever `player_body`, `arms_magnification`) when the game's own is `vfov`:
+    /// - a wide split-screen half's, the one its camera is drawn with
+    ///   ([`split_vertical_fov`]): they keep the share of its height they have in a 16:9
+    ///   view, not twice it with their lower half (the Pip-Boy's top) cut off by the
+    ///   half's edges [design: plan §2, the half shows the 16:9 view's middle band;
+    ///   observed: the quest log check, 2026-11-20, the Pip-Boy's first quest row above a
+    ///   2560x720 half];
+    /// - a half narrower than 4:3 (side by side): narrowed by its share of a 4:3 view's
+    ///   width, so they fit across it as across the 4:3 picture their fields of view are
+    ///   counted for (`player_body` `PIPBOY_FOV`) [design: as the HUD and menus fit the 4:3
+    ///   view across the half, `nvf_play::interface::split_ui_factors`];
+    /// - else `vfov`.
+    pub fn arms_vfov(&self, vfov: f32) -> f32 {
+        let Some(aspect) = self.0.filter(|a| a.is_finite() && *a > 0.0) else { return vfov };
+        let v = split_vertical_fov(vfov, aspect);
+        if aspect < NARROWEST_ARMS_VIEW {
+            2.0 * ((v / 2.0).tan() * aspect / NARROWEST_ARMS_VIEW).atan()
+        } else {
+            v
+        }
+    }
+}
+
+/// The narrowest view the first-person arms are drawn whole in: the 4:3 picture their
+/// fields of view are counted across ([`HalfAspect::arms_vfov`]).
+pub const NARROWEST_ARMS_VIEW: f32 = 4.0 / 3.0;
+
 /// On the player's camera while the half's field of view is on it: the game's own (`base`)
 /// and the one put on for drawing (`drawn`).
 #[derive(Component, Debug, Clone, Copy)]
@@ -46,7 +81,7 @@ pub struct SplitViewPlugin;
 
 impl Plugin for SplitViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(First, give_back).add_systems(PostUpdate, put_on.before(CameraUpdateSystems));
+        app.init_resource::<HalfAspect>().add_systems(First, give_back).add_systems(PostUpdate, put_on.before(CameraUpdateSystems));
     }
 }
 
@@ -77,9 +112,11 @@ fn put_on(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut cams: Query<(Entity, &mut Projection), With<nvf_play::PlayerCamera>>,
     mut logged: Local<Option<(u32, u32)>>,
+    mut half: ResMut<HalfAspect>,
 ) {
     if !split_on(p1.as_deref(), p2.is_some()) {
         *logged = None;
+        half.set_if_neq(HalfAspect(None));
         return;
     }
     let Ok(w) = windows.single() else { return };
@@ -88,6 +125,7 @@ fn put_on(
         return;
     }
     let aspect = width as f32 / height as f32;
+    half.set_if_neq(HalfAspect(Some(aspect)));
     for (e, mut p) in &mut cams {
         let Projection::Perspective(p) = &mut *p else { continue };
         let base = p.fov;
@@ -150,6 +188,8 @@ mod tests {
         app.update();
         let drawn = split_vertical_fov(v, 2560.0 / 720.0);
         assert_eq!(fov(&app), drawn);
+        // The arms are sized for the half's view.
+        assert_eq!(app.world().resource::<HalfAspect>().arms_vfov(v), drawn);
         app.update();
         assert_eq!(fov(&app), drawn, "the same each frame, not compounded");
         // The setting changes between frames: the new base.
@@ -165,5 +205,20 @@ mod tests {
         app.world_mut().remove_resource::<nvf_play::split_screen::PlayerTwo>();
         app.update();
         assert_eq!(fov(&app), zoomed);
+        assert_eq!(*app.world().resource::<HalfAspect>(), HalfAspect(None));
+        assert_eq!(app.world().resource::<HalfAspect>().arms_vfov(zoomed), zoomed);
+    }
+
+    /// The arms in a side-by-side half: as wide a share of it as of a 4:3 view, so the
+    /// Pip-Boy fits across; at 4:3 and wider halves (16:9) as the view's own.
+    #[test]
+    fn the_arms_fit_a_narrow_half_as_a_4_3_view() {
+        let v = vertical_fov(75.0);
+        let narrow = HalfAspect(Some(8.0 / 9.0)).arms_vfov(v);
+        assert!(((narrow / 2.0).tan() - (v / 2.0).tan() * (8.0 / 9.0) / (4.0 / 3.0)).abs() < 1e-6);
+        assert_eq!(HalfAspect(Some(4.0 / 3.0)).arms_vfov(v), v);
+        assert_eq!(HalfAspect(Some(16.0 / 9.0)).arms_vfov(v), v);
+        assert_eq!(HalfAspect(None).arms_vfov(v), v);
+        assert_eq!(HalfAspect(Some(32.0 / 9.0)).arms_vfov(v), split_vertical_fov(v, 32.0 / 9.0));
     }
 }
