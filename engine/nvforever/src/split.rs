@@ -9,7 +9,15 @@
 //!   turns split screen on in the running game; the main menu's Split Screen entry loads a
 //!   save with it on; `--split` starts with it on. Once in the world, this game hosts (if it
 //!   isn't already), moves its window to the top half (the left half side by side), and
-//!   starts player 2's game on the other half. A load restarts this game
+//!   starts player 2's game on the other half.
+//! - **Online too** (plan §10.1). A lobby this game opens for player 2 is for this PC only
+//!   (`crate::coop::HOST_LOCAL_ENV`: 127.0.0.1, no router port, no firewall prompt); Create
+//!   Lobby opens it to online players later, player 2 staying in. A game already hosting
+//!   online keeps its lobby, and player 2 joins it over 127.0.0.1. A game that is a guest in
+//!   another player's lobby passes player 2's game through to that host
+//!   (`crate::coop::Coop::open_relay`): player 2 is a guest of that host's own, with its
+//!   own id and stand-in, one of its 6 players, and its XP catch-up follows that host's
+//!   level. When this game leaves that lobby, player 2 leaves too: split screen ends. A load restarts this game
 //!   (`crate::handoff`), and the new run's command line has `--split` while split screen is
 //!   on ([`with_split_arg`]); it finds player 2's game still running and takes it over
 //!   rather than starting another.
@@ -109,6 +117,8 @@ pub fn halves(pos: IVec2, size: UVec2, layout: Layout) -> [(IVec2, UVec2); 2] {
 /// Set in player 2's game (and kept by its restarts, `crate::handoff`): its window never
 /// takes the focus.
 pub const P2_ENV: &str = "NVF_SPLIT_P2";
+/// Player 2's name in the lobby (its game's `crate::coop::NAME_ENV`).
+pub const P2_NAME: &str = "Player 2";
 
 /// Player 2's game quits when player 1's has been gone this long: longer than a load's
 /// restart takes to hand over (`crate::handoff`) [design].
@@ -313,6 +323,9 @@ struct P1 {
     p2_seen: f32,
     /// This game's window before split screen took half the screen.
     before: Option<WindowBefore>,
+    /// This game is a guest in another player's lobby: player 2's game joins that host
+    /// through this one (plan §10.1).
+    relay: bool,
 }
 
 /// A window as it was, to give it back.
@@ -360,7 +373,6 @@ fn split_asks(
     time: Res<Time>,
     mut split: ResMut<SplitScreen>,
     p1: Option<Res<P1>>,
-    coop: Option<Res<crate::coop::Coop>>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut connections: MessageWriter<GamepadConnectionEvent>,
     mut saved: MessageReader<nvf_play::save::SaveDone>,
@@ -371,15 +383,13 @@ fn split_asks(
     for d in saved.read().filter(|d| d.result.is_ok()) {
         *last_save = d.path.file_stem().map(|s| s.to_string_lossy().into_owned());
     }
-    let guest = coop.as_deref().is_some_and(|c| c.is_guest());
-    if split.available == guest {
-        split.available = !guest;
+    // A guest can play split screen too: player 2 joins its host through it (plan §10.1).
+    if !split.available {
+        split.available = true;
     }
     match split.ask.take() {
         Some(true) if p1.is_none() => {
-            if guest {
-                warn!("split: this game is a guest in another player's lobby: split screen not started");
-            } else if let Some(home) = fnv_install::EngineHome::default_root() {
+            if let Some(home) = fnv_install::EngineHome::default_root() {
                 let socket = UdpSocket::bind("127.0.0.1:0").map_err(|e| warn!("split: no controller relay: {e}")).ok();
                 // Player 2's game plays only its own interface sounds, so this game hears
                 // the world at player 2's stand-in too (coop.rs `second_listener` fills it).
@@ -400,6 +410,7 @@ fn split_asks(
                     asked_save: false,
                     p2_seen: 0.0,
                     before: None,
+                    relay: false,
                 });
                 split.on = true;
                 info!("split: split screen on");
@@ -577,8 +588,14 @@ fn p1_session(
     }
     match p1.state {
         P1State::Waiting if in_world => {
-            if hosting_port().is_none() {
-                info!("split: opening a lobby for player 2");
+            if coop.as_deref().is_some_and(|c| c.is_guest()) {
+                info!("split: this game is a guest in another player's lobby: player 2 joins that host through this game");
+                p1.relay = true;
+            } else if hosting_port().is_none() {
+                // For this PC only: no router port (UPnP), no firewall prompt. Create Lobby
+                // opens it to online players later (`crate::coop`).
+                info!("split: opening a lobby for player 2 (this PC only)");
+                std::env::set_var(crate::coop::HOST_LOCAL_ENV, "1");
                 lobby.write(nvf_play::lobby::LobbyRequest::Create);
                 std::env::set_var(OPENED_LOBBY_ENV, "1");
             }
@@ -596,14 +613,15 @@ fn p1_session(
                 }
                 return;
             }
-            if let Some(port) = hosting_port() {
+            let port = if p1.relay { coop.as_deref().and_then(|c| c.open_relay()) } else { hosting_port() };
+            if let Some(port) = port {
                 let (Ok((_, handle)), Ok(monitor)) = (windows.single(), monitors.single()) else { return };
                 let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
                 let p2_half = halves(screen.0, screen.1, p1.layout)[1];
                 write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref());
                 if let Some(pid) = read_kv(&p1.dir.join("p2.txt"), "pid").and_then(|v| v.parse::<u32>().ok()).filter(|p| process_alive(*p)) {
                     info!("split: player 2's game is already running (pid {pid}): taking it over");
-                } else if coop.as_deref().is_some_and(|c| c.guest_count() >= nvf_coop::net::MAX_GUESTS) {
+                } else if !p1.relay && coop.as_deref().is_some_and(|c| c.guest_count() >= nvf_coop::net::MAX_GUESTS) {
                     // Player 2 is one of the lobby's 6 players (the host and MAX_GUESTS
                     // guests): wait for a free place rather than be refused.
                     if !p1.full_noted {
@@ -632,6 +650,15 @@ fn p1_session(
         _ => {}
     }
     if p1.state != P1State::Running {
+        return;
+    }
+    // This game left the lobby it was a guest in (or the host ended it): player 2's link
+    // went through it, so player 2 leaves too (plan §10.1). A load's restart lets go of the
+    // link too, but keeps the host to join again (`JOIN_ENV`).
+    let left = !coop.as_deref().is_some_and(|c| c.is_guest()) && std::env::var_os(crate::coop::JOIN_ENV).is_none();
+    if p1.relay && left && split.ask.is_none() {
+        info!("split: this game left the lobby player 2 joined through it: player 2 leaves too");
+        split.ask = Some(false);
         return;
     }
     let Ok((mut window, handle)) = windows.single_mut() else { return };
@@ -758,11 +785,13 @@ fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option
         .args(&args)
         .env(fnv_install::HOME_ENV, &home)
         .env(crate::coop::JOIN_ENV, format!("127.0.0.1:{port}"))
-        .env(crate::coop::NAME_ENV, "Player 2")
+        .env(crate::coop::NAME_ENV, P2_NAME)
         .env(P2_ENV, "1")
         .env_remove("NVF_SPLIT_P1")
         .env(nvf_play::coop_progress::SYNC_ENV, "1")
         .env_remove(crate::coop::HOST_ENV)
+        .env_remove(crate::coop::HOST_LOCAL_ENV)
+        .env_remove(crate::coop::RELAY_ENV)
         .env_remove(crate::coop::CODE_ENV)
         .env_remove(crate::coop::TOKEN_ENV)
         .spawn()
