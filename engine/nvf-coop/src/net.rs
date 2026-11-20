@@ -71,8 +71,10 @@ pub const MAGIC: [u8; 4] = *b"NVCO";
 /// 100 above the normal co-op build's, so the two never join each other. 130 (0.7.1, one bump
 /// for both): `Effect::Sync` (effect code 8, the syncing screen) and the change log's
 /// `repl::Value::Pose` (comp 9, a dead actor's resting ragdoll pose), which 129 cannot read.
-pub const VERSION: u8 = 131;
-pub const MAX_GUESTS: usize = 3;
+/// 132 (ship24.2): the lobby takes 6 players (`MAX_GUESTS` 5), so a 131 game (4 players) and
+/// a 132 game never join each other.
+pub const VERSION: u8 = 132;
+pub const MAX_GUESTS: usize = 5;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
 pub const LOST_AFTER: Duration = Duration::from_secs(4);

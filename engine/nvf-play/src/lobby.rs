@@ -800,6 +800,30 @@ mod tests {
     }
 
     #[test]
+    fn a_full_lobby_of_six_lists_every_player_and_fits_the_screen() {
+        // The lobby takes the host and `nvf_coop::net::MAX_GUESTS` (5) guests.
+        let screen = opened(Mode::Host);
+        let names = ["Veronica (host, you)", "Cass", "Boone", "Arcade", "Lily", "Raul"];
+        let state = LobbyState { hosting: Hosting::Open { code: "ABCD-EFGH".into(), note: None }, players: names.iter().map(|n| n.to_string()).collect(), ..default() };
+        let p = pieces(&screen, &state);
+        for n in names {
+            assert!(p.contains(&Piece::Line(format!("  {n}"), Shade::Bright)), "{n} listed");
+        }
+        // The panel's height as `draw` measures it, a long line taken as three lines of
+        // small print (the font is not loaded here): it stays inside the 960-unit screen
+        // (at 540 px too, since interface units scale with the view's height).
+        let height = |p: &Piece| match p {
+            Piece::Title(_) => ITEM + 8.0,
+            Piece::Line(t, _) => if t.len() > 50 { 3.0 } else { 1.0 } * STEP + 6.0,
+            Piece::Big(_) => ITEM + 16.0,
+            Piece::Field(_) | Piece::Button(..) => ITEM + 6.0,
+            Piece::Row(..) => ITEM,
+        };
+        let total: f32 = p.iter().map(height).sum::<f32>() + 2.0 * PAD;
+        assert!(TOP + total <= 960.0, "the six-player lobby reaches {}", TOP + total);
+    }
+
+    #[test]
     fn the_emotes_menu_chooses_a_slot_then_its_emote() {
         use crate::emotes::{by_key, EmoteSlots, CATALOG};
         let mut screen = opened(Mode::Host);

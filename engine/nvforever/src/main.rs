@@ -624,7 +624,7 @@ struct Args {
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
     play: bool,
-    /// Co-op prototype (private fork, coop.rs): host a game for up to three guests on
+    /// Co-op prototype (private fork, coop.rs): host a game for up to five guests on
     /// this UDP port.
     #[arg(long, requires = "play", conflicts_with = "join")]
     host: Option<u16>,

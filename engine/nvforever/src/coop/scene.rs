@@ -397,12 +397,25 @@ fn in_body(a: [f32; 3], b: [f32; 3]) -> bool {
     dx * dx + dy * dy < IN_BODY * IN_BODY && dz.abs() < IN_BODY_UP
 }
 
+/// Where guest `slot` (its player id, 1..=`MAX_GUESTS`) is put beside the host: a 3 x 2
+/// grid one [`BESIDE`] apart round the host's feet, so with 5 guests (the 6-player lobby)
+/// nobody stands more than one step and a diagonal (about 102 units) away. A row of 5 out
+/// to one side reached 216 units, through the walls of a tight interior (Doc Mitchell's
+/// house, the Lucky 38 elevator) [design]. Slots 1-2 are right and left, as before;
+/// 3-4 behind those, 5 straight behind.
 pub(crate) fn beside_slot(feet: [f32; 3], yaw: f32, slot: u8) -> [f32; 3] {
-    let slot = slot.max(1);
-    let side = if slot.is_multiple_of(2) { -1.0 } else { 1.0 };
-    let reach = BESIDE * f32::from(slot.div_ceil(2));
+    let (side, back) = match slot.max(1) {
+        1 => (1.0, 0.0),
+        2 => (-1.0, 0.0),
+        3 => (1.0, 1.0),
+        4 => (-1.0, 1.0),
+        5 => (0.0, 1.0),
+        // Not reached with `MAX_GUESTS` 5: further rows behind.
+        n => (if n.is_multiple_of(2) { -1.0 } else { 1.0 }, f32::from(n.div_ceil(3))),
+    };
     let right = yaw + std::f32::consts::FRAC_PI_2;
-    [feet[0] + right.sin() * reach * side, feet[1] + right.cos() * reach * side, feet[2]]
+    let (r, b) = (BESIDE * side, BESIDE * back);
+    [feet[0] + right.sin() * r - yaw.sin() * b, feet[1] + right.cos() * r - yaw.cos() * b, feet[2]]
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -847,12 +860,20 @@ mod tests {
 
     #[test]
     fn each_guest_has_its_own_place_beside_the_host() {
-        let spots: Vec<[f32; 3]> = (1..=4).map(|k| beside_slot([0.0, 0.0, 0.0], 0.0, k)).collect();
+        // Six players: the host and five guests (`MAX_GUESTS`).
+        let spots: Vec<[f32; 3]> = (1..=nvf_coop::net::MAX_GUESTS as u8).map(|k| beside_slot([0.0, 0.0, 0.0], 0.0, k)).collect();
+        assert_eq!(spots.len(), 5);
         assert!((spots[0][0] - BESIDE).abs() < 1e-3);
         assert!((spots[1][0] + BESIDE).abs() < 1e-3);
-        assert!((spots[2][0] - 2.0 * BESIDE).abs() < 1e-3);
-        assert!((spots[3][0] + 2.0 * BESIDE).abs() < 1e-3);
+        // Facing north, behind is south (-Y).
+        assert!((spots[2][0] - BESIDE).abs() < 1e-3 && (spots[2][1] + BESIDE).abs() < 1e-3);
+        assert!((spots[3][0] + BESIDE).abs() < 1e-3 && (spots[3][1] + BESIDE).abs() < 1e-3);
+        assert!(spots[4][0].abs() < 1e-3 && (spots[4][1] + BESIDE).abs() < 1e-3);
+        let host = [0.0f32, 0.0, 0.0];
         for (i, a) in spots.iter().enumerate() {
+            // Close to the host, for tight interiors, and never in its body.
+            assert!(a[0].hypot(a[1]) <= BESIDE * std::f32::consts::SQRT_2 + 1e-3);
+            assert!(!in_body(*a, host));
             for b in &spots[i + 1..] {
                 assert!((a[0] - b[0]).hypot(a[1] - b[1]) >= BESIDE - 1e-3);
             }
