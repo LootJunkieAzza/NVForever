@@ -63,7 +63,7 @@ use nvf_assets::model::ModelCtx;
 use nvf_play::combat::Combat;
 use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 pub struct BodyWeaponsPlugin;
@@ -250,7 +250,7 @@ fn attach(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut stats: ResMut<BodyStats>,
-    mut own_attacks: Local<HashMap<String, bool>>,
+    mut own_attacks: Local<Option<HashSet<String>>>,
     mut fresh: Query<Fresh, Unchecked>,
 ) {
     let (Some(world), Some(combat)) = (world, combat) else { return };
@@ -295,10 +295,7 @@ fn attach(
             continue;
         }
         // Its own attack, where its folder has clips for it.
-        let has_own = *own_attacks.entry(folder.clone()).or_insert_with(|| {
-            let pre = format!("{folder}\\h2hattack");
-            !ctx.models.data.vfs.paths(|p| p.starts_with(&pre) && p.ends_with(".kf")).is_empty()
-        });
+        let has_own = own_attacks.get_or_insert_with(|| own_attack_folders(&ctx.models.data.vfs)).contains(&folder);
         if has_own {
             arms.push(BodyArm { weapon: None, name: "its own attack".into(), stance: None, limb: None, blast: 0.0, rule: Arm { melee: true, min_range: 0.0, max_range: 0.0, blast: 0.0, dps: 0.0, usable: true } });
         }
@@ -404,6 +401,14 @@ fn switch(
 
 /// The folder of a skeleton path (`creatures\mistergutsy\skeleton.nif` →
 /// `meshes\creatures\mistergutsy`).
+/// The folders holding `h2hattack*.kf` clips, a creature's own attack: listed once.
+/// [design] #3072: a look through every file for each kind of creature with body weapons
+/// when it was first drawn [observed 2026-11-19, `profile hitch`: `attach` 11 ms].
+fn own_attack_folders(vfs: &fnv_vfs::Vfs) -> HashSet<String> {
+    let is_own = |p: &str| p.ends_with(".kf") && p.rsplit_once('\\').is_some_and(|(_, f)| f.starts_with("h2hattack"));
+    vfs.paths(is_own).into_iter().filter_map(|p| p.rsplit_once('\\').map(|(d, _)| d.to_string())).collect()
+}
+
 fn folder_of(skeleton: &str) -> String {
     let s = fnv_vfs::normalize(&fnv_actor::resolve::mesh_path(skeleton));
     s.rfind('\\').map_or(String::new(), |i| s[..i].to_string())

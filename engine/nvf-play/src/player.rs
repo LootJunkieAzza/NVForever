@@ -1409,7 +1409,7 @@ fn step(
         for _ in 0..n {
             let _tick = info_span!("phys::tick").entered();
             let began = meter.now();
-            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, body, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
+            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, &p.actor_block_radii, body, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
             p.world.step();
             meter.tick(began, p.npcs.len(), listed);
         }
@@ -1451,7 +1451,7 @@ fn step(
             // Not falling: no fall, landing or fall damage while it flies.
             c.grounded = true;
             c.ground_gap = Some(0.0);
-            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, None, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
+            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, &p.actor_block_radii, None, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
             p.world.step();
             meter.tick(began, p.npcs.len(), listed);
         }
@@ -1611,7 +1611,7 @@ fn step(
             let standing = go == [0.0, 0.0] && c.grounded && !c.swimming && b.player_held <= dt * 0.5;
             let placed = b.list.len();
             let mut all = std::mem::take(&mut b.list);
-            all.extend(p.npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, n.ch.params.radius, n.ch.params.height, false)));
+            all.extend(p.npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, crate::blocking::walking_radius(n.ch.params.radius, p.actor_block_radii.get(&n.ch.id).copied()), n.ch.params.height, false)));
             all.push(Block::character(PLAYER, c.feet, c.params.radius, c.params.height, standing));
             listed = Some(all.len());
             // First the walking actors: what they push is their owner's to move, but for
@@ -1620,10 +1620,11 @@ fn step(
             let mut stopped = false;
             for (v, n) in walking.iter_mut().zip(p.npcs.values()) {
                 let asked = *v;
+                let radius = crate::blocking::walking_radius(n.ch.params.radius, p.actor_block_radii.get(&n.ch.id).copied());
                 *v = if b.carried.contains(&n.ch.id) {
-                    crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all)
+                    crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, radius, n.ch.params.height, dt, &mut all)
                 } else {
-                    clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes)
+                    clip(n.ch.id, asked, n.ch.feet, radius, n.ch.params.height, dt, &mut all, &mut pushes)
                 };
                 stopped |= *v != asked;
             }
@@ -1776,9 +1777,11 @@ fn move_npcs(
 /// a step of the player's; the player's block is where the furniture holds it, not pushed,
 /// or none when the player passes through everything. Returns the length of the step's
 /// block list (none without `ActorBlocks`), for `crate::phys_load`.
+#[allow(clippy::too_many_arguments)]
 fn step_npcs_alone(
     world: &mut fnv_phys::PhysWorld,
     npcs: &mut std::collections::BTreeMap<u32, crate::phys::NpcBody>,
+    actor_block_radii: &std::collections::HashMap<u32, f32>,
     player: Option<([f32; 3], f32, f32)>,
     blocks: Option<&mut crate::blocking::ActorBlocks>,
     falls: Option<&mut crate::falls::Falls>,
@@ -1794,7 +1797,7 @@ fn step_npcs_alone(
     if let Some(b) = blocks {
         let placed = b.list.len();
         let mut all = std::mem::take(&mut b.list);
-        all.extend(npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, n.ch.params.radius, n.ch.params.height, false)));
+        all.extend(npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, crate::blocking::walking_radius(n.ch.params.radius, actor_block_radii.get(&n.ch.id).copied()), n.ch.params.height, false)));
         if let Some((feet, radius, height)) = player {
             all.push(Block::character(PLAYER, feet, radius, height, false));
         }
@@ -1803,10 +1806,11 @@ fn step_npcs_alone(
         let mut stopped = false;
         for (v, n) in walking.iter_mut().zip(npcs.values()) {
             let asked = *v;
+            let radius = crate::blocking::walking_radius(n.ch.params.radius, actor_block_radii.get(&n.ch.id).copied());
             *v = if b.carried.contains(&n.ch.id) {
-                crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all)
+                crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, radius, n.ch.params.height, dt, &mut all)
             } else {
-                clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes)
+                clip(n.ch.id, asked, n.ch.feet, radius, n.ch.params.height, dt, &mut all, &mut pushes)
             };
             stopped |= *v != asked;
         }

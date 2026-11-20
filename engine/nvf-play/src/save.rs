@@ -1022,8 +1022,9 @@ pub fn missing_content_text(missing: &[String]) -> String {
 /// refused here when the runtime could not restore it ([`SaveBody::check`]), before anything
 /// starts from it. A save made with another load order is remapped by plugin name (design §4.1): every
 /// FormID's mod index moves to its plugin's place now; what came from plugins no longer
-/// loaded is dropped and reported. Called before the log is set up: its lines go straight
-/// to the output, as nvforever's first `load:` line.
+/// loaded is dropped and reported. A save carrying runtime lambda definitions is refused
+/// when the remap would move its lambda index (callable-identity.md). Called before the log
+/// is set up: its lines go straight to the output, as nvforever's first `load:` line.
 pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<(SaveHeader, SaveBody, Option<OrderChange>), String> {
     let f = fnv_save::read(path).map_err(|e| e.to_string())?;
     let remap = fnv_save::PluginRemap::new(&f.header.plugins, current);
@@ -1044,6 +1045,16 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     // refuse before the generic walker can remap or discard their provenance.
     if raw.get("game").and_then(|g| g.get("retired_scene_bases")).is_some_and(|v| v.as_object().is_none_or(|m| !m.is_empty())) {
         return Err(format!("{} contains retired temporary scene identities and cannot be loaded with a reordered or missing plugin list", path.display()));
+    }
+    // Lambda handles and their saved `ref` tokens all have index FE. The walker keeps
+    // those numbers unless the save had a plugin at FE that now sits elsewhere; then it
+    // would move the tokens but not the handles, and cannot tell a lambda token from that
+    // plugin's record. Refuse that case (explicit or legacy positional handles).
+    let lambda = fnv_game::game::LAMBDA_BASE;
+    if matches!(remap.form(lambda), fnv_save::Remapped::Kept(n) if n != lambda)
+        && raw.get("game").and_then(|g| g.get("lambdas")).and_then(|v| v.as_array()).is_some_and(|l| !l.is_empty())
+    {
+        return Err(format!("{} contains runtime lambda definitions and cannot be loaded while its plugin at index FE moves", path.display()));
     }
     let missing = remap.missing();
     if !missing.is_empty() && current.len() > fnv_save::GONE_INDEX as usize {
@@ -1084,6 +1095,10 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
 #[cfg(test)]
 #[path = "save/retired_scene_tests.rs"]
 mod retired_scene_tests;
+
+#[cfg(test)]
+#[path = "save/lambda_remap_tests.rs"]
+mod lambda_remap_tests;
 
 #[cfg(test)]
 mod tests {

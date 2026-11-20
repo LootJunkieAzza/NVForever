@@ -493,6 +493,11 @@ impl Census {
 /// [design] Census-only changes refresh the ready line at most once per this many frames
 /// (a publication reports at once), so cell streaming does not log every frame.
 const REFRESH_FRAMES: u32 = 60;
+/// [design] #2956: at most this many blend clones made or restricted to a new coverage a
+/// frame (each one the renderer prepares again). A publication's whole set (over a
+/// thousand around Primm) then switches over some frames instead of in one 50-120 ms
+/// frame [observed 2026-11-19, stress tour Goodsprings-Primm, `profile hitch` lines].
+const CLONE_WORK_PER_FRAME: usize = 64;
 /// [design] At most this many `census-shape` lines per run; each line is a distinct base
 /// form, shape index and reason mask (the first reference seen of it).
 const SHAPE_LINES: usize = 2048;
@@ -691,8 +696,9 @@ fn acknowledge_materials(
     input.ages.retain(|id, _| ids.contains(id));
     input.steps.retain(|id, _| ids.contains(id));
     let hold = shared.hold.load(Ordering::Acquire);
-    let mut ready = shared.ready.lock().unwrap();
-    ready.clear();
+    // Built outside the lock and swapped in: the main world's conversion asks `usable`
+    // once per shape while this runs beside it (pipelined rendering).
+    let mut ready = HashSet::with_capacity(ids.len());
     for id in ids {
         let age = input.ages.entry(id).or_default();
         *age = age.saturating_add(1);
@@ -703,6 +709,7 @@ fn acknowledge_materials(
         let bound = allocators.get(&std::any::TypeId::of::<NifBlendMaterial>()).and_then(|a| a.get(material.binding.group)).is_some_and(|b| b.bind_group().is_some());
         if bound { ready.insert(id); }
     }
+    *shared.ready.lock().unwrap() = ready;
 }
 
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
@@ -1026,15 +1033,20 @@ fn pass_needed(variants: &Variants, c: BlendConfig, published: Option<Publicatio
 /// coverage of one publication per key is compared with the coverage last put on that
 /// key's clones; only a key whose coverage changed, or that gained a clone, walks its
 /// clones. Returns the clones changed.
-fn follow_coverage(cache: &SurfaceCache, variants: &mut Variants, blends: &mut Assets<NifBlendMaterial>) -> usize {
+fn follow_coverage(cache: &SurfaceCache, variants: &mut Variants, blends: &mut Assets<NifBlendMaterial>, budget: usize) -> usize {
     let mut changed = 0;
     for (key, (publication, applied)) in &mut variants.surfaces {
         let coverage = cache.coverage_for(publication);
         if *applied == Some(coverage) { continue; }
-        *applied = Some(coverage);
+        // [design] #2956: each changed clone is prepared again by the renderer, so at most
+        // `budget` change a frame; a key not walked to its end is walked again next frame
+        // (an already restricted clone is skipped by `restrict_clone`).
+        let mut done = true;
         for (id, publication) in variants.publications.iter().filter(|(_, p)| publication_key(p) == *key) {
+            if changed >= budget { done = false; break; }
             changed += restrict_clone(cache, blends, *id, publication);
         }
+        if done { *applied = Some(coverage); }
     }
     changed
 }
@@ -1063,8 +1075,11 @@ fn apply_configured_variants(p: &mut Conversion, c: BlendConfig) {
     let variants: &mut Variants = variants;
     let published = cache.published.as_ref().map(publication_key);
     let revision = published.map_or(0, |k| k.0);
-    follow_coverage(cache, variants, blends);
-    if variants.verify.on {
+    let restricted = follow_coverage(cache, variants, blends, CLONE_WORK_PER_FRAME);
+    let create_budget = CLONE_WORK_PER_FRAME.saturating_sub(restricted);
+    // A follow that used its whole budget may have left clones for the next frame: not a
+    // divergence, so the verify aid checks only after a follow that finished.
+    if variants.verify.on && restricted < CLONE_WORK_PER_FRAME {
         // The verify aid: the per-clone check of every recorded publication, as before.
         let restricted: usize = variants.publications.iter().map(|(id, publication)| restrict_clone(cache, blends, *id, publication)).sum();
         if restricted > 0 { variants.verify.diverged(&format!("coverage-clones={restricted}")); }
@@ -1080,7 +1095,7 @@ fn apply_configured_variants(p: &mut Conversion, c: BlendConfig) {
     let skipped = needed.is_none();
     let settled_before = variants.readiness.as_ref().map(|r| r.settled.load(Ordering::Acquire));
     let lines_before = variants.shape_lines;
-    let outcome = full_pass(commands, cache, variants, materials, blends, &mut shapes.p0(), c, revision);
+    let outcome = full_pass(commands, cache, variants, materials, blends, &mut shapes.p0(), c, revision, create_budget);
     variants.passes += u64::from(!skipped);
     if let Some(readiness) = variants.readiness.as_ref().filter(|_| !outcome.pending) { readiness.settled.store(revision, Ordering::Release); }
     if skipped {
@@ -1152,6 +1167,7 @@ fn full_pass(
     shapes: &mut Tracked,
     c: BlendConfig,
     revision: u64,
+    create_budget: usize,
 ) -> Outcome {
     let mut o = Outcome::default();
     if variants.generation != revision {
@@ -1218,7 +1234,13 @@ fn full_pass(
         let id = shape.original.id();
         let stamp = SourceStamp::of(source);
         let handle = match variants.materials.get(&id) {
-            Some((handle, made)) if *made == stamp => handle.clone(),
+            Some((handle, made)) if *made == stamp => Some(handle.clone()),
+            // [design] #2956: every new clone is prepared by the renderer in the frame
+            // after; a publication replaces the clone of every blended source at once (a
+            // thousand or more around Primm: 50-120 ms frames at each cell crossing).
+            // Past the frame's budget the shape keeps what it draws and the pass stays
+            // pending, so the rest are made in the frames after.
+            _ if o.created >= create_budget => None,
             _ => {
                 let handle = blends.add(enabled_material(source, c, surface));
                 variants.publications.insert(handle.id(), surface.clone());
@@ -1226,12 +1248,14 @@ fn full_pass(
                 variants.surfaces.entry(publication_key(surface)).or_insert_with(|| (surface.clone(), None)).1 = None;
                 variants.materials.insert(id, (handle.clone(), stamp));
                 o.created += 1;
-                handle
+                Some(handle)
             }
         };
         // Keep the old enabled handle until the render world acknowledges a prepared,
-        // bound replacement. Source/temporary owners still take precedence above.
-        if variants.readiness.as_ref().is_some_and(|r| !r.usable(handle.id())) {
+        // bound replacement (or until the replacement is made, past the budget). Source/
+        // temporary owners still take precedence above.
+        let handle = handle.filter(|h| variants.readiness.as_ref().is_none_or(|r| r.usable(h.id())));
+        let Some(handle) = handle else {
             o.pending = true;
             // A non-temporary producer may have republished an ordinary source. Its
             // handle is recorded above; keep only the old drawable blend while the
@@ -1241,7 +1265,7 @@ fn full_pass(
                 o.commands += 1;
             }
             continue;
-        }
+        };
         if shape.enabled.as_ref() != Some(&handle) || drawn.is_some() {
             commands.entity(entity).remove::<MeshMaterial3d<NifMaterial>>().insert(MeshMaterial3d(handle.clone()));
             o.commands += 1;
@@ -1756,6 +1780,30 @@ mod tests {
     }
     fn settle(app: &mut App) {
         for _ in 0..REFRESH_FRAMES { app.update(); }
+    }
+
+    #[test]
+    fn a_publication_makes_at_most_the_frame_budget_of_clones_a_frame() {
+        // #2956: each clone is prepared again by the renderer; a whole set at once was a
+        // 50-120 ms frame at every cell crossing.
+        let mut app = conversion_app();
+        let n = CLONE_WORK_PER_FRAME * 2 + 5;
+        let shapes: Vec<Entity> = (0..n).map(|i| {
+            let m = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(NifMaterial { base: default(), extension: default() });
+            app.world_mut().spawn((tracked(i, 0), BlendShape::new(m.clone()), MeshMaterial3d(m))).id()
+        }).collect();
+        publish(&mut app);
+        let converted = |app: &App| shapes.iter().filter(|e| app.world().get::<MeshMaterial3d<NifBlendMaterial>>(**e).is_some()).count();
+        app.update();
+        assert_eq!(app.world().resource::<Assets<NifBlendMaterial>>().len(), CLONE_WORK_PER_FRAME);
+        assert_eq!(converted(&app), CLONE_WORK_PER_FRAME, "the rest keep their ordinary material");
+        assert!(app.world().resource::<Variants>().last.as_ref().unwrap().pending, "the pass stays pending");
+        app.update();
+        assert_eq!(converted(&app), CLONE_WORK_PER_FRAME * 2);
+        app.update();
+        assert_eq!(converted(&app), n);
+        assert!(!app.world().resource::<Variants>().last.as_ref().unwrap().pending);
+        assert_eq!(app.world().resource::<Assets<NifBlendMaterial>>().len(), n);
     }
 
     #[test]

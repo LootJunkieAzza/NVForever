@@ -305,9 +305,15 @@ impl Game<'_> {
         }
     }
 
+    fn travel_handle(&self) -> Result<FormId, String> {
+        let start = MADE_PACKAGE_BASE.checked_add(self.other.jip13.made_packages).ok_or("runtime travel package handles exhausted")?;
+        self.free_callable_handle(start, FormId::FIRST_DYNAMIC.0).map(FormId).ok_or_else(|| "runtime travel package handles exhausted".into())
+    }
+
     /// A Travel package to near `target`, made for a script, run on `actor` as its script
     /// package (AddScriptPackage's place).
-    fn force_travel(&mut self, actor: FormId, target: FormId, flags: f64) {
+    fn force_travel(&mut self, actor: FormId, target: FormId, flags: f64) -> Result<(), String> {
+        let id = self.travel_handle()?;
         let flags = flags as u32;
         let mut f = 0;
         if flags & 1 != 0 {
@@ -317,8 +323,7 @@ impl Game<'_> {
             f |= crate::package::flags::ALWAYS_SNEAK;
         }
         let def = PackageDef { ty: PackageType::Travel, flags: f, location: Some(Location { kind: LocationKind::NearReference(Some(target)), radius: TRAVEL_RADIUS }), ..PackageDef::default() };
-        let id = FormId(MADE_PACKAGE_BASE + self.other.jip13.made_packages);
-        self.other.jip13.made_packages += 1;
+        self.other.jip13.made_packages = id.0 - MADE_PACKAGE_BASE + 1;
         let leaked: &PackageDef = Box::leak(Box::new(def));
         self.package_overrides.insert(id, leaked);
         self.extra.entry(actor).or_default().script_package = Some(id);
@@ -327,6 +332,7 @@ impl Game<'_> {
         } else {
             self.extra.entry(actor).or_default().current_package = Some(id);
         }
+        Ok(())
     }
 }
 
@@ -585,7 +591,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // run (1), sneak (2) [documented].
         "traveltoref" => {
             let (Some(r), Some(t)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
-            g.force_travel(r, t, num(args, 1).unwrap_or(0.0));
+            if let Err(e) = g.force_travel(r, t, num(args, 1).unwrap_or(0.0)) { return Some(Err(e)); }
             zero
         }
         // To a place within the distance, directly away from the reference [documented;
@@ -598,9 +604,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let len = (dx * dx + dy * dy).sqrt().max(1e-3);
             let to = [p[0] + dx / len * d as f32, p[1] + dy / len * d as f32, p[2]];
             let Some(marker) = g.data.by_edid("XMarker") else { return Some(Ok(zero)) };
+            if let Err(e) = g.travel_handle() { return Some(Err(e)); }
             let cell = g.cell_of(r);
             let Ok(m) = g.create_at(marker, cell, to, [0.0; 3]) else { return Some(Ok(zero)) };
-            g.force_travel(r, m, num(args, 2).unwrap_or(0.0));
+            if let Err(e) = g.force_travel(r, m, num(args, 2).unwrap_or(0.0)) { return Some(Err(e)); }
             zero
         }
         // ---- moves ----

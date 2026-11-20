@@ -277,6 +277,40 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipeline-cache-write"
+source = "perf/pipeline-cache (2026-11-19): pipelines compile on their own pool, the start's screen draws every mesh unculled to ask for their pipelines, and the composed shaders and the driver's pipeline cache are saved in the home once the pipelines are quiet (engine/nvforever/src/pipeline_disk_cache.rs, pipeline_prewarm.rs; vendor bevy_shader nvf_composed.rs, bevy_render pipeline_cache.rs)"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/pipeline_disk_cache.rs", "engine/nvforever/src/pipeline_prewarm.rs", "engine/vendor/bevy_shader/**", "engine/vendor/bevy_render/src/render_resource/pipeline_cache.rs", "engine/vendor/bevy_render/src/render_resource/nvf_manifest.rs"]
+# The home may hold what an earlier smoke run saved: only the saving is checked here, the reading in pipeline-cache-read.
+env = { NVFOREVER_HOME = "pipeline-cache-home" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'pipeline compile pool: (?P<n>\d+) threads', range = [2, 8], label = "pipelines compile on a pool of their own" },
+  { re = 'pipeline prewarm: (?P<n>\d+) meshes drawn unculled under the screen', range = [50, 100000], label = "the start's screen drew the cell's meshes unculled" },
+  { re = 'composed shaders: saved (?P<n>\d+) ', range = [20, 100000], label = "the compositions are kept in the home" },
+  { re = 'pipeline list: saved (?P<n>\d+) ', range = [20, 100000], label = "the pipelines asked are listed in the home" },
+]
+forbid = ["composed shaders: not saved", "pipeline cache: not saved", "pipeline list: not saved", "Caught rendering error", "Mismatched pop_error_scope"]
+
+[[scenario]]
+name = "pipeline-cache-read"
+source = "perf/pipeline-cache (2026-11-19): the run after pipeline-cache-write in the same home composes (almost) nothing again: the compositions it kept are used while their sources are the same (vendor bevy_shader nvf_composed.rs); the pipelines it listed are built from its start and handed to the game (vendor bevy_render nvf_manifest.rs)"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/pipeline_disk_cache.rs", "engine/vendor/bevy_shader/**", "engine/vendor/bevy_render/src/render_resource/pipeline_cache.rs", "engine/vendor/bevy_render/src/render_resource/nvf_manifest.rs"]
+env = { NVFOREVER_HOME = "pipeline-cache-home" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'composed shaders: (?P<n>\d+) kept at ', range = [20, 100000], label = "the compositions of the run before are read" },
+  { re = 'composed shaders: saved \d+ \(\d+ bytes; (?P<n>\d+) used again', range = [20, 100000], label = "they are used again" },
+  { re = 'composed shaders: saved \d+ \(\d+ bytes; \d+ used again and (?P<n>\d+) composed this run\)', range = [0, 10], label = "little is composed again" },
+  { re = 'pipeline list: (?P<n>\d+) pipelines from earlier runs', range = [20, 100000], label = "the pipelines the run before asked are read" },
+  { re = 'pipeline list: \d+ listed; by the screen.s end \d+ built from it, (?P<n>\d+) of the', range = [1, 100000], label = "the start's screen takes pipelines built from the list" },
+]
+forbid = ["composed shaders: not saved", "pipeline cache: not saved", "pipeline list: not saved", "Caught rendering error", "Mismatched pop_error_scope"]
+
+[[scenario]]
 name = "memory-budget-capped"
 source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (they keep the least, 30 s and 128)"
 areas = ["renderer"]
@@ -365,6 +399,57 @@ manual = "ul_fountain_water.png against the original's frame from the same spot 
 expect = [
   { text = "placed water 00165AD0: its PWAT 000A1A9D does not set Reflects, drawn without reflection", label = "the fountain's water is drawn without reflection" },
   { re = 'test aid: screenshot .*ul_fountain_water\.png', label = "the frame is saved" },
+]
+
+[[scenario]]
+name = "water-effects-colorado"
+source = "[design, #2674] From a fixed noon camera at Cottonwood Cove the water surface in an authored Colorado reach must be drawn with the enhanced effect active. The river-flow tests check downstream velocity; fixed-camera recordings verify the rendered motion."
+areas = ["renderer", "graphics", "water"]
+paths = ["engine/nvforever/src/water*", "engine/nvforever/src/river_flow.rs", "engine/nvforever/src/caustics.wesl", "engine/nvforever/src/underwater*", "engine/nvforever/src/graphics.rs"]
+env = { NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--explore", "--sun-shadows", "--pos=70250,-90750,-2100", "--heading", "140", "--pitch=-25", "--hour", "12", "--graphics-only", "water-effects"]
+run_seconds = 20
+expect = [
+  "water caustics and river flow",
+  "water reflection: on (the water of cell 17,-23 on screen)",
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "the shadow schedule holds with the mirror on: it shares the main camera's maps" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "water effects shader validation" },
+  { text = "failed and will not be tried again", label = "water effects pipeline compilation" },
+  { text = "still being retried after", label = "water effects pipeline retry cap" },
+  { text = "DeviceLost", label = "GPU device loss" },
+]
+
+[[scenario]]
+name = "water-effects-submerged"
+source = "[design, #2674] The explorer camera starts 60 units below Lake Mead and above the surveyed bed at Boulder Beach (physics.md section 6.6). Both the water fog and the underwater receiver pass must activate."
+areas = ["renderer", "graphics", "water"]
+paths = ["engine/nvforever/src/water*", "engine/nvforever/src/caustics.wesl", "engine/nvforever/src/underwater*", "engine/nvforever/src/graphics.rs"]
+env = { NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--explore", "--pos=57760,37536,2540", "--heading", "90", "--pitch=-20", "--hour", "12", "--graphics-only", "water-effects"]
+run_seconds = 24
+expect = ["water caustics and river flow", "underwater: the camera is under water", "underwater caustics: active outdoors below the water surface"]
+forbid = [
+  { text = "Caught rendering error", label = "submerged effects shader validation" },
+  { text = "failed and will not be tried again", label = "submerged effects pipeline compilation" },
+  { text = "still being retried after", label = "submerged effects pipeline retry cap" },
+  { text = "DeviceLost", label = "GPU device loss" },
+]
+
+[[scenario]]
+name = "water-effects-disabled"
+source = "[design, #2674] Vanilla graphics leave the optional water effects off while the existing reflection-lake noon camera still draws the lake. This checks the default configuration; pixel identity is a manual before/after check."
+areas = ["renderer", "graphics", "water"]
+paths = ["engine/nvforever/src/water*", "engine/nvforever/src/caustics.wesl", "engine/nvforever/src/underwater*", "engine/nvforever/src/graphics.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_LOOK = "4:90:-10" }
+args = ["--play", "--pos=56992,37536,2745", "--hour", "12", "--no-voice", "--no-messages", "--graphics", "vanilla"]
+run_seconds = 20
+expect = ["water reflection: on (the water of cell 13,9 on screen)"]
+forbid = [
+  { text = "water caustics and river flow", label = "optional water effects must stay off in vanilla" },
+  { text = "Caught rendering error", label = "disabled water shader validation" },
+  { text = "failed and will not be tried again", label = "disabled water pipeline compilation" },
 ]
 
 [[scenario]]
@@ -886,13 +971,13 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--grap
 run_seconds = 24
 order = [[
   "graphics: ambient occlusion, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
-  { re = 'graphics: longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: longer shadows, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, screen-space water reflections$' },
+  { re = 'graphics: longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
+  { re = 'graphics: longer shadows, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
+  { re = 'graphics: light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections, water caustics and river flow$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections, water caustics and river flow$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, screen-space water reflections, water caustics and river flow$' },
 ]]
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" },
@@ -8457,10 +8542,10 @@ manual = "move_ranger_takedown.png, move_khan_trick.png, move_legion_assault.png
 [[scenario]]
 name = "perk-legion-lunge"
 source = "owner 2026-10-24: move the player forward during Legion Assault's lunge (docs/spec-notes/perk-entry-points.md §11.4)"
-note = "Goodsprings ground, fists and the perk LegionAssault from 3 s; a forward power attack at 8 s (Use held 1.5 s, the forward key held from 7.95 s to 8.6 s). The distance is measured from the swing's start, and the key stays down a little after it, so the range allows up to about 90 walked; without the lunge it would be that walking alone. The swing starts when Use has been held CombatTuning::power_hold (0.4 s): a first run had it 0.53 s after Use (394 units, about 60 walked) with the key up at 8.8 s, but on 2026-10-27 it began on time at 0.41 s and the 0.4 s still walked made 463, so the key now comes up at 8.6 s (about 70 walked on time, 25 when 0.13 s late)"
+note = "Goodsprings ground, fists and the perk LegionAssault from 3 s; a forward power attack at 8 s (Use held 1.5 s, the forward key held from 7.95 s to 8.6 s). The distance is measured from the swing's start, and the key stays down a little after it, so the range allows up to about 90 walked; without the lunge it would be that walking alone. The swing starts when Use has been held CombatTuning::power_hold (0.4 s): a first run had it 0.53 s after Use (394 units, about 60 walked) with the key up at 8.8 s, but on 2026-10-27 it began on time at 0.41 s and the 0.4 s still walked made 463, so the key now comes up at 8.6 s (about 70 walked on time, 25 when 0.13 s late). The player is unseen (#2971): the fiend dogs near this spot rushed the player, and with creatures blocking by their BBX circle a dog in front stopped the lunge after about 25 units in 4 runs of 6 (354 and 376 in the other two; 6 of 6 on main, where a dog blocks with the narrower character radius). The scenario measures the lunge on open ground; what the original does with a creature in the way is observer check 244's question"
 areas = ["combat", "perks", "melee"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:LegionAssault", NVF_PLAY_TEST_MOVE = "7.95:1:0,8.6:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:fire,9.5:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:LegionAssault", NVF_PLAY_TEST_MOVE = "7.95:1:0,8.6:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:fire,9.5:fire" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
 run_seconds = 14
 order = [[
@@ -9367,6 +9452,46 @@ expect = [
   { text = "loading screen: emblem read: 4 pieces, 2 turning, sequence 5.333 s", count = 1, label = "the emblem's model is read once, its pieces and turning nodes found" },
   { text = "loading screen: no emblem", count = 0, label = "the emblem's model reads" },
 ]
+
+[[scenario]]
+name = "start-pool-prep"
+source = "docs/design/loading-screen.md §1a (2026-11-19): the start's cells are read ahead under the picture hold and wait for that read-ahead, so their models are prepared on the read pool instead of on the main thread in the first frame after the hold; static models take the tangents their files store (docs/spec-notes/nif.md §6 \"Stored tangents\", docs/design/streaming-hitches.md §2)"
+note = "Passed 2026-11-20 (GTX 1050, a build of this change with the other open performance PRs). At Novac 22:00 the start draws 25 cells and about 230 static models [observed: NVF_LOADING_PROBE, a local probe, 2026-11-19]. The twin start-pool-prep-off runs with both test aids off"
+areas = ["loading", "streaming"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvf-assets/src/tangents.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/nif_spawn.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 10
+order = [[
+  { re = "world: the start's read-ahead begins under the loading screen's picture hold: (?P<n>\\d+) cells", range = [9, 100], label = "the cells around the start are read ahead under the picture hold" },
+  "loading screen: the world starts loading",
+  { re = "world: the start's cells drawn: (?P<n>\\d+) with their models prepared on the read pool", range = [1, 100], label = "the start's cells come in with their models prepared on the read pool" },
+  "loading screen down after",
+]]
+expect = [
+  { re = 'models: normal-map tangents of (?P<n>\d+) shapes read from their files', range = [100, 1000000], label = "the static models' normal maps use the tangents their files store" },
+]
+forbid = ["test aid NVF_START_POOL_PREP=0", "test aid NVF_STORED_TANGENTS=0"]
+
+[[scenario]]
+name = "start-pool-prep-off"
+source = "the test aids NVF_START_POOL_PREP=0 and NVF_STORED_TANGENTS=0 put the start and the static models' tangents back as they were before 2026-11-19 (docs/design/loading-screen.md §1a, docs/spec-notes/nif.md §6 \"Stored tangents\")"
+note = "Passed 2026-11-20 (as start-pool-prep); start-pool-prep's twin"
+areas = ["loading", "streaming"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvf-assets/src/tangents.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/nif_spawn.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_START_POOL_PREP = "0", NVF_STORED_TANGENTS = "0" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 10
+order = [[
+  "test aid NVF_START_POOL_PREP=0",
+  "loading screen: the world starts loading",
+  "loading screen down after",
+]]
+expect = [
+  "test aid NVF_STORED_TANGENTS=0",
+  { re = 'models: normal-map tangents of 0 shapes read from their files .*test aid (?P<n>\d+)\)', range = [100, 1000000], label = "every static model's tangents generated" },
+]
+forbid = ["world: the start's read-ahead begins under", "world: the start's cells drawn:"]
 
 [[scenario]]
 name = "holmes-comes-from-far"
@@ -15868,7 +15993,7 @@ name = "actor-read-ahead"
 source = "docs/design/streaming-hitches.md §2: the actors of the ring of cells just outside the loaded grid are read and prepared ahead, so they are drawn at once when they come into range"
 note = "the camera flies north into Goodsprings from four cells south; the town's residents are listed in the ring before their cells load"
 areas = ["actors", "residents"]
-paths = ["engine/nvforever/src/readahead.rs", "engine/nvforever/src/nav.rs", "engine/nvf-assets/src/actor.rs"]
+paths = ["engine/nvforever/src/readahead.rs", "engine/nvforever/src/nav.rs", "engine/nvf-assets/src/actor.rs", "engine/nvforever/src/facegen.rs"]
 args = ["--cell", "Goodsprings", "--pos=-67900,-14984,9000", "--npc-packages", "all", "--hour", "12", "--auto-fly", "700"]
 run_seconds = 35
 expect = [
@@ -15876,6 +16001,8 @@ expect = [
   { re = 'actor read-ahead summary: .* (?P<n>\d+) prepared ahead', range = [5, 5000], label = "parts prepared ahead" },
   { re = 'actor read-ahead summary: .* (?P<n>\d+) ready at once', range = [5, 5000], label = "residents drawn at once when they came into range" },
   { re = 'actor read-ahead summary: .* (?P<n>\d+) skeletons. clip sets loaded ahead', range = [1, 1000], label = "clip sets loaded ahead on a worker thread" },
+  { re = 'FaceGen: .*\((?P<n>\d+) offsets made ahead on a worker thread', range = [1, 5000], label = "the residents' FaceGen offset images made ahead on a worker thread (#3057)" },
+  { re = 'FaceGen: .*offsets made ahead on a worker thread, (?P<n>\d+) of them drawn', range = [1, 5000], label = "residents drawn with offset images made ahead" },
 ]
 
 [[scenario]]
@@ -34552,6 +34679,46 @@ expect = [
 ]
 
 [[scenario]]
+name = "start-residents-under-screen"
+source = "a Novac start at 22:00 drew its 15-17 residents in view after the start's loading screen, three a frame (residents.rs SPAWNS_PER_FRAME): a frame of 65-106 ms and about a second of 20-54 ms frames after it [observed 2026-11-19, 0.1 s frame windows]. They are drawn under the screen now, which waits for them; their first package is still chosen on the first frame of play (docs/design/loading-screen.md §1a)"
+note = "passed on #3081's first revision (99ae69440, its description); the count's floor is a third of the 15-17 seen in Novac's start at 22:00. The read-ahead line under the start's screen came with the review fix and is written without running the game"
+areas = ["loading", "ai"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/loading.rs", "engine/nvforever/src/readahead.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 6
+order = [[
+  { re = 'ai: the start.s screen waits for (?P<n>\d+) residents in view to be drawn under it', range = [5, 1000], label = "the residents in view are drawn under the start's screen" },
+  { re = 'loading screen: start residents: (?P<n>\d+) drawn under the screen, 0 in view left for after it$', range = [5, 1000], label = "all of them drawn before it came down" },
+  { re = 'loading screen phases: up [\d.]+ s; .*actors to place [\d.]+ s', label = "the phases name the wait for them" },
+  { re = 'ai \[22:\d\d\] .*: (walks|runs) to ', label = "their packages are chosen after it, on the first frame of play" },
+]]
+expect = [
+  { re = 'actor read-ahead: under the start.s screen, (?P<n>\d+) actors of the \d+ loaded cells listed', range = [5, 10000], label = "the loaded cells' actors are read from when the cells are in, not from when the scripts are made" },
+]
+forbid = [
+  { text = "residents in view still not drawn after", label = "the screen's cap for them" },
+]
+
+[[scenario]]
+name = "start-residents-after-screen-aid"
+source = "test aid NVF_START_ACTORS_UNDER_SCREEN=0 draws the start's residents after its loading screen, three a frame, as before they were drawn under it (docs/design/loading-screen.md §1a): the twin of start-residents-under-screen"
+note = "passed on #3081's first revision (99ae69440, its description)"
+areas = ["loading", "ai"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/loading.rs"]
+env = { NVF_START_ACTORS_UNDER_SCREEN = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 6
+expect = [
+  { text = "test aid NVF_START_ACTORS_UNDER_SCREEN=0: the start's residents are drawn after its loading screen", label = "the aid is on" },
+  { re = 'loading screen: start residents: 0 drawn under the screen, (?P<n>\d+) in view left for after it \(test aid', range = [5, 1000], label = "none drawn under the screen, all left for after it" },
+]
+forbid = [
+  { re = 'loading screen phases: .*actors to place', label = "the screen does not wait for them" },
+  { text = "ai: the start's screen waits for", label = "nobody is drawn under it" },
+]
+
+[[scenario]]
 name = "repconn-load-door-lock"
 source = "[observed: capture run15b_a, 2026-11-15] #2538: RocketLabBasement tunnel load door 0x000CE1AD has no XLOC but reads its partner 0x0008F97C as locked, level 255, no key; activation is refused (docs/spec-notes/cells-refs.md section 6)"
 note = "[design, #2538] Written without running the game. Start in the tunnel 130 units in front of the door, heading 225; aim and activate it. Require the Locked level-255 result and no teleport. Pitch 0 is provisional [hypothesis]."
@@ -34700,4 +34867,33 @@ expect = [
   { re = 'quality measure: key=glow value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
   { re = 'quality measure: key=quality value=.* ini_write_attempts=1\b', count = 4, label = "#2248 fix: each preset writes NVForever.ini once, not once per row (settings.rs StoreHold)" },
   { re = 'quality measure: key=quality value=.* cell_starts=0 reference_attempts=0 world_roots=0 visual_parts=0 camera_spawns=0 ', count = 4, label = "#2248: a preset rebuilds nothing of the held house behind the main menu" },
+]
+
+[[scenario]]
+name = "radscorpions-spacing-cadence"
+source = "[design, #2535] Walking creatures use at least their scaled skeleton BBX half-width for actor blocking; a creature's melee attack waits for its clip's a: key, or its end when keyless (creatures only, #2971). [observed: capture run15b_b2, 2026-11-15] The original pair's median spacing was 131, tenth percentile 93; median attack-start gap 2.0 s, minimum 1.28. See physics.md section 6.8 and combat-rules.md section 10"
+note = "[design, #2535] Searchlight Airport runway, same cleared setup as melee-chases-backing-player; two radscorpions set on the standing player. Five reads must be at least 95. Provisional blow range 10-26: two actors, about 16 s contact, minimum interval 1.267 s gives 2 * (1 + floor(16 / 1.267)) = 26 starts; 10 allows style holds and approach. The original's extra pause is not built; main session must measure this range. [observed: main session run on 63db0209c, 2026-11-15] Before the fix distance reads were 71-83, about 26 blows over 18 s"
+areas = ["combat", "creatures", "physics"]
+paths = ["engine/nvf-assets/src/actor.rs", "engine/nvforever/src/actors.rs", "engine/nvf-play/src/hitvol.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/blocking.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close", NVF_PLAY_TEST_LOOK = "2:75:0", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VCrTier2RadscorpionMed:1,3:call:player:PlaceAtMe:VCrTier3GiantRadscorpionMed:1,3.2:moveto:0xFF000000:player:595:97:0,3.2:moveto:0xFF000001:player:564:213:0,3.5:combat:0xFF000000:player,3.5:combat:0xFF000001:player,9:call:0xFF000000:GetDistance:0xFF000001,11:call:0xFF000000:GetDistance:0xFF000001,13:call:0xFF000000:GetDistance:0xFF000001,15:call:0xFF000000:GetDistance:0xFF000001,17:call:0xFF000000:GetDistance:0xFF000001" }
+args = ["--cell", "Goodsprings", "--pos=39511,-116487,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'script: test aid calls GetDistance on .* = (?P<n>[\d.]+)', count = 5, label = "all five inter-creature distances were read" },
+  { re = 'script: test aid calls GetDistance on .* = (?P<n>[\d.]+)', range = [95, 100000], all = true, label = "the creatures keep apart, at least 95 units" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [10, 26], label = "two attackers over about 16 s contact, no sooner than their 1.267 s clip boundary" },
+]
+
+[[scenario]]
+name = "player-short-weapon-wide-creature"
+source = "[design, #2535] Player ground melee uses the published scaled BBX blocking radius as its target margin, with the ordinary 24-unit minimum; obstruction rays remain required. See combat-rules.md section 10 and physics.md section 6.8"
+note = "[design, #2535] Synthetic placement using the supplied Giant Radscorpion (VCrTier3GiantRadscorpionMed) BBX half-width 70.56, scaled by 1.25 to 88.2. A restrained creature is placed 110.2 units north, the player radius 22 plus that block. The player draws WeapKnife (existing use-weapon-melee fixture), looks level and swings once. The 53.5-unit weapon plus player radius reaches 75.5; the old fixed 24-unit fallback missed at this distance. Main session must validate the placement and hit log in play. `fire` toggles Use (press, then let go): a swing starts on the release, so the two toggles must land in different frames; at 0.1 s apart they fell in one frame at the 5.5 frames/s of a smoke run (2026-11-17 r1/r1b logs: both toggles logged at the same instant, 0 swings). 0.35 s apart stays below the 0.4 s power hold (`CombatTuning::power_hold`), so one plain swing"
+areas = ["combat", "creatures", "physics"]
+paths = ["crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/hitvol.rs", "engine/nvf-play/src/blocking.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close", NVF_PLAY_TEST_EQUIP = "00004334", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VCrTier3GiantRadscorpionMed:1,3.2:call:0xFF000000:SetScale:1.25,3.3:call:0xFF000000:SetRestrained:1,4:moveto:0xFF000000:player:0:110.2:0", NVF_PLAY_TEST_CONTROL = "5:weapon,7:aimflat,7.1:fire,7.45:fire" }
+args = ["--cell", "Goodsprings", "--pos=39511,-116487,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = 'combat: swing reaches 1 actors .*1 of them out of the fan of rays at eye height', label = "the level knife swing reaches the low creature through the ground fallback" },
+  { re = 'combat: .*, 1 swings \(0 chained, 0 power, 1 hits\)', label = "the short weapon hits once at the widened blocking stop" },
 ]

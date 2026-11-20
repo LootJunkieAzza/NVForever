@@ -54,6 +54,12 @@ pub trait CombatWorld {
     fn ray(&self, from: V3, to: V3, ignore: &[ActorId]) -> Option<WorldHit>;
     /// Actors whose centre lies within `radius` of `point`, with that centre.
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)>;
+    /// Ground-reach candidates and their body margins [design, #2535]. The caller
+    /// supplies reach plus vertical search allowance; each body's margin expands
+    /// the search too. Ordinary bodies retain the fixed margin.
+    fn melee_targets_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3, f32)> {
+        self.actors_near(point, radius + SWING_BODY_MARGIN).into_iter().map(|(a, c)| (a, c, SWING_BODY_MARGIN)).collect()
+    }
     /// The bodies a blast at `point` may catch: [`CombatWorld::actors_near`]'s, and corpses
     /// that have no hit volume of their own (a ragdoll's), each once (#2346) [design]. Only
     /// blasts ask: proximity fuses and swings still go by `actors_near`. By default the same.
@@ -504,7 +510,8 @@ pub const SWING_ABOVE_EYES: f32 = 48.0;
 
 /// The actors a melee swing touches, low or high: [`swing`]'s fan of rays from the eye,
 /// and besides it every actor whose centre is within the reach across the ground from the
-/// attacker's body (plus [`SWING_BODY_MARGIN`]), inside the swing's arc either side of
+/// attacker's body (plus the target margin from [`CombatWorld::melee_targets_near`],
+/// ordinarily [`SWING_BODY_MARGIN`]), inside the swing's arc either side of
 /// where it faces, between its feet and above its eyes (`feet_z`, [`SWING_BELOW_FEET`],
 /// [`SWING_ABOVE_EYES`]), and that a ray from the eye to that centre meets first
 /// [design; playtest 2026-10-11: a machete never hit a gecko, whose body is below the
@@ -521,15 +528,15 @@ pub fn swing_reaching(world: &dyn CombatWorld, t: &CombatTuning, eye: V3, feet_z
     let flat = vec::normalize(flat);
     let height = (eye[2] - feet_z).max(0.0);
     let middle = [eye[0], eye[1], feet_z + height / 2.0];
-    let mut near = world.actors_near(middle, reach + SWING_BODY_MARGIN + height);
+    let mut near = world.melee_targets_near(middle, reach + height);
     near.sort_by(|a, b| vec::len(vec::sub(a.1, eye)).total_cmp(&vec::len(vec::sub(b.1, eye))));
-    for (a, c) in near {
+    for (a, c, margin) in near {
         if a == attacker || out.iter().any(|(x, _)| *x == a) {
             continue;
         }
         let across = [c[0] - eye[0], c[1] - eye[1], 0.0];
         let d = vec::len(across);
-        if d > reach + SWING_BODY_MARGIN || c[2] < feet_z - SWING_BELOW_FEET || c[2] > eye[2] + SWING_ABOVE_EYES {
+        if d > reach + margin || c[2] < feet_z - SWING_BELOW_FEET || c[2] > eye[2] + SWING_ABOVE_EYES {
             continue;
         }
         if d > 1e-3 && vec::dot(vec::scale(across, 1.0 / d), flat).clamp(-1.0, 1.0).acos().to_degrees() > t.melee_arc_deg {

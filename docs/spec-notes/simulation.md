@@ -147,6 +147,20 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   simulation uses that (`SimConfig.respawn_hours`, else the setting if a plugin defines
   it, else `DEFAULT_RESPAWN_HOURS` = 72). Other references are not reset yet. The engine
   reports unloading/loading (`detach_cell` / `attach_cell` ops).
+- **AddItem on a container nothing has read yet**: a placed container's inventory is
+  rolled from its CNTO the first time anything touches it, and an AddItem is such a
+  touch, so the item joins the authored contents and nothing rolls them again over it
+  later. Only a respawn (above) or a merchant restock (below) replaces them [design;
+  test `add_item_before_a_container_is_read_is_kept`]. Issue #3021 looked like a lost
+  AddItem and was not one: in Old World Blues the Basic Infiltration Test terminal
+  (OldWorldBlues.esm TERM 0x0100BB5A item 0) puts the X-13 Document in
+  `X13TestSafeREF`. When a test robot detects the player, the quest script
+  (SCPT 0x01010918) sets `bDetected` and activates `X13FAILREF`, whose
+  `NVDLC03X13FailureSwitchSCRIPT` (SCPT 0x01014FFC) does `X13TestSafeREF.RemoveItem` of
+  the document [observed: decompiled]. The quest pilot's run of 2026-11-19 was seen by
+  a robobrain 9 s after the AddItem ("Test failed. You have been spotted by a patrol.")
+  and that script then ran [observed: the pilot log, 02:34:07.84]. The empty safe was
+  the authored result of a failed test.
   **Captured as a scenario** [observed 2026-10-09, `L4.sim.trace.goodsprings_cell_respawn`,
   save `nvftest`, unattended: leaving = the console's `coc` to the gas station, time by
   GameHour]: the General Store fridge 0x00105824 (Respawns, leveled contents, not a

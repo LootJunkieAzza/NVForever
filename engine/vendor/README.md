@@ -4,6 +4,27 @@ Crates copied from crates.io with a small change, used through `[patch.crates-io
 `engine/Cargo.toml`. Each keeps its own licence files. When the crate is upgraded, copy
 the new version here and apply the change again (or drop the patch if upstream fixed it).
 
+## bevy_winit 0.20.1 (MIT OR Apache-2.0, Bevy)
+
+Adds an explicit cursor request/receipt consumer before ordinary Window
+synchronization. Only acknowledged requests update both Window and its private
+cache; ordinary setters retain their existing path. The cache remains private.
+The `cursor-test-support` feature exposes an offscreen fixture for that same
+consumer with an injected native result, without creating an OS window.
+See `docs/spec-notes/windows-cursor-ack.md` for ownership, bounds and validation
+limits. Both upstream license files are retained.
+
+In `bevy_winit/src/lib.rs`, the crate-level `unsafe_code` lint changes from
+`forbid` to `deny` so Windows-only `native_cursor_owner` in
+`bevy_winit/src/cursor_position.rs` can opt in locally. It uses the live winit-owned
+window handle and a stack `POINT` to check foreground ownership and whether the
+cursor is inside the client area before a warp, even without a motion event. The
+query itself changes neither focus nor cursor position. Every pre-existing
+module retains `forbid`; the rest of the new cursor consumer inherits `deny`.
+
+Source: crates.io `bevy_winit` 0.20.1, archive SHA-256
+`397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6`.
+
 ## gpu-allocator 0.28.0 (MIT OR Apache-2.0, Traverse-Research/gpu-allocator)
 
 Used by wgpu for Vulkan memory. Change, in `src/vulkan/mod.rs` `MemoryType::free`: an
@@ -459,6 +480,88 @@ folder, or with `NVF_DLSS_PRELOAD=1`; `NVF_DLSS_PRELOAD=0` leaves out the files 
 (`engine/nvforever/src/upscaler.rs` `UpscalerStartup`, docs/design/dlss-upscaling.md, "Loaded
 whenever the files are there"). Every other run takes upstream's path. Drop it if wgpu-hal gains a way to pass the entry in.
 
+Pipeline compiling (perf/pipeline-cache, 2026-11-19; nvforever
+`src/pipeline_disk_cache.rs` has the measurements), in `src/render_resource/pipeline_cache.rs`,
+each part marked by a comment starting `NVForever`:
+
+- `NVForever pipeline timing`: with `NVF_PLAY_TEST_PIPELINE_LOG` set, each pipeline logs
+  `pipeline timing: queued .. ms, lock .. ms, compose .. ms, naga .. ms (<n> modules), create
+  .. ms: <label>`: the wait for a thread, for the shader cache's lock, the Wesl composition,
+  the part of it in `create_shader_module`, and the pipeline's creation (the driver's compile).
+- `NVForever persistent pipeline cache`: `PipelineCache::set_wgpu_pipeline_cache` gives every
+  pipeline created from then on a `wgpu::PipelineCache` (`cache:` in the descriptors, `None`
+  upstream); nvforever loads it from the home and saves it.
+- `NVForever composed shaders`: `PipelineCache::set_composed_store` hands bevy_shader's store
+  (below) to the shader cache.
+- `NVForever compile pool`: pipelines compile on a pool of their own (a quarter of the logical
+  cores, 2 to 8 threads; `NVF_PIPELINE_THREADS=<n>`, 0 for upstream's async compute pool),
+  not on the async compute pool (at most 4 threads, shared with the game's loading). On a
+  driver cache that has none of the pipelines (each 0.6-0.8 s), a Novac start's screen waited
+  6.1 s for them on the async compute pool and 5.3 s on this pool.
+- `NVForever modules off the lock`: the pipeline tasks take their shader modules from
+  bevy_shader's `ShaderCache::prepare` (below) under the lock, then make the ones left to them
+  without it (`nvf_modules`: naga's parse, validation and SPIR-V, and `vkCreateShaderModule`)
+  and hand them back with `finish`; a module another thread is making is waited for, after
+  this thread's own are made. Upstream made every module under the one lock: a Novac start's
+  245 modules took 751 ms one at a time while the compile threads waited 3.9 s in all for
+  the lock [observed 2026-11-19]. This needs wgpu's error scopes per thread, so the
+  dependency on `wgpu` adds its `std` feature (without it the scopes are one stack for all
+  threads, and two threads making modules at once panic with a mismatched
+  `pop_error_scope`).
+- `NVForever pipeline list`: a new module `src/render_resource/nvf_manifest.rs`
+  (`PipelineManifest`, its module notes say how it works) and `PipelineCache::
+  set_pipeline_manifest`. The render and compute tasks turn their descriptor into a recipe
+  (shaders by `Shader::path`) and ask the list: a pipeline the list built from the same
+  modules is handed over, else the task builds it and the list keeps the recipe.
+  `process_queue` feeds the list's recipes whose shaders have loaded (only those asked in
+  the last `REBUILD_RUNS` runs, at most `MAX_REBUILT`) to a pool of its own
+  (`nvf_list_pool`, half the compile pool's default threads), which builds each inside a
+  validation error scope. For the JSON of the recipes the crate depends on `serde` and
+  `serde_json` and on `wgpu-types` with `serde` (all already in the build).
+
+Without the setters and with `NVF_PIPELINE_THREADS=0`, upstream's path runs, except that the
+modules are made outside the lock.
+
+## bevy_shader 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+The shader cache, for composed shaders kept between runs (perf/pipeline-cache, 2026-11-19).
+A new module `src/nvf_composed.rs` (`ComposedStore`: keyed compositions with the source
+hash of each module the composer read, a file format with a producer line, pruning of
+entries unused for 30 runs, at most 96 MB, up to 4 variants a key) and, in
+`src/shader_cache.rs`, each part marked by a comment starting `NVForever composed shaders`:
+`ShaderCache::set_composed_store`, each shader's source hash and each module path's shader
+(kept up to date in `set_shader` and `remove`), and in `get`'s Wesl branch a lookup before
+`wesl::compile` and a `put` after it. The key is the module path, the composer's options
+with its sorted definitions, and the `constants` module's source; an entry is used only
+while every module it read still has the same source. Without a store `get` composes as
+upstream does.
+
+Why: once the driver has a pipeline in its own cache, composing its shaders is most of what
+it costs (15-90 ms a module, one at a time under the cache's lock, against about 2 ms to
+make the module), and the composer orders a module's declarations differently from run to
+run, which hands the driver new SPIR-V. At a Novac start, with NVIDIA's cache warm, the
+screen's wait for pipelines went from 3.8 to 2.3 s and the 45 pipelines asked in the first
+seconds after it from 6.3 s to 1.2 s (asked to ready, all together) [observed, nvforever
+`pipeline_disk_cache.rs`]. Composing on several threads instead was tried and is slower
+(wesl 0.6's identifiers share reference counts). The test `composed_store_skips_compositions_of_unchanged_sources`
+checks a second cache composes nothing the first kept and composes again after a change.
+Drop it when Bevy caches compositions itself.
+
+`NVForever modules off the lock` (`src/shader_cache.rs`): `get` is split into `prepare`
+(compose under the lock; returns `ModuleStep::Ready`, `Build` with the composed source, or
+`Wait` on the `ModuleSlot` of the thread making the same module) and `finish` (keep the
+module made, unless the shader was replaced meanwhile: each shader's data has a
+`generation` that `clear` bumps, and `clear` drops the slots being made). A `ModuleBuild`
+dropped unfinished (its maker panicked or stopped early) fills its slot with
+`ShaderImportNotYetAvailable`, an error the pipeline cache retries, so a waiter's pipeline
+is queued again rather than failed for the run. `get` is
+`prepare`, the module made holding the lock, and `finish`, as before. `ShaderCacheError` is
+`Clone` for the waiters. For the pipeline list (bevy_render above): `shader_path`,
+`shader_by_path` (a path two shaders share is neither) and `shaders_set`, and `prepare`
+takes the pipeline as an `Option` (`None` for the list's builds, which are not compiled
+again when a shader changes). Tests: `a_module_asked_twice_at_once_is_made_once_and_a_stale_one_is_not_kept`,
+`a_build_dropped_unfinished_wakes_its_waiters`, `shaders_are_found_by_a_path_only_they_have`.
+
 ## wgpu-hal 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 
 wgpu's Vulkan backend, for NVIDIA low latency (`VK_NV_low_latency2`,
@@ -492,6 +595,12 @@ Not run on a GPU yet (2026-11-12): built, and the engine's tests and clippy pass
 is the crates.io package as published (its `examples` are kept: the manifest names them).
 Drop it when wgpu lets a caller extend swapchain creation, or creates the swapchain with
 the structure itself.
+
+Test aid (marked `NVForever (2026-11-19)`, `src/vulkan/mod.rs` `spirv_salt` and
+`src/vulkan/device.rs` `create_shader_module_impl`): `NVF_PLAY_TEST_SPIRV_SALT=<n>` XORs `n`
+into each shader module's SPIR-V generator word, which names only the tool that wrote it, so
+a driver's own shader cache sees new code: a first launch after a driver update, on demand,
+for measuring (perf/pipeline-cache). Without it nothing changes.
 
 ## naga 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 

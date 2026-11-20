@@ -189,12 +189,21 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
   within reach [design: the package's own walking is not interrupted].
 - **Swings**: facing the target (`USE_FACING`), its weapon drawn, within reach and within
   128 units of height, every `STRIKE_SECONDS` over the weapon's attack speed (Attack Mult),
-  sooner at the last clip's `a:` key, which picks the next swing's group (a combo, as
-  #353); no block or attack-chance roll, the script asks for the blows [hypothesis]. A blow
-  lands at its clip's `Hit` key (`attack_anims` times) as an `ActorStrike` (damage, the
-  target's block, impacts and sounds as any NPC blow).
+  with volley pauses holding the next blow as on upstream main 63db0209c [design:
+  `use_weapon::Swinger::advance`, #2535]. Scripted swings play no attack clip yet:
+  `npc_combat::fight` clears fighter poses and skips actors controlled by the use,
+  while `attack_anims::start` requires a fighter pitch or an existing attack pose.
+  Clip-bound scripted cadence therefore remains open [design, #2535]. The shared
+  `SwingClip::ready_in` calculation remains available to a creature's swings if timing
+  is published (a person's keep upstream's base timer, brought forward to an earlier
+  `a:` key: creatures only, the maintainer's decision of 2026-11-18 on #2971), but
+  in play the no-clip path uses the base timer and existing Hit delay (fallback
+  `DEFAULT_HIT`), without a combo
+  [design: `use_weapon::swing`, `Swinger::advance`]. No block or attack-chance roll:
+  the script asks for the blows [hypothesis]. A blow lands as an `ActorStrike`
+  (damage, the target's block, impacts and sounds as any NPC blow) [design].
 - **Always Hit**: a blow lands even when the target stepped out of reach by its `Hit` key
-  [hypothesis]. **Do No Damage**: the swing plays and the blow is counted, but nothing is
+  [hypothesis]. **Do No Damage**: the blow is counted, but nothing is
   struck: no damage, no sound, no impact [design: `ActorStrike` has no harmless form yet;
   left out to keep clear of the open combat PRs]. **Hold Fire When Blocked** and **target
   should be here** hold the swings as they hold shots; **Crouch To Reload** has nothing to
@@ -203,7 +212,8 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
 
 ## 4. Not built
 
-- Melee: harmless blows' sound and impact; power attacks; a package's melee use walking
+- Melee: scripted attack clip playback and clip-bound cadence [design, #2535: open];
+  harmless blows' sound and impact; power attacks; a package's melee use walking
   up to its target (with Continue During Combat and its target standing beyond reach, the
   shooter holds the fight and lands no blow, §3).
 - Swapping the drawn model: a use naming a weapon other than the one drawn fires that

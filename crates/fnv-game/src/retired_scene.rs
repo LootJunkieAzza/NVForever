@@ -10,6 +10,7 @@ use fnv_sim::FormId;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const FORMAT: &str = "fnv.game.state/2-retired-scenes";
+pub(crate) const FORMAT_WITH_LAMBDAS: &str = "fnv.game.state/2-retired-scenes-lambda-handles";
 // Existing runtime-compiled units start at FE200000. Local clones must also stay
 // inside their existing index-zero allocation range. These are allocator limits,
 // not original-game format constants.
@@ -28,16 +29,17 @@ fn sequence(alias: FormId) -> Option<u32> {
 
 impl GameSnapshot {
     pub(crate) fn check_retired_scene_bases(&self) -> Result<(), String> {
+        let versioned = matches!(self.format.as_str(), FORMAT | FORMAT_WITH_LAMBDAS);
         if self.retired_scene_bases.is_empty() {
-            if self.format == FORMAT {
+            if versioned {
                 return Err(format!("unsupported snapshot format {:?}: retired scene provenance is absent", self.format));
             }
-            if self.format != crate::game::SNAPSHOT_FORMAT || self.clone_sequence_floor.is_some() {
+            if self.clone_sequence_floor.is_some() {
                 return Err("retired scene save format requires provenance and an identity reservation".into());
             }
             return Ok(());
         }
-        if self.format != FORMAT {
+        if !versioned {
             return Err("retired scene provenance requires the versioned snapshot format".into());
         }
         let floor = self.clone_sequence_floor.filter(|n| *n > 0 && *n <= MAX_SEQUENCE)

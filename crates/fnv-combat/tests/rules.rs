@@ -1530,6 +1530,23 @@ fn shots_splash_into_water_and_strike_what_is_under_it() {
 }
 
 #[test]
+fn ordinary_ground_melee_keeps_its_fixed_body_margin() {
+    // Synthetic low body and short weapon [design, #2535]. No eye-height ray
+    // reaches it; the default ground fallback ends at reach + 24 exactly.
+    let t = CombatTuning::default();
+    let reach = 53.5 + 22.0;
+    for (distance, expected) in [(reach + 24.0 - 0.01, true), (reach + 24.0 + 0.01, false)] {
+        for forward in [[1.0, 0.0, 0.0], vec::normalize([1.0, 0.0, -1.0])] {
+            let world = Toy { actors: vec![(7, [distance, 0.0, 15.0], 15.0)], fence: false, wall: None };
+            let hits = swing_reaching(&world, &t, [0.0, 0.0, 112.0], 0.0, forward, reach, 1);
+            assert_eq!(hits.iter().any(|h| h.0 == 7), expected);
+            let blocked = Toy { wall: Some(40.0), ..world };
+            assert!(swing_reaching(&blocked, &t, [0.0, 0.0, 112.0], 0.0, forward, reach, 1).is_empty());
+        }
+    }
+}
+
+#[test]
 fn melee_swing_and_blast() {
     let t = CombatTuning::default();
     let world = Toy { actors: vec![(7, [80.0, 20.0, 100.0], 25.0), (8, [-80.0, 0.0, 100.0], 25.0), (9, [300.0, 0.0, 100.0], 25.0)], fence: false, wall: None };

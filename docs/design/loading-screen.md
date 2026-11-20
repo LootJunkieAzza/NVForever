@@ -56,7 +56,8 @@ behind the screen).
 7. Where the time went (#2407): when the screen comes down, `loading screen phases: up
    <s> s; <wait> <s> s, ...; longest frame <s> s of <n>; read <files> files, <MB> MB, <s> s
    reading, <s> s queued for an archive` (`LoadPhases`). Each wait (step 5's, plus the
-   start's scripts and Pip-Boy warm-up, and the two frames before the travel goes out) is
+   start's scripts, its residents to draw, `actors to place` (§1a), and Pip-Boy warm-up,
+   and the two frames before the travel goes out) is
    given the time from the screen coming up to the last frame it was still missing, so
    the one that ends last is what held the screen. The longest frame says whether the work
    was on the main thread; the reads are the game files' (`fnv_vfs::read_stats`, every
@@ -116,6 +117,55 @@ A travel asked for under it goes out behind it and is waited for too.
   actors start loading only once the screen has had `PICTURE_FRAMES` render frames with the
   pipelines it is drawn with ready, or after `PICTURE_CAP_SECS` (`Loading::world_held`). Log: `loading
   screen: the world starts loading <s> s after the screen (drawn)`.
+- **The residents in view are drawn under it** (nvforever `residents.rs`, `StartPlacing`;
+  `Loading::start_actors`). Before, nobody was drawn under the start's screen: the AI
+  waited for the game to go on, and the first frames of play drew the residents in view
+  three a frame (`SPAWNS_PER_FRAME`): after a Novac start at 22:00, one frame of 65-106 ms
+  right after the screen and about a second of 20-54 ms frames, against 6.5-7 ms after,
+  with the driver's shader cache on and off [observed 2026-11-19: 0.1 s frame windows; 0
+  spawns before the screen came down, 15-17 after it]. Trips already drew theirs under
+  the screen (`Core::arrive`). Now, once the cells around the player are in (drawn and in
+  physics) and the scripts are made, each resident present in a drawn cell and not yet
+  handed to the AI is drawn where the AI will take it up on the first frame of play
+  (`fnv_ai::Ai::add`: where the game has it, facing the same way), within 100 ms of each
+  frame (`START_PLACE_BUDGET`, at least one a frame) and not three a frame. It begins the
+  second frame the scripts are there, so a loaded game's race and sex changes have reached
+  the actors' resolver (`appearance.rs`). The screen waits for them (`actors to place` in
+  the phases line), then for their parts (`actors to draw`), their pipelines and the
+  settle time as for the rest.
+  - Only the bodies come earlier. The residents are not handed to the AI under the
+    screen: they choose their first package on the first frame of play, after the
+    scripts' first frame (OnLoad, GameMode), as before, so the packages and places are
+    those it would give. Choosing them under the screen would have run their begin
+    scripts and OnPackageStart before OnLoad, and judged their conditions before that
+    frame [design: `fnv_game::ai` `set_package`]. Nobody would have walked anyway: the
+    clock is paused.
+  - What changes with it: a script's first frame acts on bodies that are there. An actor
+    it disables is taken away in that frame, before it is seen; one it enables is drawn
+    after the screen, as before [design: `residents::drive` runs after the scripts]. A KillActor naming a limb on a body in view (two corpses
+    in Novac at the start, limb location 1) now finds its body and dismembers it as asked
+    (`dismember::scripted_check`), where before it logged `no part at location 1 can go
+    (or its body is not drawn)` [observed, Novac starts at 22:00 (#3081's description):
+    before, those lines; with it, `dismember: Raider 0x000CEDCA: Head exploded
+    (KillActor)` and the same for Glowing One 0x000CD346]. A body drawn under the screen
+    is put at its walker's place on the first frame of play, not turned or walked there,
+    so a first-frame MoveTo moves it as it did a body drawn then [design].
+  - Their parts are read from when the cells are in (`readahead.rs`: the placed actors
+    of the loaded cells, listed once under the start's screen), not from when they may be
+    drawn, after the scripts. Log: `actor read-ahead: under the start's screen, <n>
+    actors of the <m> loaded cells listed`.
+  - The cap: 3 s (`PLACE_CAP_SECS`) from the first frame they may be drawn (the cells in,
+    the scripts made: `StartActors::drawing`), counted afresh if that stops; then it lets
+    them go with `loading screen: <n> residents in view still not drawn after 3 s;
+    going on without them (drawn after the screen)`, nvforever stops drawing them under
+    it, and those left are drawn after it, three a frame, as before.
+  - Test aid `NVF_START_ACTORS_UNDER_SCREEN=0`: drawn after the screen, as before (logged
+    at the start: `test aid NVF_START_ACTORS_UNDER_SCREEN=0: …`).
+  - Log, as the screen comes down: `loading screen: start residents: <n> drawn under the
+    screen, <m> in view left for after it` (with the aid: `… (test aid
+    NVF_START_ACTORS_UNDER_SCREEN=0: all drawn after it)`; after the cap: `… (the screen
+    stopped waiting for them after its cap)`); when drawing begins: `ai: the start's
+    screen waits for <n> residents in view to be drawn under it`.
 - Log: `loading screen: the start is held until the world can be played`, `loading
   screen down after <s> s (the start: cells, actors and scripts ready); …`, or after
   120 s `the start still waits for <what> after <s> s; going on without it`.
@@ -123,6 +173,30 @@ A travel asked for under it goes out behind it and is waited for too.
   window once this screen is down.
 - [hypothesis] The original never shows the world before its scripts run: it reads the
   plugins, scripts and all, before the main menu.
+- **The start's models on the read pool** (2026-11-19, `world::start_pool_prep`). The
+  model reads have their own pool since #1732 (`nvf_assets::read_pool`), so under the
+  picture hold `world::read_ahead_under_hold` already reads the cells around the camera
+  ahead, as `stream`'s first frame would: their lists, landscape and models are prepared
+  on that pool while the picture comes up, and `take_cell_work` takes the models in.
+  Once the hold is let go, a cell whose models are not all in waits for that read-ahead
+  (`world::wait_over`), nearest cell first, for at most 1.5 s of real time from the first
+  cell asked for, after which the rest are drawn at once with their models prepared on
+  the main thread as before; the screen still waits until every cell is drawn. Before, the
+  read-ahead began only after the hold, and in the same frame every cell was drawn with
+  each model prepared on the main thread, one after another: 0.48-0.59 s of main-thread
+  time for the 25 cells and about 230 models of a Novac start (`streaming summary`) in
+  two or three long frames, while the 4-thread pool had none of that work, then prepared
+  67-111 of them a second time [observed: `NVF_LOADING_PROBE`, a local probe, Novac
+  start, 4 runs]. Whether the hold itself is still worth its 0.7 s has not been measured
+  (#1732); this uses it instead. Logs: `world: the start's read-ahead
+  begins under the loading screen's picture hold: <n> cells around (<x>, <y>) read on the
+  read pool`, and once the cells are all in `world: the start's cells drawn: <n> with
+  their models prepared on the read pool, <n> before (the rest prepared on the main
+  thread); <n> cells read ahead under the picture hold, <s> s from the first cell to the
+  last`. Test aid `NVF_START_POOL_PREP=0`: as before (logged). A travel's screen is
+  unchanged: no hold comes before it, and its cells are drawn at once. So are those of a
+  travel asked for under the start's screen, and they are not counted in the start's line
+  (`world::start_pool_cells`).
 
 [design: `engine/nvforever/src/pipboy_arm.rs`, `player_body.rs`,
 `engine/nvf-play/src/pipboy.rs`, `loading.rs`; #1803] Once the start's picture hold is
@@ -246,9 +320,13 @@ cancellation and a cold New Game gift at 16:9 and 4:3 after this review revision
 - `nvf-play`: `loading::tests` (cover, destination, a tip only with text, and the sequence:
   screen up and clock paused before the travel goes out, held while the renderer is busy,
   down and playing again after; held while actors are read; the start's screen and its
-  clock; a travel under the start's screen), `loading_look::tests` (the tip's box and band
+  clock; a travel under the start's screen; the start held while residents in view are to
+  place, not with the aid, and let go at the cap, counted only while they may be drawn), `loading_look::tests` (the tip's box and band
   and the emblem's place at 1280x720 and 1280x1024, its turning).
-- Smoke: `loading-screen-look`.
+- `nvforever`: `residents::tests` (the start's residents drawn where the AI takes them up,
+  the frame's budget, the aid).
+- Smoke: `loading-screen-look`; `start-residents-under-screen` and its twin with the aid,
+  `start-residents-after-screen-aid`.
 - In the game (owner's data): Doc Mitchell's front door, both ways; see the pull request.
 - Where a start's first seconds go (`engine/nvforever/src/start_times.rs`, every run): `start:
   Startup <s> s; frame 1 <s> s: <s> s before Update, <s> s in Update, <s> s after it` and

@@ -1556,6 +1556,8 @@ dependencies = [
  "offset-allocator",
  "profiling",
  "send_wrapper",
+ "serde",
+ "serde_json",
  "smallvec",
  "static_assertions",
  "thiserror 2.0.21",
@@ -1619,8 +1621,6 @@ dependencies = [
 [[package]]
 name = "bevy_shader"
 version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6666ae130a5d6c1be72e2669ee8ae8d1c7f641f3da37915f77cc1f85806a62b"
 dependencies = [
  "bevy_asset",
  "bevy_platform",
@@ -1956,8 +1956,6 @@ dependencies = [
 [[package]]
 name = "bevy_winit"
 version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -1983,6 +1981,7 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "wgpu-types",
+ "windows-sys 0.61.2",
  "winit",
 ]
 
@@ -4792,6 +4791,7 @@ name = "nvf-play"
 version = "0.8.0"
 dependencies = [
  "bevy",
+ "bevy_winit",
  "chrono",
  "fnv-actor",
  "fnv-collide",
@@ -7371,6 +7371,7 @@ dependencies = [
  "smallvec",
  "static_assertions",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
  "wgpu-core",
  "wgpu-hal",

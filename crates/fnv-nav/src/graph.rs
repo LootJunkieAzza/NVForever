@@ -186,8 +186,12 @@ pub struct NavGraph {
     /// Lock data of door references (authored XLOC; the game updates it as doors are
     /// unlocked, [`NavGraph::set_door_lock`]).
     pub door_locks: HashMap<u32, DoorLock>,
-    /// Load doors that are not in the world now (disabled, or deleted): no path goes
-    /// through them ([`NavGraph::door_open`]). Built from the
+    /// Doors that are not in the world now (disabled, or deleted). No path goes through
+    /// such a load door ([`NavGraph::door_open`]); such a door that opens in place bars
+    /// nothing and gets no stop, as if it were not placed (#2405: Point Lookout's
+    /// mansion has a second, initially disabled and locked door in the doorway of the
+    /// one Desmond's quest opens, `DLC04SideDoubleDoor02REF`, and it closed his way to
+    /// the player). Built from the
     /// load order's enable state ([`NavGraph::build`]); the game brings it in line as
     /// scripts enable and disable references ([`NavGraph::sync_door_presence`]). Nellis's
     /// hangar has two pairs of doors on the same spot, one into each version of the
@@ -341,9 +345,11 @@ impl NavGraph {
                 g.door_locks.insert(d, l);
             }
         }
-        let doors = g.door_refs_through();
-        g.disabled_doors = doors.into_iter().filter(|&d| !authored_enabled(lo, schema, d)).collect();
         g.learn_in_place_doors(lo, schema, ix);
+        // Load doors and doors that open in place alike (#2405): one disabled as placed
+        // is not there.
+        let doors = g.door_refs();
+        g.disabled_doors = doors.into_iter().filter(|&d| !authored_enabled(lo, schema, d)).collect();
         g.learn_obstacles(lo, schema, ix);
         g
     }
@@ -623,13 +629,14 @@ impl NavGraph {
         v
     }
 
-    /// Bring the load doors' presence in line with the game's: `states` gives each door
-    /// and whether it is in the world now (enabled, with its enable parents, and not
-    /// deleted). Doors the graph has no load door for are passed over. Returns the doors
-    /// gone from the world and those back in it.
+    /// Bring the doors' presence (load doors and doors that open in place) in line with
+    /// the game's: `states` gives each door and whether it is in the world now (enabled,
+    /// with its enable parents, and not deleted). Doors the graph does not know
+    /// ([`NavGraph::door_refs`]) are passed over. Returns the doors gone from the world
+    /// and those back in it.
     pub fn sync_door_presence(&mut self, states: impl IntoIterator<Item = (u32, bool)>) -> DoorPresenceChanges {
         let mut out = DoorPresenceChanges::default();
-        let known = self.door_refs_through();
+        let known = self.door_refs();
         for (d, present) in states {
             if known.binary_search(&d).is_err() {
                 continue;

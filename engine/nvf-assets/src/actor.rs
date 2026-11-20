@@ -36,7 +36,9 @@ use crate::anim_play::{BlendPlayer, BoundClip, Clip};
 use crate::data::GameData;
 use crate::model::ModelCtx;
 use crate::nif_material::NifMaterial;
-use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shaded_model, shape_material, shape_material_reusing_tangents, shape_props, shape_skin, to_bevy, Props};
+use crate::model::ModelSink;
+use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shaded_model, shape_material_reusing_tangents, shape_material_with, shape_props, shape_skin, to_bevy, Props};
+use crate::tangents::Tangents;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::math::Affine3A;
@@ -45,7 +47,6 @@ use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use fnv_nif::scene::{scene_objects, Decoded, SceneObject};
 use fnv_nif::{NifFile, Value};
-use crate::texture::TextureCache;
 use bevy::tasks::{futures::check_ready, Task};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -68,6 +69,9 @@ pub struct PreparedSkeleton {
     /// Bind-pose world transforms relative to the root, NIF space.
     pub bind_world: Vec<Affine3A>,
     pub by_name: HashMap<String, usize>,
+    /// Named BSBound BBX half-width in skeleton units [documented:
+    /// schemas/nif/scene.json; observed: issue #2535 record/file facts].
+    pub bbx_half_width: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -235,12 +239,24 @@ pub struct PreparedPart {
     /// The archive path it was read from (normalized), for rules that pick parts by file
     /// (the SMP generator's, `smp_physics.rs`).
     pub path: String,
+    /// Where a held weapon's shots leave: the first node named as in [`MUZZLE_NODES`],
+    /// in the part's space, root transform included (as nvforever `weapons::spawn_muzzle`
+    /// placed it from the file prepared again as a model). Read here, on the part's
+    /// worker thread, for the same reason as `projectile_nodes` (#3057: 28-30 ms of the
+    /// frame an armed NPC was drawn in [observed 2026-11-20, `profile hitch` spans]).
+    pub muzzle: Option<Affine3A>,
+    /// The `UPB` string of each node that has one, by node name: the bone a weapon's
+    /// part hangs from (nvforever `weapons::spawn_model`). Read here for the same reason.
+    pub upb: Arc<HashMap<String, String>>,
     /// No shape is skinned and the file has controllers of its own (not driven by a
     /// sequence) that move a node, drive a material or show and hide a node: a creature
     /// draws such a part as a model playing them on its bone, not as still shapes
     /// (nvforever `actors::spawn_creature`).
     pub plays_itself: bool,
 }
+
+/// The nodes a held weapon's shots leave from, by either of their names (animation.md §9.9).
+pub const MUZZLE_NODES: [&str; 2] = ["ProjectileNode", "##ProjectileNode"];
 
 /// Whether a node is named as a projectile node (`ProjectileNode…`, WEAP NNAM).
 pub fn is_projectile_node(name: &str) -> bool {
@@ -301,10 +317,13 @@ pub struct ActorParts {
     parts: HashMap<String, Option<Arc<PreparedPart>>>,
     materials: HashMap<(String, usize, String), Handle<NifMaterial>>,
     clips: HashMap<String, Option<Arc<Clip>>>,
-    /// Parts read and parsed on a worker thread ([`ActorCtx::parts_ready`]), waiting for
-    /// [`ActorCtx::part`], with when they came in; and the reads under way.
+    /// Skeletons read and parsed on a worker thread ([`ActorCtx::parts_ready`]), waiting
+    /// for [`ActorCtx::skeleton`], with when they came in; and the reads under way.
     fetched: HashMap<String, (Nif, f64)>,
     fetching: HashMap<String, Task<Fetched>>,
+    /// Parts being prepared whole on a worker thread ([`ActorCtx::parts_ready`], #3072),
+    /// taken in by [`ActorParts::take_fetched`].
+    preparing: HashMap<String, Task<PartPrepared>>,
     /// KF clips being read on a worker thread ([`ActorCtx::clip_ready`]).
     clip_reads: HashMap<String, Task<Result<Clip, String>>>,
     /// Textures an actor's materials name beyond its parts' own (a part's or the race's
@@ -387,6 +406,10 @@ struct Fetched {
     textures: Vec<(String, Vec<u8>)>,
 }
 
+/// A part prepared on a worker thread: the part (or why not), its meshes, materials and
+/// skins under handles reserved from the stores, and the textures it could not load.
+type PartPrepared = (Result<PreparedPart, String>, crate::model::DeferredAssets, Vec<String>);
+
 /// Seconds a part read ahead waits for its actor before it is dropped (an actor that
 /// left view before it was drawn).
 const FETCHED_KEEP_SECS: f64 = 30.0;
@@ -412,9 +435,39 @@ fn fetch(data: &GameData, path: &str) -> Fetched {
 }
 
 impl ActorParts {
-    /// Take in the parts read ahead that are done (their textures go to `textures`), and
-    /// drop those nobody took in time; the number taken in.
-    pub fn take_fetched(&mut self, textures: &mut TextureCache, now: f64) -> usize {
+    /// Take in what worker threads finished: parts prepared (their assets into `models`'
+    /// stores, the part into the cache) and skeletons read; drop skeletons nobody took in
+    /// time. The number taken in.
+    pub fn take_fetched(&mut self, models: &mut ModelCtx, now: f64) -> usize {
+        let mut prepared = Vec::new();
+        self.preparing.retain(|path, task| match check_ready(task) {
+            Some(p) => {
+                prepared.push((path.clone(), p));
+                false
+            }
+            None => true,
+        });
+        let mut n = prepared.len();
+        for (path, (part, assets, failures)) in prepared {
+            // Prepared on the main thread meanwhile (its actor was drawn first): the
+            // worker's copy is dropped, its reserved handles with it.
+            if self.parts.contains_key(&path) {
+                continue;
+            }
+            models.put_in(assets, now);
+            for f in failures {
+                self.failures.push(f);
+            }
+            let part = match part {
+                Ok(p) => Some(Arc::new(p)),
+                Err(e) => {
+                    crate::guard::failed(&mut self.failures, "actor file", format!("{path}: {e}"));
+                    None
+                }
+            };
+            self.parts.insert(path, part);
+        }
+        let textures = &mut *models.textures;
         let mut done = Vec::new();
         self.fetching.retain(|path, task| match check_ready(task) {
             Some(f) => {
@@ -423,7 +476,7 @@ impl ActorParts {
             }
             None => true,
         });
-        let n = done.len();
+        n += done.len();
         for (path, f) in done {
             for (t, bytes) in f.textures {
                 textures.offer(t, bytes, now);
@@ -458,7 +511,7 @@ impl ActorParts {
             PartState::Prepared
         } else if self.fetched.contains_key(&key) {
             PartState::Read
-        } else if self.fetching.contains_key(&key) {
+        } else if self.fetching.contains_key(&key) || self.preparing.contains_key(&key) {
             PartState::Reading
         } else {
             PartState::Unknown
@@ -713,20 +766,40 @@ impl ActorCtx<'_, '_> {
     /// taken in by [`ActorParts::take_fetched`]: an actor can wait for them before it is
     /// drawn instead of stalling the frame it comes into view (the parse was a sixth of
     /// the hitch then [observed: CPU profile, 2026-10-22]).
-    pub fn parts_ready<'p>(&mut self, paths: impl IntoIterator<Item = &'p str>) -> bool {
+    ///
+    /// [design] #3072: a part is prepared whole there (meshes, tangents, textures decoded,
+    /// materials and skins, under handles reserved from the stores), as a cell's models
+    /// are (`ModelCtx::models_ready`); only putting its assets in stays on this thread.
+    /// The skeleton, which makes no assets, is read and parsed there and prepared here.
+    pub fn parts_ready<'p>(&mut self, parts: impl IntoIterator<Item = &'p str>, skeleton: &str) -> bool {
         let mut ready = true;
-        for path in paths {
+        for path in parts {
             let key = fnv_vfs::normalize(path);
-            if self.cache.parts.contains_key(&key) || self.cache.skeletons.contains_key(&key) || self.cache.fetched.contains_key(&key) {
+            if self.cache.parts.contains_key(&key) {
                 continue;
             }
             ready = false;
-            if self.cache.fetching.contains_key(&key) {
+            if self.cache.preparing.contains_key(&key) {
                 continue;
             }
-            let (data, job) = ((*self.models.data).clone(), key.clone());
-            let task = crate::read_pool::read_pool().spawn(async move { fetch(&data, &job) });
-            self.cache.fetching.insert(key, task);
+            let mut sink = self.models.deferred();
+            let job = key.clone();
+            let task = crate::read_pool::read_pool().spawn(async move {
+                let mut failures = Vec::new();
+                let nif = decode(sink.data(), &job);
+                let part = crate::guard::guarded(|| prepare_part_into(&mut sink, &job, nif, &mut failures));
+                (part, sink.into_assets(), failures)
+            });
+            self.cache.preparing.insert(key, task);
+        }
+        let key = fnv_vfs::normalize(skeleton);
+        if !(self.cache.skeletons.contains_key(&key) || self.cache.fetched.contains_key(&key)) {
+            ready = false;
+            if !self.cache.fetching.contains_key(&key) {
+                let (data, job) = ((*self.models.data).clone(), key.clone());
+                let task = crate::read_pool::read_pool().spawn(async move { fetch(&data, &job) });
+                self.cache.fetching.insert(key, task);
+            }
         }
         ready
     }
@@ -943,168 +1016,203 @@ impl ActorCtx<'_, '_> {
         self.models.materials.add(m)
     }
 
+    /// Prepare the part at `path` on this thread, from its file read ahead if there is one.
     fn prepare_part(&mut self, path: &str) -> Result<PreparedPart, String> {
         let ahead = self.cache.fetched.remove(path).map(|(nif, _)| nif);
-        let m = &mut *self.models;
-        let (file, _bytes, dec) = ahead.unwrap_or_else(|| decode(&m.data, path))?;
-        let objects = scene_objects(&file, &dec);
-        let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
-        let shaded = shaded_model(&file, &dec);
-        let hidden_self = |b: usize| {
-            dec.blocks[b].as_ref().ok().and_then(|s| s.int("flags")).unwrap_or(0) & 1 != 0
-                || is_editor_marker(by_block.get(&b).and_then(|o| o.name.as_deref()))
-        };
-        let mut out = PreparedPart::default();
-        let mut root_xml: Option<String> = None;
-        // `Prn` on the root node (actors.md §1.2).
-        if let Some(r) = objects.iter().find(|o| o.parent.is_none()) {
-            out.root = affine(&r.transform);
-        }
-        if let Some(root) = objects.iter().find(|o| o.parent.is_none()).and_then(|o| dec.blocks[o.block].as_ref().ok()) {
-            for &e in root.refs("extra_data").unwrap_or_default() {
-                if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case("Prn"))) {
-                    out.prn = x.text("string_data").map(str::to_string);
-                }
-                if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case(SMP_XML_EXTRA))) {
-                    root_xml = x.text("string_data").map(str::to_string);
-                }
-            }
-        }
-        out.path = fnv_vfs::normalize(path);
-        if objects.iter().any(|o| o.is_node && o.name.as_deref().is_some_and(is_projectile_node)) {
-            let (nodes, _) = crate::model::model_nodes(&objects);
-            for (i, n) in nodes.iter().enumerate() {
-                let Some(name) = n.name.as_deref().filter(|n| is_projectile_node(n)) else { continue };
-                let mut path = Vec::new();
-                let mut at = Some(i);
-                while let Some(j) = at {
-                    path.push(j);
-                    at = nodes[j].parent;
-                }
-                let local = path.iter().rev().fold(out.root, |m, &j| m * nodes[j].local);
-                out.projectile_nodes.push((name.to_string(), local));
-            }
-        }
-        out.part_rest = crate::model::part_rest_visibility(&file, &dec);
-        let order = fnv_nif::scene::geometry_order(&objects);
-        for o in objects.iter().filter(|o| !o.is_node) {
-            // Below the root; the root's own transform is `out.root` (see `rigid_local`).
-            let own = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
-            let mut t = own;
-            let mut ancestors = Vec::new();
-            let mut hidden = hidden_self(o.block);
-            let mut cur = o.parent;
-            let mut depth = 0;
-            while let Some(p) = cur {
-                let Some(po) = by_block.get(&p) else { break };
-                if po.parent.is_some() {
-                    t = affine(&po.transform) * t;
-                    ancestors.push((po.name.clone(), affine(&po.transform)));
-                }
-                hidden |= hidden_self(p);
-                cur = po.parent;
-                depth += 1;
-                if depth > 512 {
-                    break;
-                }
-            }
-            if hidden {
-                continue;
-            }
-            let Ok(shape) = &dec.blocks[o.block] else { continue };
-            let Some(data) = shape.block_ref("data").and_then(|r| dec.get(r)) else { continue };
-            let mut props = shape_props(&file, &dec, o, &by_block);
-            if props.is_helper(shaded) {
-                continue;
-            }
-            // The actor's clips may fade this shape's material alpha (Mr. House's screens).
-            props.alpha_gated = crate::nif_spawn::material_alpha_controlled(&file, &dec, o.block);
-            let Some((mut mesh, _tris)) = build_mesh(data) else { continue };
-            // Hair-shader shapes (hair, beards, eyebrows) carry a mask in their vertex
-            // colours, not a colour [observed: red 0.04–0.39 with green and blue at 1 in
-            // `hairbase.nif` and `beardmustachecurly.nif`; multiplied in, the hair turns
-            // cyan]; they are not applied [hypothesis: what the mask does is open].
-            if props.hair {
-                mesh.remove_attribute(Mesh::ATTRIBUTE_COLOR);
-            }
-            let cap = is_cap(&dec, shape);
-            let mut partitions = shape_partitions(&dec, shape, mesh.count_vertices());
-            // In a shape with drawn partitions, only a cap body part (section caps 1xx,
-            // torso caps 2xx) with bit 0 clear counts as a cap, so an outfit's piece
-            // with an odd flag is never hidden; in a cap shape every partition is one.
-            for p in &mut partitions {
-                p.cap = partition_is_cap(cap, p.cap, p.body_part);
-            }
-            let partitions = Arc::new(partitions);
-            let caps = partitions.iter().filter(|p| p.cap).count();
-            // A cap's texture alpha cuts up to half of its tip away (`MeatCapGore01.dds`,
-            // DXT3, tested GREATER 127: dismemberment.md §2.5), and through the cuts the
-            // hollow limb and the cap's far side were not drawn: the corpse showed the ground
-            // through the stump (owner, 2026-11-15). Caps are drawn from both sides, so the
-            // cuts show the cap's inside [design: the caps carry no NiStencilProperty].
-            if caps > 0 {
-                props.double_sided = true;
-            }
-            let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
-            if let Some(t) = missing {
-                self.cache.failures.push(format!("{path}: texture {t} not loaded"));
-            }
-            if !cap && caps > 0 && first_mixed_report(path, o.block) {
-                info!("actor parts: {path}: shape {:?} hides {caps} cap partitions beside {} drawn", o.name.as_deref().unwrap_or(""), partitions.len() - caps);
-            }
-            let extra: Vec<(String, String)> = shape
-                .refs("extra_data")
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|&e| dec.get(e))
-                .filter_map(|x| Some((x.text("name")?.to_string(), x.text("string_data")?.to_string())))
-                .collect();
-            let smp = smp_extra(&extra, root_xml.as_deref()).map(Arc::new);
-            let mut inverse_binds = None;
-            let skin = shape_skin(&dec, shape, mesh.count_vertices()).and_then(|skin| {
-                let names: Option<Vec<String>> = skin.bones.iter().map(|b| by_block.get(b).and_then(|o| o.name.clone())).collect();
-                let names = names?;
-                let binds = skin.insert_into(&mut mesh);
-                inverse_binds = Some(Arc::new(binds.clone()));
-                Some((m.bindposes.add(binds), names))
-            });
-            let mesh = if skin.is_some() {
-                mesh.with_generated_skinned_mesh_bounds()
-                    .unwrap_or_else(|_| Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD))
-            } else {
-                mesh
-            };
-            let cpu = Arc::new(mesh.clone());
-            // A cap draws nothing until its part is gone (`dismember_mesh`); nor does a cap
-            // partition in a shape that also holds drawn ones.
-            let mesh = if partitions.iter().any(|p| p.cap) { dismember_mesh(&cpu, &partitions, |p| !p.cap) } else { mesh };
-            out.shapes.push(PartShape {
-                name: o.name.clone(),
-                mesh: m.meshes.add(mesh),
-                material: m.materials.add(material),
-                props,
-                cpu,
-                skin,
-                transform: t,
-                cap,
-                partitions,
-                ancestors,
-                own,
-                geometry_index: order.get(&o.block).copied().unwrap_or(usize::MAX),
-                inverse_binds,
-                smp,
-            });
-        }
-        // Controllers that run by themselves, on a part with no skin: the part moves by
-        // itself (Mister Handy's jet, `fxmrhandyjetaddon.nif`: scrolling flames,
-        // refraction clouds, billboards; #2228), so a creature draws it as a playing model
-        // ([`PreparedPart::plays_itself`]).
-        out.plays_itself = out.shapes.iter().all(|s| s.skin.is_none())
-            && (!crate::model::free_material_tracks(&file, &dec).is_empty()
-                || !crate::model::free_transform_tracks(&file, &dec).is_empty()
-                || !crate::model::free_visibility_tracks(&file, &dec).is_empty());
-        Ok(out)
+        let nif = ahead.unwrap_or_else(|| decode(&self.models.data, path));
+        let mut sink = self.models.stores();
+        prepare_part_into(&mut sink, path, nif, &mut self.cache.failures)
     }
+}
+
+/// Prepare the part at `path` from its file `nif` into `sink`: the main thread's stores
+/// ([`ActorCtx::part`]) or a worker thread's ([`ActorCtx::parts_ready`], #3072). Textures
+/// that could not be loaded are added to `failures`.
+fn prepare_part_into(sink: &mut impl ModelSink, path: &str, nif: Nif, failures: &mut Vec<String>) -> Result<PreparedPart, String> {
+    let (file, _bytes, dec) = nif?;
+    let objects = scene_objects(&file, &dec);
+    let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+    let shaded = shaded_model(&file, &dec);
+    let hidden_self = |b: usize| {
+        dec.blocks[b].as_ref().ok().and_then(|s| s.int("flags")).unwrap_or(0) & 1 != 0
+            || is_editor_marker(by_block.get(&b).and_then(|o| o.name.as_deref()))
+    };
+    let mut out = PreparedPart::default();
+    let mut root_xml: Option<String> = None;
+    // `Prn` on the root node (actors.md §1.2).
+    if let Some(r) = objects.iter().find(|o| o.parent.is_none()) {
+        out.root = affine(&r.transform);
+    }
+    if let Some(root) = objects.iter().find(|o| o.parent.is_none()).and_then(|o| dec.blocks[o.block].as_ref().ok()) {
+        for &e in root.refs("extra_data").unwrap_or_default() {
+            if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case("Prn"))) {
+                out.prn = x.text("string_data").map(str::to_string);
+            }
+            if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case(SMP_XML_EXTRA))) {
+                root_xml = x.text("string_data").map(str::to_string);
+            }
+        }
+    }
+    out.path = fnv_vfs::normalize(path);
+    if objects.iter().any(|o| o.is_node && o.name.as_deref().is_some_and(is_projectile_node)) {
+        let (nodes, _) = crate::model::model_nodes(&objects);
+        for (i, n) in nodes.iter().enumerate() {
+            let Some(name) = n.name.as_deref().filter(|n| is_projectile_node(n)) else { continue };
+            let mut path = Vec::new();
+            let mut at = Some(i);
+            while let Some(j) = at {
+                path.push(j);
+                at = nodes[j].parent;
+            }
+            let local = path.iter().rev().fold(out.root, |m, &j| m * nodes[j].local);
+            out.projectile_nodes.push((name.to_string(), local));
+        }
+    }
+    let muzzle_named = |n: &str| MUZZLE_NODES.iter().any(|m| n.eq_ignore_ascii_case(m));
+    if objects.iter().any(|o| o.is_node && o.name.as_deref().is_some_and(muzzle_named)) {
+        let (nodes, _) = crate::model::model_nodes(&objects);
+        out.muzzle = crate::model::node_path(&nodes, &MUZZLE_NODES).map(|path| path.iter().fold(out.root, |m, &j| m * nodes[j].local));
+    }
+    let mut upb = HashMap::new();
+    for o in objects.iter().filter(|o| o.is_node) {
+        let (Some(name), Some(Ok(node))) = (&o.name, dec.blocks.get(o.block)) else { continue };
+        for &e in node.refs("extra_data").unwrap_or_default() {
+            if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case("UPB"))) {
+                upb.extend(x.text("string_data").map(|s| (name.clone(), s.to_string())));
+            }
+        }
+    }
+    out.upb = Arc::new(upb);
+    out.part_rest = crate::model::part_rest_visibility(&file, &dec);
+    let order = fnv_nif::scene::geometry_order(&objects);
+    for o in objects.iter().filter(|o| !o.is_node) {
+        // Below the root; the root's own transform is `out.root` (see `rigid_local`).
+        let own = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
+        let mut t = own;
+        let mut ancestors = Vec::new();
+        let mut hidden = hidden_self(o.block);
+        let mut cur = o.parent;
+        let mut depth = 0;
+        while let Some(p) = cur {
+            let Some(po) = by_block.get(&p) else { break };
+            if po.parent.is_some() {
+                t = affine(&po.transform) * t;
+                ancestors.push((po.name.clone(), affine(&po.transform)));
+            }
+            hidden |= hidden_self(p);
+            cur = po.parent;
+            depth += 1;
+            if depth > 512 {
+                break;
+            }
+        }
+        if hidden {
+            continue;
+        }
+        let Ok(shape) = &dec.blocks[o.block] else { continue };
+        let Some(data) = shape.block_ref("data").and_then(|r| dec.get(r)) else { continue };
+        let mut props = shape_props(&file, &dec, o, &by_block);
+        if props.is_helper(shaded) {
+            continue;
+        }
+        // The actor's clips may fade this shape's material alpha (Mr. House's screens).
+        props.alpha_gated = crate::nif_spawn::material_alpha_controlled(&file, &dec, o.block);
+        let Some((mut mesh, _tris, _)) = build_mesh(data) else { continue };
+        // Hair-shader shapes (hair, beards, eyebrows) carry a mask in their vertex
+        // colours, not a colour [observed: red 0.04–0.39 with green and blue at 1 in
+        // `hairbase.nif` and `beardmustachecurly.nif`; multiplied in, the hair turns
+        // cyan]; they are not applied [hypothesis: what the mask does is open].
+        if props.hair {
+            mesh.remove_attribute(Mesh::ATTRIBUTE_COLOR);
+        }
+        let cap = is_cap(&dec, shape);
+        let mut partitions = shape_partitions(&dec, shape, mesh.count_vertices());
+        // In a shape with drawn partitions, only a cap body part (section caps 1xx,
+        // torso caps 2xx) with bit 0 clear counts as a cap, so an outfit's piece
+        // with an odd flag is never hidden; in a cap shape every partition is one.
+        for p in &mut partitions {
+            p.cap = partition_is_cap(cap, p.cap, p.body_part);
+        }
+        let partitions = Arc::new(partitions);
+        let caps = partitions.iter().filter(|p| p.cap).count();
+        // A cap's texture alpha cuts up to half of its tip away (`MeatCapGore01.dds`,
+        // DXT3, tested GREATER 127: dismemberment.md §2.5), and through the cuts the
+        // hollow limb and the cap's far side were not drawn: the corpse showed the ground
+        // through the stump (owner, 2026-11-15). Caps are drawn from both sides, so the
+        // cuts show the cap's inside [design: the caps carry no NiStencilProperty].
+        if caps > 0 {
+            props.double_sided = true;
+        }
+        let (material, missing) = shape_material_with(&props, &mut mesh, sink, Tangents::Generate);
+        if let Some(t) = missing {
+            failures.push(format!("{path}: texture {t} not loaded"));
+        }
+        if !cap && caps > 0 && first_mixed_report(path, o.block) {
+            info!("actor parts: {path}: shape {:?} hides {caps} cap partitions beside {} drawn", o.name.as_deref().unwrap_or(""), partitions.len() - caps);
+        }
+        let extra: Vec<(String, String)> = shape
+            .refs("extra_data")
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|&e| dec.get(e))
+            .filter_map(|x| Some((x.text("name")?.to_string(), x.text("string_data")?.to_string())))
+            .collect();
+        let smp = smp_extra(&extra, root_xml.as_deref()).map(Arc::new);
+        let mut inverse_binds = None;
+        let skin = shape_skin(&dec, shape, mesh.count_vertices()).and_then(|skin| {
+            let names: Option<Vec<String>> = skin.bones.iter().map(|b| by_block.get(b).and_then(|o| o.name.clone())).collect();
+            let names = names?;
+            let binds = skin.insert_into(&mut mesh);
+            inverse_binds = Some(Arc::new(binds.clone()));
+            Some((sink.bindposes(binds.into()), names))
+        });
+        let mesh = if skin.is_some() {
+            mesh.with_generated_skinned_mesh_bounds()
+                .unwrap_or_else(|_| Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD))
+        } else {
+            mesh
+        };
+        let cpu = Arc::new(mesh.clone());
+        // A cap draws nothing until its part is gone (`dismember_mesh`); nor does a cap
+        // partition in a shape that also holds drawn ones.
+        let mesh = if partitions.iter().any(|p| p.cap) { dismember_mesh(&cpu, &partitions, |p| !p.cap) } else { mesh };
+        out.shapes.push(PartShape {
+            name: o.name.clone(),
+            mesh: sink.mesh(mesh),
+            material: sink.material(material),
+            props,
+            cpu,
+            skin,
+            transform: t,
+            cap,
+            partitions,
+            ancestors,
+            own,
+            geometry_index: order.get(&o.block).copied().unwrap_or(usize::MAX),
+            inverse_binds,
+            smp,
+        });
+    }
+    // Controllers that run by themselves, on a part with no skin: the part moves by
+    // itself (Mister Handy's jet, `fxmrhandyjetaddon.nif`: scrolling flames,
+    // refraction clouds, billboards; #2228), so a creature draws it as a playing model
+    // ([`PreparedPart::plays_itself`]).
+    out.plays_itself = out.shapes.iter().all(|s| s.skin.is_none())
+        && (!crate::model::free_material_tracks(&file, &dec).is_empty()
+            || !crate::model::free_transform_tracks(&file, &dec).is_empty()
+            || !crate::model::free_visibility_tracks(&file, &dec).is_empty());
+    Ok(out)
+}
+
+/// Read only named BSBound extras attached to skeleton nodes [design, #2535].
+fn skeleton_bbx(dec: &Decoded, nodes: &[usize]) -> Option<f32> {
+    nodes.iter().filter_map(|&b| dec.blocks.get(b)?.as_ref().ok()).flat_map(|n| n.refs("extra_data").unwrap_or_default()).find_map(|&e| {
+        let i = usize::try_from(e).ok()?;
+        let bound = dec.get(e).filter(|b| dec.is_a(i, "BSBound") && b.text("name").is_some_and(|n| n.eq_ignore_ascii_case("BBX")))?;
+        let dims = bound.floats("dimensions").filter(|d| d.len() == 3)?;
+        let x = dims[0];
+        (x.is_finite() && x > 0.0).then_some(x)
+    })
 }
 
 fn prepare_skeleton(nif: Nif) -> Result<PreparedSkeleton, String> {
@@ -1116,7 +1224,7 @@ fn prepare_skeleton(nif: Nif) -> Result<PreparedSkeleton, String> {
         return Err("no root node".into());
     }
     let index: HashMap<usize, usize> = order.iter().enumerate().map(|(i, &b)| (b, i)).collect();
-    let mut s = PreparedSkeleton::default();
+    let mut s = PreparedSkeleton { bbx_half_width: skeleton_bbx(&dec, &order), ..Default::default() };
     for (i, &b) in order.iter().enumerate() {
         let o = by_block.get(&b).ok_or_else(|| format!("block {b} is not a scene object"))?;
         let parent = o.parent.and_then(|p| index.get(&p).copied());
@@ -1677,6 +1785,7 @@ mod tests {
             parents: vec![None, Some(0)], locals: vec![Transform::IDENTITY, head],
             bind_world: vec![Affine3A::IDENTITY, head.compute_affine()],
             by_name: HashMap::from([(DEFAULT_RIGID_BONE.into(), 1)]),
+            bbx_half_width: None,
         }
     }
 
@@ -1878,6 +1987,27 @@ mod tests {
         let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
         m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
         assert!(rigid_mesh(&m).is_none());
+    fn skeleton_bbx_reads_only_attached_named_bounds() {
+        use fnv_nif::value::Struct;
+        // Synthetic decoded blocks, without game assets [design, #2535].
+        let read = |name: &str, ty: &str, dims: Vec<f32>, attached: bool| {
+            let node = Struct { fields: vec![("extra_data".into(), Value::RefList(if attached { vec![-1, 1] } else { vec![] }))] };
+            let bound = Struct { fields: vec![
+                ("name".into(), Value::Str { index: None, text: Some(name.into()) }),
+                ("dimensions".into(), Value::Floats(dims)),
+            ] };
+            let dec = Decoded { blocks: vec![Ok(node), Ok(bound)], lineage: vec![vec!["NiNode".into()], vec![ty.into()]] };
+            skeleton_bbx(&dec, &[0])
+        };
+        assert_eq!(read("BBX", "BSBound", vec![80.0, 120.0, 40.0], true), Some(80.0));
+        assert_eq!(read("bbx", "BSBound", vec![35.0, 40.0, 20.0], true), Some(35.0));
+        assert_eq!(read("Other", "BSBound", vec![80.0; 3], true), None);
+        assert_eq!(read("BBX", "NiStringExtraData", vec![80.0; 3], true), None);
+        assert_eq!(read("BBX", "BSBound", vec![80.0; 3], false), None);
+        for x in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(read("BBX", "BSBound", vec![x, 40.0, 20.0], true), None);
+        }
+        assert_eq!(read("BBX", "BSBound", vec![80.0], true), None);
     }
 
     #[test]

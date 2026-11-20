@@ -58,10 +58,11 @@
 
 use crate::lod::LodState;
 use crate::reflection::{Reflection, WATER_LAYER};
+use crate::river_flow::{surface_flow, FlowDirection};
 use crate::ripples::Ripples;
 use crate::sky::SkyState;
 use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
-use bevy::asset::embedded_asset;
+use bevy::asset::{embedded_asset, load_internal_asset, uuid_handle};
 use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -69,7 +70,7 @@ use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, BufferUsages, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
 use bevy::render::storage::ShaderBuffer;
-use bevy::shader::ShaderRef;
+use bevy::shader::{Shader, ShaderRef};
 use fnv_world::land::{load_land, LandParts, SIDE};
 use fnv_world::sky::{srgb_to_linear, ColorType, Water};
 use fnv_world::{cell_of, CELL_SIZE};
@@ -84,6 +85,8 @@ pub struct WaterPlugin;
 
 impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
+        const CAUSTICS: Handle<Shader> = uuid_handle!("dcc81bbe-64d4-40df-a75d-ce8d410c5e16");
+        load_internal_asset!(app, CAUSTICS, "caustics.wesl", |s, _| Shader::from_wesl(s, "embedded://nvforever/caustics.wesl"));
         embedded_asset!(app, "water.wesl");
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
             .init_resource::<WaterCache>()
@@ -122,12 +125,17 @@ pub struct WaterParams {
     /// Bevy y of the water whose drawn pixels are counted ([`WaterMaterial::seen`]), and 1
     /// while counting (`crate::reflection`, #1060).
     pub seen_plane: Vec4,
+    /// Direction toward the outdoor sun (Bevy axes) and daylight strength.
+    pub water_sun: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct WaterMaterial {
     #[uniform(0)]
     pub params: WaterParams,
+    /// Original WATR layers and their CPU-baked river counterparts.
+    pub wind_layers: [Vec4; 3],
+    pub current_layers: [Vec4; 3],
     #[texture(1)]
     #[sampler(2)]
     pub noise: Option<Handle<Image>>,
@@ -190,7 +198,7 @@ impl Material for WaterMaterial {
 /// the above fog's amount), and the shared cell-sized plane.
 #[derive(Resource, Default)]
 pub struct WaterCache {
-    materials: HashMap<(u32, bool, bool), Handle<WaterMaterial>>,
+    materials: HashMap<(u32, bool, bool, FlowDirection), Handle<WaterMaterial>>,
     plane: Option<Handle<Mesh>>,
     /// The water-pixel counter ([`WaterMaterial::seen`]), made with the first material.
     seen: Option<Handle<ShaderBuffer>>,
@@ -245,6 +253,12 @@ impl WaterCache {
 #[derive(Resource, Default, PartialEq)]
 pub struct WaterRemaps(HashMap<u32, u32>);
 
+impl WaterRemaps {
+    pub fn resolve(&self, wid: u32) -> u32 {
+        self.0.get(&wid).copied().unwrap_or(wid)
+    }
+}
+
 fn sync_remaps(script: Option<Res<nvf_play::script::ScriptState>>, mut remaps: ResMut<WaterRemaps>) {
     let Some(g) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let now = WaterRemaps(g.forms.water_remaps.iter().map(|(a, b)| (a.0, b.0)).collect());
@@ -283,9 +297,13 @@ impl WaterCtx<'_> {
 /// amount (`above_fog.w` = 1); cell and distant water stay opaque beyond the far plane,
 /// as the cap left the lake bed showing far out in Lake Mead [design, until a far-out
 /// Lake Mead comparison is made, world.md §6].
-pub fn water_material(world: &WorldData, wid: u32, reflects: bool, placed: bool, models: &mut ModelCtx, water: &mut WaterCtx) -> Option<Handle<WaterMaterial>> {
-    let wid = water.remaps.as_ref().and_then(|r| r.0.get(&wid).copied()).unwrap_or(wid);
-    if let Some(m) = water.cache.materials.get(&(wid, reflects, placed)) {
+pub fn water_material(world: &WorldData, wid: u32, reflects: bool, placed: bool, exterior_position: Option<Vec3>, models: &mut ModelCtx, water: &mut WaterCtx) -> Option<Handle<WaterMaterial>> {
+    let wid = water.remaps.as_ref().map_or(wid, |r| r.resolve(wid));
+    let direction = exterior_position.map_or(FlowDirection::STILL, |pos| {
+        surface_flow(world.index.worldspaces[&world.world].edid.as_deref(), pos.truncate(), pos.z)
+    });
+    let key = (wid, reflects, placed, direction);
+    if let Some(m) = water.cache.materials.get(&key) {
         return Some(m.clone());
     }
     let w = fnv_world::sky::water(world.lo, world.schema, wid)?;
@@ -313,8 +331,10 @@ pub fn water_material(world: &WorldData, wid: u32, reflects: bool, placed: bool,
     if placed {
         params.above_fog.w = 1.0;
     }
-    let m = water.materials.add(WaterMaterial { params, noise, reflection, ripples, seen });
-    water.cache.materials.insert((wid, reflects, placed), m.clone());
+    let wind_layers = params.layers;
+    let current_layers = current_layers(wind_layers, direction.velocity());
+    let m = water.materials.add(WaterMaterial { params, wind_layers, current_layers, noise, reflection, ripples, seen });
+    water.cache.materials.insert(key, m.clone());
     Some(m)
 }
 
@@ -335,6 +355,11 @@ pub struct DistantWater {
 
 impl DistantWater {
     /// The visible water surface of cell `g` (height, water type), computed on first use.
+    /// Whether [`DistantWater::surface`] of cell `g` is already known (no landscape read).
+    pub fn surface_known(&self, g: (i32, i32)) -> bool {
+        self.surfaces.contains_key(&g)
+    }
+
     pub fn surface(&mut self, world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
         if let Some(s) = self.surfaces.get(&g) {
             return *s;
@@ -418,6 +443,9 @@ fn wet_vertices(heights: &[f32], surface: f32) -> Option<[usize; 4]> {
     b.map(|[c0, r0, c1, r1]| [c0.saturating_sub(1), r0.saturating_sub(1), (c1 + 1).min(SIDE - 1), (r1 + 1).min(SIDE - 1)])
 }
 
+/// The distant water's landscape reads in one frame ([`distant_water`]).
+const SURFACE_READS_PER_FRAME: usize = 12;
+
 #[allow(clippy::too_many_arguments)]
 pub fn distant_water(
     mut commands: Commands,
@@ -451,12 +479,25 @@ pub fn distant_water(
             commands.entity(e).despawn();
         }
     }
+    // [design] #2956 follow-up: a cell's surface not known yet reads and inflates its
+    // landscape record; a cell crossing uncovers a whole edge of the square (some 70 cells,
+    // 5-11 ms of one frame [observed 2026-11-19, `profile hitch`]). At most
+    // `SURFACE_READS_PER_FRAME` are read a frame, the rest the frames after (the planes lie
+    // at the distant terrain's edge).
+    let mut reads = 0;
     for c in want {
         if dw.planes.contains_key(&c) {
             continue;
         }
+        if !dw.surface_known(c) {
+            if reads >= SURFACE_READS_PER_FRAME {
+                dw.built_for = None;
+                continue;
+            }
+            reads += 1;
+        }
         let Some((height, wid)) = dw.surface(&world, c) else { continue };
-        let Some(mat) = water_material(&world, wid, true, false, &mut models, &mut water) else { continue };
+        let Some(mat) = water_material(&world, wid, true, false, Some(cell_water_center(c, height)), &mut models, &mut water) else { continue };
         let mesh = water.plane(&mut models.meshes);
         let s = CELL_SIZE;
         let e = commands
@@ -502,12 +543,62 @@ pub fn water_params(w: &Water) -> WaterParams {
         ripple: Vec4::ZERO,
         edge: w.edge_falloff().map_or(Vec4::ZERO, |(a, b)| Vec4::new(a, b, 1.0, 0.0)),
         seen_plane: Vec4::ZERO,
+        water_sun: Vec4::ZERO,
     }
 }
 
+/// The share of the current each noise layer travels at [design, by eye].
+const LAYER_PACE: [f32; 3] = [1.0, 0.75, 1.3];
+
+/// Bake advection once per material [design]. UVs add velocity over time, so
+/// moving a crest downstream requires subtracting the physical current. Bound
+/// each layer's wind to 40% of its current in UV units; opposing wind therefore
+/// cannot reverse any layer. Scale and amplitude remain exactly as authored.
+fn current_layers(wind_layers: [Vec4; 3], current: Vec2) -> [Vec4; 3] {
+    let speed = current.length();
+    if speed == 0.0 {
+        return wind_layers;
+    }
+    let mut i = 0;
+    wind_layers.map(|layer| {
+        // Each layer rides the current at its own pace, so the surface changes shape
+        // as it travels instead of sliding past as one rigid sheet.
+        let current = current * LAYER_PACE[i];
+        i += 1;
+        let speed = current.length();
+        let wind = layer.xy();
+        let share = (0.4 * speed * layer.z / wind.length().max(1e-6)).min(1.0);
+        let velocity = wind * share - current * layer.z;
+        Vec4::new(velocity.x, velocity.y, layer.z, layer.w)
+    })
+}
+
+pub fn cell_water_center((x, y): (i32, i32), height: f32) -> Vec3 {
+    Vec3::new((x as f32 + 0.5) * CELL_SIZE, (y as f32 + 0.5) * CELL_SIZE, height)
+}
+
+/// The sky uses a directional light for the moon too. Only the sun can concentrate
+/// daylight on a submerged receiver, and dark weather supplies less direct light.
+pub fn caustic_sun(sky: &SkyState) -> Vec4 {
+    if sky.interior.is_some() {
+        return Vec4::ZERO;
+    }
+    let sun = sky.sun_dir();
+    if sun.y <= 0.0 {
+        return Vec4::ZERO;
+    }
+    let light = Vec3::from_array(sky.color(ColorType::Sunlight)).max_element().clamp(0.0, 1.0);
+    sun.extend(light)
+}
+
+/// How far the caustics' sun must move (direction components, daylight) before the water
+/// materials are written again: an explorer's running clock moved it every frame, and
+/// each write prepares every water material anew.
+const SUN_STEP: f32 = 2.0e-3;
+
 /// Keep the reflected sky in step with the sky dome (weather colours at the current hour;
 /// the fog colour indoors).
-pub fn update_water_sky(sky: Res<SkyState>, cache: Res<WaterCache>, mut materials: ResMut<Assets<WaterMaterial>>) {
+pub fn update_water_sky(sky: Res<SkyState>, graphics: Option<Res<crate::graphics::Graphics>>, cache: Res<WaterCache>, mut materials: ResMut<Assets<WaterMaterial>>) {
     let (upper, horizon) = match sky.interior {
         Some(l) => {
             let f = linear(l.fog_color);
@@ -517,12 +608,21 @@ pub fn update_water_sky(sky: Res<SkyState>, cache: Res<WaterCache>, mut material
         None => (Vec3::from_array(sky.color(ColorType::SkyUpper)), Vec3::from_array(sky.color(ColorType::Horizon))),
     };
     let (upper, horizon) = (upper.extend(1.0), horizon.extend(1.0));
+    let effects = graphics.is_some_and(|g| g.water_effects);
+    let sun = if effects { caustic_sun(&sky) } else { Vec4::ZERO };
     for h in cache.materials.values() {
-        let stale = materials.get(h).is_some_and(|m| m.params.sky_upper != upper || m.params.sky_horizon != horizon);
+        let stale = materials.get(h).is_some_and(|m| {
+            let layers = if effects { m.current_layers } else { m.wind_layers };
+            m.params.sky_upper != upper || m.params.sky_horizon != horizon || !m.params.water_sun.abs_diff_eq(sun, SUN_STEP) || (m.params.water_sun == Vec4::ZERO) != (sun == Vec4::ZERO)
+                || m.params.layers != layers || m.params.under_fog.w != f32::from(effects)
+        });
         if stale {
             if let Some(mut m) = materials.get_mut(h) {
                 m.params.sky_upper = upper;
                 m.params.sky_horizon = horizon;
+                m.params.water_sun = sun;
+                m.params.under_fog.w = f32::from(effects);
+                m.params.layers = if effects { m.current_layers } else { m.wind_layers };
             }
         }
     }
@@ -531,6 +631,35 @@ pub fn update_water_sky(sky: Res<SkyState>, cache: Res<WaterCache>, mut material
 #[cfg(test)]
 mod wet_tests {
     use super::*;
+
+    #[test]
+    fn baked_current_keeps_each_layer_downstream_against_strong_wind() {
+        let wind = [
+            Vec4::new(0.0, 900.0, 0.01, 0.7),
+            Vec4::new(500.0, 500.0, 0.002, 1.2),
+            Vec4::new(-300.0, -900.0, 0.0005, 0.3),
+        ];
+        let current = Vec2::new(0.0, 40.0);
+        for ((original, baked), pace) in wind.into_iter().zip(current_layers(wind, current)).zip(LAYER_PACE) {
+            assert_eq!(baked.z, original.z);
+            assert_eq!(baked.w, original.w);
+            let current = current * pace;
+            let physical_velocity = -baked.xy() / baked.z;
+            assert!(physical_velocity.dot(current.normalize()) >= 0.6 * current.length() - 0.001);
+            let wind_contribution = baked.xy() + current * baked.z;
+            assert!(wind_contribution.length() <= 0.4 * current.length() * baked.z + 1e-6);
+        }
+    }
+
+    #[test]
+    fn still_current_preserves_original_watr_layers_exactly() {
+        let wind = [Vec4::new(1.5, -2.5, 0.001, 0.7), Vec4::ZERO, Vec4::ONE];
+        assert_eq!(current_layers(wind, Vec2::ZERO), wind);
+        let calm = [Vec4::new(0.0, 0.0, 0.01, 0.7); 3];
+        for (layer, pace) in current_layers(calm, Vec2::new(0.0, 40.0)).into_iter().zip(LAYER_PACE) {
+            assert!(layer.abs_diff_eq(Vec4::new(0.0, -0.4 * pace, 0.01, 0.7), 1e-6));
+        }
+    }
 
     #[test]
     fn wet_box_is_the_dip_one_vertex_wider() {

@@ -45,6 +45,10 @@ pub struct ScriptSwitchesPlugin;
 impl Plugin for ScriptSwitchesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptSwitches>().add_systems(Update, sync.after(crate::PlaySet::Scripts).before(crate::PlaySet::Ui));
+        #[cfg(target_os = "windows")]
+        app.init_resource::<crate::script_cursor::CursorRequests>()
+            .add_systems(PreUpdate, crate::script_cursor::refresh.before(bevy::input::InputSystems).before(crate::script_input::ScriptInputSet))
+            .add_systems(PostUpdate, crate::script_cursor::guard);
     }
 }
 
@@ -64,9 +68,15 @@ pub(crate) fn sync(
     mut switches: ResMut<ScriptSwitches>,
     volumes: Option<Res<SoundVolumes>>,
     target: Option<Res<crate::hud_target::HudTarget>>,
-    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    #[cfg(not(target_os = "windows"))] mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    #[cfg(target_os = "windows")] mut windows: Query<(Entity, &mut Window, Option<&mut bevy::winit::CursorPositionRequest>), With<PrimaryWindow>>,
+    #[cfg(target_os = "windows")] mut commands: Commands,
+    #[cfg(target_os = "windows")] mut requests: ResMut<crate::script_cursor::CursorRequests>,
+    #[cfg(target_os = "windows")] page: Option<Res<crate::tiles::mods::ModsPage>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    #[cfg(target_os = "windows")]
+    let cursor_context = crate::script_cursor::Context::of(&rt.game, page.as_deref());
     let j = &mut rt.game.other.jip9;
     let now = ScriptSwitches { hud_cursor: j.hud_cursor, mouse_axes: j.mouse_axes, vanity_wheel: j.vanity_wheel, camera_collision: j.camera_collision };
     if *switches != now {
@@ -115,6 +125,18 @@ pub(crate) fn sync(
         }
     }
     j.enemy_target = target.and_then(|t| t.0.as_ref().map(|h| FormId(h.form_id)));
+    #[cfg(target_os = "windows")]
+    {
+        let Ok((entity, window, receipt)) = windows.single_mut() else {
+            requests.no_window(j, &mut commands);
+            return;
+        };
+        j.window = Some((f64::from(window.width()), f64::from(window.height())));
+        requests.sync(j, cursor_context, entity, &window, receipt.map(|r| r.into_inner()), &mut commands);
+        j.cursor_px = window.cursor_position().map(|p| (f64::from(p.x), f64::from(p.y)));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
     let Ok(mut window) = windows.single_mut() else { return };
     let size = (f64::from(window.width()), f64::from(window.height()));
     j.window = Some(size);
@@ -132,6 +154,7 @@ pub(crate) fn sync(
         window.set_cursor_position(Some(at));
     }
     j.cursor_px = window.cursor_position().map(|p| (f64::from(p.x), f64::from(p.y)));
+    }
 }
 
 #[cfg(test)]

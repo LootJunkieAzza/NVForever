@@ -48,6 +48,7 @@ pub fn set_merchant_container(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
         return Err(format!("{} is not a persistent reference: SetMerchantContainer refused", g.data.name(c)));
     }
     g.extra.entry(me).or_default().merchant_container = Some(c);
+    g.extra.entry(me).or_default().merchant_container_cleared = false;
     none()
 }
 
@@ -340,6 +341,9 @@ impl Game<'_> {
     /// The container that holds `actor`'s goods: SetMerchantContainer's, else its
     /// reference's (XMRC).
     pub fn merchant_container(&self, actor: FormId) -> Option<FormId> {
+        if self.extra.get(&actor).is_some_and(|e| e.merchant_container_cleared) {
+            return None;
+        }
         self.extra.get(&actor).and_then(|e| e.merchant_container).or_else(|| self.world.placed.get(actor).and_then(|p| p.merchant_container))
     }
 

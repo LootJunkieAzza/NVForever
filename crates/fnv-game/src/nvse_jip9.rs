@@ -39,6 +39,14 @@ pub struct Jip9State {
     /// A pending XML warp belongs to StartMenu's scaled frame. The held page's
     /// temporary context ends before the engine consumes it (mcm-page-key-events.md).
     pub cursor_warp_start_menu: bool,
+    /// Engine-owned acknowledgement receipt; transient and cleared when this game is replaced.
+    pub cursor_warp_receipt: Option<u64>,
+    /// Game-level issuer of the last explicit request, for engine diagnostics.
+    pub cursor_warp_origin: RunCtx,
+    /// Cursor ownership generation, advanced when a menu or HUD cursor lifetime ends.
+    pub cursor_warp_generation: u64,
+    /// Generation that accepted the queued request, before any later owner transition.
+    pub cursor_warp_requested_generation: u64,
     /// The cursor in the window's pixels from its top left, as the engine last told it.
     pub cursor_px: Option<(f64, f64)>,
     /// The window's size in pixels, as the engine last told it; `None` until it does
@@ -73,6 +81,10 @@ impl Default for Jip9State {
             camera_collision: true,
             cursor_warp: None,
             cursor_warp_start_menu: false,
+            cursor_warp_receipt: None,
+            cursor_warp_origin: RunCtx::default(),
+            cursor_warp_generation: 0,
+            cursor_warp_requested_generation: 0,
             cursor_px: None,
             window: None,
             volumes: DEFAULT_VOLUMES,
@@ -84,6 +96,14 @@ impl Default for Jip9State {
             immortal: 0,
             disabled_types: BTreeSet::new(),
         }
+    }
+}
+
+impl Jip9State {
+    /// Retire cursor intent across an owner transition; no native success is implied.
+    pub(crate) fn invalidate_cursor_warp(&mut self) {
+        self.cursor_warp_receipt = None;
+        self.cursor_warp_generation = self.cursor_warp_generation.wrapping_add(1);
     }
 }
 
@@ -172,6 +192,7 @@ impl Game<'_> {
     /// A menu opened: the HUD cursor goes off [documented: ToggleHUDCursor, "switched off
     /// upon opening any game menu"].
     pub(crate) fn hud_cursor_menu_opened(&mut self) {
+        self.other.jip9.invalidate_cursor_warp();
         self.other.jip9.hud_cursor = false;
     }
 }
@@ -188,7 +209,7 @@ pub fn type_code(sig: &[u8; 4]) -> Option<i32> {
 }
 
 /// The functions of this file; `None` for any other name.
-pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
+pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let zero = XVal::Num(0.0);
     // The held Mods page exposes StartMenu through its temporary page context rather
     // than replacing Game::menu (mcm-page-key-events.md).
@@ -203,6 +224,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "togglehudcursor" => {
             let was = g.other.jip9.hud_cursor;
             if let Some(on) = toggle(args) {
+                if was != (on && g.menu.is_none()) { g.other.jip9.invalidate_cursor_warp(); }
                 g.other.jip9.hud_cursor = on && g.menu.is_none();
             }
             yes(was)
@@ -216,6 +238,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "getcursorpos" => {
             let (Some(a), xml) = (axis(args.first()), num(args, 1).is_some_and(|x| x != 0.0)) else { return Some(Ok(zero)) };
             let per = px_per_unit(g);
+            // Same-script readback is the accepted intent, not a native receipt.
+            // After transfer to the engine, Window/UI observations answer again.
+            if (menu_cursor || g.other.jip9.hud_cursor)
+                && g.other.jip9.cursor_warp_requested_generation == g.other.jip9.cursor_warp_generation
+            {
+                if let Some((x, y, requested_xml)) = g.other.jip9.cursor_warp {
+                    let c = if a == 0 { x } else { y };
+                    return Some(Ok(XVal::Num(if requested_xml == xml { c } else if requested_xml { c * per } else { c / per })));
+                }
+            }
             if !menu_cursor && !g.other.jip9.hud_cursor {
                 let (w, h) = window(g);
                 let (x, y) = g.other.jip9.cursor_px.unwrap_or((w / 2.0, h / 2.0));
@@ -237,6 +269,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                     let xml = num(args, 2).is_some_and(|v| v != 0.0);
                     g.other.jip9.cursor_warp = Some((x, y, xml));
                     g.other.jip9.cursor_warp_start_menu = g.menu_open(crate::game::menus::START);
+                    g.other.jip9.cursor_warp_origin = *ctx;
+                    g.other.jip9.cursor_warp_requested_generation = g.other.jip9.cursor_warp_generation;
                     let per = px_per_unit(g);
                     g.other.jip9.cursor_px = Some(if xml { (x * per, y * per) } else { (x, y) });
                 }

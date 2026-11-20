@@ -180,7 +180,13 @@ impl Game<'_> {
 /// An xNVSE function by catalogue name (lower case); `None` when it is not built here.
 /// `on` is the reference it was called on, else the calling reference.
 pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
+    if let Some(result) = crate::texture_filter::call(g, name, args) {
+        return Some(result);
+    }
     if let Some(result) = crate::nvse_faction_modifiers::call(g, name, args) {
+        return Some(result);
+    }
+    if let Some(result) = crate::nvse_actor_queries::call(g, name, on.or(ctx.self_ref), args) {
         return Some(result);
     }
     if name == "setcasinowinningslevel" { return Some(crate::casino::set_winnings_level(g, args)); }

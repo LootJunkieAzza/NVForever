@@ -38,7 +38,10 @@
 //! the CPU sets the frame: 7.6 ms with it, 7.1 without [observed 2026-11-02, #1380]. Its
 //! own set of the sun's cascades stays: Bevy's renderer needs cascades for every view the
 //! sun lights, and emptying their caster lists saved 0.12 ms of shadow-pass GPU time and
-//! nothing of the frame there, so the reflected world keeps its shadows.
+//! nothing of the frame there, so the reflected world keeps its shadows. While the sun's
+//! cascades are drawn on a schedule the camera is given the main camera's cascades
+//! (shadow_rate.rs `hold_cascades`): both views share the shadow-map layers, so it draws
+//! and reads the same maps and held cascades stay right for it (#2674).
 
 use crate::water::{DistantWater, WaterCache, WaterMaterial};
 use crate::world::{bevy_to_game, Streamer, WorldData};

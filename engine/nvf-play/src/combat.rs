@@ -2830,6 +2830,8 @@ struct PhysView<'a> {
     /// The characters of the actors another system walks (`PhysState::npcs`).
     npcs: Vec<Key>,
     actors: Vec<(ActorId, V3, f32)>,
+    /// Published scaled BBX widths used by actor blocking [design, #2535].
+    actor_block_radii: &'a HashMap<u32, f32>,
     /// The corpses whose ragdoll took over from their hit volume (`crate::hitvol`), with
     /// their trunk's centre and the radius of their bodies' bounds: only blasts reach them
     /// ([`CombatWorld::blast_targets_near`], #2346).
@@ -2965,6 +2967,16 @@ impl CombatWorld for PhysView<'_> {
         self.actors.iter().filter(near).map(|&(id, c, _)| (id, c)).collect()
     }
 
+    fn melee_targets_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3, f32)> {
+        use fnv_combat::projectile::SWING_BODY_MARGIN;
+        self.actors.iter().filter_map(|&(id, c, r)| {
+            // Match blocking's BBX source, preserving the ordinary ground margin
+            // and the candidate search's existing hit-volume allowance [design, #2535].
+            let margin = crate::blocking::walking_radius(SWING_BODY_MARGIN, self.actor_block_radii.get(&(id as u32)).copied());
+            (vec::len(vec::sub(c, point)) <= radius + margin + r && !self.ghosts.contains(&id)).then_some((id, c, margin))
+        }).collect()
+    }
+
     fn blast_targets_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
         let near = |&&(id, c, r): &&(ActorId, V3, f32)| vec::len(vec::sub(c, point)) <= radius + r && !self.ghosts.contains(&id);
         self.actors.iter().chain(&self.corpses).filter(near).map(|&(id, c, _)| (id, c)).collect()
@@ -3022,7 +3034,7 @@ fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>, sim: Option<&
     let mut aims: HashMap<ActorId, Vec<V3>> = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
     aims.extend(corpses.iter().map(|&(id, ..)| (id, phys.world.ragdoll_body_centers(id as u32))).filter(|(_, v)| !v.is_empty()));
     phys.world.update_queries();
-    PhysView { q: phys.world.queries(), player, npcs, actors, corpses, aims, ghosts, passes: layers::shot_ignores(), only: std::cell::Cell::new(None) }
+    PhysView { q: phys.world.queries(), player, npcs, actors, actor_block_radii: &phys.actor_block_radii, corpses, aims, ghosts, passes: layers::shot_ignores(), only: std::cell::Cell::new(None) }
 }
 
 /// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
@@ -6876,6 +6888,81 @@ mod tests {
         phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
         phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [0.0, 0.0, 30.0], radius: 8.0, height: 30.0, dead: false });
         phys
+    }
+
+    #[test]
+    fn player_knife_reaches_a_low_widened_creature_at_its_blocking_stop() {
+        use crate::blocking::{clip_pushing_nobody, walking_radius, Block};
+        use fnv_combat::projectile::{swing, swing_reaching};
+        // Synthetic low body and knife [design, #2535]. Blocking and combat read
+        // the same published widths, including one beyond the old coarse query.
+        let id = 0x2535;
+        let eye = [0.0, 0.0, 112.0];
+        let reach = 53.5 + 22.0;
+        let tuning = CombatTuning::default();
+        for width in [88.2, 400.0] {
+            for walking in [false, true] {
+                let mut phys = PhysState::default();
+                phys.actor_block_radii.insert(id, width);
+                let radius = walking_radius(22.0, phys.actor_block_radii.get(&id).copied());
+                let target = [width + 100.0, 0.0, 0.0];
+                let block = Block::character(id, target, radius, 30.0, false);
+                let velocity = clip_pushing_nobody(PLAYER as u32, [200.0, 0.0], [0.0; 3], 22.0, 128.0, 1.0, &mut [block]);
+                let feet = [target[0] - velocity[0], 0.0, 0.0];
+                assert!((feet[0] - (width + 22.0)).abs() < 1e-4);
+                phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet, radius: 15.0, height: 30.0, dead: false });
+                if walking {
+                    let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), feet);
+                    phys.npcs.insert(id, NpcBody { prev_feet: feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+                }
+                for forward in [[1.0, 0.0, 0.0], vec::normalize([1.0, 0.0, -1.0])] {
+                    let mut world = view(&mut phys, None, None).for_melee();
+                    assert!(swing(&world, &tuning, eye, forward, [0.0, 0.0, 1.0], reach, PLAYER).is_empty());
+                    let hits = swing_reaching(&world, &tuning, eye, 0.0, forward, reach, PLAYER);
+                    assert_eq!(hits.iter().map(|h| h.0).collect::<Vec<_>>(), vec![id as ActorId], "width={width}, walking={walking}");
+                    world.ghosts.push(id as ActorId);
+                    assert!(swing_reaching(&world, &tuning, eye, 0.0, forward, reach, PLAYER).is_empty());
+                }
+                // Widening retains a finite ground-reach boundary [design, #2535].
+                let outside = [reach + width + 0.01, 0.0, 0.0];
+                phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: outside, radius: 15.0, height: 30.0, dead: false });
+                assert!(swing_reaching(&view(&mut phys, None, None).for_melee(), &tuning, eye, 0.0, [1.0, 0.0, 0.0], reach, PLAYER).is_empty());
+                phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet, radius: 15.0, height: 30.0, dead: false });
+                // A wall still shields the widened target [design, #2535].
+                use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+                let wall = CollisionObject {
+                    node: None, node_block: 0, node_transform: Iso::IDENTITY, body_transform: Iso::IDENTITY,
+                    motion: Motion::Static, layer: layers::STATIC, mass: 0.0, friction: 0.5, restitution: 0.0,
+                    shape: Shape::Box { half_extents: [5.0, 100.0, 100.0] }.into(), shell: 0.0, material: None, wind: false,
+                };
+                phys.world.add_ref(&fnv_phys::RefPose {
+                    form_id: id + 1, position: [30.0, 0.0, 80.0],
+                    rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0,
+                }, &[wall]);
+                let world = view(&mut phys, None, None).for_melee();
+                assert!(swing_reaching(&world, &tuning, eye, 0.0, [1.0, 0.0, 0.0], reach, PLAYER).iter().all(|h| h.0 != id as ActorId));
+            }
+        }
+    }
+
+    #[test]
+    fn player_ground_reach_keeps_ordinary_targets_at_the_old_boundary() {
+        use fnv_combat::projectile::swing_reaching;
+        // Synthetic body, boundary and invalid/small BBX cases [design, #2535].
+        let id = 0x2535;
+        let reach = 53.5 + 22.0;
+        for bbx in [None, Some(20.0), Some(f32::NAN)] {
+            for (distance, expected) in [(reach + 24.0 - 0.01, true), (reach + 24.0 + 0.01, false)] {
+                let mut phys = PhysState::default();
+                if let Some(bbx) = bbx {
+                    phys.actor_block_radii.insert(id, bbx);
+                }
+                phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [distance, 0.0, 0.0], radius: 15.0, height: 30.0, dead: false });
+                let world = view(&mut phys, None, None).for_melee();
+                let hits = swing_reaching(&world, &CombatTuning::default(), [0.0, 0.0, 112.0], 0.0, [1.0, 0.0, 0.0], reach, PLAYER);
+                assert_eq!(hits.iter().any(|h| h.0 == id as ActorId), expected);
+            }
+        }
     }
 
     #[test]
