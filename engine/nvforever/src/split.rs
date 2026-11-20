@@ -699,16 +699,13 @@ fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option
     strip_coop_args(&mut args);
     args.extend(["--menu".into(), "--split-p2".into(), dir.display().to_string(), "--size".into(), format!("{}x{}", size.x, size.y), "--window-at".into(), format!("{},{}", at.x, at.y)]);
     let mut cmd = std::process::Command::new(exe);
-    // Test aid `NVF_SPLIT_TEST_P2_LOBBY`: player 2's game gets it as its own
-    // `NVF_PLAY_TEST_LOBBY` (e.g. `25:pick=0`); player 1's lobby takes the plain one.
-    if let Ok(aid) = std::env::var("NVF_SPLIT_TEST_P2_LOBBY") {
-        cmd.env("NVF_PLAY_TEST_LOBBY", aid).env_remove("NVF_SPLIT_TEST_P2_LOBBY");
-    }
-    // Test aid `NVF_SPLIT_TEST_P2_SHOT_DIR`: player 2's screenshots (its own
-    // `NVF_PLAY_TEST_SHOT_DIR`), so the two games' shots of one moment don't overwrite
-    // each other.
-    if let Ok(dir) = std::env::var("NVF_SPLIT_TEST_P2_SHOT_DIR") {
-        cmd.env("NVF_PLAY_TEST_SHOT_DIR", dir).env_remove("NVF_SPLIT_TEST_P2_SHOT_DIR");
+    // Test aids `NVF_SPLIT_TEST_P2_<NAME>`: player 2's game gets each as its own
+    // `NVF_PLAY_TEST_<NAME>` (e.g. `NVF_SPLIT_TEST_P2_LOBBY=25:pick=0`,
+    // `NVF_SPLIT_TEST_P2_SHOT_DIR`, `NVF_SPLIT_TEST_P2_GOTO`), so the two games' aids
+    // and shots of one moment don't collide; player 1's game keeps the plain ones.
+    for (name, value) in std::env::vars_os() {
+        let Some(rest) = name.to_str().and_then(|n| n.strip_prefix("NVF_SPLIT_TEST_P2_")) else { continue };
+        cmd.env(format!("NVF_PLAY_TEST_{rest}"), value).env_remove(&name);
     }
     let child = cmd
         .args(&args)
