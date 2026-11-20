@@ -518,7 +518,9 @@ fn iso_minute(unix: u64) -> String {
 }
 
 fn base_summary(active: &Active, plugins: &[String], data: &Path, mo2: bool, now: u64) -> Summary {
+    #[cfg(not(target_os = "ios"))]
     use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
+    #[cfg(not(target_os = "ios"))]
     let sys = System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing()).with_memory(MemoryRefreshKind::nothing().with_ram()));
     let settings = EngineHome::user()
         .and_then(|h| std::fs::read_to_string(h.config_file()).ok())
@@ -532,10 +534,15 @@ fn base_summary(active: &Active, plugins: &[String], data: &Path, mo2: bool, now
         profile: if cfg!(debug_assertions) { "dev" } else { "release" },
         dirty: None,
         start_utc: iso_minute(now),
+        #[cfg(not(target_os = "ios"))]
         os: System::name(),
+        #[cfg(not(target_os = "ios"))]
         os_build: System::os_version(),
+        #[cfg(not(target_os = "ios"))]
         cpu: sys.cpus().first().map(|c| c.brand().trim().to_string()).filter(|s| !s.is_empty()),
+        #[cfg(not(target_os = "ios"))]
         cores: Some(sys.cpus().len()).filter(|&n| n > 0),
+        #[cfg(not(target_os = "ios"))]
         ram_gib: Some((sys.total_memory() as f64 / (1u64 << 30) as f64).round() as u64).filter(|&g| g > 0),
         settings,
         plugins: plugins.iter().map(|p| (p.clone(), fnv_install::child_ci(data, p).and_then(|f| std::fs::metadata(f).ok()).map(|m| m.len()), None)).collect(),

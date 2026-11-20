@@ -37,7 +37,9 @@ fn combine_bindless_slot_count(
         }
         (BindlessSlabResourceLimit::Auto, BindlessSlabResourceLimit::Custom(limit))
         | (BindlessSlabResourceLimit::Custom(limit), BindlessSlabResourceLimit::Auto) => {
-            BindlessSlabResourceLimit::Custom(limit)
+            // Auto is a real platform limit too (64 on Apple platforms). The
+            // combined allocator must not exceed either constituent's layout.
+            BindlessSlabResourceLimit::Custom(limit.min(BindlessSlabResourceLimit::Auto.resolve()))
         }
         (
             BindlessSlabResourceLimit::Custom(base_limit),

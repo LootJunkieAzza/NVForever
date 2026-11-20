@@ -1232,6 +1232,11 @@ mod tests {
     #[test]
     fn ordinary_surface_gpu_interface_matches_main() {
         use bevy::render::render_resource::BindlessResourceType as R;
+        // [observed: iPad M4] Auto resolves to 64 on Apple, while the extension
+        // allows 512. Allocating beyond the base layout rejects the bind group.
+        let combined = NifMaterial::bindless_slot_count().unwrap().resolve();
+        assert!(combined <= StandardMaterial::bindless_slot_count().unwrap().resolve());
+        assert!(combined <= NifSurface::bindless_slot_count().unwrap().resolve());
         assert_eq!(NifSurfaceUniform::min_size().get(), 144);
         assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).size().get(), 144);
         let descriptor = NifSurface::bindless_descriptor().unwrap();

@@ -237,6 +237,11 @@ As for the sun visibility, a meshlet view must not get the component.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
+[observed: iPad Pro M4, Metal] The combined slab size also respects the resolved
+`Auto` limit (64 on Apple): an extension's explicit 512-resource limit previously
+overrode the base's 64-entry layout, producing oversized bind groups at launch.
+The allocator now takes the smaller limit, including when one side is `Auto`.
+
 [documented: `Cargo.toml`, `src/settings.rs`, `src/view/window/mod.rs`]
 macOS defaults to Metal; `WGPU_BACKEND` still overrides it. `raw_vulkan_init` enables
 wgpu's `vulkan-portability` so the shared Vulkan code compiles on Apple targets. The
