@@ -863,11 +863,11 @@ fn at_main_menu(m: Option<&nvf_play::main_menu::MainMenu>) -> bool {
     m.is_some_and(|m| m.open)
 }
 
-/// The lobby screens' asks, the router's answer, and what the screens show.
-#[allow(clippy::too_many_arguments)]
 /// What the lobby's list reads besides the link: the tables, the game, the share answers.
 type LobbyReads<'w> = (Option<Res<'w, Tables>>, Option<Res<'w, nvf_play::script::ScriptState>>, Option<Res<'w, nvf_play::coop_progress::CoopProgress>>);
 
+/// The lobby screens' asks, the router's answer, and what the screens show.
+#[allow(clippy::too_many_arguments)]
 fn lobby(
     mut commands: Commands,
     time: Res<Time>,
