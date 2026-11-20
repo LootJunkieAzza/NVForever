@@ -54,7 +54,10 @@ and loads the profile's plugins in its order. Nothing is written into the game f
 MO2's folders, and MO2 keeps being where mods are installed and ordered. Mod-held `.bsa`
 archives are mounted too: the profile's archive list (`archives.txt`, or its `fallout.ini`'s
 `SArchiveList`) decides which, and each is read from the enabled mod's folder that holds it.
-Profile INIs beyond that key, and the profile's saves, are still for a later phase. Design and
+Mods' own files are read from the same folders, highest first: Script Runner files
+(`NVSE\plugins\scripts`), the INIs under `Config` that GetINIFloat and the rest read, and the
+file queries (FileExists, GetFilesInFolder); a file a mod writes still goes to NVForever's
+own mods folder. Profile INIs beyond that key, and the profile's saves, are still for a later phase. Design and
 limits: [mod-folders](design/mod-folders.md).
 
 ```

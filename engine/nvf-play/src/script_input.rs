@@ -321,17 +321,20 @@ fn tell_player_state(
 }
 
 /// Once the game's Data is open: mods' files are read from NVForever's mods layer, then
-/// the game's Data, and the archives answer FileExists (fnv_game::mod_files).
+/// the folders the loose files were layered from, highest first (`--mo2`'s overwrite
+/// folder and profile mods, #1526: a Script Runner file or a `Config` INI a mod ships),
+/// then the game's Data, and the archives answer FileExists (fnv_game::mod_files).
 fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>) {
     let Some(d) = data.filter(|_| !*done) else { return };
     *done = true;
     let vfs = d.vfs.clone();
     let reader_vfs = d.vfs.clone();
     let mods = fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods());
-    let data_dir = vfs.data_dir().to_path_buf();
+    let read = read_roots(mods, vfs.loose_roots(), vfs.data_dir());
+    info!("mods' files: read from {} folder(s), NVForever's mods folder and the loose layers before Data", read.len());
     let archives: Vec<String> = vfs.archives().map(str::to_string).collect();
     fnv_game::mod_files::update_roots(move |r| {
-        r.read = mods.into_iter().chain(std::iter::once(data_dir)).collect();
+        r.read = read;
         r.archives = archives;
         r.reader = Some(std::sync::Arc::new(move |p: &str| reader_vfs.read(p).and_then(Result::ok)));
         r.lookup = Some(std::sync::Arc::new(move |p: &str| {
@@ -345,6 +348,24 @@ fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>
         }));
     });
 }
+
+/// The folders mods' files are read from, first found first: NVForever's mods folder
+/// (`own`), the loose layers from the highest down (`loose`, lowest first as the VFS keeps
+/// them: Data, then `--mo2`'s profile mods, then its overwrite folder), then Data; each
+/// once.
+fn read_roots(own: Option<std::path::PathBuf>, loose: &[std::path::PathBuf], data: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut read: Vec<std::path::PathBuf> = Vec::new();
+    for root in own.into_iter().chain(loose.iter().rev().cloned()).chain(std::iter::once(data.to_path_buf())) {
+        if !read.contains(&root) {
+            read.push(root);
+        }
+    }
+    read
+}
+
+#[cfg(test)]
+#[path = "script_input_roots_tests.rs"]
+mod roots_tests;
 
 #[cfg(test)]
 #[path = "script_input_wheel_tests.rs"]
