@@ -3436,7 +3436,7 @@ mod tests {
     fn links_are_taken_from_egui() {
         let ctx = egui::Context::default();
         let mut taken = Vec::new();
-        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             ui.ctx().open_url(egui::OpenUrl::new_tab("https://nv-forever.com"));
             ui.ctx().copy_text("kept".into());
             taken = take_links(ui.ctx());
@@ -3444,6 +3444,8 @@ mod tests {
         assert_eq!(taken, ["https://nv-forever.com"]);
         assert!(!out.platform_output.commands.iter().any(|c| matches!(c, egui::OutputCommand::OpenUrl(_))));
         assert!(out.platform_output.commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(_))));
+        // The test never draws, so the font atlas is unused. egui panics if it is dropped dirty.
+        out.textures_delta.clear();
     }
 
     #[test]

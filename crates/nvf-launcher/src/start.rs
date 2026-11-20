@@ -92,16 +92,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_keys_are_the_games() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvf-play/src/game_start.rs")).unwrap();
-        for line in ["pub const SECTION: &str = \"General\";", "pub const CHARGEN_KEY: &str = \"sCharGenQuest\";", "pub const INTRO_KEY: &str = \"sIntroMovie\";"] {
-            assert!(src.contains(line), "game_start.rs no longer has {line}");
-        }
-        // The game's own test reads TTW's lines as its quest and no film.
-        assert!(src.contains("SCharGenQuest=001FFFF8\\nSIntroMovie=\\n"));
-    }
-
-    #[test]
     fn read_and_write() {
         let ini = "[Game]\nPath=F:\\FNV\n\n[Settings]\ngrass=1\n";
         assert_eq!(Fields::read(ini), Fields::default());

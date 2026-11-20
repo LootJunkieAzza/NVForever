@@ -1,6 +1,0 @@
-float result
-Begin Function { }
-set result to -999
-set result to player.GetDistance (player)
-SetFunctionValue (result + 1)
-End

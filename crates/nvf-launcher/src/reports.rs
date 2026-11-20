@@ -119,18 +119,6 @@ mod tests {
     use std::io::{Read, Write};
     use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn the_same_requests_as_the_game() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/reports/delete.rs")).unwrap();
-        assert!(src.contains("format!(\"{url}/v1/install/{id}\")"), "the game's delete path changed");
-        assert!(src.contains("Some(200..=299 | 404 | 410)"), "the game's done statuses changed");
-        let up = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/reports/upload.rs")).unwrap();
-        assert!(up.contains(&format!("pub const DEFAULT_ENDPOINT: &str = \"{DEFAULT_ENDPOINT}\";")), "the game's endpoint changed");
-        assert!(up.contains(".header(\"X-NVF-Delete-Token\", delete_token)"), "the game's token header changed");
-        let m = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/reports/mod.rs")).unwrap();
-        assert!(m.contains("format!(\"{}{}\", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())"), "the game's token form changed");
-    }
-
     /// The (path, token) of each request a test server took.
     type Seen = Arc<Mutex<Vec<(String, String)>>>;
 

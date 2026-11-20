@@ -1,2 +1,0 @@
-; NVForever smoke (script-runner): runs at a new game and after a load, after gr_.
-player.ModAV Luck 2

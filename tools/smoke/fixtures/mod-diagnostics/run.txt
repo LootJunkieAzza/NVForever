@@ -1,3 +1,0 @@
-2026-11-15T00:00:00.000000Z INFO nvf_play::mod_log: mods: load order, 1 plugin (1 mod): NvfOwned.esp
-2026-11-15T00:00:00.000000Z INFO nvf_play::mod_log: mods: NvfOwned.esp: SCPT 0x00000800: skipped: authored diagnostic
-2026-11-15T00:00:00.000000Z INFO nvf_play::mod_log: mods: at exit: NvfOwned.esp: 0 script errors, 0 failed calls, 47 skipped statements, 0 functions not built

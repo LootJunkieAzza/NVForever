@@ -1,9 +1,0 @@
-{
-  "format": "fnv.dialogue.actions/1",
-  "title": "Cottonwood Cove's explorer NVCCExplorer2REF greets from the new-game state with the Halt line (0x0013AC97, fixed speaker the AAM explorer, condition the explorers' faction) and its choices, not the generic Legion 'Move along.' (#2548)",
-  "new_game": true,
-  "actions": [
-    {"op": "talk", "actor": "NVCCExplorer2REF"},
-    {"op": "wait_talk"}
-  ]
-}

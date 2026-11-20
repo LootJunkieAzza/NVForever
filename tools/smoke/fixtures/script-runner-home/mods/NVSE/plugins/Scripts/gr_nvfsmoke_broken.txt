@@ -1,2 +1,0 @@
-; NVForever smoke (script-runner): does not compile, so it is skipped.
-set NVFSmokeNoSuchGlobal to 1

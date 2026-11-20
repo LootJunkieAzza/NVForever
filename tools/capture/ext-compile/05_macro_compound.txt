@@ -1,6 +1,0 @@
-scn ExtCase05
-int iA
-Begin GameMode
-    iA += 10
-    iA -= 5
-End

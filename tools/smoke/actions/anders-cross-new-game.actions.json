@@ -1,9 +1,0 @@
-{
-  "format": "fnv.dialogue.actions/1",
-  "title": "Anders on the cross at Cottonwood Cove from the new-game state, Diane's errand not taken: his greeting 0x00142AA5 and the topic list, which has no AndersJackandDiane and so no way to the freeing choice AndersFree (#2472, docs/spec-notes/anders-cross.md)",
-  "new_game": true,
-  "actions": [
-    {"op": "talk", "actor": "VRRCAndersREF"},
-    {"op": "wait_talk"}
-  ]
-}

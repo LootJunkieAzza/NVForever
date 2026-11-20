@@ -1,5 +1,0 @@
-# Conditional existing-trait publication
-
-Repository design: the tree distinguishes external setter/XML writes from expression evaluation, including equal external writes. Count::FromFirst and Count::FromLast are independent path lookup policies and remain unchanged.
-
-[hypothesis] A conditional batch names 1..=8 complete TileIds, case-insensitive existing trait names, their last external-write tokens, and new values. Before writing, reject missing/stale generations, expression sinks, duplicate aliases, changed tokens, checked counter exhaustion, names over 4096 bytes or aggregate values over 65536 bytes. These are engine policy limits. Rejection changes no target/counter. After validation, success calls set_at directly, retaining its equal-write serial advancement and expression invalidation semantics, and returns fresh tokens in input order. It does not pass through set_trait's reshape-diagnostic entrypoint; this batch neither creates traits nor reshapes the tree. No provider or lease service is part of this API.
