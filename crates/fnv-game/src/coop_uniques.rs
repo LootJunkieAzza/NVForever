@@ -274,7 +274,9 @@ impl Game<'_> {
     /// Whether this character keeps (or may take) `form` as a quest reward: anything
     /// that is not a unique, and a unique of a quest it claimed a stage of (plan §4.1).
     pub fn coop_unique_allowed(&self, form: FormId) -> bool {
-        self.coop_uniques().quest_of(form).is_none_or(|q| claimed_any(&self.player.claims, q))
+        // Keys always come (the host's world's doors need them; the item-81 undo takes a
+        // quest's key back out of a non-claimer's own save) [design].
+        self.data.sig(form).as_ref() == Some(b"KEYM") || self.coop_uniques().quest_of(form).is_none_or(|q| claimed_any(&self.player.claims, q))
     }
 
     /// The host's story to take off this guest's character in its own save

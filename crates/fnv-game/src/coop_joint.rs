@@ -82,10 +82,8 @@ pub enum Prerequisite {
     AnyOf(&'static [Prerequisite]),
 }
 
-/// A quest's joint rules, by editor ID (plan §3.8). The generated table (`fnvtool quest
-/// prereqs`) is not built yet; until it is, a quest without an entry has no prerequisite
-/// beyond "not started or ended in the guest's own game", which [`check`] applies to
-/// every quest [design].
+/// A quest's joint rules, by editor ID (plan §3.8). A quest without an entry takes its
+/// prerequisites from the data (`crate::coop_prereqs`, read at first use) [design].
 pub struct QuestRules {
     pub quest: &'static str,
     pub prerequisites: &'static [Prerequisite],
@@ -317,7 +315,11 @@ impl Game<'_> {
     /// game's quests as at join. A stage taken is written into the character's ledger.
     pub fn take_joint_offer(&mut self, own: &BTreeMap<FormId, QuestState>, offer: &StageOffer) -> Result<(), TurnedDown> {
         let rules = rules_of(self, offer.quest);
-        let prereq = || rules.is_none_or(|r| prerequisites_hold(self, own, r.prerequisites));
+        // Hand-read rules first, else the data's (`crate::coop_prereqs`).
+        let prereq = || match rules {
+            Some(r) => prerequisites_hold(self, own, r.prerequisites),
+            None => self.coop_prereqs().met(offer.quest, own),
+        };
         check(own, &self.player.claims, offer, prereq)?;
         self.player.claims.stages.entry(offer.quest).or_default().push(ClaimedStage { stage: offer.stage, line: offer.line });
         Ok(())

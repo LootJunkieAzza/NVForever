@@ -865,6 +865,9 @@ fn at_main_menu(m: Option<&nvf_play::main_menu::MainMenu>) -> bool {
 
 /// The lobby screens' asks, the router's answer, and what the screens show.
 #[allow(clippy::too_many_arguments)]
+/// What the lobby's list reads besides the link: the tables, the game, the share answers.
+type LobbyReads<'w> = (Option<Res<'w, Tables>>, Option<Res<'w, nvf_play::script::ScriptState>>, Option<Res<'w, nvf_play::coop_progress::CoopProgress>>);
+
 fn lobby(
     mut commands: Commands,
     time: Res<Time>,
@@ -877,7 +880,7 @@ fn lobby(
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     windows: Query<&mut Window, With<PrimaryWindow>>,
     mut titled: Local<Option<String>>,
-    (tables, script): (Option<Res<Tables>>, Option<Res<nvf_play::script::ScriptState>>),
+    (tables, script, progress): LobbyReads,
     handoff: Option<Res<crate::handoff::Handoff>>,
 ) {
     let now = time.elapsed_secs();
@@ -1011,9 +1014,18 @@ fn lobby(
     if coop.link.is_some() {
         // This player by its character's name, as the others call it (item 19).
         let me = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| coop.name.clone());
-        players.push(if coop.is_host() { format!("{me} (host, you)") } else { format!("{me} (you)") });
+        // Who shares quest progress this session (the join question, plan §3.7): a guest
+        // knows its own answer, the host every guest's.
+        let sharing = |id: Option<u8>| -> &'static str {
+            let on = progress.as_deref().is_some_and(|p| match id {
+                None => p.joint_on == Some(true),
+                Some(id) => p.joint_peers.get(&id).is_some_and(|(_, on)| *on),
+            });
+            if on { " (sharing quests)" } else { "" }
+        };
+        players.push(if coop.is_host() { format!("{me} (host, you)") } else { format!("{me} (you){}", sharing(None)) });
         for (&id, p) in &coop.peers {
-            let n = label(id, &p.name);
+            let n = format!("{}{}", label(id, &p.name), sharing(Some(id)));
             // The host is player 0 (`nvf_coop`): marked on a guest's list.
             let n = if id == 0 && n != "The host" { format!("{n} (host)") } else { n };
             // A player at a minigame table says so (the others' tables, module notes).
