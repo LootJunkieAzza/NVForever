@@ -115,6 +115,14 @@ the actor jumps or drops over them (actor-jumps.md §3).
   to the triangle beyond it: internal, portal (NVEX type 0 or 3), ledge (types 1 and 2) or
   outline. Building the whole load order's graph takes 0.33 s; 106 links stay unresolved
   (the out-of-range ones in §2).
+- **One-way portals** [observed 2026-11-15; repair is engine choice]: 15 portal edges of
+  the load order land on an edge of another triangle that does not link back: the edge is
+  open, or links to a triangle that has no such edge (a stale link). That edge is linked
+  back when both ends match within 1 unit (`NavGraph::join_one_way_portals`, the build
+  stats' `portals_joined_back`). Lonesome Road's Ashton silo lift: the far door's
+  one-triangle navmesh 0x0100A556 links onto the lift floor (0x0100A555 triangles 12 and
+  15), whose edges there link to triangle 16 of 0x0100A554, far off. Without the repair the
+  door is an island of one triangle and no path reaches it.
 - **Doors join spaces**: each NVDP triangle connects to where the door's teleport (REFR
   XTEL [documented: xEdit]) arrives: the destination door's own NVDP triangle when it is in
   the destination's space, else the triangle under the arrival point. 1,357 doors join;

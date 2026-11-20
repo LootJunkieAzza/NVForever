@@ -3,6 +3,7 @@
   "plugins": ["FalloutNV.esm", "DeadMoney.esm"],
   "title": "Headless Dead Money chain, part 2 (DeadMoney.esm): Act 3 in the Sierra Madre (Put the Beast Down, Curtain Call at the Tampico, Last Luxuries), Heist of the Centuries (the vault, Elijah left locked in it) and the escape, to the end slides; part 1 is dead-money.actions.json",
   "given": [
+    {"kind": "place", "ref": "player", "cell": "NVDLC01Lobby", "pos": [2848, 2400, 7200]},
     {"kind": "menu", "menu": 1001, "open": false},
     {"kind": "quest", "quest": "VCG01", "running": false, "completed": true, "stage": 200, "done": [200]},
     {"kind": "quest", "quest": "NVDLC01MQ00", "running": false, "completed": true, "stage": 100, "done": [10, 100]},
@@ -27,7 +28,7 @@
     {"kind": "actor_value", "of": "player", "av": "Speech", "value": 75}
   ],
   "actions": [
-    {"op": "note", "text": "Starts where dead-money.actions.json ends: the Gala done (MQ02 100), the player gassed in the Sierra Madre's lobby, MQ03a at 5; the companions' quest variables as part 1 leaves them (Dean's, Christine's and Dog's posts held; Dog's and Dean's attitudes below 0, Christine's 2). The collar is worn (Collars global 1 as on a new game with DeadMoney.esm). Speech 75 is given: after the kitchen fight Dog and God can be talked into terms with Speech 75 or more. MQ02's stage 50 moved the companions into the casino (Dean to the theater, Christine to the suites, Dog to the kitchen) and the knockout moved Dean onto the theater's scaffold; those MoveTos are repeated here."},
+    {"op": "note", "text": "Starts where dead-money.actions.json ends: the Gala done (MQ02 100), the player gassed in the Sierra Madre's lobby (given: placed in NVDLC01Lobby where part 1's knockout leaves the player, [observed: dead-money.actions.json's headless trace]; without it the pilot walked from the Mojave), MQ03a at 5; the companions' quest variables as part 1 leaves them (Dean's, Christine's and Dog's posts held; Dog's and Dean's attitudes below 0, Christine's 2). The collar is worn (Collars global 1 as on a new game with DeadMoney.esm). Speech 75 is given: after the kitchen fight Dog and God can be talked into terms with Speech 75 or more. MQ02's stage 50 moved the companions into the casino (Dean to the theater, Christine to the suites, Dog to the kitchen) and the knockout moved Dean onto the theater's scaffold; those MoveTos are repeated here."},
     {"op": "call", "line": "NVDLC01DeanREF.MoveTo NVDLC01DeanTheaterScaffMarker"},
     {"op": "call", "line": "NVDLC01ChristineRef.MoveTo NVDLC01ChristineSuitesMarker"},
     {"op": "call", "line": "NVDLC01DogREF.MoveTo NVDLC01DogKitchenMarker"},

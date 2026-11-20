@@ -5,6 +5,13 @@
  "actions": [
   {"op": "note", "text": "Path (Rey's brain): the King asks about Rex only from his plain greeting (0x0015C4AD, no choices of its own, so the top-level topics show); before G.I. Blues has begun, and while its jobs are open, his greetings list their own choices, so the chain first walks G.I. Blues to stage 40 (copied from gi-blues.actions.json, stand-ins as noted there). Then the King asks for help with Rex (VMS24 1); Julie Farkas names Doctor Henry (objective 2); the King gives Rex to the player (10); Henry in Jacobstown says Rex needs a new brain (20); Old Lady Gibson sells Rey's brain (700 caps, given; the brain's OnAdd and the quest script: 50); Henry transplants it (100)."},
   {"op": "note", "text": "Stand-in for walking into Freeside to the King's School (all travel below is move_player)."},
+  {"op": "note", "text": "Pacer keeps the King's door (KingsSchoolFrontStageDoorREF, locked, its key carried by Pacer only): his lines 'Here's 50 caps.' (INFO 0x00111471), 'Is 500 caps enough?' (0x0011147C) and the Speech 60 one (0x0011D8B3) unlock and open it [observed: their end scripts]. The player pays the 50."},
+  {"op": "add_item", "to": "player", "item": "Caps001", "count": 50},
+  {"op": "move_player", "to": "VFSPacerREF"},
+  {"op": "talk", "actor": "VFSPacerREF", "label": "pacer greeting"},
+  {"op": "choose", "topic": "VFreeformFreesideFSPacerTopic001", "label": "pacer: to see the King"},
+  {"op": "choose", "topic": "VFreeformFreesideFSPacerTopic015", "label": "pacer: 50 caps"},
+  {"op": "wait_talk"},
   {"op": "move_player", "to": "VFSTheKingREF"},
   {"op": "talk", "actor": "VFSTheKingREF", "label": "king greeting"},
   {"op": "choose", "topic": "VFreeformFreesideVFSTheKingTopic039", "label": "king 039"},

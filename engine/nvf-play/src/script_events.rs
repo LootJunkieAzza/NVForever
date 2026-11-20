@@ -505,6 +505,30 @@ impl TriggerShape {
             TriggerKind::Sphere { radius } => l.iter().map(|v| v * v).sum::<f32>() <= radius * radius,
         }
     }
+
+    /// The point of the volume nearest `p`, `inset` units inside its faces (a box) or its
+    /// surface (a sphere) where it is that large: where a walk into it from `p` aims.
+    pub fn nearest_inside(&self, p: [f32; 3], inset: f32) -> [f32; 3] {
+        let l = self.local(p);
+        let s = self.scale_or_one();
+        let n = match self.kind {
+            TriggerKind::Box { half_extents: h } => std::array::from_fn(|i| {
+                let e = (h[i] - inset / s).max(0.0);
+                l[i].clamp(-e, e)
+            }),
+            TriggerKind::Sphere { radius } => {
+                let len = l.iter().map(|v| v * v).sum::<f32>().sqrt();
+                let r = (radius - inset / s).max(0.0);
+                if len <= r || len < 1e-6 { l } else { l.map(|v| v * r / len) }
+            }
+        };
+        let r = &self.rot;
+        [
+            self.pos[0] + s * (r[0] * n[0] + r[1] * n[1] + r[2] * n[2]),
+            self.pos[1] + s * (r[3] * n[0] + r[4] * n[1] + r[5] * n[2]),
+            self.pos[2] + s * (r[6] * n[0] + r[7] * n[1] + r[8] * n[2]),
+        ]
+    }
 }
 
 /// An actor's collision capsule for trigger tests: upright, from the feet up to `height`,
@@ -1121,6 +1145,27 @@ mod tests {
         let v = InvView::of(Some(&inv));
         assert_eq!(v.counts.get(&FormId(7)), Some(&3));
         assert!(v.equipped.contains(&FormId(7)));
+    }
+
+    #[test]
+    fn the_nearest_point_inside_a_volume() {
+        // A box turned a quarter, 200 x 50 x 100 half extents: from outside its long side
+        // the walk aims just inside that side, level with the player.
+        let t = TriggerShape {
+            pos: [0.0, 0.0, 0.0],
+            rot: ref_rotation([0.0, 0.0, std::f32::consts::FRAC_PI_2]),
+            scale: 1.0,
+            kind: TriggerKind::Box { half_extents: [200.0, 50.0, 100.0] },
+        };
+        let from = [300.0, 20.0, 0.0];
+        let at = t.nearest_inside(from, 10.0);
+        assert!(t.contains(at), "{at:?}");
+        assert!((at[0] - 40.0).abs() < 0.5 && (at[1] - 20.0).abs() < 0.5, "{at:?}");
+        // From inside it stays where it is.
+        assert_eq!(t.nearest_inside([5.0, 5.0, 5.0], 10.0).map(|v| v.round()), [5.0, 5.0, 5.0]);
+        let ball = TriggerShape { kind: TriggerKind::Sphere { radius: 50.0 }, ..t };
+        let on = ball.nearest_inside([200.0, 0.0, 0.0], 10.0);
+        assert!(ball.contains(on) && (on[0] - 40.0).abs() < 0.5, "{on:?}");
     }
 
     #[test]

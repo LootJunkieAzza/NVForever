@@ -162,6 +162,16 @@
       "label": "Benny in his suite"
     },
     {
+      "op": "note",
+      "text": "The presidential suite's elevator door (VTopsElevatortoPresidentialREF, 0x0010E1CD, locked at level 255) wants TopsPresidentialKey, which only BennyREF carries [observed: pilot rerun]. Seven Tops lines give it (INFO 0x0011984B, 0x0011985F, 0x00119841, 0x0011C8EA, 0x0011C8E8, 0x0011C8E0, 0x00147834: 'player.additem 0x00115F06 1') [observed: decompiled]; which of them this branch hears is not checked [hypothesis], so the chain stands in for it: the player is given the key."
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "TopsPresidentialKey",
+      "count": 1
+    },
+    {
       "op": "trigger_enter",
       "trigger": "scripted:0x0006919D"
     },

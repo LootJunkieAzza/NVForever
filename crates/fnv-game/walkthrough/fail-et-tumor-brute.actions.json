@@ -54,6 +54,8 @@
     {"op": "wait_talk"},
     {"op": "wait_quest", "quest": "VMQ02", "field": "done.5", "value": true, "max_frames": 1200, "label": "milestone: VMQ02 5 (chip handed back, bunker task)"},
     {"op": "get_item_count", "of": "player", "item": "VPlatinumChip", "label": "player chip for the bunker"},
+    {"op": "note", "text": "Mr. House's monitor at the bunker's vault door: the player turns him down; his last line (INFO 0x0014B658) unlocks SecuritronVaultDoorRef 0x0012AF42 and opens it, the way to the power regulators."},
+    {"op": "say_info", "info": "0x0014B658", "speaker": "SVMrHouseRef"},
     {"op": "note", "text": "Down in the Securitron Vault (travel stand-in) the player shoots the three power regulators; two DamageObject hits each stand in for the shots (the first hit stops at the capped stage 2, the second reaches stage 3, which their OnDestructionStageChange counts)."},
     {"op": "move_player", "to": "SVPowerRegulator01Ref"},
     {"op": "call", "line": "SVPowerRegulator01Ref.DamageObject 1000"},

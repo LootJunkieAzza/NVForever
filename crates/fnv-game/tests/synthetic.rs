@@ -1700,6 +1700,24 @@ fn the_runner_saves_and_loads_in_place() {
 }
 
 #[test]
+fn a_given_reference_starts_locked_or_unlocked() {
+    let f = fixture();
+    let run = |locked: bool| {
+        let input: fnv_game::runner::Input = serde_json::from_value(json!({
+            "format": "fnv.script.actions/1",
+            "given": [{"kind": "ref", "ref": "TestActivatorREF", "locked": locked}],
+            "actions": [{"op": "get_ref", "ref": "TestActivatorREF", "fields": ["locked"], "label": "given"}]
+        }))
+        .unwrap();
+        let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+        assert_eq!(out["given_errors"], json!([]));
+        out["observations"].as_array().unwrap().iter().find(|o| o["label"] == "given").unwrap()["locked"].clone()
+    };
+    assert_eq!(run(true), json!(true));
+    assert_eq!(run(false), json!(false));
+}
+
+#[test]
 fn the_runner_reads_and_writes_reference_variables_and_activates_with_the_flag() {
     let f = fixture();
     let input: fnv_game::runner::Input = serde_json::from_value(json!({

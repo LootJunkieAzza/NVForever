@@ -905,6 +905,10 @@ pub struct CombatStats {
     pub world_hits: u32,
     /// Shots on objects whose OnHit / OnHitWith blocks ran, and objects knocked away.
     pub object_scripts: u32,
+    /// The player's shots on objects whose OnHit / OnHitWith blocks ran, by object
+    /// reference: the quest pilot's sign that a shot landed (the laser detonator on Lonesome
+    /// Road's warheads).
+    pub player_object_hits: std::collections::BTreeMap<u32, u32>,
     pub objects_pushed: u32,
     pub explosions: u32,
     pub damage: f32,
@@ -5968,6 +5972,9 @@ fn fly(
                 let impulse = vec::scale(p.dir, p.force * OBJECT_PUSH * phys.world.params.units_per_metre);
                 let pushed = phys.world.push_ref(obj as u32, p.point, impulse, OBJECT_PUSH_MAX_SPEED);
                 stats.object_scripts += ran as u32;
+                if ran && shooter == FormId::PLAYER_REF {
+                    *stats.player_object_hits.entry(r.0).or_default() += 1;
+                }
                 stats.objects_pushed += pushed.is_some() as u32;
                 if ran || pushed.is_some() {
                     info!(

@@ -634,7 +634,9 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                 return None, f"{key}: needs {value}", 0.0
             aids[key] = expanded.replace("{repo}", str(env.repo))
         with serving(launch_serve(launch)) as served:
-            cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
+            # `{repo}` in an argument: the repository (a fixture's path).
+            args = [a.replace("{repo}", str(env.repo)) for a in launch.args]
+            cmd = [str(env.exe), "--data", str(env.data), *args, "--run-seconds", fmt(launch.run_seconds)]
             # Environment values stay scalar: filenames, XML and script source are not
             # tool arguments, so they must not be split or globbed by expand().
             if served:

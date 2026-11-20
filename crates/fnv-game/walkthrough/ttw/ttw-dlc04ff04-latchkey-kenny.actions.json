@@ -1,0 +1,42 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless TTW Latchkey Kenny (DLC04FF04): from Kenny's hideout through Kenny-Bear fetched from the shaft to the hideout given to the player (stage 100; the quest has no completing stage)",
+  "plugins": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "YUPTTW.esm", "The Mod Configuration Menu.esp"],
+  "given": [
+    {"kind": "quest", "quest": "MQ01", "running": true, "completed": false, "stage": 10, "done": [10]},
+    {"kind": "quest", "quest": "DLC04MQ01", "running": false, "completed": true, "stage": 200, "done": [10, 20, 30, 50, 100, 120, 130, 150, 160, 165, 170, 190, 200]},
+    {"kind": "place", "ref": "player", "cell": "DLC4Pointlookout", "pos": [-2853.26, -7405.28, -1603.47]}
+  ],
+  "actions": [
+    {"op": "note", "text": "Given: the player out of Vault 101 (MQ01 10), across to Point Lookout with The Local Flavor done (DLC04MQ01 200: its chain), standing on Point Lookout's landing (where the voyage puts the player [observed]). Latchkey Kenny (DLC04FF04) runs from the start [observed]."},
+    {"op": "note", "text": "Path: Kenny in his hideout under the Lady of Rosary church (his first greeting, then DLC04FF04Hideout, HideoutTeddy, HideoutTeddyAgree: FetchTeddy 1), Kenny-Bear picked up at the bottom of the shaft (DLC04FF04teddyScript's OnAdd: FetchTeddy 2), and the bear given back (DLC04FF04Teddy: stage 100, the player may move into the hideout; DLC04FF04TeddyMoveIn2 to end the talk). The games of tag and hide-and-seek after (150 to 162) are left out."},
+    {"op": "get_quest", "quest": "DLC04FF04", "fields": ["running", "stage"], "label": "DLC04FF04 running"},
+    {"op": "note", "text": "Travel stand-in: through the trapped tunnels to Kenny's hideout."},
+    {"op": "move_player", "to": "DLC04KennyRef"},
+    {"op": "talk", "actor": "DLC04KennyRef", "label": "kenny: you made it past my traps?"},
+    {"op": "choose", "topic": "DLC04FF04Greeting1a", "label": "the ghost?"},
+    {"op": "choose", "topic": "DLC04FF04Greeting2a", "label": "was that a threat"},
+    {"op": "choose", "topic": "DLC04FF04Greeting3a", "label": "no funny business"},
+    {"op": "wait_talk"},
+    {"op": "choose", "topic": "DLC04FF04Hideout", "label": "can I stay here"},
+    {"op": "choose", "topic": "DLC04FF04HideoutTeddy", "label": "how can you trust me"},
+    {"op": "choose", "topic": "DLC04FF04HideoutTeddyAgree", "label": "I'll get the bear (FetchTeddy 1)"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "DLC04FF04", "fields": ["var.FetchTeddy", "objective.10.displayed"], "label": "milestone: find Kenny-Bear"},
+    {"op": "note", "text": "Travel stand-in: back through the mine to the bottom of the big shaft, where Kenny-Bear lies; picking it up runs its OnAdd (DLC04FF04teddyScript: FetchTeddy 2) [observed]."},
+    {"op": "move_player", "to": "scripted:DLC04FF04teddyScript"},
+    {"op": "player_activate", "target": "scripted:DLC04FF04teddyScript", "label": "Kenny-Bear"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "DLC04FF04", "fields": ["var.FetchTeddy"], "label": "Kenny-Bear carried (2)"},
+    {"op": "move_player", "to": "DLC04KennyRef"},
+    {"op": "talk", "actor": "DLC04KennyRef", "label": "kenny: hi"},
+    {"op": "choose", "topic": "DLC04FF04Teddy", "label": "I found your teddy bear (stage 100)"},
+    {"op": "choose", "topic": "DLC04FF04TeddyMoveIn2", "label": "maybe later"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "note", "text": "DLC04FF04 has no stage flagged Complete Quest and none of its scripts completes it (it stays running for the games with Kenny) [observed: its QSDT flags]; 100, the hideout given, is its last stage on this path."},
+    {"op": "get_quest", "quest": "DLC04FF04", "fields": ["running", "stage", "var.MovedIn", "var.FetchTeddy"], "label": "final: DLC04FF04 at 100 (no completing stage)"}
+  ]
+}

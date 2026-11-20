@@ -8,6 +8,8 @@
   "actions": [
     {"op": "note", "text": "Path: Raul is hired in his Black Mountain cell (VNPCFollowers RaulHired, Regular Maintenance on the player); with Raul along the player meets Ranger Andy in Novac, Corporal Sterling at Camp McCarran and Loyal at Nellis (VDialogueRaul MetRangerAndy, MetCorporalSterling, MetLoyal); after each Raul opens up (RaulOpenness 1-3, GunslingerTrack +1 each) and tells one story (HeardStory1-3); after the third the player urges him back to his gunslinger days (Topic085): Raul's new outfit and hat, Old Vaquero for the player's teammates, RaulUpgrade 2. Outcome taken: gunslinger (Old Vaquero). Others: the repair path (RepairTrack, Ain't Like That Now: Regular Maintenance swapped for Full Maintenance, RaulUpgrade 1), the Speech 66 variants of both (Topic087/088), or never opening him up. The quest has no QUST record of its own: only VDialogueRaul's variables track it. Given: the Boomers' Volare! (VMS15) shows objective 55, which Loyal's greeting asks for."},
     {"op": "note", "text": "Stand-in for Black Mountain cleared and Raul's cell opened."},
+    {"op": "note", "text": "Raul's cell door (REFR 0x000E6103, no EDID, locked at level 255, no key) is opened by the entry of the terminal beside it (REFR 0x000E6112) [observed: decode, pilot rerun log 'the terminal 0x000E6112 has an entry for it']; no script names the door [observed: decompiled]. The pilot's terminal errand gave up there, so the cell stayed shut and Raul was never hired. Stand-in for the terminal entry: the door is unlocked."},
+    {"op": "call", "line": "0x000E6103.Unlock"},
     {"op": "move_player", "to": "RaulREF"},
     {"op": "talk", "actor": "RaulREF", "label": "raul greeting"},
     {"op": "choose", "topic": "BMRaulOkayByMe", "label": "raul freed"},

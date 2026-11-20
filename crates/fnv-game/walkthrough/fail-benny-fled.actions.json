@@ -74,6 +74,8 @@
     {"op": "get_item_count", "of": "player", "item": "VPlatinumChip", "label": "the chip on the player"},
     {"op": "get_item_count", "of": "FortCaesarRef", "item": "VPlatinumChip", "label": "the chip left on Caesar"},
     {"op": "advance_seconds", "seconds": 1},
+    {"op": "note", "text": "Mr. House's monitor at the bunker's vault door: the player turns him down; his last line (INFO 0x0014B658) unlocks SecuritronVaultDoorRef 0x0012AF42 and opens it, the way to the power regulators."},
+    {"op": "say_info", "info": "0x0014B658", "speaker": "SVMrHouseRef"},
     {"op": "note", "text": "Down in the Securitron Vault (travel stand-in) the three power regulators are shot (two DamageObject hits each, as in legion.actions.json): VMQ02 7."},
     {"op": "move_player", "to": "SVPowerRegulator01Ref"},
     {"op": "call", "line": "SVPowerRegulator01Ref.DamageObject 1000"},
