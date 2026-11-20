@@ -1987,6 +1987,9 @@ mod tests {
         let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
         m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
         assert!(rigid_mesh(&m).is_none());
+    }
+
+    #[test]
     fn skeleton_bbx_reads_only_attached_named_bounds() {
         use fnv_nif::value::Struct;
         // Synthetic decoded blocks, without game assets [design, #2535].
@@ -2352,6 +2355,7 @@ mod tests {
         };
         let part = Arc::new(PreparedPart { shapes: vec![shape], path: r"meshes\bale\hair\female\adult\x\x.nif".into(), ..Default::default() });
         let skel = PreparedSkeleton {
+            bbx_half_width: None,
             names: vec![None, Some(DEFAULT_RIGID_BONE.to_string())],
             parents: vec![None, Some(0)],
             locals: vec![Transform::IDENTITY; 2],

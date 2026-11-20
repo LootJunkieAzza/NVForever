@@ -63,6 +63,7 @@ fn category_index(c: SoundCategory) -> usize {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sync(
     mut script: Option<ResMut<ScriptState>>,
     mut switches: ResMut<ScriptSwitches>,

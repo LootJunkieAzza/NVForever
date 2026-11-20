@@ -1531,15 +1531,15 @@ mod tests {
     fn a_lit_additive_shape_adds_linear_light_and_an_unlit_one_the_display_sum() {
         // The Think Tank screens' glass: lit, ONE / ONE (0x1001).
         let glass = Props { alpha: Some((0x1001, 0)), specular: true, glossiness: Some(200.0), shader: true, has_properties: true, textures: vec!["NVDLC03_BrainBotScrn.dds".into()], ..Default::default() };
-        let (m, _) = shape_material_with(&glass, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&glass, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert_eq!(m.base.alpha_mode, AlphaMode::Add);
         assert!(m.extension.add_linear);
         // The static over it: unlit, ONE / ONE, keeps the display-value sum.
-        let (m, _) = shape_material_with(&Props { unlit: true, emissive: Some([0.568; 3]), emissive_mult: Some(5.0), ..glass.clone() }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { unlit: true, emissive: Some([0.568; 3]), emissive_mult: Some(5.0), ..glass.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert_eq!(m.base.alpha_mode, AlphaMode::Add);
         assert!(!m.extension.add_linear);
         // A lit blended shape is not additive.
-        let (m, _) = shape_material_with(&Props { alpha: Some((0x10ED, 0)), ..glass }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { alpha: Some((0x10ED, 0)), ..glass }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(!m.extension.add_linear);
     }
 
@@ -1699,14 +1699,14 @@ mod tests {
     #[test]
     fn lit_blended_shapes_with_zbuffer_write_write_depth() {
         let vend = Props { alpha: Some((4333, 0)), zbuffer_write: true, ..Default::default() };
-        let (m, _) = shape_material_with(&vend, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&vend, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
         assert!(m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, BLEND_DEPTH_CUT);
         assert!(crate::nif_material::see_through(&m), "glass still casts no shadow");
-        let (m, _) = shape_material_with(&Props { unlit: true, ..vend.clone() }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { unlit: true, ..vend.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(!m.extension.depth_write);
-        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..vend }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..vend }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(!m.extension.depth_write);
     }
 
@@ -1718,23 +1718,23 @@ mod tests {
     fn blended_shapes_that_test_drop_what_the_test_drops() {
         let weed = Props { alpha: Some((0x12ED, 50)), zbuffer_write: true, ..Default::default() };
         assert_eq!(blended_test_cut(&weed), Some(50.5 / 255.0));
-        let (m, _) = shape_material_with(&weed, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&weed, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
         assert!(m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, 50.5 / 255.0);
         assert!(crate::nif_material::see_through(&m), "casts no shadow, as before");
         // The marquee glass: threshold 0, nothing to drop beyond the depth cut.
-        let (m, _) = shape_material_with(&Props { alpha: Some((0x12ED, 0)), ..weed.clone() }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { alpha: Some((0x12ED, 0)), ..weed.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert_eq!(m.extension.alpha_cut, BLEND_DEPTH_CUT);
         assert_eq!(blended_test_cut(&Props { vertex_alpha: true, ..weed.clone() }), None);
         assert_eq!(blended_test_cut(&Props { alpha: Some((0x10ED, 50)), ..weed.clone() }), None, "no test");
         assert_eq!(blended_test_cut(&Props { alpha: Some((0x12ED, 64)), ..weed.clone() }), None, "alpha-tested from 64");
-        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..weed.clone() }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..weed.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert_eq!(m.extension.alpha_cut, 0.0, "no depth written: as before");
         // Its texture is a mask with opaque texels: a solid cut-out at the test threshold,
         // casting a shadow, with nothing for FSR to switch.
         let masked = Props { textures: vec![r"trees\leaves\tumbleweed_mask.dds".into()], ..weed.clone() };
-        let (m, _) = shape_material_with(&masked, &mut triangle(), &mut MaskTextures);
+        let (m, _) = shape_material_with(&masked, &mut triangle(), &mut MaskTextures, Tangents::Generate);
         assert_eq!(m.base.alpha_mode, AlphaMode::Mask(50.5 / 255.0));
         assert!(!m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, 0.0);
@@ -1748,7 +1748,7 @@ mod tests {
             (Props { zbuffer_write: false, ..masked.clone() }, "no depth written"),
             (Props { alpha: Some((0x12ED, 0)), ..masked.clone() }, "threshold 0"),
         ] {
-            let (m, _) = shape_material_with(&props, &mut triangle(), &mut MaskTextures);
+            let (m, _) = shape_material_with(&props, &mut triangle(), &mut MaskTextures, Tangents::Generate);
             assert_eq!(m.base.alpha_mode, AlphaMode::Blend, "{why}");
         }
     }

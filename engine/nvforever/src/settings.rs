@@ -1104,7 +1104,7 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 19] = [
+    let switches: [Switch; 20] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",

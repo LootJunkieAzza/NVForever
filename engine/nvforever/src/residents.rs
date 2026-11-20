@@ -4138,7 +4138,7 @@ pub fn drive(
             } else if !visible && r.spawned {
                 // Out of view since (a travel under the start's screen): its body goes.
                 let who = nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe: false, air: false, jumped: false, at_once: r.at_once };
-                let _ = nav::show_actor(&mut commands, root, false, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut r.spawned, &mut r.root), (b.feet, b.heading), false, 0.0);
+                let _ = nav::show_actor(&mut commands, root, false, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &handed_off, &mut actors, who, (&mut r.spawned, &mut r.root), (b.feet, b.heading), false, 0.0);
             }
         }
         if may && !start.told && !want.is_empty() {
@@ -4152,7 +4152,7 @@ pub fn drive(
             // Its drawn feet as the first frame of play will have them (no character yet).
             let feet = phys.as_deref_mut().map_or(b.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, b.feet, true)));
             let who = nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe: false, air: false, jumped: false, at_once: r.at_once };
-            match nav::show_actor(&mut commands, root, true, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut r.spawned, &mut r.root), (feet, b.heading), false, 0.0) {
+            match nav::show_actor(&mut commands, root, true, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &handed_off, &mut actors, who, (&mut r.spawned, &mut r.root), (feet, b.heading), false, 0.0) {
                 Err(e) => {
                     if r.named {
                         warn!("ai: {} could not be drawn ({e})", r.label);

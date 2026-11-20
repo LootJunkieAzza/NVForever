@@ -826,7 +826,7 @@ mod tests {
         // (at 540 px too, since interface units scale with the view's height).
         let height = |p: &Piece| match p {
             Piece::Title(_) => ITEM + 8.0,
-            Piece::Line(t, _) => if t.len() > 50 { 3.0 } else { 1.0 } * STEP + 6.0,
+            Piece::Line(t, _) => (if t.len() > 50 { 3.0 } else { 1.0 }) * STEP + 6.0,
             Piece::Big(_) => ITEM + 16.0,
             Piece::Field(_) | Piece::Button(..) => ITEM + 6.0,
             Piece::Row(..) => ITEM,
