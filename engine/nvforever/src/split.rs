@@ -992,14 +992,15 @@ fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Wind
             own_by(mine, owner);
             p2.owner = Some(owner);
             info!("split: player 2's window owned by player 1's");
-            raise_over(mine);
+            raise_over(mine, owner);
         }
         // Setting the owner after the window was made doesn't stack it again, and a window
         // that is never activated is never brought up, so it could stay under other
         // windows [observed: the 11:27 and 11:46 checks, player 2's half showed the
-        // desktop]: while player 1's window is in front, this one goes right above it,
-        // without taking the focus.
-        if foreground_is(owner) && raise_over(mine) && !p2.restacked {
+        // desktop]: so this one is kept right above player 1's in the stack, whatever is in
+        // front (a dialog can hold the foreground [observed: the 13:25 demo run]), without
+        // taking the focus.
+        if raise_over(mine, owner) && !p2.restacked {
             p2.restacked = true;
             info!("split: player 2's window stacked above player 1's");
         }
@@ -1084,30 +1085,29 @@ fn own_by(window: isize, owner: isize) {
 #[cfg(not(windows))]
 fn own_by(_window: isize, _owner: isize) {}
 
-/// Puts `window` at the top of the (non-topmost) stack without activating it, so the
-/// keyboard stays where it is; true when Windows did it.
+/// Puts `window` directly above `owner` in the stack (at the top when `owner` is), without
+/// activating it, so the keyboard stays where it is; true when it had to move and Windows
+/// moved it.
 #[cfg(windows)]
-fn raise_over(window: isize) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE};
-    // SAFETY: a top-level window of player 2's own game; the call only restacks it, and
-    // fails harmlessly on a window that has gone.
-    unsafe { SetWindowPos(window as windows_sys::Win32::Foundation::HWND, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0 }
+fn raise_over(window: isize, owner: isize) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindow, GetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GW_HWNDPREV, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_TOPMOST};
+    type Hwnd = windows_sys::Win32::Foundation::HWND;
+    // SAFETY: top-level windows of the two players' games; the calls only read and change
+    // the stacking order, and fail harmlessly on a window that has gone.
+    unsafe {
+        let above = GetWindow(owner as Hwnd, GW_HWNDPREV);
+        if above as isize == window {
+            return false;
+        }
+        // Inserting after an always-on-top window would make this one always on top too.
+        let topmost = !above.is_null() && GetWindowLongPtrW(above, GWL_EXSTYLE) & WS_EX_TOPMOST as isize != 0;
+        let after = if above.is_null() || topmost { HWND_TOP } else { above };
+        SetWindowPos(window as Hwnd, after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0
+    }
 }
 
 #[cfg(not(windows))]
-fn raise_over(_window: isize) -> bool {
-    false
-}
-
-/// Whether `window` is the one in front (the one with the keyboard).
-#[cfg(windows)]
-fn foreground_is(window: isize) -> bool {
-    // SAFETY: no arguments; returns a handle or null.
-    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() as isize == window }
-}
-
-#[cfg(not(windows))]
-fn foreground_is(_window: isize) -> bool {
+fn raise_over(_window: isize, _owner: isize) -> bool {
     false
 }
 
