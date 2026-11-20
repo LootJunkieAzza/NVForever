@@ -725,6 +725,11 @@ fn delete_save(path: &Path) -> std::io::Result<()> {
     }
     std::fs::remove_file(path)?;
     let _ = std::fs::remove_file(path.with_extension(format!("{}.bak", fnv_save::EXTENSION)));
+    // Split screen's player 2 characters played in this save go with it (nvforever
+    // `split.rs`, owner 2026-11-20: "that save's version of the character is gone").
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::remove_dir_all(dir.join("split").join(stem(path)));
+    }
     Ok(())
 }
 

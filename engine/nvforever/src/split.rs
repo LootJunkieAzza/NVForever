@@ -176,17 +176,17 @@ impl Plugin for SplitPlugin {
     fn build(&self, app: &mut App) {
         if let Some(dir) = self.0.p2.clone() {
             let socket = UdpSocket::bind("127.0.0.1:0").and_then(|s| s.set_nonblocking(true).map(|_| s)).map_err(|e| warn!("split: no controller relay: {e}")).ok();
-            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY })
+            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| PREMADES.iter().position(|p| p.eq_ignore_ascii_case(&s))) })
                 .add_systems(PreUpdate, p2_receive.before(gamepad_connection_system))
                 .add_systems(PreUpdate, p2_strip_real_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
-                .add_systems(Update, p2_session);
+                .add_systems(Update, (p2_session, p2_keep_character));
         } else if self.0.start {
             let Some(home) = fnv_install::EngineHome::default_root() else {
                 warn!("split: no home folder: split screen not started");
                 return;
             };
             let socket = UdpSocket::bind("127.0.0.1:0").map_err(|e| warn!("split: no controller relay: {e}")).ok();
-            app.insert_resource(P1 { dir: home.join("split"), layout: Layout::TopBottom, state: P1State::Waiting, socket, p2_at: None, file_at: f32::NEG_INFINITY, placed: None, pads: PadRoute::default() })
+            app.insert_resource(P1 { dir: home.join("split"), layout: Layout::TopBottom, state: P1State::Waiting, socket, p2_at: None, file_at: f32::NEG_INFINITY, placed: None, pads: PadRoute::default(), save: loaded_stem() })
                 .add_systems(PreUpdate, p1_route_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
                 .add_systems(Update, p1_session);
         }
@@ -225,6 +225,9 @@ struct P1 {
     file_at: f32,
     placed: Option<(IVec2, UVec2)>,
     pads: PadRoute,
+    /// The host save this session belongs to (its file's stem): the one loaded, then
+    /// each one written.
+    save: Option<String>,
 }
 
 fn button_index(b: GamepadButton) -> Option<usize> {
@@ -310,8 +313,13 @@ fn p1_session(
     mut lobby: MessageWriter<nvf_play::lobby::LobbyRequest>,
     mut windows: Query<(&mut Window, Option<&RawHandleWrapper>), With<PrimaryWindow>>,
     monitors: Query<&Monitor, With<PrimaryMonitor>>,
+    mut saved: MessageReader<nvf_play::save::SaveDone>,
 ) {
     let now = time.elapsed_secs();
+    for d in saved.read().filter(|d| d.result.is_ok()) {
+        p1.save = d.path.file_stem().map(|s| s.to_string_lossy().into_owned());
+        p1.file_at = f32::NEG_INFINITY;
+    }
     let in_world = sim.is_some() && !main_menu.as_deref().is_some_and(|m| m.open);
     match p1.state {
         P1State::Waiting if in_world => {
@@ -326,7 +334,7 @@ fn p1_session(
                 let (Ok((_, handle)), Ok(monitor)) = (windows.single(), monitors.single()) else { return };
                 let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
                 let p2_half = halves(screen.0, screen.1, p1.layout)[1];
-                write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of));
+                write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref());
                 if let Some(pid) = read_kv(&p1.dir.join("p2.txt"), "pid").and_then(|v| v.parse::<u32>().ok()).filter(|p| process_alive(*p)) {
                     info!("split: player 2's game is already running (pid {pid}): taking it over");
                 } else if let Err(e) = start_p2(&p1.dir, port, p2_half) {
@@ -350,7 +358,7 @@ fn p1_session(
     }
     if now - p1.file_at >= FILE_EVERY {
         p1.file_at = now;
-        write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of));
+        write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref());
         p1.p2_at = read_kv(&p1.dir.join("p2.txt"), "port").and_then(|v| v.parse::<u16>().ok()).map(|port| SocketAddr::from(([127, 0, 0, 1], port)));
     }
 }
@@ -385,8 +393,8 @@ fn place(window: &mut Window, (at, size): (IVec2, UVec2)) -> bool {
     changed
 }
 
-fn write_p1_file(dir: &Path, layout: Layout, (at, size): (IVec2, UVec2), hwnd: Option<isize>) {
-    let text = format!("pid={}\nhwnd={}\nlayout={}\nscreen={},{},{},{}\n", std::process::id(), hwnd.unwrap_or(0), layout.key(), at.x, at.y, size.x, size.y);
+fn write_p1_file(dir: &Path, layout: Layout, (at, size): (IVec2, UVec2), hwnd: Option<isize>, save: Option<&str>) {
+    let text = format!("pid={}\nhwnd={}\nlayout={}\nscreen={},{},{},{}\nsave={}\n", std::process::id(), hwnd.unwrap_or(0), layout.key(), at.x, at.y, size.x, size.y, save.unwrap_or(""));
     write_file(&dir.join("p1.txt"), &text);
 }
 
@@ -467,6 +475,22 @@ fn strip_coop_args(args: &mut Vec<String>) {
     *args = out;
 }
 
+/// The premade characters, in the picker's order (plan §7.1) [design].
+pub const PREMADES: [&str; 4] = ["Ranger", "Bruiser", "Talker", "Scout"];
+
+/// The stem of the save this run was started with (`--load`), if any.
+fn loaded_stem() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    let path = args.iter().position(|a| a == "--load").and_then(|i| args.get(i + 1).cloned()).or_else(|| args.iter().find_map(|a| a.strip_prefix("--load=").map(String::from)))?;
+    Path::new(&path).file_stem().map(|s| s.to_string_lossy().into_owned())
+}
+
+/// Where player 2's character played in host save `stem` is kept: beside the host's saves,
+/// `saves\split\<stem>\premade-<n>.nvfsave` (plan §7.2).
+pub fn premade_file(host_saves: &Path, stem: &str, n: usize) -> PathBuf {
+    host_saves.join("split").join(stem).join(format!("premade-{}.{}", n + 1, fnv_save::EXTENSION))
+}
+
 fn newest_save(dir: &Path) -> Option<PathBuf> {
     std::fs::read_dir(dir)
         .ok()?
@@ -491,6 +515,8 @@ struct P2 {
     /// When player 1's game was last seen running (seconds).
     p1_seen: f32,
     file_at: f32,
+    /// Which premade this game plays (from the save it loaded), if one.
+    premade: Option<usize>,
 }
 
 /// On the relayed controller: not one of this machine's real ones.
@@ -588,6 +614,26 @@ fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Wind
             own_by(mine, owner);
             p2.owner = Some(owner);
             info!("split: player 2's window owned by player 1's");
+        }
+    }
+}
+
+/// Each save this game makes (it follows every host save, `nvf_play::coop_progress`) is
+/// player 2's character in that host save: copied beside the host's saves, under the
+/// host save's name, so loading that host save again offers it (plan §7.2) [owner: saved
+/// when the host saves, tied to that host save].
+fn p2_keep_character(p2: Res<P2>, mut saved: MessageReader<nvf_play::save::SaveDone>) {
+    for d in saved.read().filter(|d| d.result.is_ok()) {
+        let Some(n) = p2.premade else { continue };
+        let Some(stem) = read_kv(&p2.dir.join("p1.txt"), "save").filter(|s| !s.is_empty()) else { continue };
+        let Some(host_saves) = p2.dir.parent().map(|h| h.join("saves")) else { continue };
+        let to = premade_file(&host_saves, &stem, n);
+        let tmp = to.with_extension("tmp");
+        let ok = to.parent().is_some_and(|d| std::fs::create_dir_all(d).is_ok()) && std::fs::copy(&d.path, &tmp).is_ok() && std::fs::rename(&tmp, &to).is_ok();
+        if ok {
+            info!("split: player 2's {} kept with host save {stem}", PREMADES[n]);
+        } else {
+            warn!("split: player 2's character not kept with host save {stem}");
         }
     }
 }
