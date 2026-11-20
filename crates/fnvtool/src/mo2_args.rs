@@ -1,8 +1,8 @@
-//! `--mo2-profile <profile folder>`: a Mod Organizer 2 profile as a command's load order
+//! `--mo2-profile <profile folder>`: an external profile as a command's load order
 //! (issue #2275). Before the arguments are parsed, the option is taken out and the
 //! profile's active plugins are put at the end of the arguments as full paths, in load
 //! order (`fnv_install::mo2::profile_plugins`), so every command that takes `<DATA_DIR>
-//! <PLUGINS>...` reads the mod list as it is, without MO2 running and without a merged
+//! <PLUGINS>...` reads the mod list as it is, without that program running and without a merged
 //! Data folder (a full path joined to the data folder stays itself). The game's Data
 //! folder that the base plugins come from is the instance's `gamePath` in
 //! `ModOrganizer.ini` (two folders above the profile) plus `Data`. Only plugins are

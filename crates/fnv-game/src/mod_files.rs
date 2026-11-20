@@ -118,7 +118,7 @@ pub fn read_data_file(path: &str) -> Option<Vec<u8>> {
 }
 
 /// [`on_disk`], each part of the path matched to what is on disk in any case, as Windows
-/// does: mods spell `NVSE\Plugins\Scripts` every way [observed: the owner's MO2 mods], and
+/// does: mods spell `NVSE\Plugins\Scripts` every way [observed: the owner's mod lists], and
 /// a case-sensitive file system (Linux) would miss them. `None` when a part is missing.
 fn on_disk_any_case(base: &Path, rel: &str) -> Option<PathBuf> {
     let exact = on_disk(base, rel)?;

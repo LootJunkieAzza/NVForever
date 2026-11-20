@@ -411,7 +411,7 @@ impl Vfs {
     }
 
     /// [`Vfs::open_for_plugins`] with loose files from the mods folders `roots` layered
-    /// over `Data`, lowest precedence first (issue #1526: Mod Organizer 2's enabled mods
+    /// over `Data`, lowest precedence first (issue #1526: an external profile's enabled mods
     /// from the lowest priority up, then its overwrite folder). The archives mounted are
     /// the base list's (the profile's, under `--mo2`), `Update.bsa` and the plugins'
     /// archives, each taken from the highest layer that holds it.

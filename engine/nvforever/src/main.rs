@@ -259,8 +259,8 @@ struct Args {
     /// its home; with --data, the base game and the DLC masters present).
     #[arg(long, num_args = 1.., default_values_t = MASTERS.map(String::from))]
     plugins: Vec<String>,
-    /// A Mod Organizer 2 instance folder: its profile's mods are merged over Data and its
-    /// plugins load, with MO2 closed (issue #1526).
+    /// An external instance folder: its profile's mods are merged over Data and its
+    /// plugins load, with that program closed (issue #1526).
     #[arg(long, value_name = "INSTANCE")]
     mo2: Option<PathBuf>,
     /// The profile in that instance (default: the instance's selected_profile).
@@ -1112,12 +1112,12 @@ fn main() -> AppExit {
     // also where the writer has none at hand (saves, test aids; #994).
     fnv_install::remember_game(&install);
     let default_plugins = args.plugins.iter().map(String::as_str).eq(MASTERS);
-    // A Mod Organizer 2 instance named on the command line (#1526): its selected (or
-    // `--profile`) profile's mods layer over Data and its plugins load, with MO2 closed.
+    // An external instance named on the command line (#1526): its selected (or
+    // `--profile`) profile's mods layer over Data and its plugins load, with that program closed.
     let mo2 = match &args.mo2 {
         Some(instance) => match fnv_install::mo2::Layout::open(instance, args.profile.as_deref()) {
             Ok(l) => {
-                eprintln!("setup: Mod Organizer 2 instance: {} profile {} ({} mod folder(s))", l.mods.display(), l.profile_name(), l.mod_roots().len());
+                eprintln!("setup: external instance: {} profile {} ({} mod folder(s))", l.mods.display(), l.profile_name(), l.mod_roots().len());
                 Some(l)
             }
             Err(e) => {
@@ -1152,10 +1152,10 @@ fn main() -> AppExit {
     if let (true, Some(l)) = (default_plugins, mo2.as_ref()) {
         match l.profile_plugins() {
             Ok(p) if !p.is_empty() => {
-                eprintln!("setup: plugins from the Mod Organizer 2 profile ({})", l.profile.display());
+                eprintln!("setup: plugins from the external profile ({})", l.profile.display());
                 args.plugins = p;
             }
-            Ok(_) => eprintln!("warning: the Mod Organizer 2 profile has no active plugins; loading the masters only"),
+            Ok(_) => eprintln!("warning: the external profile has no active plugins; loading the masters only"),
             Err(e) => {
                 eprintln!("error: {e}");
                 return AppExit::error();
@@ -1189,7 +1189,7 @@ fn main() -> AppExit {
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
     // A mods folder's copy of a plugin is opened instead of Data's (fnv_install::plugins):
-    // NVForever's own mods folder, or an MO2 profile's mods from the highest priority down
+    // NVForever's own mods folder, or an external profile's mods from the highest priority down
     // with its overwrite folder first (#1526).
     let own = fnv_install::EngineHome::user();
     let loose_roots: Vec<PathBuf> = match &mo2 {
@@ -1254,22 +1254,22 @@ fn main() -> AppExit {
         }
     }
     // `--mo2`: the profile's own archive list (archives.txt, or its fallout.ini's
-    // SArchiveList) takes NVForever.ini's place, as MO2's Archives tab sets the game's list
+    // SArchiveList) takes NVForever.ini's place, as that profile's archive list sets the game's list
     // (#1526 phase 2).
     if let Some(l) = &mo2 {
         match l.profile_archives() {
             Some((_, from)) if std::env::var(fnv_vfs::ARCHIVE_ORDER_ENV).is_ok_and(|v| !v.trim().is_empty()) => {
-                eprintln!("vfs: the Mod Organizer 2 profile's archive list from {} not used: {} sets the whole order", from.display(), fnv_vfs::ARCHIVE_ORDER_ENV);
+                eprintln!("vfs: the external profile's archive list from {} not used: {} sets the whole order", from.display(), fnv_vfs::ARCHIVE_ORDER_ENV);
             }
             Some((list, from)) => {
                 if fnv_vfs::set_archive_list(list.clone()).is_ok() {
-                    eprintln!("vfs: archive list from the Mod Organizer 2 profile ({})", from.display());
+                    eprintln!("vfs: archive list from the external profile ({})", from.display());
                     for a in fnv_vfs::DEFAULT_ARCHIVE_LIST.iter().filter(|a| !list.iter().any(|n| n.eq_ignore_ascii_case(a))) {
                         eprintln!("vfs: warning: the profile's archive list leaves out {a}; its files will be missing");
                     }
                 }
             }
-            None => eprintln!("setup: the Mod Organizer 2 profile names no archive list; using the shipped default"),
+            None => eprintln!("setup: the external profile names no archive list; using the shipped default"),
         }
     }
     // The archives beside a plugin in the mods folder are mounted with it. The VFS takes

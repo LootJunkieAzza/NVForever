@@ -1,5 +1,5 @@
 //! Loose files layered over `Data` by mods folders, lowest precedence first (#1526): a
-//! Mod Organizer 2 profile's mods from the lowest priority up, then its overwrite folder.
+//! an external profile's mods from the lowest priority up, then its overwrite folder.
 
 use fnv_vfs::Vfs;
 use std::path::PathBuf;

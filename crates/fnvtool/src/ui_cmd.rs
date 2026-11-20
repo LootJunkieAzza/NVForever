@@ -46,7 +46,7 @@ pub struct UiSourceArgs {
     /// The game's Data folder (its archives and loose files).
     #[arg(long)]
     data: PathBuf,
-    /// A mod's folder laid over Data, e.g. an MO2 mod folder (repeatable; later ones win).
+    /// A mod's folder laid over Data (repeatable; later ones win).
     #[arg(long)]
     overlay: Vec<PathBuf>,
     /// Active plugins for UIO ? conditions (repeatable). Without this flag, use all

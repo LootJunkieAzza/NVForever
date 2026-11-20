@@ -111,7 +111,7 @@
 //! `NVF_PLAY_TEST_TILE_COUNTS`, `NVF_PLAY_TEST_HITVOL_SCAN`,
 //! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
-//! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
+//! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from an external profile].
 //!
 //! Debug switches for a session played by hand (off unless set; development tools, not
 //! part of a release; the run stays attended):

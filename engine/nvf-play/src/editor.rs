@@ -69,10 +69,10 @@
 //!   that name that is loaded now keeps its references (those moved again take their new
 //!   places); one that exists but is not loaded is not overwritten. The file it replaces
 //!   is kept as `<name>.esp.bak`.
-//! - **Saving under Mod Organizer 2** (owner 2026-11-01): when MO2 started the game, the
+//! - **Saving into an external profile** (owner 2026-11-01): when that program started the game, the
 //!   save goes into the file of the enabled mod that gives `Data` the plugin (the
 //!   overwrite folder first, then the mods from the highest priority down), else into
-//!   MO2's overwrite folder; it is turned on in the MO2 profile's `plugins.txt` and
+//!   the overwrite folder; it is turned on in that profile's `plugins.txt` and
 //!   `loadorder.txt`, not NVForever's list; the replaced file is kept in
 //!   `<home>\editor-backups\` (`fnv_install::mo2::Layout`).
 //! - **Off**: `editor` again: the camera returns to the player, the HUD comes back as it
@@ -81,8 +81,8 @@
 //! Test aid `NVF_PLAY_TEST_EDITOR=1`: editor mode is allowed without the INI line (a
 //! smoke home has no INI). `NVF_PLAY_TEST_EDITOR_REPLACE=1`: `editor save` replaces a plugin of that name
 //! in the mods folder that is not loaded (a smoke home kept from an earlier run), keeping
-//! the `.bak` as always. `NVF_PLAY_TEST_EDITOR_MO2=<MO2 instance folder>`: save as if that
-//! MO2 instance had started the game (sessions cannot start MO2); a folder without a
+//! the `.bak` as always. `NVF_PLAY_TEST_EDITOR_MO2=<instance folder>`: save as if that
+//! instance had started the game (sessions cannot start it); a folder without a
 //! `ModOrganizer.ini` gets one naming profile `Smoke`.
 //!
 //! Log: `editor: on`, `editor: off`, `editor: selected <ref>`, `editor: moved <ref> …`.
@@ -525,8 +525,8 @@ fn plugin_name(name: &str) -> Result<String, String> {
     Ok(if l.ends_with(".esp") || l.ends_with(".esm") { n.to_string() } else { format!("{n}.esp") })
 }
 
-/// Where a save of a plugin goes: NVForever's mods folder, or under Mod Organizer 2 the
-/// file of the mod that gives `Data` the plugin, else MO2's overwrite folder (owner
+/// Where a save of a plugin goes: NVForever's mods folder, or, under an external profile, the
+/// file of the mod that gives `Data` the plugin, else that profile's overwrite folder (owner
 /// 2026-11-01; `fnv_install::mo2::Layout`).
 struct Target {
     path: std::path::PathBuf,
@@ -563,7 +563,7 @@ impl Target {
     }
 
     /// The copy kept of the file a save replaces: beside it in NVForever's mods folder,
-    /// in `<home>\editor-backups\` under MO2 (so no mod folder gains a stray file).
+    /// in `<home>\editor-backups\` under an external profile (so no mod folder gains a stray file).
     fn backup(&self, home: &fnv_install::EngineHome, name: &str) -> std::path::PathBuf {
         match &self.mo2 {
             Some(_) => home.root.join("editor-backups").join(format!("{name}.bak")),
@@ -574,7 +574,7 @@ impl Target {
     /// The plugin list the plugin is turned on in.
     fn list_name(&self, home: &fnv_install::EngineHome) -> String {
         match &self.mo2 {
-            Some(l) => format!("MO2's profile {}", l.profile.display()),
+            Some(l) => format!("profile {}", l.profile.display()),
             None => home.plugins_file().display().to_string(),
         }
     }
@@ -663,9 +663,9 @@ fn save_plugin(
         lines.push(format!("warning: {warning}"));
     }
     if let Some(m) = &target.mod_name {
-        lines.push(format!("(MO2: into mod \"{m}\", the one that gives Data this plugin)"));
+        lines.push(format!("(into mod \"{m}\", the one that gives Data this plugin)"));
     } else if target.mo2.is_some() {
-        lines.push("(MO2: into the overwrite folder)".into());
+        lines.push("(into the overwrite folder)".into());
     }
     let on = match &target.mo2 {
         Some(l) => l.turn_on(&name).map_err(|e| e.to_string()),

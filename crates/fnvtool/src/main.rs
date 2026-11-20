@@ -978,7 +978,7 @@ pub enum VfsCmd {
         #[arg(long)]
         archive_list: Option<String>,
     },
-    /// A Mod Organizer 2 instance's profile as the merge it means (#1526): the enabled
+    /// An external instance's profile as the merge it means (#1526): the enabled
     /// mods from the lowest priority up, the overwrite folder last, and the profile's
     /// active plugins (fnv.vfs.mods/1). With `--data` and `--path`, the path is resolved
     /// through those layers as the engine reads it.
@@ -1161,7 +1161,7 @@ pub enum NifCmd {
 pub struct LoadOrderArgs {
     pub data_dir: PathBuf,
     /// Plugins in load order: names in the data folder, or full paths. `--mo2-profile
-    /// <profile folder>` (anywhere in the arguments) appends a Mod Organizer 2 profile's
+    /// <profile folder>` (anywhere in the arguments) appends that profile's
     /// active plugins as full paths instead.
     #[arg(required = true)]
     pub plugins: Vec<String>,

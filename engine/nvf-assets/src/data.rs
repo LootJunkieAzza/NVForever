@@ -33,7 +33,7 @@ impl GameData {
     }
 
     /// [`GameData::open_for_plugins`] with loose files of the mods folders `roots` layered
-    /// over `Data`, lowest precedence first (#1526, Mod Organizer 2's profile).
+    /// over `Data`, lowest precedence first (#1526, an external profile).
     pub fn open_for_plugins_layered<S: AsRef<str>>(data_dir: &Path, roots: &[PathBuf], plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
         let vfs = Vfs::open_for_plugins_layered(data_dir, roots, plugins).map_err(|e| e.to_string())?;
         let schema = Schema::load_dir(schema_dir).map_err(|e| e.to_string())?;

@@ -26151,8 +26151,8 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 22
 expect = [
   { re = 'editor: saved 1 references and 0 new \(\) into .*smoke.editor-mo2.overwrite.EditMo2\.esp \(\d+ bytes, 1 masters\)', label = "written into the MO2 overwrite folder" },
-  { re = 'console: \(MO2: into the overwrite folder\)', label = "the console says where" },
-  { re = 'console: EditMo2\.esp (is|was already) on in MO2.s profile .*smoke.editor-mo2.profiles.Smoke', label = "on in the MO2 profile's list (already, when the instance is kept from a run before)" },
+  { re = 'console: \(into the overwrite folder\)', label = "the console says where" },
+  { re = 'console: EditMo2\.esp (is|was already) on in profile .*smoke.editor-mo2.profiles.Smoke', label = "on in the profile's list (already, when the instance is kept from a run before)" },
 ]
 forbid = [
   { re = 'editor-home-mo2.mods.EditMo2', label = "not into NVForever's own mods folder" },
