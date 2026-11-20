@@ -9891,7 +9891,7 @@ expect = [
   { re = 'test aid NVF_PLAY_TEST_PHOTO: the free camera faces the player from [1-9]\d{2,}', label = "the free camera turns back to the player" },
   "test aid NVF_PLAY_TEST_PHOTO: Blur 50%",
   { re = 'test aid NVF_PLAY_TEST_PHOTO: Focus \d+(\.\d)? m', label = "the focus reads in metres" },
-  { re = 'depth of field: strength 0\.5, .*\(photo mode\)', label = "photo mode's depth of field reaches the grade" },
+  { re = 'depth of field: lens blur \(bokeh\), aperture 0\.50, .*\(photo mode', label = "photo mode's depth of field reaches the grade (the lens blur since cf5ff970a)" },
   "test aid NVF_PLAY_TEST_PHOTO: Warmth +40",
   "test aid NVF_PLAY_TEST_PHOTO: Vignette 60%",
   "test aid NVF_PLAY_TEST_PHOTO: Film Grain 30%",
