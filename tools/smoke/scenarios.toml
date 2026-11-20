@@ -2210,6 +2210,42 @@ forbid = [
 ]
 
 [[scenario]]
+name = "night-sky-detail"
+source = "[design, #2995] engine/nvforever/src/night_sky.rs, sky.wesl, docs/design/graphics-enhanced.md §3.17: the Night sky detail switch (off by default and in every preset) turned on in the pause menu outdoors at Goodsprings at 23:00 on day 0 (a full moon) works its figures from the shown weather and the moon (the debug multiplier 2 read once) and logs them, puts a twinkle into the stars' materials and a glow into the dome's (its applied line), and stays on after the game resumes; the sky parts' shader (with the twinkle, the moon glow and the moonlit clouds) compiles, without a rendering error"
+areas = ["renderer", "graphics", "settings", "sky"]
+paths = [
+  "engine/nvforever/src/night_sky.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wesl",
+  "engine/nvf-shader-tests/tests/sky.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:night-sky-detail", NVF_PLAY_DEBUG_NIGHT_SKY = "2" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "23", "--day", "0"]
+run_seconds = 22
+expect = [
+  "debug switch NVF_PLAY_DEBUG_NIGHT_SKY: the night sky detail x2",
+  { re = 'night sky: detail on: .*?: haze [\d.]+, twinkle (\d+\.\d+), ', range = [0.3, 0.9], label = "the stars twinkle at night: (0.15 + 0.25 x the weather's haze) x 2" },
+  { re = 'night sky: detail on: .*, moon full lit 1\.00, strength 2\.00, ', label = "day 0 at 23:00: a full moon, fully up, x2" },
+  { re = 'night sky: applied: [1-9]\d* star material\(s\) twinkling \(amplitude [\d.]+\), the dome.s glow (?P<n>[\d.]+), \d+ cloud material\(s\) moonlit', range = [0.02, 0.4], label = "the stars' materials hold a twinkle and the dome's a glow, read back after the writes (0.06 x (1 + 0.5 haze) x 2 at the full moon)" },
+]
+order = [
+  [
+    "settings: night-sky-detail on",
+    { text = "night sky: detail on: ", label = "the detail's line once the switch is on, outdoors" },
+    { text = "night sky: applied: ", label = "then the parts' materials hold it" },
+  ],
+  [
+    "settings: night-sky-detail on",
+    { re = 'graphics: light glow, night sky detail$' },
+    { re = 'pause menu: resume$', label = "the game resumes with the row on" },
+  ],
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the night sky detail" },
+  { re = '(?i)failed to process shader', label = "a shader that does not compile (sky.wesl with the night sky detail)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
+  { text = "night sky: detail off", label = "the row stays on across the resume" },
+]
+
+[[scenario]]
 name = "terrain-height-blend-local-start"
 source = "[design, #2550] engine/nvforever/src/terrain.rs \"Height blending\": started with local height reference (0.10:4:local) and --graphics-only terrain-height-blend, the folded materials are made with it and their TERRAIN_HEIGHT_BLEND pipeline compiles and is ready, without a rendering or pipeline error"
 areas = ["renderer", "graphics", "terrain"]

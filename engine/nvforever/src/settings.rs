@@ -1104,7 +1104,7 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 19] = [
+    let switches: [Switch; 20] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -1227,6 +1227,14 @@ fn register_graphics(app: &mut App) {
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().desert_haze,
             |w, on| w.resource_mut::<Graphics>().desert_haze = on,
+        ),
+        (
+            "night-sky-detail",
+            "Night sky detail (experimental)",
+            "On: stars twinkle a little, more near the horizon; the moon gets a glow and lights the clouds facing it, wider in hazy weather. Not in the original.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().night_sky_detail,
+            |w, on| w.resource_mut::<Graphics>().night_sky_detail = on,
         ),
         (
             "water-reflections",
@@ -2641,6 +2649,7 @@ dlss-model=Preset K
             ("light-shafts", &["--graphics"]),
             ("heat-haze", &["--graphics-only"]),
             ("desert-haze", &["--graphics", "--graphics-only"]),
+            ("night-sky-detail", &["--graphics", "--graphics-only"]),
             ("water-reflections", &["--graphics"]),
             ("water-effects", &["--graphics", "--graphics-only"]),
             ("water-mirror", &["--graphics-only"]),

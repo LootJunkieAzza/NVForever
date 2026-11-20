@@ -1065,6 +1065,22 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md §3.16
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `night-sky-detail`: Night sky detail (experimental)
+
+- On the page: On: stars twinkle a little, more near the horizon; the moon gets a glow and
+  lights the clouds facing it, wider in hazy weather. Not in the original.
+- In full: On: each star's light rises and falls a little, smoothly, one to four times a
+  second, hardly at all overhead and most near the horizon, a little more in hazier air; a
+  soft glow surrounds the moon, in the weather's night light colour, wider and a little
+  stronger the hazier the weather's fog, and the clouds near the moon take some of its light.
+  The glow and the moonlit clouds follow the moon's phase (none at the new moon) and show only
+  while the moon does; nothing by day or indoors. Built from the climate's own stars and
+  moon and the weather's own colours and fog, so mods' skies work too. Off in every preset;
+  not in the original.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.17
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `bloom`: Bloom
 
 - On the page: On: light brighter than a sunlit white wall (the sun, lamps, windows) glows

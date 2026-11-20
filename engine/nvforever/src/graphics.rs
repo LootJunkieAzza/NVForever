@@ -53,6 +53,9 @@
 //! - **Desert haze** (`desert-haze`, off in every preset): a thin dust haze added to the
 //!   weather's own distance fog, thicker with distance and toward the ground, warmer toward
 //!   the sun, as far as the weather's fog leaves room for it (haze.rs, #2675).
+//! - **Night sky detail** (`night-sky-detail`, off in every preset): the stars twinkle, the
+//!   moon has a glow and the clouds take its light, from the weather's own colours and fog
+//!   (night_sky.rs, #2995).
 //!
 //! Another switch is off in both looks and not part of `enhanced`: **Blend meshes into
 //! ground** (`mesh-terrain-blend`, `mesh_terrain_blend.rs`), outdoor roads, rocks and
@@ -209,11 +212,14 @@ pub struct Graphics {
     pub heat_haze: bool,
     /// A dust haze in the weather's fog (haze.rs; off in every preset) [design, #2675].
     pub desert_haze: bool,
+    /// Twinkling stars, a moon glow and moonlit clouds (night_sky.rs; off in every preset)
+    /// [design, #2995].
+    pub night_sky_detail: bool,
 }
 
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
 /// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 20] = [
+pub const KEYS: [&str; 21] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -234,6 +240,7 @@ pub const KEYS: [&str; 20] = [
     "terrain-shadows",
     "heat-haze",
     "desert-haze",
+    "night-sky-detail",
 ];
 
 impl Graphics {
@@ -290,6 +297,8 @@ impl Graphics {
             heat_haze: false,
             // Off in every preset: an addition of our own [design, #2675].
             desert_haze: false,
+            // Off in every preset: an addition of our own [design, #2995].
+            night_sky_detail: false,
         }
     }
 
@@ -315,6 +324,7 @@ impl Graphics {
             "terrain-shadows" => &mut self.terrain_shadows,
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
+            "night-sky-detail" => &mut self.night_sky_detail,
             _ => return None,
         })
     }
@@ -370,6 +380,7 @@ impl Graphics {
             (self.terrain_shadows, "terrain shadows"),
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
+            (self.night_sky_detail, "night sky detail"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -1586,6 +1597,18 @@ mod tests {
         *g.switch("desert-haze").expect("settings key") = true;
         assert_eq!(g, on);
         assert!(!Graphics::preset(Preset::Enhanced).describe().contains("haze"));
+    }
+
+    #[test]
+    fn night_sky_detail_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).night_sky_detail && !Graphics::preset(Preset::Enhanced).night_sky_detail);
+        let on = Graphics::only(&["night-sky-detail".into()]).expect("night-sky-detail");
+        assert!(on.night_sky_detail);
+        assert_eq!(on.describe(), "light glow, night sky detail");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("night-sky-detail").expect("settings key") = true;
+        assert_eq!(g, on);
+        assert!(!Graphics::preset(Preset::Enhanced).describe().contains("night sky"));
     }
 
     // The guard alone: repeated requests and an earlier registration. Both callers
