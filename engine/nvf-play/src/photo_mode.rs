@@ -685,6 +685,7 @@ impl PhotoMode {
         if self.lights.add(self.cam_at, hold) {
             self.light_row = Row::ALL.iter().position(|&r| r == Row::Edit).unwrap_or(0);
             info!("photo mode: light {} added at the camera ({:.0}, {:.0}, {:.0}); editing it, the camera stands still", self.lights.lights.len(), self.cam_at[0], self.cam_at[1], self.cam_at[2]);
+            info!("photo mode: editing light {}; the camera stands at ({:.1}, {:.1}, {:.1}) heading {:.4} pitch {:.4}", self.lights.current + 1, self.cam_at[0], self.cam_at[1], self.cam_at[2], hold.heading, hold.pitch);
         } else {
             info!("photo mode: no more lights (at most {})", crate::photo_lights::MAX_LIGHTS);
         }
