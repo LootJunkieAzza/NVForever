@@ -344,8 +344,7 @@ fn p1_session(
     let Ok(monitor) = monitors.single() else { return };
     let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
     let mine = halves(screen.0, screen.1, p1.layout)[0];
-    if p1.placed != Some(mine) {
-        place(&mut window, mine);
+    if place(&mut window, mine) && p1.placed != Some(mine) {
         p1.placed = Some(mine);
         info!("split: player 1's window on {:?} at {}x{}", mine.0, mine.1.x, mine.1.y);
     }
@@ -361,12 +360,29 @@ fn hosting_port() -> Option<u16> {
     std::env::var(crate::coop::HOST_ENV).ok().and_then(|p| p.trim().parse().ok())
 }
 
-/// A borderless window at `rect`.
-fn place(window: &mut Window, (at, size): (IVec2, UVec2)) {
-    window.mode = WindowMode::Windowed;
-    window.decorations = false;
-    window.position = WindowPosition::At(at);
-    window.resolution.set_physical_resolution(size.x, size.y);
+/// A borderless window at `rect`; true when anything had to change. Called every frame:
+/// leaving full screen restores the window's size from before it (winit), after this
+/// frame's size, so a size that didn't hold is asked for again [observed: the first
+/// two-window check, 2026-11-20, player 1's window kept 1280 wide].
+fn place(window: &mut Window, (at, size): (IVec2, UVec2)) -> bool {
+    let mut changed = false;
+    if window.mode != WindowMode::Windowed {
+        window.mode = WindowMode::Windowed;
+        changed = true;
+    }
+    if window.decorations {
+        window.decorations = false;
+        changed = true;
+    }
+    if window.position != WindowPosition::At(at) {
+        window.position = WindowPosition::At(at);
+        changed = true;
+    }
+    if window.resolution.physical_width() != size.x || window.resolution.physical_height() != size.y {
+        window.resolution.set_physical_resolution(size.x, size.y);
+        changed = true;
+    }
+    changed
 }
 
 fn write_p1_file(dir: &Path, layout: Layout, (at, size): (IVec2, UVec2), hwnd: Option<isize>) {
@@ -560,8 +576,7 @@ fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Wind
         let n: Vec<i64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
         if let [x, y, w, h] = n[..] {
             let half = halves(IVec2::new(x as i32, y as i32), UVec2::new(w.max(2) as u32, h.max(2) as u32), layout)[1];
-            if p2.placed != Some(half) {
-                place(&mut window, half);
+            if place(&mut window, half) && p2.placed != Some(half) {
                 p2.placed = Some(half);
                 info!("split: player 2's window on {:?} at {}x{}", half.0, half.1.x, half.1.y);
             }
