@@ -1725,8 +1725,28 @@ impl App {
             self.mods_present.clear();
         }
         self.mods = std::fs::read_to_string(home.plugins_file()).ok().map(|t| plugins::PluginList::parse(&t));
+        self.drop_gone_plugins();
         self.mod_rows = load_mod_rows(&home);
         self.refresh_plugin_notes();
+    }
+
+    /// A plugin whose file is not in Data and not under the mods folder is taken off
+    /// the list. FalloutNV.esm stays. An empty scan removes nothing.
+    fn drop_gone_plugins(&mut self) {
+        if self.mods_present.is_empty() {
+            return;
+        }
+        let Some(list) = self.mods.as_mut() else { return };
+        let before = list.entries.len();
+        list.entries.retain(|e| {
+            let key = e.name.to_ascii_lowercase();
+            key == "falloutnv.esm" || self.mods_present.contains(&key)
+        });
+        let gone = before - list.entries.len();
+        if gone > 0 {
+            self.mods_dirty = true;
+            self.message = Some((format!("Removed {gone} plugins whose files are gone. Save to keep that."), false));
+        }
     }
 
     fn refresh_plugin_notes(&mut self) {
@@ -1800,7 +1820,7 @@ impl App {
                 }
                 if ui.button("Refresh").clicked() {
                     self.load_mods();
-                    if self.message.as_ref().is_none_or(|(_, bad)| !*bad) {
+                    if self.message.as_ref().is_none_or(|(text, bad)| !*bad && !text.starts_with("Removed ")) {
                         self.message = Some(("Mods folder refreshed.".into(), false));
                     }
                 }
@@ -1813,7 +1833,7 @@ impl App {
             });
         });
         ui.label(
-            RichText::new("NVForever's own load order (plugins.txt in its folder; the original game's list is never read or changed). Top loads first: drag a row to move it. Using Mod Organizer 2? Start NVForever from MO2 instead.")
+            RichText::new("NVForever's own load order (plugins.txt in its folder; the original game's list is never read or changed). Top loads first: drag a row to move it. A plugin whose file is gone is taken off this list. Using Mod Organizer 2? Start NVForever from MO2 instead.")
                 .small()
                 .color(WEAK),
         );
