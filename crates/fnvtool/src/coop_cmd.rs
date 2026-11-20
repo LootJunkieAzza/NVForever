@@ -80,6 +80,7 @@ pub fn rows(data: &GameData, u: &Uniques) -> Vec<Value> {
                 "quest": edid(q),
                 "quest_plugin": plugin(q),
                 "quest_form": format!("{:08X}", q.0),
+                "companion": u.is_companion_perk(f),
             })
         })
         .collect()

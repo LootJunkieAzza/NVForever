@@ -27,6 +27,11 @@
 //! - forms a script adds to a leveled list or a container at run time by other means
 //!   (`RemoveAllItems` into a container, `AddFormToFormList`), challenge rewards.
 //!
+//! **Companion perks** ([`Uniques::companion`]), the permanent ones a companion's
+//! personal quest awards, are the host's alone: a guest never gets one, claimed quest or
+//! not (owner, 2026-11-20 via parity: "Only host"). The perks a companion lends while it
+//! follows are not among them (item 67 lends the host's to guests).
+//!
 //! [`compute`] is pure and cheap (one walk over the compiled units and the base forms);
 //! [`Game::coop_uniques`] runs it once per game on first use.
 
@@ -37,7 +42,7 @@ use fnv_script::unit::RefSlot;
 use fnv_script::{ScriptUnit, UnitOwner};
 use fnv_sim::forms::BaseData;
 use fnv_sim::{FormId, FormStore, RefTable};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// What a unique is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -61,6 +66,17 @@ impl Kind {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Uniques {
     pub by_form: BTreeMap<FormId, (Kind, FormId)>,
+    /// Companion perks: the host's alone, never a guest's (owner, 2026-11-20 via parity:
+    /// "Only host", for companion perks as unique quest rewards): the permanent unique
+    /// perks that a companion's own dialogue line gives or that a companion's dialogue quest gives (a quest whose
+    /// lines with a speaker are all companions'). A companion is an actor some script
+    /// makes or unmakes the player's teammate (`<ref>.SetPlayerTeammate`, or the call in
+    /// the actor's own script or in a line it speaks); a line's speaker is its GetIsID
+    /// condition's actor, else its ANAM [design]. Not the perks a companion lends while
+    /// it follows (`crate::coop_perks::COMPANION_PERKS`: item 67 still lends the host's to
+    /// every guest). On the masters: Cass's, Raul's, Veronica's (with Elijah's two),
+    /// Christine's, Dean's and Dog's [observed: `fnvtool coop uniques`, 2026-11-20].
+    pub companion: BTreeSet<FormId>,
 }
 
 impl Uniques {
@@ -70,6 +86,10 @@ impl Uniques {
     }
     pub fn len(&self) -> usize {
         self.by_form.len()
+    }
+    /// Whether `perk` is a companion perk (the host's alone).
+    pub fn is_companion_perk(&self, perk: FormId) -> bool {
+        self.companion.contains(&perk)
     }
     pub fn is_empty(&self) -> bool {
         self.by_form.is_empty()
@@ -94,6 +114,8 @@ enum Gives {
     Spell,
     /// RemoveItem: with caps (Caps001), the unit is a sale or an exchange.
     Takes,
+    /// SetPlayerTeammate: the actor it runs on is a companion.
+    Teammate,
 }
 
 /// Caps001 [documented: FalloutNV.esm's caps item, FormID 0x0000000F].
@@ -112,6 +134,8 @@ fn gives(data: &GameData, opcode: u16) -> Option<Gives> {
         Some(Gives::Spell)
     } else if is("RemoveItem") {
         Some(Gives::Takes)
+    } else if is("SetPlayerTeammate") {
+        Some(Gives::Teammate)
     } else {
         None
     }
@@ -121,6 +145,20 @@ fn gives(data: &GameData, opcode: u16) -> Option<Gives> {
 fn unit_gives(data: &GameData, unit: &ScriptUnit, program: &fnv_script::Program, out: &mut Vec<(Gives, FormId)>) {
     fn call(data: &GameData, unit: &ScriptUnit, c: &fnv_script::ir::Call, out: &mut Vec<(Gives, FormId)>) {
         let Some(what) = gives(data, c.opcode) else { return };
+        // SetPlayerTeammate: the actor it runs on (its reference), or 0 for the script's
+        // own actor. `SetPlayerTeammate 0` counts too: what lets an actor go was one (Dead
+        // Money hires Dean through a variable and lets him go by his reference) [observed:
+        // DeadMoney.esm SCPT 0x01006E92].
+        if what == Gives::Teammate {
+            let on = c.on.and_then(|r| match unit.slot(r) {
+                Some(RefSlot::Form(f)) => Some(f),
+                _ => None,
+            });
+            if c.on.is_none() || on.is_some() {
+                out.push((what, FormId(on.unwrap_or(0))));
+            }
+            return;
+        }
         // AddItemToLeveledList names the list first, then the item: every form named
         // counts as a source. The others: the first argument.
         let args: &[Arg] = if what == Gives::ItemSource { &c.args } else { c.args.get(..1).unwrap_or(&[]) };
@@ -207,6 +245,13 @@ pub fn compute(data: &GameData, forms: &FormStore, refs: &RefTable) -> Uniques {
     let mut given: HashMap<(Kind, FormId), HashSet<FormId>> = HashMap::new();
     let mut elsewhere: HashSet<(Kind, FormId)> = HashSet::new();
     let owners = owners(data);
+    // Companions: the actors (base forms) scripts make teammates; and each perk's lines.
+    let mut teammates: HashSet<FormId> = HashSet::new();
+    let mut perk_lines: Vec<(FormId, FormId)> = Vec::new();
+    let mut users: HashMap<FormId, Vec<FormId>> = HashMap::new();
+    for (form, script) in &data.form_script {
+        users.entry(*script).or_default().push(*form);
+    }
     let mut calls = Vec::new();
     for (c, owner) in data.units.iter().zip(&owners) {
         let Some(owner) = owner else { continue };
@@ -223,6 +268,20 @@ pub fn compute(data: &GameData, forms: &FormStore, refs: &RefTable) -> Uniques {
             _ => false,
         };
         for &(what, f) in &calls {
+            if what == Gives::Teammate {
+                if f.0 != 0 {
+                    teammates.insert(refs.refs.get(&f).map_or(f, |r| r.base));
+                } else if let UnitOwner::Script { form } = c.unit.owner {
+                    teammates.extend(users.get(&FormId(form)).into_iter().flatten().copied());
+                } else if let UnitOwner::Info { form, .. } = c.unit.owner {
+                    // A line's result script runs on its speaker.
+                    teammates.extend(data.infos.get(&FormId(form)).and_then(|i| crate::coverage::line_actor(data, i)));
+                }
+                continue;
+            }
+            if let (Gives::Perk, UnitOwner::Info { form, .. }) = (what, &c.unit.owner) {
+                perk_lines.push((f, FormId(*form)));
+            }
             if what == Gives::Takes {
                 continue;
             }
@@ -237,7 +296,7 @@ pub fn compute(data: &GameData, forms: &FormStore, refs: &RefTable) -> Uniques {
                 Gives::Item | Gives::ItemSource => Kind::Item,
                 Gives::Perk => Kind::Perk,
                 Gives::Spell => Kind::Spell,
-                Gives::Takes => continue,
+                Gives::Takes | Gives::Teammate => continue,
             };
             if sold || setup {
                 elsewhere.insert((kind, f));
@@ -248,7 +307,7 @@ pub fn compute(data: &GameData, forms: &FormStore, refs: &RefTable) -> Uniques {
                     given.entry((kind, f)).or_default().insert(*q);
                 }
                 // A quest's own PlaceAtMe of it is neither a reward nor another source.
-                (Owner::Quest(_), Gives::ItemSource | Gives::Takes) => {}
+                (Owner::Quest(_), Gives::ItemSource | Gives::Takes | Gives::Teammate) => {}
                 (Owner::Other, _) => {
                     elsewhere.insert((kind, f));
                 }
@@ -282,6 +341,32 @@ pub fn compute(data: &GameData, forms: &FormStore, refs: &RefTable) -> Uniques {
         let q = quests.into_iter().next().expect("one quest");
         out.by_form.insert(f, (kind, q));
     }
+    // A companion's dialogue quest: every line of it with a speaker is a companion's.
+    let mut quest_lines: HashMap<FormId, (usize, usize)> = HashMap::new();
+    for i in data.infos.values() {
+        let (Some(q), Some(a)) = (i.quest, crate::coverage::line_actor(data, i)) else { continue };
+        let e = quest_lines.entry(q).or_default();
+        e.0 += 1;
+        e.1 += usize::from(teammates.contains(&a));
+    }
+    for (&perk, &(kind, q)) in &out.by_form {
+        if kind == Kind::Perk && quest_lines.get(&q).is_some_and(|&(n, c)| n > 0 && c == n) {
+            out.companion.insert(perk);
+        }
+    }
+    for (perk, line) in perk_lines {
+        let by_companion = data.infos.get(&line).and_then(|i| crate::coverage::line_actor(data, i)).is_some_and(|a| teammates.contains(&a));
+        if by_companion && out.by_form.get(&perk).is_some_and(|(k, _)| *k == Kind::Perk) {
+            out.companion.insert(perk);
+        }
+    }
+    // The perks a companion lends while it follows are not these: the host's go to every
+    // guest while they last (`crate::coop_perks::COMPANION_PERKS`, item 67).
+    for e in crate::coop_perks::COMPANION_PERKS {
+        if let Some(p) = data.by_edid(e) {
+            out.companion.remove(&p);
+        }
+    }
     out
 }
 
@@ -299,6 +384,9 @@ impl Game<'_> {
     /// Whether this character keeps (or may take) `form` as a quest reward: anything
     /// that is not a unique, and a unique of a quest it claimed a stage of (plan §4.1).
     pub fn coop_unique_allowed(&self, form: FormId) -> bool {
+        if self.coop_uniques().is_companion_perk(form) {
+            return false;
+        }
         // Keys always come (the host's world's doors need them; the item-81 undo takes a
         // quest's key back out of a non-claimer's own save) [design].
         self.data.sig(form).as_ref() == Some(b"KEYM") || self.coop_uniques().quest_of(form).is_none_or(|q| claimed_any(&self.player.claims, q))
@@ -310,7 +398,7 @@ impl Game<'_> {
     pub fn coop_story_to_undo(&self) -> crate::coop_story::CoopStory {
         let uniques = self.coop_uniques();
         let claims = &self.player.claims;
-        self.coop_story.without(|f| uniques.quest_of(f).is_some_and(|q| claimed_any(claims, q)))
+        self.coop_story.without(|f| !uniques.is_companion_perk(f) && uniques.quest_of(f).is_some_and(|q| claimed_any(claims, q)))
     }
 }
 

@@ -49,6 +49,16 @@ const QC_SCRIPT: u32 = 0x912;
 const LINE2: u32 = 0xE02;
 const QPERK: u32 = 0xB00;
 const PLAYABLE_PERK: u32 = 0xB01;
+/// A companion's dialogue quest, its perk, the companion (its script makes it the
+/// player's teammate) and a line it says.
+const QD: u32 = 0x903;
+const COMPANION: u32 = 0x701;
+const COMPANION_SCRIPT: u32 = 0x913;
+const LINE3: u32 = 0xE03;
+const COMPANION_PERK: u32 = 0xB02;
+/// A perk a companion lends while it follows (`coop_perks::COMPANION_PERKS`), unique to
+/// the companion's quest here too, but lent to guests (item 67), so no companion perk.
+const FOLLOW_PERK: u32 = 0xB03;
 const QSPELL: u32 = 0xC00;
 const CONT: u32 = 0xD00;
 const LIST: u32 = 0xD01;
@@ -75,6 +85,10 @@ const NAMES: &[(&str, u32, &[u8; 4])] = &[
     ("TPackQuest", QC, b"QUST"),
     ("TQuestPerk", QPERK, b"PERK"),
     ("TPlayablePerk", PLAYABLE_PERK, b"PERK"),
+    ("TCompanionQuest", QD, b"QUST"),
+    ("TCompanion", COMPANION, b"NPC_"),
+    ("TCompanionPerk", COMPANION_PERK, b"PERK"),
+    ("Spotting", FOLLOW_PERK, b"PERK"),
     ("TQuestSpell", QSPELL, b"SPEL"),
 ];
 
@@ -137,6 +151,11 @@ fn plugin(table: &FunctionTable) -> Vec<u8> {
     let scpt = [
         record(b"SCPT", 0, QB_SCRIPT, &[vec![sub(b"EDID", z("TQuestBScript"))], unit(table, 1, "scn TQuestBScript\nbegin GameMode\n  player.AddItem TQuestBItem 1\nend\n")].concat()),
         record(b"SCPT", 0, QC_SCRIPT, &[vec![sub(b"EDID", z("TPackScript"))], unit(table, 1, "scn TPackScript\nbegin GameMode\n  player.AddItem TPack 1\nend\n")].concat()),
+        record(b"SCPT", 0, COMPANION_SCRIPT, &[vec![sub(b"EDID", z("TCompanionScript"))], unit(table, 0, "scn TCompanionScript
+begin OnActivate
+  SetPlayerTeammate 1
+end
+")].concat()),
         record(b"SCPT", 0, LEVER_SCRIPT, &[vec![sub(b"EDID", z("TLeverScript"))], unit(table, 0, "scn TLeverScript\nbegin OnActivate\n  player.AddItem TScripted 1\nend\n")].concat()),
     ]
     .concat();
@@ -158,6 +177,8 @@ fn plugin(table: &FunctionTable) -> Vec<u8> {
     let perks = [
         record(b"PERK", 0, QPERK, &[sub(b"EDID", z("TQuestPerk")), sub(b"DATA", vec![0, 1, 1, 0, 0])]),
         record(b"PERK", 0, PLAYABLE_PERK, &[sub(b"EDID", z("TPlayablePerk")), sub(b"DATA", vec![0, 1, 1, 1, 0])]),
+        record(b"PERK", 0, COMPANION_PERK, &[sub(b"EDID", z("TCompanionPerk")), sub(b"DATA", vec![0, 1, 1, 0, 0])]),
+        record(b"PERK", 0, FOLLOW_PERK, &[sub(b"EDID", z("Spotting")), sub(b"DATA", vec![0, 1, 1, 0, 0])]),
     ]
     .concat();
     let spel = record(b"SPEL", 0, QSPELL, &[sub(b"EDID", z("TQuestSpell")), sub(b"SPIT", [4u32.to_le_bytes(), 0u32.to_le_bytes(), 0u32.to_le_bytes(), 0u32.to_le_bytes()].concat())]);
@@ -185,6 +206,10 @@ fn plugin(table: &FunctionTable) -> Vec<u8> {
             Some(QB_SCRIPT),
             &[(10, "player.AddItem TShared 1\nplayer.AddItem TVendor 1\nplayer.AddItem TLeveled 1\nplayer.AddItemHealthPercent TPlaced 1 0.5\nplayer.AddItem TScripted 1\n")],
         ),
+        // A companion's dialogue quest: its stage gives the companion's perk.
+        quest(table, QD, "TCompanionQuest", None, &[(20, "player.AddPerk TCompanionPerk
+"), (30, "player.AddPerk Spotting
+")]),
         // A background quest running from the game's start (DATA flags 0x01), no name,
         // stages or objectives, whose script hands out TPack.
         record(b"QUST", 0, QC, &[sub(b"EDID", z("TPackQuest")), sub(b"SCRI", QC_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", [vec![1u8, 0, 0, 0], 5.0f32.to_le_bytes().to_vec()].concat())]),
@@ -200,13 +225,23 @@ fn plugin(table: &FunctionTable) -> Vec<u8> {
     let mut sale = vec![sub(b"DATA", vec![0, 0, 0, 0]), sub(b"QSTI", QB.to_le_bytes().to_vec()), sub(b"TRDT", trdt.clone()), sub(b"NAM1", z("Sold.")), sub(b"NAM2", z("")), sub(b"NAM3", z(""))];
     sale.push(sub(b"NEXT", vec![]));
     sale.extend(unit(table, 0, "player.RemoveItem Caps001 100\nplayer.AddItem TSold 1\n"));
-    let lines = [record(b"INFO", 0, LINE, &info), record(b"INFO", 0, LINE2, &sale)].concat();
+    // A line of TCompanionQuest said by TCompanion (ANAM) that gives its perk.
+    let mut said = vec![sub(b"DATA", vec![0, 0, 0, 0]), sub(b"QSTI", QD.to_le_bytes().to_vec()), sub(b"TRDT", trdt.clone()), sub(b"NAM1", z("For you.")), sub(b"NAM2", z("")), sub(b"NAM3", z(""))];
+    said.push(sub(b"ANAM", COMPANION.to_le_bytes().to_vec()));
+    said.push(sub(b"NEXT", vec![]));
+    said.extend(unit(table, 0, "player.AddPerk TCompanionPerk
+"));
+    let lines = [record(b"INFO", 0, LINE, &info), record(b"INFO", 0, LINE2, &sale), record(b"INFO", 0, LINE3, &said)].concat();
     let dial = [record(b"DIAL", 0, TOPIC, &dial_subs), group(TOPIC.to_le_bytes(), 7, &lines)].concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TCell"))]);
     let placed = record(b"REFR", 0, PLACED_REF, &[sub(b"NAME", PLACED.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &placed));
     // The player's base, so the player has an inventory.
-    let player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]);
+    let player = [
+        record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]),
+        record(b"NPC_", 0, COMPANION, &[sub(b"EDID", z("TCompanion")), sub(b"SCRI", COMPANION_SCRIPT.to_le_bytes().to_vec())]),
+    ]
+    .concat();
     [
         tes4(),
         top(b"NPC_", &player),
@@ -273,6 +308,8 @@ fn only_what_one_quests_scripts_alone_give_is_unique() {
             (QB_ITEM, Kind::Item, QB),
             (LINE_ITEM, Kind::Item, QB),
             (QPERK, Kind::Perk, QA),
+            (COMPANION_PERK, Kind::Perk, QD),
+            (FOLLOW_PERK, Kind::Perk, QD),
             (QSPELL, Kind::Spell, QA),
         ],
         "not unique: given by two quests, a vendor's container, a leveled list, a placed reference, an object's script, a playable perk, \
@@ -332,4 +369,38 @@ fn the_undo_keeps_a_claimers_uniques_and_takes_the_rest() {
     assert_eq!(s.player.perks.get(&FormId(QPERK)), Some(&1));
     // The running game is not touched.
     assert_eq!(g.coop_story.items.len(), 2);
+}
+
+/// Companion perks are the host's alone (owner, 2026-11-20 via parity: "Only host"): a
+/// guest's game never gives one, claimed quest or not, and its own save never keeps one.
+#[test]
+fn companion_perks_are_the_hosts_alone() {
+    let f = fixture();
+    let u = compute(&f.data, &f.forms, &f.refs);
+    assert_eq!(u.companion.iter().map(|p| p.0).collect::<Vec<_>>(), vec![COMPANION_PERK], "the companion quest's perk, not the follow perk");
+    assert_eq!(u.quest_of(FormId(FOLLOW_PERK)), Some(FormId(QD)));
+    assert!(!u.is_companion_perk(FormId(QPERK)), "another quest's unique perk is no companion perk");
+    assert!(f.data.infos.get(&FormId(LINE3)).is_some_and(|i| i.speaker == Some(FormId(COMPANION))), "the companion's line is read");
+    // A guest that claimed the companion's quest: the perk is still not given.
+    let mut g = game(&f);
+    g.coop_guest = true;
+    claim(&mut g, QD, 20);
+    assert!(!g.coop_unique_allowed(FormId(COMPANION_PERK)));
+    g.set_stage(FormId(QD), 20);
+    assert!(!g.player.perks.contains_key(&FormId(COMPANION_PERK)), "a guest's AddPerk of a companion perk gives nothing");
+    // Had the story recorded one, the guest's own save would not keep it.
+    g.coop_story.record_perk(FormId(COMPANION_PERK), 0);
+    g.player.perks.insert(FormId(COMPANION_PERK), 1);
+    let mut s = g.snapshot();
+    g.coop_story_to_undo().undo_on(&mut s);
+    assert!(!s.player.perks.contains_key(&FormId(COMPANION_PERK)));
+    // Its own world replaying the claim (solo, after the session): still not given.
+    let mut r = game(&f);
+    r.coop_replaying = true;
+    r.set_stage(FormId(QD), 20);
+    assert!(!r.player.perks.contains_key(&FormId(COMPANION_PERK)), "a replayed claim gives no companion perk");
+    // The host (not a guest) gets it as the original gives it.
+    let mut h = game(&f);
+    h.set_stage(FormId(QD), 20);
+    assert_eq!(h.player.perks.get(&FormId(COMPANION_PERK)), Some(&1));
 }
