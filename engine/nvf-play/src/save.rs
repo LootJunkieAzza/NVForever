@@ -1082,6 +1082,29 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     Ok((f.header, body, Some(OrderChange { remap, missing })))
 }
 
+/// Joint progression's replay (`fnv_game::coop_joint`, plan §3.5): when this character's
+/// own world loads, the quest stages it claimed in another player's world are applied
+/// before the first frame. Not for a load that joins a co-op session (that world is the
+/// host's: the claims wait in the character for its own next load) [design].
+fn replay_claims(world: &mut World) {
+    use crate::coop_progress::{REJOIN_ENV, SYNC_ENV};
+    if std::env::var_os(SYNC_ENV).is_some() || std::env::var_os(REJOIN_ENV).is_some() {
+        return;
+    }
+    if world.get_resource::<crate::coop_progress::CoopProgress>().is_some_and(|p| p.role == crate::coop_progress::Role::Guest) {
+        return;
+    }
+    let lines = match world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+        Some(rt) => rt.game.replay_claims(),
+        None => return,
+    };
+    if let Some(mut corner) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
+        for l in lines {
+            corner.push(l.into());
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "save/retired_scene_tests.rs"]
 mod retired_scene_tests;
@@ -1322,28 +1345,5 @@ mod tests {
         assert!(world.resource::<SaveLog>().0.is_empty());
         assert_eq!(world.resource::<SaveQueue>().0.len(), 1);
         assert!(!world.resource::<SaveWrites>().busy());
-    }
-}
-
-/// Joint progression's replay (`fnv_game::coop_joint`, plan §3.5): when this character's
-/// own world loads, the quest stages it claimed in another player's world are applied
-/// before the first frame. Not for a load that joins a co-op session (that world is the
-/// host's: the claims wait in the character for its own next load) [design].
-fn replay_claims(world: &mut World) {
-    use crate::coop_progress::{REJOIN_ENV, SYNC_ENV};
-    if std::env::var_os(SYNC_ENV).is_some() || std::env::var_os(REJOIN_ENV).is_some() {
-        return;
-    }
-    if world.get_resource::<crate::coop_progress::CoopProgress>().is_some_and(|p| p.role == crate::coop_progress::Role::Guest) {
-        return;
-    }
-    let lines = match world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
-        Some(rt) => rt.game.replay_claims(),
-        None => return,
-    };
-    if let Some(mut corner) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
-        for l in lines {
-            corner.push(l.into());
-        }
     }
 }

@@ -317,7 +317,7 @@ impl Plugin for CoopProgressPlugin {
     fn build(&self, app: &mut App) {
         let mut p = CoopProgress::default();
         p.saves.last = std::env::var_os(SHARED_ENV).map(PathBuf::from).filter(|p| p.exists());
-        app.insert_resource(p).add_systems(Update, (take_inbox, rewards, announce_saves, all_down, alone_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
+        app.insert_resource(p).add_systems(Update, (take_inbox, joint_question, rewards, announce_saves, all_down, alone_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
     }
 }
 
@@ -342,8 +342,7 @@ fn take_inbox(
     mut load: MessageWriter<LoadRequest>,
     mates: Option<Res<crate::coop_social::SocialMates>>,
     mut quest_lines: Option<ResMut<crate::quest_messages::QuestMessages>>,
-    mut sim: Option<ResMut<crate::sim::SimState>>,
-    solo: Option<Res<crate::save::SoloBase>>,
+    (mut sim, solo): (Option<ResMut<crate::sim::SimState>>, Option<Res<crate::save::SoloBase>>),
 ) {
     let p = &mut *p;
     let mut script = script;
@@ -543,6 +542,38 @@ fn gift_lines(host: &str, handed: &[(u32, String, i32)]) -> Vec<String> {
     order.into_iter().map(|(_, name, n)| if n > 1 { format!("{host} handed out {name} ({n})") } else { format!("{host} handed out {name}") }).collect()
 }
 
+/// `NVF_COOP_JOINT=1` / `0`: the join question answered without asking (test runs).
+pub const JOINT_ENV: &str = "NVF_COOP_JOINT";
+
+/// A guest's join question for joint progression (plan §3.7): asked once the syncing
+/// screen is down, answered with Y or N (`crate::coop_social`); the answer holds while
+/// this run stays a guest. A host or a solo game forgets it, so the next join asks again.
+fn joint_question(mut p: ResMut<CoopProgress>, social: Option<ResMut<crate::coop_social::Social>>, syncing: Option<Res<crate::coop_downed::SyncingScreen>>) {
+    let Some(mut social) = social else { return };
+    if p.role != Role::Guest {
+        p.joint_on = None;
+        social.joint_ask = false;
+        social.joint_answer = None;
+        return;
+    }
+    if p.joint_on.is_some() {
+        return;
+    }
+    if let Some(v) = std::env::var(JOINT_ENV).ok().filter(|v| v == "0" || v == "1") {
+        info!("co-op: share quest progress: {} ({JOINT_ENV})", if v == "1" { "yes" } else { "no" });
+        p.joint_on = Some(v == "1");
+        return;
+    }
+    if let Some(yes) = social.joint_answer.take() {
+        p.joint_on = Some(yes);
+        return;
+    }
+    if !social.joint_ask && !syncing.is_some_and(|s| s.0) && p.my_id.is_some() {
+        info!("co-op: asking whether to share quest progress this session");
+        social.joint_ask = true;
+    }
+}
+
 /// The host: rewards of the quests it completed, for the guests.
 fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
     let Some(mut st) = script else { return };
@@ -559,11 +590,6 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
     }
     if p.role != Role::Host {
         p.joint_peers.clear();
-    }
-    // The join popup (plan §3.7) is not built yet: until it is, the choice is yes unless
-    // NVF_COOP_JOINT=0 [design, interim].
-    if p.role == Role::Guest && p.joint_on.is_none() {
-        p.joint_on = Some(std::env::var("NVF_COOP_JOINT").map_or(true, |v| v != "0"));
     }
     if p.role == Role::Guest && !p.joint_sent && p.my_id.is_some() {
         if let Some(on) = p.joint_on {
@@ -843,5 +869,39 @@ mod tests {
         assert_eq!(follow_request(SaveKind::Quick, &cfg).name, fnv_save::QUICK_NAME);
         assert_eq!(follow_request(SaveKind::Auto, &cfg).kind, SaveKind::Auto);
         assert_eq!(follow_request(SaveKind::Manual, &cfg).kind, SaveKind::Manual);
+    }
+
+    /// The join question waits for the syncing screen, takes the answer, and is asked
+    /// again after the guest has left (plan §3.7).
+    #[test]
+    fn a_guest_is_asked_once_synced_and_again_after_leaving() {
+        if std::env::var(JOINT_ENV).is_ok() {
+            return;
+        }
+        let mut app = App::new();
+        app.insert_resource(CoopProgress { role: Role::Guest, my_id: Some(1), ..default() })
+            .init_resource::<crate::coop_social::Social>()
+            .insert_resource(crate::coop_downed::SyncingScreen(true))
+            .add_systems(Update, joint_question);
+        app.update();
+        assert!(!app.world().resource::<crate::coop_social::Social>().joint_ask, "not while syncing");
+        app.world_mut().resource_mut::<crate::coop_downed::SyncingScreen>().0 = false;
+        app.update();
+        assert!(app.world().resource::<crate::coop_social::Social>().joint_ask);
+        {
+            let mut s = app.world_mut().resource_mut::<crate::coop_social::Social>();
+            s.joint_ask = false;
+            s.joint_answer = Some(false);
+        }
+        app.update();
+        assert_eq!(app.world().resource::<CoopProgress>().joint_on, Some(false));
+        app.update();
+        assert!(!app.world().resource::<crate::coop_social::Social>().joint_ask, "answered: not asked again");
+        app.world_mut().resource_mut::<CoopProgress>().role = Role::Solo;
+        app.update();
+        assert_eq!(app.world().resource::<CoopProgress>().joint_on, None);
+        app.world_mut().resource_mut::<CoopProgress>().role = Role::Guest;
+        app.update();
+        assert!(app.world().resource::<crate::coop_social::Social>().joint_ask, "a new join asks again");
     }
 }
