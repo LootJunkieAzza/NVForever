@@ -13,6 +13,11 @@
 //!   folder. This game's window is borderless on its half, owned by player 1's window (they
 //!   move, minimise and stay on top together) and never takes focus, so the keyboard stays
 //!   player 1's [design]. It quits when player 1's game has been gone for [`P1_GONE`].
+//! - **Characters** (plan §7): player 2 plays one of four premades
+//!   (`fnv_game::split_premade`). Player 1's game writes one save per premade into player
+//!   2's home ([`premade_saves`]) and starts player 2's on its main menu, joining, with the
+//!   join screen up: its list of saves is the picker. What player 2's game saves is kept
+//!   with the host save (`saves\split\<stem>\premade-<n>.nvfsave`, [`premade_file`]).
 //! - **Session files** in `<player 1's home>\split\`: `p1.txt` (player 1's process, window,
 //!   the layout and the screen's rectangle) and `p2.txt` (player 2's process and the port
 //!   its controller arrives on). Player 2's own home is `split\p2-home` beside them.
@@ -176,10 +181,10 @@ impl Plugin for SplitPlugin {
     fn build(&self, app: &mut App) {
         if let Some(dir) = self.0.p2.clone() {
             let socket = UdpSocket::bind("127.0.0.1:0").and_then(|s| s.set_nonblocking(true).map(|_| s)).map_err(|e| warn!("split: no controller relay: {e}")).ok();
-            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| PREMADES.iter().position(|p| p.eq_ignore_ascii_case(&s))) })
+            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false })
                 .add_systems(PreUpdate, p2_receive.before(gamepad_connection_system))
                 .add_systems(PreUpdate, p2_strip_real_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
-                .add_systems(Update, (p2_session, p2_keep_character));
+                .add_systems(Update, (p2_session, p2_keep_character, p2_open_join));
         } else if self.0.start {
             let Some(home) = fnv_install::EngineHome::default_root() else {
                 warn!("split: no home folder: split screen not started");
@@ -314,6 +319,7 @@ fn p1_session(
     mut windows: Query<(&mut Window, Option<&RawHandleWrapper>), With<PrimaryWindow>>,
     monitors: Query<&Monitor, With<PrimaryMonitor>>,
     mut saved: MessageReader<nvf_play::save::SaveDone>,
+    (script, play): (Option<Res<nvf_play::script::ScriptState>>, Option<Res<nvf_play::PlayWorld>>),
 ) {
     let now = time.elapsed_secs();
     for d in saved.read().filter(|d| d.result.is_ok()) {
@@ -337,8 +343,15 @@ fn p1_session(
                 write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref());
                 if let Some(pid) = read_kv(&p1.dir.join("p2.txt"), "pid").and_then(|v| v.parse::<u32>().ok()).filter(|p| process_alive(*p)) {
                     info!("split: player 2's game is already running (pid {pid}): taking it over");
-                } else if let Err(e) = start_p2(&p1.dir, port, p2_half) {
-                    warn!("split: player 2's game not started: {e}");
+                } else {
+                    let data = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data);
+                    let game = match (data, sim.as_deref(), play.as_deref()) {
+                        (Some(data), Some(sim), Some(play)) => Some(PremadeData { data, forms: sim.forms, plugins: nvf_play::save::plugin_list(&play.0) }),
+                        _ => None,
+                    };
+                    if let Err(e) = start_p2(&p1.dir, port, p2_half, p1.save.as_deref(), game.as_ref()) {
+                        warn!("split: player 2's game not started: {e}");
+                    }
                 }
                 p1.state = P1State::Running;
             }
@@ -419,26 +432,29 @@ fn kv(text: &str, key: &str) -> Option<String> {
     text.lines().find_map(|l| l.split_once('=').filter(|(k, _)| k.trim() == key).map(|(_, v)| v.trim().to_string()))
 }
 
+/// What making the premades' saves needs of this game: its data (editor IDs, leveled
+/// lists) and its load order.
+struct PremadeData {
+    data: &'static fnv_game::GameData,
+    forms: &'static fnv_sim::FormStore,
+    plugins: Vec<fnv_save::PluginEntry>,
+}
+
 /// Starts player 2's game: this program again, joining this game, in its own home on
-/// player 2's half. Its first save is this game's newest (the premade characters replace
-/// that: plan §7, not built yet).
-fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2)) -> Result<(), String> {
+/// player 2's half. Its saves are the four premades ([`premade_saves`]), and it starts on
+/// its main menu with the guest's join screen up ([`p2_open_join`]), so player 2 picks one
+/// there (plan §7).
+fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option<&str>, game: Option<&PremadeData>) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let home = dir.join("p2-home");
     std::fs::create_dir_all(home.join("saves")).map_err(|e| e.to_string())?;
     let mine = fnv_install::EngineHome::user().ok_or("no home folder")?;
     // Player 2 plays with player 1's settings.
     let _ = std::fs::copy(mine.config_file(), fnv_install::EngineHome::new(&home).config_file());
-    let save = newest_save(&home.join("saves")).or_else(|| {
-        let s = newest_save(&mine.saves())?;
-        let to = home.join("saves").join(s.file_name()?);
-        std::fs::copy(&s, &to).ok()?;
-        Some(to)
-    });
-    let Some(save) = save else { return Err("no save for player 2's character yet: save once first".into()) };
+    let made = premade_saves(&mine.saves(), &home, host_save, game)?;
     let mut args = crate::restart_args(&std::env::args().skip(1).collect::<Vec<_>>());
     strip_coop_args(&mut args);
-    args.extend(["--load".into(), save.display().to_string(), "--split-p2".into(), dir.display().to_string(), "--size".into(), format!("{}x{}", size.x, size.y), "--window-at".into(), format!("{},{}", at.x, at.y)]);
+    args.extend(["--menu".into(), "--split-p2".into(), dir.display().to_string(), "--size".into(), format!("{}x{}", size.x, size.y), "--window-at".into(), format!("{},{}", at.x, at.y)]);
     let child = std::process::Command::new(exe)
         .args(&args)
         .env(fnv_install::HOME_ENV, &home)
@@ -451,9 +467,92 @@ fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2)) -> Result<(), Str
         .env_remove(crate::coop::TOKEN_ENV)
         .spawn()
         .map_err(|e| e.to_string())?;
-    info!("split: player 2's game started (pid {}) with {}", child.id(), save.display());
+    info!("split: player 2's game started (pid {}) to pick from {made}", child.id());
     write_file(&dir.join("p2.txt"), &format!("pid={}\n", child.id()));
     Ok(())
+}
+
+/// Player 2's saves: one per premade, `<p2 home>\saves\<Name>.nvfsave`, named after its
+/// premade so player 2's game knows which it plays ([`premade_of`]):
+/// - the premade as it was played in host save `host_save` ([`premade_file`]), when
+///   there is one;
+/// - else its defaults on top of this game's newest save
+///   (`fnv_game::split_premade::premade_snapshot`).
+///
+/// Any other save there (those player 2's game made following the host's) moves to
+/// `<p2 home>\old-saves`, so the join screen lists the four only. Returns what was made,
+/// for the log.
+fn premade_saves(host_saves: &Path, p2_home: &Path, host_save: Option<&str>, game: Option<&PremadeData>) -> Result<String, String> {
+    use fnv_game::split_premade::{premade_snapshot, resolve, PREMADES};
+    let saves = p2_home.join("saves");
+    let names: Vec<String> = PREMADES.iter().map(|p| format!("{}.{}", p.name, fnv_save::EXTENSION)).collect();
+    if let Ok(entries) = std::fs::read_dir(&saves) {
+        let old = p2_home.join("old-saves");
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if e.path().is_file() && !names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+                let _ = std::fs::create_dir_all(&old);
+                if let Err(err) = std::fs::rename(e.path(), old.join(&name)) {
+                    warn!("split: {name} left in player 2's saves: {err}");
+                }
+            }
+        }
+    }
+    // The base of the premades that have no file of this host save: this game's newest
+    // save, read once.
+    let mut base: Option<Result<Base, String>> = None;
+    let mut made = Vec::new();
+    for (n, p) in PREMADES.iter().enumerate() {
+        let to = saves.join(&names[n]);
+        if let Some(kept) = host_save.map(|stem| premade_file(host_saves, stem, n)).filter(|f| f.is_file()) {
+            match std::fs::copy(&kept, &to) {
+                Ok(_) => {
+                    made.push(format!("{} (kept with {})", p.name, host_save.unwrap_or_default()));
+                    continue;
+                }
+                Err(e) => warn!("split: {} not copied: {e}: its defaults instead", kept.display()),
+            }
+        }
+        let Some(game) = game else { return Err("the game's data is not loaded yet".into()) };
+        let b = match base.get_or_insert_with(|| read_base(host_saves, &game.plugins)) {
+            Ok(b) => b,
+            Err(e) => return Err(e.clone()),
+        };
+        let r = resolve(p, |e| game.data.by_edid(e), game.forms, b.header.saved_unix ^ (n as u64 + 1));
+        if !r.missing.is_empty() {
+            warn!("split: {}: not in the load order: {}", p.name, r.missing.join(", "));
+        }
+        let mut body = b.body.clone();
+        body.game = premade_snapshot(&body.game, p, &r);
+        body.engine.coop.clear();
+        body.engine.magazine = None;
+        body.engine.magazine_ammo = None;
+        let mut h = b.header.clone();
+        h.kind = fnv_save::SaveKind::Manual;
+        h.player_name = p.name.to_string();
+        h.level = 1;
+        h.coop.clear();
+        h.plugins = game.plugins.clone();
+        let bytes = serde_json::to_vec(&body).map_err(|e| e.to_string())?;
+        fnv_save::write(&to, &h, &b.shot, &bytes, false).map_err(|e| e.to_string())?;
+        made.push(format!("{} (defaults)", p.name));
+    }
+    Ok(made.join(", "))
+}
+
+/// The save the premades' defaults are made on.
+struct Base {
+    header: fnv_save::SaveHeader,
+    shot: Vec<u8>,
+    body: nvf_play::save::SaveBody,
+}
+
+/// This game's newest save, remapped to the load order running now.
+fn read_base(host_saves: &Path, plugins: &[fnv_save::PluginEntry]) -> Result<Base, String> {
+    let path = newest_save(host_saves).ok_or("no save for player 2's characters yet: save once first")?;
+    let shot = fnv_save::read(&path).map(|f| f.shot).unwrap_or_default();
+    let (header, body, _) = nvf_play::save::read_for_load(&path, plugins)?;
+    Ok(Base { header, shot, body })
 }
 
 /// Takes this game's own co-op and split arguments out of a command line for player 2's.
@@ -475,8 +574,11 @@ fn strip_coop_args(args: &mut Vec<String>) {
     *args = out;
 }
 
-/// The premade characters, in the picker's order (plan §7.1) [design].
-pub const PREMADES: [&str; 4] = ["Ranger", "Bruiser", "Talker", "Scout"];
+/// The premade a save is of, from its name: player 2's saves are named after their
+/// premades ([`premade_saves`]).
+fn premade_of(stem: &str) -> Option<usize> {
+    fnv_game::split_premade::by_name(stem).map(|(n, _)| n)
+}
 
 /// The stem of the save this run was started with (`--load`), if any.
 fn loaded_stem() -> Option<String> {
@@ -517,6 +619,8 @@ struct P2 {
     file_at: f32,
     /// Which premade this game plays (from the save it loaded), if one.
     premade: Option<usize>,
+    /// The guest's join screen was opened on the main menu ([`p2_open_join`]).
+    join_opened: bool,
 }
 
 /// On the relayed controller: not one of this machine's real ones.
@@ -631,11 +735,28 @@ fn p2_keep_character(p2: Res<P2>, mut saved: MessageReader<nvf_play::save::SaveD
         let tmp = to.with_extension("tmp");
         let ok = to.parent().is_some_and(|d| std::fs::create_dir_all(d).is_ok()) && std::fs::copy(&d.path, &tmp).is_ok() && std::fs::rename(&tmp, &to).is_ok();
         if ok {
-            info!("split: player 2's {} kept with host save {stem}", PREMADES[n]);
+            info!("split: player 2's {} kept with host save {stem}", fnv_game::split_premade::PREMADES[n].name);
         } else {
             warn!("split: player 2's character not kept with host save {stem}");
         }
     }
+}
+
+/// Player 2's game starts on its main menu, joining player 1's (`NVF_COOP_JOIN`). The
+/// main menu doesn't open the join screen by itself (only its Join Lobby entry does,
+/// `nvf_play::main_menu`), so this opens it once; its list of saves, the four premades,
+/// is player 2's picker. Picking one loads it and joins (`crate::coop`,
+/// `LobbyRequest::Load`), in a new run started with `--load <Name>.nvfsave`.
+fn p2_open_join(mut p2: ResMut<P2>, main_menu: Option<Res<nvf_play::main_menu::MainMenu>>, screen: Option<ResMut<nvf_play::lobby::LobbyScreen>>) {
+    if p2.join_opened || p2.premade.is_some() || !main_menu.is_some_and(|m| m.open) {
+        return;
+    }
+    let Some(mut screen) = screen else { return };
+    if !screen.is_open() {
+        screen.open(nvf_play::lobby::Mode::Join);
+        info!("split: player 2 picks a character");
+    }
+    p2.join_opened = true;
 }
 
 // ---- Windows --------------------------------------------------------------------------

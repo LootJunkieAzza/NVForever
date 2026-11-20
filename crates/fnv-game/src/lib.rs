@@ -75,6 +75,7 @@ pub mod companion_wheel;
 pub mod coop;
 pub mod coop_perks;
 pub mod coop_story;
+pub mod split_premade;
 pub mod coop_rewards;
 pub mod coop_services;
 pub mod player_voice;
