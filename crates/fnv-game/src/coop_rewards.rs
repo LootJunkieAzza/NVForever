@@ -369,6 +369,12 @@ impl Game<'_> {
         if self.coop_gift_done_here(gift) {
             return Ok(0);
         }
+        // A unique reward only for a character that claimed a stage of its quest (plan
+        // §4.1, P5; `crate::coop_uniques`).
+        if !self.coop_unique_allowed(item) {
+            tracing::info!("co-op: the host's hand-out {}: a unique reward of a quest this character claimed no stage of, so not here", self.data.name(item));
+            return Ok(0);
+        }
         // An add-on checkpoint's gear (Dead Money's collar): only while its checkpoint
         // holds this player's items (`Game::coop_checkpoint_of`, item 211).
         let held_in = match self.coop_checkpoint_of(gift.quest.unwrap_or(item)) {

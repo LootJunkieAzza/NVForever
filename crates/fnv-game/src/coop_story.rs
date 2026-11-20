@@ -113,6 +113,19 @@ impl CoopStory {
         }
     }
 
+    /// This record without what `keep` keeps (P5: the unique rewards of quests the guest
+    /// claimed a stage of, `crate::coop_uniques`): items given and perks and spells added
+    /// that are kept are left out, so [`CoopStory::undo_on`] leaves them on the character.
+    /// What the story took is still given back.
+    pub fn without(&self, keep: impl Fn(FormId) -> bool) -> CoopStory {
+        let mut s = self.clone();
+        s.items.retain(|&(item, _, n)| n <= 0 || !keep(item));
+        s.unequip.retain(|item| !keep(*item));
+        s.perks.retain(|&perk, _| !keep(perk));
+        s.spells.retain(|&spell, &mut added| !added || !keep(spell));
+        s
+    }
+
     /// Take the story's changes back from the player of `s` (a snapshot of the game as
     /// it is now; see the module notes). What was undone, for the log.
     pub fn undo_on(&self, s: &mut crate::game::GameSnapshot) -> Vec<String> {
@@ -216,5 +229,24 @@ mod tests {
         s.record_spell(FormId(0x40), true);
         s.record_spell(FormId(0x40), false);
         assert!(s.spells.is_empty());
+    }
+
+    #[test]
+    fn without_leaves_kept_gifts_out_but_still_gives_back_what_was_taken() {
+        let (unique, other, taken, perk, spell) = (FormId(0x10), FormId(0x11), FormId(0x12), FormId(0x30), FormId(0x40));
+        let mut s = CoopStory::default();
+        s.record_items(&[(taken, Extra::default(), 1)], &[(unique, Extra::default(), 1), (other, Extra::default(), 2)]);
+        s.record_perk(perk, 0);
+        s.record_spell(spell, true);
+        s.story_gear(unique, false);
+        let keep = |f: FormId| f == unique || f == perk || f == spell || f == taken;
+        let w = s.without(keep);
+        // The kept unique, perk and spell are not undone; the other gift is, and the
+        // item the story took comes back even though `keep` names it.
+        assert_eq!(w.items, vec![(other, Extra::default(), 2), (taken, Extra::default(), -1)]);
+        assert!(w.perks.is_empty() && w.spells.is_empty() && w.unequip.is_empty());
+        // Keeping nothing is the record as it was.
+        let all = s.without(|_| false);
+        assert_eq!((all.items, all.perks, all.spells, all.unequip), (s.items.clone(), s.perks.clone(), s.spells.clone(), s.unequip.clone()));
     }
 }

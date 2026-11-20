@@ -74,6 +74,7 @@ mod faction_modifier_tests;
 pub mod companion_wheel;
 pub mod coop;
 pub mod coop_joint;
+pub mod coop_uniques;
 pub mod coop_perks;
 pub mod coop_story;
 pub mod coop_rewards;

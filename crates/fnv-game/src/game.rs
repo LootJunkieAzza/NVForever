@@ -1777,6 +1777,9 @@ pub struct Game<'a> {
     pub coop_replaying: bool,
     /// Which characters were there for each stage the host set (`crate::coop_joint`).
     pub coop_presence: crate::coop_joint::SessionPresence,
+    /// This load order's unique quest rewards, computed on first use
+    /// (`Game::coop_uniques`). Not part of the saved state.
+    pub coop_uniques_cache: std::sync::OnceLock<crate::coop_uniques::Uniques>,
     /// A co-op guest that chose to share quest progress this session (the join
     /// question; nvf-play `coop_progress` keeps it current).
     pub coop_joint_on: bool,
@@ -2960,6 +2963,7 @@ impl<'a> Game<'a> {
             coop_line: None,
             coop_replaying: false,
             coop_presence: Default::default(),
+            coop_uniques_cache: std::sync::OnceLock::new(),
             coop_joint_on: false,
             world_logic_off: false,
             guest_own_quests: BTreeSet::new(),
