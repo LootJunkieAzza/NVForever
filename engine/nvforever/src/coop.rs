@@ -756,6 +756,11 @@ impl NpcTrack {
 }
 
 impl Coop {
+    /// Guests in this lobby now (split screen counts player 2 among them).
+    pub(crate) fn guest_count(&self) -> usize {
+        self.peers.len()
+    }
+
     /// The reference player `id`'s puppet is drawn with on this screen (its actor's on
     /// the host, else [`PUPPET_REF`] + its id), for `match_end.rs`.
     pub(crate) fn puppet_reference(&self, id: u8) -> u32 {

@@ -195,7 +195,7 @@ impl Plugin for SplitPlugin {
             // world at player 2's stand-in too (coop.rs `second_listener` fills it).
             std::env::set_var("NVF_SPLIT_P1", "1");
             app.init_resource::<nvf_play::sfx::SecondListener>();
-            app.insert_resource(P1 { dir: home.join("split"), layout: Layout::TopBottom, state: P1State::Waiting, socket, p2_at: None, file_at: f32::NEG_INFINITY, placed: None, pads: PadRoute::default(), save: loaded_stem() })
+            app.insert_resource(P1 { dir: home.join("split"), layout: Layout::TopBottom, state: P1State::Waiting, socket, p2_at: None, file_at: f32::NEG_INFINITY, placed: None, pads: PadRoute::default(), save: loaded_stem(), full_noted: false })
                 .add_systems(PreUpdate, p1_route_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
                 .add_systems(Update, p1_session);
         }
@@ -237,6 +237,8 @@ struct P1 {
     /// The host save this session belongs to (its file's stem): the one loaded, then
     /// each one written.
     save: Option<String>,
+    /// The lobby was full when player 2 was due to start (noted once).
+    full_noted: bool,
 }
 
 fn button_index(b: GamepadButton) -> Option<usize> {
@@ -313,6 +315,9 @@ fn p1_route_pads(mut commands: Commands, mut p1: ResMut<P1>, mut raw: MessageRea
 }
 
 /// Player 1's session: hosting, its window on its half, player 2's game, the files.
+/// What starting player 2 reads from player 1's game: its scripts, world and lobby.
+type GameParts<'w> = (Option<Res<'w, nvf_play::script::ScriptState>>, Option<Res<'w, nvf_play::PlayWorld>>, Option<Res<'w, crate::coop::Coop>>);
+
 #[allow(clippy::too_many_arguments)]
 fn p1_session(
     time: Res<Time>,
@@ -323,7 +328,7 @@ fn p1_session(
     mut windows: Query<(&mut Window, Option<&RawHandleWrapper>), With<PrimaryWindow>>,
     monitors: Query<&Monitor, With<PrimaryMonitor>>,
     mut saved: MessageReader<nvf_play::save::SaveDone>,
-    (script, play): (Option<Res<nvf_play::script::ScriptState>>, Option<Res<nvf_play::PlayWorld>>),
+    (script, play, coop): GameParts,
 ) {
     let now = time.elapsed_secs();
     for d in saved.read().filter(|d| d.result.is_ok()) {
@@ -347,6 +352,14 @@ fn p1_session(
                 write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref());
                 if let Some(pid) = read_kv(&p1.dir.join("p2.txt"), "pid").and_then(|v| v.parse::<u32>().ok()).filter(|p| process_alive(*p)) {
                     info!("split: player 2's game is already running (pid {pid}): taking it over");
+                } else if coop.as_deref().is_some_and(|c| c.guest_count() >= nvf_coop::net::MAX_GUESTS) {
+                    // Player 2 is one of the lobby's 6 players (the host and MAX_GUESTS
+                    // guests): wait for a free place rather than be refused.
+                    if !p1.full_noted {
+                        p1.full_noted = true;
+                        warn!("split: the lobby is full (6 players): player 2 joins when a place is free");
+                    }
+                    return;
                 } else {
                     let data = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data);
                     let game = match (data, sim.as_deref(), play.as_deref()) {
@@ -459,7 +472,13 @@ fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option
     let mut args = crate::restart_args(&std::env::args().skip(1).collect::<Vec<_>>());
     strip_coop_args(&mut args);
     args.extend(["--menu".into(), "--split-p2".into(), dir.display().to_string(), "--size".into(), format!("{}x{}", size.x, size.y), "--window-at".into(), format!("{},{}", at.x, at.y)]);
-    let child = std::process::Command::new(exe)
+    let mut cmd = std::process::Command::new(exe);
+    // Test aid `NVF_SPLIT_TEST_P2_LOBBY`: player 2's game gets it as its own
+    // `NVF_PLAY_TEST_LOBBY` (e.g. `25:pick=0`); player 1's lobby takes the plain one.
+    if let Ok(aid) = std::env::var("NVF_SPLIT_TEST_P2_LOBBY") {
+        cmd.env("NVF_PLAY_TEST_LOBBY", aid).env_remove("NVF_SPLIT_TEST_P2_LOBBY");
+    }
+    let child = cmd
         .args(&args)
         .env(fnv_install::HOME_ENV, &home)
         .env(crate::coop::JOIN_ENV, format!("127.0.0.1:{port}"))
