@@ -1291,6 +1291,83 @@ fn a_door_disabled_and_enabled_in_the_game_reaches_the_paths() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// #2405 (Point Lookout's mansion, Desmond): a locked door that opens in place across the
+/// way names itself in the unreachable report, and the search's count is not 0; once the
+/// game disables it (not in the world), it bars nothing and the package set aside is
+/// chosen again, so the actor gets through without stopping at a door that is not there.
+/// Enabled again, it closes the way of an actor whose walk crosses it.
+#[test]
+fn a_door_that_opens_in_place_bars_the_way_only_while_it_is_in_the_world() {
+    let mut f = fixture();
+    let actor = FormId(R_TRAVEL);
+    let door = FormId(M1);
+    f.refs.refs.get_mut(&door).unwrap().lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav.set_in_place_doors(vec![fnv_nav::InPlaceDoor {
+        door: M1, space: A, position: [200.0, 200.0, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0,
+        bounds: ([-4.0, -200.0, 0.0], [4.0, 200.0, 200.0]),
+    }], |_| Some(DoorLock { level: 255, key: None }));
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), None, "all there as placed");
+    s.run(1.0);
+    let why = s.events(R_TRAVEL).iter().find_map(|e| match e {
+        AiEvent::Unreachable { package, why } if package.0 == P_TRAVEL_B => Some(why.clone()),
+        _ => None,
+    });
+    let why = why.unwrap_or_else(|| panic!("{:?}", s.events(R_TRAVEL)));
+    assert!(why.contains(&format!("the way is closed by door {door} (locked, level 255)")), "{why}");
+    assert!(!why.contains("(0 triangles searched)"), "the failed search is counted: {why}");
+    assert_eq!(s.feet(R_TRAVEL), START);
+    // Disabled: it bars nothing; the package comes back at once.
+    s.game.world.set_enabled(door, false).unwrap();
+    let again = s.ai.apply_door_presence(&mut s.game, &mut s.nav);
+    assert!(s.nav.disabled_doors.contains(&M1));
+    assert!(again.is_some(), "the presence change is seen");
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    s.run(1.0);
+    let a = &s.ai.agents[&actor];
+    assert_eq!(a.activity, Activity::Travelling, "{:?}", s.events(R_TRAVEL));
+    assert_eq!(a.walker.follower.as_ref().unwrap().door_ahead(a.walker.feet, f32::INFINITY), Some(DOOR_A), "no stop at the door that is not there");
+    // Enabled again (locked as placed) before it gets there: its walk crosses the door,
+    // so it plans again and finds the way closed.
+    s.game.world.set_enabled(door, true).unwrap();
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), Some(vec![actor]));
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    s.run(40.0);
+    assert!(s.feet(R_TRAVEL)[0] < 196.0, "{:?}", s.feet(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].walker.space, A);
+}
+
+/// #2405 (Sally on Mothership Zeta): a closed door that opens in place named by an
+/// unreachable report brings the package back the moment it opens (a script's
+/// SetOpenState here), not an hour later; an open door is no barrier even locked (#2716).
+#[test]
+fn a_door_that_closed_the_way_opening_brings_the_package_back() {
+    let mut f = fixture();
+    let actor = FormId(R_TRAVEL);
+    let door = FormId(M1);
+    f.refs.refs.get_mut(&door).unwrap().lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav.set_in_place_doors(vec![fnv_nav::InPlaceDoor {
+        door: M1, space: A, position: [200.0, 200.0, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0,
+        bounds: ([-4.0, -200.0, 0.0], [4.0, 200.0, 200.0]),
+    }], |_| Some(DoorLock { level: 255, key: None }));
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    s.run(1.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)));
+    assert_eq!(s.ai.apply_doors_opened(&mut s.game), None, "still closed");
+    s.run(5.0);
+    assert_eq!(s.feet(R_TRAVEL), START, "set aside, it stays");
+    s.game.set_ref_open(door, true).unwrap();
+    assert_eq!(s.ai.apply_doors_opened(&mut s.game), Some(vec![actor]));
+    assert_eq!(s.ai.apply_doors_opened(&mut s.game), None, "once");
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "{:?} {:?}", s.feet(R_TRAVEL), s.events(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
 /// A scripted door that does not let the actor through (its OnActivate block called no
 /// `Activate` for it, `fnv_game::npc_doors`) shuts the way as a lock does: asked as the
 /// actor comes near, it plans again without the door and, with no other way, sets the

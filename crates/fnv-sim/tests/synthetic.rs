@@ -526,6 +526,32 @@ fn locked_container_needs_its_key() {
     assert!(w.peek(id(SAFE_REF)).unwrap().inventory.as_ref().unwrap().is_empty());
 }
 
+/// An AddItem on a placed container nothing has read yet (no state, cell never loaded,
+/// never opened) joins its authored contents: GetItemCount, a save and load, leaving and
+/// entering its cell before the respawn delay and taking everything all keep or move it
+/// (#3021: Old World Blues' terminal puts the X-13 Document in the X-13 test safe this
+/// way; what took it out in that run was the test's own failure script).
+#[test]
+fn add_item_before_a_container_is_read_is_kept() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig { seed: 1, ..SimConfig::default() });
+    let p = FormId::PLAYER_REF;
+    assert!(w.peek(id(SAFE_REF)).is_none(), "the safe has no state yet");
+    w.add_item(id(SAFE_REF), id(QUEST_KEY), 1).unwrap();
+    assert_eq!(w.item_count(id(SAFE_REF), id(QUEST_KEY)).unwrap(), 1);
+    assert_eq!(w.item_count(id(SAFE_REF), id(CAPS)).unwrap(), 3, "the authored contents are there too");
+    let mut w = World::restore(&f.forms, &f.refs, &w.snapshot()).unwrap();
+    w.detach_cell(id(CELL_A)).unwrap();
+    w.advance_hours(1.0).unwrap();
+    assert!(w.attach_cell(id(CELL_A)).unwrap().is_empty(), "no reset before the respawn delay");
+    assert_eq!(w.item_count(id(SAFE_REF), id(QUEST_KEY)).unwrap(), 1);
+    w.unlock(id(SAFE_REF)).unwrap();
+    assert_eq!(w.activate(p, id(SAFE_REF)).unwrap().outcome, Outcome::OpenedContainer { container: id(SAFE_REF) });
+    let moved = w.transfer_all(id(SAFE_REF), p).unwrap();
+    assert!(moved.contains(&(id(QUEST_KEY), 1)), "{moved:?}");
+    assert_eq!(w.item_count(p, id(QUEST_KEY)).unwrap(), 1);
+}
+
 #[test]
 fn picking_up_and_dropping_items() {
     let f = fixture();

@@ -81,6 +81,42 @@ const RAD_AVOID_LEVEL: f32 = 50.0;
 /// a long way; paths farther are rare].
 const RADIATION_SEARCH: f32 = 20000.0;
 
+/// Why a package's place cannot be reached, for the log ([`AiEvent::Unreachable`]): the
+/// path error, then the doors that close the way (`fnv_nav::NavGraph::doors_closing`,
+/// each with its lock as the game holds it), or that no door at all joins the two places
+/// (`NavGraph::joined_by_doors`) [design, #2405: "0 triangles searched" alone was read as
+/// a missing navmesh, for a locked door in the same room and for a sealed scene cell
+/// alike]. With the doors named.
+fn why_unreachable(game: &Game, nav: &NavGraph, from: Place, to: Place, params: &PathParams, e: &PathError) -> (String, Vec<u32>) {
+    let mut why = e.to_string();
+    if !matches!(e, PathError::Unreachable { .. }) {
+        return (why, Vec::new());
+    }
+    let mut closing = Vec::new();
+    match nav.doors_closing(from, to, params) {
+        Some(doors) if !doors.is_empty() => {
+            let named: Vec<String> = doors
+                .iter()
+                .map(|&d| {
+                    let what = match game.world.lock_of(FormId(d)).filter(|l| l.locked) {
+                        Some(l) if l.key.is_some() => format!("locked, level {}, a key it lacks", l.level),
+                        Some(l) => format!("locked, level {}", l.level),
+                        None if params.refused_doors.contains(&d) => "its script refused it".to_string(),
+                        None => "closed to it".to_string(),
+                    };
+                    format!("{} ({what})", FormId(d))
+                })
+                .collect();
+            why.push_str(&format!("; the way is closed by door {}", named.join(", ")));
+            closing = doors;
+        }
+        Some(_) => {}
+        None if nav.joined_by_doors(from, to) == Some(false) => why.push_str("; no door at all joins the two places"),
+        None => {}
+    }
+    (why, closing)
+}
+
 /// The radiation markers of `space` within [`RADIATION_SEARCH`] of `at`, as circles (centre,
 /// radius) for the path parameters, disabled ones left out; then the explosion zones there
 /// that have not faded ([`zones_near`]).
@@ -740,6 +776,10 @@ pub struct Ai {
     /// The world's presence serial last brought into the graph's load doors
     /// ([`Ai::apply_door_presence`]).
     applied_presence: Option<u64>,
+    /// Doors that open in place, closed, that an unreachable report named as closing a
+    /// package's way ([`Ai::why_unreachable`]); one that opens brings the packages set
+    /// aside back ([`Ai::apply_doors_opened`]).
+    closing_doors: Vec<u32>,
     /// The graph's locked doors as last brought in ([`Ai::apply_door_locks`]): the ones an
     /// actor owns are open to its paths ([`Ai::path_params`]).
     locked_doors: Vec<u32>,
@@ -829,7 +869,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, closing_doors: Vec::new(), locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -987,17 +1027,29 @@ impl Ai {
         }
         self.applied_presence = Some(serial);
         // A door the world does not know (no placed reference) is left as the graph has it.
-        let states: Vec<(u32, bool)> = nav.door_refs_through().into_iter().filter(|&d| game.world.is_enabled(FormId(d)).is_ok()).map(|d| (d, game.present(FormId(d)))).collect();
+        // Doors that open in place too (#2405): one not there bars nothing.
+        let states: Vec<(u32, bool)> = nav.door_refs().into_iter().filter(|&d| game.world.is_enabled(FormId(d)).is_ok()).map(|d| (d, game.present(FormId(d)))).collect();
         let changes = nav.sync_door_presence(states);
         if changes.is_empty() {
             return None;
         }
+        // A load door gone closes a way and one back opens one; a door that opens in place
+        // is the other way round: gone, it no longer stands in a way; back, it may.
+        let in_place = |d: &u32| nav.in_place.contains_key(d);
+        let (opened, closed): (Vec<u32>, Vec<u32>) = {
+            let (gone_here, gone_load): (Vec<u32>, Vec<u32>) = changes.gone.iter().partition(|d| in_place(d));
+            let (back_here, back_load): (Vec<u32>, Vec<u32>) = changes.back.iter().partition(|d| in_place(d));
+            ([gone_here, back_load].concat(), [gone_load, back_here].concat())
+        };
         let mut again: Vec<FormId> = Vec::new();
-        if !changes.back.is_empty() {
+        if !opened.is_empty() {
             again.extend(game.unblock_packages());
         }
-        if !changes.gone.is_empty() {
-            again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&changes.gone))).map(|(id, _)| *id));
+        if !closed.is_empty() {
+            // The triangles a door back in place stands on: a way across them was planned
+            // without it.
+            let tris: std::collections::HashSet<u32> = nav.door_tris.iter().filter(|(_, ds)| ds.iter().any(|d| closed.contains(d))).map(|(&t, _)| t).collect();
+            again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&closed) || f.crosses(&tris))).map(|(id, _)| *id));
         }
         again.sort();
         again.dedup();
@@ -2920,7 +2972,7 @@ impl Ai {
         if own_place && patrol_point.is_none() && !self.is_high(actor) && nav.joined_by_doors(from, to) == Some(false) {
             return self.put_there(game, nav, actor, package, from, to);
         }
-        self.unreachable(game, actor, package, e.to_string())
+        self.unreachable_why(game, nav, actor, package, from, to, params, &e)
     }
 
     /// [`Ai::no_way`] for a walk after someone (a Follow, the way up to whom it talks to):
@@ -2928,11 +2980,58 @@ impl Ai {
     #[allow(clippy::too_many_arguments)]
     fn no_way_after(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place, e: PathError) {
         let params = self.path_params(game, actor);
-        if matches!(e, PathError::Unreachable { .. }) && !params.opens_doors && nav.can_reach(from, to, &PathParams { opens_doors: true, ..params }) {
+        if matches!(e, PathError::Unreachable { .. }) && !params.opens_doors && nav.can_reach(from, to, &PathParams { opens_doors: true, ..params.clone() }) {
             self.log(game, actor, AiEvent::DoorsClosedToIt { package });
             return self.set_aside(game, actor, package);
         }
-        self.unreachable(game, actor, package, e.to_string())
+        self.unreachable_why(game, nav, actor, package, from, to, &params, &e)
+    }
+
+    /// [`Ai::unreachable`] with [`why_unreachable`]'s reasons; the closed doors that open
+    /// in place among them are kept for [`Ai::apply_doors_opened`].
+    #[allow(clippy::too_many_arguments)]
+    fn unreachable_why(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place, params: &PathParams, e: &PathError) {
+        let (why, doors) = why_unreachable(game, nav, from, to, params, e);
+        for d in doors.into_iter().filter(|d| nav.in_place.contains_key(d)) {
+            if !self.closing_doors.contains(&d) {
+                self.closing_doors.push(d);
+            }
+        }
+        self.unreachable(game, actor, package, why)
+    }
+
+    /// A door that opens in place that closed a package's way (named by an unreachable
+    /// report, [`Ai::unreachable_why`]) is open now, by a script (SetOpenState, its
+    /// OnActivate block), the player or another actor: the packages set aside as out of
+    /// reach may be chosen again (`Game::unblock_packages`) and their actors take them up
+    /// afresh, as for a door unlocked ([`Ai::apply_door_locks`]) [design, #2405: Sally on
+    /// Mothership Zeta, refused by a force field's script that opened it the same moment,
+    /// stood for a game hour with her package set aside]. Returns those actors, `None`
+    /// when none of those doors opened.
+    pub fn apply_doors_opened(&mut self, game: &mut Game) -> Option<Vec<FormId>> {
+        if self.closing_doors.is_empty() {
+            return None;
+        }
+        let open = |d: u32| game.world.peek(FormId(d)).is_some_and(|s| s.open);
+        let (opened, still): (Vec<u32>, Vec<u32>) = self.closing_doors.iter().partition(|&&d| open(d));
+        if opened.is_empty() {
+            return None;
+        }
+        self.closing_doors = still;
+        let again = game.unblock_packages();
+        for actor in &again {
+            if let Some(a) = self.agents.get_mut(actor) {
+                a.walker.follower = None;
+                a.walker.tri = fnv_nav::graph::NONE;
+                a.activity = Activity::None;
+                a.package = None;
+                a.goal = None;
+                a.sandbox = None;
+                a.errand = None;
+                a.following = None;
+            }
+        }
+        Some(again)
     }
 
     /// Out of sight, `actor` is put at `to`, the place of its package, and arrives there
