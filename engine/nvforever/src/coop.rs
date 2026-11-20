@@ -179,6 +179,7 @@ mod campfires;
 mod story;
 mod replication;
 mod areas;
+pub(crate) use areas::private_mb;
 mod far_combat;
 mod leave;
 pub use leave::HoldLeave;

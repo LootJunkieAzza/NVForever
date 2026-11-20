@@ -139,7 +139,7 @@ fn place_name(world: &WorldData, place: Place, centre: (i32, i32)) -> String {
 
 /// This process's private bytes, MB.
 #[cfg(windows)]
-fn private_mb() -> Option<u64> {
+pub(crate) fn private_mb() -> Option<u64> {
     use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
     // SAFETY: a zeroed counters struct of the size given, filled by the call for this
@@ -151,6 +151,6 @@ fn private_mb() -> Option<u64> {
 }
 
 #[cfg(not(windows))]
-fn private_mb() -> Option<u64> {
+pub(crate) fn private_mb() -> Option<u64> {
     None
 }

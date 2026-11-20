@@ -312,12 +312,14 @@ unsafe impl std::alloc::GlobalAlloc for SaysWhenEmpty {
         if p.is_null() {
             alloc_failed(layout.size());
         }
+        crate::heap_stats::alloc(p, layout.size());
         p
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
         // SAFETY: the caller's contract is System's.
         unsafe { std::alloc::System.dealloc(ptr, layout) }
+        crate::heap_stats::dealloc(ptr, layout.size());
     }
 
     unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
@@ -326,6 +328,7 @@ unsafe impl std::alloc::GlobalAlloc for SaysWhenEmpty {
         if p.is_null() {
             alloc_failed(layout.size());
         }
+        crate::heap_stats::alloc(p, layout.size());
         p
     }
 
@@ -335,6 +338,7 @@ unsafe impl std::alloc::GlobalAlloc for SaysWhenEmpty {
         if p.is_null() {
             alloc_failed(new_size);
         }
+        crate::heap_stats::realloc(ptr, layout.size(), p, new_size);
         p
     }
 }
