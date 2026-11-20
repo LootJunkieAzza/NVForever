@@ -191,6 +191,10 @@ impl Plugin for SplitPlugin {
                 return;
             };
             let socket = UdpSocket::bind("127.0.0.1:0").map_err(|e| warn!("split: no controller relay: {e}")).ok();
+            // Player 2's game plays only its own interface sounds, so this game hears the
+            // world at player 2's stand-in too (coop.rs `second_listener` fills it).
+            std::env::set_var("NVF_SPLIT_P1", "1");
+            app.init_resource::<nvf_play::sfx::SecondListener>();
             app.insert_resource(P1 { dir: home.join("split"), layout: Layout::TopBottom, state: P1State::Waiting, socket, p2_at: None, file_at: f32::NEG_INFINITY, placed: None, pads: PadRoute::default(), save: loaded_stem() })
                 .add_systems(PreUpdate, p1_route_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
                 .add_systems(Update, p1_session);
@@ -461,6 +465,7 @@ fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option
         .env(crate::coop::JOIN_ENV, format!("127.0.0.1:{port}"))
         .env(crate::coop::NAME_ENV, "Player 2")
         .env(P2_ENV, "1")
+        .env_remove("NVF_SPLIT_P1")
         .env(nvf_play::coop_progress::SYNC_ENV, "1")
         .env_remove(crate::coop::HOST_ENV)
         .env_remove(crate::coop::CODE_ENV)
