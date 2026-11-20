@@ -1527,3 +1527,76 @@ so no triangle was searched; both places were on the navmesh [observed: the code
   pairs in FalloutNV.esm, `ai reach` "only through a locked door the actor has no key
   for") and the engine's settled rule (tests in `fnv-ai/tests/carry.rs`); observer check
   204 asks the original first.
+
+### 11.1 The quest pilot's cases: Yes Man, Desmond, Sally (2026-11-19)
+
+The quest pilot's sweep (PR #2401) logged the same "0 triangles searched" for three
+quest actors. "0" did not mean what §11 says: `NavGraph::search_path` dropped the
+triangles of a walk leg whose search failed, so a way inside one area closed by a door
+that opens in place also read "0 triangles searched" [observed: the code; headless
+`fnvtool ai run --actor DLC04DesmondREF` said 186 where `nav path` said 0 for the same
+way]. Per actor [observed: `fnvtool ai show`, `nav path`, `nav graph`, `esm decode`,
+`script decompile`, the pilot's logs under `target/pilot-rerun-*/logs`]:
+
+- **Yes Man, `VMQTopsYesManREF2`** (dam-panel, the Independent ending). Stage 90 of
+  `VHDIndependentBattle` gives him `VHDYesManEndDialogue` (Dialogue, Must Reach Location,
+  Must Complete, target PlayerRef). He stands at the Legate's camp in WastelandNV
+  (102641, 18724), beside `vHDGeneralOliverRef2` (0x001483F1, at (103040, 18736)). The
+  pilot had the player talk to the other placed Oliver, `VHDGeneralOliverRef`
+  (0x00134DB4, same base `VHDGeneralOliver`), in `HooverDamIntOliverArea`, putting the
+  player there as a fast travel would because no navmesh way leads in. No door chain joins
+  that cell to WastelandNV, locked or disabled doors counted: its one door
+  `VHDOliverIntDoorREF` leads to `VHDOliverDoorREF` in `HooverDamIntPowerPlant04` (locked
+  255), which no way from Yes Man reaches either. So the engine was right that he cannot
+  walk to the player there. The Oliver of this ending is the one at the camp
+  [hypothesis: from the placements; the scene's lines are the base's, so either reference
+  says them]. **A pilot chain fix, not an engine one**: talk to `vHDGeneralOliverRef2`.
+- **Desmond, `DLC04DesmondREF`** (The Local Flavor; TTW). His waits and greetings lie
+  beyond a doorway of `DLC04Mansion01` with two doors in it, one of them initially
+  disabled and locked (navmesh.md, "In-place doors not in the world"). Our graph counted
+  the disabled one as a barrier and a door stop. In the game its lock was already left out
+  (`Ai::apply_door_locks` withholds a disabled door's lock), so the stop was the only live
+  effect. The pilot's run still reports the place unreachable after the spawn door opened
+  (`target/pilot-rerun-1/logs/ttw-dlc04mq01-the-local-flavor.log`, 10:11), and the logs
+  do not say which door closed it [observed]. With the reports below, the next run
+  will say.
+- **Sally, `DLC05SallyREF`** (Mothership Zeta 1 and 2; TTW). In MZ2 the force field
+  `0x0F00C8C8` (`DLC05MZDoorSmFieldDown`) refused her by its script, and its door
+  opened in the same moment; her package was set aside for a game hour all the same
+  [observed: rerun-0 log, 04:09:46]. In MZ1 the holding cell's door `0F0068DE` stays
+  locked because the chain's `DLC05MZ1SallyDoor` variable never got to 2
+  (pilot divergence at step 56): quest state, not navigation.
+
+**What is built** (#2405, 2026-11-19):
+
+- The count of a failed search includes the leg that failed: "0 triangles searched" again
+  means no search ran (no chain of doors, a refusing door at an endpoint, a goal in water)
+  [design].
+- An unreachable report says why [design]: `fnv_nav::NavGraph::doors_closing` looks for a
+  way with every door open (locked, opening in place, refused by a script; not doors that
+  are not in the world). The doors on it that are closed to the actor are named, each with
+  its lock ("the way is closed by door 0x0E0035BB (locked, level 255)", "… (its script
+  refused it)"). With no way even then, and no door at all between the two places, the
+  report says "no door at all joins the two places".
+- A door that opens in place and is not in the world bars nothing and gets no stop
+  (navmesh.md).
+- **A genuinely unreachable place** [hypothesis: the original's handling is not
+  documented; docs/design/actor-behaviour.md, "No way there"]: as before, the package is
+  set aside for a game hour and the actor takes the next valid package of its list (§11
+  keeps its out-of-sight rule). Its actor need not wait out the hour when the way opens
+  sooner: a door unlocked, or a door enabled or disabled, already brought the package back
+  (`Ai::apply_door_locks`, `Ai::apply_door_presence`). Now a door that opens in place,
+  named by the report and then opened (by a script's SetOpenState or OnActivate, the player,
+  another actor), does too (`Ai::apply_doors_opened`) [design]. Sally behind the force
+  field is the case. A Dialogue package whose target the actor cannot reach is not
+  carried out from afar: no observation says the original talks across spaces, and the
+  one case (Yes Man) was the chain's [design]. StartConversation from afar keeps its own
+  rule (dialogue.md).
+- Tests: `fnv-nav` `a_door_that_opens_in_place_and_is_not_in_the_world_bars_nothing`;
+  `fnv-ai` `a_door_that_opens_in_place_bars_the_way_only_while_it_is_in_the_world`,
+  `a_door_that_closed_the_way_opening_brings_the_package_back`. `ai reach` over the ten
+  base-game masters gives the same verdicts as main (16,935 pairs).
+
+**Left open**: what closed Desmond's way at 10:11 in the pilot's run (rerun the chain
+and read the named door); whether the original's actors wait at a refusing door or set
+the package aside; the REPCONN ghouls (§11, observer check 204).

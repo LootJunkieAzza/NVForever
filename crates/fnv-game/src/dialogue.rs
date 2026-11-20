@@ -323,7 +323,8 @@ impl<'a> Game<'a> {
     ///   the line's, with the speaker as subject and the listener as target
     ///   [hypothesis: the page does not say on whom];
     /// - the line's conditions pass with the speaker as subject and the listener as
-    ///   target [documented: Category:Conditions, Run On].
+    ///   target [documented: Category:Conditions, Run On]. A talking activator as the
+    ///   listener is its talking actor here ([`Game::conditions_target`]).
     pub fn can_say(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId) -> bool {
         self.can_say_as(speaker, listener, info, Says::Actor)
     }
@@ -365,6 +366,7 @@ impl<'a> Game<'a> {
         let data = self.data;
         let dv = self.dialogue_view();
         let Some(def) = dv.info(&info) else { return Err(Blocked::NotALine) };
+        let listener = listener.map(|l| self.conditions_target(l));
         if def.say_once && self.said_once(info) {
             return Err(Blocked::SaidOnce);
         }
@@ -510,6 +512,9 @@ impl<'a> Game<'a> {
     #[allow(clippy::too_many_arguments)]
     fn select_among_but(&mut self, speaker: FormId, listener: Option<FormId>, lines: &[FormId], keep: &impl Fn(&InfoDef) -> bool, lead_only: bool, says: Says, stale: &BTreeSet<FormId>) -> Option<FormId> {
         let dv = self.dialogue_view();
+        // Once for all the lines: a talking activator listens as its talking actor
+        // ([`Game::line_verdict`], [`Game::conditions_target`]).
+        let listener = listener.map(|l| self.conditions_target(l));
         let kept = |i: &FormId| !(lead_only && dv.is_follow_up(i)) && dv.info(i).is_some_and(keep);
         let mut at = 0;
         while at < lines.len() {

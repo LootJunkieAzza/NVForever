@@ -240,7 +240,13 @@ pub struct ReadAhead {
     busy_frames: usize,
     busy_ms: f64,
     slowest_ms: f64,
+    /// The placed actors of each cell listed in a ring (reference, base, creature), for the
+    /// worldspace in `.0`, so a ring one cell on reads only its new cells' records.
+    cell_actors: (u32, HashMap<(i32, i32), CellActors>),
 }
+
+/// One cell's placed actors: reference, base, creature.
+type CellActors = Vec<(u32, u32, bool)>;
 
 impl ReadAhead {
     fn collect_anims(&mut self) {
@@ -412,13 +418,25 @@ pub fn read_ahead(
     if centre.is_some() && centre != ahead.centre {
         let cells = ring(centre.unwrap_or_default(), streamer.radius);
         let mut listed = HashSet::new();
+        // [design] #2956 follow-up: each cell's actors are read from the load order's
+        // records (placement, base, initial enable state: all fixed for the run) once per
+        // worldspace; reading every reference of the whole ring at each crossing was
+        // 10-15 ms of the frame [observed 2026-11-19, `profile hitch`].
+        if ahead.cell_actors.0 != world.world {
+            ahead.cell_actors = (world.world, HashMap::new());
+        }
         for &g in &cells {
-            let placed = world.grid_cell(g).map(|c| c.refs.as_slice()).unwrap_or_default().iter().chain(world.persistent_by_grid.get(&g).into_iter().flatten());
-            for &r in placed {
-                let Some(p) = placement(world.lo, world.schema, r).filter(|p| !p.deleted() && world.enabled(p, 0)) else { continue };
-                let Some(b) = p.base.and_then(|b| base_object(world.lo, world.schema, b)).filter(|b| matches!(&b.sig, b"NPC_" | b"CREA")) else { continue };
+            let actors = ahead.cell_actors.1.entry(g).or_insert_with(|| {
+                let placed = world.grid_cell(g).map(|c| c.refs.as_slice()).unwrap_or_default().iter().chain(world.persistent_by_grid.get(&g).into_iter().flatten());
+                placed.filter_map(|&r| {
+                    let p = placement(world.lo, world.schema, r).filter(|p| !p.deleted() && world.enabled(p, 0))?;
+                    let b = p.base.and_then(|b| base_object(world.lo, world.schema, b)).filter(|b| matches!(&b.sig, b"NPC_" | b"CREA"))?;
+                    Some((r, b.form_id, &b.sig == b"CREA"))
+                }).collect()
+            });
+            for &(r, base, creature) in actors.iter() {
                 if listed.insert(r) {
-                    ahead.jobs.push_back(Job::Actor { reference: r, base: b.form_id, creature: &b.sig == b"CREA" });
+                    ahead.jobs.push_back(Job::Actor { reference: r, base, creature });
                 }
             }
         }

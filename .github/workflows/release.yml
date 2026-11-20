@@ -39,7 +39,12 @@ jobs:
             target: x86_64-pc-windows-msvc
             exe: .exe
             archive: zip
-          - os: ubuntu-latest
+          # Pinned, not ubuntu-latest: a Linux program needs at least the glibc of the
+          # system it was built on. ubuntu-latest moved to 26.04 (glibc 2.43), which no
+          # Steam Deck has, and the loader refused the game before it could write a log
+          # [observed 2026-11-19, objdump -T on the v0.6.0-v0.8.0 tarballs]. 24.04 has
+          # glibc 2.39; the "Linux glibc floor" step below holds the binaries to it.
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             exe: ""
             archive: tar.gz
@@ -67,6 +72,25 @@ jobs:
         # (engine/nvforever/src/reports/mod.rs); local builds never do.
         env:
           NVF_OFFICIAL_BUILD: "1"
+
+      # The newest glibc any shipped binary asks for must not pass the floor: on an older
+      # system the loader refuses the program with no window and no log. Weak references
+      # (std's optional pidfd calls) are listed too, so they count; they sit at 2.39.
+      - name: Linux glibc floor
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          floor=2.39
+          fail=0
+          for b in target/release/fnvtool target/release/nvforever-launcher engine/target/release/nvforever engine/target/release/nvf-viewer; do
+            need=$(objdump -T "$b" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -uV | tail -1)
+            echo "$b needs glibc $need (floor $floor)"
+            if [ "$(printf '%s\n%s\n' "$floor" "$need" | sort -V | tail -1)" != "$floor" ]; then
+              echo "::error file=.github/workflows/release.yml::$b needs glibc $need, newer than the floor $floor"
+              fail=1
+            fi
+          done
+          exit $fail
 
       - name: Package
         shell: bash

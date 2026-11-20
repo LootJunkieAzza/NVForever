@@ -355,6 +355,11 @@ pub struct DistantWater {
 
 impl DistantWater {
     /// The visible water surface of cell `g` (height, water type), computed on first use.
+    /// Whether [`DistantWater::surface`] of cell `g` is already known (no landscape read).
+    pub fn surface_known(&self, g: (i32, i32)) -> bool {
+        self.surfaces.contains_key(&g)
+    }
+
     pub fn surface(&mut self, world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
         if let Some(s) = self.surfaces.get(&g) {
             return *s;
@@ -438,6 +443,9 @@ fn wet_vertices(heights: &[f32], surface: f32) -> Option<[usize; 4]> {
     b.map(|[c0, r0, c1, r1]| [c0.saturating_sub(1), r0.saturating_sub(1), (c1 + 1).min(SIDE - 1), (r1 + 1).min(SIDE - 1)])
 }
 
+/// The distant water's landscape reads in one frame ([`distant_water`]).
+const SURFACE_READS_PER_FRAME: usize = 12;
+
 #[allow(clippy::too_many_arguments)]
 pub fn distant_water(
     mut commands: Commands,
@@ -471,9 +479,22 @@ pub fn distant_water(
             commands.entity(e).despawn();
         }
     }
+    // [design] #2956 follow-up: a cell's surface not known yet reads and inflates its
+    // landscape record; a cell crossing uncovers a whole edge of the square (some 70 cells,
+    // 5-11 ms of one frame [observed 2026-11-19, `profile hitch`]). At most
+    // `SURFACE_READS_PER_FRAME` are read a frame, the rest the frames after (the planes lie
+    // at the distant terrain's edge).
+    let mut reads = 0;
     for c in want {
         if dw.planes.contains_key(&c) {
             continue;
+        }
+        if !dw.surface_known(c) {
+            if reads >= SURFACE_READS_PER_FRAME {
+                dw.built_for = None;
+                continue;
+            }
+            reads += 1;
         }
         let Some((height, wid)) = dw.surface(&world, c) else { continue };
         let Some(mat) = water_material(&world, wid, true, false, Some(cell_water_center(c, height)), &mut models, &mut water) else { continue };

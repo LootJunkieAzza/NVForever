@@ -326,6 +326,12 @@ impl Follower {
         self.path.legs.iter().skip(self.leg).flat_map(|l| &l.corridor).any(|&t| (t as usize) < nav.tris.len() && !nav.usable(t))
     }
 
+    /// Whether the rest of the path (the leg being walked and those after it) crosses one
+    /// of `tris`.
+    pub fn crosses(&self, tris: &std::collections::HashSet<u32>) -> bool {
+        !tris.is_empty() && self.path.legs.iter().skip(self.leg).flat_map(|l| &l.corridor).any(|t| tris.contains(t))
+    }
+
     /// Whether the rest of the path goes through one of `doors`: a load door ending a
     /// leg still ahead, or a door that opens in place on the way.
     pub fn through_doors(&self, doors: &[u32]) -> bool {
