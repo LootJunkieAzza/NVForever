@@ -13,7 +13,8 @@
 //! [`LobbyRequest`] and shows what [`LobbyState`] says.
 //!
 //! Test aid `NVF_PLAY_TEST_LOBBY="<seconds>:<action>,..."` (real seconds from the start):
-//! `code=<code>` types a code, `join`, `create`, `close`, `back`, `pick=<n>` (the n-th
+//! `code=<code>` types a code, `join`, `open` (the lobby as the pause menu opens it),
+//! `create`, `close`, `back`, `pick=<n>` (the n-th
 //! save that can join, from 0), `shot=<file>` (a screenshot); for the Emotes menu,
 //! `emotes` (open it), `slot=<n>` (1-8: choose a slot), `equip=<emote>` (put the emote,
 //! by key, in the slot chosen), `empty` (empty it).
@@ -318,6 +319,13 @@ fn input(
         } else {
             let act = match a.as_str() {
                 "join" => Some(Act::Join),
+                // The pause menu's Co-op Lobby entry: the lobby as it stands.
+                "open" => {
+                    if screen.mode.is_none() {
+                        screen.open(Mode::Host);
+                    }
+                    None
+                }
                 "create" => {
                     if screen.mode.is_none() {
                         screen.open(Mode::Host);
