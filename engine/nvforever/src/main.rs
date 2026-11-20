@@ -144,6 +144,7 @@ mod lodgen;
 mod nav;
 // Co-op prototype (private fork): --host / --join.
 mod coop;
+mod split;
 // B42 Inject / Interact item animations, seen by co-op players too (consume_anims.rs).
 mod consume_anims;
 // The drinking contest's win shot: one camera on the dancing winner, lit (drink_stage.rs).
@@ -639,6 +640,14 @@ struct Args {
     /// Sunny Smiles by default.
     #[arg(long, default_value = "0x104E84", value_parser = |s: &str| u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|e| e.to_string()))]
     coop_base: u32,
+    /// Split screen (split.rs): once in the world, host, take the top half of the screen
+    /// and start player 2's game on the bottom half, joined to this one.
+    #[arg(long, requires = "play", conflicts_with_all = ["join", "split_p2"])]
+    split: bool,
+    /// Split screen: this game is player 2's, started by player 1's (`--split`); the
+    /// session folder in player 1's home.
+    #[arg(long, requires = "play")]
+    split_p2: Option<std::path::PathBuf>,
     /// With --play: the physics rate for this run, over the settings page's Physics rate:
     /// fixed steps a second, a whole number from 60 to 160, or `fps` for Match FPS: the
     /// game's frame rate, up to what the display's pace allows (`display`, its old name, is
@@ -1771,6 +1780,8 @@ fn main() -> AppExit {
                     position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
                     // Taking over a load: shown once its loading screen is up (handoff.rs).
                     visible: args.handoff.is_none(),
+                    // Player 2's window in split screen never takes the focus (split.rs).
+                    focused: args.split_p2.is_none(),
                     // Measuring frame times: not held to the display's refresh, unless
                     // `NVF_FRAME_TIMES_VSYNC=1` holds it there (measuring what a heavy
                     // effect costs the GPU without running it flat out: fire_volume.rs "Cost").
@@ -2080,6 +2091,7 @@ fn main() -> AppExit {
             app.add_plugins(actor_twins::ActorTwinsPlugin);
             // Co-op (private fork): idle until a lobby is opened or joined.
             app.add_plugins(coop::CoopPlugin(coop::Config { host: args.host, join: args.join.clone(), name: args.coop_name.clone(), base: args.coop_base }));
+            app.add_plugins(split::SplitPlugin(split::SplitArgs { start: args.split, p2: args.split_p2.clone() }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
