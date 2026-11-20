@@ -1,0 +1,335 @@
+//! Joint progression in co-op (private fork, not upstream; morning-report plan
+//! `shared-progression.md`, owner's answers of 2026-11-18): a guest that chose to share
+//! quest progress **claims** the stages of the host's side and DLC quests it is there for
+//! into its own save, stage by stage, and its own world replays them on its next load.
+//!
+//! - **Who is who.** Every character has a stable [`CharacterId`]
+//!   (`PlayerState::character_id`), made on the first load that lacks one and sent in the
+//!   guest's hello, so a slot number never names a character across sessions [design §3.2].
+//! - **Host: presence.** [`Game::set_stage`] calls [`Game::coop_joint_stage`]: for a
+//!   claimable quest (not base-game main story, [`is_main_story`]) every connected guest
+//!   with joint progression on ([`Game::coop_joint_guests`]) is written into
+//!   [`SessionPresence`] (saved in the host's game), and one [`StageOffer`] is queued for
+//!   the engine to send ([`Game::take_joint_offers`]) [design §3.1, §3.2, owner 1-3].
+//! - **Guest: the check.** [`check`] decides from the guest's own game as it was at join
+//!   (`SoloBase`) and its [`ClaimLedger`]: the quest's prerequisites at its first claimed
+//!   stage, and continuity (every earlier stage of the host's path claimed or done in its
+//!   own game) [design §3.1.4-5, §3.4]. A stage taken goes into the ledger, which lives in
+//!   the character and so lands in its own save.
+//! - **Replay.** When the character's own world loads (solo or hosting),
+//!   [`Game::replay_claims`] applies the ledger before the first frame: each claimed stage
+//!   in order, through the dialogue line that set it on the host when one did (the line's
+//!   result script carries choices no stage records: Rex's brain, plan §11.3), else
+//!   `SetStage`; companion hires the rules name run after their stage. Rewards already
+//!   given live are muted ([`Game::coop_replaying`]) [design §3.5].
+
+use crate::game::Game;
+use crate::quest::QuestState;
+use fnv_sim::FormId;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// A character's stable identity across sessions and hosts [design §3.2]. 0 is "none
+/// yet" (an older save): [`new_character_id`] gives one on load.
+pub type CharacterId = u64;
+
+/// A fresh random [`CharacterId`], never 0 [design: 64 random bits from the standard
+/// library's per-process hasher keys and the clock; no new dependency].
+pub fn new_character_id() -> CharacterId {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+    h.write_u32(std::process::id());
+    h.finish().max(1)
+}
+
+/// FalloutNV.esm's base-game main story: never claimable, host world only (owner answer
+/// 3). Read from the ESM's QUST records and the Fallout Wiki's main quests (plan §11.4)
+/// [observed: editor IDs in FalloutNV.esm; documented: wiki main-quest list, from memory,
+/// to recheck against the owner's export]. Three use the side-quest prefix (VMS23,
+/// VMS29, VMS35), so the list is explicit. Support quests of the main story (timers, end
+/// states, Yes Man's positioning) are in it too: host world only.
+pub const MAIN_STORY: &[&str] = &[
+    // Opening.
+    "VCG00", "VCG01", "VCG01Test", "VCG02", "VCG03", "VCG04", "VMQ01", "VMQTops", "BennyToArenaTimer",
+    // House.
+    "VMQHouse", "VMQHouse1", "VMQHouse2", "VMQHouse3", "VMQHouse4", "VMQHouse5", "VMQHouse6", "VMQHouse7", "VMQHouse8",
+    "VMQHouseFail", "VMQHouseLockdown", "VHDHouseBattle",
+    // Yes Man.
+    "VMQYesMan01", "VMQYesMan01a", "VMQYesMan02", "VMQYesMan03", "VMQYesManFailsafe", "VMQYesManSupport",
+    "VHDIndependentBattle",
+    // NCR.
+    "VMS23", "VMS29", "VMQ05", "VMQ03a", "VMQ03aTimer", "vHDBattleController", "VMQNCRFail", "VHDKimballSpeech",
+    "VHDAssassinationDialog", "VHDOliverDeathTimer", "VHDOliverRetreatTimer",
+    // Legion.
+    "VMQ02", "VMS35", "VMQ03b", "VMQ03bTimer", "VMQ04", "VHDLegionBattle", "VMQCaesarFail",
+    // The end.
+    "VMQ06", "VMQEndStates", "VMQEndStatesFreeside", "VMQEndStatesTheStrip",
+];
+
+/// Whether `q` is base-game main story: a FalloutNV.esm quest (load-order index 0, the
+/// first master) whose editor ID is in [`MAIN_STORY`]. Every DLC quest, main line
+/// included, is claimable (owner answer 3).
+pub fn is_main_story(g: &Game, q: FormId) -> bool {
+    q.0 >> 24 == 0 && g.data.quests.get(&q).and_then(|d| d.edid.as_deref()).is_some_and(|e| MAIN_STORY.iter().any(|m| m.eq_ignore_ascii_case(e)))
+}
+
+/// A quest's prerequisite as its starting line or script tests it (plan §3.3, §3.8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Prerequisite {
+    StageDone { quest: &'static str, stage: i32 },
+    Completed { quest: &'static str },
+    AnyOf(&'static [Prerequisite]),
+}
+
+/// A quest's joint rules, by editor ID (plan §3.8). The generated table (`fnvtool quest
+/// prereqs`) is not built yet; until it is, a quest without an entry has no prerequisite
+/// beyond "not started or ended in the guest's own game", which [`check`] applies to
+/// every quest [design].
+pub struct QuestRules {
+    pub quest: &'static str,
+    pub prerequisites: &'static [Prerequisite],
+    /// The companion's hire line to run after a claimed stage: (stage, INFO FormID in
+    /// FalloutNV.esm).
+    pub companion_hires: &'static [(i32, u32)],
+}
+
+/// Hand-read rules (plan §11.3) [observed: FalloutNV.esm].
+pub const RULES: &[QuestRules] = &[
+    // Nothin' But a Hound Dog: the King's "About Rex here..." has only `GetStage VMS24 ==
+    // 0`; stage 10 is the King handing Rex over, whose companion setup is the
+    // FollowersHired line 0x0015C828 (CompanionSuite, SearchAndMark, teammate).
+    QuestRules { quest: "VMS24", prerequisites: &[], companion_hires: &[(10, 0x0015_C828)] },
+];
+
+fn rules_of(g: &Game, q: FormId) -> Option<&'static QuestRules> {
+    let edid = g.data.quests.get(&q)?.edid.as_deref()?;
+    RULES.iter().find(|r| r.quest.eq_ignore_ascii_case(edid))
+}
+
+/// Which characters were connected (with joint progression on) when the host set each
+/// stage, kept in the host's save across sessions (owner answer 1) [design §3.2].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionPresence {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub stages: BTreeMap<FormId, BTreeMap<i32, BTreeSet<CharacterId>>>,
+}
+
+impl SessionPresence {
+    pub fn is_empty(&self) -> bool {
+        self.stages.is_empty()
+    }
+    pub fn was_there(&self, q: FormId, stage: i32, who: CharacterId) -> bool {
+        self.stages.get(&q).and_then(|s| s.get(&stage)).is_some_and(|c| c.contains(&who))
+    }
+}
+
+/// The dialogue line whose result script set a stage: the INFO, and whether it was its
+/// end script (else its begin script).
+pub type Line = (FormId, bool);
+
+/// One stage a guest claimed, with the host's line that set it, if a line did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimedStage {
+    pub stage: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<Line>,
+}
+
+/// A character's claimed stages, by quest in claim order (plan §3.5): written as each is
+/// taken, replayed in its own world and then cleared. `done` keeps what was replayed,
+/// for the Pip-Boy and the logs.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimLedger {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub stages: BTreeMap<FormId, Vec<ClaimedStage>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub done: BTreeMap<FormId, BTreeSet<i32>>,
+}
+
+impl ClaimLedger {
+    pub fn is_empty(&self) -> bool {
+        self.stages.is_empty() && self.done.is_empty()
+    }
+    pub fn claimed(&self, q: FormId, stage: i32) -> bool {
+        self.stages.get(&q).is_some_and(|s| s.iter().any(|c| c.stage == stage)) || self.done.get(&q).is_some_and(|s| s.contains(&stage))
+    }
+    fn has_quest(&self, q: FormId) -> bool {
+        self.stages.contains_key(&q) || self.done.contains_key(&q)
+    }
+}
+
+/// A stage the host set, for each connected guest with joint progression on (plan
+/// §3.8 `Stage`). `prior` is the host's earlier stages of the quest, for continuity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StageOffer {
+    pub quest: FormId,
+    pub stage: i32,
+    pub prior: Vec<i32>,
+    pub line: Option<Line>,
+    /// The guests' actors it is for.
+    pub to: Vec<FormId>,
+}
+
+/// A connected guest as the host knows it: its character and its join choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct JointGuest {
+    pub character: CharacterId,
+    pub on: bool,
+}
+
+/// Why a guest turned a stage down (plan §3.4), for its log and the host's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TurnedDown {
+    /// Its own game completed or failed the quest.
+    QuestEnded,
+    /// Its own game did that stage already: nothing to write, continuity holds.
+    AlreadyDone,
+    /// The quest's prerequisites fail in its own game (first claimed stage).
+    Prerequisite,
+    /// It has neither claimed nor done this earlier stage of the host's path.
+    Missed(i32),
+}
+
+impl std::fmt::Display for TurnedDown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TurnedDown::QuestEnded => write!(f, "its own game ended the quest"),
+            TurnedDown::AlreadyDone => write!(f, "its own game did that stage"),
+            TurnedDown::Prerequisite => write!(f, "prerequisite"),
+            TurnedDown::Missed(s) => write!(f, "missed stage {s}"),
+        }
+    }
+}
+
+/// The guest's check of one offered stage against its own game's quests (`own`, its
+/// `SoloBase`) and its ledger (plan §3.1.4-5, §3.4) [design]. `prereq_met` evaluates the
+/// quest's prerequisites in its own game; it is asked only at the quest's first claimed
+/// stage, and a quest its own game already started passes.
+pub fn check(own: &BTreeMap<FormId, QuestState>, ledger: &ClaimLedger, offer: &StageOffer, prereq_met: impl FnOnce() -> bool) -> Result<(), TurnedDown> {
+    let mine = own.get(&offer.quest);
+    if mine.is_some_and(|s| s.completed || s.failed) {
+        return Err(TurnedDown::QuestEnded);
+    }
+    if mine.is_some_and(|s| s.stages_done.contains(&offer.stage)) || ledger.claimed(offer.quest, offer.stage) {
+        return Err(TurnedDown::AlreadyDone);
+    }
+    let started_here = mine.is_some_and(|s| s.running || !s.stages_done.is_empty());
+    if !started_here && !ledger.has_quest(offer.quest) && !prereq_met() {
+        return Err(TurnedDown::Prerequisite);
+    }
+    for &p in &offer.prior {
+        if !(mine.is_some_and(|s| s.stages_done.contains(&p)) || ledger.claimed(offer.quest, p)) {
+            return Err(TurnedDown::Missed(p));
+        }
+    }
+    Ok(())
+}
+
+/// Whether every prerequisite holds in a game whose quests are `own` [design: an entry
+/// whose quest is not in this load order fails].
+pub fn prerequisites_hold(g: &Game, own: &BTreeMap<FormId, QuestState>, list: &[Prerequisite]) -> bool {
+    fn one(g: &Game, own: &BTreeMap<FormId, QuestState>, p: &Prerequisite) -> bool {
+        let q = |edid: &str| g.data.quests.values().find(|d| d.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(edid))).map(|d| d.form);
+        match p {
+            Prerequisite::StageDone { quest, stage } => q(quest).and_then(|f| own.get(&f)).is_some_and(|s| s.stages_done.contains(stage)),
+            Prerequisite::Completed { quest } => q(quest).and_then(|f| own.get(&f)).is_some_and(|s| s.completed),
+            Prerequisite::AnyOf(any) => any.iter().any(|p| one(g, own, p)),
+        }
+    }
+    list.iter().all(|p| one(g, own, p))
+}
+
+impl Game<'_> {
+    /// The host's hook in [`Game::set_stage`], after the stage is marked done (module
+    /// notes). Nothing while no guest has joint progression on.
+    pub fn coop_joint_stage(&mut self, q: FormId, stage: i32) {
+        if self.coop_replaying || !self.coop_joint_guests.values().any(|j| j.on) || is_main_story(self, q) {
+            return;
+        }
+        let to: Vec<FormId> = self.coop_joint_guests.iter().filter(|(_, j)| j.on).map(|(a, _)| *a).collect();
+        let who: Vec<CharacterId> = to.iter().filter_map(|a| self.coop_joint_guests.get(a)).map(|j| j.character).filter(|c| *c != 0).collect();
+        self.coop_presence.stages.entry(q).or_default().entry(stage).or_default().extend(who);
+        let prior: Vec<i32> = self.quests.get(&q).map(|s| s.stages_done.iter().copied().filter(|s| *s != stage).collect()).unwrap_or_default();
+        self.coop_joint_out.push(StageOffer { quest: q, stage, prior, line: self.coop_line, to });
+    }
+
+    /// The host's stage offers since the last call, for the engine to send.
+    pub fn take_joint_offers(&mut self) -> Vec<StageOffer> {
+        std::mem::take(&mut self.coop_joint_out)
+    }
+
+    /// A guest takes or turns down an offered stage (module notes). `own` is its own
+    /// game's quests as at join. A stage taken is written into the character's ledger.
+    pub fn take_joint_offer(&mut self, own: &BTreeMap<FormId, QuestState>, offer: &StageOffer) -> Result<(), TurnedDown> {
+        let rules = rules_of(self, offer.quest);
+        let prereq = || rules.is_none_or(|r| prerequisites_hold(self, own, r.prerequisites));
+        check(own, &self.player.claims, offer, prereq)?;
+        self.player.claims.stages.entry(offer.quest).or_default().push(ClaimedStage { stage: offer.stage, line: offer.line });
+        Ok(())
+    }
+
+    /// Give the character a [`CharacterId`] if it has none (an older save, a new game).
+    pub fn ensure_character_id(&mut self) -> CharacterId {
+        if self.player.character_id == 0 {
+            self.player.character_id = new_character_id();
+        }
+        self.player.character_id
+    }
+
+    /// Replay the ledger's claimed stages in this, the character's own world (module
+    /// notes; plan §3.5). Returns one line per quest for the HUD ("From co-op: <quest>").
+    /// Rewards were given live, so `RewardXP`, caps and items to the player and
+    /// achievements are muted while it runs ([`Game::coop_replaying`]).
+    pub fn replay_claims(&mut self) -> Vec<String> {
+        if self.player.claims.stages.is_empty() {
+            return Vec::new();
+        }
+        let claims = std::mem::take(&mut self.player.claims.stages);
+        let mut lines = Vec::new();
+        self.coop_replaying = true;
+        for (q, stages) in claims {
+            let ended = self.quests.get(&q).is_some_and(|s| s.completed || s.failed);
+            let hires = rules_of(self, q).map(|r| r.companion_hires).unwrap_or_default();
+            let mut applied = 0;
+            for c in &stages {
+                self.player.claims.done.entry(q).or_default().insert(c.stage);
+                if ended || self.quests.get(&q).is_some_and(|s| s.stages_done.contains(&c.stage)) {
+                    continue;
+                }
+                if let Some((info, end)) = c.line {
+                    self.replay_line(info, end);
+                }
+                if !self.quests.get(&q).is_some_and(|s| s.stages_done.contains(&c.stage)) {
+                    self.set_stage(q, c.stage);
+                }
+                for &(_, hire) in hires.iter().filter(|(s, _)| *s == c.stage) {
+                    self.replay_line(FormId(hire), true);
+                }
+                applied += 1;
+            }
+            if applied > 0 {
+                let name = self.data.quests.get(&q).and_then(|d| d.name.clone().or_else(|| d.edid.clone())).unwrap_or_else(|| format!("{q}"));
+                tracing::info!("co-op: replayed {applied} claimed stage(s) of {name}");
+                lines.push(format!("From co-op: {name}"));
+            }
+        }
+        self.coop_replaying = false;
+        lines
+    }
+
+    /// Run a dialogue line's result script outside a conversation, its speaker the
+    /// line's speaker if it names one [hypothesis: the scripts replayed name their refs
+    /// explicitly (Rex's surgery lines do), so `self` matters little].
+    fn replay_line(&mut self, info: FormId, end: bool) {
+        let Some(def) = self.data.infos.get(&info) else {
+            tracing::warn!("co-op: replay: line {info} is not in this load order");
+            return;
+        };
+        let Some(u) = (if end { def.end } else { def.begin }) else { return };
+        // The speaker's placed reference: the speaker is a base form, and companions and
+        // quest NPCs are unique, placed once [hypothesis for the lines replayed].
+        let speaker = def.speaker.and_then(|b| self.world.placed.refs.iter().find(|(_, p)| p.base == b).map(|(r, _)| *r)).unwrap_or(FormId::PLAYER_REF);
+        self.run_result(u, crate::game::RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
+    }
+}

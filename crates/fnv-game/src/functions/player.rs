@@ -6,6 +6,11 @@ use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
 pub fn reward_xp(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages: given live already, or a scene for a
+    // player who wasn't there (`crate::coop_joint`) [design].
+    if g.coop_replaying {
+        return none();
+    }
     let n = a.num(0)?.trunc();
     // The revision's XP given back: the experience was never taken (`crate::revision`).
     if crate::revision::keeps(ctx, FormId::PLAYER_REF, || format!("the experience ({n} XP not given again)")) {
@@ -144,6 +149,11 @@ pub fn set_player_tag_skill(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
 }
 
 pub fn add_achievement(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages: given live already, or a scene for a
+    // player who wasn't there (`crate::coop_joint`) [design].
+    if g.coop_replaying {
+        return none();
+    }
     g.player.achievements.insert(a.int(0)?);
     none()
 }

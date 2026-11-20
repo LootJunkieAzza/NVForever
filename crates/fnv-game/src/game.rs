@@ -569,6 +569,10 @@ pub struct ChallengeState {
     pub times: u32,
 }
 
+pub(crate) fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
+}
+
 fn is_zero_u32(v: &u32) -> bool {
     *v == 0
 }
@@ -926,6 +930,13 @@ pub struct PlayerState {
     /// (`crate::caravan`).
     #[serde(skip_serializing_if = "crate::caravan::CaravanState::is_empty", default)]
     pub caravan: crate::caravan::CaravanState,
+    /// The character's stable ID (`crate::coop_joint::CharacterId`); 0 in older saves
+    /// until their first load.
+    #[serde(skip_serializing_if = "is_zero_u64", default)]
+    pub character_id: u64,
+    /// Quest stages this character claimed in co-op (`crate::coop_joint::ClaimLedger`).
+    #[serde(skip_serializing_if = "crate::coop_joint::ClaimLedger::is_empty", default)]
+    pub claims: crate::coop_joint::ClaimLedger,
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
@@ -1747,6 +1758,19 @@ pub struct Game<'a> {
     /// treat as they treat the player (`crate::coop`, [`Game::as_player`]), with the
     /// player's name. Not part of the saved state: a save leaves them out.
     pub coop_actors: BTreeMap<FormId, String>,
+    /// A co-op host's connected guests with their characters and join choice
+    /// (`crate::coop_joint`), by actor. Not saved: the link refills it.
+    pub coop_joint_guests: BTreeMap<FormId, crate::coop_joint::JointGuest>,
+    /// The host's stage offers waiting for the engine (`Game::take_joint_offers`).
+    pub coop_joint_out: Vec<crate::coop_joint::StageOffer>,
+    /// The dialogue line whose result script is running, for the stage offers
+    /// (`crate::coop_joint::Line`).
+    pub coop_line: Option<crate::coop_joint::Line>,
+    /// Claimed stages are being replayed (`Game::replay_claims`): rewards to the player
+    /// are muted.
+    pub coop_replaying: bool,
+    /// Which characters were there for each stage the host set (`crate::coop_joint`).
+    pub coop_presence: crate::coop_joint::SessionPresence,
     /// A co-op host's story NPC the host may not talk to yet: a player is not near it
     /// ([`Game::story_gate`]); the far players, and when it was last asked (game
     /// seconds). Not saved.
@@ -2414,6 +2438,10 @@ pub struct GameSnapshot {
     /// items back at the way out (item 211 follow-up, 2026-11-14). Absent in older saves.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub coop_checked: BTreeMap<FormId, Vec<(FormId, i32, fnv_sim::inventory::Extra)>>,
+    /// A co-op host's presence record (`crate::coop_joint::SessionPresence`); absent in
+    /// a solo save and older saves.
+    #[serde(default, skip_serializing_if = "crate::coop_joint::SessionPresence::is_empty")]
+    pub coop_presence: crate::coop_joint::SessionPresence,
     /// The checkpoints' gear the guest was handed ([`Game::coop_checkpoint_gear`]), saved
     /// with the above so it still leaves at the way out after a load.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -2908,6 +2936,11 @@ impl<'a> Game<'a> {
             talk_held_quests: BTreeSet::new(),
             script_image_modifiers: BTreeSet::new(),
             coop_checked: BTreeMap::new(),
+            coop_joint_guests: BTreeMap::new(),
+            coop_joint_out: Vec::new(),
+            coop_line: None,
+            coop_replaying: false,
+            coop_presence: Default::default(),
             world_logic_off: false,
             guest_own_quests: BTreeSet::new(),
             guest_own_refs: BTreeMap::new(),
@@ -3235,6 +3268,8 @@ impl<'a> Game<'a> {
             self.start_quest(q);
         }
         self.quest(q).stages_done.insert(stage);
+        // Joint progression: the guests here claim it (`crate::coop_joint`).
+        self.coop_joint_stage(q, stage);
         let player = Some(FormId::PLAYER_REF);
         let label = format!("QUST {q} stage {stage}");
         let mut ran = Vec::new();
@@ -7325,6 +7360,7 @@ script cost: functions (ms a second, calls): {}", top.join(", "), topf.join(", "
             jip10: self.jip10_saved(),
             script_worn: self.script_worn.clone(),
             coop_checked: self.coop_checked.clone(),
+            coop_presence: self.coop_presence.clone(),
             coop_checkpoint_gear: self.coop_checkpoint_gear.clone(),
         }
     }
@@ -7393,6 +7429,9 @@ script cost: functions (ms a second, calls): {}", top.join(", "), topf.join(", "
         g.said = s.said.clone();
         g.script_worn = s.script_worn.clone();
         g.coop_checked = s.coop_checked.clone();
+        g.coop_presence = s.coop_presence.clone();
+        // Every character gets its stable ID on its first load (`crate::coop_joint`).
+        g.ensure_character_id();
         g.coop_checkpoint_gear = s.coop_checkpoint_gear.clone();
         if s.said_day_days_clock {
             g.said_day = s.said_day.clone();

@@ -35,6 +35,11 @@ fn hide_flag(a: &Args, i: usize) -> bool {
 pub const ADDED_CONDITION: f32 = 0.999;
 
 pub fn add_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages: given live already, or a scene for a
+    // player who wasn't there (`crate::coop_joint`) [design].
+    if g.coop_replaying && ctx.subject() == Ok(FormId::PLAYER_REF) {
+        return none();
+    }
     story_items(g, ctx, |g| add_item_now(g, ctx, a))
 }
 

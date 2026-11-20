@@ -293,6 +293,12 @@ pub struct Character {
     pub power_armor: bool,
     #[serde(skip_serializing_if = "crate::caravan::CaravanState::is_empty", default)]
     pub caravan: crate::caravan::CaravanState,
+    /// The character's stable ID and its claimed quest stages (`crate::coop_joint`):
+    /// they travel with the character into its own save.
+    #[serde(skip_serializing_if = "crate::game::is_zero_u64", default)]
+    pub character_id: u64,
+    #[serde(skip_serializing_if = "crate::coop_joint::ClaimLedger::is_empty", default)]
+    pub claims: crate::coop_joint::ClaimLedger,
 }
 
 impl Character {
@@ -315,6 +321,8 @@ impl Character {
             notes: p.notes.clone(),
             power_armor: p.power_armor,
             caravan: p.caravan.clone(),
+            character_id: p.character_id,
+            claims: p.claims.clone(),
         }
     }
 }
@@ -340,6 +348,8 @@ impl Character {
         p.notes = self.notes.clone();
         p.power_armor = self.power_armor;
         p.caravan = self.caravan.clone();
+        p.character_id = self.character_id;
+        p.claims = self.claims.clone();
     }
 }
 

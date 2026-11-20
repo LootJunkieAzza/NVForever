@@ -163,6 +163,7 @@ mod coop_guest_dialogue;
 mod coop_guest_doctor_data;
 mod coop_guest_mod_cashier;
 mod coop_host_story;
+mod coop_joint;
 mod coop_quest_items_data;
 mod fort_kin_data;
 mod jam_functions;

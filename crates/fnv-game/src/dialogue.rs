@@ -784,9 +784,9 @@ impl<'a> Game<'a> {
         // The line is up, whether or not a script of it runs: whoever started it reads it next.
         self.dialogue_transition();
         self.emit_response(actor, def, info, 0);
-        self.run_line_result(actor, def, false);
+        self.run_line_result(actor, def, info, false);
         if def.has(info_flag::RUN_IMMEDIATELY) {
-            self.run_line_result(actor, def, true);
+            self.run_line_result(actor, def, info, true);
         }
     }
 
@@ -801,7 +801,7 @@ impl<'a> Game<'a> {
         self.ask_response_idles(actor, Some(FormId::PLAYER_REF), info, r);
     }
 
-    fn run_line_result(&mut self, actor: FormId, def: &InfoDef, end: bool) {
+    fn run_line_result(&mut self, actor: FormId, def: &InfoDef, info: FormId, end: bool) {
         let data = self.data;
         if let Some(u) = if end { def.end } else { def.begin } {
             // An end script runs as the line goes: what it reads is up by then. A begin script
@@ -820,7 +820,11 @@ impl<'a> Game<'a> {
                 self.talk_held_quests.extend(named);
             }
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
+            // The stages it sets name this line, for joint progression's replay
+            // (`crate::coop_joint::Line`).
+            let outer = self.coop_line.replace((info, end));
             self.run_info_result(actor, u, def.quest);
+            self.coop_line = outer;
         }
     }
 
@@ -924,7 +928,7 @@ impl<'a> Game<'a> {
         }
         self.emit(EventKind::LineEnded { speaker: actor, info, cut: false });
         if !def.has(info_flag::RUN_IMMEDIATELY) {
-            self.run_line_result(actor, def, true);
+            self.run_line_result(actor, def, info, true);
         }
         for t in self.player.topics.learn(&def.add_topics) {
             self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
