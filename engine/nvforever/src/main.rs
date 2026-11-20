@@ -1081,7 +1081,10 @@ static COMMAND_LINE: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new
 
 /// This run's arguments after the program name, as acted on (`COMMAND_LINE`).
 fn command_line() -> Vec<String> {
-    COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec())
+    let mut line = COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec());
+    // Split screen turned on or off since the start goes with a load's new run (split.rs).
+    split::with_split_arg(&mut line);
+    line
 }
 
 /// Bevy's task pools. Test aid `NVF_PLAY_TEST_ASYNC_THREADS=<n>` sets the async compute

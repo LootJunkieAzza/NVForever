@@ -858,7 +858,7 @@ impl Coop {
         self.link.as_ref().is_some_and(|l| l.is_host())
     }
 
-    fn is_guest(&self) -> bool {
+    pub(crate) fn is_guest(&self) -> bool {
         self.link.as_ref().is_some_and(|l| !l.is_host())
     }
 }

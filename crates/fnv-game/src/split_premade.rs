@@ -18,13 +18,28 @@
 //!
 //! Kept from player 1 [hypothesis: a stand-in until the premades get looks of their own,
 //! plan §7.1 "a fixed set from the character creator's model"]: the sex, race and face.
+//!
+//! **Doc Mitchell's opening is done** for a premade [owner, 2026-11-20: "a premade starts
+//! as if Doc Mitchell's opening is done"] ([`Opening`]):
+//! - its saved place is right outside Doc Mitchell's house, where the house's door puts a
+//!   player leaving it: the teleport of its inside door [observed: FalloutNV.esm REFR
+//!   0x00103E61 `GSDocMitchellHouseIntDoorREF` in `GSDocMitchellHouse`, XTEL to the door
+//!   0x00103E69 at (-73162.9, 1312.4, 8686.4), facing z 1.2708 rad, WastelandNV]. Joining
+//!   still puts player 2 near the host (co-op spawning); this is only the save's place;
+//! - its opening quest is complete: VCG01's stages up to its Complete Quest stage are done
+//!   and its objectives shown and completed [observed: FalloutNV.esm QUST 0x00104C1C VCG01,
+//!   stage 200 is the only one flagged Complete Quest (QSDT 1); objectives 10, 30, 40, 50];
+//! - it is out of character creation, and holds no control locks, menu or conversation
+//!   from player 1's game.
 
 use crate::actor_values::{self as av, ENERGY_WEAPONS, EXPLOSIVES, GUNS, LOCKPICK, MELEE_WEAPONS, REPAIR, SCIENCE, SNEAK, SPEECH, SURVIVAL, UNARMED};
 use crate::coop::Character;
 use crate::game::{GameSnapshot, RefExtra};
+use crate::quest::{ObjectiveState, STAGE_COMPLETE};
+use crate::GameData;
 use fnv_sim::forms::{FormStore, SPECIAL};
 use fnv_sim::inventory::Extra;
-use fnv_sim::{FormId, Inventory};
+use fnv_sim::{FormId, Inventory, RefTable};
 use rand_chacha::rand_core::SeedableRng;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -158,9 +173,71 @@ pub fn resolve(p: &Premade, edid: impl Fn(&str) -> Option<FormId>, forms: &FormS
     Resolved { trait_perk, items, note, missing }
 }
 
+/// Doc Mitchell's opening quest [observed: FalloutNV.esm QUST 0x00104C1C "Ain't That a
+/// Kick in the Head"].
+pub const OPENING_QUEST: &str = "VCG01";
+/// The inside door of Doc Mitchell's house: its teleport is where leaving the house puts
+/// the player [observed: FalloutNV.esm REFR 0x00103E61].
+pub const HOUSE_DOOR: &str = "GSDocMitchellHouseIntDoorREF";
+
+/// Right outside Doc Mitchell's house: where the house's door puts a player leaving it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Outside {
+    /// The exterior cell holding the spot (as a door's teleport moves an actor,
+    /// `RefTable::teleport_cell`).
+    pub cell: FormId,
+    pub world: Option<FormId>,
+    pub pos: [f32; 3],
+    /// Radians, z the compass heading.
+    pub rot: [f32; 3],
+}
+
+/// [`HOUSE_DOOR`]'s teleport in the load order, if it has the door.
+pub fn outside_doc_mitchells(refs: &RefTable) -> Option<Outside> {
+    let tp = refs.get(refs.by_edid(HOUSE_DOOR)?)?.teleport?;
+    let cell = refs.teleport_cell(&tp)?;
+    Some(Outside { cell, world: refs.world_of(cell), pos: tp.pos, rot: tp.rot })
+}
+
+/// The opening quest as a character who finished it has it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpeningDone {
+    pub quest: FormId,
+    /// Its stages up to and including the first flagged Complete Quest [hypothesis: a
+    /// played opening sets nearly all of them on the way; GetStage reads the last either
+    /// way].
+    pub stages: BTreeSet<i32>,
+    /// Every objective: shown and completed (a played opening completes all four).
+    pub objectives: Vec<i32>,
+}
+
+/// [`OPENING_QUEST`] done, read from the load order's quest data: `None` when the load
+/// order has no such quest or it has no Complete Quest stage.
+pub fn opening_done(data: &GameData) -> Option<OpeningDone> {
+    let quest = data.by_edid(OPENING_QUEST).filter(|q| data.is_quest(*q))?;
+    let def = data.quests.get(&quest)?;
+    let end = def.stages.iter().find(|(_, es)| es.iter().any(|e| e.flags & STAGE_COMPLETE != 0)).map(|(i, _)| *i)?;
+    Some(OpeningDone { quest, stages: def.stages.keys().copied().filter(|i| *i <= end).collect(), objectives: def.objectives.keys().copied().collect() })
+}
+
+/// How a premade has Doc Mitchell's opening behind it (module notes); each part only when
+/// the load order has it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Opening {
+    pub outside: Option<Outside>,
+    pub done: Option<OpeningDone>,
+}
+
+impl Opening {
+    pub fn find(data: &GameData, refs: &RefTable) -> Opening {
+        Opening { outside: outside_doc_mitchells(refs), done: opening_done(data) }
+    }
+}
+
 /// `base` (player 1's game) with the player's character replaced by premade `p`'s
-/// defaults, its forms as [`resolve`] found them.
-pub fn premade_snapshot(base: &GameSnapshot, p: &Premade, r: &Resolved) -> GameSnapshot {
+/// defaults, its forms as [`resolve`] found them, past Doc Mitchell's opening
+/// (`opening`, module notes).
+pub fn premade_snapshot(base: &GameSnapshot, p: &Premade, r: &Resolved, opening: &Opening) -> GameSnapshot {
     let mut s = base.clone();
     let me = FormId::PLAYER_REF;
     if let Some(actor) = s.sim.refs.get_mut(&me) {
@@ -170,6 +247,21 @@ pub fn premade_snapshot(base: &GameSnapshot, p: &Premade, r: &Resolved) -> GameS
         }
         actor.inventory = Some(inv);
         actor.actor_values = SPECIAL.iter().zip(p.special).map(|(name, v)| (name.to_string(), v as f32)).collect();
+        if let Some(o) = opening.outside {
+            actor.cell = Some(o.cell);
+            actor.pos = o.pos;
+            actor.rot = o.rot;
+        }
+    }
+    if let Some(d) = &opening.done {
+        let q = s.quests.entry(d.quest).or_default();
+        q.running = false;
+        q.completed = true;
+        q.failed = false;
+        q.stages_done.extend(d.stages.iter().copied());
+        for o in &d.objectives {
+            q.objectives.insert(*o, ObjectiveState { displayed: true, completed: true });
+        }
     }
     // A fresh actor's extra state; the world's faction ranks stay, and the face. Its
     // abilities are given again on load (`abilities_given` off).
@@ -194,6 +286,11 @@ pub fn premade_snapshot(base: &GameSnapshot, p: &Premade, r: &Resolved) -> GameS
     }
     .put_on(&mut s.player);
     s.player.in_chargen = false;
+    // Player 1's moment is not the premade's: no control locks (the opening's
+    // DisablePlayerControls), menu or conversation.
+    s.player.controls_disabled = Default::default();
+    s.menu = None;
+    s.dialogue = None;
     s
 }
 
@@ -309,7 +406,11 @@ mod tests {
     }
 
     fn fixture() -> Fixture {
-        let plugins = [Plugin::parse(&tes4(), "Premades.esm".into()).unwrap()];
+        fixture_with(&[])
+    }
+
+    fn fixture_with(records: &[u8]) -> Fixture {
+        let plugins = [Plugin::parse(&[tes4(), records.to_vec()].concat(), "Premades.esm".into()).unwrap()];
         let lo = LoadOrder::new(&plugins).unwrap();
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
         let schema = Schema::load_dir(root.join("fnv")).unwrap();
@@ -345,7 +446,7 @@ mod tests {
         let p1_place = (snap.sim.refs[&me].cell, snap.sim.refs[&me].pos);
         snap.time = 1234.0;
         let r = Resolved { trait_perk: Some(FormId(1)), note: Some(FormId(2)), items: vec![(FormId(3), 1, Extra { equipped: true, ..Default::default() })], missing: vec![] };
-        let out = premade_snapshot(&snap, &PREMADES[0], &r);
+        let out = premade_snapshot(&snap, &PREMADES[0], &r, &Opening::default());
         let actor = &out.sim.refs[&me];
         assert_eq!((actor.cell, actor.pos), p1_place, "player 1's place");
         let inv = actor.inventory.as_ref().unwrap();
@@ -372,5 +473,61 @@ mod tests {
         assert_eq!(crate::functions::actor::actor_value_base(&mut h, me, av::STRENGTH), 5.0);
         assert_eq!(crate::functions::actor::actor_value_base(&mut h, me, av::AGILITY), 8.0);
         assert_eq!(h.player_level(), 1.0);
+    }
+
+    /// A quest like VCG01: stages 0, 10, 200 (Complete Quest) and 210 after it, two
+    /// objectives.
+    fn opening_quest() -> Vec<u8> {
+        let stage = |i: i16, flags: u8| [sub(b"INDX", i.to_le_bytes().to_vec()), sub(b"QSDT", vec![flags])];
+        let mut subs = vec![sub(b"EDID", z(OPENING_QUEST)), sub(b"DATA", [vec![1u8, 0, 0, 0], 5.0f32.to_le_bytes().to_vec()].concat())];
+        for (i, f) in [(0, 0), (10, 0), (200, STAGE_COMPLETE), (210, 0)] {
+            subs.extend(stage(i, f));
+        }
+        for o in [10i32, 50] {
+            subs.extend([sub(b"QOBJ", o.to_le_bytes().to_vec()), sub(b"NNAM", z("Objective"))]);
+        }
+        top(b"QUST", &record(b"QUST", 0, 0x0100_0800, &subs))
+    }
+
+    #[test]
+    fn the_opening_is_done_up_to_its_complete_quest_stage() {
+        let f = fixture_with(&opening_quest());
+        let d = opening_done(&f.data).expect("the opening quest");
+        assert_eq!(d.stages, BTreeSet::from([0, 10, 200]));
+        assert_eq!(d.objectives, [10, 50]);
+        // A load order without it: nothing to finish.
+        assert_eq!(opening_done(&fixture().data), None);
+    }
+
+    #[test]
+    fn a_premade_starts_outside_doc_mitchells_with_the_opening_done() {
+        let f = fixture_with(&opening_quest());
+        let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+        let me = FormId::PLAYER_REF;
+        // Player 1 still in the opening: in the house, VCG01 running at stage 55, controls
+        // locked, in character creation.
+        g.world.get(me).unwrap().cell = Some(FormId(0x0010_3DF9));
+        g.player.in_chargen = true;
+        g.player.controls_disabled = [true; 7];
+        let mut snap = g.snapshot();
+        let done = opening_done(&f.data).unwrap();
+        let q = snap.quests.entry(done.quest).or_default();
+        q.running = true;
+        q.stages_done = BTreeSet::from([0, 55]);
+        let outside = Outside { cell: FormId(0x0010_4000), world: Some(FormId(0xDA726)), pos: [-73162.9, 1312.4, 8686.4], rot: [0.0, 0.0, 1.2708] };
+        let r = Resolved { trait_perk: None, note: None, items: vec![], missing: vec![] };
+        let out = premade_snapshot(&snap, &PREMADES[1], &r, &Opening { outside: Some(outside), done: Some(done.clone()) });
+        let actor = &out.sim.refs[&me];
+        assert_eq!((actor.cell, actor.pos, actor.rot), (Some(outside.cell), outside.pos, outside.rot));
+        let q = &out.quests[&done.quest];
+        assert!(q.completed && !q.running && !q.failed);
+        assert_eq!(q.stage(), 200);
+        assert!(q.stages_done.contains(&55), "player 1's stages stay");
+        assert!(q.objectives.values().all(|o| o.displayed && o.completed) && q.objectives.len() == 2);
+        assert!(!out.player.in_chargen);
+        assert_eq!(out.player.controls_disabled, [false; 7]);
+        // It loads.
+        let world = World::restore(&f.forms, &f.refs, &out.sim).unwrap();
+        assert!(Game::restore(&f.data, world, GameConfig::default(), &out).is_ok());
     }
 }

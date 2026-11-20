@@ -220,7 +220,8 @@
 //! mouse wheel on the settings page or the Controls tab),
 //! `keep` and `revert` (the keep question's answers),
 //! `quit` (the question), `delete`, `yes` and `no` (the load page's delete question),
-//! `mods` (the Mods page, when the column has its entry: [`ModsEntry`]),
+//! `mods` (the Mods page, when the column has its entry: [`ModsEntry`]), `split` (split
+//! screen's entry, Add Player 2 or End Split Screen, `crate::split_screen`),
 //! `shot` (a screenshot `pause_<page>.png` in the working folder); on the settings page
 //! `heading-down`, `heading-up` (Page Down, Page Up), `tab-down`, `tab-up` (Tab, F1),
 //! `rail` (F6), `left`, `right` (the arrow keys), `pad:<button>` (`pad:RB`, `pad:D-Pad
@@ -832,6 +833,10 @@ enum Entry {
     Load,
     /// Co-op (private fork): the host's lobby screen, `crate::lobby`.
     Lobby,
+    /// Split screen (private fork, `crate::split_screen`): start it, in player 1's game.
+    AddPlayer2,
+    /// Split screen: end it (player 2's game closes).
+    EndSplit,
     /// Back to the world in photo mode (`crate::photo_mode`), the way a controller opens it
     /// [design, owner request 2026-11-09].
     Photo,
@@ -846,8 +851,21 @@ enum Entry {
 
 /// The column's entries, with the Console entry when `console` (the tweak) and the Mods
 /// entry when `mods` ([`ModsEntry`]).
+#[cfg(test)]
 fn entries(mods: bool, console: bool) -> Vec<Entry> {
-    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Lobby, Entry::Photo, Entry::Settings];
+    entries_with(mods, console, None)
+}
+
+/// [`entries`], with split screen's entry after Lobby when `split` says it has one
+/// (`crate::split_screen::SplitScreen::entry`: on, End Split Screen; off, Add Player 2).
+fn entries_with(mods: bool, console: bool, split: Option<bool>) -> Vec<Entry> {
+    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Lobby];
+    match split {
+        Some(true) => v.push(Entry::EndSplit),
+        Some(false) => v.push(Entry::AddPlayer2),
+        None => {}
+    }
+    v.extend([Entry::Photo, Entry::Settings]);
     if console {
         v.push(Entry::Console);
     }
@@ -865,6 +883,8 @@ impl Entry {
             Entry::Save => "Save",
             Entry::Load => "Load",
             Entry::Lobby => "Lobby",
+            Entry::AddPlayer2 => crate::split_screen::ADD_LABEL,
+            Entry::EndSplit => crate::split_screen::END_LABEL,
             Entry::Photo => "Photo Mode",
             Entry::Settings => "Settings",
             Entry::Console => CONSOLE_LABEL,
@@ -3659,13 +3679,14 @@ fn choose(
         Option<ResMut<crate::lobby::LobbyScreen>>,
         Option<Res<crate::settings_view::HiddenRows>>,
     ),
-    (meters, pointed, mut tab_store, tweaks, mut report, mut photo_ask): (
+    (meters, pointed, mut tab_store, tweaks, mut report, mut photo_ask, mut split): (
         Query<(&PauseButton, &RelativeCursorPosition)>,
         Query<(&PointerState, &PauseButton)>,
         Option<ResMut<SettingsTabStore>>,
         Option<Res<crate::tweaks::TweakSettings>>,
         Option<ResMut<ReportEntry>>,
         Option<ResMut<crate::photo_mode::PhotoRequest>>,
+        Option<ResMut<crate::split_screen::SplitScreen>>,
     ),
 ) {
     let keys = keys.snapshot();
@@ -3691,7 +3712,7 @@ fn choose(
     // pages come from here, and going back shows it again.
     let under_main = main_menu.as_ref().is_some_and(|m| m.open);
     let mods = mods.is_some_and(|m| m.0);
-    let entries = entries(mods, console_entry);
+    let entries = entries_with(mods, console_entry, crate::split_screen::SplitScreen::entry(split.as_deref()));
     // The Mods page goes when its entry does (the mod's tiles were unloaded).
     if *page == Page::Mods && !mods {
         info!("pause menu: no mod page any more, back to the column");
@@ -4395,6 +4416,9 @@ fn choose(
                 take = Some(Entry::Mods);
             } else if act("lobby") {
                 take = Some(Entry::Lobby);
+            } else if act("split") {
+                // Test aid: split screen's entry, whichever it is now.
+                take = entries.iter().copied().find(|e| matches!(e, Entry::AddPlayer2 | Entry::EndSplit));
             } else if act("photo") {
                 take = Some(Entry::Photo);
             } else if keys.just_pressed(KeyCode::Escape) {
@@ -4409,7 +4433,7 @@ fn choose(
             // Any other choice while a resume waits ends the wait; the graphics change stays
             // latched, so the next Continue waits again [design: graphics_resume.rs]. Photo
             // Mode resumes as Continue does, so it rides a wait already under way.
-            if take.is_some_and(|e| !matches!(e, Entry::Continue | Entry::Photo)) && resume.pending() {
+            if take.is_some_and(|e| !matches!(e, Entry::Continue | Entry::Photo | Entry::AddPlayer2 | Entry::EndSplit)) && resume.pending() {
                 commands.queue(cancel_resume);
             }
             match take {
@@ -4450,6 +4474,18 @@ fn choose(
                     Some(l) => l.open(crate::lobby::Mode::Host),
                     None => warn!("pause menu: co-op is not in this build"),
                 },
+                // Split screen starts or ends with the game going on (nvforever split.rs).
+                Some(e @ (Entry::AddPlayer2 | Entry::EndSplit)) => {
+                    if let Some(s) = split.as_mut() {
+                        let start = e == Entry::AddPlayer2;
+                        info!("pause menu: {}", e.label());
+                        s.ask = Some(start);
+                        menu.status.line = if start { "Starting split screen...".into() } else { "Ending split screen...".into() };
+                    }
+                    if !resume.pending() {
+                        commands.queue(request_resume);
+                    }
+                }
                 Some(Entry::Console) => {
                     info!("pause menu: console (tweak)");
                     commands.queue(|w: &mut World| {
@@ -5229,7 +5265,10 @@ fn drawn_now(world: &mut World) -> Drawn {
         status: world.resource::<PauseStatus>().line.clone(),
         under_main: main.is_some(),
         mod_window: page == Page::Mods && world.get_resource::<crate::tiles::mods::ModsPage>().is_some_and(|m| m.mcm_open),
-        column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.help_is_console)).iter().map(|e| (e.label(), true)).collect()),
+        column: main.unwrap_or_else(|| {
+            let split = crate::split_screen::SplitScreen::entry(world.get_resource::<crate::split_screen::SplitScreen>());
+            entries_with(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.help_is_console), split).iter().map(|e| (e.label(), true)).collect()
+        }),
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
         controls_greyed: crate::bindings::GAME_CONTROLS.iter().map(|(c, _, _)| crate::stance::binding_greyed(world, *c)).collect(),
@@ -6480,6 +6519,21 @@ mod tests {
         app.update();
         let view = app.world().resource::<PauseView>();
         assert_eq!((view.rail_hover, view.scope), (None, SettingsScope::Tab("Gameplay")));
+    }
+
+    #[test]
+    fn split_screens_entry_follows_lobby_in_player_1s_game_only() {
+        use crate::split_screen::SplitScreen;
+        let labels = |split| entries_with(false, false, split).iter().map(|e| e.label()).collect::<Vec<_>>();
+        assert_eq!(labels(Some(false)), ["Continue", "Save", "Load", "Lobby", "Add Player 2", "Photo Mode", "Settings", "Quit"]);
+        assert_eq!(labels(Some(true)), ["Continue", "Save", "Load", "Lobby", "End Split Screen", "Photo Mode", "Settings", "Quit"]);
+        assert_eq!(labels(None), labels(None).iter().filter(|l| !l.contains("Split") && !l.contains("Player 2")).copied().collect::<Vec<_>>());
+        // No resource (player 2's game, or a build without it): no entry; a guest in
+        // another's lobby can't start it, but can end it.
+        assert_eq!(SplitScreen::entry(None), None);
+        assert_eq!(SplitScreen::entry(Some(&SplitScreen { available: true, ..Default::default() })), Some(false));
+        assert_eq!(SplitScreen::entry(Some(&SplitScreen { available: false, ..Default::default() })), None);
+        assert_eq!(SplitScreen::entry(Some(&SplitScreen { available: false, on: true, ..Default::default() })), Some(true));
     }
 
     #[test]

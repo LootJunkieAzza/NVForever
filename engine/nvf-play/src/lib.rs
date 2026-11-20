@@ -105,6 +105,7 @@ pub mod knockouts;
 pub mod loading;
 /// Co-op lobby screens (private fork).
 pub mod lobby;
+pub mod split_screen;
 pub mod loading_look;
 pub mod main_menu;
 pub mod menu_scale;

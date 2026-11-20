@@ -5,10 +5,17 @@
 //! (`crate::coop` `stand_ins`), and only its camera, controls, HUD and menus run in its own
 //! game [design: owner's choice of the two-window build, 2026-11-20].
 //!
-//! - **`--split`** (player 1): once in the world, this game hosts (if it isn't already),
-//!   moves its window to the top half (the left half side by side), and starts player 2's
-//!   game on the other half. A load restarts this game (`crate::handoff`); the new run
-//!   finds player 2's game still running and takes it over rather than starting another.
+//! - **Starting it** (player 1): the pause menu's Add Player 2 (`nvf_play::split_screen`)
+//!   turns split screen on in the running game; the main menu's Split Screen entry loads a
+//!   save with it on; `--split` starts with it on. Once in the world, this game hosts (if it
+//!   isn't already), moves its window to the top half (the left half side by side), and
+//!   starts player 2's game on the other half. A load restarts this game
+//!   (`crate::handoff`), and the new run's command line has `--split` while split screen is
+//!   on ([`with_split_arg`]); it finds player 2's game still running and takes it over
+//!   rather than starting another.
+//! - **Ending it**: End Split Screen (the pause menu), or player 2 going Back from the
+//!   picker: player 2's game closes, and player 1's window gets the whole screen back as it
+//!   was. A lobby opened only for player 2 closes once it is empty.
 //! - **`--split-p2 <dir>`** (player 2, started by player 1): `<dir>` is player 1's session
 //!   folder. This game's window is borderless on its half, owned by player 1's window (they
 //!   move, minimise and stay on top together) and never takes focus, so the keyboard stays
@@ -31,15 +38,18 @@
 //!   A controller that comes back after being unplugged (same name, vendor and product) is
 //!   player 2's again.
 //!
-//! Log: `split: player 2's game started (pid …)`, `split: player 2's controller is …`,
+//! Log: `split: split screen on`, `split: split screen ended (…)`,
+//! `split: player 2's game started (pid …)`, `split: player 2's controller is …`,
 //! `split: player 2's controller unplugged`, `split: player 1's game is gone: quitting`.
 
 use std::net::{SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use bevy::input::gamepad::{gamepad_connection_system, gamepad_event_processing_system, Gamepad, GamepadAxis, GamepadButton, GamepadConnection, GamepadConnectionEvent, RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent, RawGamepadEvent};
 use bevy::prelude::*;
-use bevy::window::{Monitor, PrimaryMonitor, PrimaryWindow, RawHandleWrapper, WindowMode};
+use bevy::window::{MonitorSelection, Monitor, PrimaryMonitor, PrimaryWindow, RawHandleWrapper, WindowMode};
+use nvf_play::split_screen::SplitScreen;
 
 /// How the screen is split [owner: a setting, top and bottom by default].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -87,6 +97,34 @@ pub const P2_ENV: &str = "NVF_SPLIT_P2";
 /// Player 2's game quits when player 1's has been gone this long: longer than a load's
 /// restart takes to hand over (`crate::handoff`) [design].
 const P1_GONE: f32 = 15.0;
+/// Player 1's game ends split screen when player 2's has been gone this long: longer than
+/// player 2's own restart takes, with a load's start-up, when it picks a character
+/// [design].
+const P2_GONE: f32 = 60.0;
+/// Set while a lobby this game opened for player 2 is open (kept by a load's restart, as
+/// the lobby is): ending split screen closes it once it is empty.
+const OPENED_LOBBY_ENV: &str = "NVF_SPLIT_OPENED_LOBBY";
+
+/// Whether split screen was turned on or off since this run started: 0 as the command line
+/// says, [`ARG_ON`], [`ARG_OFF`].
+static SPLIT_ARG: AtomicU8 = AtomicU8::new(0);
+const ARG_ON: u8 = 1;
+const ARG_OFF: u8 = 2;
+
+/// This run's command line as a load's new run takes it (main.rs `command_line`): with
+/// `--split` while split screen is on (or the main menu's Split Screen entry loads a save),
+/// without it once it has ended.
+pub fn with_split_arg(args: &mut Vec<String>) {
+    split_arg(args, SPLIT_ARG.load(Ordering::Relaxed));
+}
+
+fn split_arg(args: &mut Vec<String>, state: u8) {
+    match state {
+        ARG_ON if !args.iter().any(|a| a == "--split") => args.push("--split".into()),
+        ARG_OFF => args.retain(|a| a != "--split"),
+        _ => {}
+    }
+}
 /// How often the session files are read and written again (seconds).
 const FILE_EVERY: f32 = 1.0;
 /// The relay's packets: magic, then [`PadState::encode`].
@@ -181,23 +219,15 @@ impl Plugin for SplitPlugin {
     fn build(&self, app: &mut App) {
         if let Some(dir) = self.0.p2.clone() {
             let socket = UdpSocket::bind("127.0.0.1:0").and_then(|s| s.set_nonblocking(true).map(|_| s)).map_err(|e| warn!("split: no controller relay: {e}")).ok();
-            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false })
+            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(nvf_play::split_screen::PlayerTwo).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false, restacked: false })
                 .add_systems(PreUpdate, p2_receive.before(gamepad_connection_system))
                 .add_systems(PreUpdate, p2_strip_real_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
-                .add_systems(Update, (p2_session, p2_keep_character, p2_open_join));
-        } else if self.0.start {
-            let Some(home) = fnv_install::EngineHome::default_root() else {
-                warn!("split: no home folder: split screen not started");
-                return;
-            };
-            let socket = UdpSocket::bind("127.0.0.1:0").map_err(|e| warn!("split: no controller relay: {e}")).ok();
-            // Player 2's game plays only its own interface sounds, so this game hears the
-            // world at player 2's stand-in too (coop.rs `second_listener` fills it).
-            std::env::set_var("NVF_SPLIT_P1", "1");
-            app.init_resource::<nvf_play::sfx::SecondListener>();
-            app.insert_resource(P1 { dir: home.join("split"), layout: Layout::TopBottom, state: P1State::Waiting, socket, p2_at: None, file_at: f32::NEG_INFINITY, placed: None, pads: PadRoute::default(), save: loaded_stem(), full_noted: false })
-                .add_systems(PreUpdate, p1_route_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
-                .add_systems(Update, p1_session);
+                .add_systems(Update, (p2_session, p2_keep_character, p2_open_join, p2_back_ends));
+        } else {
+            // Player 1's game, or one that may become it (the menus' entries).
+            app.insert_resource(SplitScreen { available: true, ask: self.0.start.then_some(true), ..default() })
+                .add_systems(PreUpdate, p1_route_pads.run_if(resource_exists::<P1>).after(gamepad_connection_system).before(gamepad_event_processing_system))
+                .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), close_lobby_after).chain());
         }
     }
 }
@@ -239,6 +269,153 @@ struct P1 {
     save: Option<String>,
     /// The lobby was full when player 2 was due to start (noted once).
     full_noted: bool,
+    /// A save for the premades was asked for (there was none).
+    asked_save: bool,
+    /// When player 2's game was last seen running (seconds).
+    p2_seen: f32,
+    /// This game's window before split screen took half the screen.
+    before: Option<WindowBefore>,
+}
+
+/// A window as it was, to give it back.
+#[derive(Debug, Clone)]
+struct WindowBefore {
+    mode: WindowMode,
+    decorations: bool,
+    position: WindowPosition,
+    size: UVec2,
+    /// It already had its half (a run a load started in split screen, placed as the run
+    /// before left it): given back maximised, with its frame.
+    maximise: bool,
+}
+
+impl WindowBefore {
+    fn of(w: &Window, half: (IVec2, UVec2)) -> WindowBefore {
+        let size = UVec2::new(w.resolution.physical_width(), w.resolution.physical_height());
+        let maximise = !w.decorations && w.mode == WindowMode::Windowed && size == half.1;
+        WindowBefore { mode: w.mode, decorations: w.decorations || maximise, position: if maximise { WindowPosition::Centered(MonitorSelection::Current) } else { w.position }, size: if maximise { half.1 * 3 / 4 } else { size }, maximise }
+    }
+
+    fn give_back(&self, w: &mut Window) {
+        w.decorations = self.decorations;
+        w.position = self.position;
+        w.resolution.set_physical_resolution(self.size.x, self.size.y);
+        w.mode = self.mode;
+        if self.maximise {
+            w.set_maximized(true);
+        }
+    }
+}
+
+/// Lobby closing after split screen, once no guest is left (until `until`).
+#[derive(Resource)]
+struct CloseLobbyAfter {
+    until: f32,
+}
+
+/// The menus' asks (`nvf_play::split_screen::SplitScreen`): turns split screen on (player
+/// 1's session, [`p1_session`]) or off ([`end_split`]); keeps the entries' state and the
+/// command line a load's new run gets ([`with_split_arg`]).
+#[allow(clippy::too_many_arguments)]
+fn split_asks(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut split: ResMut<SplitScreen>,
+    p1: Option<Res<P1>>,
+    coop: Option<Res<crate::coop::Coop>>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut connections: MessageWriter<GamepadConnectionEvent>,
+    mut saved: MessageReader<nvf_play::save::SaveDone>,
+    mut last_save: Local<Option<Option<String>>>,
+) {
+    let last_save = last_save.get_or_insert_with(loaded_stem);
+    for d in saved.read().filter(|d| d.result.is_ok()) {
+        *last_save = d.path.file_stem().map(|s| s.to_string_lossy().into_owned());
+    }
+    let guest = coop.as_deref().is_some_and(|c| c.is_guest());
+    if split.available == guest {
+        split.available = !guest;
+    }
+    match split.ask.take() {
+        Some(true) if p1.is_none() => {
+            if guest {
+                warn!("split: this game is a guest in another player's lobby: split screen not started");
+            } else if let Some(home) = fnv_install::EngineHome::default_root() {
+                let socket = UdpSocket::bind("127.0.0.1:0").map_err(|e| warn!("split: no controller relay: {e}")).ok();
+                // Player 2's game plays only its own interface sounds, so this game hears
+                // the world at player 2's stand-in too (coop.rs `second_listener` fills it).
+                std::env::set_var("NVF_SPLIT_P1", "1");
+                commands.insert_resource(nvf_play::sfx::SecondListener::default());
+                commands.remove_resource::<CloseLobbyAfter>();
+                commands.insert_resource(P1 {
+                    dir: home.join("split"),
+                    layout: Layout::TopBottom,
+                    state: P1State::Waiting,
+                    socket,
+                    p2_at: None,
+                    file_at: f32::NEG_INFINITY,
+                    placed: None,
+                    pads: PadRoute::default(),
+                    save: last_save.clone(),
+                    full_noted: false,
+                    asked_save: false,
+                    p2_seen: 0.0,
+                    before: None,
+                });
+                split.on = true;
+                info!("split: split screen on");
+            } else {
+                warn!("split: no home folder: split screen not started");
+            }
+        }
+        Some(false) => {
+            if let Some(p1) = p1 {
+                let mut window = windows.single_mut().ok();
+                end_split(&mut commands, &p1, window.as_deref_mut(), &mut connections, time.elapsed_secs(), "asked");
+            }
+            split.on = false;
+        }
+        _ => {}
+    }
+    SPLIT_ARG.store(if split.on || split.on_load { ARG_ON } else { ARG_OFF }, Ordering::Relaxed);
+}
+
+/// Ends split screen: player 2's game is told to close (`end=1` in `p1.txt`,
+/// [`p2_session`]), this game's window is given back, player 2's controller is this
+/// game's again, and the lobby opened for player 2 closes once empty.
+fn end_split(commands: &mut Commands, p1: &P1, window: Option<&mut Window>, connections: &mut MessageWriter<GamepadConnectionEvent>, now: f32, why: &str) {
+    let file = p1.dir.join("p1.txt");
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    write_file(&file, &format!("{text}end=1\n"));
+    let _ = std::fs::remove_file(p1.dir.join("p2.txt"));
+    if let (Some(w), Some(before)) = (window, &p1.before) {
+        before.give_back(w);
+    }
+    if let Some(e) = p1.pads.p2 {
+        let st = &p1.pads.state;
+        connections.write(GamepadConnectionEvent::new(e, GamepadConnection::Connected { name: st.name.clone(), vendor_id: st.vendor, product_id: st.product }));
+    }
+    std::env::remove_var("NVF_SPLIT_P1");
+    commands.remove_resource::<nvf_play::sfx::SecondListener>();
+    commands.remove_resource::<P1>();
+    if std::env::var_os(OPENED_LOBBY_ENV).is_some() {
+        commands.insert_resource(CloseLobbyAfter { until: now + P2_GONE });
+    }
+    info!("split: split screen ended ({why})");
+}
+
+/// After split screen: the lobby opened for player 2 closes once player 2 has left it and
+/// no one else is in it; it stays open for anyone still there.
+fn close_lobby_after(mut commands: Commands, time: Res<Time>, after: Option<Res<CloseLobbyAfter>>, coop: Option<Res<crate::coop::Coop>>, mut lobby: MessageWriter<nvf_play::lobby::LobbyRequest>) {
+    let Some(after) = after else { return };
+    if coop.as_deref().is_some_and(|c| c.guest_count() == 0) {
+        info!("split: closing the lobby opened for player 2");
+        lobby.write(nvf_play::lobby::LobbyRequest::Close);
+    } else if time.elapsed_secs() < after.until {
+        return;
+    }
+    std::env::remove_var(OPENED_LOBBY_ENV);
+    commands.remove_resource::<CloseLobbyAfter>();
 }
 
 fn button_index(b: GamepadButton) -> Option<usize> {
@@ -329,6 +506,7 @@ fn p1_session(
     monitors: Query<&Monitor, With<PrimaryMonitor>>,
     mut saved: MessageReader<nvf_play::save::SaveDone>,
     (script, play, coop): GameParts,
+    (mut split, mut save_asks): (ResMut<SplitScreen>, MessageWriter<nvf_play::save::SaveRequest>),
 ) {
     let now = time.elapsed_secs();
     for d in saved.read().filter(|d| d.result.is_ok()) {
@@ -336,15 +514,41 @@ fn p1_session(
         p1.file_at = f32::NEG_INFINITY;
     }
     let in_world = sim.is_some() && !main_menu.as_deref().is_some_and(|m| m.open);
+    // The screen splits at once [owner]: player 1's half as soon as split screen is on in
+    // the world, before player 2's game is up (its half is black until it is).
+    if in_world || p1.state != P1State::Waiting {
+        if let (Ok((mut window, _)), Ok(monitor)) = (windows.single_mut(), monitors.single()) {
+            let mine = halves(monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height), p1.layout)[0];
+            if p1.before.is_none() {
+                p1.before = Some(WindowBefore::of(&window, mine));
+            }
+            if place(&mut window, mine) && p1.placed != Some(mine) {
+                p1.placed = Some(mine);
+                info!("split: player 1's window on {:?} at {}x{}", mine.0, mine.1.x, mine.1.y);
+            }
+        }
+    }
     match p1.state {
         P1State::Waiting if in_world => {
             if hosting_port().is_none() {
                 info!("split: opening a lobby for player 2");
                 lobby.write(nvf_play::lobby::LobbyRequest::Create);
+                std::env::set_var(OPENED_LOBBY_ENV, "1");
             }
             p1.state = P1State::Hosting;
         }
         P1State::Hosting => {
+            // The premades are made on this game's newest save: a game with none (a new
+            // game) saves one first.
+            let saves = fnv_install::EngineHome::user().map(|h| h.saves());
+            if saves.as_deref().and_then(newest_save).is_none() {
+                if !p1.asked_save {
+                    p1.asked_save = true;
+                    info!("split: no save yet: saving one for player 2's characters");
+                    save_asks.write(nvf_play::save::SaveRequest { name: "Split screen".into(), kind: fnv_save::SaveKind::Auto });
+                }
+                return;
+            }
             if let Some(port) = hosting_port() {
                 let (Ok((_, handle)), Ok(monitor)) = (windows.single(), monitors.single()) else { return };
                 let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
@@ -363,7 +567,11 @@ fn p1_session(
                 } else {
                     let data = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data);
                     let game = match (data, sim.as_deref(), play.as_deref()) {
-                        (Some(data), Some(sim), Some(play)) => Some(PremadeData { data, forms: sim.forms, plugins: nvf_play::save::plugin_list(&play.0) }),
+                        (Some(data), Some(sim), Some(play)) => {
+                            let opening = fnv_game::split_premade::Opening::find(data, sim.refs);
+                            let location = opening.outside.map(|o| nvf_play::console::place_name(&play.0, o.cell.0));
+                            Some(PremadeData { data, forms: sim.forms, plugins: nvf_play::save::plugin_list(&play.0), opening, location })
+                        }
                         _ => None,
                     };
                     if let Err(e) = start_p2(&p1.dir, port, p2_half, p1.save.as_deref(), game.as_ref()) {
@@ -371,6 +579,7 @@ fn p1_session(
                     }
                 }
                 p1.state = P1State::Running;
+                p1.p2_seen = now;
             }
         }
         _ => {}
@@ -381,6 +590,7 @@ fn p1_session(
     let Ok((mut window, handle)) = windows.single_mut() else { return };
     let Ok(monitor) = monitors.single() else { return };
     let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
+    // Re-applied each frame (`place`).
     let mine = halves(screen.0, screen.1, p1.layout)[0];
     if place(&mut window, mine) && p1.placed != Some(mine) {
         p1.placed = Some(mine);
@@ -389,7 +599,19 @@ fn p1_session(
     if now - p1.file_at >= FILE_EVERY {
         p1.file_at = now;
         write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref());
-        p1.p2_at = read_kv(&p1.dir.join("p2.txt"), "port").and_then(|v| v.parse::<u16>().ok()).map(|port| SocketAddr::from(([127, 0, 0, 1], port)));
+        let p2 = std::fs::read_to_string(p1.dir.join("p2.txt")).unwrap_or_default();
+        p1.p2_at = kv(&p2, "port").and_then(|v| v.parse::<u16>().ok()).map(|port| SocketAddr::from(([127, 0, 0, 1], port)));
+        // Player 2 went Back from the picker ([`p2_back_ends`]), or its game is gone.
+        if kv(&p2, "pid").and_then(|v| v.parse::<u32>().ok()).is_some_and(process_alive) {
+            p1.p2_seen = now;
+        }
+        if kv(&p2, "left").as_deref() == Some("1") {
+            info!("split: player 2 left");
+            split.ask = Some(false);
+        } else if now - p1.p2_seen > P2_GONE {
+            info!("split: player 2's game is gone");
+            split.ask = Some(false);
+        }
     }
 }
 
@@ -455,6 +677,10 @@ struct PremadeData {
     data: &'static fnv_game::GameData,
     forms: &'static fnv_sim::FormStore,
     plugins: Vec<fnv_save::PluginEntry>,
+    /// Doc Mitchell's opening done, for the premades' defaults.
+    opening: fnv_game::split_premade::Opening,
+    /// The name of the place outside Doc Mitchell's house, for the load list.
+    location: Option<String>,
 }
 
 /// Starts player 2's game: this program again, joining this game, in its own home on
@@ -477,6 +703,12 @@ fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option
     // `NVF_PLAY_TEST_LOBBY` (e.g. `25:pick=0`); player 1's lobby takes the plain one.
     if let Ok(aid) = std::env::var("NVF_SPLIT_TEST_P2_LOBBY") {
         cmd.env("NVF_PLAY_TEST_LOBBY", aid).env_remove("NVF_SPLIT_TEST_P2_LOBBY");
+    }
+    // Test aid `NVF_SPLIT_TEST_P2_SHOT_DIR`: player 2's screenshots (its own
+    // `NVF_PLAY_TEST_SHOT_DIR`), so the two games' shots of one moment don't overwrite
+    // each other.
+    if let Ok(dir) = std::env::var("NVF_SPLIT_TEST_P2_SHOT_DIR") {
+        cmd.env("NVF_PLAY_TEST_SHOT_DIR", dir).env_remove("NVF_SPLIT_TEST_P2_SHOT_DIR");
     }
     let child = cmd
         .args(&args)
@@ -547,16 +779,26 @@ fn premade_saves(host_saves: &Path, p2_home: &Path, host_save: Option<&str>, gam
             warn!("split: {}: not in the load order: {}", p.name, r.missing.join(", "));
         }
         let mut body = b.body.clone();
-        body.game = premade_snapshot(&body.game, p, &r);
+        body.game = premade_snapshot(&body.game, p, &r, &game.opening);
         body.engine.coop.clear();
         body.engine.magazine = None;
         body.engine.magazine_ammo = None;
+        if game.opening.done.as_ref().is_some_and(|d| body.engine.active_quest == Some(d.quest.0)) {
+            body.engine.active_quest = None;
+        }
         let mut h = b.header.clone();
         h.kind = fnv_save::SaveKind::Manual;
         h.player_name = p.name.to_string();
         h.level = 1;
         h.coop.clear();
         h.plugins = game.plugins.clone();
+        // Its place: right outside Doc Mitchell's house (where a load starts it).
+        if let Some(o) = game.opening.outside {
+            h.place = fnv_save::Place { world: o.world.map(|w| w.0).or(h.place.world), interior: None, feet: o.pos, heading_deg: o.rot[2].to_degrees(), pitch_deg: 0.0 };
+            if let Some(l) = &game.location {
+                h.location = l.clone();
+            }
+        }
         let bytes = serde_json::to_vec(&body).map_err(|e| e.to_string())?;
         fnv_save::write(&to, &h, &b.shot, &bytes, false).map_err(|e| e.to_string())?;
         made.push(format!("{} (defaults)", p.name));
@@ -645,6 +887,8 @@ struct P2 {
     premade: Option<usize>,
     /// The guest's join screen was opened on the main menu ([`p2_open_join`]).
     join_opened: bool,
+    /// The window was put back above player 1's once (logged once).
+    restacked: bool,
 }
 
 /// On the relayed controller: not one of this machine's real ones.
@@ -714,9 +958,15 @@ fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Wind
     }
     p2.file_at = now;
     let Ok((mut window, handle)) = windows.single_mut() else { return };
+    let text = std::fs::read_to_string(p2.dir.join("p1.txt")).unwrap_or_default();
+    // Player 1 ended split screen ([`end_split`]).
+    if kv(&text, "end").as_deref() == Some("1") {
+        info!("split: player 1 ended split screen: quitting");
+        exit.write(AppExit::Success);
+        return;
+    }
     let port = p2.socket.as_ref().and_then(|s| s.local_addr().ok()).map_or(0, |a| a.port());
     write_file(&p2.dir.join("p2.txt"), &format!("pid={}\nport={port}\n", std::process::id()));
-    let text = std::fs::read_to_string(p2.dir.join("p1.txt")).unwrap_or_default();
     let p1_alive = kv(&text, "pid").and_then(|v| v.parse::<u32>().ok()).is_some_and(process_alive);
     if p1_alive || p2.p1_seen == 0.0 {
         p2.p1_seen = now.max(f32::MIN_POSITIVE);
@@ -742,6 +992,16 @@ fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Wind
             own_by(mine, owner);
             p2.owner = Some(owner);
             info!("split: player 2's window owned by player 1's");
+            raise_over(mine);
+        }
+        // Setting the owner after the window was made doesn't stack it again, and a window
+        // that is never activated is never brought up, so it could stay under other
+        // windows [observed: the 11:27 and 11:46 checks, player 2's half showed the
+        // desktop]: while player 1's window is in front, this one goes right above it,
+        // without taking the focus.
+        if foreground_is(owner) && raise_over(mine) && !p2.restacked {
+            p2.restacked = true;
+            info!("split: player 2's window stacked above player 1's");
         }
     }
 }
@@ -783,6 +1043,20 @@ fn p2_open_join(mut p2: ResMut<P2>, main_menu: Option<Res<nvf_play::main_menu::M
     p2.join_opened = true;
 }
 
+/// Back on the picker ends split screen [design: the simpler of reopening the picker and
+/// ending; owner 2026-11-20 left the choice]: the join screen's Back asks to stop joining
+/// (`LobbyRequest::Cancel`), so player 2's game tells player 1's it left (`left=1` in
+/// `p2.txt`) and quits; player 1's gets the whole screen back ([`p1_session`]).
+fn p2_back_ends(p2: Res<P2>, mut asks: MessageReader<nvf_play::lobby::LobbyRequest>, mut exit: MessageWriter<AppExit>) {
+    let back = asks.read().any(|a| *a == nvf_play::lobby::LobbyRequest::Cancel);
+    if !back || p2.premade.is_some() {
+        return;
+    }
+    info!("split: player 2 went back from the picker: leaving split screen");
+    write_file(&p2.dir.join("p2.txt"), &format!("pid={}\nleft=1\n", std::process::id()));
+    exit.write(AppExit::Success);
+}
+
 // ---- Windows --------------------------------------------------------------------------
 
 fn hwnd_of(h: &RawHandleWrapper) -> Option<isize> {
@@ -809,6 +1083,33 @@ fn own_by(window: isize, owner: isize) {
 
 #[cfg(not(windows))]
 fn own_by(_window: isize, _owner: isize) {}
+
+/// Puts `window` at the top of the (non-topmost) stack without activating it, so the
+/// keyboard stays where it is; true when Windows did it.
+#[cfg(windows)]
+fn raise_over(window: isize) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE};
+    // SAFETY: a top-level window of player 2's own game; the call only restacks it, and
+    // fails harmlessly on a window that has gone.
+    unsafe { SetWindowPos(window as windows_sys::Win32::Foundation::HWND, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0 }
+}
+
+#[cfg(not(windows))]
+fn raise_over(_window: isize) -> bool {
+    false
+}
+
+/// Whether `window` is the one in front (the one with the keyboard).
+#[cfg(windows)]
+fn foreground_is(window: isize) -> bool {
+    // SAFETY: no arguments; returns a handle or null.
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() as isize == window }
+}
+
+#[cfg(not(windows))]
+fn foreground_is(_window: isize) -> bool {
+    false
+}
 
 /// Whether process `pid` is running.
 #[cfg(windows)]
@@ -865,6 +1166,21 @@ mod tests {
         let mut a: Vec<String> = ["--play", "--split", "--host", "47960", "--coop-name=Host", "--data", "D"].map(String::from).to_vec();
         strip_coop_args(&mut a);
         assert_eq!(a, ["--play", "--data", "D"]);
+    }
+
+    #[test]
+    fn a_loads_new_run_keeps_split_screen_as_it_is_now() {
+        let line = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let mut a = line(&["--play", "--data", "D"]);
+        split_arg(&mut a, ARG_ON);
+        assert_eq!(a, line(&["--play", "--data", "D", "--split"]));
+        split_arg(&mut a, ARG_ON);
+        assert_eq!(a.iter().filter(|x| *x == "--split").count(), 1);
+        split_arg(&mut a, ARG_OFF);
+        assert_eq!(a, line(&["--play", "--data", "D"]));
+        let mut b = line(&["--play", "--split"]);
+        split_arg(&mut b, 0);
+        assert_eq!(b, line(&["--play", "--split"]));
     }
 
     #[test]
