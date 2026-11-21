@@ -130,6 +130,16 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
   hud_hardcore2 hc2-hc5; hud.md §14.8];
 - every other constant reads 0 as a number [hypothesis].
 
+Scripts can also write standalone entity tokens into a trait via `SetUIString` /
+`SetUIStringAlt` with or without a trailing semicolon (e.g. `"&false"`, `"&true"`,
+`"&center"`) [hypothesis: JIP UI scripts hide vanilla tiles by writing `"&false"` to
+`.../visible`, relying on the trait parser recognising `&name` constants the same as XML
+entities; observer check]. NVForever keeps the written `Value::Str` text verbatim for
+`GetUIString`, while evaluating standalone `&name` / `&name;` ASCII identifier strings
+(excluding `&-sName;` game-string placeholders and mixed prose) identically to
+`Value::Sym` for `truthy()`, `num()`, `eq`, `justify`, and suffix-`<copy>` lookup
+[design: `fnv_ui::value`].
+
 ### 2.4 Game setting strings
 
 `&-sName;` is the text of the game setting `sName` [hypothesis: the names are game

@@ -91,6 +91,19 @@ pub fn sym_number(name: &str) -> Option<f64> {
     })
 }
 
+/// If `s` is a standalone XML entity token (`&name` or `&name;`, trimmed, ASCII
+/// identifier), return its lower-case entity name. Game-string placeholders (`&-sName;`)
+/// and mixed text return `None`.
+pub fn entity_name(s: &str) -> Option<String> {
+    let t = s.trim();
+    let inner = t.strip_prefix('&')?;
+    let inner = inner.strip_suffix(';').unwrap_or(inner);
+    if inner.is_empty() || !inner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        return None;
+    }
+    Some(inner.to_ascii_lowercase())
+}
+
 impl Value {
     /// A literal as the files write it: a number when it reads as one, else text
     /// (trimmed).
@@ -106,12 +119,27 @@ impl Value {
         Value::Num(if b { 1.0 } else { 0.0 })
     }
 
-    /// The value as a number: text that is no number, and a constant of unknown number,
-    /// read 0 [hypothesis].
+    /// Lower-case XML entity name when `self` is a `Value::Sym` or a standalone entity
+    /// string (`"&false"`, `"&true;"`, `"&center"`).
+    pub fn sym_name(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self {
+            Value::Sym(s) => Some(std::borrow::Cow::Borrowed(s.as_str())),
+            Value::Str(s) => entity_name(s).map(std::borrow::Cow::Owned),
+            Value::Num(_) => None,
+        }
+    }
+
+    /// The value as a number: text that is no number (nor a known XML entity string),
+    /// and a constant of unknown number, read 0 [hypothesis].
     pub fn num(&self) -> f64 {
         match self {
             Value::Num(n) => *n,
-            Value::Str(s) => s.trim().parse().unwrap_or(0.0),
+            Value::Str(s) => s
+                .trim()
+                .parse()
+                .ok()
+                .or_else(|| entity_name(s).and_then(|sym| sym_number(&sym)))
+                .unwrap_or(0.0),
             Value::Sym(s) => sym_number(s).unwrap_or(0.0),
         }
     }
@@ -127,25 +155,48 @@ impl Value {
         }
     }
 
-    /// Whether the value counts as true for `onlyif`, `and`, `or`, `not`: a number not
-    /// 0, text that is a number not 0 or any other text but the empty one, `&true;`
-    /// [hypothesis].
+    /// Whether the value counts as true for `onlyif`, `and`, `or`, `not` and `visible`:
+    /// a number not 0, text that is a number not 0 or a standalone XML entity with a
+    /// non-zero number (`&true`, menu classes) or any other non-empty text, or a
+    /// `Value::Sym` with non-zero number [hypothesis].
     pub fn truthy(&self) -> bool {
         match self {
             Value::Num(n) => *n != 0.0,
             Value::Str(s) => match s.trim().parse::<f64>() {
                 Ok(n) => n != 0.0,
-                Err(_) => !s.trim().is_empty(),
+                Err(_) => match entity_name(s) {
+                    Some(sym) => sym_number(&sym).is_some_and(|n| n != 0.0),
+                    None => !s.trim().is_empty(),
+                },
             },
             Value::Sym(s) => sym_number(s).is_some_and(|n| n != 0.0),
         }
     }
 
-    /// `eq`: constants by name, text by text, otherwise by number.
+    /// `eq`: constants (including standalone XML entity strings) by name, text by text,
+    /// otherwise by number.
     pub fn same(&self, other: &Value) -> bool {
         match (self, other) {
             (Value::Sym(a), Value::Sym(b)) => a == b,
-            (Value::Str(a), Value::Str(b)) => a == b || (a.trim().parse::<f64>().ok().is_some() && self.num() == other.num()),
+            (Value::Str(a), Value::Sym(b)) | (Value::Sym(b), Value::Str(a)) => {
+                entity_name(a).as_deref() == Some(b.as_str())
+                    || (sym_number(b).is_some()
+                        && a.trim().parse::<f64>().ok().is_some()
+                        && self.num() == other.num())
+            }
+            (Value::Str(a), Value::Str(b)) => {
+                a == b
+                    || match (entity_name(a), entity_name(b)) {
+                        (Some(sa), Some(sb)) => sa == sb,
+                        _ => {
+                            let numeric = |s: &str| {
+                                s.trim().parse::<f64>().ok().is_some()
+                                    || entity_name(s).as_deref().and_then(sym_number).is_some()
+                            };
+                            numeric(a) && numeric(b) && self.num() == other.num()
+                        }
+                    }
+            }
             _ => self.num() == other.num(),
         }
     }
@@ -202,5 +253,48 @@ mod tests {
         assert!(!Value::Sym("center".into()).same(&Value::Sym("right".into())));
         assert!(Value::Str("2".into()).same(&Value::Num(2.0)));
         assert!(!Value::Str("".into()).truthy());
+    }
+
+    #[test]
+    fn entity_strings_match_xml_symbols_without_altering_text() {
+        // Standalone XML entity strings (with or without trailing `;`) evaluate like Sym.
+        assert!(!Value::Str("&false".into()).truthy());
+        assert!(!Value::Str("&false;".into()).truthy());
+        assert!(!Value::Str(" &FALSE ".into()).truthy());
+        assert!(Value::Str("&true".into()).truthy());
+        assert!(Value::Str("&true;".into()).truthy());
+        assert_eq!(Value::Str("&false".into()).num(), 0.0);
+        assert_eq!(Value::Str("&true".into()).num(), 1.0);
+        assert_eq!(Value::Str("&BarterMenu".into()).num(), 1053.0);
+        assert_eq!(Value::Str("&BarterMenu;".into()).num(), 1053.0);
+        assert_eq!(Value::Str("&false".into()).text(), "&false");
+
+        // Equality against Sym, Num, and other Str forms.
+        assert!(Value::Str("&false".into()).same(&Value::Sym("false".into())));
+        assert!(Value::Str("&false;".into()).same(&Value::Sym("false".into())));
+        assert!(Value::Str("&false".into()).same(&Value::Str("&false;".into())));
+        assert!(Value::Str("&false".into()).same(&Value::Num(0.0)));
+        assert!(Value::Str("&true".into()).same(&Value::Num(1.0)));
+        assert!(Value::Str("&true".into()).same(&Value::Str("1".into())));
+        assert!(Value::Str("&center".into()).same(&Value::Sym("center".into())));
+        assert!(!Value::Str("&center".into()).same(&Value::Sym("right".into())));
+        assert!(!Value::Str("&center".into()).truthy());
+        assert!(Value::Str("&false".into()).same(&Value::Str("0".into())));
+        assert!(Value::Str("0".into()).same(&Value::Sym("false".into())));
+        assert!(Value::Str("1".into()).same(&Value::Sym("true".into())));
+        assert!(!Value::Str("0".into()).same(&Value::Sym("center".into())));
+        assert!(!Value::Str("&false".into()).same(&Value::Sym("center".into())));
+        assert!(!Value::Str("&true".into()).same(&Value::Sym("hudmain".into())));
+        assert!(!Value::Str("&center".into()).same(&Value::Str("0".into())));
+        assert!(!Value::Str("hello".into()).same(&Value::Sym("false".into())));
+        assert!(!Value::Str("0".into()).same(&Value::Str("hello".into())));
+
+        // Game-string placeholders and mixed prose are not treated as entity constants.
+        assert_eq!(entity_name("&-sTitle;"), None);
+        assert_eq!(entity_name("foo &false"), None);
+        assert_eq!(entity_name("&"), None);
+        assert_eq!(entity_name("&;"), None);
+        assert!(Value::Str("&-sTitle;".into()).truthy());
+        assert!(Value::Str("foo &false".into()).truthy());
     }
 }

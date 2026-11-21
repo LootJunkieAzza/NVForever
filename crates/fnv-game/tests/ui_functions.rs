@@ -510,3 +510,67 @@ fn a_huge_click_count_is_capped() {
     assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(5.0)])), 1.0);
     assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), 5);
 }
+
+#[test]
+fn set_ui_string_alt_xml_entity_strings_hide_tiles_and_match_expressions() {
+    use fnv_ui::input::{hit, no_measure};
+    use fnv_ui::Value;
+
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus\\barter_test.xml",
+        r#"<menu name="BarterTest">
+  <rect name="Panel">
+    <text name="Title">
+      <id>1</id>
+      <target>&true;</target>
+      <x>10</x>
+      <y>10</y>
+      <width>100</width>
+      <height>20</height>
+      <visible>&true;</visible>
+      <justify>&left;</justify>
+      <_flag>&true;</_flag>
+      <_pic_0>off.dds</_pic_0>
+      <_pic_1>on.dds</_pic_1>
+      <filename><copy src="me()" trait="_flag"/><copy src="me()" trait="_pic_"/></filename>
+      <_is_centered><copy>1</copy><onlyif><copy src="me()" trait="justify"/><eq>&center;</eq></onlyif></_is_centered>
+      <string>ALL ITEMS</string>
+    </text>
+  </rect>
+</menu>"#,
+    );
+    let menu = g.ui_tree.load_menu(&src, "menus\\barter_test.xml").unwrap();
+    g.ui_tree.update();
+    let tile = g.ui_tree.find_tile("BarterTest/Panel/Title").unwrap();
+
+    // Initially visible (x=10..110, y=10..30), left-justified, _flag = &true; -> on.dds.
+    assert!(g.ui_tree.tile(tile).get("visible").is_none_or(Value::truthy));
+    assert!(hit(&g.ui_tree, &[menu], (20.0, 20.0), &no_measure).is_some());
+    assert_eq!(g.ui_tree.get_string("BarterTest/Panel/Title/filename").as_deref(), Some("on.dds"));
+    assert_eq!(g.ui_tree.get_float("BarterTest/Panel/Title/_is_centered"), Some(0.0));
+
+    // SetUIStringAlt ".../visible" "&false" hides the tile (renderer truthy + hit test)
+    // while preserving the raw string for GetUIString.
+    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/visible"), s("&false")])), 1.0);
+    assert!(!g.ui_tree.tile(tile).get("visible").is_none_or(Value::truthy), "&false string must hide tile");
+    assert!(hit(&g.ui_tree, &[menu], (20.0, 20.0), &no_measure).is_none());
+    assert_eq!(n(run(&mut g, "GetUIFloatAlt", &[s("BarterTest/Panel/Title/visible")])), 0.0);
+    assert_eq!(run(&mut g, "GetUIString", &[s("BarterTest/Panel/Title/visible")]), s("&false"));
+
+    // SetUIStringAlt ".../visible" "&true" makes it visible again.
+    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/visible"), s("&true")])), 1.0);
+    assert!(g.ui_tree.tile(tile).get("visible").is_none_or(Value::truthy), "&true string must show tile");
+    assert!(hit(&g.ui_tree, &[menu], (20.0, 20.0), &no_measure).is_some());
+    assert_eq!(n(run(&mut g, "GetUIFloatAlt", &[s("BarterTest/Panel/Title/visible")])), 1.0);
+
+    // Entity strings also work in XML <eq>, suffix-<copy>, and text justification (x=10, w=100 -> -40..60).
+    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/justify"), s("&center")])), 1.0);
+    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/_flag"), s("&false")])), 1.0);
+    g.ui_tree.update();
+    assert_eq!(g.ui_tree.get_float("BarterTest/Panel/Title/_is_centered"), Some(1.0));
+    assert_eq!(g.ui_tree.get_string("BarterTest/Panel/Title/filename").as_deref(), Some("off.dds"));
+    assert!(hit(&g.ui_tree, &[menu], (-20.0, 20.0), &no_measure).is_some());
+    assert!(hit(&g.ui_tree, &[menu], (80.0, 20.0), &no_measure).is_none());
+}

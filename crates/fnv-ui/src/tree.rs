@@ -1542,7 +1542,9 @@ impl Ui {
                     // `_filename_0`/`_Filename_1` are the two pictures; T15a].
                     let name = match (&acc, name.ends_with('_')) {
                         (Value::Num(n), true) if op.kind == OpKind::Copy => format!("{name}{}", *n as i64),
-                        (Value::Sym(s), true) if op.kind == OpKind::Copy && crate::value::sym_number(s).is_some() => format!("{name}{}", acc.num() as i64),
+                        (v, true) if op.kind == OpKind::Copy && v.sym_name().as_deref().and_then(crate::value::sym_number).is_some() => {
+                            format!("{name}{}", acc.num() as i64)
+                        }
                         _ => name.clone(),
                     };
                     self.read_trait(me, src, &name, deps, sources)
