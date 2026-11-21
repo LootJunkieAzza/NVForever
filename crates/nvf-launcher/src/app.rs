@@ -163,6 +163,15 @@ pub struct App {
     profile_choices: Vec<(String, PathBuf)>,
     /// The profile chosen in the list.
     profile_pick: Option<String>,
+    /// Delete is asking before it removes that profile folder.
+    profile_delete_ask: bool,
+    /// A mod row waiting for a new name. The text is what will be typed.
+    mod_rename: Option<usize>,
+    mod_rename_text: String,
+    /// A mod row waiting to be moved into the home's recycle folder.
+    mod_recycle: Option<usize>,
+    /// When set, the plugin list shows this mod folder only.
+    plugin_only_folder: Option<String>,
     /// The Profiles box, so a drop there is not installed as a mod.
     profile_rect: egui::Rect,
     /// The Add row on the left, so a drop there sets a path instead of installing.
@@ -211,6 +220,36 @@ pub struct App {
 struct ModRow {
     name: String,
     on: bool,
+}
+
+/// What a right-click on a mod row asked for. Applied after the row is drawn.
+enum ModAct {
+    On(usize, bool),
+    Open(usize),
+    Only(usize),
+    AllPlugins,
+    Top(usize),
+    Bottom(usize),
+    Overwrites,
+    Copied(usize),
+    Rename(usize),
+    Recycle(usize),
+}
+
+/// What a right-click on a plugin row asked for.
+enum PluginAct {
+    On(usize, bool),
+    Show(usize),
+    Only(usize),
+    Copy(String),
+}
+
+/// What a right-click on a profile asked for.
+enum ProfileAct {
+    Open,
+    Duplicate,
+    Rename,
+    DeleteAsk,
 }
 
 struct Clash {
@@ -272,6 +311,11 @@ impl App {
             profile_name: String::new(),
             profile_choices: Vec::new(),
             profile_pick: None,
+            profile_delete_ask: false,
+            mod_rename: None,
+            mod_rename_text: String::new(),
+            mod_recycle: None,
+            plugin_only_folder: None,
             profile_rect: egui::Rect::NOTHING,
             mod_add_rect: egui::Rect::NOTHING,
             wizard: None,
@@ -1983,7 +2027,7 @@ impl App {
         let mods_on = self.mod_rows.iter().filter(|r| r.on).count();
         let mods_all = self.mod_rows.len();
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Mod Order").small().color(GOLD));
+            ui.label(RichText::new("Mod Order").small().color(GOLD)).on_hover_text("Right-click a folder.");
             ui.label(RichText::new(format!("{mods_on} on / {mods_all}")).small().color(WEAK)).on_hover_text("Folders that are on, and folders that exist. There is no limit.");
             if ui.button(if self.show_overwrites { "Hide overwrites" } else { "Show overwrites" }).clicked() {
                 self.show_overwrites = !self.show_overwrites;
@@ -1991,6 +2035,8 @@ impl App {
         });
         self.mod_tools(ui);
         ui.add(egui::TextEdit::singleline(&mut self.mod_find).hint_text("Find a mod").desired_width(ui.available_width()));
+        self.mod_rename_line(ui);
+        self.mod_recycle_line(ui);
         let mod_find = self.mod_find.trim().to_ascii_lowercase();
         let marked = self.picked_plugin.as_ref().and_then(|key| self.plugin_home.get(key)).cloned();
         if self.show_overwrites {
@@ -2009,6 +2055,7 @@ impl App {
             }
             let n = self.mod_rows.len();
             let mut moved: Option<(usize, usize)> = None;
+            let mut menu: Option<ModAct> = None;
             let mut rects = Vec::with_capacity(n);
             for i in 0..n {
                 let name = self.mod_rows[i].name.clone();
@@ -2085,39 +2132,15 @@ impl App {
                     });
                 });
                 if box_changed {
-                    self.mod_rows[i].on = on;
-                    let folder = self.mod_rows[i].name.clone();
-                    let keys: HashSet<String> = self.plugin_home.iter().filter(|(_, owned)| *owned == &folder).map(|(key, _)| key.clone()).collect();
-                    // A plugin already in the game Data folder stays on when this folder is turned off.
-                    let in_data: HashSet<String> = self.game().map(|g| keys.iter().filter(|name| g.data_file(name).is_some()).cloned().collect()).unwrap_or_default();
-                    // Turning the folder off drops its other plugins from the list.
-                    if on {
-                        if let Some(home) = self.home.clone() {
-                            let names: Vec<String> = plugins::plugins_in_tree(&home.mods().join(&folder)).into_iter().map(|(n, _)| n).collect();
-                            if let Some(list) = &mut self.mods {
-                                list.add_new(&names);
-                                for entry in &mut list.entries {
-                                    let key = entry.name.to_ascii_lowercase();
-                                    if names.iter().any(|n| n.eq_ignore_ascii_case(&key)) {
-                                        entry.active = true;
-                                    }
-                                }
-                            }
-                        }
-                    } else if let Some(list) = &mut self.mods {
-                        list.entries.retain(|entry| {
-                            if entry.name.eq_ignore_ascii_case("FalloutNV.esm") {
-                                return true;
-                            }
-                            let key = entry.name.to_ascii_lowercase();
-                            !(keys.contains(&key) && !in_data.contains(&key))
-                        });
-                    }
-                    self.mods_dirty = true;
-                    self.recompute_clashes();
+                    self.set_mod_on(i, on);
                 }
                 let resp = row.response;
-                if resp.drag_started() && mod_find.is_empty() {
+                let shared = self.shared_paths(&name);
+                let filtering = self.plugin_only_folder.is_some();
+                resp.container_context_menu(|ui| {
+                    Self::mod_row_menu(ui, on, i, n, !shared.is_empty(), filtering, &shared, &mut menu);
+                });
+                if resp.drag_started_by(egui::PointerButton::Primary) && mod_find.is_empty() {
                     self.mod_drag = Some(i);
                 }
                 if self.mod_jump && shown {
@@ -2161,6 +2184,9 @@ impl App {
                 self.mods_dirty = true;
                 self.recompute_clashes();
             }
+            if let Some(act) = menu {
+                self.apply_mod_act(act);
+            }
         });
     }
 
@@ -2172,9 +2198,19 @@ impl App {
         let active = self.mods.as_ref().map(|l| l.entries.iter().filter(|e| e.active).count()).unwrap_or(0);
         // The number is how many plugins are on. There is no slot cap.
         ui.horizontal(|ui| {
-            ui.label(RichText::new("PLUGINS").small().color(GOLD));
+            ui.label(RichText::new("PLUGINS").small().color(GOLD)).on_hover_text("Right-click a plugin.");
             ui.label(RichText::new(active.to_string()).small().color(WEAK)).on_hover_text("Plugins turned on.");
         });
+        let mut only_folder = self.plugin_only_folder.clone();
+        if let Some(folder) = only_folder.clone() {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("Plugins in {folder}")).small().color(WEAK));
+                if ui.button("Show every plugin").clicked() {
+                    only_folder = None;
+                    self.plugin_only_folder = None;
+                }
+            });
+        }
         let Some(list) = &mut self.mods else {
             ui.label("No plugin list yet: set the game folder first, or start the game once.");
             return;
@@ -2188,6 +2224,7 @@ impl App {
         let is_base: Vec<bool> = list.entries.iter().map(|e| e.name.eq_ignore_ascii_case("FalloutNV.esm")).collect();
         let fixed = is_base.iter().take_while(|b| **b).count();
         let mut moved: Option<(usize, usize)> = None;
+        let mut menu: Option<PluginAct> = None;
         egui::ScrollArea::vertical().id_salt("plugin-rows").auto_shrink([false, false]).show(ui, |ui| {
             let mut rects = Vec::with_capacity(n);
             let mut last_esm = false;
@@ -2195,6 +2232,15 @@ impl App {
             for (i, e) in list.entries.iter_mut().enumerate() {
                 if !find.is_empty() && !e.name.to_ascii_lowercase().contains(&find) {
                     continue;
+                }
+                if let Some(only) = &only_folder {
+                    let key = e.name.to_ascii_lowercase();
+                    let in_folder = self.folder_files.get(only).is_some_and(|files| {
+                        files.iter().any(|f| f.rsplit(['/', '\\']).next().unwrap_or(f).eq_ignore_ascii_case(&key))
+                    });
+                    if !in_folder {
+                        continue;
+                    }
                 }
                 if last_esm && !is_esm[i] {
                     ui.separator();
@@ -2204,7 +2250,7 @@ impl App {
                 let dragged = self.mods_drag == Some(i);
                 let fill = if dragged { theme::SELECTED } else { CARD };
                 let stroke = if dragged { Stroke::new(1.0, theme::GOLD_DIM) } else { Stroke::NONE };
-                let sense = if base { Sense::hover() } else { Sense::click_and_drag() };
+                let sense = if base { Sense::click() } else { Sense::click_and_drag() };
                 let mut name_rect = egui::Rect::NOTHING;
                 let row = ui.scope_builder(egui::UiBuilder::new().id_salt(("mod-row", i)).sense(sense), |ui| {
                     let hot = !base && (dragged || ui.response().hovered());
@@ -2259,8 +2305,14 @@ impl App {
                     });
                 });
                 let resp = row.response;
+                let plugin_name = e.name.clone();
+                let plugin_on = e.active;
+                let plugin_folder = self.plugin_home.get(&plugin_name.to_ascii_lowercase()).cloned();
+                resp.container_context_menu(|ui| {
+                    Self::plugin_row_menu(ui, &plugin_name, plugin_on, base, i, plugin_folder.clone(), &mut menu);
+                });
                 if !base {
-                    if resp.drag_started() {
+                    if resp.drag_started_by(egui::PointerButton::Primary) {
                         self.mods_drag = Some(i);
                     }
                     if resp.clicked() {
@@ -2277,6 +2329,37 @@ impl App {
                 }
                 rects.push(resp.rect);
             }
+            if let Some(act) = menu.take() {
+                match act {
+                    PluginAct::On(index, on) => {
+                        if let Some(entry) = list.entries.get_mut(index) {
+                            if !entry.name.eq_ignore_ascii_case("FalloutNV.esm") && entry.active != on {
+                                entry.active = on;
+                                self.mods_dirty = true;
+                                toggled = true;
+                                self.picked_plugin = Some(entry.name.to_ascii_lowercase());
+                                self.mod_find.clear();
+                                self.mod_jump = true;
+                            }
+                        }
+                    }
+                    PluginAct::Show(index) => {
+                        if let Some(name) = list.entries.get(index).map(|e| e.name.to_ascii_lowercase()) {
+                            self.picked_plugin = Some(name);
+                            self.mod_find.clear();
+                            self.mod_jump = true;
+                        }
+                    }
+                    PluginAct::Only(index) => {
+                        if let Some(name) = list.entries.get(index).map(|e| e.name.to_ascii_lowercase()) {
+                            if let Some(folder) = self.plugin_home.get(&name).cloned() {
+                                self.plugin_only_folder = Some(folder);
+                            }
+                        }
+                    }
+                    PluginAct::Copy(name) => self.message = Some((format!("Copied {name}."), false)),
+                }
+            }
             if toggled {
                 let homes = self.plugin_home.clone();
                 let active_now: HashSet<String> = list.entries.iter().filter(|e| e.active).map(|e| e.name.to_ascii_lowercase()).collect();
@@ -2290,7 +2373,7 @@ impl App {
                 let rows: Vec<(String, bool)> = self.mod_rows.iter().map(|r| (r.name.clone(), r.on)).collect();
                 self.clashes = clash_notes(&rows, &self.folder_files);
             }
-            if !find.is_empty() {
+            if !find.is_empty() || only_folder.is_some() {
                 return;
             }
             let Some(from) = self.mods_drag else { return };
@@ -2691,10 +2774,432 @@ impl App {
         std::fs::write(bak(1), &old).map_err(|e| format!("{}: {e}", bak(1).display()))
     }
 
+    fn set_mod_on(&mut self, index: usize, on: bool) {
+        let Some(row) = self.mod_rows.get(index) else { return };
+        if row.on == on {
+            return;
+        }
+        let folder = row.name.clone();
+        self.mod_rows[index].on = on;
+        let keys: HashSet<String> = self.plugin_home.iter().filter(|(_, owned)| *owned == &folder).map(|(key, _)| key.clone()).collect();
+        // A plugin already in the game Data folder stays on when this folder is turned off.
+        let in_data: HashSet<String> = self.game().map(|g| keys.iter().filter(|name| g.data_file(name).is_some()).cloned().collect()).unwrap_or_default();
+        if on {
+            if let Some(home) = self.home.clone() {
+                let names: Vec<String> = plugins::plugins_in_tree(&home.mods().join(&folder)).into_iter().map(|(n, _)| n).collect();
+                if let Some(list) = &mut self.mods {
+                    list.add_new(&names);
+                    for entry in &mut list.entries {
+                        let key = entry.name.to_ascii_lowercase();
+                        if names.iter().any(|n| n.eq_ignore_ascii_case(&key)) {
+                            entry.active = true;
+                        }
+                    }
+                }
+            }
+        } else if let Some(list) = &mut self.mods {
+            list.entries.retain(|entry| {
+                if entry.name.eq_ignore_ascii_case("FalloutNV.esm") {
+                    return true;
+                }
+                let key = entry.name.to_ascii_lowercase();
+                !(keys.contains(&key) && !in_data.contains(&key))
+            });
+        }
+        self.mods_dirty = true;
+        self.recompute_clashes();
+    }
+
+    fn shared_paths(&self, name: &str) -> String {
+        let Some(notes) = self.clashes.get(name) else { return String::new() };
+        let mut lines = Vec::new();
+        for note in notes {
+            let which = if note.wins { "used" } else { "skipped" };
+            for file in &note.files {
+                lines.push(format!("{file}\t{which}\t{}", note.other));
+            }
+        }
+        lines.sort();
+        lines.dedup();
+        lines.join("\n")
+    }
+
+    fn mod_row_menu(ui: &mut egui::Ui, on: bool, index: usize, count: usize, shared: bool, filtering: bool, paths: &str, act: &mut Option<ModAct>) {
+        if ui.button(if on { "Turn off" } else { "Turn on" }).clicked() {
+            *act = Some(ModAct::On(index, !on));
+            ui.close();
+        }
+        if ui.button("Open folder").clicked() {
+            *act = Some(ModAct::Open(index));
+            ui.close();
+        }
+        if ui.button("Only this folder's plugins").clicked() {
+            *act = Some(ModAct::Only(index));
+            ui.close();
+        }
+        if ui.add_enabled(filtering, egui::Button::new("Show every plugin")).clicked() {
+            *act = Some(ModAct::AllPlugins);
+            ui.close();
+        }
+        if ui.add_enabled(index > 0, egui::Button::new("Move to top")).clicked() {
+            *act = Some(ModAct::Top(index));
+            ui.close();
+        }
+        if ui.add_enabled(index + 1 < count, egui::Button::new("Move to bottom")).clicked() {
+            *act = Some(ModAct::Bottom(index));
+            ui.close();
+        }
+        if ui.button("Show overwrites").clicked() {
+            *act = Some(ModAct::Overwrites);
+            ui.close();
+        }
+        if ui.add_enabled(shared, egui::Button::new("Copy shared paths")).clicked() {
+            ui.ctx().copy_text(paths.to_string());
+            *act = Some(ModAct::Copied(paths.lines().count()));
+            ui.close();
+        }
+        if ui.button("Rename…").clicked() {
+            *act = Some(ModAct::Rename(index));
+            ui.close();
+        }
+        if ui.button("Remove…").clicked() {
+            *act = Some(ModAct::Recycle(index));
+            ui.close();
+        }
+    }
+
+    fn apply_mod_act(&mut self, act: ModAct) {
+        match act {
+            ModAct::On(index, on) => self.set_mod_on(index, on),
+            ModAct::Open(index) => self.open_mod_folder(index),
+            ModAct::Only(index) => {
+                if let Some(name) = self.mod_rows.get(index).map(|r| r.name.clone()) {
+                    self.plugin_only_folder = Some(name);
+                }
+            }
+            ModAct::AllPlugins => self.plugin_only_folder = None,
+            ModAct::Top(index) => self.move_mod_row(index, 0),
+            ModAct::Bottom(index) => {
+                let last = self.mod_rows.len().saturating_sub(1);
+                self.move_mod_row(index, last);
+            }
+            ModAct::Overwrites => self.show_overwrites = true,
+            ModAct::Copied(n) => self.message = Some((format!("Copied {n} shared paths."), false)),
+            ModAct::Rename(index) => {
+                if let Some(name) = self.mod_rows.get(index).map(|r| r.name.clone()) {
+                    self.mod_rename_text = name;
+                    self.mod_rename = Some(index);
+                    self.mod_recycle = None;
+                }
+            }
+            ModAct::Recycle(index) => {
+                self.mod_recycle = Some(index);
+                self.mod_rename = None;
+            }
+        }
+    }
+
+    fn move_mod_row(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.mod_rows.len() || to >= self.mod_rows.len() {
+            return;
+        }
+        let row = self.mod_rows.remove(from);
+        self.mod_rows.insert(to, row);
+        self.mod_drag = None;
+        self.mods_dirty = true;
+        self.recompute_clashes();
+    }
+
+    fn open_mod_folder(&mut self, index: usize) {
+        let Some(name) = self.mod_rows.get(index).map(|r| r.name.clone()) else { return };
+        let Some(home) = &self.home else { return };
+        if Self::one_name(&name).is_err() {
+            self.message = Some(("That folder was not opened.".into(), true));
+            return;
+        }
+        let dir = home.mods().join(&name);
+        if dir.is_dir() {
+            launch::open_folder(&dir);
+        } else {
+            self.message = Some((format!("{name} is not in the mods folder."), true));
+        }
+    }
+
+    fn mod_rename_line(&mut self, ui: &mut egui::Ui) {
+        let Some(index) = self.mod_rename else { return };
+        let Some(current) = self.mod_rows.get(index).map(|r| r.name.clone()) else {
+            self.mod_rename = None;
+            return;
+        };
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.mod_rename_text).hint_text(&current).desired_width(ui.available_width() - 150.0));
+            if ui.button("Rename").clicked() {
+                self.rename_mod_at(index);
+            }
+            if ui.button("Cancel").clicked() {
+                self.mod_rename = None;
+            }
+        });
+    }
+
+    fn mod_recycle_line(&mut self, ui: &mut egui::Ui) {
+        let Some(index) = self.mod_recycle else { return };
+        let Some(name) = self.mod_rows.get(index).map(|r| r.name.clone()) else {
+            self.mod_recycle = None;
+            return;
+        };
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!("Move {name} into recycle?")).small().color(BAD));
+            if ui.button("Move").clicked() {
+                self.recycle_mod_at(index);
+            }
+            if ui.button("Cancel").clicked() {
+                self.mod_recycle = None;
+            }
+        });
+    }
+
+    fn rename_mod_at(&mut self, index: usize) {
+        let Some(from) = self.mod_rows.get(index).map(|r| r.name.clone()) else { return };
+        let to = match Self::one_name(&self.mod_rename_text) {
+            Ok(name) => name,
+            Err(e) => {
+                self.message = Some((e, true));
+                return;
+            }
+        };
+        let Some(home) = self.home.clone() else { return };
+        match Self::rename_mod_dir(&home.mods(), &from, &to) {
+            Ok(()) => {
+                self.mod_rows[index].name = to.clone();
+                if self.plugin_only_folder.as_deref() == Some(from.as_str()) {
+                    self.plugin_only_folder = Some(to.clone());
+                }
+                self.mod_rename = None;
+                self.mods_dirty = true;
+                self.refresh_plugin_notes();
+                self.message = Some((format!("Renamed {from} to {to}."), false));
+            }
+            Err(e) => self.message = Some((e, true)),
+        }
+    }
+
+    fn recycle_mod_at(&mut self, index: usize) {
+        let Some(name) = self.mod_rows.get(index).map(|r| r.name.clone()) else { return };
+        let Some(home) = self.home.clone() else { return };
+        let recycle = home.root.join("recycle");
+        if self.game().as_ref().is_some_and(|g| self.dir_is_under(&home.root, &g.root))
+            || Self::under_original_documents(&home.root)
+            || self.dir_is_under(&home.root, &home.mods())
+        {
+            self.message = Some(("Recycle was not used. The home is in the game folder, the original game's documents, or the mods folder.".into(), true));
+            return;
+        }
+        match Self::move_mod_aside(&home.mods(), &recycle, &name) {
+            Ok(dest) => {
+                self.set_mod_on(index, false);
+                if self.mod_rows.get(index).is_some_and(|r| r.name == name) {
+                    self.mod_rows.remove(index);
+                }
+                if self.plugin_only_folder.as_deref() == Some(name.as_str()) {
+                    self.plugin_only_folder = None;
+                }
+                self.mod_recycle = None;
+                self.mod_rename = None;
+                self.refresh_plugin_notes();
+                self.message = Some((format!("Moved {name} to {}.", dest.display()), false));
+            }
+            Err(e) => self.message = Some((e, true)),
+        }
+    }
+
+    fn plugin_row_menu(ui: &mut egui::Ui, name: &str, on: bool, base: bool, index: usize, folder: Option<String>, act: &mut Option<PluginAct>) {
+        if ui.add_enabled(!base, egui::Button::new(if on { "Turn off" } else { "Turn on" })).clicked() {
+            *act = Some(PluginAct::On(index, !on));
+            ui.close();
+        }
+        if ui.add_enabled(folder.is_some(), egui::Button::new("Show its folder")).clicked() {
+            *act = Some(PluginAct::Show(index));
+            ui.close();
+        }
+        if ui.add_enabled(folder.is_some(), egui::Button::new("Only this folder's plugins")).clicked() {
+            *act = Some(PluginAct::Only(index));
+            ui.close();
+        }
+        if ui.button("Copy name").clicked() {
+            ui.ctx().copy_text(name.to_string());
+            *act = Some(PluginAct::Copy(name.to_string()));
+            ui.close();
+        }
+    }
+
+    fn profile_menu(ui: &mut egui::Ui, owned: bool, act: &mut Option<ProfileAct>) {
+        if ui.button("Open folder").clicked() {
+            *act = Some(ProfileAct::Open);
+            ui.close();
+        }
+        if ui.add_enabled(owned, egui::Button::new("Duplicate")).on_hover_text("Copies the three list files. A dropped folder is left as it was.").clicked() {
+            *act = Some(ProfileAct::Duplicate);
+            ui.close();
+        }
+        if ui.add_enabled(owned, egui::Button::new("Rename to the typed name")).on_hover_text("Uses the name in the box. A dropped folder is left as it was.").clicked() {
+            *act = Some(ProfileAct::Rename);
+            ui.close();
+        }
+        if ui.add_enabled(owned, egui::Button::new("Delete…")).on_hover_text("Removes this profile folder. Mod folders stay.").clicked() {
+            *act = Some(ProfileAct::DeleteAsk);
+            ui.close();
+        }
+    }
+
+    fn profile_owned(&self, dir: &Path) -> bool {
+        let Some(home) = &self.home else { return false };
+        Self::profile_is_under(dir, &home.root.join("profiles"))
+    }
+
+    fn run_profile_act(&mut self, act: ProfileAct) {
+        match act {
+            ProfileAct::Open => self.open_picked_profile(),
+            ProfileAct::Duplicate => self.duplicate_picked_profile(),
+            ProfileAct::Rename => self.rename_picked_profile(),
+            ProfileAct::DeleteAsk => {
+                if self.profile_pick.is_some() {
+                    self.profile_delete_ask = true;
+                }
+            }
+        }
+    }
+
+    fn picked_profile_dir(&self) -> Option<PathBuf> {
+        let name = self.profile_pick.as_ref()?;
+        self.profile_choices.iter().find(|(n, _)| n == name).map(|(_, p)| p.clone())
+    }
+
+    fn open_picked_profile(&mut self) {
+        let Some(dir) = self.picked_profile_dir() else {
+            self.message = Some(("Choose a profile.".into(), true));
+            return;
+        };
+        if dir.is_dir() {
+            launch::open_folder(&dir);
+        } else {
+            self.message = Some(("That profile folder was not found.".into(), true));
+        }
+    }
+
+    fn duplicate_picked_profile(&mut self) {
+        let Some(from) = self.picked_profile_dir() else {
+            self.message = Some(("Choose a profile.".into(), true));
+            return;
+        };
+        let Some(home) = self.home.clone() else { return };
+        if !self.profile_owned(&from) {
+            self.message = Some(("That profile is only read. It was not copied.".into(), true));
+            return;
+        }
+        let current = self.profile_pick.clone().unwrap_or_default();
+        let typed = Self::profile_folder_name(&self.profile_name).ok();
+        let name = match typed.filter(|n| !n.eq_ignore_ascii_case(&current)) {
+            Some(name) => name,
+            None => match Self::profile_folder_name(&format!("{current} copy")) {
+                Ok(name) => name,
+                Err(_) => {
+                    self.message = Some(("Type a new name for the copy.".into(), true));
+                    return;
+                }
+            },
+        };
+        let dest = home.root.join("profiles").join(&name);
+        if self.profile_dir_refused(&dest, &home) {
+            return;
+        }
+        match Self::copy_profile_lists(&from, &dest) {
+            Ok(()) => {
+                let parent = home.root.join("profiles");
+                self.profile_choices = Self::profile_folders(&parent);
+                self.profile_pick = Some(name.clone());
+                self.profile_name = name.clone();
+                self.profile_path = parent.display().to_string();
+                self.message = Some((format!("Copied the lists to {name}."), false));
+            }
+            Err(e) => self.message = Some((e, true)),
+        }
+    }
+
+    fn rename_picked_profile(&mut self) {
+        let Some(from) = self.picked_profile_dir() else {
+            self.message = Some(("Choose a profile.".into(), true));
+            return;
+        };
+        let Some(home) = self.home.clone() else { return };
+        if !self.profile_owned(&from) {
+            self.message = Some(("That profile is only read. It was not renamed.".into(), true));
+            return;
+        }
+        let name = match Self::profile_folder_name(&self.profile_name) {
+            Ok(name) => name,
+            Err(e) => {
+                self.message = Some((e, true));
+                return;
+            }
+        };
+        let current = self.profile_pick.clone().unwrap_or_default();
+        if name.eq_ignore_ascii_case(&current) {
+            self.message = Some(("Type a new name first.".into(), true));
+            return;
+        }
+        let dest = home.root.join("profiles").join(&name);
+        if self.profile_dir_refused(&dest, &home) {
+            return;
+        }
+        if dest.exists() {
+            self.message = Some(("That profile is already there.".into(), true));
+            return;
+        }
+        match std::fs::rename(&from, &dest) {
+            Ok(()) => {
+                let parent = home.root.join("profiles");
+                self.profile_choices = Self::profile_folders(&parent);
+                self.profile_pick = Some(name.clone());
+                self.profile_name = name.clone();
+                self.message = Some((format!("Renamed the profile to {name}."), false));
+            }
+            Err(e) => self.message = Some((format!("{}: {e}", from.display()), true)),
+        }
+    }
+
+    fn delete_picked_profile(&mut self) {
+        let Some(dir) = self.picked_profile_dir() else {
+            self.profile_delete_ask = false;
+            self.message = Some(("Choose a profile.".into(), true));
+            return;
+        };
+        let Some(home) = self.home.clone() else { return };
+        self.profile_delete_ask = false;
+        if !self.profile_owned(&dir) {
+            self.message = Some(("That profile is only read. It was not deleted.".into(), true));
+            return;
+        }
+        match Self::remove_profile_dir(&dir) {
+            Ok(()) => {
+                let parent = home.root.join("profiles");
+                self.profile_choices = Self::profile_folders(&parent);
+                self.profile_pick = None;
+                self.message = Some(("Deleted that profile. Mod folders were left.".into(), false));
+            }
+            Err(e) => self.message = Some((e, true)),
+        }
+    }
+
     fn profile_row(&mut self, ui: &mut egui::Ui) {
+        let rows: Vec<(String, bool)> = self.profile_choices.iter().map(|(n, p)| (n.clone(), self.profile_owned(p))).collect();
+        let pick_owned = self.profile_pick.as_ref().and_then(|n| rows.iter().find(|(name, _)| name == n).map(|(_, owned)| *owned)).unwrap_or(false);
+        let mut act: Option<ProfileAct> = None;
+        let mut target: Option<String> = None;
         let block = ui.vertical(|ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("Profiles").small().color(GOLD));
+            let heading = ui.add(egui::Label::new(RichText::new("Profiles").small().color(GOLD)).sense(Sense::click()));
+            heading.on_hover_text("Right-click the chosen profile.").context_menu(|ui| Self::profile_menu(ui, pick_owned, &mut act));
             ui.horizontal(|ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.profile_name)
@@ -2718,18 +3223,45 @@ impl App {
                 let shown = self.profile_pick.clone().unwrap_or_else(|| {
                     if self.profile_choices.is_empty() { "no profiles".into() } else { "choose a profile".into() }
                 });
-                egui::ComboBox::from_id_salt("profile-which").width(140.0).selected_text(shown).show_ui(ui, |ui| {
-                    for (name, _) in &self.profile_choices {
-                        if ui.selectable_label(self.profile_pick.as_deref() == Some(name.as_str()), name).clicked() {
+                let combo = egui::ComboBox::from_id_salt("profile-which").width(140.0).selected_text(shown).show_ui(ui, |ui| {
+                    for (name, owned) in &rows {
+                        let resp = ui.selectable_label(self.profile_pick.as_deref() == Some(name.as_str()), name);
+                        if resp.clicked() {
                             self.profile_pick = Some(name.clone());
                             self.profile_name = name.clone();
+                            self.profile_delete_ask = false;
                         }
+                        let item_name = name.clone();
+                        let item_owned = *owned;
+                        resp.context_menu(|ui| {
+                            target = Some(item_name);
+                            Self::profile_menu(ui, item_owned, &mut act);
+                        });
                     }
                 });
+                combo.response.on_hover_text("Right-click the chosen profile.").context_menu(|ui| Self::profile_menu(ui, pick_owned, &mut act));
                 if ui.add_enabled(self.profile_pick.is_some(), egui::Button::new("Load")).on_hover_text("Puts that profile's folder order and plugin order into this page. Files stay where they are.").clicked() {
                     self.load_chosen_profile();
                 }
             });
+            if let Some(name) = target.take() {
+                self.profile_pick = Some(name);
+            }
+            if let Some(act) = act.take() {
+                self.run_profile_act(act);
+            }
+            if self.profile_delete_ask {
+                let name = self.profile_pick.clone().unwrap_or_default();
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("Delete profile {name}?")).small().color(BAD));
+                    if ui.button("Delete").clicked() {
+                        self.delete_picked_profile();
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.profile_delete_ask = false;
+                    }
+                });
+            }
         });
         self.profile_rect = block.response.rect;
     }
@@ -3195,6 +3727,115 @@ impl App {
             return Err(if name.is_empty() { "Name the profile first.".into() } else { "That profile name cannot be used.".into() });
         }
         Ok(name.to_string())
+    }
+
+    /// True when `dir` is a real folder under `profiles_root`, not the root itself.
+    fn profile_is_under(dir: &Path, profiles_root: &Path) -> bool {
+        match (dir.canonicalize(), profiles_root.canonicalize()) {
+            (Ok(dir), Ok(root)) => dir != root && dir.starts_with(&root),
+            _ => false,
+        }
+    }
+
+    /// One folder name. Not a path.
+    fn one_name(raw: &str) -> Result<String, String> {
+        let name = raw.trim();
+        let bad = name.is_empty()
+            || name.len() > 120
+            || name.starts_with('.')
+            || name.ends_with('.')
+            || name == ".."
+            || name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'));
+        if bad {
+            Err("That name cannot be used.".into())
+        } else {
+            Ok(name.to_string())
+        }
+    }
+
+    /// Copies the three list files. Any other file stays where it was.
+    fn copy_profile_lists(from: &Path, to: &Path) -> Result<(), String> {
+        if to.exists() {
+            return Err("That profile is already there.".into());
+        }
+        std::fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
+        let mut any = false;
+        for file_name in ["modlist.txt", "plugins.txt", "loadorder.txt"] {
+            let src = from.join(file_name);
+            if !src.is_file() {
+                continue;
+            }
+            std::fs::copy(&src, to.join(file_name)).map_err(|e| format!("{}: {e}", src.display()))?;
+            any = true;
+        }
+        if !any {
+            let _ = std::fs::remove_dir_all(to);
+            return Err("That profile has no lists.".into());
+        }
+        Ok(())
+    }
+
+    /// Removes a profile folder. A link is not followed.
+    fn remove_profile_dir(dir: &Path) -> Result<(), String> {
+        let meta = std::fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        if meta.file_type().is_symlink() {
+            return Err("That profile is a link. It was not deleted.".into());
+        }
+        std::fs::remove_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))
+    }
+
+    /// Renames a mod folder inside `mods`. A link outside that folder is left alone.
+    fn rename_mod_dir(mods: &Path, from: &str, to: &str) -> Result<(), String> {
+        let from = Self::one_name(from)?;
+        let to = Self::one_name(to)?;
+        if from.eq_ignore_ascii_case(&to) {
+            return Err("That is already the name.".into());
+        }
+        let src = mods.join(&from);
+        let dest = mods.join(&to);
+        if dest.exists() {
+            return Err("That folder is already in the mods folder.".into());
+        }
+        Self::mod_dir_is_inside(&src, mods)?;
+        std::fs::rename(&src, &dest).map_err(|e| format!("{}: {e}", src.display()))
+    }
+
+    /// Moves a mod folder into `recycle`. A real file in the game folder is not touched.
+    fn move_mod_aside(mods: &Path, recycle: &Path, name: &str) -> Result<PathBuf, String> {
+        let name = Self::one_name(name)?;
+        let src = mods.join(&name);
+        Self::mod_dir_is_inside(&src, mods)?;
+        std::fs::create_dir_all(recycle).map_err(|e| format!("{}: {e}", recycle.display()))?;
+        let mut dest = recycle.join(&name);
+        if dest.exists() {
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            dest = recycle.join(format!("{name} {stamp}"));
+        }
+        if dest.exists() {
+            return Err("That folder is already in recycle.".into());
+        }
+        std::fs::rename(&src, &dest).map_err(|e| format!("{}: {e}", src.display()))?;
+        Ok(dest)
+    }
+
+    /// The mod folder is a direct child of `mods`. A link that points outside is refused.
+    fn mod_dir_is_inside(src: &Path, mods: &Path) -> Result<(), String> {
+        let meta = std::fs::symlink_metadata(src).map_err(|e| format!("{}: {e}", src.display()))?;
+        if meta.file_type().is_symlink() {
+            let target = std::fs::canonicalize(src).map_err(|e| format!("{}: {e}", src.display()))?;
+            let mods = mods.canonicalize().map_err(|e| format!("{}: {e}", mods.display()))?;
+            if target.starts_with(&mods) {
+                return Ok(());
+            }
+            return Err("That folder is a link outside the mods folder. It was not moved.".into());
+        }
+        let src = src.canonicalize().map_err(|e| format!("{}: {e}", src.display()))?;
+        let mods = mods.canonicalize().map_err(|e| format!("{}: {e}", mods.display()))?;
+        if src.parent() == Some(mods.as_path()) {
+            Ok(())
+        } else {
+            Err("That folder is not in the mods folder.".into())
+        }
     }
 
     /// Writes the three list files. An existing profile keeps every other file. Returns whether the lists replaced older ones.
@@ -4137,6 +4778,51 @@ mod tests {
         assert_eq!(super::App::profile_folder_name(" Road ").unwrap(), "Road");
         assert!(super::App::under_original_documents(std::path::Path::new("/home/me/Documents/My Games/FalloutNV/saves")));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_profile_menu_copies_lists_and_a_mod_moves_aside() {
+        let root = std::env::temp_dir().join(format!("nvforever-menu-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let profiles = root.join("profiles");
+        let saved = profiles.join("Road");
+        std::fs::create_dir_all(&saved).unwrap();
+        std::fs::write(saved.join("modlist.txt"), "+A\n").unwrap();
+        std::fs::write(saved.join("plugins.txt"), "*On.esp\n").unwrap();
+        std::fs::write(saved.join("loadorder.txt"), "On.esp\n").unwrap();
+        std::fs::write(saved.join("notes.txt"), "keep").unwrap();
+        let copy = profiles.join("Road copy");
+        super::App::copy_profile_lists(&saved, &copy).unwrap();
+        assert_eq!(std::fs::read_to_string(copy.join("modlist.txt")).unwrap(), "+A\n");
+        assert!(!copy.join("notes.txt").exists());
+        assert!(super::App::copy_profile_lists(&saved, &copy).is_err());
+        assert!(super::App::profile_is_under(&saved, &profiles));
+        assert!(!super::App::profile_is_under(&profiles, &profiles));
+        assert!(super::App::one_name("a/b").is_err());
+        let mods = root.join("mods");
+        let recycle = root.join("recycle");
+        std::fs::create_dir_all(mods.join("Bag")).unwrap();
+        std::fs::write(mods.join("Bag").join("a.txt"), "x").unwrap();
+        let dest = super::App::move_mod_aside(&mods, &recycle, "Bag").unwrap();
+        assert!(dest.join("a.txt").is_file());
+        assert!(!mods.join("Bag").exists());
+        std::fs::create_dir_all(mods.join("Old")).unwrap();
+        super::App::rename_mod_dir(&mods, "Old", "New").unwrap();
+        assert!(mods.join("New").is_dir());
+        #[cfg(unix)]
+        {
+            let outside = root.join("outside");
+            std::fs::create_dir_all(&outside).unwrap();
+            std::os::unix::fs::symlink(&outside, mods.join("Linked")).unwrap();
+            assert!(super::App::move_mod_aside(&mods, &recycle, "Linked").is_err());
+            assert!(mods.join("Linked").exists());
+            std::os::unix::fs::symlink(&saved, profiles.join("LinkedProfile")).unwrap();
+            assert!(super::App::remove_profile_dir(&profiles.join("LinkedProfile")).is_err());
+        }
+        super::App::remove_profile_dir(&copy).unwrap();
+        assert!(!copy.exists());
+        assert!(saved.join("notes.txt").is_file());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
