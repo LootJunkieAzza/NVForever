@@ -47,10 +47,10 @@
 //! takes there ([`log_present_modes`]).
 
 use bevy::prelude::*;
-use bevy::render::renderer::{RenderAdapter, RenderInstance};
-use bevy::render::view::ExtractedWindow;
+use bevy::render::renderer::RenderAdapter;
+use bevy::render::view::{create_surfaces, prepare_windows, SurfaceData};
 use bevy::render::{Render, RenderApp, RenderSystems};
-use bevy::window::{Monitor, OnMonitor, PresentMode, PrimaryMonitor, PrimaryWindow, RawHandleWrapper, VideoModeSelection, WindowMode};
+use bevy::window::{Monitor, OnMonitor, PresentMode, PrimaryMonitor, PrimaryWindow, VideoModeSelection, WindowMode};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -267,7 +267,7 @@ impl Plugin for FramePacePlugin {
             app.init_resource::<PaceLog>().add_systems(First, pace_log_frame_start.before(bevy::time::TimeSystems));
         }
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
-            render.add_systems(Render, log_present_modes.in_set(RenderSystems::PrepareViews).before(bevy::render::view::prepare_windows));
+            render.add_systems(Render, log_present_modes.in_set(RenderSystems::PrepareViews).after(create_surfaces).before(prepare_windows));
         }
     }
 }
@@ -485,28 +485,17 @@ fn vsync_mode(modes: &[wgpu::PresentMode]) -> wgpu::PresentMode {
     }
 }
 
-/// Log once the present modes the primary window's surface supports: a surface of its
-/// own on the window, asked and dropped (Bevy's own is private to it).
-fn log_present_modes(windows: Query<(&ExtractedWindow, &RawHandleWrapper)>, instance: Res<RenderInstance>, adapter: Res<RenderAdapter>, mut done: Local<bool>) {
+/// Query Bevy's surface once. Creating another from an AppKit handle here would require
+/// the main thread [documented: `raw-window-metal`, `Layer::from_ns_view`].
+fn log_present_modes(window: Query<&SurfaceData, With<PrimaryWindow>>, adapter: Res<RenderAdapter>, mut done: Local<bool>) {
     if *done {
         return;
     }
-    let Some((_, handle)) = windows.iter().find(|(w, _)| w.physical_width > 0) else { return };
+    let Ok(surface) = window.single() else { return };
     *done = true;
-    let target = wgpu::SurfaceTargetUnsafe::RawHandle { raw_display_handle: Some(handle.get_display_handle()), raw_window_handle: handle.get_window_handle() };
-    // SAFETY: the window's handles are valid while it has a RawHandleWrapper, as Bevy's
-    // create_surfaces relies on; the surface is dropped before this returns.
-    let surface = match unsafe { instance.create_surface_unsafe(target) } {
-        Ok(s) => s,
-        Err(e) => {
-            warn!("frame pace: the window's present modes not read: {e}");
-            return;
-        }
-    };
-    let caps = surface.get_capabilities(&adapter);
-    drop(surface);
+    let modes = surface.supported_present_modes(&adapter);
     let backend = adapter.get_info().backend;
-    info!("frame pace: the surface ({backend:?}) supports present modes {:?}; vsync presents as {:?}", caps.present_modes, vsync_mode(&caps.present_modes));
+    info!("frame pace: the surface ({backend:?}) supports present modes {modes:?}; vsync presents as {:?}", vsync_mode(&modes));
 }
 
 #[cfg(test)]

@@ -40,6 +40,11 @@ loads. A mod that needs a plugin's engine patches, or a function not built yet, 
 
 Needs [Rust](https://rustup.rs) and Python 3.11+.
 
+On Apple Silicon, use a native Rust toolchain and Xcode Command Line Tools. The command
+below builds the macOS executable; it uses Metal and reads the same `Data` directory as
+the Windows version. You don't need to run `FalloutNV.exe`. Settings, saves and logs on
+macOS go in `~/Library/Application Support/NVForever`.
+
 ```bash
 cd engine
 cargo run --release --bin nvforever -- --data "<path to Fallout New Vegas>/Data"
