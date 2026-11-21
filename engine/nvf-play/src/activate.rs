@@ -224,6 +224,7 @@ pub(crate) fn find_target(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
+    parts: Option<Res<crate::hitvol::ActorParts>>,
 ) {
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
@@ -297,6 +298,21 @@ pub(crate) fn find_target(
         rt.game.set_crosshair_ref(now);
         rt.game.senses.crosshair_far = far_ref.map(FormId);
     }
+    // Beds an actor lies on among the candidates, and who (`pick::to_occupant`, #3231):
+    // the bed markers are IDs 1 to 9 (`fnv_game::functions::furniture`). Looked up only
+    // when furniture is under the crosshair.
+    let is_furniture = |id: u32| sim.base_of(id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Furniture));
+    let furniture_seen = hit.and_then(|h| h.form_id).into_iter().chain(bounds.iter().map(|b| b.0)).any(is_furniture);
+    let sleepers: HashMap<u32, u32> = match script.as_deref().and_then(|s| s.rt.as_ref()) {
+        Some(rt) if furniture_seen => rt
+            .game
+            .extra
+            .iter()
+            .filter(|(a, _)| **a != FormId::PLAYER_REF)
+            .filter_map(|(a, e)| e.furniture.filter(|u| (1..=9).contains(&u.marker_id)).map(|u| (u.reference.0, a.0)))
+            .collect(),
+        _ => HashMap::new(),
+    };
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
     // A dead actor is searched rather than talked to (combat C5); a living one is talked
     // to only when it may be ([`actor_action`]). Actors are named by their template's
@@ -354,6 +370,21 @@ pub(crate) fn find_target(
     };
     let hit = pick::door_behind(hit, behind, |id| describe_once(id).is_some());
     let picked = pick::choose_precise_first(hit, bounds, REACH, |id| describe_once(id).is_some());
+    // How far the sleeper's body is from the eye: its posed bones (`crate::hitvol::ActorParts`,
+    // which follow the lying body), else its render boxes (rough: the bind pose).
+    let body_distance = |actor: u32| {
+        let posed = parts.as_deref().and_then(|p| p.by_ref.get(&actor)).filter(|p| !p.segments.is_empty());
+        if let Some(posed) = posed {
+            let e = Vec3::from_array(eye);
+            return posed.segments.iter().map(|s| pick::segment_distance(e, Vec3::from_array(s.a), Vec3::from_array(s.b))).reduce(f32::min);
+        }
+        visuals
+            .iter()
+            .filter(|(r, _, _, v)| r.0 == actor && v.get())
+            .filter_map(|(_, aabb, gt, _)| pick::box_distance(o, &gt.affine(), Vec3::from(aabb.center), Vec3::from(aabb.half_extents)))
+            .reduce(f32::min)
+    };
+    let picked = pick::to_occupant(picked, |id| sleepers.get(&id).and_then(|&a| Some((a, body_distance(a)?))), REACH, |id| describe_once(id).is_some());
     let chosen = picked.and_then(|p| describe_once(p.form_id).map(|d| (p, d)));
     let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let new = chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
