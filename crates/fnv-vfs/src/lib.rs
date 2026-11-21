@@ -708,7 +708,7 @@ fn archives_recursive(dir: &Path) -> Vec<(String, PathBuf)> {
             }
         }
     }
-    out.sort_by(|a, b| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase()));
+    out.sort_by_key(|a| a.0.to_ascii_lowercase());
     out
 }
 
