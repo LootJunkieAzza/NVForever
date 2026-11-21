@@ -11,7 +11,7 @@ use eframe::egui::{self, load::Bytes, Align, Color32, CornerRadius, Frame, Layou
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use fnv_install::{guard_write, ini_get, ini_pairs, ini_set, plugins, write_whole, Config, EngineHome, GameInstall};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver};
@@ -85,6 +85,7 @@ const STARTING: &str = "The game is starting…";
 const NEEDS_FOLDER: &str = "Set your Fallout: New Vegas folder here, then Save: the game needs it to start.";
 const NEEDS_FOLDER_FIRST: &str = "Set your Fallout: New Vegas folder first (here, then Save): the game cannot start without it.";
 
+#[derive(Clone)]
 struct NewestSave {
     path: PathBuf,
     name: String,
@@ -116,6 +117,44 @@ pub struct App {
     mods_dirty: bool,
     /// The row being dragged on the Mods page.
     mods_drag: Option<usize>,
+    /// Maximum load-order backups kept. This is the cap, not how many exist.
+    backup_max: u32,
+    /// The backup the Load backup button puts into the list (`plugins-<this>.txt`).
+    backup_pick: Option<String>,
+    /// Mod folders on the left of the Mods page. A lower row overwrites on Apply.
+    mod_rows: Vec<ModRow>,
+    /// The mod-folder row being dragged.
+    mod_drag: Option<usize>,
+    /// Plugin names found when the Mods page was opened or refreshed.
+    mods_present: HashSet<String>,
+    /// Lowercase plugin name, then the enabled mod folders that have it, top first.
+    plugin_folders: HashMap<String, Vec<String>>,
+    /// Lowercase plugin name, then the master names in the file that wins.
+    plugin_masters: HashMap<String, Vec<String>>,
+    /// Lowercase plugin name, then the folder it belongs to. A lower row wins.
+    plugin_home: HashMap<String, String>,
+    /// How many plugin files are in each mod folder.
+    folder_counts: HashMap<String, usize>,
+    /// Files in each mod folder, relative to its Data folder when it has one.
+    folder_files: HashMap<String, Vec<String>>,
+    /// Which folders overwrite this one, and which it overwrites. A lower row wins.
+    clashes: HashMap<String, Vec<Clash>>,
+    /// The find box on the plugin list.
+    plugin_find: String,
+    /// The find box on the mod list.
+    mod_find: String,
+    /// Lowercase plugin name last clicked, so its folder is marked on the left.
+    picked_plugin: Option<String>,
+    /// The left list should scroll to that folder once.
+    mod_jump: bool,
+    /// The colored file-replacement lines and their key are open.
+    show_overwrites: bool,
+    /// How many older copies of the plugin list to keep.
+    backup_keep: usize,
+    /// Apply is asking before it saves.
+    apply_ask: bool,
+    /// Bottom bar height. Saved when the user lets go of the grip.
+    bar_h: f32,
     /// The displays, for the Resolution and Monitor lists (asked once at start).
     monitors: Vec<crate::display::Monitor>,
     /// The Language list (the language files found at start).
@@ -144,11 +183,24 @@ pub struct App {
     upd_open: bool,
     // Starting the game.
     newest: Option<NewestSave>,
+    /// Saves in the home, newest first. Continue loads `newest`.
+    saves: Vec<NewestSave>,
     exe: Option<PathBuf>,
     child: Option<Child>,
     /// Test aid: `NVF_LAUNCHER_SHOT=<file.png>[;page]` saves the window once the news has
     /// settled and closes (`NVF_LAUNCHER_PAGE`: home, settings, mods, game).
     shot: Option<(PathBuf, u32)>,
+}
+
+struct ModRow {
+    name: String,
+    on: bool,
+}
+
+struct Clash {
+    other: String,
+    files: Vec<String>,
+    wins: bool,
 }
 
 impl App {
@@ -162,6 +214,7 @@ impl App {
         }
         let home = EngineHome::user();
         let menu = Catalog::load(home.as_ref().map(EngineHome::config_file).as_deref());
+        let backup_max = read_backup_max(home.as_ref());
         let mut app = App {
             page: Page::Home,
             home,
@@ -180,6 +233,25 @@ impl App {
             mods: None,
             mods_dirty: false,
             mods_drag: None,
+            backup_max,
+            backup_pick: None,
+            mod_rows: Vec::new(),
+            mod_drag: None,
+            mods_present: HashSet::new(),
+            plugin_folders: HashMap::new(),
+            plugin_masters: HashMap::new(),
+            plugin_home: HashMap::new(),
+            folder_counts: HashMap::new(),
+            folder_files: HashMap::new(),
+            clashes: HashMap::new(),
+            plugin_find: String::new(),
+            mod_find: String::new(),
+            picked_plugin: None,
+            mod_jump: false,
+            show_overwrites: false,
+            backup_keep: 5,
+            apply_ask: false,
+            bar_h: 86.0,
             monitors: crate::display::monitors(),
             languages: crate::display::language_choices(&fnv_util::words::dirs(
                 std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())).as_deref(),
@@ -203,6 +275,7 @@ impl App {
             upd_cancel: Arc::new(AtomicBool::new(false)),
             upd_open: false,
             newest: None,
+            saves: Vec::new(),
             exe: None,
             child: None,
             shot: std::env::var_os("NVF_LAUNCHER_SHOT").map(|p| (PathBuf::from(p), 0)),
@@ -236,6 +309,8 @@ impl App {
         };
         // The INI first: the mod list's sync needs its game folder.
         app.reload_ini();
+        app.bar_h = ini_get(&app.ini_text, LAUNCHER, "BottomBar").and_then(|s| s.parse::<f32>().ok()).unwrap_or(86.0).clamp(28.0, 280.0);
+        app.backup_keep = ini_get(&app.ini_text, LAUNCHER, "PluginBackups").and_then(|s| s.parse().ok()).unwrap_or(5).clamp(0, 30);
         if app.page == Page::Mods {
             app.load_mods();
         }
@@ -383,7 +458,8 @@ impl App {
 
     fn find_newest_save(&mut self) {
         let Some(h) = &self.home else { return };
-        self.newest = fnv_save::list(&h.saves()).into_iter().next().map(|(path, hd)| {
+        let keep = self.newest.as_ref().map(|s| s.path.clone());
+        self.saves = fnv_save::list(&h.saves()).into_iter().map(|(path, hd)| {
             let shot = fnv_save::read_header(&path).ok().map(|s| s.shot).filter(|s| !s.is_empty()).map(Arc::from);
             let name = if hd.player_name.is_empty() { path.file_stem().unwrap_or_default().to_string_lossy().into_owned() } else { hd.player_name.clone() };
             let hours = hd.play_seconds / 3600.0;
@@ -392,7 +468,8 @@ impl App {
             parts.push(format!("{hours:.0} h played"));
             let detail = parts.join(" · ");
             NewestSave { path, name, detail, shot }
-        });
+        }).collect();
+        self.newest = keep.and_then(|p| self.saves.iter().find(|s| s.path == p).cloned()).or_else(|| self.saves.first().cloned());
     }
 
     fn fetch_news(&mut self, ctx: &egui::Context) {
@@ -683,16 +760,34 @@ impl App {
     }
 
     fn bottom_bar(&mut self, root: &mut egui::Ui, ctx: &egui::Context, running: bool) {
-        egui::Panel::bottom("bottom").frame(Frame::new().fill(theme::PANEL).inner_margin(Margin::symmetric(16, 10)).stroke(Stroke::new(1.0, LINE))).show(root, |ui| {
+        let pad_y: i8 = if self.bar_h < 52.0 { 1 } else { 6 };
+        egui::Panel::bottom("bottom").exact_size(self.bar_h.clamp(28.0, 280.0)).resizable(false).frame(Frame::new().fill(theme::PANEL).inner_margin(Margin::symmetric(12, pad_y)).stroke(Stroke::new(1.0, LINE))).show(root, |ui| {
+            let (grip, grip_resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 6.0), Sense::drag());
+            if grip_resp.hovered() || grip_resp.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+            }
+            let mid = grip.center().x;
+            let grip_color = if grip_resp.hovered() || grip_resp.dragged() { GOLD } else { WEAK };
+            ui.painter().line_segment([egui::pos2(mid - 22.0, grip.center().y), egui::pos2(mid + 22.0, grip.center().y)], Stroke::new(3.0, grip_color));
+            if grip_resp.dragged() {
+                self.bar_h = (self.bar_h - grip_resp.drag_delta().y).clamp(28.0, 280.0);
+            }
+            if grip_resp.double_clicked() {
+                self.bar_h = 86.0;
+                self.set_launcher_key("BottomBar", "86");
+            } else if grip_resp.drag_stopped() {
+                self.set_launcher_key("BottomBar", &format!("{:.0}", self.bar_h));
+            }
+            let bar_h = ui.available_height().clamp(12.0, 240.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("v{}", version())).size(20.0).strong().color(WEAK));
+                ui.label(RichText::new(format!("v{}", version())).size((bar_h * 0.42).clamp(10.0, 22.0)).strong().color(WEAK));
                 if let Some((m, bad)) = &self.message {
                     ui.add_space(16.0);
                     ui.label(RichText::new(m).color(if *bad { BAD } else { GOOD }));
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.add_enabled_ui(!running, |ui| {
-                        ui.menu_button(RichText::new("More").size(15.0), |ui| {
+                        ui.menu_button(RichText::new("More").size((bar_h * 0.26).clamp(10.0, 28.0)), |ui| {
                             if ui.button("New game").clicked() {
                                 self.start(ctx, Start::NewGame);
                                 ui.close();
@@ -711,21 +806,42 @@ impl App {
                                 self.set_launcher_key("CloseOnPlay", if close { "1" } else { "0" });
                             }
                         });
+                        if !running && self.saves.len() > 1 {
+                            let mut picked = None;
+                            ui.menu_button(RichText::new("Saves").size((bar_h * 0.26).clamp(10.0, 28.0)), |ui| {
+                                for (i, s) in self.saves.iter().enumerate() {
+                                    let on = self.newest.as_ref().is_some_and(|n| n.path == s.path);
+                                    if ui.selectable_label(on, format!("{} · {}", s.name, s.detail)).clicked() {
+                                        picked = Some(i);
+                                        ui.close();
+                                    }
+                                }
+                            });
+                            if let Some(i) = picked {
+                                self.newest = self.saves.get(i).cloned();
+                            }
+                        }
                         let (title, sub, start) = match &self.newest {
                             _ if running => ("Running…".to_string(), "the game is open".to_string(), None),
                             Some(s) => ("Continue".to_string(), format!("{} · {}", s.name, s.detail), Some(Start::Load(s.path.clone()))),
                             None => ("Play".to_string(), "new game from the main menu".to_string(), Some(Start::MainMenu)),
                         };
-                        if big_button(ui, &title, &sub, true).clicked() {
+                        if big_button(ui, &title, &sub, true, bar_h).clicked() {
                             if let Some(s) = start {
                                 self.start(ctx, s);
                             }
                         }
-                        if self.newest.is_some() && !running && big_button(ui, "Main menu", "load or start a game", false).clicked() {
+                        if self.newest.is_some() && !running && big_button(ui, "Main menu", "load or start a game", false, bar_h).clicked() {
                             self.start(ctx, Start::MainMenu);
                         }
-                        if let Some(shot) = self.newest.as_ref().and_then(|s| s.shot.clone()) {
-                            ui.add(egui::Image::from_bytes("bytes://newest-save.png", Bytes::Shared(shot)).fit_to_exact_size(Vec2::new(96.0, 54.0)).corner_radius(3));
+                        if let Some(s) = self.newest.clone() {
+                            if let Some(shot) = s.shot.clone() {
+                                let uri = format!("bytes://{}", s.path.file_name().and_then(|n| n.to_str()).unwrap_or("save"));
+                                let resp = ui.add(egui::Image::from_bytes(uri, Bytes::Shared(shot)).fit_to_exact_size(Vec2::new(bar_h * 1.7, bar_h * 0.95)).corner_radius(3).sense(Sense::click())).on_hover_text("Load this save");
+                                if resp.clicked() {
+                                    self.start(ctx, Start::Load(s.path));
+                                }
+                            }
                         }
                     });
                 });
@@ -737,6 +853,119 @@ impl App {
 const REPO: &str = "https://github.com/LootJunkieAzza/NVForever";
 
 /// A page button of the left bar; the open page's has a gold edge and mark.
+fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
+    let mods = home.mods();
+    let mut found = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&mods) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_symlink() || !path.is_dir() {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else { continue };
+            if name.starts_with('.') {
+                continue;
+            }
+            found.push(name);
+        }
+    }
+    found.sort_by_key(|a| a.to_ascii_lowercase());
+    let text = std::fs::read_to_string(home.root.join("mod-order.txt")).unwrap_or_default();
+    let mut order = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with(';') || t.starts_with('#') {
+            continue;
+        }
+        let (on, name) = match t.strip_prefix('*') {
+            Some(rest) => (true, rest.trim()),
+            None => (false, t),
+        };
+        if name.is_empty() {
+            continue;
+        }
+        if let Some(real) = found.iter().find(|n| n.eq_ignore_ascii_case(name)) {
+            if !order.iter().any(|m: &ModRow| m.name.eq_ignore_ascii_case(real)) {
+                order.push(ModRow { name: real.clone(), on });
+            }
+        }
+    }
+    for name in found {
+        if !order.iter().any(|m| m.name.eq_ignore_ascii_case(&name)) {
+            order.push(ModRow { name, on: true });
+        }
+    }
+    order
+}
+
+fn mod_file_keys(folder: &Path) -> Vec<String> {
+    let root = if folder.join("Data").is_dir() { folder.join("Data") } else { folder.to_path_buf() };
+    let mut out = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_symlink() {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Ok(rel) = path.strip_prefix(&root) else { continue };
+            let key = rel.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+            if !key.is_empty() {
+                out.push(key);
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn note_files(files: &HashMap<String, Vec<String>>, folder: &str, plugin: &str) -> String {
+    let key = plugin.to_ascii_lowercase();
+    files.get(folder).and_then(|list| list.iter().find(|f| f.rsplit(['/', '\\']).next().unwrap_or(f).eq_ignore_ascii_case(&key)).cloned()).unwrap_or_else(|| plugin.to_string())
+}
+
+fn clash_notes(rows: &[(String, bool)], files: &HashMap<String, Vec<String>>) -> HashMap<String, Vec<Clash>> {
+    let mut owners: HashMap<String, Vec<String>> = HashMap::new();
+    for (name, on) in rows {
+        if !on {
+            continue;
+        }
+        let Some(list) = files.get(name) else { continue };
+        for file in list {
+            let who = owners.entry(file.clone()).or_default();
+            if who.last().map(String::as_str) != Some(name.as_str()) {
+                who.push(name.clone());
+            }
+        }
+    }
+    let mut grouped: HashMap<(String, String, bool), Vec<String>> = HashMap::new();
+    for (file, who) in owners {
+        if who.len() < 2 {
+            continue;
+        }
+        let winner = who.last().cloned().unwrap_or_default();
+        for loser in &who[..who.len() - 1] {
+            grouped.entry((winner.clone(), loser.clone(), true)).or_default().push(file.clone());
+            grouped.entry((loser.clone(), winner.clone(), false)).or_default().push(file.clone());
+        }
+    }
+    let mut out: HashMap<String, Vec<Clash>> = HashMap::new();
+    for ((folder, other, wins), mut found) in grouped {
+        found.sort();
+        out.entry(folder).or_default().push(Clash { other, files: found, wins });
+    }
+    for notes in out.values_mut() {
+        notes.sort_by(|a, b| b.wins.cmp(&a.wins).then_with(|| a.other.cmp(&b.other)));
+    }
+    out
+}
+
 fn nav_button(ui: &mut egui::Ui, name: &str, on: bool) -> egui::Response {
     let text = RichText::new(name).font(crate::fonts::title(15.0)).color(if on { GOLD } else { theme::TEXT });
     let b = egui::Button::new(text)
@@ -762,8 +991,9 @@ fn gold_button(text: &str, on: bool) -> egui::Button<'static> {
 }
 
 /// A large two-line button (title and a small line under it), gold when `primary`.
-fn big_button(ui: &mut egui::Ui, title: &str, sub: &str, primary: bool) -> egui::Response {
-    let size = Vec2::new(if primary { 280.0 } else { 190.0 }, 58.0);
+fn big_button(ui: &mut egui::Ui, title: &str, sub: &str, primary: bool, height: f32) -> egui::Response {
+    let height = height.clamp(12.0, 180.0);
+    let size = Vec2::new(if primary { height * 4.8 } else { height * 3.3 }, height);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     let fill = match (primary, resp.hovered() && enabled) {
@@ -776,20 +1006,49 @@ fn big_button(ui: &mut egui::Ui, title: &str, sub: &str, primary: bool) -> egui:
     let ink = if primary { theme::ON_GOLD } else { theme::TEXT };
     let p = ui.painter();
     p.rect(rect, CornerRadius::same(4), fill, Stroke::new(1.0, if primary { GOLD } else { LINE }), egui::StrokeKind::Inside);
-    let left = rect.left() + 18.0;
-    let c = egui::pos2(left + 10.0, rect.center().y);
-    p.add(egui::Shape::convex_polygon(vec![c + Vec2::new(-7.0, -9.0), c + Vec2::new(9.0, 0.0), c + Vec2::new(-7.0, 9.0)], ink, Stroke::NONE));
-    p.text(egui::pos2(left + 34.0, rect.top() + 10.0), egui::Align2::LEFT_TOP, title, crate::fonts::title(20.0), ink);
-    let sub_font = egui::FontId::proportional(11.5);
-    let max = rect.right() - left - 44.0;
-    let mut s = sub.to_string();
-    let mut chars: Vec<char> = sub.chars().collect();
-    while chars.len() > 4 && p.layout_no_wrap(s.clone(), sub_font.clone(), ink).size().x > max {
-        chars.pop();
-        s = format!("{}…", chars.iter().collect::<String>().trim_end());
-    }
-    p.text(egui::pos2(left + 34.0, rect.bottom() - 10.0), egui::Align2::LEFT_BOTTOM, s, sub_font, ink.gamma_multiply(0.8));
+    let pad_x = (height * 0.14).clamp(6.0, 18.0);
+    let icon = (height * 0.15).clamp(5.0, 13.0);
+    let left = rect.left() + pad_x;
+    let c = egui::pos2(left + icon, rect.center().y);
+    p.add(egui::Shape::convex_polygon(
+        vec![c + Vec2::new(-icon * 0.78, -icon), c + Vec2::new(icon, 0.0), c + Vec2::new(-icon * 0.78, icon)],
+        ink,
+        Stroke::NONE,
+    ));
+    let text_x = left + icon * 2.1 + (height * 0.06).clamp(3.0, 8.0);
+    let max_w = (rect.right() - pad_x - text_x).max(8.0);
+    let title_px = (height * 0.32).clamp(10.0, 30.0);
+    let sub_px = (height * 0.18).clamp(8.0, 18.0);
+    let (title_draw, title_font) = fit_button_line(p, title, crate::fonts::title(title_px), ink, max_w);
+    let (sub_draw, sub_font) = fit_button_line(p, sub, egui::FontId::proportional(sub_px), ink, max_w);
+    p.text(egui::pos2(text_x, rect.top() + height * 0.10), egui::Align2::LEFT_TOP, title_draw, title_font, ink);
+    p.text(
+        egui::pos2(text_x, rect.bottom() - height * 0.08),
+        egui::Align2::LEFT_BOTTOM,
+        sub_draw,
+        sub_font,
+        ink.gamma_multiply(0.8),
+    );
     resp
+}
+
+/// Shrink `text` to `max_w`, then cut it only if the smallest size still does not fit.
+fn fit_button_line(p: &egui::Painter, text: &str, mut font: egui::FontId, color: egui::Color32, max_w: f32) -> (String, egui::FontId) {
+    let min = 8.0;
+    while font.size > min && p.layout_no_wrap(text.to_owned(), font.clone(), color).size().x > max_w {
+        font.size = (font.size - 0.5).max(min);
+    }
+    let mut chars: Vec<char> = text.chars().collect();
+    let mut shown = text.to_owned();
+    while !chars.is_empty() && p.layout_no_wrap(shown.clone(), font.clone(), color).size().x > max_w {
+        chars.pop();
+        let stem: String = chars.iter().collect();
+        shown = format!("{}…", stem.trim_end());
+        if chars.is_empty() {
+            break;
+        }
+    }
+    (shown, font)
 }
 
 /// An on/off switch.
@@ -1289,8 +1548,13 @@ impl App {
             ui.label(RichText::new("NVIDIA DLSS").strong().size(17.0));
             ui.label(RichText::new("An optional upscaler beside FSR 3.1 (and DLSS frame generation on RTX 40 or newer). NVForever ships no NVIDIA file: the four upscaling and four frame generation files come from NVIDIA's own Streamline release, under NVIDIA's licence.").small().color(WEAK));
             ui.add_space(6.0);
-            need(ui, s.windows, "Windows".into());
-            let gpu = if s.gpus.is_empty() { "no graphics card named by Windows".to_string() } else { s.gpus.join(", ") };
+            let os_words = if s.windows { "Windows".to_string() } else { "Windows. The DLSS files are the Windows build, so this stays off here.".to_string() };
+            need(ui, s.windows, os_words);
+            let gpu = if s.gpus.is_empty() {
+                if s.windows { "no graphics card named by Windows".to_string() } else { "no card named in the NVIDIA driver".to_string() }
+            } else {
+                s.gpus.join(", ")
+            };
             need(ui, s.rtx(), format!("An NVIDIA RTX graphics card with a current driver ({gpu})"));
             need(ui, s.upscaling == nvf_dlss_files::FILES.len(), format!("Upscaling files: {} of {}", s.upscaling, nvf_dlss_files::FILES.len()));
             need(ui, s.frame_generation == nvf_dlss_files::FG_FILES.len(), format!("Frame generation files: {} of {}", s.frame_generation, nvf_dlss_files::FG_FILES.len()));
@@ -1461,14 +1725,76 @@ impl App {
 
     fn load_mods(&mut self) {
         self.mods_dirty = false;
+        self.mod_drag = None;
         let Some(home) = self.home.clone() else { return };
-        // Give the plugins new in Data or the mods folder their lines, as the game's start does.
         if let Some(game) = self.game() {
-            if let Err(e) = plugins::sync(&home, &game) {
-                self.message = Some((e.to_string(), true));
+            match plugins::sync(&home, &game) {
+                Ok(synced) => {
+                    self.mods_present = synced.present.into_iter().map(|s| s.to_ascii_lowercase()).collect();
+                }
+                Err(e) => {
+                    self.message = Some((e.to_string(), true));
+                    self.mods_present.clear();
+                }
             }
+        } else {
+            self.mods_present.clear();
         }
         self.mods = std::fs::read_to_string(home.plugins_file()).ok().map(|t| plugins::PluginList::parse(&t));
+        self.mod_rows = load_mod_rows(&home);
+        self.refresh_plugin_notes();
+    }
+
+    fn refresh_plugin_notes(&mut self) {
+        self.plugin_folders.clear();
+        self.plugin_masters.clear();
+        self.plugin_home.clear();
+        self.folder_counts.clear();
+        self.folder_files.clear();
+        let Some(home) = self.home.clone() else { return };
+        let mods = home.mods();
+        let mut files: HashMap<String, PathBuf> = HashMap::new();
+        for row in &self.mod_rows {
+            let listed = plugins::plugins_in_tree(&mods.join(&row.name));
+            self.folder_counts.insert(row.name.clone(), listed.len());
+            self.folder_files.insert(row.name.clone(), mod_file_keys(&mods.join(&row.name)));
+            for (name, path) in listed {
+                let key = name.to_ascii_lowercase();
+                self.plugin_home.insert(key.clone(), row.name.clone());
+                if !row.on {
+                    continue;
+                }
+                self.plugin_folders.entry(key.clone()).or_default().push(row.name.clone());
+                files.insert(key, path);
+            }
+        }
+        if let Some(game) = self.game() {
+            if let Ok(rd) = std::fs::read_dir(&game.data) {
+                for entry in rd.flatten() {
+                    let path = entry.path();
+                    if path.is_symlink() || !path.is_file() {
+                        continue;
+                    }
+                    let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+                    if !plugins::is_plugin(name) {
+                        continue;
+                    }
+                    files.entry(name.to_ascii_lowercase()).or_insert(path);
+                }
+            }
+        }
+        for (key, path) in files {
+            let names = plugins::master_names(&path);
+            if !names.is_empty() {
+                self.plugin_masters.insert(key, names);
+            }
+        }
+        self.recompute_clashes();
+    }
+
+    fn recompute_clashes(&mut self) {
+        let rows: Vec<(String, bool)> = self.mod_rows.iter().map(|r| (r.name.clone(), r.on)).collect();
+        self.clashes = clash_notes(&rows, &self.folder_files);
     }
 
     fn mods_page(&mut self, ui: &mut egui::Ui) {
@@ -1488,6 +1814,12 @@ impl App {
                 if ui.add_enabled(self.mods_dirty, egui::Button::new("Undo changes")).clicked() {
                     self.load_mods();
                 }
+                if ui.button("Refresh").clicked() {
+                    self.load_mods();
+                    if self.message.as_ref().is_none_or(|(_, bad)| !*bad) {
+                        self.message = Some(("Mods folder refreshed.".into(), false));
+                    }
+                }
                 if let Some(h) = &self.home {
                     if ui.button("Open mods folder").clicked() {
                         let _ = std::fs::create_dir_all(h.mods());
@@ -1501,33 +1833,251 @@ impl App {
                 .small()
                 .color(WEAK),
         );
+        ui.label(RichText::new("Left: mod folders. A check turns that folder's plugins on. A lower folder's copy of a file is the one used. Right: plugins. Click one to mark its folder.").small().color(WEAK));
+        self.backup_row(ui);
         self.start_box(ui);
         ui.separator();
+        let list_h = (ui.available_height() - 40.0).max(80.0);
+        ui.horizontal(|ui| {
+            let left_w = (ui.available_width() * 0.42).max(220.0);
+            ui.allocate_ui_with_layout(Vec2::new(left_w, list_h), Layout::top_down(Align::Min), |ui| {
+                ui.set_min_size(Vec2::new(left_w, list_h));
+                self.mod_column(ui);
+            });
+            let right_w = ui.available_width();
+            ui.allocate_ui_with_layout(Vec2::new(right_w, list_h), Layout::top_down(Align::Min), |ui| {
+                ui.set_min_size(Vec2::new(right_w, list_h));
+                self.plugin_column(ui);
+            });
+        });
+        ui.add_space(6.0);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let running = self.running();
+            if self.apply_ask {
+                if ui.add_enabled(!running, egui::Button::new("Apply")).clicked() {
+                    self.apply_ask = false;
+                    match self.apply_mods() {
+                        Ok(()) => self.message = Some(("Load order saved. Files were left in their folders.".into(), false)),
+                        Err(e) => self.message = Some((e, true)),
+                    }
+                }
+                if ui.button("Cancel").clicked() {
+                    self.apply_ask = false;
+                }
+                ui.label(RichText::new("Files stay in their folders.").small().color(WEAK));
+            } else if ui.add_enabled(!running, egui::Button::new("Apply")).on_hover_text("Saves the list. Does not copy files.").clicked() {
+                self.apply_ask = true;
+            }
+        });
+    }
+
+    fn mod_column(&mut self, ui: &mut egui::Ui) {
+        let mods_on = self.mod_rows.iter().filter(|r| r.on).count();
+        let mods_all = self.mod_rows.len();
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Mod Order").small().color(GOLD));
+            ui.label(RichText::new(format!("{mods_on} on / {mods_all}")).small().color(WEAK)).on_hover_text("Folders that are on, and folders that exist. There is no limit.");
+            if ui.button(if self.show_overwrites { "Hide overwrites" } else { "Show overwrites" }).clicked() {
+                self.show_overwrites = !self.show_overwrites;
+            }
+        });
+        ui.add(egui::TextEdit::singleline(&mut self.mod_find).hint_text("Find a mod").desired_width(ui.available_width()));
+        let mod_find = self.mod_find.trim().to_ascii_lowercase();
+        let marked = self.picked_plugin.as_ref().and_then(|key| self.plugin_home.get(key)).cloned();
+        if self.show_overwrites {
+            ui.label(RichText::new("Mods run from the top of this list to the bottom. The game checks the bottom mod last.").small().color(WEAK));
+            ui.label(RichText::new("If two checked mods contain the same file, the lower mod's copy is used. The higher mod's copy is skipped.").small().color(WEAK));
+            ui.label(RichText::new("Green means the copy in this mod is used. Red means the copy in this mod is skipped. The same result always uses the same color.").small().color(WEAK));
+            ui.label(RichText::new("The note names the other mod. Rest the pointer on a note to see which files.").small().color(WEAK));
+            if self.clashes.is_empty() {
+                ui.label(RichText::new("No two checked folders share a file.").small().color(WEAK));
+            }
+        }
+        egui::ScrollArea::vertical().id_salt("mod-folders").auto_shrink([false, false]).show(ui, |ui| {
+            if self.mod_rows.is_empty() {
+                ui.label(RichText::new("No folders in the mods folder.").small().color(WEAK));
+                return;
+            }
+            let n = self.mod_rows.len();
+            let mut moved: Option<(usize, usize)> = None;
+            let mut rects = Vec::with_capacity(n);
+            for i in 0..n {
+                let name = self.mod_rows[i].name.clone();
+                if !mod_find.is_empty() && !name.to_ascii_lowercase().contains(&mod_find) {
+                    rects.push(egui::Rect::NOTHING);
+                    continue;
+                }
+                let mut on = self.mod_rows[i].on;
+                let dragged = self.mod_drag == Some(i);
+                let shown = marked.as_deref() == Some(name.as_str());
+                let fill = if dragged || shown { theme::SELECTED } else { CARD };
+                let stroke = if dragged || shown { Stroke::new(1.0, if shown && !dragged { GOLD } else { theme::GOLD_DIM }) } else { Stroke::NONE };
+                let mut box_changed = false;
+                let row = ui.scope_builder(egui::UiBuilder::new().id_salt(("mod-folder", i)).sense(Sense::click_and_drag()), |ui| {
+                    Frame::new().fill(fill).stroke(stroke).corner_radius(4).inner_margin(Margin::symmetric(10, 4)).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            let (grip, _) = ui.allocate_exact_size(Vec2::new(14.0, 18.0), Sense::hover());
+                            let c = if dragged { GOLD } else { WEAK };
+                            for k in [-4.0, 0.0, 4.0] {
+                                let y = grip.center().y + k;
+                                ui.painter().line_segment([egui::pos2(grip.left() + 1.0, y), egui::pos2(grip.right() - 1.0, y)], Stroke::new(1.5, c));
+                            }
+                            if ui.checkbox(&mut on, "").changed() {
+                                box_changed = true;
+                            }
+                            ui.vertical(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(&name);
+                                    let count = self.folder_counts.get(&name).copied().unwrap_or(0);
+                                    if count > 0 {
+                                        ui.label(RichText::new(count.to_string()).small().color(WEAK)).on_hover_text("Plugins in this folder.");
+                                    }
+                                    if shown {
+                                        ui.label(RichText::new("clicked plugin").small().color(GOLD));
+                                    }
+                                });
+                                if self.show_overwrites {
+                                    if let Some(notes) = self.clashes.get(&name) {
+                                        let order: Vec<&str> = self.mod_rows.iter().map(|r| r.name.as_str()).collect();
+                                        let place = |mod_name: &str| order.iter().position(|n| *n == mod_name).unwrap_or(usize::MAX);
+                                        let mut used_mods: Vec<&str> = notes.iter().filter(|n| n.wins).map(|n| n.other.as_str()).collect();
+                                        let mut skipped_mods: Vec<&str> = notes.iter().filter(|n| !n.wins).map(|n| n.other.as_str()).collect();
+                                        used_mods.sort_by_key(|m| place(m));
+                                        skipped_mods.sort_by_key(|m| place(m));
+                                        let used_files: Vec<String> = notes.iter().filter(|n| n.wins).flat_map(|n| n.files.iter().map(|f| format!("{f}  (also in {})", n.other))).collect();
+                                        let skipped_files: Vec<String> = notes.iter().filter(|n| !n.wins).flat_map(|n| n.files.iter().map(|f| format!("{f}  (used from {})", n.other))).collect();
+                                        let file_word = |n: usize| if n == 1 { "file" } else { "files" };
+                                        let be = |n: usize| if n == 1 { "is" } else { "are" };
+                                        if !used_mods.is_empty() {
+                                            let nfiles = notes.iter().filter(|n| n.wins).flat_map(|n| n.files.iter()).collect::<HashSet<_>>().len();
+                                            let who = if used_mods.len() == 1 {
+                                                format!("{} is higher in the list, so the copy in that mod is skipped", used_mods[0])
+                                            } else {
+                                                format!("These mods are higher in the list, so the copy in each of them is skipped: {}", used_mods.join(", "))
+                                            };
+                                            let line = format!("{nfiles} shared {} in this mod {} used. {who}.", file_word(nfiles), be(nfiles));
+                                            ui.label(RichText::new(line).small().color(GOOD)).on_hover_text(used_files.join("\n"));
+                                        }
+                                        if !skipped_mods.is_empty() {
+                                            let nfiles = notes.iter().filter(|n| !n.wins).flat_map(|n| n.files.iter()).collect::<HashSet<_>>().len();
+                                            let who = if skipped_mods.len() == 1 {
+                                                format!("{} is lower in the list, so the copy in that mod is used", skipped_mods[0])
+                                            } else {
+                                                format!("These mods are lower in the list, so the copy in each of them is used: {}", skipped_mods.join(", "))
+                                            };
+                                            let line = format!("{nfiles} shared {} in this mod {} skipped. {who}.", file_word(nfiles), be(nfiles));
+                                            ui.label(RichText::new(line).small().color(BAD)).on_hover_text(skipped_files.join("\n"));
+                                        }
+                                    }
+                                }
+                            });
+                        });
+                    });
+                });
+                if box_changed {
+                    self.mod_rows[i].on = on;
+                    let folder = self.mod_rows[i].name.clone();
+                    let keys: HashSet<String> = self.plugin_home.iter().filter(|(_, owned)| *owned == &folder).map(|(key, _)| key.clone()).collect();
+                    if let Some(list) = &mut self.mods {
+                        for entry in &mut list.entries {
+                            if entry.name.eq_ignore_ascii_case("FalloutNV.esm") {
+                                continue;
+                            }
+                            if keys.contains(&entry.name.to_ascii_lowercase()) {
+                                entry.active = on;
+                            }
+                        }
+                    }
+                    self.mods_dirty = true;
+                    self.recompute_clashes();
+                }
+                let resp = row.response;
+                if resp.drag_started() && mod_find.is_empty() {
+                    self.mod_drag = Some(i);
+                }
+                if self.mod_jump && shown {
+                    ui.scroll_to_rect(resp.rect, Some(Align::Center));
+                    self.mod_jump = false;
+                }
+                let _ = resp.clone().on_hover_cursor(egui::CursorIcon::Grab);
+                rects.push(resp.rect);
+            }
+            if mod_find.is_empty() { if let Some(from) = self.mod_drag {
+                let ctx = ui.ctx().clone();
+                ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                if let Some(pos) = ctx.pointer_latest_pos() {
+                    let centers: Vec<f32> = rects.iter().map(|r| r.center().y).collect();
+                    let gap = insertion_index(&centers, pos.y);
+                    if let (Some(first), Some(last)) = (rects.first(), rects.last()) {
+                        let y = if gap < rects.len() { rects[gap].top() - ui.spacing().item_spacing.y / 2.0 } else { last.bottom() + ui.spacing().item_spacing.y / 2.0 };
+                        ui.painter().line_segment([egui::pos2(first.left(), y), egui::pos2(first.right(), y)], Stroke::new(2.0, GOLD));
+                    }
+                    let clip = ui.clip_rect();
+                    let edge = 36.0;
+                    if pos.y < clip.top() + edge {
+                        ui.scroll_with_delta(Vec2::new(0.0, 8.0));
+                    } else if pos.y > clip.bottom() - edge {
+                        ui.scroll_with_delta(Vec2::new(0.0, -8.0));
+                    }
+                    ctx.request_repaint();
+                    if !ctx.input(|i| i.pointer.any_down()) {
+                        self.mod_drag = None;
+                        let to = move_target(from, gap);
+                        if to != from {
+                            moved = Some((from, to));
+                        }
+                    }
+                }
+            }
+            }
+            if let Some((from, to)) = moved {
+                let row = self.mod_rows.remove(from);
+                self.mod_rows.insert(to, row);
+                self.mods_dirty = true;
+                self.recompute_clashes();
+            }
+        });
+    }
+
+    fn plugin_column(&mut self, ui: &mut egui::Ui) {
+        let folders = self.plugin_folders.clone();
+        let masters = self.plugin_masters.clone();
+        let active = self.mods.as_ref().map(|l| l.entries.iter().filter(|e| e.active).count()).unwrap_or(0);
+        let count_color = if active > 255 { BAD } else if active >= 250 { GOLD } else { WEAK };
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("PLUGINS").small().color(GOLD));
+            ui.label(RichText::new(format!("{active} / 255")).small().color(count_color)).on_hover_text("255 slots, counting the base game.");
+        });
         let Some(list) = &mut self.mods else {
             ui.label("No plugin list yet: set the game folder first, or start the game once.");
             return;
         };
-        let present: HashSet<String> = self
-            .home
-            .as_ref()
-            .zip(Config::from_ini(&self.ini_text).game_dir.and_then(|d| GameInstall::open(d).ok()))
-            .and_then(|(h, g)| plugins::present_plugins(&g, &h.mods()).ok())
-            .map(|v| v.into_iter().map(|s| s.to_ascii_lowercase()).collect())
-            .unwrap_or_default();
+        ui.add(egui::TextEdit::singleline(&mut self.plugin_find).hint_text("Find a plugin").desired_width(ui.available_width()));
+        let find = self.plugin_find.trim().to_ascii_lowercase();
+        let active_names: HashSet<String> = list.entries.iter().filter(|e| e.active).map(|e| e.name.to_ascii_lowercase()).collect();
+        let present = self.mods_present.clone();
+        let is_esm: Vec<bool> = list.entries.iter().map(|e| e.name.to_ascii_lowercase().ends_with(".esm")).collect();
         let n = list.entries.len();
         let is_base: Vec<bool> = list.entries.iter().map(|e| e.name.eq_ignore_ascii_case("FalloutNV.esm")).collect();
-        // The rows at the top that stay there (FalloutNV.esm): nothing moves above them.
         let fixed = is_base.iter().take_while(|b| **b).count();
         let mut moved: Option<(usize, usize)> = None;
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("plugin-rows").auto_shrink([false, false]).show(ui, |ui| {
             let mut rects = Vec::with_capacity(n);
+            let mut last_esm = false;
+            let mut toggled = false;
             for (i, e) in list.entries.iter_mut().enumerate() {
+                if !find.is_empty() && !e.name.to_ascii_lowercase().contains(&find) {
+                    continue;
+                }
+                if last_esm && !is_esm[i] {
+                    ui.separator();
+                }
+                last_esm = is_esm[i];
                 let base = is_base[i];
                 let dragged = self.mods_drag == Some(i);
                 let fill = if dragged { theme::SELECTED } else { CARD };
                 let stroke = if dragged { Stroke::new(1.0, theme::GOLD_DIM) } else { Stroke::NONE };
-                // The whole row drags (its sense sits below the checkbox's, so the box keeps its
-                // clicks); a click on the name turns the plugin on or off.
                 let sense = if base { Sense::hover() } else { Sense::click_and_drag() };
                 let mut name_rect = egui::Rect::NOTHING;
                 let row = ui.scope_builder(egui::UiBuilder::new().id_salt(("mod-row", i)).sense(sense), |ui| {
@@ -1535,7 +2085,6 @@ impl App {
                     Frame::new().fill(fill).stroke(stroke).corner_radius(4).inner_margin(Margin::symmetric(10, 4)).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
-                            // The grip: three short lines, drawn (the system font has no grip glyph).
                             let (grip, _) = ui.allocate_exact_size(Vec2::new(14.0, 18.0), Sense::hover());
                             if !base {
                                 let c = if hot { GOLD } else { WEAK };
@@ -1547,10 +2096,38 @@ impl App {
                             ui.label(RichText::new(format!("{:02X}", i)).monospace().color(WEAK));
                             if ui.add_enabled(!base, egui::Checkbox::without_text(&mut e.active)).changed() {
                                 self.mods_dirty = true;
+                                toggled = true;
+                                self.picked_plugin = Some(e.name.to_ascii_lowercase());
+                                self.mod_find.clear();
+                                self.mod_jump = true;
                             }
                             name_rect = ui.label(&e.name).rect;
-                            if !present.is_empty() && !present.contains(&e.name.to_ascii_lowercase()) {
+                            if let Some(folder) = self.plugin_home.get(&e.name.to_ascii_lowercase()) {
+                                ui.label(RichText::new(format!("in {folder}")).small().color(WEAK));
+                            }
+                            let key = e.name.to_ascii_lowercase();
+                            if !present.is_empty() && !present.contains(&key) {
                                 ui.label(RichText::new("missing").small().color(BAD));
+                            }
+                            if let Some(have) = folders.get(&key).filter(|v| v.len() > 1) {
+                                if let Some(win) = have.last() {
+                                    let lost: Vec<&str> = have[..have.len() - 1].iter().map(String::as_str).collect();
+                                    let skipped = if lost.len() == 1 {
+                                        format!("The copy in {} is skipped.", lost[0])
+                                    } else {
+                                        format!("The copies in these mods are skipped: {}.", lost.join(", "))
+                                    };
+                                    ui.label(RichText::new(format!("The copy in {win} is used.")).small().color(GOOD)).on_hover_text(note_files(&self.folder_files, win, &e.name));
+                                    ui.label(RichText::new(skipped).small().color(BAD)).on_hover_text(lost.iter().map(|loser| note_files(&self.folder_files, loser, &e.name)).collect::<Vec<_>>().join("\n"));
+                                }
+                            }
+                            if e.active {
+                                if let Some(need) = masters.get(&key) {
+                                    let off: Vec<&str> = need.iter().filter(|m| !active_names.contains(&m.to_ascii_lowercase())).map(String::as_str).collect();
+                                    if !off.is_empty() {
+                                        ui.label(RichText::new(format!("needs {}", off.join(", "))).small().color(BAD));
+                                    }
+                                }
                             }
                         });
                     });
@@ -1560,13 +2137,35 @@ impl App {
                     if resp.drag_started() {
                         self.mods_drag = Some(i);
                     }
+                    if resp.clicked() {
+                        self.picked_plugin = Some(e.name.to_ascii_lowercase());
+                        self.mod_find.clear();
+                        self.mod_jump = true;
+                    }
                     if resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| name_rect.contains(p)) {
                         e.active = !e.active;
                         self.mods_dirty = true;
+                        toggled = true;
                     }
                     let _ = resp.clone().on_hover_cursor(egui::CursorIcon::Grab);
                 }
                 rects.push(resp.rect);
+            }
+            if toggled {
+                let homes = self.plugin_home.clone();
+                let active_now: HashSet<String> = list.entries.iter().filter(|e| e.active).map(|e| e.name.to_ascii_lowercase()).collect();
+                for row in &mut self.mod_rows {
+                    let has = homes.values().any(|folder| folder == &row.name);
+                    if !has {
+                        continue;
+                    }
+                    row.on = homes.iter().any(|(plugin, folder)| folder == &row.name && active_now.contains(plugin));
+                }
+                let rows: Vec<(String, bool)> = self.mod_rows.iter().map(|r| (r.name.clone(), r.on)).collect();
+                self.clashes = clash_notes(&rows, &self.folder_files);
+            }
+            if !find.is_empty() {
+                return;
             }
             let Some(from) = self.mods_drag else { return };
             let ctx = ui.ctx().clone();
@@ -1574,12 +2173,10 @@ impl App {
             let Some(pos) = ctx.pointer_latest_pos() else { return };
             let centers: Vec<f32> = rects.iter().map(|r| r.center().y).collect();
             let gap = insertion_index(&centers, pos.y).max(fixed);
-            // The gold line where the row will land.
             if let (Some(first), Some(last)) = (rects.first(), rects.last()) {
                 let y = if gap < rects.len() { rects[gap].top() - ui.spacing().item_spacing.y / 2.0 } else { last.bottom() + ui.spacing().item_spacing.y / 2.0 };
                 ui.painter().line_segment([egui::pos2(first.left(), y), egui::pos2(first.right(), y)], Stroke::new(2.0, GOLD));
             }
-            // Near the list's top or bottom edge, scroll.
             let clip = ui.clip_rect();
             let edge = 36.0;
             if pos.y < clip.top() + edge {
@@ -1601,6 +2198,29 @@ impl App {
             list.entries.insert(to, e);
             self.mods_dirty = true;
         }
+    }
+
+    fn write_mod_order(&self) -> Result<(), String> {
+        let home = self.home.as_ref().ok_or("no home folder")?;
+        let path = home.root.join("mod-order.txt");
+        let mut body = String::from("; A star means this folder is on.\n");
+        for row in &self.mod_rows {
+            if row.on {
+                body.push('*');
+            }
+            body.push_str(&row.name);
+            body.push('\n');
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    fn apply_mods(&mut self) -> Result<(), String> {
+        self.save_mods()?;
+        self.mods_dirty = false;
+        Ok(())
     }
 
     /// A new game's start (src/start.rs, #2945): the start quest and intro film typed in,
@@ -1626,7 +2246,7 @@ impl App {
                 ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("VCG00 (New Vegas opening); TTW: 001FFFF8").desired_width(w));
                 ui.end_row();
                 ui.label("Intro film");
-                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text(r"fnvintro.bik (a file in Data\Video)").desired_width(w));
+                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text(if cfg!(windows) { r"fnvintro.bik (a file in Data\Video)" } else { "fnvintro.bik (a file in Data/Video)" }).desired_width(w));
                 ui.end_row();
                 ui.label("");
                 ui.checkbox(&mut self.start_edit.no_film, "No intro film");
@@ -1647,6 +2267,10 @@ impl App {
             if self.start_edit.is_ttw() && ttw == Some(false) {
                 ui.label(RichText::new(format!("{} is off in the list below: turn it on, or this start quest is not found.", start::TTW_PLUGIN)).small().color(BAD));
             }
+            let quest = self.start_edit.quest.trim();
+            if ttw == Some(true) && !self.start_edit.is_ttw() && (quest.is_empty() || quest.eq_ignore_ascii_case("VCG00")) {
+                ui.label(RichText::new("Tale of Two Wastelands is on, and a new game still starts at the New Vegas opening.").small().color(BAD));
+            }
         });
         if save {
             let fields = self.start_edit.clone();
@@ -1663,11 +2287,274 @@ impl App {
         }
     }
 
+    fn keep_plugin_backup(&self, path: &Path, next: &[u8]) -> Result<(), String> {
+        let keep = self.backup_keep;
+        if keep == 0 || !path.is_file() {
+            return Ok(());
+        }
+        let old = std::fs::read(path).unwrap_or_default();
+        if old.is_empty() || old.as_slice() == next {
+            return Ok(());
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("plugins.txt");
+        let bak = |i: usize| path.with_file_name(format!("{name}.bak.{i}"));
+        if bak(1).is_file() && std::fs::read(bak(1)).ok().as_deref() == Some(old.as_slice()) {
+            return Ok(());
+        }
+        for i in (1..keep).rev() {
+            let from = bak(i);
+            if from.is_file() {
+                std::fs::rename(&from, bak(i + 1)).map_err(|e| format!("{}: {e}", from.display()))?;
+            }
+        }
+        for i in (keep + 1)..(keep + 40) {
+            let extra = bak(i);
+            if extra.is_file() {
+                let _ = std::fs::remove_file(&extra);
+            }
+        }
+        std::fs::write(bak(1), &old).map_err(|e| format!("{}: {e}", bak(1).display()))
+    }
+
+    fn store_backup(&self, path: &Path, body: &[u8]) -> Result<bool, String> {
+        let keep = self.backup_keep;
+        if keep == 0 {
+            return Err("Set Max backups kept above 0.".into());
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("plugins.txt");
+        let bak = |i: usize| path.with_file_name(format!("{name}.bak.{i}"));
+        if let Some(parent) = bak(1).parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        if bak(1).is_file() && std::fs::read(bak(1)).ok().as_deref() == Some(body) {
+            return Ok(false);
+        }
+        for i in (1..keep).rev() {
+            let from = bak(i);
+            if from.is_file() {
+                std::fs::rename(&from, bak(i + 1)).map_err(|e| format!("{}: {e}", from.display()))?;
+            }
+        }
+        for i in (keep + 1)..(keep + 40) {
+            let extra = bak(i);
+            if extra.is_file() {
+                let _ = std::fs::remove_file(&extra);
+            }
+        }
+        std::fs::write(bak(1), body).map_err(|e| format!("{}: {e}", bak(1).display()))?;
+        Ok(true)
+    }
+
+    fn save_order_backup(&self) -> Result<&'static str, String> {
+        if self.backup_keep == 0 {
+            return Err("Set Backups above 0.".into());
+        }
+        let home = self.home.as_ref().ok_or("no home folder")?;
+        let list = self.mods.as_ref().ok_or("no plugin list")?;
+        let mut order = String::from("; A star means this folder is on.\n");
+        for row in &self.mod_rows {
+            if row.on {
+                order.push('*');
+            }
+            order.push_str(&row.name);
+            order.push('\n');
+        }
+        let plugins_new = self.store_backup(&home.plugins_file(), list.to_text().as_bytes())?;
+        let order_new = self.store_backup(&home.root.join("mod-order.txt"), order.as_bytes())?;
+        if plugins_new || order_new { Ok("Backup saved.") } else { Ok("That backup is already the newest.") }
+    }
+
+    fn backup_row(&mut self, ui: &mut egui::Ui) {
+        let Some(home) = self.home.clone() else { return };
+        if self.backup_keep != self.backup_max as usize {
+            self.backup_keep = self.backup_max as usize;
+            self.set_launcher_key("PluginBackups", &self.backup_max.to_string());
+        }
+        let files = plugin_backups(&home);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Max backups kept").small().color(WEAK))
+                .on_hover_text("The most load-order copies to keep. Not how many exist now.");
+            egui::ComboBox::from_id_salt("plugin-backup-max").selected_text(self.backup_max.to_string()).show_ui(ui, |ui| {
+                for n in BACKUP_MAX {
+                    if ui.selectable_label(self.backup_max == *n, n.to_string()).clicked() && self.backup_max != *n {
+                        match write_backup_max(&home, *n) {
+                            Ok(()) => {
+                                self.backup_max = *n;
+                                self.backup_keep = *n as usize;
+                                self.set_launcher_key("PluginBackups", &n.to_string());
+                                prune_plugin_backups(&home, *n);
+                                self.backup_pick = self.backup_pick.take().filter(|pick| plugin_backups(&home).iter().any(|p| backup_label(p) == *pick));
+                                self.message = Some((format!("At most {n} load-order backups are kept."), false));
+                            }
+                            Err(e) => self.message = Some((e, true)),
+                        }
+                    }
+                }
+            });
+            let shown = self.backup_pick.clone().unwrap_or_else(|| if files.is_empty() { "no backups".into() } else { "choose a backup".into() });
+            egui::ComboBox::from_id_salt("plugin-backup-which").selected_text(shown).show_ui(ui, |ui| {
+                for path in &files {
+                    let label = backup_label(path);
+                    if ui.selectable_label(self.backup_pick.as_deref() == Some(label.as_str()), &label).clicked() {
+                        self.backup_pick = Some(label);
+                    }
+                }
+            });
+            if ui.add_enabled(self.backup_pick.is_some(), egui::Button::new("Load backup")).clicked() {
+                if let Some(label) = self.backup_pick.clone() {
+                    let path = backup_dir(&home).join(format!("plugins-{label}.txt"));
+                    match std::fs::read_to_string(&path) {
+                        Ok(text) => {
+                            self.mods = Some(plugins::PluginList::parse(&text));
+                            self.mods_dirty = true;
+                            self.message = Some(("Backup loaded into the list. Save to keep it.".into(), false));
+                        }
+                        Err(e) => self.message = Some((e.to_string(), true)),
+                    }
+                }
+            }
+            let can_backup = self.backup_keep > 0 && self.mods.is_some();
+            let tip = if self.backup_keep == 0 { "Set Max backups kept above 0." } else { "Stores this mod order and plugin list. The lists the game uses stay as they are." };
+            if ui.add_enabled(can_backup, egui::Button::new("Save backup")).on_hover_text(tip).clicked() {
+                match self.save_order_backup() {
+                    Ok(said) => self.message = Some((said.into(), false)),
+                    Err(e) => self.message = Some((e, true)),
+                }
+            }
+        });
+    }
+
     fn save_mods(&mut self) -> Result<(), String> {
         let (Some(home), Some(list)) = (&self.home, &self.mods) else { return Err("no plugin list".into()) };
         let path = home.plugins_file();
+        let next = list.to_text();
+        let previous = std::fs::read(&path).unwrap_or_default();
+        if previous.as_slice() != next.as_bytes() {
+            keep_plugin_backup(home, &previous, self.backup_max)?;
+        }
         guard_write(&path, self.game().as_ref()).map_err(|e| e.to_string())?;
-        write_whole(&path, list.to_text().as_bytes()).map_err(|e| e.to_string())
+        let body = list.to_text();
+        self.keep_plugin_backup(&path, body.as_bytes())?;
+        write_whole(&path, body.as_bytes()).map_err(|e| e.to_string())?;
+        self.write_mod_order()
+    }
+
+    fn game_folders() -> Vec<(PathBuf, &'static str)> {
+        fn add_game(path: &Path, store: &'static str, found: &mut Vec<(PathBuf, &'static str)>, seen: &mut HashSet<PathBuf>) {
+            if GameInstall::open(path).is_err() {
+                return;
+            }
+            let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            if seen.insert(key) {
+                found.push((path.to_path_buf(), store));
+            }
+        }
+        fn consider(path: &Path, store: &'static str, found: &mut Vec<(PathBuf, &'static str)>, seen: &mut HashSet<PathBuf>) {
+            if !path.is_dir() {
+                return;
+            }
+            if GameInstall::open(path).is_ok() {
+                add_game(path, store, found, seen);
+                return;
+            }
+            let Ok(rd) = std::fs::read_dir(path) else { return };
+            for entry in rd.flatten() {
+                let child = entry.path();
+                if child.is_dir() {
+                    add_game(&child, store, found, seen);
+                }
+            }
+        }
+        fn paths_in_json(text: &str) -> Vec<PathBuf> {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else { return Vec::new() };
+            fn walk(value: &serde_json::Value, out: &mut Vec<PathBuf>) {
+                match value {
+                    serde_json::Value::Object(map) => {
+                        for key in ["install_path", "installPath", "install_dir"] {
+                            if let Some(serde_json::Value::String(path)) = map.get(key) {
+                                if !path.is_empty() {
+                                    out.push(PathBuf::from(path));
+                                }
+                            }
+                        }
+                        for child in map.values() {
+                            walk(child, out);
+                        }
+                    }
+                    serde_json::Value::Array(items) => {
+                        for child in items {
+                            walk(child, out);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            walk(&value, &mut out);
+            out
+        }
+        let mut found = Vec::new();
+        let mut seen = HashSet::new();
+        let Some(home_os) = std::env::var_os("HOME") else { return found };
+        let home = PathBuf::from(home_os);
+        let mut parents: Vec<(PathBuf, &'static str)> = Vec::new();
+        for rel in [".steam/steam", ".local/share/Steam", ".var/app/com.valvesoftware.Steam/data/Steam"] {
+            let steam = home.join(rel);
+            if !steam.is_dir() {
+                continue;
+            }
+            parents.push((steam.join("steamapps/common"), "Steam"));
+            if let Ok(text) = std::fs::read_to_string(steam.join("steamapps/libraryfolders.vdf")) {
+                for line in text.lines() {
+                    let Some(rest) = line.trim().strip_prefix("\"path\"") else { continue };
+                    let rest = rest.trim().trim_matches('"');
+                    if !rest.is_empty() {
+                        parents.push((PathBuf::from(rest).join("steamapps/common"), "Steam"));
+                    }
+                }
+            }
+        }
+        for rel in ["GOG Games", ".wine/drive_c/GOG Games", ".wine/drive_c/Program Files (x86)/GOG Galaxy/Games"] {
+            parents.push((home.join(rel), "GOG"));
+        }
+        for rel in [".wine/drive_c/Program Files/Epic Games", ".wine/drive_c/Program Files (x86)/Epic Games"] {
+            parents.push((home.join(rel), "Epic"));
+        }
+        for rel in ["Games", "Games/Heroic"] {
+            let root = home.join(rel);
+            let Ok(rd) = std::fs::read_dir(&root) else { continue };
+            for entry in rd.flatten() {
+                let child = entry.path();
+                if !child.is_dir() {
+                    continue;
+                }
+                let store = match child.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase() {
+                    n if n.contains("epic") => "Epic",
+                    n if n.contains("gog") => "GOG",
+                    n if n.contains("steam") => "Steam",
+                    _ => "Heroic",
+                };
+                parents.push((child, store));
+            }
+        }
+        for (rel, store) in [
+            (".config/legendary/installed.json", "Epic"),
+            (".config/heroic/legendaryConfig/legendary/installed.json", "Epic"),
+            (".var/app/com.heroicgameslauncher.hgl/config/heroic/legendaryConfig/legendary/installed.json", "Epic"),
+            (".config/heroic/gog_store/installed.json", "GOG"),
+            (".var/app/com.heroicgameslauncher.hgl/config/heroic/gog_store/installed.json", "GOG"),
+            (".config/minigalaxy/config.json", "GOG"),
+        ] {
+            if let Ok(text) = std::fs::read_to_string(home.join(rel)) {
+                for folder in paths_in_json(&text) {
+                    parents.push((folder, store));
+                }
+            }
+        }
+        for (parent, store) in parents {
+            consider(&parent, store, &mut found, &mut seen);
+        }
+        found
     }
 
     fn game_page(&mut self, ui: &mut egui::Ui) {
@@ -1677,10 +2564,30 @@ impl App {
         card(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.game_edit).desired_width(ui.available_width() - 190.0));
+                let reserve = if cfg!(windows) { 190.0 } else { 360.0 };
+                ui.add(egui::TextEdit::singleline(&mut self.game_edit).desired_width(ui.available_width() - reserve));
                 if cfg!(windows) && ui.button("Browse…").clicked() {
                     if let Some(d) = pick_folder("Your Fallout: New Vegas folder") {
                         self.game_edit = d.display().to_string();
+                    }
+                }
+                if !cfg!(windows) && ui.button("Find game folder").clicked() {
+                    match Self::game_folders().as_slice() {
+                        [] => self.message = Some(("No Fallout: New Vegas folder in Steam, GOG, or Epic.".into(), true)),
+                        [one] => {
+                            self.game_edit = one.0.display().to_string();
+                            self.message = Some((format!("Filled in {} from {}.", one.0.display(), one.1), false));
+                        }
+                        many => {
+                            let pick = many.iter().find(|p| {
+                                p.0.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                                    let n = n.to_ascii_lowercase();
+                                    n.contains("vegas") || n.contains("fallout")
+                                })
+                            }).unwrap_or(&many[0]);
+                            self.game_edit = pick.0.display().to_string();
+                            self.message = Some((format!("Found {}. Filled in {} from {}.", many.len(), pick.0.display(), pick.1), false));
+                        }
                     }
                 }
                 if ui.button(RichText::new("Save").strong()).clicked() {
@@ -2348,4 +3255,82 @@ mod tests {
         assert_eq!(preview(&wide_end, false), (wide_end.as_str(), false));
         assert_eq!(preview(&long, true), (long.as_str(), true));
     }
+}
+
+const BACKUP_MAX: &[u32] = &[1, 3, 5, 10, 20];
+const BACKUP_MAX_DEFAULT: u32 = 5;
+
+fn backup_dir(home: &EngineHome) -> PathBuf {
+    home.root.join("plugin-backups")
+}
+
+fn backup_label(path: &std::path::Path) -> String {
+    path.file_name().and_then(|n| n.to_str()).unwrap_or("backup").trim_start_matches("plugins-").trim_end_matches(".txt").to_string()
+}
+
+fn read_backup_max(home: Option<&EngineHome>) -> u32 {
+    let Some(home) = home else { return BACKUP_MAX_DEFAULT };
+    std::fs::read_to_string(backup_dir(home).join("max")).ok().and_then(|t| t.trim().parse().ok()).filter(|n| BACKUP_MAX.contains(n)).unwrap_or(BACKUP_MAX_DEFAULT)
+}
+
+fn write_backup_max(home: &EngineHome, max: u32) -> Result<(), String> {
+    let dir = backup_dir(home);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("max");
+    guard_write(&path, None).map_err(|e| e.to_string())?;
+    write_whole(&path, max.to_string().as_bytes()).map_err(|e| e.to_string())
+}
+
+fn plugin_backups(home: &EngineHome) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(backup_dir(home)).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("plugins-") && n.ends_with(".txt"))).collect();
+    files.sort();
+    files
+}
+
+fn prune_plugin_backups(home: &EngineHome, max: u32) {
+    let files = plugin_backups(home);
+    let keep = max as usize;
+    if files.len() > keep {
+        for path in &files[..files.len() - keep] {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+fn backup_stamp() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
+    let days = secs.div_euclid(86400);
+    let sod = secs.rem_euclid(86400) as u32;
+    let (h, min, sec) = (sod / 3600, (sod % 3600) / 60, sod % 60);
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let mut y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    if m <= 2 { y += 1; }
+    format!("{y:04}-{m:02}-{d:02}-{h:02}{min:02}{sec:02}")
+}
+
+fn keep_plugin_backup(home: &EngineHome, bytes: &[u8], max: u32) -> Result<(), String> {
+    if bytes.is_empty() || max == 0 {
+        prune_plugin_backups(home, max);
+        return Ok(());
+    }
+    let dir = backup_dir(home);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stamp = backup_stamp();
+    let mut dest = dir.join(format!("plugins-{stamp}.txt"));
+    let mut n = 2u32;
+    while dest.exists() {
+        dest = dir.join(format!("plugins-{stamp}-{n}.txt"));
+        n += 1;
+    }
+    guard_write(&dest, None).map_err(|e| e.to_string())?;
+    write_whole(&dest, bytes).map_err(|e| e.to_string())?;
+    prune_plugin_backups(home, max);
+    Ok(())
 }
