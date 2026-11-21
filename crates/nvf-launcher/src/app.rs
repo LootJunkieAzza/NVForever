@@ -147,8 +147,6 @@ pub struct App {
     profile_pick: Option<String>,
     /// The Profiles box, so a drop there is not installed as a mod.
     profile_rect: egui::Rect,
-    /// Clear links is asking before it removes linked mods.
-    clear_links_ask: bool,
     /// An open archive installer. Nothing else is added until it is finished.
     wizard: Option<crate::fomod::Wizard>,
     /// Bottom bar height. Saved when the user lets go of the grip.
@@ -254,7 +252,6 @@ impl App {
             profile_choices: Vec::new(),
             profile_pick: None,
             profile_rect: egui::Rect::NOTHING,
-            clear_links_ask: false,
             wizard: None,
             bar_h: 86.0,
             monitors: crate::display::monitors(),
@@ -2733,19 +2730,6 @@ impl App {
                 if ui.add_enabled(self.profile_pick.is_some(), egui::Button::new("Load")).on_hover_text("Puts that profile's folder order and plugin order into this page. Files stay where they are.").clicked() {
                     self.load_chosen_profile();
                 }
-                // Asks once. Clear them removes only profile links that point inside the mods folder.
-                if self.clear_links_ask {
-                    if ui.button("Clear them").clicked() {
-                        self.clear_links_ask = false;
-                        self.clear_linked_mods();
-                    }
-                    if ui.button("Cancel").clicked() {
-                        self.clear_links_ask = false;
-                    }
-                } else if ui.button("Clear links").on_hover_text("Removes a mod only when this page added it while loading a profile, and only when that link points at another folder already in the mods folder. Every other link stays. The game Data folder is not changed.").clicked() {
-                    self.clear_links_ask = true;
-                    self.message = Some(("Clear profile links that point at another folder in the mods folder? The game Data folder is not changed.".into(), false));
-                }
             });
         });
         self.profile_rect = block.response.rect;
@@ -2860,102 +2844,6 @@ impl App {
         self.message = Some((format!("Loaded {name}: {folders} folders, {linked} files linked into Data, {skipped} left in place, {missing} not found. Nothing was copied. Save to keep the order."), false));
     }
 
-    /// Removes profile links that point at another folder already in the mods folder, and takes their plugins off the list. Other links stay. The game Data folder is not changed.
-    fn clear_linked_mods(&mut self) {
-        let Some(home) = &self.home else {
-            self.message = Some(("No mods folder yet.".into(), true));
-            return;
-        };
-        let mods = home.mods();
-        let record = mods.join(".nvf-profile-links");
-        let names = Self::recorded_links(&record);
-        if names.is_empty() {
-            self.message = Some(("No profile links were recorded. Nothing was removed.".into(), false));
-            return;
-        }
-        let Ok(mods_root) = std::fs::canonicalize(&mods) else {
-            self.message = Some(("The mods folder could not be read. Nothing was removed.".into(), true));
-            return;
-        };
-        let mut removing = Vec::new();
-        let mut drop_plugins = HashSet::new();
-        for name in &names {
-            let path = mods.join(name);
-            if !Self::profile_link_inside_mods(&mods_root, name, &path) {
-                continue;
-            }
-            for (plugin, _) in plugins::plugins_in_tree(&path) {
-                drop_plugins.insert(plugin.to_ascii_lowercase());
-            }
-            removing.push(name.clone());
-        }
-        let mut keep_plugins = HashSet::new();
-        if let Ok(rd) = std::fs::read_dir(&mods) {
-            for entry in rd.flatten() {
-                let path = entry.path();
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if removing.iter().any(|n| n.eq_ignore_ascii_case(&name)) || !path.is_dir() {
-                    continue;
-                }
-                for (plugin, _) in plugins::plugins_in_tree(&path) {
-                    keep_plugins.insert(plugin.to_ascii_lowercase());
-                }
-            }
-        }
-        drop_plugins.retain(|name| !keep_plugins.contains(name));
-        let keys: HashSet<String> = removing.iter().map(|n| n.to_ascii_lowercase()).collect();
-        self.mod_rows.retain(|row| !keys.contains(&row.name.to_ascii_lowercase()));
-        if let Some(list) = &mut self.mods {
-            list.entries.retain(|entry| entry.name.eq_ignore_ascii_case("FalloutNV.esm") || !drop_plugins.contains(&entry.name.to_ascii_lowercase()));
-        }
-        let mut removed = 0usize;
-        for name in &removing {
-            let path = mods.join(name);
-            if Self::profile_link_inside_mods(&mods_root, name, &path) && std::fs::remove_file(&path).is_ok() {
-                removed += 1;
-            }
-        }
-        let left: Vec<String> = names.into_iter().filter(|n| !removing.iter().any(|r| r.eq_ignore_ascii_case(n))).collect();
-        Self::write_recorded_links(&record, &left);
-        self.mods_dirty = true;
-        self.refresh_plugin_notes();
-        self.recompute_clashes();
-        let plugins_n = drop_plugins.len();
-        self.message = Some((format!("Cleared {removed} profile links and {plugins_n} plugins. Other links were left alone. The game Data folder was not changed."), false));
-    }
-
-    fn recorded_links(path: &Path) -> Vec<String> {
-        std::fs::read_to_string(path)
-            .unwrap_or_default()
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.contains('/') && !line.contains('\\') && !line.contains(".."))
-            .map(str::to_string)
-            .collect()
-    }
-
-    fn write_recorded_links(path: &Path, names: &[String]) {
-        let mut body = String::new();
-        for name in names {
-            body.push_str(name);
-            body.push('\n');
-        }
-        let _ = std::fs::write(path, body);
-    }
-
-    /// True when this link points at a different folder that is already inside the mods folder.
-    fn profile_link_inside_mods(mods_root: &Path, name: &str, path: &Path) -> bool {
-        let Ok(meta) = std::fs::symlink_metadata(path) else { return false };
-        if !meta.file_type().is_symlink() {
-            return false;
-        }
-        let Ok(target) = std::fs::canonicalize(path) else { return false };
-        let Ok(rel) = target.strip_prefix(mods_root) else { return false };
-        let Some(first) = rel.components().next() else { return false };
-        let holder = first.as_os_str().to_string_lossy();
-        !holder.is_empty() && !holder.starts_with('.') && !holder.eq_ignore_ascii_case(name)
-    }
-
     /// Links each turned-on mod that is one mod, not a folder of mods, into the game Data folder. Files are never copied.
     fn link_on_rows_into_data(&self) {
         let Some(game) = self.game() else { return };
@@ -3015,27 +2903,17 @@ impl App {
     }
 
     /// Makes `mods/name` a link to `src` when that name is not already there.
-    /// A link that points at another folder in the mods folder is written down, so Clear links can remove that one later.
     fn ensure_mod_link(mods: &Path, name: &str, src: &Path) {
         let dest = mods.join(name);
         if dest.exists() || !src.is_dir() {
             return;
         }
-        let Ok(mods_root) = std::fs::canonicalize(mods) else { return };
-        let Ok(target) = std::fs::canonicalize(src) else { return };
-        let _ = std::os::unix::fs::symlink(&target, &dest);
-        let Ok(rel) = target.strip_prefix(&mods_root) else { return };
-        let Some(first) = rel.components().next() else { return };
-        let holder = first.as_os_str().to_string_lossy();
-        if holder.eq_ignore_ascii_case(name) || holder.starts_with('.') {
+        // The mods folder has to resolve before a link is made.
+        if std::fs::canonicalize(mods).is_err() {
             return;
         }
-        let record = mods.join(".nvf-profile-links");
-        let mut names = Self::recorded_links(&record);
-        if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
-            names.push(name.to_string());
-            Self::write_recorded_links(&record, &names);
-        }
+        let Ok(target) = std::fs::canonicalize(src) else { return };
+        let _ = std::os::unix::fs::symlink(&target, &dest);
     }
 
     /// Links the mod's files into `data`. A real file already there is left in place. Nothing is copied.
