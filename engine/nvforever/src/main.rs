@@ -1801,6 +1801,10 @@ fn main() -> AppExit {
                     visible: args.handoff.is_none(),
                     // Player 2's window in split screen never takes the focus (split.rs).
                     focused: args.split_p2.is_none(),
+                    // ... and is borderless from the start: a frame taken off later shows the
+                    // window again, which on Windows activates it [documented: winit 0.30
+                    // `WindowFlags::apply_diff`, `SW_SHOW` after the first `SW_SHOWNOACTIVATE`].
+                    decorations: args.split_p2.is_none(),
                     // Measuring frame times: not held to the display's refresh, unless
                     // `NVF_FRAME_TIMES_VSYNC=1` holds it there (measuring what a heavy
                     // effect costs the GPU without running it flat out: fire_volume.rs "Cost").

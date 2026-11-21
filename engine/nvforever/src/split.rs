@@ -26,8 +26,8 @@
 //!   was. A lobby opened only for player 2 closes once it is empty.
 //! - **`--split-p2 <dir>`** (player 2, started by player 1): `<dir>` is player 1's session
 //!   folder. This game's window is borderless on its half, owned by player 1's window (they
-//!   move, minimise and stay on top together) and never takes focus, so the keyboard stays
-//!   player 1's [design]. It quits when player 1's game has been gone for [`P1_GONE`].
+//!   move, minimise and stay on top together) and never keeps the focus, so the keyboard
+//!   stays player 1's (Focus, below) [design]. It quits when player 1's game has been gone for [`P1_GONE`].
 //! - **Characters** (plan §7): player 2 plays one of four premades
 //!   (`fnv_game::split_premade`). Player 1's game writes one save per premade into player
 //!   2's home ([`premade_saves`]) and starts player 2's on its main menu, joining, with the
@@ -37,19 +37,47 @@
 //!   the layout, the screen's rectangle and the loopback port player 2's game joins, which
 //!   it follows when a load's restart had to take another) and `p2.txt` (player 2's process and the port
 //!   its controller arrives on). Player 2's own home is `split\p2-home` beside them.
-//! - **Controllers.** Player 1's game reads every controller. The first one that presses A
-//!   (South) while player 2 has none, and isn't the one player 1 last used, becomes player
-//!   2's. Player 1's game then never sees it (its `Gamepad` is taken off, so nothing in
-//!   this game reads it) and relays its buttons and sticks to player 2's game every frame
-//!   (127.0.0.1 UDP). Player 2's game reads no real controller (Windows may not deliver a
-//!   controller's input to a window without focus, and player 2's never has it) and plays
-//!   the relayed one as a controller of its own, so its menus and controls work unchanged.
-//!   A controller that comes back after being unplugged (same name, vendor and product) is
-//!   player 2's again.
+//! - **Controllers** [owner 2026-11-20: "each connected controller/ mouse and keyboard
+//!   should be assigned to a window when you start up split screen"]. Player 1's game
+//!   reads every controller and gives them out on split screen's first frame, however it
+//!   started (Add Player 2, the main menu's entry, `--split`, a load's restart;
+//!   [`assign_pads`]): the keyboard and mouse are player 1's; so is the controller player 1
+//!   last used ([`LastPad`]), or, for a player 1 who plays on a controller (the Input Device
+//!   setting) and used none yet, the first connected; player 2 gets the next connected one.
+//!   A load's new run gives player 2 the controller it had (`p2pad` in `p1.txt`). One
+//!   plugged in later while player 2 has none is player 2's ([`plugged_in_goes_to`]); the
+//!   first other one that presses A (South) while player 2 has none is too, a fallback.
+//!   The assignment is logged and shown in player 1's corner messages. Player 1's game never
+//!   acts on player 2's controller (its `Gamepad` is taken off, so nothing in this game
+//!   reads it) and relays its buttons and sticks to player 2's game every frame (127.0.0.1
+//!   UDP). Player 2's game reads no real controller and plays the relayed one as a
+//!   controller of its own, so its menus and controls work unchanged. A controller that
+//!   comes back after being unplugged (same name, vendor and product) is player 2's again.
+//!   Ending split screen gives every device back to player 1's game.
+//! - **Focus.** Windows sends the keyboard only to the window with the focus [documented:
+//!   Win32 keyboard input, the foreground window's thread], winit sends raw mouse motion
+//!   only while one of the program's windows has it (`DeviceEvents::WhenFocused`, its
+//!   default) and Windows Gaming Input, which reads the controllers (gilrs), gives a program
+//!   controller input only while a window of its own has it [documented: gilrs 0.11
+//!   lib.rs, "Windows Gaming Input requires an in focus window"]. So both players' input
+//!   rests on player 1's window keeping the focus, and player 2's never using what it gets:
+//!   - player 2's game drops this PC's keyboard and mouse before anything sees them
+//!     (`bevy::winit::hardware_input`, the vendored bevy_winit), whichever window has the
+//!     focus; test aids' own input still works there;
+//!   - player 2's window is borderless from its start and never activated by a click
+//!     (`WS_EX_NOACTIVATE`); winit shows a window again, activating it, when a flag such
+//!     as its frame changes after its first show, which is how player 2's window could take
+//!     the focus [documented: winit 0.30 `WindowFlags::apply_diff`] (the owner's report of
+//!     both players' input in one window);
+//!   - should player 2's window have the focus all the same, its game hands it straight
+//!     back to player 1's window, the next frame ([`p2_give_focus_back`]; a program may give
+//!     the focus away while it holds it).
 //!
 //! Log: `split: split screen on`, `split: split screen ended (…)`,
-//! `split: player 2's game started (pid …)`, `split: player 2's controller is …`,
-//! `split: player 2's controller unplugged`, `split: player 1's game is gone: quitting`.
+//! `split: player 2's game started (pid …)`, `split: controllers assigned (…)`,
+//! `split: player 2's controller is …`, `split: player 2's controller unplugged`,
+//! `split: every controller is player 1's again …`, `split: focus: …`, `split: input: …`,
+//! `split: player 1's game is gone: quitting`.
 
 use std::net::{SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
@@ -249,10 +277,16 @@ impl Plugin for SplitPlugin {
             // Its HUD and menus are drawn for its half (player 1's file says which).
             app.insert_resource(at_start(&dir, true));
             let socket = UdpSocket::bind("127.0.0.1:0").and_then(|s| s.set_nonblocking(true).map(|_| s)).map_err(|e| warn!("split: no controller relay: {e}")).ok();
-            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(nvf_play::split_screen::PlayerTwo).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, half: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false, restacked: false })
+            // This PC's keyboard and mouse are player 1's, whichever window has the focus
+            // (module notes, Focus): dropped before anything in this game sees them.
+            bevy::winit::hardware_input::set_ignored(true);
+            info!("split: player 2's game ignores this PC's keyboard and mouse (they are player 1's); it plays the controller player 1's game relays");
+            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(nvf_play::split_screen::PlayerTwo).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, mine: None, placed: None, half: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false, restacked: false })
+                .init_resource::<InputCount>()
                 .add_systems(PreUpdate, p2_receive.before(gamepad_connection_system))
                 .add_systems(PreUpdate, p2_strip_real_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
-                .add_systems(Update, (p2_session, p2_keep_character, p2_open_join, p2_back_ends, split_ui.after(p2_session)));
+                .add_systems(PreUpdate, p2_count_input.before(bevy::input::InputSystems))
+                .add_systems(Update, (p2_session, p2_give_focus_back.after(p2_session), p2_keep_character, p2_open_join, p2_back_ends, split_ui.after(p2_session)));
         } else {
             // Player 1's game, or one that may become it (the menus' entries).
             nvf_play::split_screen::register_layout(app, "Display");
@@ -262,8 +296,13 @@ impl Plugin for SplitPlugin {
                 }
             }
             app.insert_resource(SplitScreen { available: true, ask: self.0.start.then_some(true), ..default() })
-                .add_systems(PreUpdate, p1_route_pads.run_if(resource_exists::<P1>).after(gamepad_connection_system).before(gamepad_event_processing_system))
-                .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), close_lobby_after, split_ui).chain());
+                .init_resource::<LastPad>()
+                .init_resource::<InputCount>()
+                .add_systems(PreUpdate, note_last_pad.after(gamepad_connection_system).before(gamepad_event_processing_system))
+                .add_systems(PreUpdate, p1_route_pads.run_if(resource_exists::<P1>).after(note_last_pad).before(gamepad_event_processing_system))
+                .add_systems(PreUpdate, p1_count_input.run_if(resource_exists::<P1>).before(bevy::input::InputSystems))
+                .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), p1_watch_focus.run_if(resource_exists::<P1>), close_lobby_after, split_ui).chain());
+            test_pads::setup(app);
         }
     }
 }
@@ -320,12 +359,83 @@ enum P1State {
 
 #[derive(Default)]
 struct PadRoute {
-    /// The controller player 1 last pressed a button on.
-    p1_last: Option<Entity>,
+    /// The controllers were assigned (split screen's first frame, [`assign_pads`]).
+    assigned: bool,
+    /// Player 1's controller, if it has one (it always has the keyboard and mouse).
+    p1: Option<Entity>,
     /// Player 2's controller, while plugged in.
     p2: Option<Entity>,
     /// Player 2's state as relayed (also its name and ids, to know it again).
     state: PadState,
+    /// Player 2's controller's place among the connected ones when it was given (for
+    /// `p1.txt`: a load's new run gives it the same one, [`kept_p2_pad`]).
+    p2_place: Option<usize>,
+    /// Player 2's controller's input was relayed (logged once).
+    relayed_noted: bool,
+}
+
+/// The controller this game's player last used (a button pressed, or a stick or trigger
+/// pushed well past its dead zone), before and during split screen: player 1's at split
+/// screen's start ([`assign_pads`]).
+#[derive(Resource, Default)]
+struct LastPad(Option<Entity>);
+
+/// A controller's name, vendor and product.
+type PadKind = (String, Option<u16>, Option<u16>);
+
+/// Who gets which controller when split screen starts (module notes, Controllers): the
+/// keyboard and mouse are always player 1's. Player 1 keeps the controller it last used
+/// (`last`); a player 1 who plays on a controller (`pad_player`: the Input Device setting)
+/// and used none yet takes the first one. Player 2 takes the next one connected. `connected`
+/// is in the order the controllers were connected; `kept` is player 2's from before a
+/// load's restart ([`kept_p2_pad`]), which stays player 2's. Returns (player 1's, player 2's).
+fn assign_pads(connected: &[Entity], last: Option<Entity>, pad_player: bool, kept: Option<Entity>) -> (Option<Entity>, Option<Entity>) {
+    let kept = kept.filter(|k| connected.contains(k));
+    let p1 = last.filter(|l| connected.contains(l) && Some(*l) != kept).or_else(|| if pad_player { connected.iter().copied().find(|e| Some(*e) != kept) } else { None });
+    let p2 = kept.or_else(|| connected.iter().copied().find(|e| Some(*e) != p1));
+    (p1, p2)
+}
+
+/// Who takes a controller plugged in while split screen is on: player 1 when it plays on
+/// a controller (`pad_player`) and has none, else player 2 when it has none; otherwise no
+/// one (it stays this game's, as an unassigned one does, and pressing A on it gives it to
+/// player 2 once player 2 has none).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PluggedIn {
+    PlayerOne,
+    PlayerTwo,
+    NoOne,
+}
+
+fn plugged_in_goes_to(p1_has: bool, p2_has: bool, pad_player: bool) -> PluggedIn {
+    if pad_player && !p1_has {
+        PluggedIn::PlayerOne
+    } else if !p2_has {
+        PluggedIn::PlayerTwo
+    } else {
+        PluggedIn::NoOne
+    }
+}
+
+/// Player 2's controller as a load's new run of player 1's game finds it again: the one at
+/// the same place among the connected ones (`place`), if it is the same kind (name, vendor
+/// and product), else the first of that kind (`kinds[i]` is connected controller `i`'s).
+fn kept_p2_pad(kinds: &[PadKind], place: Option<usize>, kind: &PadKind) -> Option<usize> {
+    if kind.0.is_empty() {
+        return None;
+    }
+    place.filter(|p| kinds.get(*p) == Some(kind)).or_else(|| kinds.iter().position(|k| k == kind))
+}
+
+/// Keyboard and mouse input this PC gave this game (counted each frame, logged once a
+/// second while split screen is on): the evidence of which game it reaches.
+#[derive(Resource, Default)]
+struct InputCount {
+    keys: u32,
+    buttons: u32,
+    motion: u32,
+    logged_at: f32,
+    dropped_logged: u64,
 }
 
 #[derive(Resource)]
@@ -358,6 +468,10 @@ struct P1 {
     /// The loopback port player 2's game joins (this game's lobby, or its relay), for
     /// `p1.txt`: a load's restart may have to take another one ([`p2_session`]).
     port: Option<u16>,
+    /// Player 2's window (from `p2.txt`), to name it in the focus log.
+    p2_hwnd: Option<isize>,
+    /// Whether this game's window had the focus (logged as it changes).
+    focused: Option<bool>,
 }
 
 /// A window as it was, to give it back.
@@ -445,6 +559,8 @@ fn split_asks(
                     before: None,
                     relay: false,
                     port: None,
+                    p2_hwnd: None,
+                    focused: None,
                 });
                 split.on = true;
                 info!("split: split screen on");
@@ -479,6 +595,7 @@ fn end_split(commands: &mut Commands, p1: &P1, window: Option<&mut Window>, conn
         let st = &p1.pads.state;
         connections.write(GamepadConnectionEvent::new(e, GamepadConnection::Connected { name: st.name.clone(), vendor_id: st.vendor, product_id: st.product }));
     }
+    info!("split: every controller is player 1's again (and the keyboard and mouse)");
     std::env::remove_var("NVF_SPLIT_P1");
     commands.remove_resource::<nvf_play::sfx::SecondListener>();
     commands.remove_resource::<P1>();
@@ -510,13 +627,76 @@ fn axis_index(a: GamepadAxis) -> Option<usize> {
     AXES.iter().position(|x| *x == a)
 }
 
-/// Before this game's controller systems: notes which controller player 1 uses, gives
-/// player 2 the first other one that presses A, keeps that one out of this game, and
-/// relays it.
-fn p1_route_pads(mut commands: Commands, mut p1: ResMut<P1>, mut raw: MessageReader<RawGamepadEvent>, pads: Query<(Entity, &Gamepad, Option<&Name>)>) {
+/// Notes the controller this game's player uses ([`LastPad`]); not player 2's.
+fn note_last_pad(mut last: ResMut<LastPad>, mut raw: MessageReader<RawGamepadEvent>, p1: Option<Res<P1>>) {
+    let p2 = p1.as_deref().and_then(|p| p.pads.p2);
+    for e in raw.read() {
+        let used = match e {
+            RawGamepadEvent::Button(b) if b.value > 0.5 => Some(b.gamepad),
+            RawGamepadEvent::Axis(a) if a.value.abs() > 0.5 => Some(a.gamepad),
+            _ => None,
+        };
+        if let Some(g) = used.filter(|g| Some(*g) != p2) {
+            last.0 = Some(g);
+        }
+    }
+}
+
+fn pad_kind(g: &Gamepad, n: Option<&Name>) -> PadKind {
+    (n.map_or_else(String::new, |n| n.as_str().to_string()), g.vendor_id(), g.product_id())
+}
+
+/// Before this game's controller systems: gives the controllers out when split screen
+/// starts ([`assign_pads`]) and as they are plugged in ([`plugged_in_goes_to`]), gives
+/// player 2 the first other one that presses A while it has none, keeps player 2's out of
+/// this game, and relays it.
+fn p1_route_pads(
+    mut commands: Commands,
+    mut p1: ResMut<P1>,
+    mut raw: MessageReader<RawGamepadEvent>,
+    pads: Query<(Entity, &Gamepad, Option<&Name>)>,
+    last: Res<LastPad>,
+    bindings: Option<Res<nvf_play::bindings::Bindings>>,
+    mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>,
+) {
     let p1 = &mut *p1;
+    let pad_player = bindings.is_some_and(|b| b.device == nvf_play::bindings::InputDevice::Controller);
     let r = &mut p1.pads;
-    let running = p1.state == P1State::Running;
+    let mut say = |n: String| {
+        info!("split: {n}");
+        if let Some(c) = corner.as_mut() {
+            c.push(n.into());
+        }
+    };
+    if !r.assigned {
+        r.assigned = true;
+        let mut connected: Vec<(Entity, PadKind)> = pads.iter().map(|(e, g, n)| (e, pad_kind(g, n))).collect();
+        connected.sort_by_key(|(e, _)| e.index_u32());
+        let kinds: Vec<PadKind> = connected.iter().map(|(_, k)| k.clone()).collect();
+        let entities: Vec<Entity> = connected.iter().map(|(e, _)| *e).collect();
+        // A load's new run: player 2's game is still running, with the controller it had.
+        let kept = kept_from_file(&p1.dir).and_then(|(place, kind)| kept_p2_pad(&kinds, place, &kind)).map(|i| entities[i]);
+        let (mine, theirs) = assign_pads(&entities, last.0, pad_player, kept);
+        let kind_of = |e: Entity| entities.iter().position(|x| *x == e).map(|i| kinds[i].clone()).unwrap_or_default();
+        r.p1 = mine;
+        if let Some(e) = theirs {
+            let (name, vendor, product) = kind_of(e);
+            r.state = PadState { name, vendor, product, connected: true, ..default() };
+            r.p2 = Some(e);
+            r.p2_place = entities.iter().position(|x| *x == e);
+        }
+        let p1_part = mine.map_or_else(|| "the keyboard and mouse".to_string(), |e| format!("the keyboard and mouse and {} ({e})", kind_of(e).0));
+        let p2_part = theirs.map_or_else(|| "no controller yet (plug one in, or press A on one)".to_string(), |e| format!("{} ({e}){}", kind_of(e).0, if kept.is_some() { ", as before the load" } else { "" }));
+        info!(
+            "split: controllers assigned ({} connected, player 1 last used {:?}, plays on {}): player 1 has {p1_part}; player 2 has {p2_part}",
+            entities.len(),
+            last.0,
+            if pad_player { "a controller" } else { "the keyboard and mouse" }
+        );
+        let p1_says = mine.map_or_else(|| "keyboard and mouse".to_string(), |e| format!("keyboard, mouse and {}", kind_of(e).0));
+        let p2_says = theirs.map_or_else(|| "press A on a controller".to_string(), |e| kind_of(e).0);
+        say(format!("Player 1: {p1_says}. Player 2: {p2_says}."));
+    }
     for e in raw.read() {
         match e {
             RawGamepadEvent::Connection(c) => match &c.connection {
@@ -525,7 +705,21 @@ fn p1_route_pads(mut commands: Commands, mut p1: ResMut<P1>, mut raw: MessageRea
                     if r.p2.is_none() && same && !r.state.connected {
                         r.p2 = Some(c.gamepad);
                         r.state.connected = true;
-                        info!("split: player 2's controller is back ({name})");
+                        say(format!("Player 2's controller is back ({name})"));
+                    } else if r.p1 != Some(c.gamepad) && r.p2 != Some(c.gamepad) {
+                        match plugged_in_goes_to(r.p1.is_some(), r.p2.is_some(), pad_player) {
+                            PluggedIn::PlayerTwo => {
+                                r.state = PadState { name: name.clone(), vendor: *vendor_id, product: *product_id, connected: true, ..default() };
+                                r.p2 = Some(c.gamepad);
+                                r.p2_place = None;
+                                say(format!("Player 2's controller is {name} ({}): plugged in", c.gamepad));
+                            }
+                            PluggedIn::PlayerOne => {
+                                r.p1 = Some(c.gamepad);
+                                info!("split: player 1's controller is {name} ({}): plugged in", c.gamepad);
+                            }
+                            PluggedIn::NoOne => {}
+                        }
                     }
                 }
                 GamepadConnection::Disconnected => {
@@ -534,7 +728,10 @@ fn p1_route_pads(mut commands: Commands, mut p1: ResMut<P1>, mut raw: MessageRea
                         r.state.connected = false;
                         r.state.buttons = Default::default();
                         r.state.axes = Default::default();
-                        info!("split: player 2's controller unplugged");
+                        say("Player 2's controller unplugged".to_string());
+                    } else if r.p1 == Some(c.gamepad) {
+                        r.p1 = None;
+                        info!("split: player 1's controller unplugged");
                     }
                 }
             },
@@ -543,15 +740,22 @@ fn p1_route_pads(mut commands: Commands, mut p1: ResMut<P1>, mut raw: MessageRea
                     if let Some(i) = button_index(*button) {
                         r.state.buttons[i] = *value;
                     }
+                    if !r.relayed_noted && *value > 0.5 {
+                        r.relayed_noted = true;
+                        info!("split: player 2's controller pressed {button:?}: relayed to player 2's game, not read by this one");
+                    }
                 } else if *value > 0.5 {
-                    // Player 2 takes a controller that presses A, not player 1's own.
-                    if running && r.p2.is_none() && !r.state.connected && *button == GamepadButton::South && r.p1_last != Some(*gamepad) {
-                        let (name, vendor, product) = pads.get(*gamepad).map_or((String::new(), None, None), |(_, g, n)| (n.map_or_else(String::new, |n| n.as_str().to_string()), g.vendor_id(), g.product_id()));
-                        info!("split: player 2's controller is {name} ({gamepad})");
+                    // The fallback for a controller that came without being given: one that
+                    // presses A while player 2 has none, and isn't player 1's, is player 2's.
+                    if r.p2.is_none() && !r.state.connected && *button == GamepadButton::South && r.p1 != Some(*gamepad) {
+                        let (name, vendor, product) = pads.get(*gamepad).map_or_else(|_| PadKind::default(), |(_, g, n)| pad_kind(g, n));
+                        say(format!("Player 2's controller is {name} ({gamepad}): A pressed"));
                         r.state = PadState { name, vendor, product, connected: true, ..default() };
                         r.p2 = Some(*gamepad);
-                    } else {
-                        r.p1_last = Some(*gamepad);
+                        r.p2_place = None;
+                    } else if r.p1.is_none() {
+                        r.p1 = Some(*gamepad);
+                        info!("split: player 1's controller is {gamepad}: player 1 used it");
                     }
                 }
             }
@@ -572,6 +776,71 @@ fn p1_route_pads(mut commands: Commands, mut p1: ResMut<P1>, mut raw: MessageRea
         if r.state.connected || !r.state.name.is_empty() {
             let _ = s.send_to(&r.state.encode(), at);
         }
+    }
+}
+
+/// Player 2's controller as `p1.txt` keeps it ([`p2_pad_value`]) while player 2's game is
+/// running: for a load's new run of this game.
+fn kept_from_file(dir: &Path) -> Option<(Option<usize>, PadKind)> {
+    let alive = read_kv(&dir.join("p2.txt"), "pid").and_then(|v| v.parse::<u32>().ok()).is_some_and(process_alive);
+    if !alive {
+        return None;
+    }
+    parse_p2_pad(&read_kv(&dir.join("p1.txt"), "p2pad")?)
+}
+
+/// `p2pad=<place>|<name>|<vendor>|<product>` in `p1.txt`.
+fn p2_pad_value(r: &PadRoute) -> Option<String> {
+    let st = &r.state;
+    let id = |v: Option<u16>| v.map_or_else(String::new, |v| v.to_string());
+    (r.p2.is_some() && !st.name.is_empty()).then(|| format!("{}|{}|{}|{}", r.p2_place.map_or_else(String::new, |p| p.to_string()), st.name.replace(['|', '\n'], " "), id(st.vendor), id(st.product)))
+}
+
+fn parse_p2_pad(v: &str) -> Option<(Option<usize>, PadKind)> {
+    let mut it = v.split('|');
+    let place = it.next()?.trim().parse().ok();
+    let name = it.next()?.to_string();
+    let vendor = it.next().and_then(|x| x.trim().parse().ok());
+    let product = it.next().and_then(|x| x.trim().parse().ok());
+    Some((place, (name, vendor, product)))
+}
+
+/// Counts the keyboard and mouse input this PC gave player 1's game, and logs it once a
+/// second while there was some, with whether its window has the focus.
+fn p1_count_input(
+    time: Res<Time>,
+    mut n: ResMut<InputCount>,
+    mut keys: MessageReader<bevy::input::keyboard::KeyboardInput>,
+    mut buttons: MessageReader<bevy::input::mouse::MouseButtonInput>,
+    mut motion: MessageReader<bevy::input::mouse::MouseMotion>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+) {
+    n.keys += keys.read().filter(|k| k.window != Entity::PLACEHOLDER && k.state.is_pressed()).count() as u32;
+    n.buttons += buttons.read().filter(|b| b.window != Entity::PLACEHOLDER && b.state.is_pressed()).count() as u32;
+    n.motion += motion.read().count() as u32;
+    let now = time.elapsed_secs();
+    if now - n.logged_at >= 1.0 && n.keys + n.buttons + n.motion > 0 {
+        let focused = windows.single().is_ok_and(|w| w.focused);
+        info!("split: input: player 1's game read {} key presses, {} mouse clicks and {} mouse moves from this PC (its window focused: {focused})", n.keys, n.buttons, n.motion);
+        *n = InputCount { logged_at: now, ..default() };
+    }
+}
+
+/// Logs where the focus is while split screen is on: the keyboard, the mouse's moves and
+/// the controllers (Windows Gaming Input) reach only the game whose window has it (module
+/// notes, Focus).
+fn p1_watch_focus(mut p1: ResMut<P1>, windows: Query<&Window, With<PrimaryWindow>>) {
+    let Ok(w) = windows.single() else { return };
+    if p1.focused == Some(w.focused) {
+        return;
+    }
+    p1.focused = Some(w.focused);
+    if w.focused {
+        info!("split: focus: player 1's window has it (the keyboard, mouse and controllers reach this game)");
+    } else {
+        let fg = foreground_window();
+        let whose = if fg.is_some() && fg == p1.p2_hwnd { "player 2's window (which gives it back)" } else { "another program's window" };
+        info!("split: focus: player 1's window lost it to {whose}");
     }
 }
 
@@ -654,7 +923,7 @@ fn p1_session(
                 let (Ok((_, handle)), Ok(monitor)) = (windows.single(), monitors.single()) else { return };
                 let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
                 let p2_half = halves(screen.0, screen.1, p1.layout)[1];
-                write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref(), p1.port);
+                write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref(), p1.port, p2_pad_value(&p1.pads).as_deref());
                 if let Some(pid) = read_kv(&p1.dir.join("p2.txt"), "pid").and_then(|v| v.parse::<u32>().ok()).filter(|p| process_alive(*p)) {
                     info!("split: player 2's game is already running (pid {pid}): taking it over");
                 } else if !p1.relay && coop.as_deref().is_some_and(|c| c.guest_count() >= nvf_coop::net::MAX_GUESTS) {
@@ -714,9 +983,10 @@ fn p1_session(
     }
     if now - p1.file_at >= FILE_EVERY {
         p1.file_at = now;
-        write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref(), p1.port);
+        write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref(), p1.port, p2_pad_value(&p1.pads).as_deref());
         let p2 = std::fs::read_to_string(p1.dir.join("p2.txt")).unwrap_or_default();
         p1.p2_at = kv(&p2, "port").and_then(|v| v.parse::<u16>().ok()).map(|port| SocketAddr::from(([127, 0, 0, 1], port)));
+        p1.p2_hwnd = kv(&p2, "hwnd").and_then(|v| v.parse::<isize>().ok()).filter(|h| *h != 0);
         // Player 2 went Back from the picker ([`p2_back_ends`]), or its game is gone.
         if kv(&p2, "pid").and_then(|v| v.parse::<u32>().ok()).is_some_and(process_alive) {
             p1.p2_seen = now;
@@ -771,9 +1041,12 @@ fn place(window: &mut Window, (at, size): (IVec2, UVec2)) -> bool {
 }
 
 /// `join`: the loopback port player 2's game joins ([`P1::port`]), as `join=127.0.0.1:<port>`.
-fn write_p1_file(dir: &Path, layout: Layout, (at, size): (IVec2, UVec2), hwnd: Option<isize>, save: Option<&str>, join: Option<u16>) {
+/// `p2pad`: player 2's controller ([`p2_pad_value`]).
+#[allow(clippy::too_many_arguments)]
+fn write_p1_file(dir: &Path, layout: Layout, (at, size): (IVec2, UVec2), hwnd: Option<isize>, save: Option<&str>, join: Option<u16>, p2pad: Option<&str>) {
     let join = join.map(|p| format!("join=127.0.0.1:{p}\n")).unwrap_or_default();
-    let text = format!("pid={}\nhwnd={}\nlayout={}\nscreen={},{},{},{}\nsave={}\n{join}", std::process::id(), hwnd.unwrap_or(0), layout.key(), at.x, at.y, size.x, size.y, save.unwrap_or(""));
+    let pad = p2pad.map(|p| format!("p2pad={p}\n")).unwrap_or_default();
+    let text = format!("pid={}\nhwnd={}\nlayout={}\nscreen={},{},{},{}\nsave={}\n{join}{pad}",std::process::id(), hwnd.unwrap_or(0), layout.key(), at.x, at.y, size.x, size.y, save.unwrap_or(""));
     write_file(&dir.join("p1.txt"), &text);
 }
 
@@ -841,6 +1114,7 @@ fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option
         .env(crate::coop::NAME_ENV, P2_NAME)
         .env(P2_ENV, "1")
         .env_remove("NVF_SPLIT_P1")
+        .env_remove(test_pads::ENV)
         .env(nvf_play::coop_progress::SYNC_ENV, "1")
         .env_remove(crate::coop::HOST_ENV)
         .env_remove(crate::coop::HOST_LOCAL_ENV)
@@ -1013,6 +1287,8 @@ struct P2 {
     pad: Option<Entity>,
     last: PadState,
     owner: Option<isize>,
+    /// This game's window.
+    mine: Option<isize>,
     placed: Option<(IVec2, UVec2)>,
     /// The size of this game's half, from player 1's file ([`split_ui`]).
     half: Option<UVec2>,
@@ -1085,6 +1361,53 @@ fn p2_strip_real_pads(mut commands: Commands, pads: Query<Entity, (With<Gamepad>
     }
 }
 
+/// This PC's keyboard and mouse never reach player 2's game (`bevy::winit::hardware_input`
+/// drops them): logs how many were dropped, once a second while more come, and warns of
+/// any that reached it all the same (only test aids' own input may).
+fn p2_count_input(
+    time: Res<Time>,
+    mut n: ResMut<InputCount>,
+    mut keys: MessageReader<bevy::input::keyboard::KeyboardInput>,
+    mut buttons: MessageReader<bevy::input::mouse::MouseButtonInput>,
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+    mut motion: MessageReader<bevy::input::mouse::MouseMotion>,
+) {
+    n.keys += keys.read().filter(|k| k.window != Entity::PLACEHOLDER).count() as u32;
+    n.buttons += buttons.read().filter(|b| b.window != Entity::PLACEHOLDER).count() as u32 + wheel.read().filter(|w| w.window != Entity::PLACEHOLDER).count() as u32;
+    n.motion += motion.read().count() as u32;
+    let now = time.elapsed_secs();
+    if now - n.logged_at < 1.0 {
+        return;
+    }
+    let dropped = bevy::winit::hardware_input::dropped();
+    let reached = n.keys + n.buttons + n.motion;
+    if reached > 0 {
+        warn!("split: input: {} key, {} mouse button and {} mouse move events from this PC reached player 2's game", n.keys, n.buttons, n.motion);
+    }
+    if dropped != n.dropped_logged {
+        info!("split: input: player 2's game dropped {} keyboard and mouse events from this PC so far ({} more); none reached it", dropped, dropped - n.dropped_logged);
+    }
+    *n = InputCount { logged_at: now, dropped_logged: dropped, ..default() };
+}
+
+/// Player 2's window never keeps the focus: whatever gave it to it (a click before its
+/// window was made unable to take it, Windows showing it again, another program), this
+/// game hands it straight back to player 1's window, which it may do while it holds it
+/// (module notes, Focus). Checked every frame.
+fn p2_give_focus_back(p2: Res<P2>, mut given: Local<u32>, mut logged_at: Local<f32>, time: Res<Time>) {
+    let (Some(mine), Some(owner)) = (p2.mine, p2.owner) else { return };
+    if foreground_window() != Some(mine) {
+        return;
+    }
+    let ok = give_foreground(owner);
+    *given += 1;
+    let now = time.elapsed_secs();
+    if *given == 1 || now - *logged_at >= 1.0 {
+        *logged_at = now;
+        info!("split: focus: player 2's window had it: given back to player 1's window ({}, {} time(s) so far)", if ok { "done" } else { "Windows refused" }, *given);
+    }
+}
+
 /// Player 2's session: its window on its half, owned by player 1's; its files; quitting
 /// when player 1's game is gone.
 fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Window, Option<&RawHandleWrapper>), With<PrimaryWindow>>, mut exit: MessageWriter<AppExit>, coop: Option<ResMut<crate::coop::Coop>>) {
@@ -1102,7 +1425,8 @@ fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Wind
         return;
     }
     let port = p2.socket.as_ref().and_then(|s| s.local_addr().ok()).map_or(0, |a| a.port());
-    write_file(&p2.dir.join("p2.txt"), &format!("pid={}\nport={port}\n", std::process::id()));
+    p2.mine = handle.and_then(hwnd_of);
+    write_file(&p2.dir.join("p2.txt"), &format!("pid={}\nport={port}\nhwnd={}\n", std::process::id(), p2.mine.unwrap_or(0)));
     let p1_alive = kv(&text, "pid").and_then(|v| v.parse::<u32>().ok()).is_some_and(process_alive);
     if p1_alive || p2.p1_seen == 0.0 {
         p2.p1_seen = now.max(f32::MIN_POSITIVE);
@@ -1255,6 +1579,33 @@ fn raise_over(_window: isize, _owner: isize) -> bool {
     false
 }
 
+/// The window that has the focus (the foreground window), if any.
+#[cfg(windows)]
+fn foreground_window() -> Option<isize> {
+    // SAFETY: reads which window is in the foreground; no pointers are passed.
+    let w = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+    (!w.is_null()).then_some(w as isize)
+}
+
+#[cfg(not(windows))]
+fn foreground_window() -> Option<isize> {
+    None
+}
+
+/// Gives the focus to `window`; true when Windows did. A process may do this while one of
+/// its windows has the focus [documented: Win32 `SetForegroundWindow`'s conditions].
+#[cfg(windows)]
+fn give_foreground(window: isize) -> bool {
+    // SAFETY: `window` is player 1's top-level window; the call fails harmlessly if it has
+    // gone.
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(window as windows_sys::Win32::Foundation::HWND) != 0 }
+}
+
+#[cfg(not(windows))]
+fn give_foreground(_window: isize) -> bool {
+    false
+}
+
 /// Whether process `pid` is running.
 #[cfg(windows)]
 fn process_alive(pid: u32) -> bool {
@@ -1278,9 +1629,168 @@ fn process_alive(_pid: u32) -> bool {
     true
 }
 
+/// Test aid `NVF_PLAY_TEST_SPLIT_PADS=<n>[,<seconds>:<pad>:<button>[:<hold seconds>]...]`
+/// (player 1's game): `n` stand-in controllers ("Test controller 1" ...) connected from the
+/// start as a real one is, and their buttons (`South`, `Start`, ... as in [`BUTTONS`])
+/// pressed at world seconds (`nvf_play::pause::AidTime`) and let go after `hold` (0.2 s
+/// by default), as raw controller input, so they go through split screen's controller
+/// assignment and relay like real ones (no second real controller needed). Player 2's
+/// game is started without it.
+pub(crate) mod test_pads {
+    use super::*;
+
+    pub const ENV: &str = "NVF_PLAY_TEST_SPLIT_PADS";
+
+    #[derive(Resource, Default)]
+    struct TestPads {
+        count: usize,
+        pads: Vec<Entity>,
+        due: Vec<(f32, usize, GamepadButton, f32)>,
+        down: Vec<(f32, usize, GamepadButton)>,
+    }
+
+    fn button(name: &str) -> Option<GamepadButton> {
+        BUTTONS.iter().copied().find(|b| format!("{b:?}").eq_ignore_ascii_case(name.trim()))
+    }
+
+    fn parse(v: &str) -> Result<TestPads, String> {
+        let mut items = v.split(',').map(str::trim).filter(|i| !i.is_empty());
+        let count = items.next().ok_or("no count")?.parse::<usize>().map_err(|e| e.to_string())?;
+        let mut due = Vec::new();
+        for i in items {
+            let f: Vec<&str> = i.split(':').collect();
+            let (Some(at), Some(pad), Some(b)) = (f.first().and_then(|x| x.parse::<f32>().ok()), f.get(1).and_then(|x| x.parse::<usize>().ok()), f.get(2).and_then(|x| button(x))) else {
+                return Err(format!("{i}: not <seconds>:<pad>:<button>[:<hold>]"));
+            };
+            if pad >= count {
+                return Err(format!("{i}: pad {pad} of {count}"));
+            }
+            due.push((at, pad, b, f.get(3).and_then(|x| x.parse::<f32>().ok()).unwrap_or(0.2)));
+        }
+        Ok(TestPads { count, due, ..default() })
+    }
+
+    pub(super) fn setup(app: &mut App) {
+        let Ok(v) = std::env::var(ENV) else { return };
+        match parse(&v) {
+            Ok(t) => {
+                app.insert_resource(t).add_systems(PreUpdate, drive.before(gamepad_connection_system));
+            }
+            Err(e) => warn!("{ENV}: {e}"),
+        }
+    }
+
+    fn drive(mut commands: Commands, mut t: ResMut<TestPads>, time: nvf_play::pause::AidTime, mut connections: MessageWriter<GamepadConnectionEvent>, mut raw: MessageWriter<RawGamepadEvent>) {
+        let t = &mut *t;
+        if t.pads.len() < t.count {
+            for n in 0..t.count {
+                let e = commands.spawn_empty().id();
+                let c = GamepadConnectionEvent::new(e, GamepadConnection::Connected { name: format!("Test controller {}", n + 1), vendor_id: Some(0x7E57), product_id: Some(n as u16) });
+                connections.write(c);
+                t.pads.push(e);
+                info!("test aid: {ENV}: Test controller {} connected ({e})", n + 1);
+            }
+            return;
+        }
+        let Some(now) = time.world_secs() else { return };
+        t.down.retain(|&(until, pad, b)| {
+            if now < until {
+                return true;
+            }
+            raw.write(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(t.pads[pad], b, 0.0)));
+            info!("test aid: {ENV}: Test controller {} let go of {b:?}", pad + 1);
+            false
+        });
+        let mut i = 0;
+        while i < t.due.len() {
+            let (at, pad, b, hold) = t.due[i];
+            if now < at {
+                i += 1;
+                continue;
+            }
+            t.due.remove(i);
+            raw.write(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(t.pads[pad], b, 1.0)));
+            t.down.push((now + hold, pad, b));
+            info!("test aid: {ENV}: Test controller {} pressed {b:?} ({})", pad + 1, t.pads[pad]);
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn the_aid_reads_its_pads_and_presses() {
+        let t = parse("2, 3:0:South, 80.5:1:start:1").unwrap();
+        assert_eq!(t.count, 2);
+        assert_eq!(t.due, vec![(3.0, 0, GamepadButton::South, 0.2), (80.5, 1, GamepadButton::Start, 1.0)]);
+        assert!(parse("1,3:1:South").is_err(), "pad out of range");
+        assert!(parse("1,3:0:Jump").is_err());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pads(n: u32) -> Vec<Entity> {
+        (0..n).map(|i| Entity::from_raw_u32(10 + i).unwrap()).collect()
+    }
+
+    #[test]
+    fn controllers_are_assigned_when_split_screen_starts() {
+        let c = pads(3);
+        // Keyboard and mouse player 1, no controller used: the first controller is player 2's.
+        assert_eq!(assign_pads(&c, None, false, None), (None, Some(c[0])));
+        // Player 1 last used the second one: it keeps it; player 2 takes the next connected.
+        assert_eq!(assign_pads(&c, Some(c[1]), false, None), (Some(c[1]), Some(c[0])));
+        assert_eq!(assign_pads(&c, Some(c[0]), false, None), (Some(c[0]), Some(c[1])));
+        // Only controllers (player 1 plays on one): the first is player 1's, the second player 2's.
+        assert_eq!(assign_pads(&c[..2], None, true, None), (Some(c[0]), Some(c[1])));
+        // One controller, player 1's own: player 2 has none yet.
+        assert_eq!(assign_pads(&c[..1], Some(c[0]), false, None), (Some(c[0]), None));
+        assert_eq!(assign_pads(&c[..1], None, true, None), (Some(c[0]), None));
+        // None connected.
+        assert_eq!(assign_pads(&[], None, true, None), (None, None));
+        // A controller last used but unplugged since is no one's.
+        assert_eq!(assign_pads(&c[1..], Some(c[0]), false, None), (None, Some(c[1])));
+        // A load's new run: player 2 keeps the one it had, even if player 1 used it last.
+        assert_eq!(assign_pads(&c, Some(c[2]), true, Some(c[2])), (Some(c[0]), Some(c[2])));
+        assert_eq!(assign_pads(&c, Some(c[0]), false, Some(c[1])), (Some(c[0]), Some(c[1])));
+    }
+
+    #[test]
+    fn a_controller_plugged_in_later_goes_to_player_2_while_it_has_none() {
+        assert_eq!(plugged_in_goes_to(false, false, false), PluggedIn::PlayerTwo);
+        assert_eq!(plugged_in_goes_to(true, false, true), PluggedIn::PlayerTwo);
+        assert_eq!(plugged_in_goes_to(false, true, false), PluggedIn::NoOne);
+        // A controller player with none yet takes it first (the "only controllers" rule).
+        assert_eq!(plugged_in_goes_to(false, false, true), PluggedIn::PlayerOne);
+        assert_eq!(plugged_in_goes_to(true, true, true), PluggedIn::NoOne);
+    }
+
+    #[test]
+    fn a_loads_new_run_finds_player_2s_controller_again() {
+        let k = |n: &str, p: u16| (n.to_string(), Some(0x045E_u16), Some(p));
+        let kinds = vec![k("Xbox", 1), k("Xbox", 1), k("DualSense", 2)];
+        assert_eq!(kept_p2_pad(&kinds, Some(1), &k("Xbox", 1)), Some(1), "same place, same kind");
+        assert_eq!(kept_p2_pad(&kinds, Some(0), &k("DualSense", 2)), Some(2), "moved: the first of its kind");
+        assert_eq!(kept_p2_pad(&kinds, None, &k("Other", 3)), None);
+        let line = "1|Xbox Wireless Controller|1118|";
+        assert_eq!(parse_p2_pad(line), Some((Some(1), ("Xbox Wireless Controller".to_string(), Some(1118), None))));
+        let mut r = PadRoute { p2: Some(Entity::from_raw_u32(3).unwrap()), p2_place: Some(1), ..default() };
+        r.state.name = "Xbox Wireless Controller".into();
+        r.state.vendor = Some(1118);
+        assert_eq!(p2_pad_value(&r).as_deref(), Some(line));
+        r.p2 = None;
+        assert_eq!(p2_pad_value(&r), None, "not while player 2 has none");
+    }
+
+    #[test]
+    fn this_pcs_keyboard_and_mouse_are_the_dropped_input() {
+        use bevy::winit::hardware_input::is_hardware_input;
+        use winit::event::WindowEvent;
+        assert!(is_hardware_input(&WindowEvent::ModifiersChanged(Default::default())));
+        assert!(!is_hardware_input(&WindowEvent::Focused(true)));
+        assert!(!is_hardware_input(&WindowEvent::CloseRequested));
+    }
 
     #[test]
     fn top_and_bottom_halves_cover_the_screen() {
@@ -1355,10 +1865,10 @@ mod tests {
     #[test]
     fn player_1s_file_says_where_player_2_joins() {
         let dir = std::env::temp_dir().join(format!("nvf-split-join-{}", std::process::id()));
-        write_p1_file(&dir, Layout::TopBottom, (IVec2::ZERO, UVec2::new(2560, 1440)), None, Some("Save 1"), Some(51_234));
+        write_p1_file(&dir, Layout::TopBottom, (IVec2::ZERO, UVec2::new(2560, 1440)), None, Some("Save 1"), Some(51_234), Some("1|Xbox|1118|"));
         let at = read_kv(&dir.join("p1.txt"), "join").and_then(|v| v.parse::<SocketAddr>().ok());
         assert_eq!(at, Some(SocketAddr::from(([127, 0, 0, 1], 51_234))));
-        write_p1_file(&dir, Layout::TopBottom, (IVec2::ZERO, UVec2::new(2560, 1440)), None, None, None);
+        write_p1_file(&dir, Layout::TopBottom, (IVec2::ZERO, UVec2::new(2560, 1440)), None, None, None, None);
         assert_eq!(read_kv(&dir.join("p1.txt"), "join"), None, "not before player 1 has a port");
         let _ = std::fs::remove_dir_all(&dir);
     }
