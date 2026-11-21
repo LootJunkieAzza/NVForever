@@ -706,7 +706,7 @@ mod tests {
         assert_eq!(tag_gap(0.02), 0.02, "a normal distance in a full view: as drawn");
         assert_eq!(tag_gap(115.0 / 720.0), TAG_GAP_MAX, "close by in a half: capped");
         assert_eq!(tag_gap(-0.01), 0.0, "never under the head");
-        assert!(TAG_GAP_MAX * 720.0 <= 26.0);
+        const { assert!(TAG_GAP_MAX * 720.0 <= 26.0) };
         let top = head_top(Some(&[10.0, 20.0, 130.0]), [10.0, 20.0, 0.0]);
         assert_eq!(top, [10.0, 20.0, 144.0]);
         assert_eq!(head_top(None, [10.0, 20.0, 0.0]), top, "a puppet not drawn yet: about the same");
