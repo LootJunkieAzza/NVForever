@@ -161,8 +161,6 @@ pub struct App {
     mod_jump: bool,
     /// Show overwrites is on. Green: this mod's loose file wins. Red: a lower mod's copy wins.
     show_overwrites: bool,
-    /// How many older copies of the load order to keep.
-    backup_keep: usize,
     /// Apply is asking before it writes the lists.
     apply_ask: bool,
     /// The name typed for a profile. It is saved under the launcher's profiles folder, next to mods.
@@ -426,7 +424,6 @@ impl App {
             picked_plugin: None,
             mod_jump: false,
             show_overwrites: false,
-            backup_keep: 5,
             apply_ask: false,
             profile_name: String::new(),
             profile_choices: Vec::new(),
@@ -525,7 +522,6 @@ impl App {
         // The INI first: the mod list's sync needs its game folder.
         app.reload_ini();
         app.bar_h = ini_get(&app.ini_text, LAUNCHER, "BottomBar").and_then(|s| s.parse::<f32>().ok()).unwrap_or(56.0).clamp(48.0, 160.0);
-        app.backup_keep = ini_get(&app.ini_text, LAUNCHER, "PluginBackups").and_then(|s| s.parse().ok()).unwrap_or(5).clamp(0, 30);
         if app.page == Page::Mods {
             app.enter_mods();
         }
@@ -3538,35 +3534,6 @@ impl App {
         Ok(())
     }
 
-    fn keep_plugin_backup(&self, path: &Path, next: &[u8]) -> Result<(), String> {
-        let keep = self.backup_keep;
-        if keep == 0 || !path.is_file() {
-            return Ok(());
-        }
-        let old = std::fs::read(path).unwrap_or_default();
-        if old.is_empty() || old.as_slice() == next {
-            return Ok(());
-        }
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("plugins.txt");
-        let bak = |i: usize| path.with_file_name(format!("{name}.bak.{i}"));
-        if bak(1).is_file() && std::fs::read(bak(1)).ok().as_deref() == Some(old.as_slice()) {
-            return Ok(());
-        }
-        for i in (1..keep).rev() {
-            let from = bak(i);
-            if from.is_file() {
-                std::fs::rename(&from, bak(i + 1)).map_err(|e| format!("{}: {e}", from.display()))?;
-            }
-        }
-        for i in (keep + 1)..(keep + 40) {
-            let extra = bak(i);
-            if extra.is_file() {
-                let _ = std::fs::remove_file(&extra);
-            }
-        }
-        std::fs::write(bak(1), &old).map_err(|e| format!("{}: {e}", bak(1).display()))
-    }
-
     fn set_mod_on(&mut self, index: usize, on: bool) {
         let Some(row) = self.mod_rows.get(index) else { return };
         if row.separator || row.on == on {
@@ -5386,10 +5353,6 @@ impl App {
 
     fn backup_row(&mut self, ui: &mut egui::Ui) {
         let Some(home) = self.home.clone() else { return };
-        if self.backup_keep != self.backup_max as usize {
-            self.backup_keep = self.backup_max as usize;
-            self.set_launcher_key("PluginBackups", &self.backup_max.to_string());
-        }
         let files = plugin_backups(&home);
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("Backups").small().color(WEAK)).on_hover_text("The most load-order copies to keep. Not how many exist now.");
@@ -5418,7 +5381,6 @@ impl App {
         match write_backup_max(&home, n) {
             Ok(()) => {
                 self.backup_max = n;
-                self.backup_keep = n as usize;
                 self.set_launcher_key("PluginBackups", &n.to_string());
                 self.backup_pick = self.backup_pick.take().filter(|pick| plugin_backups(&home).iter().any(|p| backup_label(p) == *pick));
                 self.message = Some((format!("At most {n} load-order backups are kept."), false));
@@ -5472,7 +5434,6 @@ impl App {
         match write_backup_max(&home, n) {
             Ok(()) => {
                 self.backup_max = n;
-                self.backup_keep = n as usize;
                 self.set_launcher_key("PluginBackups", &n.to_string());
                 prune_plugin_backups(&home, n);
                 self.backup_pick = self.backup_pick.take().filter(|pick| plugin_backups(&home).iter().any(|p| backup_label(p) == *pick));
@@ -5483,17 +5444,12 @@ impl App {
     }
 
     fn save_mods(&mut self) -> Result<(), String> {
-        // The mod list and the load order stay in the launcher home. Loose files are not linked into Data.
+        // The live plugins.txt is written here. A dated backup is only made when the
+        // player presses Save backup. Turning a mod on or off does not make one.
         let (Some(home), Some(list)) = (&self.home, &self.mods) else { return Err("no plugin list".into()) };
         let path = home.plugins_file();
-        let next = list.to_text();
-        let previous = std::fs::read(&path).unwrap_or_default();
-        if previous.as_slice() != next.as_bytes() {
-            keep_plugin_backup(home, &previous, self.backup_max)?;
-        }
-        guard_write(&path, self.game().as_ref()).map_err(|e| e.to_string())?;
         let body = list.to_text();
-        self.keep_plugin_backup(&path, body.as_bytes())?;
+        guard_write(&path, self.game().as_ref()).map_err(|e| e.to_string())?;
         write_whole(&path, body.as_bytes()).map_err(|e| e.to_string())?;
         self.write_mod_order()
     }
@@ -6500,24 +6456,4 @@ fn backup_stamp() -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     if m <= 2 { y += 1; }
     format!("{y:04}-{m:02}-{d:02}-{h:02}{min:02}{sec:02}")
-}
-
-fn keep_plugin_backup(home: &EngineHome, bytes: &[u8], max: u32) -> Result<(), String> {
-    if bytes.is_empty() || max == 0 {
-        prune_plugin_backups(home, max);
-        return Ok(());
-    }
-    let dir = backup_dir(home);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let stamp = backup_stamp();
-    let mut dest = dir.join(format!("plugins-{stamp}.txt"));
-    let mut n = 2u32;
-    while dest.exists() {
-        dest = dir.join(format!("plugins-{stamp}-{n}.txt"));
-        n += 1;
-    }
-    guard_write(&dest, None).map_err(|e| e.to_string())?;
-    write_whole(&dest, bytes).map_err(|e| e.to_string())?;
-    prune_plugin_backups(home, max);
-    Ok(())
 }
