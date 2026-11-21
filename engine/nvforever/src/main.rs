@@ -643,9 +643,10 @@ struct Args {
     /// Sunny Smiles by default.
     #[arg(long, default_value = "0x104E84", value_parser = |s: &str| u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|e| e.to_string()))]
     coop_base: u32,
-    /// Split screen (split.rs): once in the world, host, take the top half of the screen
-    /// and start player 2's game on the bottom half, joined to this one.
-    #[arg(long, requires = "play", conflicts_with_all = ["join", "split_p2"])]
+    /// Split screen (split.rs): once in the world, host (or, with `--join`, pass player 2
+    /// through to that host), take the top half of the screen and start player 2's game on
+    /// the bottom half. A guest's load restarts it with both (`handoff`).
+    #[arg(long, requires = "play", conflicts_with = "split_p2")]
     split: bool,
     /// Split screen: this game is player 2's, started by player 1's (`--split`); the
     /// session folder in player 1's home.
@@ -2971,6 +2972,16 @@ mod tests {
         let args = parse(&["--play", "--menu"]);
         assert!(args.play && args.menu);
         assert!(Args::try_parse_from(["nvforever", "--explore", "--play"]).is_err());
+    }
+
+    /// A guest in split screen (player 2 joins its host through it): a load's new run has
+    /// `--join` and `--split` both, and must start [the 19:23 three-window check: clap
+    /// refused the pair, so a guest's load could not start its new run].
+    #[test]
+    fn a_guest_in_split_screen_starts_again_with_join_and_split() {
+        let args = parse(&["--play", "--join", "127.0.0.1:47971", "--split", "--load", "x.nvfsave"]);
+        assert!(args.split && args.join.as_deref() == Some("127.0.0.1:47971"));
+        assert!(Args::try_parse_from(["nvforever", "--play", "--split", "--split-p2", "dir"]).is_err());
     }
 
     #[test]

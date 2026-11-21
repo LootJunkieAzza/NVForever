@@ -34,7 +34,8 @@
 //!   join screen up: its list of saves is the picker. What player 2's game saves is kept
 //!   with the host save (`saves\split\<stem>\premade-<n>.nvfsave`, [`premade_file`]).
 //! - **Session files** in `<player 1's home>\split\`: `p1.txt` (player 1's process, window,
-//!   the layout and the screen's rectangle) and `p2.txt` (player 2's process and the port
+//!   the layout, the screen's rectangle and the loopback port player 2's game joins, which
+//!   it follows when a load's restart had to take another) and `p2.txt` (player 2's process and the port
 //!   its controller arrives on). Player 2's own home is `split\p2-home` beside them.
 //! - **Controllers.** Player 1's game reads every controller. The first one that presses A
 //!   (South) while player 2 has none, and isn't the one player 1 last used, becomes player
@@ -354,6 +355,9 @@ struct P1 {
     /// This game is a guest in another player's lobby: player 2's game joins that host
     /// through this one (plan §10.1).
     relay: bool,
+    /// The loopback port player 2's game joins (this game's lobby, or its relay), for
+    /// `p1.txt`: a load's restart may have to take another one ([`p2_session`]).
+    port: Option<u16>,
 }
 
 /// A window as it was, to give it back.
@@ -440,6 +444,7 @@ fn split_asks(
                     p2_seen: 0.0,
                     before: None,
                     relay: false,
+                    port: None,
                 });
                 split.on = true;
                 info!("split: split screen on");
@@ -645,10 +650,11 @@ fn p1_session(
             }
             let port = if p1.relay { coop.as_deref().and_then(|c| c.open_relay()) } else { hosting_port() };
             if let Some(port) = port {
+                p1.port = Some(port);
                 let (Ok((_, handle)), Ok(monitor)) = (windows.single(), monitors.single()) else { return };
                 let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
                 let p2_half = halves(screen.0, screen.1, p1.layout)[1];
-                write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref());
+                write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref(), p1.port);
                 if let Some(pid) = read_kv(&p1.dir.join("p2.txt"), "pid").and_then(|v| v.parse::<u32>().ok()).filter(|p| process_alive(*p)) {
                     info!("split: player 2's game is already running (pid {pid}): taking it over");
                 } else if !p1.relay && coop.as_deref().is_some_and(|c| c.guest_count() >= nvf_coop::net::MAX_GUESTS) {
@@ -669,6 +675,12 @@ fn p1_session(
                         }
                         _ => None,
                     };
+                    // A guest's game (`--join`) is in the world before its scripts' data is
+                    // up: player 2's characters wait for it, rather than player 2 never
+                    // starting [observed: the 19:53 three-window check].
+                    if game.is_none() {
+                        return;
+                    }
                     if let Err(e) = start_p2(&p1.dir, port, p2_half, p1.save.as_deref(), game.as_ref()) {
                         warn!("split: player 2's game not started: {e}");
                     }
@@ -683,10 +695,9 @@ fn p1_session(
         return;
     }
     // This game left the lobby it was a guest in (or the host ended it): player 2's link
-    // went through it, so player 2 leaves too (plan §10.1). A load's restart lets go of the
-    // link too, but keeps the host to join again (`JOIN_ENV`).
-    let left = !coop.as_deref().is_some_and(|c| c.is_guest()) && std::env::var_os(crate::coop::JOIN_ENV).is_none();
-    if p1.relay && left && split.ask.is_none() {
+    // went through it, so player 2 leaves too (plan §10.1). Never for a load's restart,
+    // however this game joined (`--join`, the join screen): see [`relay_lost`].
+    if relay_lost(p1.relay, coop.as_deref().map(|c| c.left_lobby())) && split.ask.is_none() {
         info!("split: this game left the lobby player 2 joined through it: player 2 leaves too");
         split.ask = Some(false);
         return;
@@ -703,7 +714,7 @@ fn p1_session(
     }
     if now - p1.file_at >= FILE_EVERY {
         p1.file_at = now;
-        write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref());
+        write_p1_file(&p1.dir, p1.layout, screen, handle.and_then(hwnd_of), p1.save.as_deref(), p1.port);
         let p2 = std::fs::read_to_string(p1.dir.join("p2.txt")).unwrap_or_default();
         p1.p2_at = kv(&p2, "port").and_then(|v| v.parse::<u16>().ok()).map(|port| SocketAddr::from(([127, 0, 0, 1], port)));
         // Player 2 went Back from the picker ([`p2_back_ends`]), or its game is gone.
@@ -718,6 +729,15 @@ fn p1_session(
             split.ask = Some(false);
         }
     }
+}
+
+/// Player 2 joined through this game (`relay`) and this game is no longer a guest there:
+/// it left the lobby, the host ended it, or the host refused or never answered it
+/// (`left_lobby`, `crate::coop::Coop::left_lobby`; `None`: no co-op at all). A load's
+/// restart is none of these: the old run keeps its link until its process ends, and the
+/// new run joins the same host again from its command line or `JOIN_ENV`.
+fn relay_lost(relay: bool, left_lobby: Option<bool>) -> bool {
+    relay && left_lobby.unwrap_or(true)
 }
 
 /// The port this game hosts on, while it hosts (`crate::coop` keeps it in `HOST_ENV`).
@@ -750,8 +770,10 @@ fn place(window: &mut Window, (at, size): (IVec2, UVec2)) -> bool {
     changed
 }
 
-fn write_p1_file(dir: &Path, layout: Layout, (at, size): (IVec2, UVec2), hwnd: Option<isize>, save: Option<&str>) {
-    let text = format!("pid={}\nhwnd={}\nlayout={}\nscreen={},{},{},{}\nsave={}\n", std::process::id(), hwnd.unwrap_or(0), layout.key(), at.x, at.y, size.x, size.y, save.unwrap_or(""));
+/// `join`: the loopback port player 2's game joins ([`P1::port`]), as `join=127.0.0.1:<port>`.
+fn write_p1_file(dir: &Path, layout: Layout, (at, size): (IVec2, UVec2), hwnd: Option<isize>, save: Option<&str>, join: Option<u16>) {
+    let join = join.map(|p| format!("join=127.0.0.1:{p}\n")).unwrap_or_default();
+    let text = format!("pid={}\nhwnd={}\nlayout={}\nscreen={},{},{},{}\nsave={}\n{join}", std::process::id(), hwnd.unwrap_or(0), layout.key(), at.x, at.y, size.x, size.y, save.unwrap_or(""));
     write_file(&dir.join("p1.txt"), &text);
 }
 
@@ -1065,7 +1087,7 @@ fn p2_strip_real_pads(mut commands: Commands, pads: Query<Entity, (With<Gamepad>
 
 /// Player 2's session: its window on its half, owned by player 1's; its files; quitting
 /// when player 1's game is gone.
-fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Window, Option<&RawHandleWrapper>), With<PrimaryWindow>>, mut exit: MessageWriter<AppExit>) {
+fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Window, Option<&RawHandleWrapper>), With<PrimaryWindow>>, mut exit: MessageWriter<AppExit>, coop: Option<ResMut<crate::coop::Coop>>) {
     let now = time.elapsed_secs();
     if now - p2.file_at < FILE_EVERY {
         return;
@@ -1088,6 +1110,13 @@ fn p2_session(time: Res<Time>, mut p2: ResMut<P2>, mut windows: Query<(&mut Wind
         info!("split: player 1's game is gone: quitting");
         exit.write(AppExit::Success);
         return;
+    }
+    // Player 1's game came back from a load's restart on another port (its old one was
+    // taken): join it there, keeping this player's place.
+    if let (Some(at), Some(mut coop)) = (kv(&text, "join").and_then(|v| v.parse::<SocketAddr>().ok()), coop) {
+        if coop.follow_host(at) {
+            info!("split: player 1's game is at {at} now");
+        }
     }
     let layout = kv(&text, "layout").map_or(Layout::TopBottom, |l| Layout::parse(&l));
     if let Some(v) = kv(&text, "screen") {
@@ -1319,5 +1348,29 @@ mod tests {
         assert_eq!(kv(t, "pid").as_deref(), Some("12"));
         assert_eq!(Layout::parse(&kv(t, "layout").unwrap()), Layout::SideBySide);
         assert_eq!(kv(t, "port"), None);
+    }
+
+    /// Player 1's file says where player 2's game joins, so a load's restart that had to
+    /// take another port is followed ([`p2_session`]).
+    #[test]
+    fn player_1s_file_says_where_player_2_joins() {
+        let dir = std::env::temp_dir().join(format!("nvf-split-join-{}", std::process::id()));
+        write_p1_file(&dir, Layout::TopBottom, (IVec2::ZERO, UVec2::new(2560, 1440)), None, Some("Save 1"), Some(51_234));
+        let at = read_kv(&dir.join("p1.txt"), "join").and_then(|v| v.parse::<SocketAddr>().ok());
+        assert_eq!(at, Some(SocketAddr::from(([127, 0, 0, 1], 51_234))));
+        write_p1_file(&dir, Layout::TopBottom, (IVec2::ZERO, UVec2::new(2560, 1440)), None, None, None);
+        assert_eq!(read_kv(&dir.join("p1.txt"), "join"), None, "not before player 1 has a port");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Player 2 leaves with player 1's lobby only when player 1 left it, never for a
+    /// load's restart, whether player 1 joined with `--join` or the join screen (its link
+    /// stays up until the old run ends, and `left_lobby` is only set by leaving).
+    #[test]
+    fn player_2_leaves_with_the_lobby_not_with_a_restart() {
+        assert!(!relay_lost(true, Some(false)), "a guest still, or restarting");
+        assert!(relay_lost(true, Some(true)), "left, ended, refused or never answered");
+        assert!(!relay_lost(false, Some(true)), "player 2 joins this game's own lobby");
+        assert!(relay_lost(true, None));
     }
 }

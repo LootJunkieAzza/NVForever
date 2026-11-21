@@ -29,8 +29,17 @@ pub fn heads_of(mates: &SocialMates, head: impl Fn(u32) -> Option<[f32; 3]>) -> 
     mates.mates.iter().filter(|m| m.here && !m.lost).filter_map(|m| head(m.reference).map(|h| (m.reference, h))).collect()
 }
 
-fn track(mates: Option<Res<SocialMates>>, rigs: Query<&ActorRig>, globals: Query<&GlobalTransform>, heads: Option<ResMut<MateHeads>>) {
+fn track(mates: Option<Res<SocialMates>>, rigs: Query<&ActorRig>, globals: Query<&GlobalTransform>, heads: Option<ResMut<MateHeads>>, mut doubled: Local<Vec<(u32, usize)>>) {
     let (Some(mates), Some(mut heads)) = (mates, heads) else { return };
+    // A player drawn twice here (two bodies under its reference): said once each time it
+    // changes, as its tag can stand over only one of them.
+    let twice: Vec<(u32, usize)> = mates.mates.iter().filter(|m| m.here && !m.lost).map(|m| (m.reference, rigs.iter().filter(|r| r.reference == m.reference).count())).filter(|(_, n)| *n > 1).collect();
+    if *doubled != twice {
+        for (r, n) in &twice {
+            warn!("mate heads: {n} bodies drawn for player reference {r:08X}");
+        }
+        *doubled = twice;
+    }
     let want = heads_of(&mates, |reference| {
         let rig = rigs.iter().find(|r| r.reference == reference)?;
         let g = nvf_play::space::to_game(crate::knockouts::bone(rig, &globals, "Bip01 Head")?);

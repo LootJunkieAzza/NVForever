@@ -1021,6 +1021,22 @@ impl Session {
         self.relay.as_ref().and_then(|r| r.sock.local_addr().ok()).map(|a| a.port())
     }
 
+    /// A guest's host is now at `to` (split screen's player 2, when the game it joins
+    /// through came back from a load's restart on another port): Hello goes there at once,
+    /// with this guest's token, so the host knows it again. Nothing for a host, nor when
+    /// `to` is the host already. True when the host moved.
+    pub fn move_host(&mut self, to: SocketAddr) -> bool {
+        let Role::Guest { candidates, host, last_hello, asked, gone, .. } = &mut self.role else { return false };
+        if *host == Some(to) || (host.is_none() && candidates.as_slice() == [to]) || *gone {
+            return false;
+        }
+        *candidates = vec![to];
+        *host = Some(to);
+        *asked = true;
+        *last_hello = None;
+        true
+    }
+
     /// Join the host at the first of `candidates` that answers; `lobby` is the code's key
     /// (0 for none), `name` is shown to the others. `token` names this guest to the host
     /// across dropouts and restarts ([`new_token`] for a new one).
@@ -2327,6 +2343,11 @@ impl Link {
         self.with(|s| s.relay_port())
     }
 
+    /// [`Session::move_host`].
+    pub fn move_host(&self, to: SocketAddr) -> bool {
+        self.with(|s| s.move_host(to))
+    }
+
     pub fn set_state(&self, state: PlayerState) {
         self.with(|s| s.set_state(state));
     }
@@ -3458,6 +3479,42 @@ mod tests {
         drop(p1);
         let seen = run(&mut [&mut host, &mut p2], &mut clock, step, |seen| seen[0].contains(&Event::Left(1)) && seen[0].contains(&Event::Left(2)) && seen[1].contains(&Event::HostGone));
         assert!(host.peers.is_empty(), "{seen:?}");
+    }
+
+    /// The guest a game joins through restarts for a load (gone without a goodbye) and
+    /// relays on another port: told the new port (split screen's `p1.txt`), the game
+    /// behind it says Hello there and the host knows it again, same id, through the new
+    /// run.
+    #[test]
+    fn a_game_behind_a_guest_follows_it_to_a_new_relay_port() {
+        let host = Session::host(0).unwrap();
+        let at = SocketAddr::from(([127, 0, 0, 1], host.local_addr().unwrap().port()));
+        let mut host = host;
+        let token = new_token();
+        let mut p1 = Session::join(&[at], 0, "Player B", token).unwrap();
+        let (mut clock, step) = (Instant::now(), Duration::from_millis(20));
+        p1.set_state(state(1.0));
+        let relay = p1.open_relay(0).unwrap();
+        let mut p2 = Session::join(&[SocketAddr::from(([127, 0, 0, 1], relay))], 0, "Player 2", new_token()).unwrap();
+        p2.set_state(state(5.0));
+        run(&mut [&mut host, &mut p1, &mut p2], &mut clock, step, |seen| seen[2].contains(&Event::Welcomed(2)));
+        // The load's restart: the old run ends at once (no goodbye), and the new run cannot
+        // have the old port (held here), so it relays on another.
+        drop(p1);
+        let held = UdpSocket::bind(("127.0.0.1", relay)).ok();
+        let mut p1 = Session::join(&[at], 0, "Player B", token).unwrap();
+        p1.set_state(state(1.0));
+        let moved = p1.open_relay(relay).or_else(|_| p1.open_relay(0)).unwrap();
+        assert!(held.is_none() || moved != relay);
+        let to = SocketAddr::from(([127, 0, 0, 1], moved));
+        assert!(p2.move_host(to));
+        assert!(!p2.move_host(to), "moved once");
+        assert!(!host.move_host(to), "a host has no host to move");
+        let seen = run(&mut [&mut host, &mut p1, &mut p2], &mut clock, step, |seen| {
+            seen[1].contains(&Event::Welcomed(1)) && seen[0].iter().any(|e| matches!(e, Event::State { id: 2, .. })) && seen[2].iter().any(|e| matches!(e, Event::State { id: 1, .. }))
+        });
+        assert!(!seen[2].iter().any(|e| matches!(e, Event::HostGone | Event::Welcomed(_))), "player 2 kept its place: {seen:?}");
+        assert_eq!(host.peers.len(), 2, "the same two guests: {seen:?}");
     }
 
     /// A game behind a guest counts toward the lobby's 6 players: with the host and

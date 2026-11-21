@@ -365,6 +365,7 @@ impl Plugin for CoopPlugin {
             peers: BTreeMap::new(),
             host: None,
             host_lost: false,
+            left_lobby: false,
             last_leash: None,
             port: DEFAULT_PORT,
             code: None,
@@ -549,6 +550,10 @@ pub(crate) struct Coop {
     /// The host's newest state (guests only).
     host: Option<PlayerState>,
     host_lost: bool,
+    /// This game was a guest and is no longer: it left the lobby, the host ended it, or
+    /// the host refused or never answered it. Not for a load's restart: the old run keeps
+    /// its link until it ends, the new run joins again (split screen's relay, `split`).
+    left_lobby: bool,
     /// When the last leash trip was asked for (seconds of `Time`).
     last_leash: Option<f32>,
     /// Hosting: the port, the lobby's code once known and what to tell the host about it,
@@ -882,6 +887,21 @@ impl Coop {
         }
     }
 
+    /// Split screen's player 2 (a guest of player 1's game, or of the host player 1's game
+    /// relays to): player 1's game came back from a load's restart at `at` (`p1.txt`), on
+    /// another port when it could not have its old one. Hello goes there, with this
+    /// guest's token, and a later restart of this game joins it there too ([`JOIN_ENV`]).
+    pub(crate) fn follow_host(&mut self, at: std::net::SocketAddr) -> bool {
+        let Some(link) = self.link.as_ref().filter(|l| !l.is_host()) else { return false };
+        if !link.move_host(at) {
+            return false;
+        }
+        info!("co-op: the game this one joins through is now at {at}: joining it there");
+        self.join_code = Some(at.to_string());
+        std::env::set_var(JOIN_ENV, at.to_string());
+        true
+    }
+
     fn stop_hosting(&mut self, commands: &mut Commands, fighters: &mut Fighters) {
         // Dropping the link says goodbye to the guests.
         self.link = None;
@@ -903,6 +923,7 @@ impl Coop {
         match guest_session(at, &self.name) {
             Ok(link) => {
                 self.link = Some(link);
+                self.left_lobby = false;
                 self.join_code = Some(at.trim().to_string());
                 self.joining = Joining::Finding;
                 self.finding_since = None;
@@ -915,6 +936,7 @@ impl Coop {
     }
 
     fn stop_joining(&mut self, commands: &mut Commands, fighters: &mut Fighters) {
+        self.left_lobby |= self.is_guest();
         self.link = None;
         self.join_code = None;
         self.joining = Joining::Idle;
@@ -942,6 +964,11 @@ impl Coop {
 
     pub(crate) fn is_guest(&self) -> bool {
         self.link.as_ref().is_some_and(|l| !l.is_host())
+    }
+
+    /// [`Coop::left_lobby`]: this game stopped being a guest (not for a load's restart).
+    pub(crate) fn left_lobby(&self) -> bool {
+        self.left_lobby
     }
 }
 
@@ -1086,6 +1113,7 @@ fn lobby(
             coop.joining = Joining::Found;
         } else if now - since > FIND_FOR {
             coop.link = None;
+            coop.left_lobby = true;
             let why = if coop.join_code.as_deref().is_some_and(steam_code) && steam::steam().is_none() {
                 "This code goes through Steam: start Steam, then join again."
             } else {
@@ -2201,6 +2229,7 @@ fn take_events(
     }
     if refused {
         coop.link = None;
+        coop.left_lobby = true;
         coop.joining = Joining::Failed("The host's game is full.".into());
     }
 }

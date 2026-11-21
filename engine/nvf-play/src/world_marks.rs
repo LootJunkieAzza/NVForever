@@ -241,7 +241,7 @@ impl Plugin for WorldMarksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NameTags>().init_resource::<HiddenTags>().init_resource::<Pings>().add_systems(Update, ping_input.in_set(PlaySet::Input).after(crate::control::read_controls)).add_systems(
             Update,
-            (take_pings, ping_sound, draw).chain().in_set(PlaySet::Ui),
+            (take_pings, ping_sound, draw, trace_tags).chain().in_set(PlaySet::Ui),
         );
         add_setting(
             app,
@@ -597,6 +597,63 @@ fn mark_box(kit: &Kit, shown: &Shown) -> Rect {
     let k = shown.fade.1;
     Rect { min: Vec2::new(-half, top) * k, max: Vec2::new(half, 0.0) * k }
 }
+
+/// Test aid `NVF_PLAY_TEST_MARKS_LOG` (any value): every [`TRACE_SECONDS`], each other
+/// player's tag point (its head bone, or its feet when no head is known), its feet, this
+/// camera's eye and vertical field of view and where the point falls on the window, to
+/// check a tag against the body in a frame saved at the same time.
+fn trace_tags(
+    mates: Res<SocialMates>,
+    heads: Res<crate::emotes::MateHeads>,
+    cameras: Query<(&Camera, &GlobalTransform, &Projection), With<PlayerCamera>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut next: Local<Option<std::time::Instant>>,
+) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ON.get_or_init(|| std::env::var_os("NVF_PLAY_TEST_MARKS_LOG").is_some()) {
+        return;
+    }
+    let now = std::time::Instant::now();
+    if next.is_some_and(|n| now < n) {
+        return;
+    }
+    *next = Some(now + std::time::Duration::from_secs_f32(TRACE_SECONDS));
+    let (Ok((cam, ct, proj)), Ok(window)) = (cameras.single(), windows.single()) else { return };
+    let size = window.size();
+    // The setting's (the projection as this frame's systems left it) and the one the
+    // camera's matrix was made with (split screen's half, `nvforever` split/view.rs).
+    let fov = match proj {
+        Projection::Perspective(p) => p.fov.to_degrees(),
+        _ => 0.0,
+    };
+    let drawn = 2.0 * (1.0 / cam.clip_from_view().y_axis.y.max(1e-6)).atan().to_degrees();
+    let eye = space::to_game(ct.translation());
+    for m in mates.mates.iter().filter(|m| m.here && !m.lost) {
+        let head = heads.0.get(&m.reference);
+        let p = head.map_or([m.feet[0], m.feet[1], m.feet[2] + HEAD_HEIGHT], |h| [h[0], h[1], h[2] + OVER_HEAD]);
+        let at = on_screen(cam, ct, size, p).map(|(s, front)| format!("({:.0}, {:.0}){}", s.x * size.x, s.y * size.y, if front { "" } else { " behind" })).unwrap_or_else(|| "-".into());
+        info!(
+            "world marks trace: {} {:08X} {} ({:.0}, {:.0}, {:.0}) feet ({:.0}, {:.0}, {:.0}) eye ({:.0}, {:.0}, {:.0}) fov {fov:.1} drawn {drawn:.1} window {:.0}x{:.0}: at {at}",
+            m.name,
+            m.reference,
+            if head.is_some() { "head" } else { "feet+" },
+            p[0],
+            p[1],
+            p[2],
+            m.feet[0],
+            m.feet[1],
+            m.feet[2],
+            eye[0],
+            eye[1],
+            eye[2],
+            size.x,
+            size.y
+        );
+    }
+}
+
+/// How often [`trace_tags`] logs (seconds).
+const TRACE_SECONDS: f32 = 5.0;
 
 /// A mark's root: a zero-size node at its point on the screen.
 fn root_node(s: Vec2, size: Vec2) -> Node {
