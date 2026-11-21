@@ -27,7 +27,8 @@ impl TraitState {
     }
 }
 
-const SOUND: u8 = 0;
+pub const SOUND_TRAIT_FAMILY: u8 = 0;
+const SOUND: u8 = SOUND_TRAIT_FAMILY;
 const WEATHER: u8 = 1;
 const COLOR: u8 = 2;
 const IMGS: u8 = 3;
@@ -53,6 +54,33 @@ impl Game<'_> {
     /// A decoded subrecord of a record (the first with that signature).
     fn sub(&self, f: FormId, sig: [u8; 4]) -> Option<&Json> {
         self.data.record_fields.get(&self.unclone(f))?.iter().find(|(s, _)| *s == sig).map(|(_, v)| v)
+    }
+
+    /// Snapshot any active session `SetSoundSourceFile` and `SetSoundTraitNumeric`
+    /// (`0..=12`) overrides from `source` onto `clone` at `TempCloneForm` creation time.
+    /// Pre-clone edits on `source` carry onto `clone`, while later edits on `source` stay
+    /// isolated from already-created clones.
+    pub(crate) fn snapshot_sound_traits(&mut self, source: FormId, clone: FormId) {
+        if let Some(path) = self.traits.sources.get(&source).cloned() {
+            self.traits.sources.insert(clone, path);
+        }
+        for slot in 0..=12 {
+            if let Some(&v) = self.traits.values.get(&(source, SOUND, slot)) {
+                self.traits.values.insert((clone, SOUND, slot), v);
+            }
+        }
+    }
+
+    /// The session `SetSoundSourceFile` override directly stored for `f` (including any
+    /// override snapshotted at `TempCloneForm` creation time).
+    pub fn sound_source_override(&self, f: FormId) -> Option<&str> {
+        self.traits.sources.get(&f).map(String::as_str)
+    }
+
+    /// The session `SetSoundTraitNumeric` override directly stored for `f` and trait `slot`
+    /// (including any override snapshotted at `TempCloneForm` creation time).
+    pub fn sound_trait_override(&self, f: FormId, slot: i64) -> Option<f64> {
+        self.traits.values.get(&(f, SOUND, slot)).copied()
     }
 }
 
@@ -208,7 +236,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
     let t = num(args, 1, -1.0) as i64;
     let changed = |g: &Game, fam: u8, slot: i64| g.traits.values.get(&(x, fam, slot)).copied();
     let v = match name {
-        "getsoundtraitnumeric" => XVal::Num(if (0..=12).contains(&t) { changed(g, SOUND, t).unwrap_or_else(|| sound_trait(g, x, t)) } else { 0.0 }),
+        "getsoundtraitnumeric" => XVal::Num(if (0..=12).contains(&t) { g.sound_trait_override(x, t).unwrap_or_else(|| sound_trait(g, x, t)) } else { 0.0 }),
         // Static attenuation is kept negated and whole [observed: 7 reads -7, -26.43
         // reads -26]; the distances keep their stored steps.
         "setsoundtraitnumeric" => {
@@ -224,7 +252,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             }
             zero
         }
-        "getsoundsourcefile" => XVal::Str(g.traits.sources.get(&x).cloned().unwrap_or_else(|| g.sub(x, *b"FNAM").and_then(Json::as_str).unwrap_or("").to_string())),
+        "getsoundsourcefile" => XVal::Str(g.sound_source_override(x).map(str::to_string).unwrap_or_else(|| g.sub(x, *b"FNAM").and_then(Json::as_str).unwrap_or("").to_string())),
         "setsoundsourcefile" => {
             if let Some(XVal::Str(p)) = args.get(1) {
                 g.traits.sources.insert(x, p.clone());
