@@ -1,20 +1,13 @@
-//! A new game's start, as a card on the Mods page (#2945): the start quest and the intro film
-//! the game reads from NVForever.ini's `[General]` (`sCharGenQuest`, `sIntroMovie`;
-//! docs/design/install-layout.md, nvf-play game_start.rs), typed in so a start mod's
-//! values need no hand edit of the file. Tale of Two Wastelands' are one click away
-//! (`SCharGenQuest=001FFFF8`, `SIntroMovie=`, as its installation guide writes them).
+//! A new game's start: the start quest and the intro film the game reads from
+//! NVForever.ini's `[General]` (`sCharGenQuest`, `sIntroMovie`).
 
 use fnv_install::{ini_get, ini_set};
 
-/// TTW's master; the card offers TTW's values while the load order has it.
-pub const TTW_PLUGIN: &str = "TaleOfTwoWastelands.esm";
 /// The section and keys the game reads (nvf-play game_start.rs `SECTION`, `CHARGEN_KEY`,
 /// `INTRO_KEY`).
 pub const SECTION: &str = "General";
 pub const QUEST_KEY: &str = "sCharGenQuest";
 pub const INTRO_KEY: &str = "sIntroMovie";
-/// TTW's start quest, as its installation guide writes it.
-pub const TTW_QUEST: &str = "001FFFF8";
 
 /// The card's fields.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -25,11 +18,6 @@ pub struct Fields {
     pub film: String,
     /// `sIntroMovie=` with nothing after it: no film at all.
     pub no_film: bool,
-}
-
-/// TTW's start: its quest and no film.
-pub fn ttw() -> Fields {
-    Fields { quest: TTW_QUEST.into(), film: String::new(), no_film: true }
 }
 
 fn value(text: &str, key: &str) -> Option<String> {
@@ -59,11 +47,6 @@ impl Fields {
         } else {
             ini_set(&t, SECTION, INTRO_KEY, film)
         }
-    }
-
-    /// Whether these are TTW's values.
-    pub fn is_ttw(&self) -> bool {
-        self.quest.trim().eq_ignore_ascii_case(TTW_QUEST) && self.no_film
     }
 }
 
@@ -105,12 +88,10 @@ mod tests {
     fn read_and_write() {
         let ini = "[Game]\nPath=F:\\FNV\n\n[Settings]\ngrass=1\n";
         assert_eq!(Fields::read(ini), Fields::default());
-        // TTW's values.
-        let on = ttw().write(ini);
+        let on = Fields { quest: "001FFFF8".into(), film: String::new(), no_film: true }.write(ini);
         assert_eq!(ini_get(&on, "General", "sCharGenQuest").as_deref(), Some("001FFFF8"));
         assert_eq!(ini_get(&on, "General", "sIntroMovie").as_deref(), Some(""));
-        assert!(Fields::read(&on).is_ttw());
-        assert_eq!(Fields::read(&on), ttw());
+        assert_eq!(Fields::read(&on), Fields { quest: "001FFFF8".into(), film: String::new(), no_film: true });
         // Emptied: both lines go, every other line stays.
         let off = Fields::default().write(&on);
         assert_eq!(ini_get(&off, "General", "sCharGenQuest"), None);
@@ -120,11 +101,11 @@ mod tests {
         // Another mod's start and film, typed with spaces around.
         let other = Fields { quest: " MyStart ".into(), film: "Mine.bik ".into(), no_film: false }.write(ini);
         assert_eq!(Fields::read(&other), Fields { quest: "MyStart".into(), film: "Mine.bik".into(), no_film: false });
-        assert!(!Fields::read(&other).is_ttw());
-        // "No film" wins over a typed film; lines copied in by hand, any case, quoted, count.
         let none = Fields { quest: String::new(), film: "Mine.bik".into(), no_film: true }.write(ini);
         assert_eq!(ini_get(&none, "General", "sIntroMovie").as_deref(), Some(""));
-        assert!(Fields::read("[general]\nSCharGenQuest=\"001fffF8\"\nSIntroMovie=\n").is_ttw());
+        let quoted = Fields::read("[general]\nSCharGenQuest=\"001fffF8\"\nSIntroMovie=\n");
+        assert_eq!(quoted.quest, "001fffF8");
+        assert!(quoted.no_film);
         // A comment naming the key is not a key.
         assert!(Fields::default().write("[General]\n; sCharGenQuest=old\nsCharGenQuest=001FFFF8\n").contains("; sCharGenQuest=old"));
     }

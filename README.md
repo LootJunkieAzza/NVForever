@@ -26,35 +26,52 @@ from NVIDIA: see [docs/dlss.md](docs/dlss.md).
 The launcher's Mods page is its own manager. Mod folders live under
 `Documents\My Games\NVForever\mods`, not in the game folder.
 
-- Drop a folder or an archive on **Add**. That line cannot be typed. **Add**
-  installs it. An installer that needs a choice opens its own window. New plugins
-  from that folder appear in the list.
+- Drop a folder or an archive on the mod list. An installer that needs a choice
+  opens its own window. New plugins from that folder appear in the list.
 - Drag a folder to move it. The bottom checked folder wins when two share a file.
   **Show overwrites** marks a shared file green when this folder's copy is used,
   and red when a lower folder's copy wins.
 - Drag plugins the same way. **Apply** writes the plugin list and the folder
-  order the launcher uses. It does not copy mod files.
+  order the launcher uses. It does not link or copy files into the game folder.
+  The game will not see those loose files until a later layer exists.
 
 A profile is a name you type, plus the folder order and the plugin order on the
 page. The name is one folder name, not a path.
 
-- **Add** and **Save backup** write `profiles/<name>/` in the launcher home.
-  The same name replaces these three files and leaves any other file there:
-  - `modlist.txt` — one folder a line. `+` is on, `-` is off. The winning folder
-    is first in the file. The page shows that folder last.
-  - `plugins.txt` — plugins that are on, a `*` before the name.
+- **Save** updates the open profile. **Add profile**, or Enter in the name, stores
+  the same lists under that name in `profiles` next to the mods folder, and asks
+  before it replaces one that already exists. There is no save-location picker.
+  **Save backup** keeps a dated copy of the mod list and the load order.
+  Lowering how many are kept asks before the oldest backups are deleted.
+  The mods themselves stay. **Load backup** writes that copy into a profile.
+  None of these copy mod files.
+  A profile folder holds:
+  - `modlist.txt` — one mod a line. `+` is enabled, `-` is disabled. `=` locks the row.
+    `%` is a separator. Right-click a row for a separator above or below it.
+    Double-click a separator to rename it. The winning mod is first in the file.
+    The page shows that mod last.
+  - `plugins.txt` — plugins that are enabled, a `*` before the name.
   - `loadorder.txt` — every plugin on the page, first loaded first.
-- Drop a folder on the profile bar to fill the path. That line cannot be typed.
-  **Read** lists profiles there. **Load** puts that folder order and plugin
-  order on the page. A save does not write into the dropped folder.
-- **Load backup** is the older dated plugin list, not a named profile.
-  **Save backup** writes the named profile.
+- **Load** puts that profile's mod list and load order on the page. It does not
+  copy a mod. Profiles are only read from the launcher's `profiles` folder.
 
-**Apply**, and **Load** of a profile, still symlink turned-on mod files into the
-game `Data` folder. A file already there is left alone. Nothing is copied. A
-profile save does not do that. An output folder for files the game or a tool
-creates is not built yet. Reading another program's instance with `--mo2` stays
-read-only.
+**Apply** and **Load** do not write the game `Data` folder. Loose files in the
+launcher's Overwrite folder become a mod from the mod list's right-click menu,
+**Make mod below**. The new mod sits under that row. The game folder is not
+used. Reading another program's instance with `--mo2` stays read-only.
+
+The first Nexus or ModPub link asks once if this launcher should open those
+links. Nexus calls New Vegas `newvegas` in that link.
+The archive shows up on the **Downloads** tab, on the right of the Mods page.
+**Install** opens Quick Install. OK uses the archive as it is. Manual lists
+the files, and `<data>` is the folder that becomes the mod. Nothing is copied
+until OK, and it is not copied into Data. A Nexus
+download asks for the API key and saves it in the launcher home
+(`nexus-api.txt`). `NEXUS_API_KEY` is used instead when it is set. A free
+account still uses Mod Manager Download, so the link carries the website
+key and expiry. A ModPub link is a direct https download from a public site,
+with no API key. A second click of the same link is handed to the launcher
+that is already open. **Saves** is a tab on the right of the Mods page.
   
 Script extenders (xNVSE, JIP LN, JohnnyGuitar and several smaller ones) are built into the
 engine: their script functions run without the plugin `.dll` files, which NVForever never

@@ -21,10 +21,13 @@ const LOOSE: &[&str] = &[
     "meshes", "textures", "sound", "music", "video", "menus", "interface", "scripts", "facegen", "shaders", "lodsettings", "trees", "materials", "distantlod", "lsdata", "nvse", "config", "uio", "plugins",
 ];
 
+#[allow(clippy::large_enum_variant)]
 pub enum Staged {
     Tree { name: String, from: PathBuf, temp: Option<PathBuf> },
     Plan(Plan),
     Wizard(Wizard),
+    /// The archive has more than one folder that could be the mod. The player picks one.
+    ChooseRoot { name: String, roots: Vec<PathBuf>, temp: Option<PathBuf> },
 }
 
 pub struct Plan {
@@ -207,6 +210,13 @@ fn stage_tree(tree: &Path, temp: Option<PathBuf>, fallback: &str, facts: Facts) 
     }
     let from = hoist(tree);
     let name = clean_name(fallback).unwrap_or_else(|_| "mod".into());
+    // One nested folder is already unwrapped. Several folders that each look like a mod stay a choice.
+    if !has_top_files(&from) {
+        let roots: Vec<PathBuf> = subdirs(&from).into_iter().filter(|p| has_game_files(p)).collect();
+        if roots.len() > 1 {
+            return Ok(Staged::ChooseRoot { name, roots, temp });
+        }
+    }
     Ok(Staged::Tree { name, from, temp })
 }
 
@@ -245,6 +255,93 @@ pub fn place_plan(mods: &Path, plan: &Plan) -> Result<String, String> {
     keep_if_game_files(&dest, &name)
 }
 
+/// Installs over a mod of the same name. The old folder is moved into `recycle` first and put back if the new copy fails.
+pub fn replace_tree(mods: &Path, name: &str, from: &Path, recycle: &Path) -> Result<String, String> {
+    let name = clean_name(name)?;
+    let dest = mods.join(&name);
+    let aside = move_aside(&dest, recycle, &name)?;
+    match place_tree(mods, &name, from) {
+        Ok(done) => Ok(done),
+        Err(e) => {
+            restore_aside(aside, &dest);
+            Err(e)
+        }
+    }
+}
+
+pub fn replace_plan(mods: &Path, plan: &Plan, recycle: &Path) -> Result<String, String> {
+    let name = clean_name(&plan.name)?;
+    let dest = mods.join(&name);
+    let aside = move_aside(&dest, recycle, &name)?;
+    let mut placed = plan.clone_for_place();
+    placed.name = name;
+    match place_plan(mods, &placed) {
+        Ok(done) => Ok(done),
+        Err(e) => {
+            restore_aside(aside, &dest);
+            Err(e)
+        }
+    }
+}
+
+fn move_aside(dest: &Path, recycle: &Path, name: &str) -> Result<Option<PathBuf>, String> {
+    if !dest.exists() {
+        return Ok(None);
+    }
+    std::fs::create_dir_all(recycle).map_err(|e| format!("{}: {e}", recycle.display()))?;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let mut aside = recycle.join(format!("{name} {stamp}"));
+    let mut n = 2u32;
+    while aside.exists() {
+        aside = recycle.join(format!("{name} {stamp}-{n}"));
+        n += 1;
+    }
+    std::fs::rename(dest, &aside).map_err(|e| format!("{}: {e}", dest.display()))?;
+    Ok(Some(aside))
+}
+
+fn restore_aside(aside: Option<PathBuf>, dest: &Path) {
+    if let Some(aside) = aside {
+        let _ = std::fs::rename(&aside, dest);
+    }
+}
+
+/// Loose-file paths a plan would write, using `/` and no drive.
+pub fn plan_loose_files(plan: &Plan) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in &plan.items {
+        let Ok(rel) = rel_path(&item.source) else { continue };
+        let src = plan.root.join(&rel);
+        if item.folder {
+            let mut stack = vec![(src, String::new())];
+            while let Some((dir, prefix)) = stack.pop() {
+                let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+                for entry in rd.flatten() {
+                    let path = entry.path();
+                    if path.is_symlink() {
+                        continue;
+                    }
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let next = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
+                    if path.is_dir() {
+                        stack.push((path, next));
+                    } else {
+                        let key = if item.destination.trim().is_empty() { next } else { format!("{}/{}", item.destination.trim_end_matches(['/', '\\']), next) };
+                        out.push(key.replace('\\', "/"));
+                    }
+                }
+            }
+        } else {
+            let named = src.file_name().unwrap_or_default().to_string_lossy();
+            let key = if item.destination.trim().is_empty() { named.to_string() } else { item.destination.replace('\\', "/") };
+            out.push(key);
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 pub fn discard(temp: &Option<PathBuf>) {
     if let Some(t) = temp {
         let _ = std::fs::remove_dir_all(t);
@@ -254,9 +351,15 @@ pub fn discard(temp: &Option<PathBuf>) {
 fn keep_if_game_files(dest: &Path, name: &str) -> Result<String, String> {
     if !has_game_files(dest) {
         let _ = std::fs::remove_dir_all(dest);
-        return Err("That archive had no plugin and no game files, so nothing was added.".into());
+        return Err("That archive had no plugin and no game files, so nothing was added. Use Manual to pick the files.".into());
     }
     Ok(name.to_string())
+}
+
+impl Plan {
+    fn clone_for_place(&self) -> Plan {
+        Plan { name: self.name.clone(), root: self.root.clone(), items: self.items.clone(), temp: None }
+    }
 }
 
 impl Wizard {
@@ -264,12 +367,62 @@ impl Wizard {
         discard(&self.temp);
     }
 
+    #[allow(dead_code)]
     pub fn install(&mut self, mods: &Path) -> Result<String, String> {
+        self.install_over(mods, None)
+    }
+
+    /// Same as [`install`], and a folder of this name already in `mods` is moved to `recycle` first.
+    pub fn install_over(&mut self, mods: &Path, recycle: Option<&Path>) -> Result<String, String> {
         if let Some(e) = self.validate_all() {
             return Err(e);
         }
         let plan = Plan { name: self.folder_name.clone(), root: self.root.clone(), items: self.plan(), temp: None };
-        place_plan(mods, &plan)
+        match recycle {
+            Some(recycle) => replace_plan(mods, &plan, recycle),
+            None => place_plan(mods, &plan),
+        }
+    }
+
+    /// The choices, so a later install of this mod can start from them.
+    pub fn choices_text(&self) -> String {
+        let mut out = format!("folder={}\n", self.folder_name);
+        for (s, step) in self.chosen.iter().enumerate() {
+            for (g, group) in step.iter().enumerate() {
+                for (p, on) in group.iter().enumerate() {
+                    if *on {
+                        out.push_str(&format!("{s} {g} {p}\n"));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    pub fn apply_choices(&mut self, text: &str) {
+        for step in &mut self.chosen {
+            for group in step.iter_mut() {
+                for on in group.iter_mut() {
+                    *on = false;
+                }
+            }
+        }
+        for line in text.lines() {
+            let line = line.trim();
+            if let Some(name) = line.strip_prefix("folder=") {
+                if clean_name(name).is_ok() {
+                    self.folder_name = name.to_string();
+                }
+                continue;
+            }
+            let mut parts = line.split_whitespace();
+            let (Some(s), Some(g), Some(p)) = (parts.next(), parts.next(), parts.next()) else { continue };
+            let (Ok(s), Ok(g), Ok(p)) = (s.parse::<usize>(), g.parse::<usize>(), p.parse::<usize>()) else { continue };
+            if let Some(flag) = self.chosen.get_mut(s).and_then(|step| step.get_mut(g)).and_then(|group| group.get_mut(p)) {
+                *flag = true;
+            }
+        }
+        self.normalize();
     }
 
     fn needs_choice(&self) -> bool {
@@ -510,7 +663,16 @@ pub fn draw(ctx: &egui::Context, w: &mut Wizard) -> Option<Decision> {
     let mut decision = None;
     let mut open = true;
     let title = w.title.clone();
-    egui::Window::new(title).collapsible(false).resizable(true).default_width(540.0).anchor(Align2::CENTER_CENTER, [0.0, 0.0]).open(&mut open).show(ctx, |ui| {
+    let screen = ctx.viewport_rect().size();
+    egui::Window::new(title)
+        .collapsible(false)
+        .resizable(true)
+        .constrain(true)
+        .default_width(540.0)
+        .max_size(egui::vec2((screen.x - 32.0).max(280.0), (screen.y - 32.0).max(200.0)))
+        .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+        .open(&mut open)
+        .show(ctx, |ui| {
         if !w.note.is_empty() {
             ui.label(RichText::new(&w.note).small().color(ui.visuals().weak_text_color()));
         }
@@ -529,9 +691,7 @@ pub fn draw(ctx: &egui::Context, w: &mut Wizard) -> Option<Decision> {
                     match group.kind {
                         GroupKind::ExactlyOne | GroupKind::AtMostOne => {
                             if group.kind == GroupKind::AtMostOne && ui.radio(group.plugins.iter().enumerate().all(|(p, _)| !w.chosen[s][g][p] || kinds[s][g][p] == Kind::NotUsable), "None").clicked() {
-                                for on in &mut w.chosen[s][g] {
-                                    *on = false;
-                                }
+                                w.chosen[s][g].fill(false);
                             }
                             for (p, plug) in group.plugins.iter().enumerate() {
                                 let kind = kinds[s][g][p];
@@ -823,8 +983,8 @@ fn kind_named(name: &str) -> Kind {
 
 fn sort_by<T>(items: &mut [T], order: &str, name: impl Fn(&T) -> &str) {
     match order.to_ascii_lowercase().as_str() {
-        "ascending" => items.sort_by(|a, b| name(a).to_ascii_lowercase().cmp(&name(b).to_ascii_lowercase())),
-        "descending" => items.sort_by(|a, b| name(b).to_ascii_lowercase().cmp(&name(a).to_ascii_lowercase())),
+        "ascending" => items.sort_by_key(|a| name(a).to_ascii_lowercase()),
+        "descending" => items.sort_by_key(|a| std::cmp::Reverse(name(a).to_ascii_lowercase())),
         _ => {}
     }
 }
@@ -1093,7 +1253,7 @@ fn bounded(root: &Path, path: &Path) -> Result<(), String> {
 }
 
 pub fn clean_name(name: &str) -> Result<String, String> {
-    let last = name.split(['/', '\\']).filter(|s| !s.is_empty()).next_back().unwrap_or("");
+    let last = name.split(['/', '\\']).rev().find(|s| !s.is_empty()).unwrap_or("");
     let cleaned: String = last.chars().filter(|c| !matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*' | '\0')).collect();
     let cleaned = cleaned.trim().to_string();
     if cleaned.is_empty() || cleaned.starts_with('.') || cleaned == ".." {
@@ -1165,10 +1325,8 @@ fn extract_archive(src: &Path, dest: &Path) -> Result<(), String> {
         return extract_zip(src, dest);
     }
     let gzip = kind == Some("gz") || name.ends_with(".tar.gz") || name.ends_with(".tgz") || name.ends_with(".taz");
-    if gzip || name.ends_with(".tar") {
-        if extract_tar(src, dest, gzip).is_ok() {
-            return reject_links(dest);
-        }
+    if (gzip || name.ends_with(".tar")) && extract_tar(src, dest, gzip).is_ok() {
+        return reject_links(dest);
     }
     extract_external(src, dest)?;
     reject_links(dest)
@@ -1322,11 +1480,13 @@ fn make_temp() -> Result<PathBuf, String> {
 fn read_xml(path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if bytes.starts_with(&[0xFF, 0xFE]) {
-        let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let (chunks, _) = bytes[2..].as_chunks::<2>();
+        let units: Vec<u16> = chunks.iter().map(|c| u16::from_le_bytes(*c)).collect();
         return Ok(String::from_utf16_lossy(&units));
     }
     if bytes.starts_with(&[0xFE, 0xFF]) {
-        let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        let (chunks, _) = bytes[2..].as_chunks::<2>();
+        let units: Vec<u16> = chunks.iter().map(|c| u16::from_be_bytes(*c)).collect();
         return Ok(String::from_utf16_lossy(&units));
     }
     Ok(String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string())
@@ -1510,6 +1670,149 @@ fn find_el<'a>(el: &'a Elem, name: &str) -> Option<&'a Elem> {
     None
 }
 
+/// One archive entry in the manual installer. `<data>` is the folder that becomes the mod.
+#[derive(Clone)]
+pub struct ManFile {
+    pub name: String,
+    pub dir: bool,
+    pub checked: bool,
+    pub children: Vec<ManFile>,
+}
+
+/// The files under `dir`, for the manual installer. Nothing is copied.
+pub fn scan_manual(dir: &Path) -> ManFile {
+    let mut left = 8000usize;
+    ManFile { name: "<data>".into(), dir: true, checked: true, children: read_manual(dir, 8, &mut left) }
+}
+
+fn read_manual(dir: &Path, depth: u8, left: &mut usize) -> Vec<ManFile> {
+    if depth == 0 || *left == 0 || dir.is_symlink() {
+        return Vec::new();
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut entries: Vec<_> = rd.flatten().collect();
+    entries.sort_by_key(|e| e.file_name().to_string_lossy().to_ascii_lowercase());
+    let mut out = Vec::new();
+    for entry in entries {
+        if *left == 0 {
+            break;
+        }
+        let path = entry.path();
+        if path.is_symlink() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name.eq_ignore_ascii_case("fomod") || name.eq_ignore_ascii_case("__macosx") {
+            continue;
+        }
+        *left -= 1;
+        if path.is_dir() {
+            let children = read_manual(&path, depth - 1, left);
+            out.push(ManFile { name, dir: true, checked: true, children });
+        } else if path.is_file() {
+            out.push(ManFile { name, dir: false, checked: true, children: Vec::new() });
+        }
+    }
+    out
+}
+
+pub fn set_branch(node: &mut ManFile, on: bool) {
+    node.checked = on;
+    for child in &mut node.children {
+        set_branch(child, on);
+    }
+}
+
+/// True when every ticked entry under `<data>` is a plugin, an archive, or a known folder.
+pub fn data_valid(node: &ManFile) -> bool {
+    let checked: Vec<&ManFile> = node.children.iter().filter(|c| c.checked).collect();
+    !checked.is_empty() && checked.iter().all(|c| manual_ok(c))
+}
+
+fn manual_ok(node: &ManFile) -> bool {
+    if !node.checked {
+        return true;
+    }
+    if node.dir {
+        if loose_name(&node.name) {
+            return true;
+        }
+        let checked: Vec<&ManFile> = node.children.iter().filter(|c| c.checked).collect();
+        return !checked.is_empty() && checked.iter().all(|c| manual_ok(c));
+    }
+    manual_file_ok(&node.name)
+}
+
+fn manual_file_ok(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    is_game_file(name) || lower.ends_with(".ini") || lower.ends_with(".xml") || lower.ends_with(".dll") || lower.ends_with(".json")
+}
+
+/// Copies ticked files from `data` into `dest`. Unticked files are left out. The game folder is not used.
+pub fn copy_checked(data: &Path, node: &ManFile, dest: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    copy_checked_into(data, node, dest)
+}
+
+fn copy_checked_into(dir: &Path, node: &ManFile, dest: &Path) -> Result<(), String> {
+    for child in &node.children {
+        if !child.checked {
+            continue;
+        }
+        if child.name.is_empty() || child.name.contains(['/', '\\']) || child.name == "." || child.name == ".." {
+            return Err("That file name cannot be used.".into());
+        }
+        let from = dir.join(&child.name);
+        let to = dest.join(&child.name);
+        if from.is_symlink() {
+            return Err(format!("{} is a link", from.display()));
+        }
+        if child.dir {
+            std::fs::create_dir_all(&to).map_err(|e| format!("{}: {e}", to.display()))?;
+            copy_checked_into(&from, child, &to)?;
+        } else if from.is_file() {
+            if let Some(parent) = to.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
+            std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Extracts an archive, or uses a folder, so Manual can list it. Nothing is installed.
+pub fn open_manual(src: &Path) -> Result<(Option<PathBuf>, PathBuf, ManFile), String> {
+    if src.as_os_str().is_empty() || !src.exists() {
+        return Err("That path was not found.".into());
+    }
+    if src.is_dir() {
+        return Ok((None, src.to_path_buf(), scan_manual(src)));
+    }
+    let temp = make_temp()?;
+    if is_archive(src) {
+        if let Err(e) = extract_archive(src, &temp) {
+            let _ = std::fs::remove_dir_all(&temp);
+            return Err(e);
+        }
+        if let Err(e) = unwrap_nested(&temp) {
+            let _ = std::fs::remove_dir_all(&temp);
+            return Err(e);
+        }
+    } else {
+        let file_name = src.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if !is_game_file(file_name) && !manual_file_ok(file_name) {
+            let _ = std::fs::remove_dir_all(&temp);
+            return Err("Drop a folder or an archive (.zip, .7z, .rar, .fomod, .tar, .gz).".into());
+        }
+        if let Err(e) = std::fs::copy(src, temp.join(file_name)) {
+            let _ = std::fs::remove_dir_all(&temp);
+            return Err(format!("{}: {e}", src.display()));
+        }
+    }
+    let tree = scan_manual(&temp);
+    Ok((Some(temp.clone()), temp, tree))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1647,6 +1950,68 @@ mod tests {
         assert!(mods.join(&name).join("A.esp").is_file());
         assert!(!mods.join(&name).join("B.esp").exists());
         assert!(mods.join(&name).join("readme.txt").is_file());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn two_roots_are_a_choice_and_a_reinstall_keeps_the_old_folder_until_the_new_one_is_in() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-roots-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let src = t.join("src");
+        std::fs::create_dir_all(src.join("One")).unwrap();
+        std::fs::create_dir_all(src.join("Two")).unwrap();
+        std::fs::write(src.join("One/A.esp"), b"TES4").unwrap();
+        std::fs::write(src.join("Two/B.esp"), b"TES4").unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let staged = stage(&src, facts).unwrap();
+        let Staged::ChooseRoot { roots, temp, .. } = staged else { panic!("two plugin folders should be a choice") };
+        assert_eq!(roots.len(), 2);
+        discard(&temp);
+        let mods = t.join("mods");
+        let recycle = t.join("recycle");
+        std::fs::create_dir_all(mods.join("Example")).unwrap();
+        std::fs::write(mods.join("Example/old.txt"), b"old").unwrap();
+        let from = t.join("from");
+        std::fs::create_dir_all(from.join("meshes")).unwrap();
+        std::fs::write(from.join("meshes/a.nif"), b"nif").unwrap();
+        replace_tree(&mods, "Example", &from, &recycle).unwrap();
+        assert!(mods.join("Example/meshes/a.nif").is_file());
+        assert!(!mods.join("Example/old.txt").exists());
+        let kept = std::fs::read_dir(&recycle).unwrap().flatten().any(|e| e.path().join("old.txt").is_file());
+        assert!(kept);
+        let missing = t.join("missing");
+        std::fs::create_dir_all(mods.join("Example")).ok();
+        let err = replace_tree(&mods, "Example", &missing, &recycle);
+        assert!(err.is_err());
+        assert!(mods.join("Example").exists());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn manual_data_accepts_nvse_and_refuses_docs() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-manual-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let src = t.join("src");
+        std::fs::create_dir_all(src.join("Data/NVSE")).unwrap();
+        std::fs::write(src.join("Data/NVSE/nvse_loader.exe"), b"exe").unwrap();
+        std::fs::write(src.join("README.md"), b"docs").unwrap();
+        std::fs::write(src.join("LICENSE.txt"), b"lic").unwrap();
+        let whole = scan_manual(&src);
+        assert!(!data_valid(&whole));
+        let just = scan_manual(&src.join("Data"));
+        assert!(data_valid(&just));
+        let mut skipped = just.clone();
+        skipped.children[0].checked = false;
+        set_branch(&mut skipped.children[0], false);
+        assert!(!data_valid(&skipped));
+        let dest = t.join("out");
+        copy_checked(&src.join("Data"), &just, &dest).unwrap();
+        assert!(dest.join("NVSE/nvse_loader.exe").is_file());
+        assert!(!dest.join("README.md").exists());
+        let mcm = t.join("mcm");
+        std::fs::create_dir_all(&mcm).unwrap();
+        std::fs::write(mcm.join("menu.xml"), b"<x/>").unwrap();
+        assert!(data_valid(&scan_manual(&mcm)));
         let _ = std::fs::remove_dir_all(&t);
     }
 }
