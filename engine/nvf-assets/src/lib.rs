@@ -17,6 +17,8 @@ pub mod morph;
 pub mod particles;
 mod pbr_field;
 pub mod read_pool;
+pub mod reflection_cube;
+pub mod reflection_room;
 pub mod release;
 pub mod nif_material;
 pub mod nif_spawn;
@@ -30,6 +32,8 @@ pub use model::{ModelCache, PreparedModel, PreparedShape};
 pub use nif_material::{ambient_occlusion_opt_in, ambient_occlusion_opt_out, depth_equal, fade_prepass, grass_edges, nif_material, soft_edges, NifMaterial, NifMaterialPlugin, AMBIENT_OCCLUSION_DEF};
 pub use nif_spawn::{NifHidden, NifRoot, SpawnCtx, SpawnReport};
 pub use release::{AssetReleasePlugin, KeepLimits};
+/// The reflections' mount-pack test aid (pbr_field/reflect.rs).
+pub use pbr_field::reflect::{mount_pack_requested, seed_mount_pack, MOUNT_PACK_ENV};
 pub use texture::TextureCache;
 
 pub mod nif_surface_blend;

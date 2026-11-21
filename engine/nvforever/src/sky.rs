@@ -1436,6 +1436,8 @@ pub fn setup_sky(
     // Per vertex: the weights of the horizon, sky-lower and sky-upper colours (red,
     // green, blue).
     let dome: Vec<[f32; 3]> = weights.iter().map(|w| [w[0], w[1], w[2]]).collect();
+    // The same weights by height, for the reflection cube's sky (reflection_sky.rs).
+    commands.insert_resource(crate::reflection_sky::DomeProfile::from_vertices(&atmosphere.positions, &atmosphere.colors));
     commands.spawn((
         Name::new("Sky"),
         SkyDome(dome),

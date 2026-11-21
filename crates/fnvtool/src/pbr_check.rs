@@ -92,36 +92,44 @@ impl FileCheck {
 }
 
 /// How many bytes from the start of the file [`check_file`] needs: the DDS headers for
-/// `_orm`, `_n` and `_p`, the whole file for a scalar file (`None`), nothing for the
-/// reserved `_albedo` and unmatched files (they are not read).
+/// `_orm`, `_n`, `_p` and `_albedo`, the whole file for a scalar file (`None`), nothing for
+/// unmatched files (they are not read).
 pub fn head_len(path: &str) -> Option<usize> {
     match classify(path).map(|(_, m)| m) {
-        Some(Member::Orm | Member::Normal | Member::Height) => Some(DDS_HEAD_LEN),
+        Some(Member::Orm | Member::Normal | Member::Height | Member::Albedo) => Some(DDS_HEAD_LEN),
         Some(Member::Scalars) => None,
-        Some(Member::Albedo) | None => Some(0),
+        None => Some(0),
     }
+}
+
+/// Whether a member holds colour (sRGB) data: `_albedo` alone; every other DDS member is
+/// linear.
+fn colour_member(m: Member) -> bool {
+    m == Member::Albedo
 }
 
 /// [design] The formats each member may use (docs/spec-notes/pbr-materials.md,
 /// "Compression and sizes" and "Channels and colour spaces"): `_orm` BC7, BC1 or BC3;
 /// `_n` BC5 (unsigned or signed), BC7, BC1 or BC3 (the last three as three-channel
-/// normals); `_p` BC4 (unsigned or signed), BC1 or BC3. The DX10 sRGB variants count as
-/// their format (the colour space follows the role; [`check_file`] warns about them).
+/// normals); `_p` BC4 (unsigned or signed), BC1 or BC3; `_albedo` BC7, BC1 or BC3 (the
+/// colour formats a game diffuse uses, with an alpha channel). The DX10 sRGB variants count
+/// as their format (the colour space follows the role; [`check_file`] warns about them on
+/// linear members).
 pub fn allowed_formats(m: Member) -> &'static [Format] {
     match m {
-        Member::Orm => &[Format::Bc7, Format::Dxt1, Format::Dxt5],
+        Member::Orm | Member::Albedo => &[Format::Bc7, Format::Dxt1, Format::Dxt5],
         Member::Normal => &[Format::Bc5U, Format::Bc5S, Format::Bc7, Format::Dxt1, Format::Dxt5],
         Member::Height => &[Format::Bc4U, Format::Bc4S, Format::Dxt1, Format::Dxt5],
-        Member::Scalars | Member::Albedo => &[],
+        Member::Scalars => &[],
     }
 }
 
 fn allowed_text(m: Member) -> &'static str {
     match m {
-        Member::Orm => "BC7, BC1 or BC3",
+        Member::Orm | Member::Albedo => "BC7, BC1 or BC3",
         Member::Normal => "BC5 (unsigned or signed), BC7, BC1 or BC3",
         Member::Height => "BC4 (unsigned or signed), BC1 or BC3",
-        Member::Scalars | Member::Albedo => "none",
+        Member::Scalars => "none",
     }
 }
 
@@ -137,7 +145,6 @@ pub fn check_file(path: &str, head: &[u8], len: u64) -> FileCheck {
     let mut fc = FileCheck { path: path.to_string(), member, bytes: len, dds: None, findings: Vec::new() };
     match member {
         None => fc.add(Level::Warning, "unmatched-file", "This file is no member of any set (no `_orm.dds`, `_n.dds`, `_p.dds`, `_albedo.dds` or `.toml` ending), so the engine ignores it.".into()),
-        Some(Member::Albedo) => fc.add(Level::Warning, "albedo-reserved", "`_albedo` is reserved for a later version: it is counted but never read, and the game's diffuse stays the base colour.".into()),
         Some(Member::Scalars) => {
             let f = parse_scalars(head);
             if f.unreadable {
@@ -214,7 +221,7 @@ fn check_dds(fc: &mut FileCheck, m: Member, head: &[u8], len: u64) {
         Ok(f) if allowed_formats(m).contains(&f) => {}
         _ => fc.add(Level::Error, "format-not-allowed", format!("{name} is not a format for a `{}` member; use {}.", m.suffix().trim_end_matches(".dds"), allowed_text(m))),
     }
-    if h.srgb_hint() == Some(true) {
+    if h.srgb_hint() == Some(true) && !colour_member(m) {
         fc.add(Level::Warning, "srgb-linear-member", format!("{name} marks the data as sRGB, but this member holds linear data and is read as linear whatever the header says; export it without sRGB."));
     }
 
@@ -236,7 +243,7 @@ fn check_dds(fc: &mut FileCheck, m: Member, head: &[u8], len: u64) {
 pub struct PackCheck {
     /// Sorted by game path, ASCII case folded.
     pub files: Vec<FileCheck>,
-    /// One per incomplete set.
+    /// One per incomplete set, and one per `_albedo` of a height-only set.
     pub set_findings: Vec<Finding>,
     pub index: PbrIndex,
 }
@@ -257,7 +264,7 @@ where
             spelled.entry(stem).or_insert_with(|| f.path[..f.path.len() - m.suffix().len()].to_string());
         }
     }
-    let set_findings = index
+    let mut set_findings: Vec<Finding> = index
         .sets()
         .filter(|(_, s)| s.state() == SetState::Incomplete)
         .map(|(stem, s)| {
@@ -270,6 +277,16 @@ where
             }
         })
         .collect();
+    // An `_albedo` is drawn by an authored set only: in a height-only set it is never read.
+    set_findings.extend(files.iter().filter(|f| f.member == Some(Member::Albedo)).filter_map(|f| {
+        let (stem, _) = classify(&f.path)?;
+        (index.get(&stem)?.state() == SetState::HeightOnly).then(|| Finding {
+            level: Level::Warning,
+            code: "albedo-without-orm",
+            path: f.path.clone(),
+            message: "This set has no `_orm.dds`, so it is not an authored set and its `_albedo` is never drawn; the game's diffuse stays the base colour.".into(),
+        })
+    }));
     PackCheck { files, set_findings, index }
 }
 
@@ -290,12 +307,17 @@ impl PackCheck {
     }
 
     /// GPU memory the pack would take: the payload bytes of every `_orm`, `_n` and `_p`
-    /// without an error, in a set that changes a material (authored or height only).
+    /// without an error, in a set that changes a material (authored or height only), and of
+    /// every `_albedo` without an error in an authored set (the only sets that draw it).
     pub fn gpu_bytes_estimate(&self) -> u64 {
         self.files
             .iter()
             .filter(|f| f.accepted())
-            .filter(|f| classify(&f.path).is_some_and(|(stem, _)| self.index.get(&stem).is_some_and(|s| s.state().is_active())))
+            .filter(|f| {
+                classify(&f.path).is_some_and(|(stem, m)| {
+                    self.index.get(&stem).is_some_and(|s| if m == Member::Albedo { s.state() == SetState::Authored } else { s.state().is_active() })
+                })
+            })
             .filter_map(|f| f.dds.as_ref().and_then(|d| d.payload_bytes))
             .sum()
     }
@@ -330,7 +352,7 @@ impl PackCheck {
             let of: Vec<&FileCheck> = self.files.iter().filter(|f| f.member == Some(m)).collect();
             let mut entry = Map::new();
             entry.insert("files".into(), json!(of.len()));
-            if matches!(m, Member::Orm | Member::Normal | Member::Height) {
+            if matches!(m, Member::Orm | Member::Normal | Member::Height | Member::Albedo) {
                 let mut formats: BTreeMap<String, usize> = BTreeMap::new();
                 for d in of.iter().filter_map(|f| f.dds.as_ref()) {
                     *formats.entry(d.format.clone()).or_default() += 1;
@@ -391,15 +413,17 @@ const BC5_UNORM: u32 = 83;
 const BC7_UNORM: u32 = 98;
 const BC7_UNORM_SRGB: u32 = 99;
 
-/// The self-test's files: a clean set (BC7 `_orm` 8x8, BC5 `_n` 16x16, BC4 `_p` 4x4, a
-/// scalar file), then one broken file for each finding in [`SELFTEST_EXPECTED`].
+/// The self-test's files: a clean set (BC7 `_orm` 8x8, BC5 `_n` 16x16, BC4 `_p` 4x4, an sRGB
+/// BC7 `_albedo` 8x8, which raises no sRGB warning on a colour member, a scalar file), then
+/// one broken file for each finding in [`SELFTEST_EXPECTED`].
 pub fn selftest_inputs() -> Vec<(String, Vec<u8>)> {
     let p = |name: &str| format!("textures\\pbr\\selftest\\{name}");
     vec![
         (p("clean_orm.dds"), dx10_dds(BC7_UNORM, 8, 8, 4, 0)),
         (p("clean_n.dds"), dx10_dds(BC5_UNORM, 16, 16, 5, 0)),
         (p("clean_p.dds"), dx10_dds(BC4_UNORM, 4, 4, 3, 0)),
-        (p("clean.toml"), b"roughness_scale = 0.9\nreflectance = 0.35\n".to_vec()),
+        (p("clean_albedo.dds"), dx10_dds(BC7_UNORM_SRGB, 8, 8, 4, 0)),
+        (p("clean.toml"), b"roughness_scale = 0.9\nreflectance = 0.35\nmetal_gain = 1\n".to_vec()),
         // 8x2: powers of two with a full chain, only the 2 is not a multiple of 4.
         (p("unaligned_orm.dds"), dx10_dds(BC7_UNORM, 8, 2, 4, 0)),
         (p("wrongformat_orm.dds"), dx10_dds(BC4_UNORM, 4, 4, 3, 0)),
@@ -416,8 +440,8 @@ pub fn selftest_inputs() -> Vec<(String, Vec<u8>)> {
     ]
 }
 
-/// The formats the clean set's three members carry.
-pub const SELFTEST_FORMATS: [&str; 3] = ["BC4_UNORM", "BC5_UNORM", "BC7_UNORM"];
+/// The formats the clean set's four DDS members carry.
+pub const SELFTEST_FORMATS: [&str; 4] = ["BC4_UNORM", "BC5_UNORM", "BC7_UNORM", "BC7_UNORM_SRGB"];
 
 /// (path, code) of every finding the self-test's files must raise, and no other.
 pub const SELFTEST_EXPECTED: [(&str, &str); 7] = [

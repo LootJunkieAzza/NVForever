@@ -655,7 +655,13 @@ mod tests {
         put(&pbr, "w/readme.txt", b"notes");
         put(&pbr, "w/odd.toml", b"normal_strength = 2\nreflectance = 3\n");
         put(&pbr, "w/odd_p.dds", &dx10_dds(80, 4, 4, 3, 0));
-        put(&pbr, "w/future_albedo.dds", b"reserved");
+        // An sRGB `_albedo` of an authored set: no finding (a colour member).
+        put(&pbr, "w/future_albedo.dds", &dx10_dds(99, 4, 4, 3, 0));
+        // `_albedo` in the members' rules: a format of no colour member; alone (no set); in a
+        // height-only set (never drawn).
+        put(&pbr, "e/format_albedo.dds", &dx10_dds(83, 4, 4, 3, 0));
+        put(&pbr, "w/lonealb_albedo.dds", &dx10_dds(99, 4, 4, 3, 0));
+        put(&pbr, "w/odd_albedo.dds", &dx10_dds(99, 4, 4, 3, 0));
         put(&pbr, "w/future_orm.dds", &dx10_dds(98, 4, 4, 3, 0));
         put(&pbr, "w/trailing_orm.dds", &dx10_dds(98, 4, 4, 3, 5));
         put(&pbr, "w/npot_orm.dds", &dx10_dds(98, 12, 12, 4, 0));
@@ -670,6 +676,7 @@ mod tests {
             (e, "not-single-2d", p("e\\array_orm.dds")),
             (e, "not-single-2d", p("e\\cube_orm.dds")),
             (e, "format-not-allowed", p("e\\format_orm.dds")),
+            (e, "format-not-allowed", p("e\\format_albedo.dds")),
             (e, "truncated", p("e\\truncated_orm.dds")),
             (e, "not-block-aligned", p("e\\unaligned_orm.dds")),
             (e, "dds-unreadable", p("e\\unreadable_orm.dds")),
@@ -677,8 +684,9 @@ mod tests {
             (e, "bad-size", p("e\\zero_orm.dds")),
             (e, "extra-mips", p("e\\extra_orm.dds")),
             (e, "bad-header-size", p("e\\badheader_orm.dds")),
-            (w, "albedo-reserved", p("w\\future_albedo.dds")),
             (w, "incomplete-set", p("w\\lonely")),
+            (w, "incomplete-set", p("w\\lonealb")),
+            (w, "albedo-without-orm", p("w\\odd_albedo.dds")),
             (w, "incomplete-mips", p("w\\nomips_orm.dds")),
             (w, "not-power-of-two", p("w\\npot_orm.dds")),
             (w, "scalar-ignored-or-clamped", p("w\\odd.toml")),
@@ -695,22 +703,26 @@ mod tests {
         want.sort();
         assert_eq!(got, want);
         assert_eq!(v["ok"], false);
-        assert_eq!(o.failure.as_deref(), Some("11 error(s) in the pack (see `findings`)"));
+        assert_eq!(o.failure.as_deref(), Some("12 error(s) in the pack (see `findings`)"));
         let t = &v["totals"];
-        assert_eq!((t["errors"].as_u64(), t["warnings"].as_u64()), (Some(11), Some(9)));
-        assert_eq!(t["sets"], json!({"total": 20, "authored": 17, "height_only": 2, "incomplete": 1}));
+        assert_eq!((t["errors"].as_u64(), t["warnings"].as_u64()), (Some(12), Some(10)));
+        assert_eq!(t["sets"], json!({"total": 21, "authored": 17, "height_only": 2, "incomplete": 2}));
         assert_eq!(t["unmatched"], 1);
         assert_eq!(t["members"]["normal"], json!({"files": 2, "formats": {"BC5_UNORM": 2}, "largest_side": 16}));
         assert_eq!(t["members"]["height"], json!({"files": 3, "formats": {"BC4_UNORM": 3}, "largest_side": 4}));
         assert_eq!(t["members"]["orm"]["formats"]["DXT1"], 1);
         assert_eq!(t["members"]["orm"]["formats"]["BC7_UNORM_SRGB"], 1);
         assert_eq!(t["members"]["orm"]["largest_side"], 12);
-        assert_eq!((t["members"]["scalars"]["files"].as_u64(), t["members"]["albedo"]["files"].as_u64()), (Some(3), Some(1)));
+        assert_eq!(t["members"]["albedo"], json!({"files": 4, "formats": {"BC5_UNORM": 1, "BC7_UNORM_SRGB": 3}, "largest_side": 4}));
+        assert_eq!(t["members"]["scalars"]["files"].as_u64(), Some(3));
         // Payloads of the accepted members of active sets: brick 112 + 368 + 24, old 24,
-        // broken_p 24, nomips 64, srgb 48, odd_p 24, future 48, trailing 48, npot 240.
-        // Not lonely_n (its set is incomplete) nor any file with an error.
-        assert_eq!(t["gpu_bytes_estimate"], 1024);
+        // broken_p 24, nomips 64, srgb 48, odd_p 24, future 48 + its _albedo 48, trailing 48,
+        // npot 240. Not lonely_n or lonealb's _albedo (their sets are incomplete), odd's
+        // _albedo (a height-only set never draws it) nor any file with an error.
+        assert_eq!(t["gpu_bytes_estimate"], 1072);
         let row = |path: &str| v["files"].as_array().unwrap().iter().find(|f| f["path"] == path).unwrap().clone();
+        let albedo = row(&p("w\\future_albedo.dds"));
+        assert_eq!((albedo["member"].clone(), albedo["format"].clone(), albedo["accepted"].clone()), (json!("albedo"), json!("BC7_UNORM_SRGB"), json!(true)));
         let brick = row(&p("walls\\brick_n.dds"));
         assert_eq!((brick["format"].clone(), brick["width"].clone(), brick["levels"].clone(), brick["payload_bytes"].clone(), brick["accepted"].clone()), (json!("BC5_UNORM"), json!(16), json!(5), json!(368), json!(true)));
         assert_eq!(row(&p("w\\readme.txt"))["member"], json!(null));
@@ -763,15 +775,15 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
     }
 
-    /// The self-test raises exactly its expected findings and reads the clean set's three
-    /// formats.
+    /// The self-test raises exactly its expected findings and reads the clean set's four
+    /// formats (the sRGB `_albedo` among them, with no sRGB warning).
     #[test]
     fn selftest_passes() {
         let t = pbr_check::selftest();
         assert!(t.pass(), "{}", t.line());
-        assert_eq!(t.line(), "pbr selftest: PASS (3 formats, 7 expected findings)");
+        assert_eq!(t.line(), "pbr selftest: PASS (4 formats, 7 expected findings)");
         let v = t.json();
-        assert_eq!(v["selftest"]["formats"], json!(["BC4_UNORM", "BC5_UNORM", "BC7_UNORM"]));
+        assert_eq!(v["selftest"]["formats"], json!(["BC4_UNORM", "BC5_UNORM", "BC7_UNORM", "BC7_UNORM_SRGB"]));
         assert_eq!(v["root"]["form"], "selftest");
         assert_eq!(v["selftest"]["verdict"], t.line());
         assert!(!v.to_string().contains("FAIL"));

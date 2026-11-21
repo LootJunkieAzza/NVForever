@@ -138,15 +138,16 @@ expect = [
 name = "pbr-selftest"
 kind = "tool"
 source = "[design] docs/spec-notes/pbr-materials.md (NVForever's own pack format, #2981); DDS headers [documented] MS DDS_HEADER / DDS_HEADER_DXT10. Files built in memory by fnvtool, no game data."
-note = "fnvtool pbr selftest builds a clean set (DX10 BC7 _orm, BC5_UNORM _n of another size, BC4_UNORM _p, a scalar file) and seven broken files in memory, runs the pbr check validator on them and passes only when exactly the seven expected findings are raised and the clean set reads as its three formats."
+note = "fnvtool pbr selftest builds a clean set (DX10 BC7 _orm, BC5_UNORM _n of another size, BC4_UNORM _p, BC7_UNORM_SRGB _albedo, a scalar file) and seven broken files in memory, runs the pbr check validator on them and passes only when exactly the seven expected findings are raised (no sRGB warning on the colour _albedo) and the clean set reads as its four formats."
 areas = ["graphics"]
 paths = ["crates/fnv-pbr/", "crates/fnv-dds/", "crates/fnvtool/src/pbr_cmd.rs", "crates/fnvtool/src/pbr_check.rs"]
 commands = [["pbr", "selftest"]]
 expect = [
-  { json = "selftest.verdict", schema = "fnv.pbr.check/1", equals = "pbr selftest: PASS (3 formats, 7 expected findings)", count = 1 },
+  { json = "selftest.verdict", schema = "fnv.pbr.check/1", equals = "pbr selftest: PASS (4 formats, 7 expected findings)", count = 1 },
   { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC7_UNORM", count = 1 },
   { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC5_UNORM", count = 1 },
   { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC4_UNORM", count = 1 },
+  { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC7_UNORM_SRGB", count = 1 },
   { json = "selftest.pass", schema = "fnv.pbr.check/1", equals = true, count = 1 },
   { json = "selftest.missing.#", schema = "fnv.pbr.check/1", equals = 0, count = 1 },
   { json = "selftest.unexpected.#", schema = "fnv.pbr.check/1", equals = 0, count = 1 },
@@ -33945,3 +33946,143 @@ forbid = [
   { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
 ]
 note = "The same field with the setting off: the index is never built (no 'authored materials: N sets' line), the material path loads no pbr file (the fixture's own check reads the generated files first), the plain, lit, dark and flat panels draw the same and the reference (its game normal map) differs from them."
+
+[[scenario]]
+name = "pbr-reflect-field"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": generated authored sets on the real material path under a fixed asymmetric reflection cube; engineering comparator policy set from reasoning, not original-game pixels"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/reflection_cube/", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/pbr_field/reflect/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/", "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/vendor/bevy_pbr/src/light_probe/"]
+env = { NVF_PLAY_TEST_PBR_REFLECT_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1", NVF_PBR_METAL_GAIN = "" }
+# The Authored materials row pinned on, as in pbr-authored-field (the two share a home), and with it
+# Reflections on authored materials.
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,authored-reflections"]
+run_seconds = 30
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "authored reflections: on (", count = 1 },
+  { text = "lights: reflection gate installed", count = 1 },
+  { text = "pbr reflect field: actual NIF material source, 13 panels (metal20+X, …), switch on, gate Installed", count = 1 },
+  { text = "pbr reflect field: camera A's cube attached (switch on)", count = 1 },
+  { re = 'pbr reflect field: readback \d A \[metal20\+X=', count = 2, label = "each readback logs both cameras' panel means and the judged quantities" },
+  { text = "pbr reflect field: first rendered readback PASS", count = 1 },
+  { text = "pbr reflect field: second rendered readback PASS", count = 1 },
+  { text = "pbr reflect field: metals show the faces their reflections point at, rougher nearer the cube's mean, controls and the cube-less camera unchanged PASS", count = 1 },
+]
+order = [["pbr reflect field: camera A's cube attached", "pbr reflect field: first rendered readback PASS", "pbr reflect field: second rendered readback PASS", "pbr reflect field: metals show the faces their reflections point at"]]
+forbid = [
+  { re = '(?i)pbr reflect field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = 'reflection gate.*(not found|not installed)' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The reflections' fixed-cube field (the Reflections on authored materials row pinned on; the field's own cameras, not the world camera, whose cube is authored-reflections-sky's). Thirteen panels (rows one and two white diffuse; row three the metal base colour: a dark bronze diffuse at the default metal gain 12, the same at metal_gain = 1, and a white diffuse whose set's _albedo is the bronze), two cameras of one pose (Bevy's default exposure, MSAA 4x, world-view ambient 0.6 with negative alpha, no sun): camera A carries a reflection cube with a different linear colour per world face (+X red, -X cyan, +Y green, -Y magenta, +Z blue, -Z yellow; each level mixed towards their grey mean by level/5), camera B none. Judged on camera A: the five tilted smooth metals (roughness 0.2) show the face their reflection points at (+X, -X, +Y, -Y, +Z: face orientation and Bevy's z flip), the head-on metals at roughness 0.2/0.5/0.9 lie nearer the neutral mean in chromaticity as roughness rises (the level rule), the smooth one clearly blue; the legacy and zero-reflectance controls equal camera B's; the dielectric does not darken; the lifted bronze is at least 1.6 times as bright as the gain-1 bronze (about 2.5 expected: the gain limited to 1/0.40 by the bronze's red) with the same chromaticity (within 0.04), and the _albedo panel equals the gain-1 bronze. On camera B every white panel is the same white under the ambient (metallic held at 0 without a cube) and the three bronze panels the same bronze. THE THRESHOLDS (the row-three ones too, #2981 metal base colour) (pbr_field/reflect.rs) ARE SET FROM REASONING, NOT FROM READBACKS: the main session must confirm them against the first real readbacks, and compare this run's camera B means (the readback line, B [...]) with pbr-reflect-field-off's, panel for panel: they should be equal. Each run reserves a new run-* child under pbr-field-home/pbr-reflect-field-output with both cameras' readbacks (.rgba, .ppm) and the comparator reports."
+manual = "Open readback-2-a.ppm: top row red, cyan, green, magenta, blue panels (tilted); middle row a duller blue, an almost grey panel, then three white-grey panels; bottom row a dull bronze-tinted blue panel, a darker one of the same tint, and a third equal to the darker one. readback-2-b.ppm: ten identical grey panels in the top two rows, three identical bronze ones below."
+
+[[scenario]]
+name = "pbr-reflect-field-off"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": the row off, a reflection cube on a camera changes no panel (the reflection gate keeps it from every shader that did not opt in)"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/reflection_cube/", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/pbr_field/reflect/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/", "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/vendor/bevy_pbr/src/light_probe/"]
+env = { NVF_PLAY_TEST_PBR_REFLECT_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1", NVF_PBR_METAL_GAIN = "" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,no-authored-reflections"]
+run_seconds = 30
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "authored reflections: off (setting)", count = 1 },
+  { text = "lights: reflection gate installed", count = 1 },
+  { text = "pbr reflect field: actual NIF material source, 13 panels (metal20+X, …), switch off, gate Installed", count = 1 },
+  { text = "pbr reflect field: camera A's cube attached (switch off)", count = 1 },
+  { re = 'pbr reflect field: readback \d A \[metal20\+X=', count = 2, label = "each readback logs both cameras' panel means with the switch off" },
+  { re = "pbr reflect field: first rendered readback PASS", count = 1, label = "first readback with the switch off" },
+  { re = "pbr reflect field: second rendered readback PASS", count = 1, label = "second readback with the switch off" },
+  { text = "pbr reflect field: switch off, the cube on camera A changes no panel PASS", count = 1 },
+]
+forbid = [
+  { re = '(?i)pbr reflect field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = 'authored reflections: on' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+  { re = 'reflection gate.*(not found|not installed)', label = "the gate in place with the switch off too" },
+]
+note = "The reflection field with the Reflections on authored materials row off (--graphics-only no-authored-reflections): authored materials are built with metallic 0 and no NIF pipeline opts in, yet camera A still carries the filled cube (Bevy sets ENVIRONMENT_MAP for its pipelines), so every panel of camera A must equal camera B's: the reflection gate keeps the cube from shaders without the opt-in. Camera B is today's picture of these panels. Thresholds as in pbr-reflect-field (set from reasoning; the main session confirms them against the first real readbacks). Output under pbr-field-home/pbr-reflect-field-output."
+
+[[scenario]]
+name = "authored-reflections-sky"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": the world camera's reflection cube filled from the sky where the mount has authored sets; generated sets only (the reflection field's fixture written into a fresh folder of the run and mounted over every loose layer for the run), no game-derived file"
+areas = ["renderer", "textures", "sky"]
+paths = ["engine/nvforever/src/reflection_sky.rs", "engine/nvforever/src/reflection_sky/", "engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/reflection_cube/", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_MOUNT_PACK = "1", NVFOREVER_HOME = "pbr-reflect-home", NVF_PLAY_TEST_GOD = "1" }
+# Both rows pinned on (a given switch wins over a saved row in a timed run).
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,authored-reflections"]
+run_seconds = 20
+timeout = 180
+expect = [
+  { re = 'pbr mount pack: \d+ generated files written under ', count = 1, label = "the generated sets are in the run's own fresh folder, mounted with the game's" },
+  "authored materials: on",
+  { text = "authored reflections: on (", count = 1, label = "both rows on, so the run's reflections state is on" },
+  { text = "lights: reflection gate installed", count = 1 },
+  { re = 'authored materials: [1-9]\d* sets under ', count = 1, label = "the mount's index counts the generated sets" },
+  { re = "reflection sky: first fill of the world camera's cube \\(outdoors;", count = 1, label = "the first fill, from the exterior's sky" },
+  { re = 'reflection cube: attached to \S+ \(generation \d+', count = 1, label = "Bevy's component on the world camera once the fill is on the GPU" },
+  { re = 'reflection sky summary: [1-9]\d* fills \([1-9]\d* outdoors, 0 indoors\), \d+ checks skipped as unchanged', count = 1, label = "the exit summary counts the fills" },
+]
+order = [["reflection sky: first fill of the world camera's cube", "reflection cube: attached to", "reflection sky summary:"]]
+forbid = [
+  { re = 'pbr mount pack: FAIL' },
+  { re = 'reflection sky: off' },
+  { re = 'reflection gate.*(not found|not installed)', label = "the gate in place, or no cube could be attached" },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The world camera's reflection cube (#2981): the test aid NVF_PLAY_TEST_PBR_MOUNT_PACK writes the reflection field's generated sets (textures\\reflect\\, textures\\pbr\\reflect\\; no game shape uses them) into a fresh folder of the run, pbr-reflect-home/pbr-mount-pack/run-*, every file created new, and mounts it over every other loose layer for the run only (no mods folder is written), so the mount has authored sets; with both rows on and the gate installed the producer makes one cube for the world camera, fills it from Goodsprings' sky (the first-fill line logs the level-0 zenith, horizon and nadir texels and both hemisphere means: the units to check against the ambient), and Bevy's component goes on once the fill is on the GPU. Log lines only: nothing in the scene is authored, so no picture changes; pictures of a real pack are the main session's."
+
+[[scenario]]
+name = "authored-reflections-off"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": the row off, no cube is made although the mount has authored sets"
+areas = ["renderer", "textures", "sky"]
+paths = ["engine/nvforever/src/reflection_sky.rs", "engine/nvforever/src/reflection_sky/", "engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_MOUNT_PACK = "1", NVFOREVER_HOME = "pbr-reflect-home", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,no-authored-reflections"]
+run_seconds = 20
+timeout = 180
+expect = [
+  { re = 'pbr mount pack: \d+ generated files written under ', count = 1, label = "the mount has authored sets, so only the row keeps the cube away" },
+  "authored materials: on",
+  { text = "authored reflections: off (setting)", count = 1 },
+  { text = "reflection sky: off (setting); no reflection cube is made", count = 1 },
+  { text = "reflection sky summary: off (setting)", count = 1 },
+]
+forbid = [
+  { re = 'pbr mount pack: FAIL' },
+  { re = 'reflection sky: first fill' },
+  { re = 'reflection cube: attached' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The row off with the same generated sets in the mount: no cube is allocated or attached, the summary says off (setting). With the row off the NIF pipelines get no opt-in def and authored metallic stays 0, so the picture is the one before the reflections (the pull request's head a71e8f00a); that equality in pictures is the main session's check."
+
+[[scenario]]
+name = "authored-reflections-room"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections indoors: the analytic room\": indoors the world camera's reflection cube holds a lit box (room marker, physics rays or default box; the cell's placed lamps in reach); generated sets only (the reflection field's fixture written into a fresh folder and mounted over the loose layers for the run), no game-derived file"
+areas = ["renderer", "textures", "lights"]
+paths = ["engine/nvforever/src/reflection_sky.rs", "engine/nvforever/src/reflection_sky/", "engine/nvf-assets/src/reflection_room.rs", "engine/nvf-assets/src/reflection_room/", "engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/rooms.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_MOUNT_PACK = "1", NVFOREVER_HOME = "pbr-reflect-home", NVF_PLAY_TEST_GOD = "1" }
+# Both rows pinned on (a given switch wins over a saved row in a timed run).
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,authored-reflections"]
+run_seconds = 20
+timeout = 180
+expect = [
+  { re = 'pbr mount pack: \d+ generated files written under ', count = 1, label = "the generated sets are in the run's own fresh mount folder" },
+  { text = "authored reflections: on (", count = 1, label = "both rows on for the interior run" },
+  { text = "lights: reflection gate installed", count = 1, label = "the gate, before any cube" },
+  { re = "reflection sky: first fill of the world camera's cube \\((indoors|outdoors);", count = 1, label = "the first fill (outdoors only if the camera came before the interior)" },
+  { re = 'reflection sky: room fill in interior [0-9A-F]{8}: box from (room marker [0-9A-F]{8}|rays|default) \(\d+ x \d+ x \d+ game units, x y height\), [1-9]\d* lamps, level 0 toward the nearest lamp \[[^\]]+\], filled in [\d.]+ ms', count = 1, label = "the first room fill with lamps in Doc Mitchell's house: the box's source, size and lamps in reach (the house has 25 placed lights, #1619)" },
+  { re = 'reflection cube: attached to \S+ \(generation \d+', count = 1, label = "Bevy's component on the world camera once the fill is on the GPU" },
+  { re = 'reflection sky summary: [1-9]\d* fills \(\d+ outdoors, [1-9]\d* indoors\), \d+ checks skipped as unchanged; [1-9]\d* room fills \(\d+ marker, \d+ rays, \d+ default\), \d+ ground-lamp fills, slowest room or lamp fill [\d.]+ ms; refills: \d+ mode, \d+ cell, \d+ room, \d+ box, \d+ moved, \d+ lamps, \d+ light, \d+ profile', count = 1, label = "the exit summary counts the room fills and the refills by reason" },
+]
+order = [["reflection sky: room fill in interior", "reflection sky summary:"]]
+forbid = [
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error', label = "no shader or GPU error indoors" },
+  { re = 'reflection gate.*(not found|not installed)', label = "the gate in place, or no room could be attached" },
+  { re = 'reflection sky: off', label = "the cube is made in the interior" },
+  { re = 'pbr mount pack: FAIL', label = "the generated sets were written" },
+]
+note = "The analytic room (#2981 reflections, stage 2 version 1) in Doc Mitchell's house, a small interior with 25 placed lights (#1619): with the generated sets of authored-reflections-sky in the mount and both rows on, the interior content is a lit box around the camera, its box from the room marker the camera is in, else six physics rays (play mode), else the default box, lit by the cell's ambient, directional light and the placed lamps whose sphere reaches it (the nearest 16 within 4096 units). The first lit room fill is logged even when there was a room fill before the lamps loaded. Its line names the box's source and size, the lamp count, the level-0 texel toward the nearest lamp (its lobe: well above the wall colours) and the fill time (the main session reads it for the cost; the design hopes for under a millisecond in release). Which source the house gives is not known in advance (whether it has room markers: the rooms: line tells), so any is accepted. Log lines only: nothing in the scene is authored, so no picture changes; pictures of a real pack with NVF_PBR_VIEW=reflection are the main session's."
