@@ -236,14 +236,38 @@ impl Vfs {
     /// the game's, as usvfs' merged `Data` would show it. The order is the base list's,
     /// then `Update.bsa`, then each plugin's archives as [`Vfs::archive_order_in`].
     pub fn archive_files_layered(data_dir: &Path, roots: &[PathBuf], archive_list: &[&str], plugins: &[&str]) -> Vec<(String, PathBuf)> {
+        // Top of each root only. `--mo2` uses this. A nested archive is the launcher's
+        // own path (`archive_files_nested`), not this one.
+        let mut layers: Vec<&Path> = vec![data_dir];
+        layers.extend(roots.iter().filter(|r| r.is_dir()).map(PathBuf::as_path));
+        let mut found: Vec<(String, PathBuf)> = Vec::new();
+        for dir in layers {
+            let mut names = top_archives(dir);
+            names.sort();
+            for n in names {
+                let entry = (n.clone(), dir.join(&n));
+                match found.iter_mut().find(|(o, _)| o.eq_ignore_ascii_case(&n)) {
+                    Some(slot) => *slot = entry,
+                    None => found.push(entry),
+                }
+            }
+        }
+        Self::order_found(&found, archive_list, plugins)
+    }
+
+    /// [`Vfs::archive_files_layered`] for the launcher's mod folders. Data is still only
+    /// the archives sitting in it. A mod folder is read recursively, so an archive in a
+    /// nested folder is not missed. `--mo2` does not call this.
+    fn archive_files_nested(data_dir: &Path, roots: &[PathBuf], archive_list: &[&str], plugins: &[&str]) -> Vec<(String, PathBuf)> {
         let mut layers: Vec<&Path> = vec![data_dir];
         layers.extend(roots.iter().filter(|r| r.is_dir()).map(PathBuf::as_path));
         let mut found: Vec<(String, PathBuf)> = Vec::new();
         for (i, dir) in layers.iter().enumerate() {
-            // Data stays the base game: only the archives sitting in it. A mod root is
-            // read recursively, so an archive in a nested folder is not missed. A later
-            // layer replaces the same archive name. A mod archive is never taken from Data.
-            let files = if i == 0 { top_archives(dir).into_iter().map(|n| (n.clone(), dir.join(&n))).collect::<Vec<_>>() } else { archives_recursive(dir) };
+            let files = if i == 0 {
+                top_archives(dir).into_iter().map(|n| (n.clone(), dir.join(&n))).collect::<Vec<_>>()
+            } else {
+                archives_recursive(dir)
+            };
             for (n, path) in files {
                 let entry = (n.clone(), path);
                 match found.iter_mut().find(|(o, _)| o.eq_ignore_ascii_case(&n)) {
@@ -252,6 +276,10 @@ impl Vfs {
                 }
             }
         }
+        Self::order_found(&found, archive_list, plugins)
+    }
+
+    fn order_found(found: &[(String, PathBuf)], archive_list: &[&str], plugins: &[&str]) -> Vec<(String, PathBuf)> {
         let owned: Vec<(String, String)> = found.iter().map(|(n, p)| (n.clone(), p.to_string_lossy().into_owned())).collect();
         let base: Vec<String> = found.iter().map(|(n, _)| n.clone()).collect();
         let names = Vfs::order_from_owned(&owned, &base, archive_list, plugins);
@@ -444,7 +472,7 @@ impl Vfs {
     /// launcher's order are not applied.
     pub fn open_launcher_mods<S: AsRef<str>>(data_dir: &Path, mods_dir: &Path, layers: &[PathBuf], plugins: &[S]) -> Result<Vfs, VfsError> {
         let archive_layers = bsa_scan_roots(layers);
-        let mut files = Vfs::order_for_plugins_layered(data_dir, &archive_layers, plugins).0;
+        let mut files = Vfs::order_for_launcher_layers(data_dir, &archive_layers, plugins).0;
         for name in top_archives(mods_dir) {
             let claimed = plugins.iter().any(|p| {
                 let stem = p.as_ref().rsplit_once('.').map_or(p.as_ref(), |(s, _)| s);
@@ -513,6 +541,30 @@ impl Vfs {
                 let list = archive_list();
                 let list: Vec<&str> = list.iter().map(String::as_str).collect();
                 (Vfs::archive_files_layered(data_dir, roots, &list, &plugins), false)
+            }
+        }
+    }
+
+    /// [`Vfs::order_for_plugins_layered`] for the launcher. Nested archives in a mod
+    /// folder are included. `--mo2` keeps [`Vfs::order_for_plugins_layered`], which
+    /// reads only the top of each root.
+    fn order_for_launcher_layers<S: AsRef<str>>(data_dir: &Path, roots: &[PathBuf], plugins: &[S]) -> (Vec<(String, PathBuf)>, bool) {
+        match std::env::var(ARCHIVE_ORDER_ENV) {
+            Ok(list) if !list.trim().is_empty() => {
+                let files = parse_archive_list(&list)
+                    .into_iter()
+                    .map(|n| {
+                        let p = Vfs::archive_file_in_layers(data_dir, roots, &n).unwrap_or_else(|| data_dir.join(&n));
+                        (n, p)
+                    })
+                    .collect();
+                (files, true)
+            }
+            _ => {
+                let plugins: Vec<&str> = plugins.iter().map(AsRef::as_ref).collect();
+                let list = archive_list();
+                let list: Vec<&str> = list.iter().map(String::as_str).collect();
+                (Vfs::archive_files_nested(data_dir, roots, &list, &plugins), false)
             }
         }
     }
