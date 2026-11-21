@@ -33,6 +33,7 @@ mod critical_player_state;
 mod csty_session;
 mod crippled_limbs_data;
 mod dead_on_spawn;
+mod delayed_calls;
 mod death_items;
 mod destruction_stage_blocks;
 mod dialogue_data;

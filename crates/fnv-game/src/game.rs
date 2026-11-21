@@ -1078,6 +1078,8 @@ pub mod menus {
     /// `Begin MenuMode 1` block (the crippled-limb tutorial) runs while the Pip-Boy is
     /// open [observed in the masters].
     pub const PIPBOY: u16 = 1;
+    /// Console menu group [documented: GECK wiki MenuMode, 3 = Console].
+    pub const CONSOLE: u16 = 3;
     /// Title-screen group, distinct from pause menu 1013 [documented: GECK MenuMode
     /// block/function pages]. Admitted during the existing startup frames only.
     pub const TITLE: u16 = 4;
@@ -1513,7 +1515,7 @@ pub struct Game<'a> {
     /// without includes.
     pub ui_files: Option<Box<dyn fnv_ui::Source + Send + Sync>>,
     /// The menu an engine page stands for while [`Game::page_tick`] runs its blocks.
-    page_menu: Option<u16>,
+    pub(crate) page_menu: Option<u16>,
     /// The clock of [`Game::page_tick`]'s frames (their `frame_seconds`): GetSecondsPassed
     /// in a block run there counts it [hypothesis: the original's MenuMode 1013 blocks see
     /// time pass under its start menu, for Just Assorted Mods' half-second MenuMode timer
@@ -1753,7 +1755,7 @@ pub struct Game<'a> {
     /// changes "will not be saved"].
     pub face_from_base: std::collections::BTreeMap<FormId, FormId>,
     /// Inside [`Game::came_through_start_menu`]: MenuMode blocks for any menu run too.
-    start_frames: bool,
+    pub(crate) start_frames: bool,
     /// The perks' choice list open for an activation (`crate::activate_choices`). Not
     /// saved.
     pub activate_menu: Option<crate::activate_choices::ActivateMenu>,
