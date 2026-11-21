@@ -98,6 +98,21 @@ Deleted engine-shot associations also have a focused next-consumer retirement br
 
 ## 3. Actors
 
+NPC turn-in-place root handling is implemented in the production movement binder and
+pose sampler ([animation §9.13](spec-notes/animation.md#913-npc-turn-clips-and-the-accumulation-root-basis)).
+Both turn directions derive their root basis from the clip while retaining relative
+rotation and child poses. Implementation head `8548f552` passed all seven hosted
+checks; its four portable controls and three retained root-height/rotation controls
+each passed once. The actual-KF consumer was ignored in that hosted run. A later
+Windows QA CPU application-test run on integrated `01fb825f` (tree `d8190206`)
+passed the portable binder/sampler and explicitly opted-in actual-KF aggregate once
+apiece, with no failures or ignores. The latter parsed and sampled all four pinned
+armed/unarmed turn files at five phases through unchanged public Knight consumers,
+NIF decoder and schemas. This is one aggregate test, not four tests, and no Game/GPU
+or native playback ran. The unchanged-production baseline, rendered installed-mod
+greeting, original-game parity and performance remain open. Results qualify their
+identified graphs/profiles; later heads retain their own checks.
+
 | System | State | Specifics | Notes |
 |---|---|---|---|
 | Appearance | Done, awaiting owner | Skeleton, body, FaceGen (race + NPC values, skin tint, hair morphs), worn armour, creatures, weapons holstered and drawn (creatures' weapons audited for every creature type: super mutants, ghost people and aliens hold theirs, the rest are body weapons or loot; `fnvtool actor creature-weapons`, actors.md §10.6) | [static-actors](design/static-actors.md), [actors](spec-notes/actors.md) |

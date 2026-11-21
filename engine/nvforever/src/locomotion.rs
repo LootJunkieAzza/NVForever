@@ -383,11 +383,11 @@ impl ClipSet {
     }
 }
 
-/// [design, #2352] Apply the dart correction only to moving clips, including script
-/// replacements and hurt/weapon sets (`ClipSet` loaders).
+/// Apply the in-place policy for the selected move, including script replacements
+/// and hurt/weapon sets (`ClipSet` loaders; animation.md §9.13).
 fn bind_move(skel: &PreparedSkeleton, clip: Arc<nvf_assets::anim_play::Clip>, mv: Move) -> BoundClip {
     let bound = bind_clip(skel, clip);
-    if mv.is_moving() { bound.locomotion() } else { bound }
+    if mv.is_turn() { bound.turn_in_place() } else if mv.is_moving() { bound.locomotion() } else { bound }
 }
 
 /// A weapon stance's movement clips bound to one skeleton
@@ -1390,6 +1390,75 @@ pub fn walk_test(time: Res<Time>, mut q: Query<(&mut WalkTest, &mut Locomotion, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turn_moves_remove_exported_root_basis_at_the_pose_consumer() {
+        use fnv_nif::anim::{Channel, TransformTrack};
+        let basis = Quat::from_euler(EulerRot::XYZ, 1.1, 0.4, -0.3);
+        let root_track = Arc::new(TransformTrack {
+            translation: Channel::Static(Some([0.0; 3])),
+            rotation: Channel::Static(Some([basis.w, basis.x, basis.y, basis.z])),
+            euler: None, scale: Channel::Static(None), per_cycle: None,
+        });
+        let body_track = Arc::new(TransformTrack { rotation: Channel::Static(Some([1.0, 0.0, 0.0, 0.0])), ..(*root_track).clone() });
+        let mut clip = (*death_clip(1.0).clip).clone();
+        clip.accum_root = Some("Bip01".into());
+        clip.tracks = vec![("Bip01".into(), root_track), ("Bip01 NonAccum".into(), body_track)];
+        clip.priorities = vec![26, 26];
+        let clip = Arc::new(clip);
+        let skel = PreparedSkeleton {
+            names: vec![Some("Scene Root".into()), Some("Bip01".into()), Some("Bip01 NonAccum".into())],
+            by_name: std::collections::HashMap::from([("Bip01".into(), 1), ("Bip01 NonAccum".into(), 2)]),
+            ..default()
+        };
+        let nodes = (1..=3).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+        let mut player = BlendPlayer::new(nodes, Arc::new(vec![Transform::IDENTITY; 3]));
+        let mut out = Vec::new();
+        for mv in [Move::TurnLeft, Move::TurnRight, Move::Idle, Move::Forward, Move::Backward] {
+            let bound = Arc::new(bind_move(&skel, clip.clone(), mv));
+            player.layers[0] = Some(Layer { clip: bound, phase: 0.5, weight: 1.0 });
+            player.sample(&mut out);
+            let root = out.iter().find(|(i, _)| *i == 1).unwrap().1.rotation;
+            let expected = if mv.is_turn() { Quat::IDENTITY } else { basis };
+            assert!(root.dot(expected).abs() > 1.0 - 1e-6, "{mv:?}: {root:?}");
+            assert!(out.iter().find(|(i, _)| *i == 2).unwrap().1.rotation.dot(Quat::IDENTITY).abs() > 1.0 - 1e-6);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires local KF files in NVF_TURN_CLIP_DIR and NIF schema in NVF_NIF_SCHEMA"]
+    fn loaded_turn_assets_keep_accumulation_root_upright() {
+        use fnv_nif::anim::sequences;
+        use fnv_nif::scene::Decoded;
+        use fnv_nif::{NifFile, Schema};
+        let clips = std::path::PathBuf::from(std::env::var_os("NVF_TURN_CLIP_DIR").expect("NVF_TURN_CLIP_DIR"));
+        let schema_path = std::path::PathBuf::from(std::env::var_os("NVF_NIF_SCHEMA").expect("NVF_NIF_SCHEMA"));
+        let schema = Schema::load_dir(&schema_path).unwrap();
+        let skel = PreparedSkeleton {
+            by_name: std::collections::HashMap::from([("Bip01".into(), 1), ("Bip01 NonAccum".into(), 2)]),
+            ..default()
+        };
+        for (file, mv) in [("2haturnleft.kf", Move::TurnLeft), ("2haturnright.kf", Move::TurnRight), ("mtturnleft.kf", Move::TurnLeft), ("mtturnright.kf", Move::TurnRight)] {
+            let data = std::fs::read(clips.join(file)).unwrap();
+            let nif = NifFile::parse(&data, Some(&schema)).unwrap();
+            let decoded = Decoded::new(&nif, &data, &schema);
+            let sequence = sequences(&nif, &decoded).into_iter().next().expect("turn sequence");
+            let clip = Arc::new(nvf_assets::anim_play::Clip::from_sequence(&sequence));
+            assert_eq!(clip.accum_root.as_deref(), Some("Bip01"));
+            assert!(clip.tracks.iter().any(|(name, _)| name == "Bip01 NonAccum"));
+            let bound = Arc::new(bind_move(&skel, clip, mv));
+            let nodes = (1..=3).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+            let mut player = BlendPlayer::new(nodes, Arc::new(vec![Transform::IDENTITY; 3]));
+            let mut out = Vec::new();
+            for phase in [0.0, 0.25, 0.5, 0.75, 0.0] {
+                player.layers[0] = Some(Layer { clip: bound.clone(), phase, weight: 1.0 });
+                player.sample(&mut out);
+                let root = out.iter().find(|(i, _)| *i == 1).unwrap().1.rotation;
+                let up = root * Vec3::Z;
+                assert!(up.abs_diff_eq(Vec3::Z, 1e-4), "{file} at {phase}: root up {up:?}");
+            }
+        }
+    }
 
     #[test]
     fn walk_test_script() {
