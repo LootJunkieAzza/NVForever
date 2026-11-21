@@ -3916,7 +3916,9 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
     // player that drops and comes back, `nvf_play::coop_progress::Returns`).
     p.present = coop.peers.keys().copied().collect();
     p.connected = coop.peers.iter().filter(|(_, q)| !q.lost).map(|(id, _)| *id).collect();
-    p.peer_names = coop.peers.iter().map(|(id, q)| (*id, label(*id, &q.name))).collect();
+    // Kept after a player leaves: its drop is told by its name, not "Player 2".
+    let names: Vec<(u8, String)> = coop.peers.iter().map(|(id, q)| (*id, label(*id, &q.name))).collect();
+    p.peer_names.extend(names);
     let out = std::mem::take(&mut p.outbox);
     let Some(link) = coop.link.as_ref() else { return };
     for what in out {

@@ -159,6 +159,8 @@ pub struct Returns {
 #[derive(Debug)]
 struct Away {
     name: String,
+    /// It shared quest progress when it dropped.
+    on: bool,
     since: std::time::Instant,
     backlog: Vec<Shared>,
     warned: std::collections::BTreeSet<u32>,
@@ -184,11 +186,11 @@ impl Returns {
     pub fn track(&mut self, joint: &std::collections::BTreeMap<u8, (u64, bool)>, connected: &std::collections::BTreeSet<u8>, names: &std::collections::BTreeMap<u8, String>, now: std::time::Instant) -> (Vec<String>, Vec<Back>) {
         let here = |ch: u64| joint.iter().find(|(id, (c, _))| *c == ch && connected.contains(id)).map(|(id, (_, on))| (*id, *on));
         let mut gone = Vec::new();
-        for (id, &(ch, _)) in joint {
+        for (id, &(ch, on)) in joint {
             if here(ch).is_none() && !self.away.contains_key(&ch) {
                 let name = names.get(id).cloned().unwrap_or_else(|| format!("Player {}", id + 1));
                 gone.push(name.clone());
-                self.away.insert(ch, Away { name, since: now, backlog: Vec::new(), warned: Default::default() });
+                self.away.insert(ch, Away { name, on, since: now, backlog: Vec::new(), warned: Default::default() });
             }
         }
         let mut back = Vec::new();
@@ -239,6 +241,12 @@ impl Returns {
     /// Players away now.
     pub fn away(&self) -> usize {
         self.away.len()
+    }
+
+    /// Whether a player away shared quest progress (its stages must still be offered,
+    /// `fnv_game::Game::coop_joint_away`).
+    pub fn away_sharing(&self) -> bool {
+        self.away.values().any(|a| a.on)
     }
 }
 
@@ -754,6 +762,7 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut
         }
     }
     if !host {
+        rt.game.coop_joint_away = false;
         return;
     }
     // Players that dropped and came back ([`Returns`]).
@@ -775,6 +784,7 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut
         let present = p.present.clone();
         p.joint_peers.retain(|id, _| present.contains(id));
     }
+    rt.game.coop_joint_away = p.returns.away_sharing();
     let before = p.outbox.len();
     rt.game.coop_joint_guests = p
         .joint_peers
@@ -1073,6 +1083,7 @@ mod tests {
         let only2: BTreeSet<u8> = [2].into();
         let (gone, back) = r.track(&joint, &only2, &names, t0);
         assert_eq!((gone, back), (vec!["Laptop".to_string()], vec![]));
+        assert!(r.away_sharing(), "its stages are still offered while it is away");
         assert_eq!(r.track(&joint, &only2, &names, t0).0, Vec::<String>::new(), "told once");
         let stage = |s: i32, prior: Vec<i32>| Shared::Stage { quest: 0x21A, stage: s, line: 0, line_end: false, prior, to: 0b100 };
         let name = |q: u32| (q == 0x21A).then(|| "Bye Bye Love".to_string());

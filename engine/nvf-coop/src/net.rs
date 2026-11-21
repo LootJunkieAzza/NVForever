@@ -427,6 +427,13 @@ impl AnimWire {
         self.heard.push_back((id, seq));
         true
     }
+
+    /// Forgets what player `id` sent: a game that starts again counts from 1, so its
+    /// first messages would be taken as copies of its last run's (shared-progression
+    /// desktop duo, 2026-11-21: a returning guest's share answer, seq 1, was dropped).
+    fn forget(&mut self, id: u8) {
+        self.heard.retain(|(i, _)| *i != id);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1540,6 +1547,8 @@ impl Session {
                     if std::mem::take(&mut p.lost) {
                         self.events.push(Event::Back(id));
                     }
+                    self.progress.forget(id);
+                    self.anims.forget(id);
                     self.sock_send(&Msg::Welcome { id }, from);
                     return;
                 }
@@ -1551,6 +1560,9 @@ impl Session {
                 // one a host game before this one gave it (a guest coming back to a host
                 // started again kept that one: queue item 201).
                 let epoch = ((token as u16) ^ (new_token() as u16)) | 1;
+                // A new guest in a slot an earlier one had counts from 1 too.
+                self.progress.forget(id);
+                self.anims.forget(id);
                 self.peers.push(Peer { addr: Some(from), token, name: truncate(&name), epoch, ..Peer::new(id, now) });
                 self.last_names = None;
                 self.sock_send(&Msg::Welcome { id }, from);
