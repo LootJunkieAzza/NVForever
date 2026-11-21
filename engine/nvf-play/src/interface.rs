@@ -466,6 +466,13 @@ pub fn menu_frame(anchor: Vec2) -> Option<Node> {
 /// [`menu_frame`].
 pub const MENU_SPREAD: f32 = 0.5;
 
+/// Whether the pause menu's page fills the view: a split-screen half narrower than 4:3
+/// ([`split_scales`]), where the settings page gives the faded column's room to its list
+/// (`crate::pause`).
+pub fn menu_fills() -> bool {
+    MENU_FILLS.load(Ordering::Relaxed)
+}
+
 /// The share of the view a spread frame takes (module notes of [`MENU_SPREAD`]).
 fn spread_share() -> f32 {
     if MENU_FILLS.load(Ordering::Relaxed) {
