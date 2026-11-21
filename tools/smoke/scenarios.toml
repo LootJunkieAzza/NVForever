@@ -7477,6 +7477,40 @@ expect = [
 ]
 
 [[scenario]]
+name = "spawn-placeholder-reset"
+source = "#3228: the leveled spawns' invisible placeholder creature (VCrILikeOblivionChancedSpawns, Health 0, Respawn, Is Ghost) came back alive at a cell reset, joined its herd's fights and hit the player; its script's OnLoad (Kill, SetDestroyed 1) never ran because the spawn base takes its script from the leveled list (template flag Script). docs/spec-notes/dead-on-spawn.md §4.1, scripts.md §7.1"
+areas = ["combat", "deaths", "wait", "scripts"]
+paths = ["crates/fnv-game/src/respawn.rs", "crates/fnv-game/src/templates.rs", "engine/nvforever/src/cell_resets.rs", "crates/fnv-game/tests/spawn_placeholders.rs"]
+# From Camp Golf's bighorner herd (exterior 000DDEF0, the spot of #3228) to Goodsprings,
+# three 24 h waits there, and back. The herd's spawns 0x00168D45, 47, 4C, 4D, 4F and 50
+# pick the placeholder (spawn_placeholders data test): laid out dead by the new game,
+# recreated alive by the reset (which clears their destroyed flag), killed and set
+# destroyed again by their OnLoad. The game runs the reset and that OnLoad before the
+# engine logs the reset's summary, so both are expected without an order; the console
+# probes after the return read each of them dead, destroyed and out of combat.
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "20:-70500:1500:8800,82:15651:56400:4400", NVF_PLAY_TEST_WAIT = "26:open,27:hours=24,28:accept,44:open,45:hours=24,46:accept,62:open,63:hours=24,64:accept", NVF_PLAY_TEST_CONSOLE = "90:00168D45.getdead;00168D45.getdestroyed;00168D45.isincombat;00168D47.getdead;00168D47.getdestroyed;00168D47.isincombat;00168D4C.getdead;00168D4C.getdestroyed;00168D4C.isincombat;00168D4D.getdead;00168D4D.getdestroyed;00168D4D.isincombat;00168D4F.getdead;00168D4F.getdestroyed;00168D4F.isincombat;00168D50.getdead;00168D50.getdestroyed;00168D50.isincombat;92:close" }
+args = ["--play", "--pos=15651,56612,4400", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 100
+expect = [
+  { re = 'wait summary: .* 72 hours passed' },
+  { re = 'cell reset: .* actors back alive: .*VSpawnTier1(BigHornerSmall75|BloatFlyMed50)', label = "the herd's cell is reset and its dead spawns come back" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D45\)', min = 2, label = "herd placeholder 0x00168D45 runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D47\)', min = 2, label = "herd placeholder 0x00168D47 runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D4C\)', min = 2, label = "herd placeholder 0x00168D4C runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D4D\)', min = 2, label = "herd placeholder 0x00168D4D runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D4F\)', min = 2, label = "herd placeholder 0x00168D4F runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D50\)', min = 2, label = "herd placeholder 0x00168D50 runs its OnLoad at the first load and again after the reset" },
+  { re = 'console: GetDead on 0x00168D(45|47|4C|4D|4F|50) >> 1\.00', count = 6, label = "after the reset every herd placeholder is dead" },
+  { re = 'console: GetDestroyed on 0x00168D(45|47|4C|4D|4F|50) >> 1\.00', count = 6, label = "and destroyed again by its OnLoad (the reset cleared it)" },
+  { re = 'console: IsInCombat on 0x00168D(45|47|4C|4D|4F|50) >> 0\.00', count = 6, label = "and in no fight" },
+]
+forbid = [
+  { re = 'script: OnStartCombat of FalloutNV\.esm\|SCPT 0x00159603 ran', label = "no placeholder starts a fight" },
+  { re = 'npc combat: 0x00168D(45|47|4C|4D|4F|50) .*fights the player', label = "no herd placeholder fights the player" },
+  "VCrILikeOblivionChancedSpawns hits the player",
+]
+
+[[scenario]]
 name = "encounter-zone-level"
 source = "ESM gap audit 2026-10-21 priority 1: encounter zones, docs/spec-notes/encounter-zones.md"
 areas = ["zones", "leveled"]

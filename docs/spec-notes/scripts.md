@@ -698,7 +698,14 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
 
 ### 7.1 Script instances
 
-One instance per scripted reference (its base form's `SCRI`), per running quest's script,
+One instance per scripted reference (its base form's `SCRI`; for an actor whose base has
+the template flag "Script", its template's, through a leveled list the reference's pick
+[documented: GECK wiki Template Data, "Use Script: Uses the Script of the ActorBase"]. An
+actor scripted only through its template gets the lifecycle blocks OnLoad and OnReset
+and the blocks sent to it alone, not GameMode or the other per-frame blocks [design,
+until checked against the original]; which pick it is decides at each run whether a
+script runs, and a reset whose new pick runs another script starts a fresh instance,
+`GameData::script_through_template`, dead-on-spawn.md §4.1, #3228), per running quest's script,
 and per scripted item in an inventory (holder, item). Instances are created on first use
 (an event that runs the script, or a variable access): an instance never touched has all
 variables 0, so this is the same state as creating it when the reference is materialised.
