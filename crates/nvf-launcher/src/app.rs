@@ -825,7 +825,8 @@ impl App {
             self.message = Some((format!("{} was not found beside the launcher: pick it on the Game folder page.", launch::GAME_EXE), true));
             return;
         };
-        match launch::spawn(&exe, &start) {
+        let layers = self.home.as_ref().map(|h| plugins::mod_content_layers(&h.mods())).unwrap_or_default();
+        match launch::spawn(&exe, &start, &layers) {
             Ok(c) => {
                 self.child = Some(c);
                 self.message = Some((STARTING.into(), false));

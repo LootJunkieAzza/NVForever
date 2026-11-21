@@ -13,10 +13,10 @@ mod folders are on, and their order). It does not copy, hard-link, or symlink
 mod files anywhere. A profile **Save** or **Load** writes or reads
 `profiles/<name>/` only.
 
-`mod-order.txt` is read by the launcher when it draws the page. The game
-process does not read it [documented: `engine/nvforever/src/main.rs` opens
-`GameData::open_for_plugins_in` when `--mo2` is not set, and
-`plugins::plugin_path` does not open `mod-order.txt`].
+`mod-order.txt` is read by the launcher when it draws the page and when it
+starts the game. The game process does not read it. The launcher passes each
+enabled folder as `--mod-layer`, lowest priority first (the last one wins)
+[documented: `plugins::mod_content_layers`, `launch::spawn`].
 
 ## What the game process reads
 
@@ -29,10 +29,15 @@ ask the original executable to look in a second folder.
 - A plugin is opened from the mods folder when that folder has it, including a
   file nested in a subfolder. The same name in `Data` is used when the mods
   folder does not have it. A mod installed in `Data` by hand is still read.
-- Loose files and the base archives in `Data` are still read
-  [documented: `Vfs::open_for_plugins_in`].
-- Archives that sit beside a plugin in the mods folder are mounted with that
-  plugin [documented: `Vfs::archive_order_in`].
+- Loose files and archives in `Data` are still read. Each enabled mod folder
+  is a layer over that. The same relative path in a later layer wins
+  [documented: `Vfs::open_launcher_mods`]. A mod's meshes and textures are
+  read from `mods/<Name>/` (or from `mods/<Name>/Data/` when that folder exists),
+  not as `<Name>/meshes/...`.
+- Folder on/off and the launcher's order are applied only through `--mod-layer`.
+  A start that was not given those arguments layers every mod folder in name
+  order. On/off is not applied on that path, because the game does not read
+  `mod-order.txt` [documented: `plugins::mod_folder_layers`].
 - [documented: `Layout::mod_roots` and `Vfs::open_for_plugins_layered`] A start
   with `--mo2` is unchanged: each enabled mod folder of that instance, then its
   overwrite folder. That start only reads.

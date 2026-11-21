@@ -432,13 +432,16 @@ impl Vfs {
     }
 
     /// The launcher's own mods folder. `layers` are the enabled mod folders, lowest
-    /// priority first (a `Data` directory inside a mod when it has one). Loose files and
-    /// archives are read from those folders, recursively. The base game stays in
-    /// `data_dir`. A mod file is not read from `data_dir`.
+    /// priority first (a `Data` directory inside a mod when it has one). The last layer
+    /// wins a loose file. Loose files and archives are read from those folders.
+    /// Files in `data_dir` are still read: a plugin, archive, or loose file installed
+    /// in Data stays visible. The same relative path in a layer replaces it.
     ///
     /// Archives and loose files that sit directly in `mods_dir`, rather than inside a mod
     /// folder, are included. Subfolders that are themselves mods are not walked from
     /// `mods_dir`; an enabled one is a layer, a disabled one is left out.
+    /// The game does not read `mod-order.txt`. Without layers, folder on/off and the
+    /// launcher's order are not applied.
     pub fn open_launcher_mods<S: AsRef<str>>(data_dir: &Path, mods_dir: &Path, layers: &[PathBuf], plugins: &[S]) -> Result<Vfs, VfsError> {
         let archive_layers = bsa_scan_roots(layers);
         let mut files = Vfs::order_for_plugins_layered(data_dir, &archive_layers, plugins).0;

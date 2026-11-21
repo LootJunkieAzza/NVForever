@@ -266,6 +266,11 @@ struct Args {
     /// The profile in that instance (default: the instance's selected_profile).
     #[arg(long, value_name = "NAME")]
     profile: Option<String>,
+    /// An enabled mod folder, lowest priority first. Repeat for each folder. The launcher
+    /// passes these. The game does not read `mod-order.txt`. With none, every mod folder
+    /// is a layer in name order, and folder on/off is not applied.
+    #[arg(long = "mod-layer")]
+    mod_layers: Vec<PathBuf>,
     /// Record schema directory.
     #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv"))]
     esm_schema: PathBuf,
@@ -1217,9 +1222,10 @@ fn main() -> AppExit {
     };
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
-    // Without --mo2 the launcher's enabled mod folders are the only place mod files are
-    // read. The base game stays in Data. A mod plugin, archive, or loose file is not
-    // taken from Data (docs/spec-notes/launcher-mod-visibility.md).
+    // Without --mo2, Data is still read. Enabled mod folders are layers over it.
+    // The game does not read mod-order.txt. --mod-layer is that order, lowest first
+    // (the last layer wins). With no --mod-layer, every mod folder is a layer in name
+    // order, so folder on/off and the launcher's order are not applied.
     let mods: Vec<PathBuf> = match &mo2 {
         Some(l) => {
             let mut roots = l.mod_roots();
@@ -1307,11 +1313,21 @@ fn main() -> AppExit {
             }
         }
     }
-    // The archives beside a plugin in the mods folder are mounted with it. Loose files
-    // in Data are still read. `--mo2` uses that instance's folders instead.
+    // `--mo2` is unchanged: that instance's folders, read only. Otherwise the enabled
+    // mod folders are layers over Data. Loose files and archives in Data are still read.
     let game = match &mo2 {
         Some(l) => GameData::open_for_plugins_layered(args.data(), &l.mod_roots(), &args.plugins, &args.nif_schema),
-        None => GameData::open_for_plugins_in(args.data(), mods.first().map(|p| p.as_path()), &args.plugins, &args.nif_schema),
+        None => {
+            let mods_dir = mods.first().cloned().unwrap_or_default();
+            let layers = if !args.mod_layers.is_empty() {
+                args.mod_layers.clone()
+            } else if mods_dir.is_dir() {
+                fnv_install::plugins::mod_folder_layers(&mods_dir)
+            } else {
+                Vec::new()
+            };
+            GameData::open_launcher_mods(args.data(), &mods_dir, &layers, &args.plugins, &args.nif_schema)
+        }
     };
     let game = match game {
         Ok(g) => g,

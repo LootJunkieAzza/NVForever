@@ -46,9 +46,10 @@ use std::path::{Path, PathBuf};
 pub const PLUGINS_FILE: &str = "plugins.txt";
 
 const HEADER: &str = "; NVForever's plugins, in load order (top loads first). A * in front of a plugin turns\n\
-; it on; take the * away to turn it off, or move a line to change the order. The base game\n\
-; is read from Data. Every other plugin is read from the mods folder only, including\n\
-; nested folders, and is added at the next start turned off.\n\
+; it on; take the * away to turn it off, or move a line to change the order. A plugin is\n\
+; read from the mods folder when that folder has it, including a nested folder, and from\n\
+; Data when it does not. A mod that was installed in Data is still read. The base game\n\
+; is read from Data. A new mod plugin is added at the next start, turned off.\n\
 ; NVForever has its own list: the original game's plugins.txt is not read or changed.\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,9 +99,13 @@ pub fn plugins_in_tree(root: &Path) -> Vec<(String, PathBuf)> {
 }
 
 /// Master file names in the plugin header. Empty when the file is not read.
+///
+/// The record header is 24 bytes [documented: docs/spec-notes/esm.md, "Record header,
+/// 24 bytes"]: type, data size u32, flags u32, FormID u32, version-control u32, form
+/// version u16, version-control u16. The subrecords start after those 24 bytes.
 pub fn master_names(path: &Path) -> Vec<String> {
     let Ok(mut file) = std::fs::File::open(path) else { return Vec::new() };
-    let mut head = [0u8; 20];
+    let mut head = [0u8; 24];
     if std::io::Read::read_exact(&mut file, &mut head).is_err() || &head[0..4] != b"TES4" {
         return Vec::new();
     }
@@ -146,7 +151,8 @@ fn is_game_master(name: &str) -> bool {
 }
 
 /// A file the base game ships in `Data`: a master, an add-on master, or that master's
-/// language plugin. Anything else is a mod and is not read from `Data`.
+/// language plugin. Any other plugin is a mod. A mod plugin is opened from the mods
+/// folder when that folder has it, and from `Data` when it does not.
 pub fn is_base_game_plugin(name: &str) -> bool {
     is_game_master(name) || is_language_plugin(name)
 }
@@ -281,8 +287,8 @@ pub fn mod_content_root(mod_dir: &Path) -> PathBuf {
 
 /// Enabled mod folders under `mods`, lowest priority first (the file's order; the last on-line wins).
 /// Folders the file does not mention are on, after the ones it names. Turned-off folders are left out.
-/// A game start does not call this. `mod-order.txt` is the launcher's list. The game still
-/// reads plugins, archives, and loose files from `Data`.
+/// The launcher calls this and passes the paths to the game. The game process does not call it
+/// and does not read `mod-order.txt`.
 pub fn mod_content_layers(mods: &Path) -> Vec<PathBuf> {
     if !mods.is_dir() {
         return Vec::new();
@@ -321,6 +327,32 @@ pub fn mod_content_layers(mods: &Path) -> Vec<PathBuf> {
     dirs.sort_by_key(|a| a.0.to_ascii_lowercase());
     ordered.extend(dirs.into_iter().map(|(_, p)| p));
     ordered.into_iter().map(|p| mod_content_root(&p)).collect()
+}
+
+/// Every mod folder under `mods`, in name order, as a content layer.
+///
+/// This does not read `mod-order.txt`. A folder the launcher turned off is still here,
+/// and the launcher's order is not applied. A start that was given `--mod-layer` uses
+/// those paths instead ([`mod_content_layers`] is what the launcher passes).
+pub fn mod_folder_layers(mods: &Path) -> Vec<PathBuf> {
+    if !mods.is_dir() {
+        return Vec::new();
+    }
+    let mut dirs: Vec<(String, PathBuf)> = std::fs::read_dir(mods)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let name = e.file_name().to_str()?.to_string();
+            if !path.is_dir() || name.starts_with('.') || skip_plugin_dir(&name) {
+                return None;
+            }
+            Some((name, path))
+        })
+        .collect();
+    dirs.sort_by_key(|a| a.0.to_ascii_lowercase());
+    dirs.into_iter().map(|(_, p)| mod_content_root(&p)).collect()
 }
 
 fn mod_plugin_map(root: &Path) -> std::sync::Arc<std::collections::HashMap<String, PathBuf>> {
@@ -810,6 +842,10 @@ mod master_name_tests {
         file.extend(&0u32.to_le_bytes());
         file.extend(&0u32.to_le_bytes());
         file.extend(&0u32.to_le_bytes());
+        // Form version u16 and the last version-control u16: the header is 24 bytes
+        // (docs/spec-notes/esm.md). A 20-byte header would swallow the start of MAST.
+        file.extend(&0u16.to_le_bytes());
+        file.extend(&0u16.to_le_bytes());
         file.extend(&rec);
         let dir = std::env::temp_dir().join(format!("nvf-mast-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -818,5 +854,26 @@ mod master_name_tests {
         std::fs::write(&path, file).unwrap();
         assert_eq!(master_names(&path), vec!["FalloutNV.esm".to_string()]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod layer_tests {
+    use super::{mod_content_layers, mod_folder_layers};
+
+    #[test]
+    fn the_game_list_does_not_read_mod_order_and_the_launcher_list_does() {
+        let t = std::env::temp_dir().join(format!("nvf-layers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let mods = t.join("mods");
+        std::fs::create_dir_all(mods.join("Aaa")).unwrap();
+        std::fs::create_dir_all(mods.join("Zed")).unwrap();
+        std::fs::write(t.join("mod-order.txt"), "*Zed\nAaa\n").unwrap();
+        let names = |paths: Vec<std::path::PathBuf>| paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
+        // Name order, and the off folder is still there: this path does not read the file.
+        assert_eq!(names(mod_folder_layers(&mods)), ["Aaa", "Zed"]);
+        // The launcher's list: Zed is on and first (lowest), Aaa is off so it is left out.
+        assert_eq!(names(mod_content_layers(&mods)), ["Zed"]);
+        std::fs::remove_dir_all(&t).ok();
     }
 }
