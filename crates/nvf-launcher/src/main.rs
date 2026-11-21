@@ -12,7 +12,6 @@ mod dlss;
 mod fomod;
 mod fonts;
 mod launch;
-mod links;
 mod modlist;
 mod news;
 mod reports;
@@ -23,9 +22,6 @@ mod update;
 const ICON: &[u8] = include_bytes!("../assets/icon-64.png");
 
 fn main() -> eframe::Result {
-    if crate::links::startup() == crate::links::Startup::Stop {
-        return Ok(());
-    }
     let (width, height) = std::env::var("NVF_LAUNCHER_SIZE")
         .ok()
         .and_then(|s| {

@@ -33,7 +33,8 @@ The launcher's Mods page is its own manager. Mod folders live under
   and red when a lower folder's copy wins.
 - Drag plugins the same way. **Apply** writes the plugin list and the folder
   order the launcher uses. It does not link or copy files into the game folder.
-  The game will not see those loose files until a later layer exists.
+  The base game is still read from Data. A mod is read only from the mods folder,
+  including nested folders. A mod file that is not there is not taken from Data.
 
 A profile is a name you type, plus the folder order and the plugin order on the
 page. The name is one folder name, not a path.
@@ -60,18 +61,12 @@ launcher's Overwrite folder become a mod from the mod list's right-click menu,
 **Make mod below**. The new mod sits under that row. The game folder is not
 used. Reading another program's instance with `--mo2` stays read-only.
 
-The first Nexus or ModPub link asks once if this launcher should open those
-links. Nexus calls New Vegas `newvegas` in that link.
-The archive shows up on the **Downloads** tab, on the right of the Mods page.
-**Install** opens Quick Install. OK uses the archive as it is. Manual lists
-the files, and `<data>` is the folder that becomes the mod. Nothing is copied
-until OK, and it is not copied into Data. A Nexus
-download asks for the API key and saves it in the launcher home
-(`nexus-api.txt`). `NEXUS_API_KEY` is used instead when it is set. A free
-account still uses Mod Manager Download, so the link carries the website
-key and expiry. A ModPub link is a direct https download from a public site,
-with no API key. A second click of the same link is handed to the launcher
-that is already open. **Saves** is a tab on the right of the Mods page.
+You can still drop an archive onto the Mods page. **Quick Install** opens.
+OK uses the archive as it is. Manual lists the files, and `<data>` is the
+folder that becomes the mod. Nothing is copied until OK, and it is not copied
+into Data. Nexus and ModPub downloads are not in the running launcher. That
+code is kept in `crates/nvf-launcher/disabled/nexus-modpub/` and is not built.
+**Saves** is a tab on the right of the Mods page.
   
 Script extenders (xNVSE, JIP LN, JohnnyGuitar and several smaller ones) are built into the
 engine: their script functions run without the plugin `.dll` files, which NVForever never

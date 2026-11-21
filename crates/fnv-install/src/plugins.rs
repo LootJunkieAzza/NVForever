@@ -17,19 +17,17 @@
 //! SomeMod.esp
 //! ```
 //!
-//! Every plugin in the game's `Data` folder has a line; a `*` in front means it is loaded,
-//! and the lines' order is the load order. A plugin that appears in `Data` later gets a
-//! line of its own at the next start: off, except the game's own masters
-//! (`FalloutNV.esm`, [`ADDON_MASTERS`]), which are on as they were before this list
-//! existed. A new `.esm` goes after the last `.esm` line, so masters stay before the `.esp`
-//! files [hypothesis: the extension stands for the header's master flag, true of the
-//! game's own files]. Lines are never removed: a plugin no longer in `Data` is skipped
-//! with a warning, and comes back on if the file returns.
+//! Every base-game plugin in `Data` has a line (`FalloutNV.esm`, [`ADDON_MASTERS`],
+//! and their `<master>_lang.esp` files). A `*` in front means it is loaded. Any other
+//! plugin is a mod: it is read only from the mods folder, including files nested in
+//! subfolders, and a copy in `Data` is not used. A new mod plugin gets a line at the
+//! next start, turned off. A new `.esm` goes after the last `.esm` line. Lines are
+//! never removed: a plugin no longer in the mods folder is skipped with a warning.
 //!
-//! Plugins in NVForever's own mods folder (`<home>\mods\`, [`EngineHome::mods`]) count as
-//! present too, and get their lines the same way. A plugin there is opened instead of a
-//! plugin of the same name in `Data` ([`plugin_path`]), so a mod can replace a file of the
-//! game's without touching it [design].
+//! A plugin under NVForever's mods folder (`<home>\mods\`, [`EngineHome::mods`]) is opened
+//! from there, including one nested in a subfolder. A base-game file of the same name in
+//! `Data` is not opened when the mods folder has it ([`plugin_path`]). A mod that is not
+//! in the mods folder is not opened from `Data`.
 //!
 //! **Language plugins** (#1443): a localized install can keep the English masters and put
 //! its text in one more plugin per master, `<master>_lang.esp` [observed: a Russian
@@ -46,8 +44,9 @@ use std::path::{Path, PathBuf};
 pub const PLUGINS_FILE: &str = "plugins.txt";
 
 const HEADER: &str = "; NVForever's plugins, in load order (top loads first). A * in front of a plugin turns\n\
-; it on; take the * away to turn it off, or move a line to change the order. Plugins new\n\
-; in the game's Data folder or NVForever's mods folder are added at the next start, turned off.\n\
+; it on; take the * away to turn it off, or move a line to change the order. The base game\n\
+; is read from Data. Every other plugin is read from the mods folder only, including\n\
+; nested folders, and is added at the next start turned off.\n\
 ; NVForever has its own list: the original game's plugins.txt is not read or changed.\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,9 +68,9 @@ pub struct PluginSync {
     pub load: Vec<String>,
     /// Those of `load` opened from the mods folder ([`plugin_path`]).
     pub from_mods: Vec<String>,
-    /// Plugins given a line this time (new in `Data`, or the list was just made).
+    /// Plugins given a line this time (new in the mods folder, or a base file in `Data`).
     pub added: Vec<String>,
-    /// Active lines whose file is in neither `Data` nor the mods folder.
+    /// Active lines whose file is not in the mods folder, or not in `Data` for a base file.
     pub missing: Vec<String>,
     /// `FalloutNV.esm` was off or not first in the file; it is loaded first anyway.
     pub base_forced: bool,
@@ -87,11 +86,11 @@ pub fn is_plugin(name: &str) -> bool {
 }
 
 /// Plugin files under `root`. The first of a name inside this one folder wins.
-/// A directory link is followed. A folder already visited is skipped. The walk stops after 8 levels.
+/// A directory link is followed. A folder already visited is skipped.
 pub fn plugins_in_tree(root: &Path) -> Vec<(String, PathBuf)> {
     let mut listed = Vec::new();
     if root.is_dir() {
-        walk_plugins(root, 8, &mut listed);
+        walk_plugins(root, 32, &mut listed);
     }
     listed
 }
@@ -142,6 +141,12 @@ fn is_esm(name: &str) -> bool {
 /// The game's own masters, which a new line turns on.
 fn is_game_master(name: &str) -> bool {
     name.eq_ignore_ascii_case("FalloutNV.esm") || ADDON_MASTERS.iter().any(|m| m.eq_ignore_ascii_case(name))
+}
+
+/// A file the base game ships in `Data`: a master, an add-on master, or that master's
+/// language plugin. Anything else is a mod and is not read from `Data`.
+pub fn is_base_game_plugin(name: &str) -> bool {
+    is_game_master(name) || is_language_plugin(name)
 }
 
 /// The language plugin of one of the game's masters: `<master>_lang.esp`, e.g.
@@ -211,12 +216,14 @@ fn skip_plugin_dir(name: &str) -> bool {
 
 /// Collect plugin files under `dir`. `depth` is how many folders are left to enter.
 /// A link is followed. A folder already seen is not entered again.
+/// A mod folder turned off in `mod-order.txt` next to the mods folder is not entered.
 fn walk_plugins(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>) {
     let mut seen = std::collections::HashSet::new();
-    walk_plugins_seen(dir, depth, out, &mut seen);
+    let off = disabled_mod_names(dir);
+    walk_plugins_seen(dir, depth, out, &mut seen, true, &off);
 }
 
-fn walk_plugins_seen(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>, seen: &mut std::collections::HashSet<PathBuf>) {
+fn walk_plugins_seen(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>, seen: &mut std::collections::HashSet<PathBuf>, at_mods_root: bool, off: &std::collections::HashSet<String>) {
     if depth == 0 {
         return;
     }
@@ -230,6 +237,9 @@ fn walk_plugins_seen(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>, se
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
         if path.is_dir() {
+            if at_mods_root && off.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+                continue;
+            }
             if !skip_plugin_dir(name) {
                 dirs.push(path);
             }
@@ -238,14 +248,91 @@ fn walk_plugins_seen(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>, se
         }
     }
     for child in dirs {
-        walk_plugins_seen(&child, depth - 1, out, seen);
+        walk_plugins_seen(&child, depth - 1, out, seen, false, off);
     }
+}
+
+/// Names turned off in `mod-order.txt` beside the mods folder. A missing file turns nothing off.
+/// A line without `*` is off. `*` after an optional `=` is on. The page's order is the file's order.
+fn disabled_mod_names(mods: &Path) -> std::collections::HashSet<String> {
+    let mut off = std::collections::HashSet::new();
+    let Some(text) = mods.parent().and_then(|p| std::fs::read_to_string(p.join("mod-order.txt")).ok()) else {
+        return off;
+    };
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with(';') || t.starts_with('#') || t.starts_with('%') {
+            continue;
+        }
+        let t = t.strip_prefix('=').unwrap_or(t).trim();
+        let (on, name) = match t.strip_prefix('*') {
+            Some(rest) => (true, rest.trim()),
+            None => (false, t),
+        };
+        if !on && !name.is_empty() && !name.contains('/') && !name.contains('\\') {
+            off.insert(name.to_string());
+        }
+    }
+    off
+}
+
+/// Where a mod's loose files sit: a `Data` folder inside it when it has one, otherwise the mod folder.
+pub fn mod_content_root(mod_dir: &Path) -> PathBuf {
+    let data = mod_dir.join("Data");
+    if data.is_dir() { data } else { mod_dir.to_path_buf() }
+}
+
+/// Enabled mod folders under `mods`, lowest priority first (the file's order; the last on-line wins).
+/// Folders the file does not mention are on, after the ones it names. Turned-off folders are left out.
+/// The game `Data` folder is not one of these.
+pub fn mod_content_layers(mods: &Path) -> Vec<PathBuf> {
+    if !mods.is_dir() {
+        return Vec::new();
+    }
+    let off = disabled_mod_names(mods);
+    let mut dirs: Vec<(String, PathBuf)> = std::fs::read_dir(mods)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let name = e.file_name().to_str()?.to_string();
+            if !path.is_dir() || name.starts_with('.') || skip_plugin_dir(&name) || off.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+                return None;
+            }
+            Some((name, path))
+        })
+        .collect();
+    let mut ordered = Vec::new();
+    if let Some(text) = mods.parent().and_then(|p| std::fs::read_to_string(p.join("mod-order.txt")).ok()) {
+        for line in text.lines() {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with(';') || t.starts_with('#') || t.starts_with('%') {
+                continue;
+            }
+            let t = t.strip_prefix('=').unwrap_or(t).trim();
+            let Some(name) = t.strip_prefix('*').map(str::trim) else { continue };
+            if name.is_empty() {
+                continue;
+            }
+            if let Some(i) = dirs.iter().position(|(n, _)| n.eq_ignore_ascii_case(name)) {
+                ordered.push(dirs.swap_remove(i).1);
+            }
+        }
+    }
+    dirs.sort_by(|a, b| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase()));
+    ordered.extend(dirs.into_iter().map(|(_, p)| p));
+    ordered.into_iter().map(|p| mod_content_root(&p)).collect()
+}
+
+fn not_in_data(name: &str) -> PathBuf {
+    PathBuf::from(".nvforever-mods-only").join(name)
 }
 
 fn mod_plugin_map(root: &Path) -> std::sync::Arc<std::collections::HashMap<String, PathBuf>> {
     let mut listed = Vec::new();
     if root.is_dir() {
-        walk_plugins(root, 8, &mut listed);
+        walk_plugins(root, 32, &mut listed);
     }
     let mut map = std::collections::HashMap::new();
     for (name, path) in listed {
@@ -313,6 +400,8 @@ fn crosses_devices(err: &std::io::Error) -> bool {
 }
 
 fn symlink_file(src: &Path, dest: &Path) -> std::io::Result<()> {
+    // A file symlink, not a directory junction. On Windows this needs the
+    // privilege that account has for symbolic links. Hard links are tried first.
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(src, dest)
@@ -369,10 +458,13 @@ fn link_into_mods(mods: &Path, data: &Path, src: &Path, name: &str) -> Option<Pa
     }
 }
 
+/// The base-game plugins in `Data`, plus every plugin under the mods folder `mods`.
+/// A mod plugin that exists only in `Data` is not listed. A name in both is listed once,
+/// as the mods folder names it. The walk enters subfolders. A missing mods folder adds nothing.
 pub fn present_plugins(game: &GameInstall, mods: &Path) -> Result<Vec<String>, InstallError> {
     let mut names: Vec<String> = mod_plugin_map(mods).values().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
     for d in plugins_in(&game.data).map_err(|e| InstallError::Io(game.data.clone(), e))? {
-        if !names.iter().any(|n| n.eq_ignore_ascii_case(&d)) {
+        if is_base_game_plugin(&d) && !names.iter().any(|n| n.eq_ignore_ascii_case(&d)) {
             names.push(d);
         }
     }
@@ -380,21 +472,25 @@ pub fn present_plugins(game: &GameInstall, mods: &Path) -> Result<Vec<String>, I
     Ok(names)
 }
 
-/// The file to open for plugin `name`: a file of that name anywhere under `mods`
-/// when `mods` is set, else a file of that name directly in `data`, else `data/name`.
+/// The file to open for plugin `name`. A mod is taken from anywhere under `mods`.
+/// A base-game plugin is taken from `data` when the mods folder does not have it.
+/// A mod that is not under `mods` is not opened from `data`.
 pub fn plugin_path(data: &Path, mods: Option<&Path>, name: &str) -> PathBuf {
     if let Some(m) = mods {
         if let Some(path) = mod_plugin_map(m).get(&name.to_ascii_lowercase()) {
             return path.clone();
         }
     }
-    child_ci(data, name).filter(|p| p.is_file()).unwrap_or_else(|| data.join(name))
+    if is_base_game_plugin(name) {
+        return child_ci(data, name).filter(|p| p.is_file()).unwrap_or_else(|| data.join(name));
+    }
+    not_in_data(name)
 }
 
 /// [`plugin_path`] over `roots`, first root wins. A name is also matched in a
-/// subdirectory of a root. If none of those and `data` have the file, and a search
-/// root was set, the file may be linked into the first root. The game Data folder
-/// is not written. Otherwise `data/name`.
+/// subdirectory of a root. A base-game plugin may then come from `data`. A mod may not.
+/// A plugin found only by `NVFOREVER_PLUGIN_SEARCH` can be linked into the first root.
+/// The game Data folder is not written.
 pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
     let key = name.to_ascii_lowercase();
     for root in roots {
@@ -405,8 +501,10 @@ pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
             return path;
         }
     }
-    if let Some(path) = child_ci(data, name).filter(|p| p.is_file()) {
-        return path;
+    if is_base_game_plugin(name) {
+        if let Some(path) = child_ci(data, name).filter(|p| p.is_file()) {
+            return path;
+        }
     }
     if let Some(mods) = roots.first() {
         if let Some((_, src)) = outside_plugins().iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
@@ -415,7 +513,7 @@ pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
             }
         }
     }
-    data.join(name)
+    if is_base_game_plugin(name) { data.join(name) } else { not_in_data(name) }
 }
 
 impl PluginList {
@@ -631,11 +729,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&t);
         let data = t.join("game").join("Data");
         std::fs::create_dir_all(&data).unwrap();
-        for f in ["FalloutNV.esm", "DeadMoney.esm", "Mod.esp", "Readme.txt"] {
+        for f in ["FalloutNV.esm", "DeadMoney.esm", "Readme.txt"] {
             std::fs::write(data.join(f), b"TES4").unwrap();
         }
+        // A mod plugin in Data is not a base file and is not added.
+        std::fs::write(data.join("Mod.esp"), b"TES4").unwrap();
         let game = GameInstall::open(t.join("game")).unwrap();
         let home = EngineHome::new(t.join("home"));
+        std::fs::create_dir_all(home.mods().join("Cool")).unwrap();
+        std::fs::write(home.mods().join("Cool").join("Mod.esp"), b"TES4").unwrap();
         let s = sync(&home, &game).unwrap();
         assert!(s.written);
         assert_eq!(s.load, names(&["FalloutNV.esm", "DeadMoney.esm"]));
@@ -645,11 +747,16 @@ mod tests {
         let s = sync(&home, &game).unwrap();
         assert!(!s.written);
         assert_eq!(s.load, names(&["FalloutNV.esm", "DeadMoney.esm", "Mod.esp"]));
-        // A new mod appears in Data: a line, off.
+        // Another plugin only in Data is still not a mod.
         std::fs::write(data.join("Later.esp"), b"TES4").unwrap();
         let s = sync(&home, &game).unwrap();
+        assert!(s.added.is_empty());
+        assert!(!std::fs::read_to_string(home.plugins_file()).unwrap().contains("Later.esp"));
+        // The same name nested under the mods folder is.
+        std::fs::create_dir_all(home.mods().join("More").join("sub")).unwrap();
+        std::fs::write(home.mods().join("More").join("sub").join("Later.esp"), b"TES4").unwrap();
+        let s = sync(&home, &game).unwrap();
         assert_eq!(s.added, names(&["Later.esp"]));
-        assert!(std::fs::read_to_string(home.plugins_file()).unwrap().ends_with("*Mod.esp\nLater.esp\n"));
         std::fs::remove_dir_all(&t).ok();
     }
 
@@ -680,13 +787,13 @@ Edits.esp
         }
         let game = GameInstall::open(t.join("game")).unwrap();
         let home = EngineHome::new(t.join("home"));
-        // No mods folder yet: only Data's plugins.
-        assert_eq!(present_plugins(&game, &home.mods()).unwrap(), names(&["FalloutNV.esm", "Mod.esp"]));
-        std::fs::create_dir_all(home.mods()).unwrap();
-        for f in ["Edit.esp", "mod.esp", "Notes.txt"] {
-            std::fs::write(home.mods().join(f), b"TES4").unwrap();
-        }
-        // Mod.esp in both: listed once, as the mods folder names it.
+        // No mods folder yet: only the base game. Mod.esp in Data is not a mod we load.
+        assert_eq!(present_plugins(&game, &home.mods()).unwrap(), names(&["FalloutNV.esm"]));
+        std::fs::create_dir_all(home.mods().join("Pack").join("nested")).unwrap();
+        std::fs::write(home.mods().join("Edit.esp"), b"TES4").unwrap();
+        std::fs::write(home.mods().join("Pack").join("nested").join("mod.esp"), b"TES4").unwrap();
+        std::fs::write(home.mods().join("Notes.txt"), b"TES4").unwrap();
+        // Mod.esp in both: listed once, as the mods folder names it. Data's copy is not the file.
         assert_eq!(present_plugins(&game, &home.mods()).unwrap(), names(&["FalloutNV.esm", "Edit.esp", "mod.esp"]));
         let s = sync(&home, &game).unwrap();
         assert_eq!(s.added, names(&["FalloutNV.esm", "Edit.esp", "mod.esp"]));
@@ -695,13 +802,19 @@ Edits.esp
         assert_eq!(s.load, names(&["FalloutNV.esm", "mod.esp", "Edit.esp"]));
         assert_eq!(s.from_mods, names(&["mod.esp", "Edit.esp"]));
         assert!(s.missing.is_empty());
-        // The mods folder's copy is the one opened; Data's otherwise.
-        // (On a case-insensitive file system the exact name exists too; either names the file.)
         let p = plugin_path(&data, Some(&home.mods()), "Mod.esp");
-        assert_eq!(p.parent(), Some(home.mods().as_path()));
+        assert!(p.starts_with(home.mods()));
         assert!(p.file_name().unwrap().to_string_lossy().eq_ignore_ascii_case("mod.esp"));
         assert_eq!(plugin_path(&data, Some(&home.mods()), "FalloutNV.esm"), data.join("FalloutNV.esm"));
-        assert_eq!(plugin_path(&data, None, "Mod.esp"), data.join("Mod.esp"));
+        let absent = plugin_path(&data, None, "Mod.esp");
+        assert!(!absent.starts_with(&data));
+        assert!(!absent.is_file());
+        // Turned off in mod-order.txt: that folder's plugin is not read.
+        std::fs::create_dir_all(home.mods().join("Off")).unwrap();
+        std::fs::write(home.mods().join("Off").join("Off.esp"), b"TES4").unwrap();
+        std::fs::write(home.root.join("mod-order.txt"), "*Pack\nOff\n").unwrap();
+        assert!(!present_plugins(&game, &home.mods()).unwrap().iter().any(|n| n.eq_ignore_ascii_case("Off.esp")));
+        assert!(present_plugins(&game, &home.mods()).unwrap().iter().any(|n| n.eq_ignore_ascii_case("mod.esp")));
         std::fs::remove_dir_all(&t).ok();
     }
 }

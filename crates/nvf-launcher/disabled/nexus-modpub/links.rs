@@ -1,3 +1,7 @@
+// Parked. Not compiled. This was crates/nvf-launcher/src/links.rs.
+// Nexus (nxm) and ModPub (modl) downloads were removed from the running launcher.
+// See README.md in this folder.
+
 //! Nexus and ModPub downloads.
 //!
 //! `nxm://newvegas/mods/{mod}/files/{file}?key=&expires=` is Nexus's

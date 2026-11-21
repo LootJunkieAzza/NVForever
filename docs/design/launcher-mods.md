@@ -50,12 +50,12 @@ The profile save does not write the game folder, `Documents\My Games\FalloutNV`,
 or the original game's plugin list. That is the install rule
 ([install-layout.md](https://github.com/LootJunkieAzza/NVForever/blob/main/docs/design/install-layout.md)).
 
-The page's own **Save**, and **Load** of a profile, still make symlinks in the
-game `Data` folder for a turned-on mod. That is older behaviour on this branch
-and it breaks the same rule. This design does not add more of those writes.
-Taking them out is a later change: the mods have to be layered by the program
-itself, and this launcher-only branch does not build that layer. Until then,
-removing the links would leave the mods unloaded.
+**Apply** writes the launcher home's `plugins.txt` and `mod-order.txt`. **Save**
+and **Load** write the profile's three text files. None of them link or copy
+files into the game `Data` folder. Older functions that did, with a Unix
+symlink only, are still in the launcher and are not called. They have no
+Windows branch. The facts of what the game process then reads are in
+[launcher-mod-visibility.md](../spec-notes/launcher-mod-visibility.md).
 
 ## Output folder, not built yet
 

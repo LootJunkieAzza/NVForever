@@ -1217,9 +1217,9 @@ fn main() -> AppExit {
     };
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
-    // A mods folder's copy of a plugin is opened instead of Data's (fnv_install::plugins):
-    // NVForever's own mods folder, or an MO2 profile's mods from the highest priority down
-    // with its overwrite folder first (#1526).
+    // Without --mo2 the launcher's enabled mod folders are the only place mod files are
+    // read. The base game stays in Data. A mod plugin, archive, or loose file is not
+    // taken from Data (docs/spec-notes/launcher-mod-visibility.md).
     let mods: Vec<PathBuf> = match &mo2 {
         Some(l) => {
             let mut roots = l.mod_roots();
@@ -1307,12 +1307,18 @@ fn main() -> AppExit {
             }
         }
     }
-    // The archives beside a plugin in the mods folder are mounted with it. The VFS takes
-    // the layers lowest precedence first (usvfs' merge order), unlike the plugin lookup
-    // above, which wants the overwrite folder first.
+    // Enabled mod folders, lowest priority first. Loose files and archives in those
+    // folders are read from there, recursively. The base game stays in Data.
+    // (docs/spec-notes/launcher-mod-visibility.md)
     let game = match &mo2 {
         Some(l) => GameData::open_for_plugins_layered(args.data(), &l.mod_roots(), &args.plugins, &args.nif_schema),
-        None => GameData::open_for_plugins_in(args.data(), mods.first().map(|p| p.as_path()), &args.plugins, &args.nif_schema),
+        None => match mods.first() {
+            Some(dir) => {
+                let layers = fnv_install::plugins::mod_content_layers(dir);
+                GameData::open_launcher_mods(args.data(), dir, &layers, &args.plugins, &args.nif_schema)
+            }
+            None => GameData::open_for_plugins_in(args.data(), None, &args.plugins, &args.nif_schema),
+        },
     };
     let game = match game {
         Ok(g) => g,

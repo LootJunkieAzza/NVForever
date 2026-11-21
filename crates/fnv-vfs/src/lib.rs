@@ -239,11 +239,13 @@ impl Vfs {
         let mut layers: Vec<&Path> = vec![data_dir];
         layers.extend(roots.iter().filter(|r| r.is_dir()).map(PathBuf::as_path));
         let mut found: Vec<(String, PathBuf)> = Vec::new();
-        for dir in layers {
-            let mut names = top_archives(dir);
-            names.sort();
-            for n in names {
-                let entry = (n.clone(), dir.join(&n));
+        for (i, dir) in layers.iter().enumerate() {
+            // Data stays the base game: only the archives sitting in it. A mod root is
+            // read recursively, so an archive in a nested folder is not missed. A later
+            // layer replaces the same archive name. A mod archive is never taken from Data.
+            let files = if i == 0 { top_archives(dir).into_iter().map(|n| (n.clone(), dir.join(&n))).collect::<Vec<_>>() } else { archives_recursive(dir) };
+            for (n, path) in files {
+                let entry = (n.clone(), path);
                 match found.iter_mut().find(|(o, _)| o.eq_ignore_ascii_case(&n)) {
                     Some(slot) => *slot = entry,
                     None => found.push(entry),
@@ -358,11 +360,15 @@ impl Vfs {
     }
 
     fn index_loose(&mut self, root: &Path) {
+        self.index_loose_skipping(root, &[]);
+    }
+
+    fn index_loose_skipping(&mut self, root: &Path, skip_top: &[String]) {
         if !self.loose_roots.iter().any(|r| r == root) {
             self.loose_roots.push(root.to_path_buf());
         }
         let mut files = Vec::new();
-        walk(root, root, &mut files, &mut self.skipped);
+        walk(root, root, &mut files, &mut self.skipped, skip_top);
         for rel in files {
             let key = normalize(&rel.to_string_lossy());
             // Plugins and archives at the top level are not part of the asset namespace.
@@ -417,6 +423,39 @@ impl Vfs {
         let mut vfs = Vfs::open_files(data_dir, &files)?;
         for root in roots {
             // An absent optional layer is ordinary; other errors retain walk's diagnostics.
+            if root.as_path() == data_dir || matches!(root.try_exists(), Ok(false)) {
+                continue;
+            }
+            vfs.index_loose(root);
+        }
+        Ok(vfs)
+    }
+
+    /// The launcher's own mods folder. `layers` are the enabled mod folders, lowest
+    /// priority first (a `Data` directory inside a mod when it has one). Loose files and
+    /// archives are read from those folders, recursively. The base game stays in
+    /// `data_dir`. A mod file is not read from `data_dir`.
+    ///
+    /// Archives and loose files that sit directly in `mods_dir`, rather than inside a mod
+    /// folder, are included. Subfolders that are themselves mods are not walked from
+    /// `mods_dir`; an enabled one is a layer, a disabled one is left out.
+    pub fn open_launcher_mods<S: AsRef<str>>(data_dir: &Path, mods_dir: &Path, layers: &[PathBuf], plugins: &[S]) -> Result<Vfs, VfsError> {
+        let archive_layers = bsa_scan_roots(layers);
+        let mut files = Vfs::order_for_plugins_layered(data_dir, &archive_layers, plugins).0;
+        for name in top_archives(mods_dir) {
+            let claimed = plugins.iter().any(|p| {
+                let stem = p.as_ref().rsplit_once('.').map_or(p.as_ref(), |(s, _)| s);
+                let l = name.to_ascii_lowercase();
+                l.starts_with(&stem.to_ascii_lowercase()) && (l.ends_with(".bsa") || l[stem.len()..].starts_with(" - ") || l[stem.len()..].starts_with(|c: char| c.is_ascii_digit()))
+            });
+            if claimed && !files.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                files.push((name.clone(), mods_dir.join(&name)));
+            }
+        }
+        let mut vfs = Vfs::open_files(data_dir, &files)?;
+        let skip = mod_folder_names(mods_dir);
+        vfs.index_loose_skipping(mods_dir, &skip);
+        for root in layers {
             if root.as_path() == data_dir || matches!(root.try_exists(), Ok(false)) {
                 continue;
             }
@@ -601,7 +640,7 @@ fn top_archives(dir: &Path) -> Vec<String> {
 
 /// Every loose file under `dir`. A folder or entry that cannot be read is skipped (and
 /// noted in `skipped`); the rest of the walk goes on.
-fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>, skipped: &mut Vec<(String, String)>) {
+fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>, skipped: &mut Vec<(String, String)>, skip_top: &[String]) {
     let mut skip = |p: &Path, e: std::io::Error| {
         tracing::warn!(path = %p.display(), error = %e, "loose files skipped: cannot be read");
         skipped.push((p.display().to_string(), e.to_string()));
@@ -620,8 +659,14 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>, skipped: &mut Vec<(Stri
             }
         };
         let p = e.path();
+        let name = e.file_name().to_string_lossy().into_owned();
         match e.file_type() {
-            Ok(t) if t.is_dir() => subdirs.push(p),
+            Ok(t) if t.is_dir() => {
+                if dir == root && skip_top.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
+                    continue;
+                }
+                subdirs.push(p);
+            }
             Ok(_) => {
                 if let Ok(rel) = p.strip_prefix(root) {
                     out.push(rel.to_path_buf());
@@ -631,8 +676,77 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>, skipped: &mut Vec<(Stri
         }
     }
     for p in subdirs {
-        walk(root, &p, out, skipped);
+        walk(root, &p, out, skipped, skip_top);
     }
+}
+
+/// `.bsa` files under `dir`, including nested folders. Installer folders are not entered.
+fn archives_recursive(dir: &Path) -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    let mut stack = vec![(dir.to_path_buf(), 0u8)];
+    let mut seen = std::collections::HashSet::new();
+    while let Some((d, depth)) = stack.pop() {
+        if depth > 32 {
+            continue;
+        }
+        let key = std::fs::canonicalize(&d).unwrap_or_else(|_| d.clone());
+        if !seen.insert(key) {
+            continue;
+        }
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            let lower = name.to_ascii_lowercase();
+            if p.is_dir() {
+                if lower.starts_with('.') || matches!(lower.as_str(), "fomod" | "meta" | "__macosx" | "docs" | "source") {
+                    continue;
+                }
+                stack.push((p, depth + 1));
+            } else if lower.ends_with(".bsa") && !out.iter().any(|(n, _): &(String, PathBuf)| n.eq_ignore_ascii_case(&name)) {
+                out.push((name, p));
+            }
+        }
+    }
+    out.sort_by(|a, b| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase()));
+    out
+}
+
+/// Immediate subfolders of the mods folder that are mods, not asset folders.
+fn mod_folder_names(mods: &Path) -> Vec<String> {
+    std::fs::read_dir(mods)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let lower = name.to_ascii_lowercase();
+            if !e.path().is_dir() || lower.starts_with('.') || is_asset_dir(&lower) {
+                None
+            } else {
+                Some(name)
+            }
+        })
+        .collect()
+}
+
+fn is_asset_dir(lower: &str) -> bool {
+    matches!(lower, "meshes" | "textures" | "sound" | "music" | "video" | "menus" | "interface" | "scripts" | "facegen" | "shaders" | "lodsettings" | "trees" | "materials" | "distantlod" | "lsdata" | "nvse" | "data")
+}
+
+/// A layer that points at a mod's inner `Data` folder is scanned from the mod folder,
+/// so an archive beside that `Data` folder is still found.
+fn bsa_scan_roots(layers: &[PathBuf]) -> Vec<PathBuf> {
+    layers
+        .iter()
+        .map(|p| {
+            if p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("Data")) {
+                p.parent().map(|d| d.to_path_buf()).unwrap_or_else(|| p.clone())
+            } else {
+                p.clone()
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -830,6 +944,29 @@ mod tests {
         assert_eq!(order, ["Fallout - Meshes.bsa".to_string(), "Update.bsa".into(), full("Both.bsa"), full("Edits - Textures.bsa"), full("Edits.bsa")]);
         // Without a mods folder, as before.
         assert_eq!(Vfs::archive_order_in(&data, None, &DEFAULT_ARCHIVE_LIST, &["FalloutNV.esm", "Both.esp", "Edits.esp"]), ["Fallout - Meshes.bsa", "Update.bsa", "Both.bsa"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A mod's loose files are read from the mod folder, including a nested folder.
+    /// The base game's loose file is still read from Data. A mod does not replace it
+    /// unless the mod folder has that path.
+    #[test]
+    fn launcher_mod_loose_files_come_from_the_mod_folder() {
+        let root = std::env::temp_dir().join(format!("nvf-vfs-launcher-mods-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (data, mods) = (root.join("Data"), root.join("mods"));
+        std::fs::create_dir_all(data.join("meshes")).unwrap();
+        std::fs::create_dir_all(mods.join("Cool").join("meshes")).unwrap();
+        std::fs::create_dir_all(mods.join("Cool").join("deep").join("meshes")).unwrap();
+        std::fs::write(data.join("meshes").join("a.nif"), b"base").unwrap();
+        std::fs::write(data.join("meshes").join("only-data.nif"), b"base").unwrap();
+        std::fs::write(mods.join("Cool").join("meshes").join("a.nif"), b"mod").unwrap();
+        std::fs::write(mods.join("Cool").join("deep").join("meshes").join("b.nif"), b"deep").unwrap();
+        let layers = vec![mods.join("Cool")];
+        let vfs = Vfs::open_launcher_mods(&data, &mods, &layers, &[] as &[&str]).unwrap();
+        assert_eq!(vfs.read("meshes/a.nif").unwrap().unwrap(), b"mod");
+        assert_eq!(vfs.read("meshes/only-data.nif").unwrap().unwrap(), b"base");
+        assert_eq!(vfs.read("deep/meshes/b.nif").unwrap().unwrap(), b"deep");
         std::fs::remove_dir_all(&root).unwrap();
     }
 
