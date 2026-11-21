@@ -1003,7 +1003,14 @@ pub fn face_billboards(
     for (mut t, g) in &mut trees {
         let d = eye - bevy_to_game(g.translation());
         if d.x * d.x + d.y * d.y > 1e-6 {
-            t.rotation = Quat::from_rotation_z(d.y.atan2(d.x));
+            // Written only when it differs: a write marks the transform changed, which
+            // dirties the billboard's cell for propagation and sends it over the cell's
+            // children [design: bevy_transform 0.20.1 src/systems.rs :112, :705-720]. An
+            // exact compare: the same eye and place give the same bits, any turn differs.
+            let rotation = Quat::from_rotation_z(d.y.atan2(d.x));
+            if t.rotation != rotation {
+                t.rotation = rotation;
+            }
         }
     }
 }
@@ -2105,6 +2112,32 @@ mod tests {
         app.update();
         let r = app.world().get::<Transform>(tree).unwrap().rotation;
         assert!(r.abs_diff_eq(Quat::from_rotation_z(-FRAC_PI_2), 1e-5), "follows the main view to game -Y: {r:?}");
+    }
+
+    /// A tree billboard already facing a camera that did not move keeps its transform
+    /// unchanged, so it does not dirty its cell for transform propagation.
+    #[test]
+    fn a_still_camera_leaves_tree_billboards_unchanged() {
+        #[derive(Resource, Default)]
+        struct Turned(usize);
+        let mut app = App::new();
+        app.init_resource::<Turned>().add_systems(Update, (
+            face_billboards,
+            |changed: Query<(), (With<TreeBillboard>, Changed<Transform>)>, mut turned: ResMut<Turned>| turned.0 = changed.iter().count(),
+        ).chain());
+        let at = |p: Vec3| GlobalTransform::from(Transform::from_translation(p));
+        let main = app.world_mut().spawn((Camera3d::default(), at(Vec3::new(0.0, 0.0, -1000.0)), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 })).id();
+        let tree = app.world_mut().spawn((TreeBillboard, Transform::IDENTITY, GlobalTransform::IDENTITY)).id();
+        app.update();
+        app.update();
+        assert!(app.world().get::<Transform>(tree).unwrap().rotation.abs_diff_eq(Quat::from_rotation_z(FRAC_PI_2), 1e-5));
+        for _ in 0..2 {
+            app.update();
+            assert_eq!(app.world().resource::<Turned>().0, 0);
+        }
+        app.world_mut().entity_mut(main).insert(at(Vec3::new(0.0, 0.0, 1000.0)));
+        app.update();
+        assert_eq!(app.world().resource::<Turned>().0, 1);
     }
 
     /// The log of `note_other_cameras`: once when streaming first runs beside another
