@@ -139,7 +139,7 @@ pub struct App {
     apply_ask: bool,
     /// Path typed into Add on the Mods page.
     add_path: String,
-    /// Folder typed on the Mods page. Its profiles are listed beside it. // nvf-profiles
+    /// The folder typed on the Mods page. Read lists the profiles in it.
     profile_path: String,
     /// Profile name, then the folder that holds its lists.
     profile_choices: Vec<(String, PathBuf)>,
@@ -149,7 +149,7 @@ pub struct App {
     profile_rect: egui::Rect,
     /// Clear links is asking before it removes linked mods.
     clear_links_ask: bool,
-    /// An open archive installer, when a drop needs choices. // nvf-archive-install
+    /// An open archive installer. Nothing else is added until it is finished.
     wizard: Option<crate::fomod::Wizard>,
     /// Bottom bar height. Saved when the user lets go of the grip.
     bar_h: f32,
@@ -876,7 +876,7 @@ fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
     if let Ok(rd) = std::fs::read_dir(&mods) {
         for entry in rd.flatten() {
             let path = entry.path();
-            // nvf-mod-symlink: a directory link in the mods folder is a mod folder.
+            // A directory link is a mod folder. A file is not.
             if !path.is_dir() {
                 continue;
             }
@@ -2069,9 +2069,9 @@ impl App {
                     self.mod_rows[i].on = on;
                     let folder = self.mod_rows[i].name.clone();
                     let keys: HashSet<String> = self.plugin_home.iter().filter(|(_, owned)| *owned == &folder).map(|(key, _)| key.clone()).collect();
-                    // nvf-data-keep: turning this folder off leaves a plugin on when that file is already in the game Data folder.
+                    // A plugin already in the game Data folder stays on when this folder is turned off.
                     let in_data: HashSet<String> = self.game().map(|g| keys.iter().filter(|name| g.data_file(name).is_some()).cloned().collect()).unwrap_or_default();
-                    // nvf-off-mod: a folder that is off is taken out of the plugin list, except files already in Data.
+                    // Turning the folder off drops its other plugins from the list.
                     if on {
                         if let Some(home) = self.home.clone() {
                             let names: Vec<String> = plugins::plugins_in_tree(&home.mods().join(&folder)).into_iter().map(|(n, _)| n).collect();
@@ -2151,7 +2151,7 @@ impl App {
         let folders = self.plugin_folders.clone();
         let masters = self.plugin_masters.clone();
         let active = self.mods.as_ref().map(|l| l.entries.iter().filter(|e| e.active).count()).unwrap_or(0);
-        // nvf-no-plugin-cap: the count is how many are on. There is no slot limit.
+        // The number is how many plugins are on. There is no slot cap.
         ui.horizontal(|ui| {
             ui.label(RichText::new("PLUGINS").small().color(GOLD));
             ui.label(RichText::new(active.to_string()).small().color(WEAK)).on_hover_text("Plugins turned on.");
@@ -2307,7 +2307,7 @@ impl App {
         }
     }
 
-    // nvf-archive-install: a folder, a loose plugin, or any archive. A FOMOD with a choice opens a window.
+    /// Add a folder, a loose plugin, or an archive. An installer that needs a choice opens a window.
     fn mod_tools(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.add_path).hint_text("Drop a folder or an archive, or type its path").desired_width(ui.available_width() - 52.0));
@@ -2424,7 +2424,7 @@ impl App {
         if n == 0 {
             return;
         }
-        // nvf-profile-drop: a folder dropped on Profiles is a profile folder, not a mod.
+        // A folder dropped on the Profiles box is a profile folder, not a mod to install.
         let over_profile = ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| self.profile_rect.contains(p));
         if over_profile {
             let path = ctx.input(|i| {
@@ -2733,7 +2733,7 @@ impl App {
                 if ui.add_enabled(self.profile_pick.is_some(), egui::Button::new("Load")).on_hover_text("Puts that profile's folder order and plugin order into this page. Files stay where they are.").clicked() {
                     self.load_chosen_profile();
                 }
-                // nvf-clear-links: debug. Linked mods leave this list. The game Data folder is not opened.
+                // Asks once. Clear them removes only profile links that point inside the mods folder.
                 if self.clear_links_ask {
                     if ui.button("Clear them").clicked() {
                         self.clear_links_ask = false;
@@ -2860,6 +2860,7 @@ impl App {
         self.message = Some((format!("Loaded {name}: {folders} folders, {linked} files linked into Data, {skipped} left in place, {missing} not found. Nothing was copied. Save to keep the order."), false));
     }
 
+    /// Removes profile links that point at another folder already in the mods folder, and takes their plugins off the list. Other links stay. The game Data folder is not changed.
     fn clear_linked_mods(&mut self) {
         let Some(home) = &self.home else {
             self.message = Some(("No mods folder yet.".into(), true));
@@ -2955,7 +2956,7 @@ impl App {
         !holder.is_empty() && !holder.starts_with('.') && !holder.eq_ignore_ascii_case(name)
     }
 
-    // nvf-data-link: a profile load puts each turned-on mod into Data as links. Files are never copied.
+    /// Links each turned-on mod that is one mod, not a folder of mods, into the game Data folder. Files are never copied.
     fn link_on_rows_into_data(&self) {
         let Some(game) = self.game() else { return };
         let Some(home) = &self.home else { return };
@@ -2973,6 +2974,7 @@ impl App {
         }
     }
 
+    /// The mod folder named `name`: beside the profile, in the mods folder, or inside a folder there.
     fn find_mod_dir(profile_dir: &Path, name: &str, home_mods: Option<&Path>) -> Option<PathBuf> {
         let mut found = Vec::new();
         if let Some(mods) = home_mods {
@@ -3012,6 +3014,8 @@ impl App {
         fallback.is_dir().then_some(fallback)
     }
 
+    /// Makes `mods/name` a link to `src` when that name is not already there.
+    /// A link that points at another folder in the mods folder is written down, so Clear links can remove that one later.
     fn ensure_mod_link(mods: &Path, name: &str, src: &Path) {
         let dest = mods.join(name);
         if dest.exists() || !src.is_dir() {
@@ -3026,7 +3030,6 @@ impl App {
         if holder.eq_ignore_ascii_case(name) || holder.starts_with('.') {
             return;
         }
-        // nvf-profile-link-record: only an inward profile link is listed, so Clear links can remove that one later.
         let record = mods.join(".nvf-profile-links");
         let mut names = Self::recorded_links(&record);
         if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
@@ -3035,6 +3038,8 @@ impl App {
         }
     }
 
+    /// Links the mod's files into `data`. A real file already there is left in place. Nothing is copied.
+    /// Returns how many links were made, and how many files were already there.
     fn symlink_mod_into_data(src: &Path, data: &Path) -> (usize, usize) {
         let root = if src.join("Data").is_dir() { src.join("Data") } else { src.to_path_buf() };
         let mut linked = 0usize;
@@ -3082,6 +3087,7 @@ impl App {
         (linked, skipped)
     }
 
+    /// Removes links in `data` that point into `src`. Real files are left alone.
     fn unlink_data_symlinks_into(data: &Path, src: &Path) {
         let Ok(src) = std::fs::canonicalize(src) else { return };
         let mut stack = vec![data.to_path_buf()];
@@ -3103,6 +3109,7 @@ impl App {
         }
     }
 
+    /// One mod has plugins or game folders of its own, and is not a folder full of other mods.
     fn looks_like_one_mod(path: &Path) -> bool {
         let root = if path.join("Data").is_dir() { path.join("Data") } else { path.to_path_buf() };
         let Ok(rd) = std::fs::read_dir(&root) else { return false };
@@ -3197,7 +3204,8 @@ impl App {
         None
     }
 
-    /// A plus is on, a minus is off. The file names the winner first. This page uses the winner last.
+    /// Enabled and disabled folders from a profile list. A line starting with `+` is on, and `-` is off.
+    /// The file names the winning folder first. This page keeps the winning folder last.
     fn profile_mod_rows(text: &str) -> Vec<(String, bool)> {
         let mut rows = Vec::new();
         for line in text.lines() {

@@ -87,6 +87,7 @@ pub fn is_plugin(name: &str) -> bool {
 }
 
 /// Plugin files under `root`. The first of a name inside this one folder wins.
+/// A directory link is followed. A folder already visited is skipped. The walk stops after 8 levels.
 pub fn plugins_in_tree(root: &Path) -> Vec<(String, PathBuf)> {
     let mut listed = Vec::new();
     if root.is_dir() {
@@ -208,8 +209,9 @@ fn skip_plugin_dir(name: &str) -> bool {
     n.starts_with('.') || matches!(n.as_str(), "meshes" | "textures" | "sound" | "music" | "video" | "menus" | "interface" | "scripts" | "facegen" | "shaders" | "lodsettings" | "trees" | "materials" | "distantlod" | "lsdata" | "fomod" | "meta" | "optional" | "docs" | "source" | "__macosx" | "target")
 }
 
+/// Collect plugin files under `dir`. `depth` is how many folders are left to enter.
+/// A link is followed. A folder already seen is not entered again.
 fn walk_plugins(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>) {
-    // nvf-link-walk: a mod folder may be a link, and links inside it are read too.
     let mut seen = std::collections::HashSet::new();
     walk_plugins_seen(dir, depth, out, &mut seen);
 }
@@ -256,6 +258,7 @@ fn skip_outside_dir(name: &str) -> bool {
     skip_plugin_dir(name) || matches!(name, "steamapps" | "NVForever")
 }
 
+/// A search outside the mods folder. Links are not followed, so it cannot wander off through a link.
 fn collect_outside(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>) {
     if depth == 0 || dir.is_symlink() {
         return;
