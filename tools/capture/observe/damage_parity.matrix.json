@@ -1,0 +1,51 @@
+{
+ "format": "nvf.damage.matrix/1",
+ "name": "damage_parity",
+ "issue": 3163,
+ "note": "One hit at a time with one weapon on one actor record, at the same spot in the original and in NVForever (tools/capture/damage_parity.py; docs: tools/capture/README.md). FormIDs are FalloutNV.esm's [observed: fnvtool esm inventory]. The aim heights `z` are units above the target's feet: 85 and 120 for people as the dismember_odds campaign aimed [observed 2026-10-25]; the creatures' are guesses to tune on the first run [hypothesis]. A row is judged by where the hit landed, not by where it was aimed. `nvf_kill`: the radscorpions placed in the runway's cell and the cells east, west and north of it [observed: fnvtool world refs], dead in the save `nvfairport`; NVForever's run starts from the data, so it kills them first. `eye`: the original's muzzle height standing [observed 2026-10-25, dismember_odds]; `nvf_shot`: seconds between NVForever's shots for a weapon whose action is slower than the 1.5 s default [observed 2026-11-21: 2 of the Anti-Materiel Rifle's 4 shots a group left the barrel at 1.5 s]. `figures`, for the `rule` check (docs/spec-notes/damage-armour.md): one projectile's damage at the shooter's skill and full condition, the weapon's critical damage, the ammunition's Damage Mod multiplier and DT Mod [observed 2026-11-21: with them the rule gives every one of the original's 673 hits; the Hunting Shotgun's and the 12 Gauge's also read with fnvtool esm decode]. `nvf_eye`: the height NVForever's first-person shots leave from, standing [observed 2026-11-21: with 121, aims 112 to 124 above a wastelander's feet all landed on the head and 85 on the torso; with 112 the head aim went over it].",
+ "save": "nvfairport",
+ "place": {
+  "marker": "0x0013DA13",
+  "offset": [851, 228, 40],
+  "nvf_args": ["--cell", "Goodsprings", "--pos=37000,-117160,6180", "--heading", "0"],
+  "distance": 300,
+  "nvf_kill": ["0x0014DEE2", "0x00162975", "0x00162976", "0x00162977", "0x0014DEC9", "0x00162978", "0x0014DEDA", "0x0014DEDB", "0x0014DEC3", "0x0014DE86", "0x00162984", "0x00162985"]
+ },
+ "shooter": {
+  "level": 50,
+  "values": {"Guns": 50, "EnergyWeapons": 50, "Explosives": 50, "Strength": 5, "Luck": 5},
+  "remove_perks": ["0x00094EBA"],
+  "eye": 120,
+  "nvf_eye": 121
+ },
+ "hits": 4,
+ "target_health": 5000,
+ "weapons": [
+  {"key": "pistol9mm", "figures": {"damage": 12, "crit": 16}, "weapon": "0x000E3778", "ammo": "0x0008ED03", "note": "9mm Pistol, 9mm Round"},
+  {"key": "varmint", "figures": {"damage": 13.5, "crit": 18}, "weapon": "0x0007EA24", "ammo": "0x00004240", "note": "Varmint Rifle, 5.56mm Round"},
+  {"key": "magnum357", "figures": {"damage": 19.5, "crit": 26}, "weapon": "0x0008F216", "ammo": "0x0008ED02", "note": ".357 Magnum Revolver, .357 Magnum Round"},
+  {"key": "huntrifle", "nvf_shot": 2, "figures": {"damage": 39, "crit": 52}, "weapon": "0x00004333", "ammo": "0x0006B53C", "note": "Hunting Rifle, .308 Round"},
+  {"key": "huntrifle_ap", "nvf_shot": 2, "figures": {"damage": 39, "crit": 52, "ammo_damage": 0.95, "ammo_dt": ["subtract", 15]}, "weapon": "0x00004333", "ammo": "0x0013E442", "note": "Hunting Rifle, .308 Armor Piercing"},
+  {"key": "huntrifle_hp", "nvf_shot": 2, "figures": {"damage": 39, "crit": 52, "ammo_damage": 1.75, "ammo_dt": ["multiply", 3]}, "weapon": "0x00004333", "ammo": "0x0013E443", "note": "Hunting Rifle, .308 Hollow Point"},
+  {"key": "antimateriel", "nvf_shot": 3, "figures": {"damage": 82.5, "crit": 110}, "weapon": "0x0008F21C", "ammo": "0x0008ECFF", "note": "Anti-Materiel Rifle, .50 MG"},
+  {"key": "huntshotgun", "figures": {"damage": 7.5, "crit": 10, "ammo_damage": 1.2}, "weapon": "0x0008ED0B", "ammo": "0x0008ECF5", "note": "Hunting Shotgun, 12 Gauge Round (several projectiles a shot)"},
+  {"key": "laser", "figures": {"damage": 16.5, "crit": 22, "ammo_dt": ["subtract", 2]}, "weapon": "0x00004336", "ammo": "0x00004485", "note": "Laser Rifle, Microfusion Cell"},
+  {"key": "plasma", "figures": {"damage": 35.25, "crit": 47, "ammo_dt": ["subtract", 2]}, "weapon": "0x00004344", "ammo": "0x00004485", "note": "Plasma Rifle, Microfusion Cell"}
+ ],
+ "targets": [
+  {"key": "wastelander", "base": "0x0002E29D", "edid": "WastelanderAM", "aims": [{"name": "torso", "z": 85}, {"name": "head", "z": 120}]},
+  {"key": "powder_ganger", "base": "0x00101C8C", "edid": "PowderGanger3GunAM", "aims": [{"name": "torso", "z": 85}, {"name": "head", "z": 120}]},
+  {"key": "fiend", "base": "0x000F1C4F", "edid": "Fiend3RifleAM", "aims": [{"name": "torso", "z": 85}, {"name": "head", "z": 120}]},
+  {"key": "ncr_trooper", "base": "0x000FE239", "edid": "NCRTrooperAM", "aims": [{"name": "torso", "z": 85}, {"name": "head", "z": 120}]},
+  {"key": "ranger_veteran", "base": "0x00179AF6", "edid": "NCRRangerVeteranCM", "aims": [{"name": "torso", "z": 85}, {"name": "head", "z": 120}]},
+  {"key": "bos_paladin", "base": "0x000E27E2", "edid": "HVBrotherhoodOfSteelPaladinCM", "aims": [{"name": "torso", "z": 85}, {"name": "head", "z": 120}]},
+  {"key": "coyote", "base": "0x000E584E", "edid": "CrCoyote", "aims": [{"name": "body", "z": 35}]},
+  {"key": "gecko", "base": "0x0010CD73", "edid": "NVCrGecko", "aims": [{"name": "body", "z": 45}]},
+  {"key": "bighorner", "base": "0x00108020", "edid": "NVCrBigHorner", "aims": [{"name": "body", "z": 70}]},
+  {"key": "cazador", "base": "0x000E584D", "edid": "NVCrCazador", "aims": [{"name": "body", "z": 60}]},
+  {"key": "nightkin", "base": "0x0007EA29", "edid": "CrSuperMutantNightkin", "aims": [{"name": "body", "z": 100}]},
+  {"key": "protectron", "base": "0x000A592B", "edid": "CrProtectronArmy", "aims": [{"name": "body", "z": 80}]},
+  {"key": "sentry_bot", "base": "0x000A5C6F", "edid": "CrSentryBotMGArmy", "aims": [{"name": "body", "z": 90}]},
+  {"key": "deathclaw_alpha", "base": "0x000E584F", "edid": "CrDeathClawAlpha", "aims": [{"name": "body", "z": 110}]}
+ ]
+}

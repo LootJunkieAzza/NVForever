@@ -796,9 +796,15 @@ pub fn delay_late_aids(aids: &mut [TimedAid], now: f32) -> Option<f32> {
     Some(late)
 }
 
+/// The first piece of a reference name that holds a colon (`fnv_game::runner::resolve`:
+/// `scripted:<SCPT>`, `placed:<base>`, and `created:<base>`, the newest reference made at
+/// run time from a base, whose FormID is not known ahead).
+const NAME_PREFIXES: [&str; 3] = ["scripted", "placed", "created"];
+
 /// Parse `<when>:<op>[:<args>]` items separated by commas; `<when>` is `<seconds>` or
 /// `<seconds>@<quest>=<stage>`. Names are Editor IDs, hex FormIDs, `player` or the
-/// runner's `scripted:<SCPT>` / `placed:<base>`, resolved when the step runs.
+/// runner's `scripted:<SCPT>` / `placed:<base>` / `created:<base>`, resolved when the
+/// step runs.
 pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
     v.split(',')
         .map(str::trim)
@@ -815,7 +821,21 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
             };
             let at: f32 = t.trim().parse().map_err(|_| format!("{item:?}: bad seconds {t:?}"))?;
             let rest = rest.trim();
-            let parts: Vec<&str> = rest.split(':').map(str::trim).collect();
+            // A reference name may hold a colon itself (`scripted:<SCPT>`, `placed:<base>`,
+            // `created:<base>`): its two pieces are one part, in any step.
+            let pieces: Vec<&str> = rest.split(':').map(str::trim).collect();
+            let mut joined: Vec<String> = Vec::with_capacity(pieces.len());
+            let mut k = 0;
+            while k < pieces.len() {
+                if k > 0 && k + 1 < pieces.len() && NAME_PREFIXES.contains(&pieces[k]) {
+                    joined.push(format!("{}:{}", pieces[k], pieces[k + 1]));
+                    k += 2;
+                } else {
+                    joined.push(pieces[k].to_string());
+                    k += 1;
+                }
+            }
+            let parts: Vec<&str> = joined.iter().map(String::as_str).collect();
             let int = |s: &str| s.parse::<i32>().map_err(|_| format!("{rest:?}: bad number {s:?}"));
             // A reference name may hold colons itself (`scripted:<SCPT>`, `placed:<base>`).
             let whole = rest.split_once(':').map(|(_, r)| r.trim().to_string());
@@ -1276,6 +1296,14 @@ mod tests {
             vec![TimedAid { at: 1.0, after: Some(("VCG01".into(), 80)), aid: ScriptAid::Var("scripted:0x001055B4".into(), "bRunTimer".into(), 1.0) }]
         );
         assert!(parse_aids("3:var:bRunTimer:1").is_err());
+        // A name with a colon in any step: a target made by PlaceAtMe a moment before
+        // (tools/capture/damage_parity.py), a placed reference by its base.
+        let aids = parse_aids("5:set_av:created:0x0002E29D:Health:5000,5:moveto:created:0x0002E29D:player:0:300:0,6:call:created:NVCrGecko:SetAngle:z:0,7:damage:placed:GSTrudy:Health:0,8:kill:scripted:0x001055B4").unwrap();
+        assert_eq!(aids[0].aid, ScriptAid::SetAv("created:0x0002E29D".into(), "Health".into(), 5000.0));
+        assert_eq!(aids[1].aid, ScriptAid::MoveTo("created:0x0002E29D".into(), "player".into(), [0.0, 300.0, 0.0]));
+        assert_eq!(aids[2].aid, ScriptAid::Call("created:NVCrGecko".into(), "SetAngle".into(), vec!["z".into(), "0".into()]));
+        assert_eq!(aids[3].aid, ScriptAid::Damage("placed:GSTrudy".into(), "Health".into(), 0.0));
+        assert_eq!(aids[4].aid, ScriptAid::Kill("scripted:0x001055B4".into()));
         assert!(parse_aids("3:stage:VCG01").is_err());
         assert_eq!(parse_aids("2:message:VMS18VancesGunMessage").unwrap()[0].aid, ScriptAid::Message("VMS18VancesGunMessage".into()));
         assert_eq!(parse_aids("12:play_idle:0x00104C6D:NPCSmokingIdle").unwrap()[0].aid, ScriptAid::PlayIdle("0x00104C6D".into(), "NPCSmokingIdle".into()));
