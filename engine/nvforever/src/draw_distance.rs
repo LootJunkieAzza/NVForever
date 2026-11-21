@@ -26,6 +26,16 @@
 //!
 //! The sliders are kept in `NVForever.ini` [Settings] like the page's switches
 //! (`nvf_play::settings`).
+//!
+//! **The split-screen profile** (plan `split-screen.md` §11; owner 2026-11-20: "lower
+//! settings while split ... view distance and shadows drop a bit"): while split screen is
+//! on in this game (player 1's while it is on, player 2's always), objects, actors and
+//! items are drawn to [`SPLIT_VIEW`] of what their sliders say and the sun's shadows reach
+//! [`SPLIT_SHADOWS`] of theirs ([`split_profile`]), with the shadow maps one resolution
+//! step down (`graphics::split_map_side`: 2048 -> 1024, 4096 -> 2048). The sliders, the
+//! Shadow resolution row, and so the INI, keep the
+//! player's own values; only the distances in use change, and ending split screen gives
+//! them back. Grass, imposters, distant LOD, terrain and water are not touched.
 
 use crate::fade;
 use crate::grass::GrassConfig;
@@ -44,6 +54,11 @@ use std::collections::HashMap;
 
 /// The part of a mesh's draw distance over which it dithers out beyond it [design].
 pub const FADE: f32 = 0.1;
+
+/// The split-screen profile's view and shadow distances, parts of the player's own
+/// (module notes) [design: plan `split-screen.md` §11].
+pub const SPLIT_VIEW: f32 = 0.75;
+pub const SPLIT_SHADOWS: f32 = 0.70;
 
 /// The sliders' least value and step.
 pub const MIN: f32 = 0.1;
@@ -78,6 +93,26 @@ pub struct DrawDistances {
     pub shadow_full: f32,
     /// `--grass-distance` and `--grass-fade-range`.
     pub grass_full: (f32, f32),
+    /// Split screen is on in this game: the split profile applies ([`split_profile`]).
+    pub split: bool,
+}
+
+/// The parts of their full distances in use for objects, actors, items and the sun's
+/// shadows (the sliders' values, or less under the split profile).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InUse {
+    pub objects: f32,
+    pub actors: f32,
+    pub items: f32,
+    pub shadows: f32,
+}
+
+/// The parts in use for the sliders of `d`, with split screen `split` or not: the
+/// sliders' own, or [`SPLIT_VIEW`] of each view distance and [`SPLIT_SHADOWS`] of the
+/// shadows' while split (module notes).
+pub fn split_profile(d: &DrawDistances, split: bool) -> InUse {
+    let (view, shadows) = if split { (SPLIT_VIEW, SPLIT_SHADOWS) } else { (1.0, 1.0) };
+    InUse { objects: d.objects * view, actors: d.actors * view, items: d.items * view, shadows: d.shadows * shadows }
 }
 
 impl DrawDistances {
@@ -91,17 +126,29 @@ impl DrawDistances {
             reach: full_reach(args.radius),
             shadow_full: args.shadow_distance.max(0.0),
             grass_full: (args.grass_distance.max(0.0), args.grass_fade_range.max(0.0)),
+            split: false,
         }
     }
 
-    /// The slider's part for a class (1 for one not ranged).
+    /// The parts in use now ([`split_profile`] with this game's split screen).
+    pub fn in_use(&self) -> InUse {
+        split_profile(self, self.split)
+    }
+
+    /// The part in use for a class (1 for one not ranged).
     pub fn part(&self, class: DrawClass) -> f32 {
+        let u = self.in_use();
         match class {
-            DrawClass::Object => self.objects,
-            DrawClass::Actor => self.actors,
-            DrawClass::Item => self.items,
+            DrawClass::Object => u.objects,
+            DrawClass::Actor => u.actors,
+            DrawClass::Item => u.items,
             DrawClass::Unranged => 1.0,
         }
+    }
+
+    /// How far the sun's shadows reach now (game units).
+    pub fn shadow_distance(&self) -> f32 {
+        self.shadow_full * self.in_use().shadows
     }
 
     /// How far a class is drawn; `None`: as far as its cells (the full slider).
@@ -123,8 +170,43 @@ impl Plugin for DrawDistancePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.0.clone())
             .insert_resource(nvf_play::perk_marks::ActorDrawDistance(self.0.distance(DrawClass::Actor)))
-            .add_systems(Update, (apply_ranges.after(fade::fade_cells), share_actor_distance));
+            .add_systems(Update, (follow_split.before(apply_ranges), apply_ranges.after(fade::fade_cells), share_actor_distance));
     }
+}
+
+/// Split screen is on in this game: player 2's always, player 1's while its menus' split
+/// screen is on (`nvf_play::split_screen`).
+fn split_on(p1: Option<&nvf_play::split_screen::SplitScreen>, p2: bool) -> bool {
+    p2 || p1.is_some_and(|s| s.on)
+}
+
+/// The split profile follows split screen (module notes).
+fn follow_split(mut commands: Commands, distances: Res<DrawDistances>, p1: Option<Res<nvf_play::split_screen::SplitScreen>>, p2: Option<Res<nvf_play::split_screen::PlayerTwo>>) {
+    let on = split_on(p1.as_deref(), p2.is_some());
+    if distances.split != on {
+        commands.queue(move |w: &mut World| set_split(w, on));
+    }
+}
+
+/// Turn the split profile on or off and act on it now: the meshes' ranges (as a slider
+/// does) and the sun's shadows.
+pub fn set_split(world: &mut World, on: bool) {
+    world.resource_mut::<DrawDistances>().split = on;
+    crate::graphics::apply_shadow_map(world, on);
+    apply_shadows(world);
+    let map = crate::sky::map_side(world.get_resource::<bevy::light::DirectionalLightShadowMap>());
+    let d = world.resource::<DrawDistances>();
+    let u = d.in_use();
+    info!(
+        "split profile: {}; objects {:.0}%, actors {:.0}%, items {:.0}% of {:.0} units, shadows {:.0}% of {:.0} units, shadow maps {map} x {map} (the settings keep their own values)",
+        if on { "on" } else { "off" },
+        u.objects * 100.0,
+        u.actors * 100.0,
+        u.items * 100.0,
+        d.reach,
+        u.shadows * 100.0,
+        d.shadow_full
+    );
 }
 
 /// How far actors are drawn, for Spotter (`nvf_play::perk_marks`): the Actors slider's
@@ -196,11 +278,13 @@ pub(crate) fn apply_ranges(
         work.range_meshes += entities.len() as u64;
     }
     if distances.is_changed() && !distances.is_added() {
+        // The parts in use (the split profile's, while split).
+        let u = distances.in_use();
         info!(
             "draw distances: objects {:.0}%, actors {:.0}%, items {:.0}% of {:.0} units ({} meshes)",
-            distances.objects * 100.0,
-            distances.actors * 100.0,
-            distances.items * 100.0,
+            u.objects * 100.0,
+            u.actors * 100.0,
+            u.items * 100.0,
             distances.reach,
             entities.len()
         );
@@ -252,19 +336,25 @@ pub fn set_part(world: &mut World, class: DrawClass, v: f32) {
     }
 }
 
-/// The sun's shadows reach `v` of `--shadow-distance` from now.
+/// The sun's shadows reach `v` of `--shadow-distance` from now (less under the split
+/// profile).
 pub fn set_shadows(world: &mut World, v: f32) {
-    let full = {
-        let mut d = world.resource_mut::<DrawDistances>();
-        d.shadows = v;
-        d.shadow_full
+    world.resource_mut::<DrawDistances>().shadows = v;
+    apply_shadows(world);
+}
+
+/// The sun's shadows reach [`DrawDistances::shadow_distance`] from now.
+fn apply_shadows(world: &mut World) {
+    let (full, distance) = {
+        let d = world.resource::<DrawDistances>();
+        (d.shadow_full, d.shadow_distance())
     };
     if full <= 0.0 {
         return;
     }
     let on = {
-        let mut sky = world.resource_mut::<SkyState>();
-        sky.shadow_distance = full * v;
+        let Some(mut sky) = world.get_resource_mut::<SkyState>() else { return };
+        sky.shadow_distance = distance;
         sky.shadows
     };
     // The cascades again, if the sun casts shadows now.
@@ -313,7 +403,59 @@ mod tests {
     }
 
     fn distances() -> DrawDistances {
-        DrawDistances { objects: 1.0, actors: 0.5, items: 0.25, shadows: 1.0, grass: 1.0, reach: full_reach(2), shadow_full: 8000.0, grass_full: (7000.0, 1000.0) }
+        DrawDistances { objects: 1.0, actors: 0.5, items: 0.25, shadows: 1.0, grass: 1.0, reach: full_reach(2), shadow_full: 8000.0, grass_full: (7000.0, 1000.0), split: false }
+    }
+
+    #[test]
+    fn the_split_profile_lowers_view_and_shadows_on_top_of_the_sliders() {
+        let mut d = distances();
+        d.shadows = 0.8;
+        assert_eq!(split_profile(&d, false), InUse { objects: 1.0, actors: 0.5, items: 0.25, shadows: 0.8 }, "off: the sliders' own");
+        let u = split_profile(&d, true);
+        assert_eq!((u.objects, u.actors, u.items), (0.75, 0.375, 0.1875));
+        assert!((u.shadows - 0.56).abs() < 1e-6);
+        // The sliders themselves (what the INI keeps) are untouched.
+        assert_eq!((d.objects, d.actors, d.items, d.shadows), (1.0, 0.5, 0.25, 0.8));
+        // A full slider is culled at 75% while split, open-ended otherwise.
+        assert_eq!(d.distance(DrawClass::Object), None);
+        d.split = true;
+        assert_eq!(d.distance(DrawClass::Object), Some(d.reach * 0.75));
+        assert_eq!(d.distance(DrawClass::Unranged), None, "imposters as before");
+        assert!((d.shadow_distance() - 8000.0 * 0.56).abs() < 1e-3);
+    }
+
+    #[test]
+    fn split_is_on_for_player_two_and_for_player_one_while_on() {
+        use nvf_play::split_screen::SplitScreen;
+        assert!(!split_on(None, false));
+        assert!(split_on(None, true));
+        assert!(!split_on(Some(&SplitScreen { available: true, ..default() }), false));
+        assert!(split_on(Some(&SplitScreen { on: true, ..default() }), false));
+    }
+
+    #[test]
+    fn split_screen_turns_the_profile_on_and_off_and_moves_the_shadows() {
+        let mut app = App::new();
+        let mut d = distances();
+        d.shadows = 0.6;
+        let mut sky = SkyState::default();
+        (sky.shadows, sky.shadow_distance) = (false, 8000.0 * 0.6);
+        app.insert_resource(d).insert_resource(sky);
+        app.insert_resource(nvf_play::split_screen::SplitScreen { available: true, ..default() });
+        app.add_systems(Update, follow_split);
+        app.update();
+        assert!(!app.world().resource::<DrawDistances>().split);
+        app.world_mut().resource_mut::<nvf_play::split_screen::SplitScreen>().on = true;
+        app.update();
+        let w = app.world();
+        assert!(w.resource::<DrawDistances>().split);
+        assert!((w.resource::<SkyState>().shadow_distance - 8000.0 * 0.6 * SPLIT_SHADOWS).abs() < 1e-2);
+        assert_eq!(w.resource::<DrawDistances>().shadows, 0.6, "the slider keeps the player's value");
+        app.world_mut().resource_mut::<nvf_play::split_screen::SplitScreen>().on = false;
+        app.update();
+        let w = app.world();
+        assert!(!w.resource::<DrawDistances>().split);
+        assert!((w.resource::<SkyState>().shadow_distance - 8000.0 * 0.6).abs() < 1e-2, "given back");
     }
 
     #[test]

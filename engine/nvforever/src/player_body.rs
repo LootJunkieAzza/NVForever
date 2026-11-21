@@ -3537,7 +3537,7 @@ fn drive_body(
         ResMut<nvf_play::furniture::PlayerSeat>,
         (Res<nvf_play::pipboy::PipBoy>, Res<nvf_play::pipboy::glance::Glance>, ResMut<crate::pipboy_check::PlayerCheck>),
         Query<&Projection, With<nvf_play::PlayerCamera>>,
-        (Option<Res<nvf_play::free_cam::FirstPersonFov>>, Option<Res<crate::Args>>),
+        (Option<Res<nvf_play::free_cam::FirstPersonFov>>, Option<Res<crate::Args>>, Option<Res<crate::split::view::HalfAspect>>),
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
@@ -4011,7 +4011,7 @@ fn drive_body(
     // original's 55°, is scaled against the arms' size for it, so it looks the same size at
     // any viewmodel field of view (`view_sway::rescale`).
     let viewmodel_fov = {
-        let (asked_fov, args) = &first_fov;
+        let (asked_fov, args, _) = &first_fov;
         asked_fov.as_ref().and_then(|f| f.0).or_else(|| args.as_ref().map(|a| a.viewmodel_fov)).unwrap_or(FIRST_PERSON_FOV)
     };
     let sway_share = arms_magnification(1.0, FIRST_PERSON_FOV) / arms_magnification(1.0, viewmodel_fov).max(1e-3);
@@ -4196,8 +4196,10 @@ fn drive_body(
     // the world's, and narrower still while the Pip-Boy shows.
     let mut lens_k = 1.0;
     if let (Some(f), Some(eye)) = (body.first.as_ref(), first_eye) {
+        // Sized for the view the arms are drawn in: a wide split-screen half's
+        // (`crate::split::view::HalfAspect::arms_vfov`).
         let vfov = cams.single().ok().and_then(|p| match p {
-            Projection::Perspective(p) => Some(p.fov),
+            Projection::Perspective(p) => Some(first_fov.2.as_deref().map_or(p.fov, |h| h.arms_vfov(p.fov))),
             _ => None,
         });
         // The arms' field of view (`viewmodel_fov`). The full Pip-Boy narrows the view onto

@@ -219,6 +219,18 @@ impl NavState {
         }
         Ok(NavState { graph, travellers, show, follow, lead: None, cam: None, travel_asked: false, startup })
     }
+
+    /// No nav graph: split screen's player 2 (plan split-screen.md §6, M2). Its game is a
+    /// co-op guest from its start (`crate::coop`, `follow_npcs`): no actor of its own
+    /// thinks or walks, each is drawn where the host's AI has it (`Residents::remote`),
+    /// and it never runs the world itself (it quits when player 1's game is gone,
+    /// `crate::split`). The graph is only for walking actors, so player 2's game leaves
+    /// it out: about 77 MB of heap [observed 2026-11-20, `NVF_HEAP_STATS`]. No trip or
+    /// navmesh view is asked for there (main.rs).
+    pub fn without_graph() -> NavState {
+        let startup = vec![(true, "nav: no graph in player 2's game of split screen (a co-op guest: the host's AI walks the actors)".to_string())];
+        NavState { graph: NavGraph::default(), travellers: Vec::new(), show: false, follow: false, lead: None, cam: None, travel_asked: false, startup }
+    }
 }
 
 /// The compass heading a root transform faces (its rotation about z, clockwise).

@@ -69,7 +69,7 @@ use nvf_play::phys::PhysState;
 use nvf_play::player::{Player, BodySet};
 use nvf_play::combat::{is_dead, ActorHit};
 use nvf_play::script::ScriptState;
-use nvf_play::sfx::{PlaySound, Sfx, SoundSource};
+use nvf_play::sfx::{PlaySound, SecondListener, Sfx, SoundSource};
 use fnv_actor::anim_sounds::{creature_key_type, creature_sound, creature_sound_type_name, creature_sounds, pick_creature_sound, CreatureSound};
 use nvf_play::sim::SimState;
 use nvf_play::{Location, PlayWorld};
@@ -79,6 +79,13 @@ use std::sync::Arc;
 /// Actors farther than this from the player's feet are not heard, game units [design:
 /// most footstep records fade out well within it].
 pub const ACTOR_RANGE: f32 = 3000.0;
+
+/// Whether an actor at `feet` is beyond [`ACTOR_RANGE`] of the player's feet
+/// (`listener`) and of split screen's player 2 (`nvf_play::sfx::SecondListener`, its
+/// eye) [design].
+fn out_of_range(feet: Vec3, listener: Vec3, second: Option<&SecondListener>) -> bool {
+    feet.distance(listener) > ACTOR_RANGE && SecondListener::ear(second).is_none_or(|e| feet.distance(Vec3::from_array(e.eye)) > ACTOR_RANGE)
+}
 /// A clip first seen less than this far into its time is heard from its start, seconds.
 const JUST_STARTED: f32 = 0.1;
 /// The share of its layer a clip needs to be heard.
@@ -550,6 +557,7 @@ fn actor_keys(
     mut s: ResMut<AnimSounds>,
     sfx: Option<ResMut<Sfx>>,
     player: Option<Res<Player>>,
+    second: Option<Res<SecondListener>>,
     mut phys: Option<ResMut<PhysState>>,
     d: Res<PlayWorld>,
     location: Res<Location>,
@@ -570,7 +578,7 @@ fn actor_keys(
     let mut moved: HashMap<Entity, Vec3> = HashMap::new();
     for (e, bp, gt, rig, lo) in &actors {
         let feet = bevy_to_game(gt.translation());
-        if feet.distance(listener) > ACTOR_RANGE {
+        if out_of_range(feet, listener, second.as_deref()) {
             continue;
         }
         let who = Who::Actor(e);
@@ -765,6 +773,7 @@ fn actor_jumps(
     sfx: Option<Res<Sfx>>,
     mut air: MessageReader<ActorAir>,
     player: Option<Res<Player>>,
+    second: Option<Res<SecondListener>>,
     mut phys: Option<ResMut<PhysState>>,
     d: Res<PlayWorld>,
     location: Res<Location>,
@@ -785,7 +794,7 @@ fn actor_jumps(
             AirChange::Landed { air } if air >= LAND_AIR => true,
             _ => continue,
         };
-        if Vec3::from_array(m.feet).distance(listener) > ACTOR_RANGE {
+        if out_of_range(Vec3::from_array(m.feet), listener, second.as_deref()) {
             continue;
         }
         // Coming up out of water or falling into it is no jump on the ground.

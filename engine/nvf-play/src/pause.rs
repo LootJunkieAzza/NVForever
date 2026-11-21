@@ -220,7 +220,8 @@
 //! mouse wheel on the settings page or the Controls tab),
 //! `keep` and `revert` (the keep question's answers),
 //! `quit` (the question), `delete`, `yes` and `no` (the load page's delete question),
-//! `mods` (the Mods page, when the column has its entry: [`ModsEntry`]),
+//! `mods` (the Mods page, when the column has its entry: [`ModsEntry`]), `split` (split
+//! screen's entry, Add Player 2 or End Split Screen, `crate::split_screen`),
 //! `shot` (a screenshot `pause_<page>.png` in the working folder); on the settings page
 //! `heading-down`, `heading-up` (Page Down, Page Up), `tab-down`, `tab-up` (Tab, F1),
 //! `rail` (F6), `left`, `right` (the arrow keys), `pad:<button>` (`pad:RB`, `pad:D-Pad
@@ -725,6 +726,11 @@ fn delete_save(path: &Path) -> std::io::Result<()> {
     }
     std::fs::remove_file(path)?;
     let _ = std::fs::remove_file(path.with_extension(format!("{}.bak", fnv_save::EXTENSION)));
+    // Split screen's player 2 characters played in this save go with it (nvforever
+    // `split.rs`, owner 2026-11-20: "that save's version of the character is gone").
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::remove_dir_all(dir.join("split").join(stem(path)));
+    }
     Ok(())
 }
 
@@ -827,6 +833,10 @@ enum Entry {
     Load,
     /// Co-op (private fork): the host's lobby screen, `crate::lobby`.
     Lobby,
+    /// Split screen (private fork, `crate::split_screen`): start it, in player 1's game.
+    AddPlayer2,
+    /// Split screen: end it (player 2's game closes).
+    EndSplit,
     /// Back to the world in photo mode (`crate::photo_mode`), the way a controller opens it
     /// [design, owner request 2026-11-09].
     Photo,
@@ -841,8 +851,21 @@ enum Entry {
 
 /// The column's entries, with the Console entry when `console` (the tweak) and the Mods
 /// entry when `mods` ([`ModsEntry`]).
+#[cfg(test)]
 fn entries(mods: bool, console: bool) -> Vec<Entry> {
-    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Lobby, Entry::Photo, Entry::Settings];
+    entries_with(mods, console, None)
+}
+
+/// [`entries`], with split screen's entry after Lobby when `split` says it has one
+/// (`crate::split_screen::SplitScreen::entry`: on, End Split Screen; off, Add Player 2).
+fn entries_with(mods: bool, console: bool, split: Option<bool>) -> Vec<Entry> {
+    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Lobby];
+    match split {
+        Some(true) => v.push(Entry::EndSplit),
+        Some(false) => v.push(Entry::AddPlayer2),
+        None => {}
+    }
+    v.extend([Entry::Photo, Entry::Settings]);
     if console {
         v.push(Entry::Console);
     }
@@ -860,6 +883,8 @@ impl Entry {
             Entry::Save => "Save",
             Entry::Load => "Load",
             Entry::Lobby => "Lobby",
+            Entry::AddPlayer2 => crate::split_screen::ADD_LABEL,
+            Entry::EndSplit => crate::split_screen::END_LABEL,
             Entry::Photo => "Photo Mode",
             Entry::Settings => "Settings",
             Entry::Console => CONSOLE_LABEL,
@@ -999,6 +1024,10 @@ const WHEEL_PIXELS: f32 = 20.0;
 /// wide as the room allows, and the list is never wider than [`OPTIONS_MAX`] (a wide view
 /// centres it in the room) [design: #2377].
 const LEFT_MARGIN: f32 = 60.0;
+/// The band's margin from the view's left edge where the column is not drawn beside the
+/// page (a side-by-side half, [`Drawn::no_column`]): half of [`LEFT_MARGIN`], the rest
+/// going to the labels [design: the split-screen UI check, 2026-11-20].
+const NARROW_LEFT_MARGIN: f32 = 30.0;
 const OPTIONS_MAX: f32 = 1300.0;
 /// The row the in-row places below were laid out in: the list's width before #2377. Each
 /// place is kept as its distance from the row's right end ([`RowX`]), so a row of this width
@@ -1331,8 +1360,8 @@ pub struct PauseView {
     found: Found,
     /// The Changed list's rows when last logged (the log says when they change).
     changed_logged: Option<Vec<RowId>>,
-    /// The settings list's place when last logged ([`log_list_box`]).
-    list_logged: Option<ListBox>,
+    /// The settings list's place and its labels cut when last logged ([`log_list_box`]).
+    list_logged: Option<(ListBox, Vec<String>)>,
     /// Which categories are open and the Tweaks tab's group (kept in `[UI]`,
     /// [`SettingsTabStore`]).
     folding: Folding,
@@ -1506,6 +1535,10 @@ struct Drawn {
     delete_ask: Option<usize>,
     /// The view's width in interface units (960 high), rounded.
     view_w: u32,
+    /// The settings page in a view that holds no room for the column beside it (a
+    /// side-by-side half, `crate::interface::menu_fills`): the column is not drawn and the
+    /// rail stands at its place ([`settings_rail_right`]).
+    no_column: bool,
     /// The language's count of changes (`fnv_util::words::generation`): a new language
     /// draws the page again in it.
     language: u32,
@@ -1898,8 +1931,9 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         return;
     }
     let f = &look.faces;
-    // The settings list's place, clear of the categories.
-    let lb = ListBox::of(d.view_w as f32, rail_width(f, &d.rail, d.device.1));
+    // The settings list's place, clear of the categories, its value cell fitted to the
+    // page's words.
+    let lb = page_list_box(d, f, settings);
     commands.spawn((PauseRoot, full(), GlobalZIndex(110))).with_children(|root| {
         // The pause screen over the held world.
         if !d.under_main {
@@ -1950,7 +1984,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
             let top = (page_h() - d.column.len() as f32 * ITEM) / 2.0;
             let on_column = d.page == Page::Main && d.confirm.is_none();
             let lit = d.page_entry();
-            for (i, (label, ok)) in d.column.iter().enumerate() {
+            for (i, (label, ok)) in d.column.iter().enumerate().filter(|_| !d.no_column) {
                 let shade = if (on_column && *ok) || (!on_column && i == lit) { Shade::Bright } else { Shade::Dim };
                 right_entry(root, &f.title, tr_str(label), from_right(RIGHT, top + i as f32 * ITEM, COLUMN - 5.0, ITEM), COLUMN - 5.0, shade, on_column && i == d.main_selected, PauseButton::Column(i), glyphs);
             }
@@ -2100,7 +2134,7 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let row_top = top + n as f32 * OPTION_ROW;
     let y = if row_top + OPTION_ROW + h > 950.0 { row_top - h } else { row_top + OPTION_ROW };
     let (line, _) = highlight_colors();
-    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + lb.row().list_left(), y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
+    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + lb.row().drop_left(), y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
         for (k, name) in names.iter().enumerate().skip(o.first).take(shown) {
             let name = fit_text(|t| f.entry.font.width(t), &on_page(d.choice_words(o.row, k, name)), LIST_WIDTH - 2.0 * LINE - 2.0 * VALUE_PAD);
             let name = name.as_str();
@@ -2146,8 +2180,7 @@ fn title_line(root: &mut ChildSpawnerCommands, look: &PauseLook, words: &str, co
         // fifth build; 2026-11-16: the hover box back], its right edge where the heading
         // links' words end (right-aligned in the list, `ENTRY_BOX_PAD` in) [design: owner
         // 2026-11-16, "aligned with the hints"].
-        let row = lb.row();
-        let words = fit_text(|t| f.title.font.width(t), words, row.value_left() - LABEL_GAP - x);
+        let words = fit_text(|t| f.title.font.width(t), words, heading_room(lb, x, |t| f.title.font.width(t), count));
         sm_text(r, &f.title, &words, x, BASE + 2.0, bright);
         if button.is_some_and(|(_, on)| on) {
             let n = count.to_string();
@@ -2426,9 +2459,9 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
 fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, parts: &RowParts, i: RowId, chosen: &str, shown: (&str, bool), open: bool, live: bool) {
     let bright = color(if live { Shade::Bright } else { Shade::Dim });
     let (line, fill) = highlight_colors();
-    let list_left = parts.value.0;
+    let (list_left, list_w) = (parts.value.0, parts.value.1 - parts.value.0);
     let line = line.with_alpha(if open { 1.0 } else if live { 0.6 } else { 0.25 });
-    r.spawn((at(list_left, LIST_BOX_INSET, LIST_WIDTH, OPTION_ROW - 2.0 * LIST_BOX_INSET), Pickable::IGNORE)).with_children(|c| crate::menu_shapes::framed(c, line, if open { fill } else { Color::NONE }, LINE));
+    r.spawn((at(list_left, LIST_BOX_INSET, list_w, OPTION_ROW - 2.0 * LIST_BOX_INSET), Pickable::IGNORE)).with_children(|c| crate::menu_shapes::framed(c, line, if open { fill } else { Color::NONE }, LINE));
     // The state kept as text stays the English name (tests and aids read it); the page
     // shows it in the language chosen.
     if live {
@@ -2441,7 +2474,7 @@ fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, parts: &RowParts, i:
     // The arrow pointing down, in the middle of its strip (inside the box's line) and of the
     // row [design: owner 2026-11-15, third test: "the arrow down symbol is not aligned"].
     let strip = LIST_ARROW_STRIP - LINE;
-    let centre = Vec2::new(list_left + LIST_WIDTH - LINE - strip / 2.0, OPTION_ROW / 2.0);
+    let centre = Vec2::new(list_left + list_w - LINE - strip / 2.0, OPTION_ROW / 2.0);
     crate::menu_shapes::shape(r, look.shapes.as_ref(), Kind::Triangle, Dir::Down, centre, LIST_ARROW, bright);
 }
 
@@ -2464,7 +2497,7 @@ fn rail_column(root: &mut ChildSpawnerCommands, f: &Faces, d: &Drawn, glyphs: &c
         } else {
             BoxLook::None
         };
-        right_entry_look(root, &f.title, name, from_right(SUB_RIGHT, OPTIONS_TOP + i as f32 * ITEM, w, ITEM), w, shade, look, PauseButton::Rail(*item), glyphs);
+        right_entry_look(root, &f.title, name, from_right(settings_rail_right(f, &d.column, d.no_column), OPTIONS_TOP + i as f32 * ITEM, w, ITEM), w, shade, look, PauseButton::Rail(*item), glyphs);
     }
 }
 
@@ -2509,6 +2542,67 @@ fn note_fit(lines: usize, top: f32) -> usize {
     lines.min(NOTE_LINES).min(((note_bottom() - top) / NOTE_STEP).max(0.0) as usize)
 }
 
+/// The rail's right edge, from the view's right: [`SUB_RIGHT`], or as far left as the
+/// column's widest entry's box reaches when that is further (the pause menu's column with
+/// End Split Screen: its words ran into the rail's NVF Features [observed: the split-screen
+/// UI check, 2026-11-20, `shots-ui\p1\play-128s.png`]), so the two boxes meet at most
+/// and their words keep two boxes' room apart [design].
+fn rail_right(f: &Faces, column: &[(&'static str, bool)]) -> f32 {
+    let widest = column.iter().map(|(label, _)| f.title.font.width(tr_str(label))).fold(0.0, f32::max);
+    SUB_RIGHT.max(RIGHT + (widest + 2.0 * ENTRY_BOX_PAD).min(COLUMN - 5.0))
+}
+
+/// The settings page's rail's right edge: [`rail_right`] beside the column, or the column's
+/// place ([`RIGHT`]) where the column is not drawn ([`Drawn::no_column`]): in a side-by-side
+/// half the list takes the column's room, so its labels show whole [design: the split-screen
+/// UI check, 2026-11-20, `shots-ui2\settings-side-by-side.png`: "Split Screen La..."].
+fn settings_rail_right(f: &Faces, column: &[(&'static str, bool)], no_column: bool) -> f32 {
+    if no_column {
+        RIGHT
+    } else {
+        rail_right(f, column)
+    }
+}
+
+/// The settings list's place for page `d` ([`ListBox::of`]), its value cell fitted to the
+/// widest label and list words the page lists ([`ListBox::fitting`]).
+fn page_list_box(d: &Drawn, f: &Faces, settings: &[Setting]) -> ListBox {
+    let margin = if d.no_column { NARROW_LEFT_MARGIN } else { LEFT_MARGIN };
+    let lb = ListBox::within(d.view_w as f32, settings_rail_right(f, &d.column, d.no_column) + rail_width(f, &d.rail, d.device.1), margin);
+    let (label_w, value_w) = page_widths(d, settings, |t| f.entry.font.width(t));
+    lb.fitting(label_w, value_w)
+}
+
+/// The widest label and the widest chosen list words of the rows page `d` lists, measured
+/// by `width_of` (the entries' font), as the page draws them. Only the chosen words are in
+/// the cell: an open list's dropdown keeps a full cell's width ([`RowX::drop_left`]).
+fn page_widths(d: &Drawn, settings: &[Setting], width_of: impl Fn(&str) -> f32) -> (f32, f32) {
+    let (mut label_w, mut value_w) = (0.0f32, 0.0f32);
+    for e in &d.entries {
+        let ViewEntry::Row(id) = e else { continue };
+        match *id {
+            RowId::Setting(i) => {
+                let Some(s) = settings.get(i) else { continue };
+                label_w = label_w.max(width_of(&on_page(s.label)));
+                if let Some((_, chosen)) = d.list(i) {
+                    value_w = value_w.max(width_of(&on_page(d.chosen_words(i, chosen).0)));
+                }
+            }
+            RowId::Control(c) => label_w = label_w.max(width_of(&on_page(control_line(d, c).0))),
+            RowId::Heading(_) | RowId::Group => {}
+        }
+    }
+    (label_w, value_w)
+}
+
+/// The room of a category's words from `x` in its line of list `lb`: the whole line but the
+/// count shown at its right end while chosen (`count`'s figures in `width_of`) [design: the
+/// split-screen UI check, 2026-11-20: "Upscaling and..." cut at the value cell's edge in a
+/// side-by-side half; a heading has no value].
+fn heading_room(lb: ListBox, x: f32, width_of: impl Fn(&str) -> f32, count: usize) -> f32 {
+    lb.width - ENTRY_BOX_PAD - width_of(&count.to_string()) - LABEL_GAP - x
+}
+
 /// The rail's width: its widest line's, translated ([`rail_column`]).
 fn rail_width(f: &Faces, rail: &[RailItem], controller: bool) -> f32 {
     rail.iter().filter(|r| !matches!(r, RailItem::Defaults | RailItem::Back)).map(|r| SUB_WIDTH.max(f.title.font.width(rail_label(*r, controller)) + 20.0)).fold(SUB_WIDTH, f32::max)
@@ -2530,22 +2624,41 @@ fn rail_label(item: RailItem, controller: bool) -> &'static str {
 struct ListBox {
     left: f32,
     width: f32,
+    /// How much narrower than [`LIST_WIDTH`] its rows' value cell is ([`ListBox::fitting`]).
+    shrink: f32,
 }
 
 impl ListBox {
-    /// The list in a view `view_w` units wide whose rail is `tabs_w` wide: as wide as the room
-    /// left of the rail allows (the band [`LEFT_MARGIN`] from the view's left edge and
-    /// [`TABS_GAP`] clear of the rail), at most [`OPTIONS_MAX`], then centred in that room.
-    /// A narrow view gets a narrow list rather than one that runs under the rail (#1210).
-    fn of(view_w: f32, tabs_w: f32) -> ListBox {
-        let room = (view_w - (SUB_RIGHT + tabs_w + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - LEFT_MARGIN).max(0.0);
+    /// The list in a view `view_w` units wide whose rail's left edge is `rail_left` from the
+    /// view's right ([`rail_right`] and the rail's width): as wide as the room left of the
+    /// rail allows (the band [`LEFT_MARGIN`] from the view's left edge and [`TABS_GAP`]
+    /// clear of the rail), at most [`OPTIONS_MAX`], then centred in that room. A narrow
+    /// view gets a narrow list rather than one that runs under the rail (#1210).
+    fn of(view_w: f32, rail_left: f32) -> ListBox {
+        ListBox::within(view_w, rail_left, LEFT_MARGIN)
+    }
+
+    /// [`ListBox::of`] with its band `left_margin` from the view's left edge.
+    fn within(view_w: f32, rail_left: f32, left_margin: f32) -> ListBox {
+        let room = (view_w - (rail_left + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - left_margin).max(0.0);
         let width = room.min(OPTIONS_MAX);
-        ListBox { left: -view_w / 2.0 + LEFT_MARGIN + BAND_MARGIN + (room - width) / 2.0, width }
+        ListBox { left: -view_w / 2.0 + left_margin + BAND_MARGIN + (room - width) / 2.0, width, shrink: 0.0 }
+    }
+
+    /// This list with its rows' value cell narrowed, from its left edge, as far as a label
+    /// `label_w` wide needs to show whole, but never narrower than list words `value_w` wide
+    /// need nor than leaves a slider's meter [`METER_MIN`] wide [design: the split-screen UI
+    /// check, 2026-11-20: a side-by-side half cut "Split Screen Layout"; the cell's right end
+    /// stays, so values line up down the page as before].
+    fn fitting(self, label_w: f32, value_w: f32) -> ListBox {
+        let room = RowX(self.width, 0.0).value_left() - LABEL_GAP - 10.0;
+        let most = (METER_WIDTH - METER_MIN).min(LIST_WIDTH - (value_w + LIST_ARROW_STRIP + 2.0 * VALUE_PAD)).max(0.0);
+        ListBox { shrink: (label_w - room).clamp(0.0, most), ..self }
     }
 
     /// The places in its rows.
     fn row(self) -> RowX {
-        RowX(self.width)
+        RowX(self.width, self.shrink)
     }
 
     /// The band behind the list and its scroll bar: its left edge from the view's middle and
@@ -2556,34 +2669,51 @@ impl ListBox {
 }
 
 /// The places in a settings row `.0` units wide, from its left edge: each as far from the
-/// row's right end as in a [`ROW_BASE`] row (module notes of the constants) [design: #2377].
+/// row's right end as in a [`ROW_BASE`] row (module notes of the constants) [design: #2377];
+/// the value cell `.1` narrower from its left edge ([`ListBox::fitting`]), its meter as much
+/// shorter.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct RowX(f32);
+struct RowX(f32, f32);
 
 impl RowX {
     fn kept_from_right(self, at: f32) -> f32 {
         self.0 - (ROW_BASE - at)
     }
 
-    /// A switch's state's and a reason's centre.
+    /// A switch's state's and a reason's centre: the middle of a list's words' room.
     fn value_at(self) -> f32 {
-        self.kept_from_right(VALUE_AT)
+        self.kept_from_right(VALUE_AT) + self.1 / 2.0
     }
 
     /// The left edge of the row's value part: a slider's left arrow, a list's box.
     fn value_left(self) -> f32 {
-        self.kept_from_right(LIST_LEFT)
+        self.kept_from_right(LIST_LEFT) + self.1
     }
 
     fn meter_left(self) -> f32 {
-        self.kept_from_right(METER_LEFT)
+        self.kept_from_right(METER_LEFT) + self.1
+    }
+
+    /// The meter's width.
+    fn meter_width(self) -> f32 {
+        METER_WIDTH - self.1
     }
 
     fn arrows(self) -> [f32; 2] {
-        METER_ARROWS.map(|a| self.kept_from_right(a))
+        [self.value_left(), self.kept_from_right(METER_ARROWS[1])]
     }
 
     fn list_left(self) -> f32 {
+        self.value_left()
+    }
+
+    /// The value cell's width.
+    fn cell_width(self) -> f32 {
+        LIST_WIDTH - self.1
+    }
+
+    /// An open list's dropdown's left edge: as wide as a full cell, its right end the cell's.
+    fn drop_left(self) -> f32 {
         self.kept_from_right(LIST_LEFT)
     }
 }
@@ -2674,28 +2804,28 @@ fn row_parts(x: RowX, kind: ValueKind) -> RowParts {
     let (value, text, centre, meter_w, right_arrow) = match kind {
         ValueKind::Centred(vw) => {
             let left = fixed.min(right - vw).max(floor);
-            ((left, right), (left, right), x.value_at(), METER_WIDTH, right_arrow)
+            ((left, right), (left, right), x.value_at(), x.meter_width(), right_arrow)
         }
         ValueKind::Slider(vw) => {
             // The meter between its arrows, the number right-aligned after them at the cell's
             // right end; wide words take room from the meter, down to its least, the right
             // arrow moving left with its end.
-            let text_right = x.list_left() + LIST_WIDTH - VALUE_PAD;
-            let extra = (vw - READOUT_W).clamp(0.0, METER_WIDTH - METER_MIN);
+            let text_right = x.list_left() + x.cell_width() - VALUE_PAD;
+            let extra = (vw - READOUT_W).clamp(0.0, (x.meter_width() - METER_MIN).max(0.0));
             let right_arrow = right_arrow - extra;
             let text = (right_arrow + METER_ARROW.x + READOUT_GAP, text_right);
-            ((left_arrow, text_right + VALUE_PAD), text, text_right - vw / 2.0, METER_WIDTH - extra, right_arrow)
+            ((left_arrow, text_right + VALUE_PAD), text, text_right - vw / 2.0, x.meter_width() - extra, right_arrow)
         }
         ValueKind::List(_) => {
             let left = x.list_left();
-            let text = (left + VALUE_PAD, left + LIST_WIDTH - LIST_ARROW_STRIP - VALUE_PAD);
-            ((left, left + LIST_WIDTH), text, x.value_at(), METER_WIDTH, right_arrow)
+            let text = (left + VALUE_PAD, left + x.cell_width() - LIST_ARROW_STRIP - VALUE_PAD);
+            ((left, left + x.cell_width()), text, x.value_at(), x.meter_width(), right_arrow)
         }
         ValueKind::Binding(vw) => {
             // Within the row: words wider than from `floor` to its right end are cut.
             let left = (x.value_at() - vw / 2.0).min(w - vw - 14.0).max(floor);
             let text = (left, (left + vw).min(right));
-            ((left.min(fixed), right), text, (text.0 + text.1) / 2.0, METER_WIDTH, right_arrow)
+            ((left.min(fixed), right), text, (text.0 + text.1) / 2.0, x.meter_width(), right_arrow)
         }
     };
     RowParts { label: (label_left, (value.0 - LABEL_GAP).max(label_left)), value, text, centre, meter: (x.meter_left(), meter_w), right_arrow }
@@ -3654,13 +3784,14 @@ fn choose(
         Option<ResMut<crate::lobby::LobbyScreen>>,
         Option<Res<crate::settings_view::HiddenRows>>,
     ),
-    (meters, pointed, mut tab_store, tweaks, mut report, mut photo_ask): (
+    (meters, pointed, mut tab_store, tweaks, mut report, mut photo_ask, mut split): (
         Query<(&PauseButton, &RelativeCursorPosition)>,
         Query<(&PointerState, &PauseButton)>,
         Option<ResMut<SettingsTabStore>>,
         Option<Res<crate::tweaks::TweakSettings>>,
         Option<ResMut<ReportEntry>>,
         Option<ResMut<crate::photo_mode::PhotoRequest>>,
+        Option<ResMut<crate::split_screen::SplitScreen>>,
     ),
 ) {
     let keys = keys.snapshot();
@@ -3686,7 +3817,7 @@ fn choose(
     // pages come from here, and going back shows it again.
     let under_main = main_menu.as_ref().is_some_and(|m| m.open);
     let mods = mods.is_some_and(|m| m.0);
-    let entries = entries(mods, console_entry);
+    let entries = entries_with(mods, console_entry, crate::split_screen::SplitScreen::entry(split.as_deref()));
     // The Mods page goes when its entry does (the mod's tiles were unloaded).
     if *page == Page::Mods && !mods {
         info!("pause menu: no mod page any more, back to the column");
@@ -4390,6 +4521,9 @@ fn choose(
                 take = Some(Entry::Mods);
             } else if act("lobby") {
                 take = Some(Entry::Lobby);
+            } else if act("split") {
+                // Test aid: split screen's entry, whichever it is now.
+                take = entries.iter().copied().find(|e| matches!(e, Entry::AddPlayer2 | Entry::EndSplit));
             } else if act("photo") {
                 take = Some(Entry::Photo);
             } else if keys.just_pressed(KeyCode::Escape) {
@@ -4404,7 +4538,7 @@ fn choose(
             // Any other choice while a resume waits ends the wait; the graphics change stays
             // latched, so the next Continue waits again [design: graphics_resume.rs]. Photo
             // Mode resumes as Continue does, so it rides a wait already under way.
-            if take.is_some_and(|e| !matches!(e, Entry::Continue | Entry::Photo)) && resume.pending() {
+            if take.is_some_and(|e| !matches!(e, Entry::Continue | Entry::Photo | Entry::AddPlayer2 | Entry::EndSplit)) && resume.pending() {
                 commands.queue(cancel_resume);
             }
             match take {
@@ -4445,6 +4579,18 @@ fn choose(
                     Some(l) => l.open(crate::lobby::Mode::Host),
                     None => warn!("pause menu: co-op is not in this build"),
                 },
+                // Split screen starts or ends with the game going on (nvforever split.rs).
+                Some(e @ (Entry::AddPlayer2 | Entry::EndSplit)) => {
+                    if let Some(s) = split.as_mut() {
+                        let start = e == Entry::AddPlayer2;
+                        info!("pause menu: {}", e.label());
+                        s.ask = Some(start);
+                        menu.status.line = if start { "Starting split screen...".into() } else { "Ending split screen...".into() };
+                    }
+                    if !resume.pending() {
+                        commands.queue(request_resume);
+                    }
+                }
                 Some(Entry::Console) => {
                     info!("pause menu: console (tweak)");
                     commands.queue(|w: &mut World| {
@@ -5224,7 +5370,10 @@ fn drawn_now(world: &mut World) -> Drawn {
         status: world.resource::<PauseStatus>().line.clone(),
         under_main: main.is_some(),
         mod_window: page == Page::Mods && world.get_resource::<crate::tiles::mods::ModsPage>().is_some_and(|m| m.mcm_open),
-        column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.help_is_console)).iter().map(|e| (e.label(), true)).collect()),
+        column: main.unwrap_or_else(|| {
+            let split = crate::split_screen::SplitScreen::entry(world.get_resource::<crate::split_screen::SplitScreen>());
+            entries_with(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.help_is_console), split).iter().map(|e| (e.label(), true)).collect()
+        }),
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
         controls_greyed: crate::bindings::GAME_CONTROLS.iter().map(|(c, _, _)| crate::stance::binding_greyed(world, *c)).collect(),
@@ -5240,6 +5389,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         lists,
         looks,
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
+        no_column: matches!(page, Page::Settings { .. }) && crate::interface::menu_fills(),
         keep,
         delete_ask: view.delete_ask.filter(|_| matches!(page, Page::Load { .. })),
         mod_back: page == Page::Mods && world.get_resource::<ModsOwnBack>().is_some_and(|b| b.0),
@@ -5361,7 +5511,7 @@ fn check_page_text(world: &mut World, f: &Faces) {
         world.init_resource::<SettingsLayout>();
     }
     let rail = world.resource_scope(|_, mut layout: Mut<SettingsLayout>| crate::settings_view::rail(layout.refresh(&list)));
-    let lb = ListBox::of(VIEW_W, rail_width(f, &rail, false));
+    let lb = ListBox::of(VIEW_W, SUB_RIGHT + rail_width(f, &rail, false));
     let x = lb.row();
     let width = |t: &str| f.entry.font.width(t);
     let settings = world.resource::<Settings>();
@@ -5403,17 +5553,42 @@ fn check_page_text(world: &mut World, f: &Faces) {
     info!("settings: {} notes checked, {bad} over the budget ({} characters, two lines)", list.len(), crate::settings::NOTE_BUDGET);
 }
 
-/// The settings list's place, logged when it changes (a new window size, a translated rail):
-/// `pause menu: settings list <width> wide from <left> in a view <w> wide, band <l>-<r>`, in
-/// interface units from the view's left edge [design: #2377].
-fn log_list_box(view: &mut PauseView, lb: ListBox, view_w: u32) {
-    if view.list_logged == Some(lb) {
+/// The settings list's place, logged when it or the labels it cuts change (a new window
+/// size, a translated rail, another tab): `pause menu: settings list <width> wide from
+/// <left> in a view <w> wide, band <l>-<r>, value cell <c> wide, <n> label(s) cut[: …]`, in
+/// interface units from the view's left edge [design: #2377; the split-screen UI check,
+/// 2026-11-20, the labels in a side-by-side half].
+fn log_list_box(view: &mut PauseView, lb: ListBox, view_w: u32, cut: Vec<String>) {
+    let now = (lb, cut);
+    if view.list_logged.as_ref() == Some(&now) {
         return;
     }
+    let (lb, cut) = &now;
     let half = view_w as f32 / 2.0;
     let (band_left, band_w) = lb.band();
-    info!("pause menu: settings list {:.0} wide from {:.0} in a view {view_w} wide, band {:.0}-{:.0}", lb.width, half + lb.left, half + band_left, half + band_left + band_w);
-    view.list_logged = Some(lb);
+    let named = if cut.is_empty() { String::new() } else { format!(": {}", cut.join(", ")) };
+    info!(
+        "pause menu: settings list {:.0} wide from {:.0} in a view {view_w} wide, band {:.0}-{:.0}, value cell {:.0} wide, {} label(s) cut{named}",
+        lb.width,
+        half + lb.left,
+        half + band_left,
+        half + band_left + band_w,
+        lb.row().cell_width(),
+        cut.len()
+    );
+    view.list_logged = Some(now);
+}
+
+/// The labels page `d` lists in list `lb` that do not fit a row's label room beside the value
+/// cell (measured by `width_of`, as [`page_widths`]).
+fn labels_cut(d: &Drawn, settings: &[Setting], lb: ListBox, width_of: impl Fn(&str) -> f32) -> Vec<String> {
+    let room = lb.row().value_left() - LABEL_GAP - 10.0;
+    let label = |id: &RowId| match *id {
+        RowId::Setting(i) => settings.get(i).map(|s| on_page(s.label)),
+        RowId::Control(c) => Some(on_page(control_line(d, c).0)),
+        RowId::Heading(_) | RowId::Group => None,
+    };
+    d.entries.iter().filter_map(|e| if let ViewEntry::Row(id) = e { label(id) } else { None }).filter(|l| width_of(l) > room + 0.01).collect()
 }
 
 /// Draw the page again when what it shows changed.
@@ -5440,8 +5615,10 @@ fn draw(world: &mut World) {
     let settings = world.resource::<Settings>().list().to_vec();
     let glyphs = world.resource::<crate::pad::PadGlyphs>().clone();
     if matches!(now.page, Page::Settings { .. }) {
-        let lb = ListBox::of(now.view_w as f32, rail_width(&world.resource::<PauseLook>().faces, &now.rail, now.device.1));
-        log_list_box(&mut world.resource_mut::<PauseView>(), lb, now.view_w);
+        let faces = &world.resource::<PauseLook>().faces;
+        let lb = page_list_box(&now, faces, &settings);
+        let cut = labels_cut(&now, &settings, lb, |t| faces.entry.font.width(t));
+        log_list_box(&mut world.resource_mut::<PauseView>(), lb, now.view_w, cut);
     }
     world.resource_scope(|world, look: Mut<PauseLook>| {
         world.resource_scope(|world, list: Mut<LoadList>| {
@@ -5763,7 +5940,7 @@ mod tests {
     fn the_settings_page_fits_the_view() {
         for view_w in VIEW_WIDTHS {
             for tabs_w in [SUB_WIDTH, 220.0] {
-                let lb = ListBox::of(view_w, tabs_w);
+                let lb = ListBox::of(view_w, SUB_RIGHT + tabs_w);
                 let (band_left, band_w) = lb.band();
                 let band_left = view_w / 2.0 + band_left;
                 let band_right = band_left + band_w;
@@ -5780,19 +5957,19 @@ mod tests {
         }
         // 16:9 with a 220-unit rail: the list is about 1036 units wide (820 before #2377),
         // its band from LEFT_MARGIN.
-        let lb = ListBox::of(VIEW_W, 220.0);
+        let lb = ListBox::of(VIEW_W, SUB_RIGHT + 220.0);
         assert!((lb.width - 1035.7).abs() < 0.5, "{}", lb.width);
         assert!((VIEW_W / 2.0 + lb.band().0 - LEFT_MARGIN).abs() < 0.01);
         // 3440x1440: capped at OPTIONS_MAX and centred in the room left of the rail.
-        let lb = ListBox::of(2293.0, 220.0);
+        let lb = ListBox::of(2293.0, SUB_RIGHT + 220.0);
         assert_eq!(lb.width, OPTIONS_MAX);
         let room = 2293.0 - (SUB_RIGHT + 220.0 + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - LEFT_MARGIN;
         assert!((2293.0 / 2.0 + lb.band().0 - (LEFT_MARGIN + (room - OPTIONS_MAX) / 2.0)).abs() < 0.01);
         // A row of the width before #2377 has every place where it was; a wider one keeps
         // each as far from its right end.
-        let x = RowX(ROW_BASE);
+        let x = RowX(ROW_BASE, 0.0);
         assert_eq!((x.value_at(), x.value_left(), x.meter_left(), x.arrows(), x.list_left()), (VALUE_AT, LIST_LEFT, METER_LEFT, METER_ARROWS, LIST_LEFT));
-        let x = RowX(1036.0);
+        let x = RowX(1036.0, 0.0);
         assert_eq!((x.0 - x.value_at(), x.0 - x.list_left(), x.0 - x.arrows()[1]), (ROW_BASE - VALUE_AT, ROW_BASE - LIST_LEFT, ROW_BASE - METER_ARROWS[1]));
         // The window's lines (11 today: the note's empty line above it took one, the owner's
         // second test; the heading links under the note another, the fifth build) and a note
@@ -6477,6 +6654,170 @@ mod tests {
         assert_eq!((view.rail_hover, view.scope), (None, SettingsScope::Tab("Gameplay")));
     }
 
+    /// The settings page in a side-by-side half (8:9, the page across the half at its split
+    /// menu scale, the column not drawn and the rail at its place): every row's label in
+    /// `SECTIONS` (as docs/settings-reference.md and the Controls tab name them, Title Case
+    /// as the page shows them) and every category's words show whole in the menus' sharp
+    /// letters, with the value cell fitted to the tab's widest label and a list's words as
+    /// wide as the widest the Display tab shows ("Display 1 (2560X1440)"); and the words of
+    /// every value kind keep their room. The split-screen UI check of 2026-11-20 cut "Split
+    /// Screen Layout", "Upscaling and Anti-Aliasing" and others there. The Tweaks tab's rows
+    /// (#1892, not in the reference) are left out: some are cut at 16:9 too.
+    #[test]
+    fn no_label_in_sections_is_cut_in_a_side_by_side_half() {
+        let m = crate::vector_font::metrics().expect("the menus' font reads");
+        let f = Faces::plain().sharp(m, Handle::default());
+        let width = |t: &str| f.entry.font.width(t);
+        let title = |t: &str| f.title.font.width(t);
+        let (hud, menu) = crate::interface::split_ui_factors(Vec2::new(1280.0, 1440.0));
+        let (_, menu, fills) = crate::interface::split_scales(1.0, 1.0, Some((hud, menu)));
+        assert!(fills, "a side-by-side half's page fills it and drops the column");
+        let half_w = 960.0 * (8.0 / 9.0) / menu;
+        let rail = [RailItem::Search, RailItem::Changed].into_iter().chain(crate::settings_layout::TAB_ORDER.iter().map(|t| RailItem::Tab(t))).collect::<Vec<_>>();
+        let column: Vec<_> = entries_with(false, false, Some(true)).iter().map(|e| (e.label(), true)).collect();
+        let rail_left = settings_rail_right(&f, &column, true) + rail_width(&f, &rail, false);
+        assert!((ListBox::within(half_w, rail_left, NARROW_LEFT_MARGIN).band().0 + half_w / 2.0 - NARROW_LEFT_MARGIN).abs() < 0.01, "the band from the narrow margin");
+        assert!(rail_left < rail_right(&f, &column) + rail_width(&f, &rail, false), "the list takes the column's room");
+        // The labels by tab.
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/settings-reference.md")).unwrap();
+        let mut tabs: Vec<(String, Vec<String>)> = Vec::new();
+        for line in text.lines() {
+            if let Some(h) = line.strip_prefix("## ") {
+                let tab = h.split('›').next().unwrap_or_default().trim().to_string();
+                if tabs.last().is_none_or(|(t, _)| *t != tab) {
+                    tabs.push((tab, Vec::new()));
+                }
+            } else if let Some((_, label)) = line.strip_prefix("### `").and_then(|h| h.split_once("`: ")) {
+                tabs.last_mut().expect("a tab before its rows").1.push(on_page(label));
+            }
+        }
+        let controls = [DEVICE_ROW, AUTOMATIC_INPUT_ROW, INVERT_ROW, SENSITIVITY_ROWS[0], SENSITIVITY_ROWS[1], VERTICAL_ROW, AIM_ROW, RUMBLE_ROW].into_iter().chain(crate::bindings::GAME_CONTROLS.iter().map(|(c, _, _)| crate::bindings::label(*c))).map(on_page);
+        tabs.push(("Controls (its own rows)".to_string(), controls.collect()));
+        assert!(tabs.iter().map(|(_, l)| l.len()).sum::<usize>() > 100 && tabs.iter().any(|(_, l)| l.contains(&"Split Screen Layout".to_string())), "{tabs:?}");
+        let widest_value = width("Display 1 (2560X1440)");
+        for (tab, labels) in &tabs {
+            let widest = labels.iter().map(|l| width(l)).fold(0.0, f32::max);
+            let lb = ListBox::within(half_w, rail_left, NARROW_LEFT_MARGIN).fitting(widest, widest_value);
+            let x = lb.row();
+            for label in labels {
+                for (kind, value) in [(ValueKind::List(widest_value), "Display 1 (2560X1440)"), (ValueKind::Slider(width("100%")), "100%"), (ValueKind::Centred(width("OFF")), "OFF"), (ValueKind::Binding(width("E")), "E")] {
+                    let p = row_parts(x, kind);
+                    let (l, v) = fit_row(width, &p, label, value);
+                    assert_eq!((l.as_str(), v.as_str()), (label.as_str(), value), "{tab}: {kind:?} in a list {} wide, label room {}, value cell {}", lb.width, p.label_room(), x.cell_width());
+                    assert!(p.label.0 + width(label) + LABEL_GAP <= p.value.0 + 0.01 && p.value.1 <= lb.width + 0.01, "{tab}: {label:?} {p:?}");
+                }
+            }
+            // A slider keeps its meter, a list its box round its words.
+            let p = row_parts(x, ValueKind::Slider(width("100%")));
+            assert!(p.meter.1 >= METER_MIN && p.value.0 + METER_ARROW.x <= p.meter.0 && p.meter.0 + p.meter.1 <= p.right_arrow, "{tab}: {p:?}");
+        }
+        // Every category's words in its whole line (the count at its end while chosen).
+        let x = 12.0 + HEADING_ARROW.x + 12.0;
+        let lb = ListBox::within(half_w, rail_left, NARROW_LEFT_MARGIN);
+        for s in crate::settings_layout::SECTIONS {
+            for words in [s.placement.heading, s.placement.subgroup].into_iter().flatten().map(on_page) {
+                assert!(title(&words) <= heading_room(lb, x, title, 99), "{words:?}: {} wide, room {}", title(&words), heading_room(lb, x, title, 99));
+            }
+        }
+    }
+
+    /// The value cell narrows from its left edge only as far as a label needs, never past a
+    /// list's words or a slider's least meter; its right end and the values' places right of
+    /// it stay; an open list's dropdown keeps a full cell's width ending where the cell does.
+    #[test]
+    fn the_value_cell_narrows_only_as_far_as_the_label_needs() {
+        let lb = ListBox::of(1376.0, 400.0);
+        let room = lb.row().value_left() - LABEL_GAP - 10.0;
+        assert_eq!(lb.fitting(room - 1.0, 100.0), lb, "a label that fits: nothing changes");
+        let fit = lb.fitting(room + 40.0, 100.0);
+        assert!((fit.row().value_left() - LABEL_GAP - 10.0 - (room + 40.0)).abs() < 0.01 && fit.width == lb.width);
+        let (a, b) = (lb.row(), fit.row());
+        assert_eq!((a.kept_from_right(LIST_LEFT + LIST_WIDTH), a.arrows()[1], a.drop_left()), (b.kept_from_right(LIST_LEFT + LIST_WIDTH), b.arrows()[1], b.drop_left()));
+        assert!((b.cell_width() - (LIST_WIDTH - 40.0)).abs() < 0.01 && (b.meter_width() - (METER_WIDTH - 40.0)).abs() < 0.01);
+        assert_eq!(b.list_left() + b.cell_width(), a.list_left() + LIST_WIDTH);
+        // Never past the meter's least, nor past a list's words.
+        assert_eq!(lb.fitting(room + 1000.0, 100.0).row().meter_width(), METER_MIN);
+        let wide = lb.fitting(room + 1000.0, 380.0).row();
+        assert!((wide.cell_width() - (380.0 + LIST_ARROW_STRIP + 2.0 * VALUE_PAD)).abs() < 0.01, "{}", wide.cell_width());
+        let p = row_parts(wide, ValueKind::List(380.0));
+        assert!(p.text_room() >= 380.0 - 0.01);
+        // Wide slider words take room from a narrowed meter down to its least only.
+        let p = row_parts(fit.row(), ValueKind::Slider(400.0));
+        assert!((p.meter.1 - METER_MIN).abs() < 0.01 && p.meter.0 + p.meter.1 <= p.right_arrow, "{p:?}");
+    }
+
+    /// In a side-by-side half the settings page does not draw the column (its room is the
+    /// list's) and the rail stands at the column's place, clear of the view's right edge;
+    /// beside it (a full view) the column is drawn with the page's entry lit.
+    #[test]
+    fn a_side_by_side_half_gives_the_columns_room_to_the_settings_list() {
+        let columns = |no_column: bool| {
+            let mut app = App::new();
+            app.init_resource::<Assets<Image>>().init_resource::<crate::pad::PadGlyphs>().init_resource::<LoadList>();
+            let drawn = Drawn { page: Page::Settings { selected: None }, column: entries_with(false, false, Some(true)).iter().map(|e| (e.label(), true)).collect(), rail: vec![RailItem::Search, RailItem::Tab("Display")], device: ("Keyboard and Mouse", false), view_w: 1376, no_column, ..default() };
+            app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>, glyphs: Res<crate::pad::PadGlyphs>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list, &glyphs), drawn).unwrap();
+            let world = app.world_mut();
+            let mut q = world.query::<&PauseButton>();
+            let all: Vec<PauseButton> = q.iter(world).copied().collect();
+            assert!(all.contains(&PauseButton::Rail(RailItem::Tab("Display"))) && all.contains(&PauseButton::Back));
+            all.iter().filter(|b| matches!(b, PauseButton::Column(_))).count()
+        };
+        assert_eq!(columns(true), 0);
+        assert!(columns(false) >= 5);
+        let f = Faces::plain();
+        let column: Vec<_> = entries_with(false, false, Some(true)).iter().map(|e| (e.label(), true)).collect();
+        assert_eq!(settings_rail_right(&f, &column, true), RIGHT);
+        assert_eq!(settings_rail_right(&f, &column, false), rail_right(&f, &column));
+    }
+
+    /// The settings page's rail keeps clear of the column's widest entry (End Split Screen
+    /// ran into NVF Features, the split-screen UI check of 2026-11-20), the list keeps clear
+    /// of the rail in every view the page is laid out for, and in a side-by-side half (8:9,
+    /// the page across the half at its split menu scale) the list keeps at least the room
+    /// it has in a 4:3 view without split screen.
+    #[test]
+    fn the_rail_keeps_clear_of_the_columns_widest_entry() {
+        let f = Faces::plain();
+        let column = |split| entries_with(false, false, split).iter().map(|e| (e.label(), true)).collect::<Vec<_>>();
+        let tabs_w = SUB_WIDTH.max(f.title.font.width("NVF Features") + 20.0);
+        let label_room = |view_w: f32, split| ListBox::of(view_w, rail_right(&f, &column(split)) + tabs_w).row().value_left() - 10.0;
+        let (hud, menu) = crate::interface::split_ui_factors(Vec2::new(1280.0, 1440.0));
+        let (_, menu, _) = crate::interface::split_scales(1.0, 1.0, Some((hud, menu)));
+        let half_w = 960.0 * (8.0 / 9.0) / menu;
+        for split in [None, Some(false), Some(true)] {
+            let column = column(split);
+            let right = rail_right(&f, &column);
+            for (label, _) in &column {
+                // The entry's box ends where the rail's starts at the nearest.
+                let entry_left = RIGHT + (f.title.font.width(label) + 2.0 * ENTRY_BOX_PAD).min(COLUMN - 5.0);
+                assert!(entry_left <= right + 0.01, "{label:?}: its box to {entry_left}, the rail from {right}");
+            }
+            for view_w in VIEW_WIDTHS.into_iter().chain([half_w]) {
+                let lb = ListBox::of(view_w, right + tabs_w);
+                let (band_left, band_w) = lb.band();
+                assert!(view_w / 2.0 + band_left + band_w + TABS_GAP <= view_w - right - tabs_w + 0.01, "{split:?} {view_w}: the band runs under the rail");
+            }
+            assert!(label_room(half_w, split) >= label_room(1280.0, None) - 0.01, "{split:?}: a side-by-side half's label room {} < 4:3's {}", label_room(half_w, split), label_room(1280.0, None));
+        }
+        // Without a long entry the rail stays where it was.
+        assert_eq!(rail_right(&f, &column(None)), SUB_RIGHT);
+    }
+
+    #[test]
+    fn split_screens_entry_follows_lobby_in_player_1s_game_only() {
+        use crate::split_screen::SplitScreen;
+        let labels = |split| entries_with(false, false, split).iter().map(|e| e.label()).collect::<Vec<_>>();
+        assert_eq!(labels(Some(false)), ["Continue", "Save", "Load", "Lobby", "Add Player 2", "Photo Mode", "Settings", "Quit"]);
+        assert_eq!(labels(Some(true)), ["Continue", "Save", "Load", "Lobby", "End Split Screen", "Photo Mode", "Settings", "Quit"]);
+        assert_eq!(labels(None), labels(None).iter().filter(|l| !l.contains("Split") && !l.contains("Player 2")).copied().collect::<Vec<_>>());
+        // No resource (player 2's game, or a build without it): no entry; a guest in
+        // another's lobby can't start it, but can end it.
+        assert_eq!(SplitScreen::entry(None), None);
+        assert_eq!(SplitScreen::entry(Some(&SplitScreen { available: true, ..Default::default() })), Some(false));
+        assert_eq!(SplitScreen::entry(Some(&SplitScreen { available: false, ..Default::default() })), None);
+        assert_eq!(SplitScreen::entry(Some(&SplitScreen { available: false, on: true, ..Default::default() })), Some(true));
+    }
+
     #[test]
     fn the_mods_entry_stands_before_quit_only_when_a_mod_added_one() {
         let labels = |mods| entries(mods, false).iter().map(|e| e.label()).collect::<Vec<_>>();
@@ -6597,7 +6938,7 @@ mod tests {
         let values = ["ON", "Off (upscaling active)", "Controlled by another setting entirely, with more words", "Performance", "Ultra Performance mode at a very long name", "50%", "Right Bracket, Middle Mouse", "Left Shift, Right Bracket, Middle Mouse, Mouse Wheel Down"];
         for view_w in VIEW_WIDTHS {
             for tabs_w in [SUB_WIDTH, 220.0] {
-                let lb = ListBox::of(view_w, tabs_w);
+                let lb = ListBox::of(view_w, SUB_RIGHT + tabs_w);
                 let x = lb.row();
                 for value in values {
                     let vw = width(value);
@@ -6621,7 +6962,7 @@ mod tests {
             }
         }
         // A row 820 wide, as before #2377: usual values where they were.
-        let x = RowX(ROW_BASE);
+        let x = RowX(ROW_BASE, 0.0);
         assert_eq!(row_parts(x, ValueKind::Centred(34.0)).text_x(34.0), VALUE_AT - 17.0);
         let p = row_parts(x, ValueKind::Slider(51.0));
         assert_eq!((p.text_x(51.0), p.right_arrow, p.meter), (LIST_LEFT + LIST_WIDTH - VALUE_PAD - 51.0, METER_ARROWS[1], (METER_LEFT, METER_WIDTH)), "the number right-aligned at the cell's end, after the right arrow");
@@ -6876,11 +7217,11 @@ mod tests {
         let width = |t: &str| faces.entry.font.width(t);
         for words in ["100%", "200%", "1000%", "Unlimited"] {
             assert!(width(words) <= READOUT_W * 0.9 || words == "Unlimited", "{words}: {}", width(words));
-            let p = row_parts(RowX(ROW_BASE), ValueKind::Slider(width(words)));
+            let p = row_parts(RowX(ROW_BASE, 0.0), ValueKind::Slider(width(words)));
             assert_eq!(fit_text(width, words, p.text_room()), words);
         }
         for words in ["Performance", "Ultra Performance", "Very High", "Borderless"] {
-            let p = row_parts(RowX(ROW_BASE), ValueKind::List(width(words)));
+            let p = row_parts(RowX(ROW_BASE, 0.0), ValueKind::List(width(words)));
             assert_eq!(fit_text(width, words, p.text_room()), words, "{words}");
         }
         assert_eq!(fit_text(|_| 80.0, "exact", 80.0 - 1e-4), "exact");

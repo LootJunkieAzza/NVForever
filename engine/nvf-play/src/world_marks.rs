@@ -9,8 +9,8 @@
 //! own quest markers are its scripts' HUD tiles, not these.
 //!
 //! - **Name tags** ([`NameTags`], setting `name-tags`, on at first): each other player in
-//!   this player's cell or worldspace, its name over its head ([`HEAD_HEIGHT`] over its
-//!   feet); seen through walls, as JVO's markers are; not drawn while it is off screen.
+//!   this player's cell or worldspace, its name just over its head ([`tag_point`]: over
+//!   the top of its drawn head, at most [`TAG_GAP_MAX`] of the view above it); seen through walls, as JVO's markers are; not drawn while it is off screen.
 //!   None for a player in another interior or worldspace (its `here`), so none through a
 //!   door. In full up to the setting `name-tag-near` ([`NEAR_DEFAULT`]), then smaller and
 //!   fainter, gone at `name-tag-far` ([`FAR_DEFAULT`]) [design: owner 2026-11-09, queue
@@ -40,12 +40,23 @@ use crate::settings::{add_setting, Setting};
 use crate::sim::SimState;
 use crate::{space, Location, PlayState, PlaySet, PlayerCamera};
 
-/// How far over a player's feet its name tag stands (game units) [design: over the head
-/// of a standing character, about 128 tall].
-pub const HEAD_HEIGHT: f32 = 140.0;
-/// A tag's height over a player's drawn head bone (its standing head bone is about this
-/// far under [`HEAD_HEIGHT`]) [design: queue item 137].
-pub const OVER_HEAD: f32 = 24.0;
+/// The top of a standing player's head over its feet (game units), for a player whose
+/// puppet is not drawn yet [observed: the 2026-11-20 split relay traces, head bone 130
+/// over the feet, the head's top 14 over that].
+pub const HEAD_HEIGHT: f32 = 144.0;
+/// The top of a drawn head over its head bone (game units) [observed: the 2026-11-20 split
+/// relay frames and traces, 13.6 and 14.5 units at 250 to 300 units away].
+pub const HEAD_TOP: f32 = 14.0;
+/// A tag's gap over the top of the head, as far as it is drawn in the world (game units):
+/// the look of queue item 137 (24 over the head bone) at a normal distance [design].
+pub const OVER_HEAD: f32 = 10.0;
+/// The most that gap takes on the screen, as a part of the view's height: close by, or in
+/// a split-screen half (its view is half the height, the world drawn as large as on the
+/// whole screen), 10 units grew to 115 pixels of a 720-pixel half and the tags stood
+/// over the house behind the players [observed: the 2026-11-20 relay frame,
+/// online-relay-c-240s.png, players about 150 units away]; 25 pixels of a 720-pixel view
+/// [design].
+pub const TAG_GAP_MAX: f32 = 0.035;
 /// A name tag is in full up to the near distance, then fades and shrinks, gone by the far
 /// distance (game units); the settings offer these [design: queue item 136, the parity
 /// session's suggestion of about 1500 and 4000].
@@ -241,7 +252,7 @@ impl Plugin for WorldMarksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NameTags>().init_resource::<HiddenTags>().init_resource::<Pings>().add_systems(Update, ping_input.in_set(PlaySet::Input).after(crate::control::read_controls)).add_systems(
             Update,
-            (take_pings, ping_sound, draw).chain().in_set(PlaySet::Ui),
+            (take_pings, ping_sound, draw, trace_tags).chain().in_set(PlaySet::Ui),
         );
         add_setting(
             app,
@@ -484,9 +495,9 @@ fn draw(
             for m in mates.mates.iter().filter(|m| m.here && !m.lost && !hidden.0.contains(&m.reference)) {
                 // Over its drawn head (queue item 137; seated on furniture too); its feet
                 // until its puppet is drawn.
-                let p = heads.0.get(&m.reference).map_or([m.feet[0], m.feet[1], m.feet[2] + HEAD_HEIGHT], |h| [h[0], h[1], h[2] + OVER_HEAD]);
-                let Some(fade) = tag_fade(space::to_bevy(p).distance(eye), tags.near, tags.far) else { continue };
-                let Some((s, true)) = on_screen(cam, ct, size, p) else { continue };
+                let top = head_top(heads.0.get(&m.reference), m.feet);
+                let Some(fade) = tag_fade(space::to_bevy(top).distance(eye), tags.near, tags.far) else { continue };
+                let Some((s, true)) = tag_point(cam, ct, size, top) else { continue };
                 if !(0.0..=1.0).contains(&s.x) || !(0.0..=1.0).contains(&s.y) {
                     continue;
                 }
@@ -598,6 +609,87 @@ fn mark_box(kit: &Kit, shown: &Shown) -> Rect {
     Rect { min: Vec2::new(-half, top) * k, max: Vec2::new(half, 0.0) * k }
 }
 
+/// Test aid `NVF_PLAY_TEST_MARKS_LOG` (any value): every [`TRACE_SECONDS`], each other
+/// player's tag point (its head bone, or its feet when no head is known), its feet, this
+/// camera's eye and vertical field of view and where the point falls on the window, to
+/// check a tag against the body in a frame saved at the same time.
+fn trace_tags(
+    mates: Res<SocialMates>,
+    heads: Res<crate::emotes::MateHeads>,
+    cameras: Query<(&Camera, &GlobalTransform, &Projection), With<PlayerCamera>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut next: Local<Option<std::time::Instant>>,
+) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ON.get_or_init(|| std::env::var_os("NVF_PLAY_TEST_MARKS_LOG").is_some()) {
+        return;
+    }
+    let now = std::time::Instant::now();
+    if next.is_some_and(|n| now < n) {
+        return;
+    }
+    *next = Some(now + std::time::Duration::from_secs_f32(TRACE_SECONDS));
+    let (Ok((cam, ct, proj)), Ok(window)) = (cameras.single(), windows.single()) else { return };
+    let size = window.size();
+    // The setting's (the projection as this frame's systems left it) and the one the
+    // camera's matrix was made with (split screen's half, `nvforever` split/view.rs).
+    let fov = match proj {
+        Projection::Perspective(p) => p.fov.to_degrees(),
+        _ => 0.0,
+    };
+    let drawn = 2.0 * (1.0 / cam.clip_from_view().y_axis.y.max(1e-6)).atan().to_degrees();
+    let eye = space::to_game(ct.translation());
+    for m in mates.mates.iter().filter(|m| m.here && !m.lost) {
+        let head = heads.0.get(&m.reference);
+        let p = head_top(head, m.feet);
+        let at = tag_point(cam, ct, size, p).map(|(s, front)| format!("({:.0}, {:.0}){}", s.x * size.x, s.y * size.y, if front { "" } else { " behind" })).unwrap_or_else(|| "-".into());
+        info!(
+            "world marks trace: {} {:08X} {} ({:.0}, {:.0}, {:.0}) feet ({:.0}, {:.0}, {:.0}) eye ({:.0}, {:.0}, {:.0}) fov {fov:.1} drawn {drawn:.1} window {:.0}x{:.0}: at {at}",
+            m.name,
+            m.reference,
+            if head.is_some() { "head" } else { "feet+" },
+            p[0],
+            p[1],
+            p[2],
+            m.feet[0],
+            m.feet[1],
+            m.feet[2],
+            eye[0],
+            eye[1],
+            eye[2],
+            size.x,
+            size.y
+        );
+    }
+}
+
+/// The top of a player's drawn head (game space): over its head bone, or over its feet
+/// until its puppet is drawn.
+fn head_top(head: Option<&[f32; 3]>, feet: [f32; 3]) -> [f32; 3] {
+    head.map_or([feet[0], feet[1], feet[2] + HEAD_HEIGHT], |h| [h[0], h[1], h[2] + HEAD_TOP])
+}
+
+/// Where a name tag's foot stands on the screen (parts of it) for a head whose top is at
+/// `top`: [`OVER_HEAD`] over it as the camera draws it, but never more than
+/// [`TAG_GAP_MAX`] of the view's height ([`tag_gap`]).
+fn tag_point(cam: &Camera, t: &GlobalTransform, size: Vec2, top: [f32; 3]) -> Option<(Vec2, bool)> {
+    let (s, front) = on_screen(cam, t, size, top)?;
+    if !front {
+        return Some((s, front));
+    }
+    let over = on_screen(cam, t, size, [top[0], top[1], top[2] + OVER_HEAD]).filter(|(_, f)| *f).map_or(0.0, |(o, _)| s.y - o.y);
+    Some((Vec2::new(s.x, s.y - tag_gap(over)), front))
+}
+
+/// The gap between a head's top and its tag (parts of the view's height): `drawn`, the
+/// world gap as the camera draws it, within 0 and [`TAG_GAP_MAX`].
+fn tag_gap(drawn: f32) -> f32 {
+    drawn.clamp(0.0, TAG_GAP_MAX)
+}
+
+/// How often [`trace_tags`] logs (seconds).
+const TRACE_SECONDS: f32 = 5.0;
+
 /// A mark's root: a zero-size node at its point on the screen.
 fn root_node(s: Vec2, size: Vec2) -> Node {
     Node { position_type: PositionType::Absolute, left: Val::Px(s.x * size.x), top: Val::Px(s.y * size.y), width: u(0.0), height: u(0.0), ..default() }
@@ -606,6 +698,19 @@ fn root_node(s: Vec2, size: Vec2) -> Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tag's gap over the head: as drawn at a normal distance, capped close by or in a
+    /// split-screen half (the 2026-11-20 relay frame: 115 of 720 pixels).
+    #[test]
+    fn a_name_tag_keeps_close_over_the_head() {
+        assert_eq!(tag_gap(0.02), 0.02, "a normal distance in a full view: as drawn");
+        assert_eq!(tag_gap(115.0 / 720.0), TAG_GAP_MAX, "close by in a half: capped");
+        assert_eq!(tag_gap(-0.01), 0.0, "never under the head");
+        const { assert!(TAG_GAP_MAX * 720.0 <= 26.0) };
+        let top = head_top(Some(&[10.0, 20.0, 130.0]), [10.0, 20.0, 0.0]);
+        assert_eq!(top, [10.0, 20.0, 144.0]);
+        assert_eq!(head_top(None, [10.0, 20.0, 0.0]), top, "a puppet not drawn yet: about the same");
+    }
 
     #[test]
     fn a_name_tag_is_full_near_then_smaller_and_fainter_then_gone() {

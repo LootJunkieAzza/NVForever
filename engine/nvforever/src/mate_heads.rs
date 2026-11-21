@@ -21,7 +21,36 @@ pub struct MateHeadsPlugin;
 impl Plugin for MateHeadsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, track);
+        if std::env::var_os("NVF_PLAY_TEST_MARKS_LOG").is_some() {
+            app.add_systems(Update, trace_bodies);
+        }
     }
+}
+
+/// Test aid (`NVF_PLAY_TEST_MARKS_LOG`): every body drawn within 600 units of this
+/// player's camera, each 5 seconds: its reference, base, place, and whether it is a
+/// player's puppet or a host's NPC, to tell what a body with no name tag is.
+#[allow(clippy::type_complexity)]
+fn trace_bodies(time: Res<Time>, mut last: Local<f32>, cams: Query<(&Camera, &GlobalTransform), With<Camera3d>>, rigs: Query<(&ActorRig, &GlobalTransform, &InheritedVisibility, Has<crate::coop::Puppet>, Has<crate::coop::Remote>)>) {
+    let now = time.elapsed_secs();
+    if now - *last < 5.0 {
+        return;
+    }
+    *last = now;
+    let Some((_, eye)) = cams.iter().find(|(c, _)| c.is_active) else { return };
+    let eye = eye.translation();
+    let mut line = String::new();
+    for (rig, t, seen, puppet, remote) in &rigs {
+        let at = t.translation();
+        if at.distance(eye) > 600.0 {
+            continue;
+        }
+        let g = nvf_play::space::to_game(at);
+        let kind = if puppet { "puppet" } else if remote { "remote" } else { "own" };
+        line += &format!(" [{:08X} base {:08X} {kind}{} at ({:.0}, {:.0}, {:.0})]", rig.reference, rig.base, if seen.get() { "" } else { " hidden" }, g[0], g[1], g[2]);
+    }
+    let e = nvf_play::space::to_game(eye);
+    info!("bodies trace: eye ({:.0}, {:.0}, {:.0}):{line}", e[0], e[1], e[2]);
 }
 
 /// The heads of the mates in this place, by reference, from `head` (game space).
@@ -29,8 +58,17 @@ pub fn heads_of(mates: &SocialMates, head: impl Fn(u32) -> Option<[f32; 3]>) -> 
     mates.mates.iter().filter(|m| m.here && !m.lost).filter_map(|m| head(m.reference).map(|h| (m.reference, h))).collect()
 }
 
-fn track(mates: Option<Res<SocialMates>>, rigs: Query<&ActorRig>, globals: Query<&GlobalTransform>, heads: Option<ResMut<MateHeads>>) {
+fn track(mates: Option<Res<SocialMates>>, rigs: Query<&ActorRig>, globals: Query<&GlobalTransform>, heads: Option<ResMut<MateHeads>>, mut doubled: Local<Vec<(u32, usize)>>) {
     let (Some(mates), Some(mut heads)) = (mates, heads) else { return };
+    // A player drawn twice here (two bodies under its reference): said once each time it
+    // changes, as its tag can stand over only one of them.
+    let twice: Vec<(u32, usize)> = mates.mates.iter().filter(|m| m.here && !m.lost).map(|m| (m.reference, rigs.iter().filter(|r| r.reference == m.reference).count())).filter(|(_, n)| *n > 1).collect();
+    if *doubled != twice {
+        for (r, n) in &twice {
+            warn!("mate heads: {n} bodies drawn for player reference {r:08X}");
+        }
+        *doubled = twice;
+    }
     let want = heads_of(&mates, |reference| {
         let rig = rigs.iter().find(|r| r.reference == reference)?;
         let g = nvf_play::space::to_game(crate::knockouts::bone(rig, &globals, "Bip01 Head")?);

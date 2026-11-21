@@ -76,6 +76,30 @@ use bevy::{ecs::system::SystemParam, prelude::*, window::PrimaryWindow};
 use fnv_game::ui_loading::{self, UiFiles};
 use fnv_ui::Value;
 use nvf_assets::GameData;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether a menu drawn from its file (one of `draw`'s, the Mods page) was drawn in the last
+/// frame: `screen()` is then that menu's, else the HUD's ([`MenuFiles::write`]). Written by
+/// [`draw::draw`] at the end of each frame it runs.
+static FILE_MENU_DRAWN: AtomicBool = AtomicBool::new(false);
+
+/// Note whether a menu drawn from its file was drawn this frame ([`FILE_MENU_DRAWN`]).
+pub(crate) fn note_file_menu_drawn(drawn: bool) {
+    FILE_MENU_DRAWN.store(drawn, Ordering::Relaxed);
+}
+
+/// What `screen()` is written for while no menu drawn from its file is up (only the HUD
+/// reads it then): `None` for the view itself, `Some(scale)` for the view the HUD is laid
+/// out in at a HUD scale other than 100% (`crate::interface::ui_scale`), 960 / scale units
+/// high ([`write_screen_scaled`]). A tile a mod adds to the HUD places itself by
+/// `screen()` (a crosshair at its middle) and is drawn at the HUD's scale, so with the view's
+/// own `screen()` it stood `scale` times as far from the top left corner as it should
+/// [observed: the owner's split-screen run of 2026-11-21, a crosshair at (1600, 450) in a
+/// 2560x720 half, the HUD at 125%]. A menu drawn from its file keeps the view's own: it is
+/// drawn at the menus' scale in a frame of its own (`draw::Target::in_frame`).
+pub fn hud_screen_scale(file_menu_up: bool, hud_scale: f32) -> Option<f32> {
+    (!file_menu_up && hud_scale.is_finite() && hud_scale > 0.0 && hud_scale != 1.0).then_some(hud_scale)
+}
 
 #[derive(SystemParam)]
 pub(crate) struct MenuFiles<'w, 's> {
@@ -162,6 +186,8 @@ impl MenuFiles<'_, '_> {
             let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m)) || game.ui_vats || mods_page;
             if game.ui_vats {
                 write_screen_scaled(&mut game.ui_tree, window.width(), window.height(), crate::interface::menu_scale());
+            } else if let Some(scale) = hud_screen_scale(mods_page || FILE_MENU_DRAWN.load(Ordering::Relaxed), crate::interface::ui_scale()).filter(|_| units) {
+                write_screen_scaled(&mut game.ui_tree, window.width(), window.height(), scale);
             } else {
                 write_screen(&mut game.ui_tree, window.width(), window.height(), units);
             }
@@ -1255,6 +1281,32 @@ mod tests {
         let mut ui = Ui::new();
         ui.load_menu(&src, "m.xml").unwrap();
         ui
+    }
+
+    /// A tile a mod adds to the HUD, centred by `screen()` (a crosshair), is drawn at the
+    /// view's middle at any HUD scale, as the HUD draws it: `screen()`'s units times the
+    /// window's height / 960 times the HUD scale [observed: the owner's split-screen run of
+    /// 2026-11-21, a crosshair at (1600, 450) of a 2560x720 half at 125%]. A menu drawn from
+    /// its file keeps the view's own `screen()`.
+    #[test]
+    fn a_mod_tile_centred_by_the_screen_stays_in_the_middle_at_any_hud_scale() {
+        for (w, h) in [(2560.0f32, 720.0f32), (1280.0, 1440.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
+            for s in [0.5f32, 0.8, 1.0, 1.25, 1.5] {
+                let mut ui = centred();
+                match hud_screen_scale(false, s) {
+                    Some(k) => write_screen_scaled(&mut ui, w, h, k),
+                    None => write_screen(&mut ui, w, h, true),
+                }
+                ui.update();
+                let x = ui.get_float("M/Box/x").unwrap() as f32;
+                // The box's middle in pixels, drawn as the HUD draws (`draw::hud`).
+                let middle = (x + 50.0) * h / 960.0 * s;
+                assert!((middle - w / 2.0).abs() < 0.01, "{w}x{h} at {s}: {middle}");
+            }
+        }
+        assert_eq!(hud_screen_scale(true, 1.25), None, "a menu drawn from its file keeps the view's");
+        assert_eq!(hud_screen_scale(false, 1.0), None, "at 100% the view's own, as before");
+        assert_eq!(hud_screen_scale(false, f32::NAN), None);
     }
 
     /// [design] The gate is global: `StatsMenu` beside the tile HUD changes what the HUD gets,

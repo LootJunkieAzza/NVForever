@@ -58,6 +58,7 @@ mod alert;
 mod anim_sounds;
 mod cpu_placement;
 mod crash;
+mod heap_stats;
 mod gpu_lost;
 mod events_log;
 mod creature_pace;
@@ -144,6 +145,9 @@ mod lodgen;
 mod nav;
 // Co-op prototype (private fork): --host / --join.
 mod coop;
+mod split;
+// Split screen's XP catch-up for player 2 (split_xp.rs).
+mod split_xp;
 // B42 Inject / Interact item animations, seen by co-op players too (consume_anims.rs).
 mod consume_anims;
 // The drinking contest's win shot: one camera on the dancing winner, lit (drink_stage.rs).
@@ -639,6 +643,15 @@ struct Args {
     /// Sunny Smiles by default.
     #[arg(long, default_value = "0x104E84", value_parser = |s: &str| u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|e| e.to_string()))]
     coop_base: u32,
+    /// Split screen (split.rs): once in the world, host (or, with `--join`, pass player 2
+    /// through to that host), take the top half of the screen and start player 2's game on
+    /// the bottom half. A guest's load restarts it with both (`handoff`).
+    #[arg(long, requires = "play", conflicts_with = "split_p2")]
+    split: bool,
+    /// Split screen: this game is player 2's, started by player 1's (`--split`); the
+    /// session folder in player 1's home.
+    #[arg(long, requires = "play")]
+    split_p2: Option<std::path::PathBuf>,
     /// With --play: the physics rate for this run, over the settings page's Physics rate:
     /// fixed steps a second, a whole number from 60 to 160, or `fps` for Match FPS: the
     /// game's frame rate, up to what the display's pace allows (`display`, its old name, is
@@ -1072,7 +1085,10 @@ static COMMAND_LINE: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new
 
 /// This run's arguments after the program name, as acted on (`COMMAND_LINE`).
 fn command_line() -> Vec<String> {
-    COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec())
+    let mut line = COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec());
+    // Split screen turned on or off since the start goes with a load's new run (split.rs).
+    split::with_split_arg(&mut line);
+    line
 }
 
 /// Bevy's task pools. Test aid `NVF_PLAY_TEST_ASYNC_THREADS=<n>` sets the async compute
@@ -1113,6 +1129,7 @@ fn main() -> AppExit {
     if exit_watch::run_if_watcher() {
         return AppExit::Success;
     }
+    heap_stats::start();
     let mut line = with_default_mode(std::env::args().collect());
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
         line = with_schemas_beside(line, &dir);
@@ -1255,6 +1272,7 @@ fn main() -> AppExit {
         None => fnv_install::EngineHome::user().map(|h| h.mods()).into_iter().collect(),
     };
     let opened = world::open_plugins(args.data(), &mods, &args.plugins);
+    heap_stats::mark("plugins opened");
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // Co-op replication: the official masters' quests are the host's story.
     coop::set_story_plugins(&args.plugins, &MASTERS);
@@ -1338,6 +1356,7 @@ fn main() -> AppExit {
     // A damaged archive stops the start (owner 2026-10-25): the player is told which one
     // and why, and no save or world loads with its assets missing. A file inside a
     // readable archive that fails later is only that file's error.
+    heap_stats::mark("archives indexed");
     if let Some((why, text)) = damaged_archives(game.vfs.broken_archives()) {
         crash::tell_player_at_start(&text, args.handoff.is_some());
         return fail(why);
@@ -1357,6 +1376,7 @@ fn main() -> AppExit {
         Err(e) => return fail(e),
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
+    heap_stats::mark("world index");
     if let Some(s) = fos_start {
         if world.index.worldspaces.contains_key(&s.at) {
             world.set_world(s.at);
@@ -1557,6 +1577,7 @@ fn main() -> AppExit {
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
+    heap_stats::mark("actor records");
     // The character creator's choices and sliders (nvf_play::creator), in play; it says
     // what it has once the log is up.
     let mut creator_data = actor_world
@@ -1571,6 +1592,7 @@ fn main() -> AppExit {
             c.add_named_presets(files, |name| args.plugins.iter().position(|q| q.eq_ignore_ascii_case(name)).and_then(|i| u8::try_from(i).ok()));
             nvf_play::creator::CreatorData(std::sync::Arc::new(c))
         });
+    heap_stats::mark("character creator");
     let open_doors = args.open_doors;
     // What the overlay system and the settings page go by.
     args.no_overlay |= args.frame_json.is_some() || (args.play && !args.overlay);
@@ -1612,6 +1634,7 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
+    heap_stats::mark("residents");
     // Furniture: used by the player in play mode and by --npc-sit travellers.
     let mut trips = args.npc_travel.clone();
     let furnishings = if args.play || !args.npc_sit.is_empty() || residents.is_some() {
@@ -1628,14 +1651,19 @@ fn main() -> AppExit {
     } else {
         None
     };
+    heap_stats::mark("furniture");
     let nav_state = if trips.is_empty() && !args.show_navmesh && residents.is_none() {
         None
+    } else if args.split_p2.is_some() && trips.is_empty() && !args.show_navmesh {
+        // Split screen's player 2: a co-op guest whose actors the host walks (nav.rs).
+        Some(nav::NavState::without_graph())
     } else {
         match nav::NavState::build(&world, &trips, args.npc_speed, args.npc_ledges, args.show_navmesh, args.follow_npc && (!trips.is_empty() || residents.is_some())) {
             Ok(n) => Some(n),
             Err(e) => return fail(e),
         }
     };
+    heap_stats::mark("nav graph");
     let mut graphics = match &args.graphics_only {
         Some(keys) => match graphics::Graphics::only(keys) {
             Ok(g) => g,
@@ -1771,6 +1799,12 @@ fn main() -> AppExit {
                     position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
                     // Taking over a load: shown once its loading screen is up (handoff.rs).
                     visible: args.handoff.is_none(),
+                    // Player 2's window in split screen never takes the focus (split.rs).
+                    focused: args.split_p2.is_none(),
+                    // ... and is borderless from the start: a frame taken off later shows the
+                    // window again, which on Windows activates it [documented: winit 0.30
+                    // `WindowFlags::apply_diff`, `SW_SHOW` after the first `SW_SHOWNOACTIVATE`].
+                    decorations: args.split_p2.is_none(),
                     // Measuring frame times: not held to the display's refresh, unless
                     // `NVF_FRAME_TIMES_VSYNC=1` holds it there (measuring what a heavy
                     // effect costs the GPU without running it flat out: fire_volume.rs "Cost").
@@ -2080,6 +2114,8 @@ fn main() -> AppExit {
             app.add_plugins(actor_twins::ActorTwinsPlugin);
             // Co-op (private fork): idle until a lobby is opened or joined.
             app.add_plugins(coop::CoopPlugin(coop::Config { host: args.host, join: args.join.clone(), name: args.coop_name.clone(), base: args.coop_base }));
+            app.add_plugins(split::SplitPlugin(split::SplitArgs { start: args.split, p2: args.split_p2.clone() }));
+            app.add_plugins(split_xp::SplitXpPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
@@ -2403,6 +2439,8 @@ fn main() -> AppExit {
             s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
         });
     }
+    heap_stats::mark("app built");
+    app.add_systems(Last, heap_stats::log_system);
     let exit = app.run();
     // The app and its renderer are gone; Streamline shut down before the device and instance it
     // used (dlss/, "Shutdown"). Nothing when Streamline was not loaded.
@@ -2938,6 +2976,16 @@ mod tests {
         let args = parse(&["--play", "--menu"]);
         assert!(args.play && args.menu);
         assert!(Args::try_parse_from(["nvforever", "--explore", "--play"]).is_err());
+    }
+
+    /// A guest in split screen (player 2 joins its host through it): a load's new run has
+    /// `--join` and `--split` both, and must start [the 19:23 three-window check: clap
+    /// refused the pair, so a guest's load could not start its new run].
+    #[test]
+    fn a_guest_in_split_screen_starts_again_with_join_and_split() {
+        let args = parse(&["--play", "--join", "127.0.0.1:47971", "--split", "--load", "x.nvfsave"]);
+        assert!(args.split && args.join.as_deref() == Some("127.0.0.1:47971"));
+        assert!(Args::try_parse_from(["nvforever", "--play", "--split", "--split-p2", "dir"]).is_err());
     }
 
     #[test]

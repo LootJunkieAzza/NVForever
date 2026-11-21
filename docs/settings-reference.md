@@ -312,6 +312,12 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
 - Command-line switches: `--window`
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `split-layout`: Split screen layout
+
+- On the page: How the screen is shared with player 2. Top and bottom: player 1 above, player
+  2 below. Side by side: player 1 left, player 2 right. Changes at once.
+- Registered in `engine/nvf-play/src/split_screen.rs` (player 1's game, `engine/nvforever/src/split.rs`)
+
 ## Display › Frame Rate
 
 ### `display-sync`: Display sync

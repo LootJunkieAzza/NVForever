@@ -253,9 +253,21 @@ fn draw(
     mut root: Query<&mut Visibility, (With<MeterRoot>, Without<MeterPiece>)>,
     mut pieces: Query<(&MeterPiece, &mut Visibility), Without<MeterRoot>>,
     mut last: Local<Option<usize>>,
+    (roots, mut rebuild): (Query<Entity, With<MeterRoot>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): the meter is made again at it.
+    if rebuild.stale() {
+        for e in &roots {
+            commands.entity(e).try_despawn();
+        }
+        if matches!(*read, Some(Read::Model(_))) {
+            *read = None;
+        }
+        *last = None;
+        return;
+    }
     let Some(b) = breath else { return };
     let wanted = view.shown && shown(&b);
     if read.is_none() {

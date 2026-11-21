@@ -165,12 +165,20 @@ const BACKING_PAD: (f32, f32) = (14.0, 8.0);
 
 fn spawn(
     mut commands: Commands,
-    root: Query<(), With<GaugeRoot>>,
+    root: Query<Entity, With<GaugeRoot>>,
     (data, formats): (Option<Res<GameData>>, Option<Res<CompressedImageFormatSupport>>),
     mut images: ResMut<Assets<Image>>,
+    mut rebuild: crate::interface::HudRebuild,
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): made again at it from the next frame.
+    if rebuild.stale() {
+        for e in &root {
+            commands.entity(e).try_despawn();
+        }
+        return;
+    }
     if !root.is_empty() {
         return;
     }

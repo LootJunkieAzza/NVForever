@@ -105,6 +105,7 @@ pub mod knockouts;
 pub mod loading;
 /// Co-op lobby screens (private fork).
 pub mod lobby;
+pub mod split_screen;
 pub mod loading_look;
 pub mod main_menu;
 pub mod menu_scale;
@@ -456,7 +457,7 @@ impl Plugin for PlayPlugin {
         let d = self.0;
         app.insert_resource(PlayWorld(d))
             .insert_resource(Location { world: d.world, interior: d.interior })
-            .insert_resource(sim::SimState::new(d.lo, d.schema, d.index))
+            .insert_resource(sim::SimState::shared(d.lo, d.schema, d.index))
             .init_state::<PlayState>()
             .add_message::<Travel>()
             .add_message::<OpenContainer>()

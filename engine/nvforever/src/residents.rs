@@ -1636,7 +1636,8 @@ impl Residents {
     /// state the package choice runs in.
     pub fn build(world: &WorldData, names: &[String], clock: Clock, walk_speed: f32, shared: bool) -> Result<Residents, String> {
         let t0 = std::time::Instant::now();
-        let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(world.lo, world.schema, world.index)));
+        // The run's one table, shared with the simulation (`nvf_play::sim::world_refs`).
+        let refs: &'static RefTable = nvf_play::sim::world_refs(world.lo, world.schema, world.index);
         let mut all = false;
         let mut core = Core {
             // Test aid: conversations between NPCs anywhere in the loaded area.

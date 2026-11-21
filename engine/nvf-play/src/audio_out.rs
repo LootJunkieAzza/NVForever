@@ -1063,6 +1063,12 @@ impl Plugin for AudioOutPlugin {
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct AudioOutSystems;
 
+/// Split screen's player 2 (nvforever `split.rs`): this game plays only its interface's
+/// sounds ([`KeepsSpeed`]); player 1's game plays the world for both, so nothing is
+/// heard twice [design].
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct PersonalSoundsOnly;
+
 /// A `PlaybackMode::Despawn` sound: despawned when it ends (Bevy's marker is crate-private).
 #[derive(Component)]
 struct DespawnWhenDone;
@@ -1090,7 +1096,7 @@ impl AddAudioSource for App {
 fn play_queued<T: Decodable + Asset>(
     out: Option<Res<AudioOut>>,
     sources: Res<Assets<T>>,
-    global: Res<GlobalVolume>,
+    (global, personal): (Res<GlobalVolume>, Option<Res<PersonalSoundsOnly>>),
     slow: Res<SoundSpeed>,
     queued: Query<(Entity, &AudioPlayer<T>, &PlaybackSettings, Option<&SoundCategory>, Has<KeepsSpeed>), Without<AudioSink>>,
     mut warned: Local<bool>,
@@ -1130,7 +1136,7 @@ fn play_queued<T: Decodable + Asset>(
             (None, None, false) => append_declicked(&sink, decoder, &control),
         }
         let mut sink = AudioSink::new(sink);
-        if settings.muted {
+        if settings.muted || (personal.is_some() && !keeps) {
             sink.mute();
         }
         sink.set_speed(speed);

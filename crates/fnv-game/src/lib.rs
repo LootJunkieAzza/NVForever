@@ -78,6 +78,7 @@ pub mod coop_prereqs;
 pub mod coop_uniques;
 pub mod coop_perks;
 pub mod coop_story;
+pub mod split_premade;
 pub mod coop_rewards;
 pub mod coop_kills;
 pub mod coop_services;

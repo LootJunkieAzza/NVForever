@@ -1057,11 +1057,16 @@ pub fn fix_smooth_terrain() {
     info!("{}", crate::smooth_terrain::describe());
 }
 
-/// The UI scale is fixed for the run once the INI is read (`crate::interface::fix_ui_scale`).
-pub fn fix_ui_scale(menu: Option<Res<crate::menu_scale::MenuScale>>) {
+/// The UI scale is fixed for the run once the INI is read (`crate::interface::fix_ui_scale`);
+/// a game that starts in split screen draws its half's (`crate::split_screen::SplitAtStart`).
+pub fn fix_ui_scale(menu: Option<Res<crate::menu_scale::MenuScale>>, split: Option<Res<crate::split_screen::SplitAtStart>>, layout: Option<Res<crate::split_screen::SplitLayout>>) {
     let scale = menu.map_or_else(|| crate::interface::menu_scale_of(crate::interface::ui_scale_setting()), |menu| menu.scale());
     crate::menu_scale::publish(scale);
     crate::interface::fix_ui_scale();
+    if let Some(s) = split {
+        let half = s.layout.or(layout.map(|l| *l)).unwrap_or_default().half(s.screen);
+        crate::interface::set_split_ui(Some(crate::interface::split_ui_factors(half)), None);
+    }
 }
 
 /// `1`/`0` (also true/false, on/off, yes/no, any case).

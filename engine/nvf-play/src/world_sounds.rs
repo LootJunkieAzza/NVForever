@@ -52,7 +52,7 @@ use crate::menu::model::Mode;
 use crate::menu::ActiveMenu;
 use crate::phys::PhysState;
 use crate::player::Player;
-use crate::sfx::{PlaySound, Sfx, SoundSource};
+use crate::sfx::{PlaySound, SecondListener, Sfx, SoundSource};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState, PlayWorld, RefChanged};
 use bevy::prelude::*;
@@ -893,12 +893,14 @@ fn objects(
 }
 
 /// Placed objects' own sounds near the listener, sent to the ambient every frame (see
-/// the module notes).
+/// the module notes); in split screen, near player 2 too (`SecondListener`).
+#[allow(clippy::too_many_arguments)]
 fn object_sources(
     mut ws: ResMut<WorldSounds>,
     sim: Res<SimState>,
     loc: Res<crate::Location>,
     player: Option<Res<Player>>,
+    second: Option<Res<SecondListener>>,
     sfx: Option<Res<Sfx>>,
     #[cfg(debug_assertions)] mut frames: Local<u32>,
     mut out: MessageWriter<SoundSource>,
@@ -950,6 +952,14 @@ fn object_sources(
             let bits = |v: &[(u32, [f32; 3])]| v.iter().map(|&(i, at)| (i, at.map(f32::to_bits))).collect::<Vec<_>>();
             debug_assert_eq!(bits(&ws.heard), bits(&scan_all(list, &sim, eye, |s| reach_of(&sfx, s))), "world sounds: the index lost or added a source");
         }
+    }
+    // Split screen: those heard by player 2 too, where player 1 does not hear them.
+    if let Some(ear) = SecondListener::ear(second.as_deref()) {
+        let mut theirs = Vec::new();
+        index.heard(list, &sim, ear.eye, &mut ws.near, &mut theirs);
+        let mine: HashSet<u32> = ws.heard.iter().map(|h| h.0).collect();
+        ws.heard.extend(theirs.into_iter().filter(|h| !mine.contains(&h.0)));
+        ws.heard.sort_unstable_by_key(|h| h.0);
     }
     for &(i, at) in &ws.heard {
         let (id, sound, kind, _) = list[i as usize];

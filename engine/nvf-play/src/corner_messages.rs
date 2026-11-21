@@ -261,7 +261,7 @@ fn draw(
     mut kit: Local<Option<Kit>>,
     state: Option<Res<State<crate::PlayState>>>,
     driven: Option<Res<crate::player::ViewDriven>>,
-    (kill_cam, vats, hud, script, photo): (Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::hud::HudView>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::photo_mode::PhotoMode>>),
+    (kill_cam, vats, hud, script, photo, mut rebuild): (Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::hud::HudView>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::photo_mode::PhotoMode>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -279,11 +279,13 @@ fn draw(
     if held {
         return;
     }
-    let changed = corner.bypass_change_detection().step(time.delta_secs());
+    // The HUD's scale changed (split screen): the message on screen is drawn again at it.
+    let rebuilt = rebuild.stale();
+    let changed = corner.bypass_change_detection().step(time.delta_secs()) || rebuilt;
     let strength = corner.strength();
     if changed {
         for (e, _) in &roots {
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
         if let Some(note) = corner.showing() {
             let bc = bc_supported(formats.as_deref());

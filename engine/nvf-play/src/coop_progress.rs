@@ -476,7 +476,7 @@ fn take_inbox(
     script: Option<ResMut<ScriptState>>,
     mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
     mut load: MessageWriter<LoadRequest>,
-    mates: Option<Res<crate::coop_social::SocialMates>>,
+    (mates, player_two): (Option<Res<crate::coop_social::SocialMates>>, Option<Res<crate::split_screen::PlayerTwo>>),
     mut quest_lines: Option<ResMut<crate::quest_messages::QuestMessages>>,
     (mut sim, solo): (Option<ResMut<crate::sim::SimState>>, Option<Res<crate::save::SoloBase>>),
 ) {
@@ -561,9 +561,12 @@ fn take_inbox(
                 let first_card = card && rt.game.player.caravan.cards.is_empty();
                 let gift = fnv_game::coop_rewards::Gift { batch, item: FormId(item), count: count as i32, quest: (quest != 0).then_some(FormId(quest)), stage: (stage != u32::MAX).then_some(stage as i32) };
                 let done_here = rt.game.coop_gift_done_here(&gift);
-                // Into the played world, as the reward above.
+                // Into the played world, as the reward above. Split screen's player 2
+                // gets every item (owner, 2026-11-20: "player 2 gets all items, caps and
+                // XP from quests"; plan split-screen.md §8); an online guest keeps its own.
+                let every = player_two.is_some();
                 let taken = match sim.as_deref_mut() {
-                    Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_gift(&gift, &mut p.gift_batch)),
+                    Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_gift_as(&gift, &mut p.gift_batch, every)),
                     None => Err("no simulation world".to_string()),
                 };
                 match taken {
@@ -741,7 +744,10 @@ pub const JOINT_ENV: &str = "NVF_COOP_JOINT";
 /// A guest's join question for joint progression (plan §3.7): asked once the syncing
 /// screen is down, answered with Y or N (`crate::coop_social`); the answer holds while
 /// this run stays a guest. A host or a solo game forgets it, so the next join asks again.
-fn joint_question(mut p: ResMut<CoopProgress>, social: Option<ResMut<crate::coop_social::Social>>, syncing: Option<Res<crate::coop_downed::SyncingScreen>>) {
+/// Split screen's player 2 ([`crate::split_screen::PlayerTwo`]) is never asked: its quests
+/// are always shared [owner 2026-11-20: "Quests are always shared for split-screen
+/// players"; "Shared progression is built in ... There is no opt-in"].
+fn joint_question(mut p: ResMut<CoopProgress>, social: Option<ResMut<crate::coop_social::Social>>, syncing: Option<Res<crate::coop_downed::SyncingScreen>>, player_two: Option<Res<crate::split_screen::PlayerTwo>>) {
     let Some(mut social) = social else { return };
     if p.role != Role::Guest {
         p.joint_on = None;
@@ -750,6 +756,12 @@ fn joint_question(mut p: ResMut<CoopProgress>, social: Option<ResMut<crate::coop
         return;
     }
     if p.joint_on.is_some() {
+        return;
+    }
+    if player_two.is_some() {
+        info!("co-op: share quest progress: yes (split screen's player 2)");
+        p.joint_on = Some(true);
+        social.joint_ask = false;
         return;
     }
     if let Some(v) = std::env::var(JOINT_ENV).ok().filter(|v| v == "0" || v == "1") {
@@ -1143,6 +1155,21 @@ mod tests {
         let off: BTreeMap<u8, (u64, bool)> = [(3, (0xAAAA, false))].into();
         let (_, back) = r.track(&off, &[3].into(), &names2, t0);
         assert_eq!(back[0].items, vec![to3(Shared::QuestEnded { quest: 0x21A, failed: false })]);
+    }
+
+    /// Split screen's player 2 always shares quest progress and is never asked.
+    #[test]
+    fn split_screens_player_two_shares_without_being_asked() {
+        let mut app = App::new();
+        app.insert_resource(CoopProgress { role: Role::Guest, my_id: Some(1), ..default() })
+            .init_resource::<crate::coop_social::Social>()
+            .insert_resource(crate::coop_downed::SyncingScreen(false))
+            .insert_resource(crate::split_screen::PlayerTwo)
+            .add_systems(Update, joint_question);
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<CoopProgress>().joint_on, Some(true));
+        assert!(!app.world().resource::<crate::coop_social::Social>().joint_ask, "never asked");
     }
 
     /// The join question waits for the syncing screen, takes the answer, and is asked

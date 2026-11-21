@@ -802,7 +802,13 @@ fn draw(
     mut spawned: Local<Spawned>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     (alpha, rise): (Option<Res<CompassAlpha>>, Option<Res<CompassRise>>),
+    mut rebuild: crate::interface::HudRebuild,
 ) {
+    // The HUD made again (`crate::hud`): its new layer gets the marks from the next frame.
+    if rebuild.stale() {
+        spawned.0.clear();
+        return;
+    }
     let rise_of_mark = |k: usize| rise.as_ref().and_then(|r| r.0.get(k)).copied().unwrap_or(0);
     let companion = crate::tweaks::companion_colour(tweaks.as_deref());
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).

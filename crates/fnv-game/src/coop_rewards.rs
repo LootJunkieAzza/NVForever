@@ -364,6 +364,15 @@ impl Game<'_> {
     /// is kept between the calls of a batch. The count given (0: this player keeps what
     /// it has, or did that part of the quest in its own game).
     pub fn take_coop_gift(&mut self, gift: &Gift, last: &mut Option<(u32, bool)>) -> Result<i32, String> {
+        self.take_coop_gift_as(gift, last, false)
+    }
+
+    /// [`Game::take_coop_gift`], with `every` for split screen's player 2, which gets every
+    /// item the host's quests hand out [owner, 2026-11-20: "player 2 gets all items, caps
+    /// and XP from quests"]: a second one of what it holds, and a Caravan deck when it has
+    /// cards already ([`gift_given`]). What its own game did already, and an add-on
+    /// checkpoint's gear outside it, still stay out (nothing is given twice).
+    pub fn take_coop_gift_as(&mut self, gift: &Gift, last: &mut Option<(u32, bool)>, every: bool) -> Result<i32, String> {
         use fnv_sim::forms::ItemKind;
         let Gift { batch, item, count, .. } = *gift;
         if self.coop_gift_done_here(gift) {
@@ -394,20 +403,15 @@ impl Game<'_> {
         // owns cards when its collection holds any (playtest of 2026-11-11: the deck
         // builder of a guest given Ringo's deck listed none).
         let had_cards = !self.player.caravan.cards.is_empty() || inv.is_some_and(|i| i.groups().any(|(it, _, _)| self.world.forms.item(it).is_some_and(|f| f.kind == ItemKind::CaravanCard)));
-        let give = match kind {
-            _ if card => {
-                let had = match *last {
-                    Some((b, had)) if b == batch => had,
-                    _ => had_cards,
-                };
-                *last = Some((batch, had));
-                !had
-            }
-            Some(ItemKind::Ammo | ItemKind::Aid | ItemKind::CasinoChip | ItemKind::CaravanMoney) => true,
-            // A note is filed with the player's notes, never carried (`Game::file_note`).
-            Some(ItemKind::Note) => !self.player.notes.contains(&item),
-            _ => has == 0,
-        };
+        let had = card.then(|| {
+            let had = match *last {
+                Some((b, had)) if b == batch => had,
+                _ => had_cards,
+            };
+            *last = Some((batch, had));
+            had
+        });
+        let give = gift_given(kind, had, has, self.player.notes.contains(&item), every);
         // Lent by the host's story (`Game::follow_story_gear`: Sunny's script equips the
         // varmint rifle on the host): handed out too, it is this player's to keep.
         // An add-on checkpoint's gear stays that checkpoint's until the way out: what the
@@ -447,6 +451,22 @@ impl Game<'_> {
             self.coop_checkpoint_gear.entry(c).or_default().push((item, n));
         }
         Ok(n)
+    }
+}
+
+/// Whether a guest takes one item of a hand-out (module notes): `kind` the item's,
+/// `had_cards` `Some` for a Caravan card (whether this player had cards when its batch
+/// began), `has` how many it carries, `filed` a note it has filed already. `every`: split
+/// screen's player 2, which gets every item (`Game::take_coop_gift_as`); a note is filed
+/// once all the same (a note is not carried, `Game::file_note`).
+pub fn gift_given(kind: Option<fnv_sim::forms::ItemKind>, had_cards: Option<bool>, has: i32, filed: bool, every: bool) -> bool {
+    use fnv_sim::forms::ItemKind;
+    match (had_cards, kind) {
+        (Some(had), _) => every || !had,
+        (None, Some(ItemKind::Ammo | ItemKind::Aid | ItemKind::CasinoChip | ItemKind::CaravanMoney)) => true,
+        // A note is filed with the player's notes, never carried (`Game::file_note`).
+        (None, Some(ItemKind::Note)) => !filed,
+        (None, _) => every || has == 0,
     }
 }
 
@@ -652,5 +672,25 @@ mod tests {
         l.gain(10, 0.0, -20);
         l.completed(10, Q1);
         assert!(l.due(10 + AFTER).is_empty());
+    }
+
+    /// An online guest keeps what it holds; split screen's player 2 gets every item.
+    #[test]
+    fn split_screen_player_two_gets_every_item() {
+        use fnv_sim::forms::ItemKind;
+        let weapon = Some(ItemKind::Weapon);
+        assert!(gift_given(weapon, None, 0, false, false), "a guest with none gets one");
+        assert!(!gift_given(weapon, None, 1, false, false), "a guest keeps its own");
+        assert!(gift_given(weapon, None, 1, false, true), "player 2 gets a second");
+        assert!(gift_given(Some(ItemKind::Misc), None, 3, false, true));
+        assert!(!gift_given(Some(ItemKind::CaravanCard), Some(true), 0, false, false), "one deck for a guest");
+        assert!(gift_given(Some(ItemKind::CaravanCard), Some(true), 0, false, true), "player 2's deck too");
+        assert!(gift_given(Some(ItemKind::CaravanCard), Some(false), 0, false, false));
+        for every in [false, true] {
+            assert!(gift_given(Some(ItemKind::Ammo), None, 50, false, every));
+            assert!(gift_given(Some(ItemKind::Aid), None, 5, false, every));
+            assert!(!gift_given(Some(ItemKind::Note), None, 0, true, every), "a note is filed once");
+            assert!(gift_given(Some(ItemKind::Note), None, 0, false, every));
+        }
     }
 }

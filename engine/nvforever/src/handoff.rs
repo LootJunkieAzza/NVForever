@@ -752,7 +752,10 @@ pub fn reveal(
             h.shown = Some(0);
         }
         Some(0) => {
-            window.focused = true;
+            // Player 2's window in split screen never takes the focus (split.rs).
+            if std::env::var_os(crate::split::P2_ENV).is_none() {
+                window.focused = true;
+            }
             h.shown = Some(1);
         }
         Some(_) if !h.told => {
