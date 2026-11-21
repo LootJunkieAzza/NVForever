@@ -43,6 +43,7 @@ use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
 use fnv_game::blackjack::{self as rules, Action, BlackjackRequest, CasinoDef, Card, Closed, Event, Outcome, Phase, Refusal, Rules, Seat, Table};
 use fnv_sim::FormId;
+use fnv_util::words::{tr, trf};
 use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
 
@@ -151,22 +152,22 @@ impl Session {
         if self.betting() {
             [
                 None,
-                Some(("Deal", h(KeyCode::KeyW), BlackjackInput::Deal)),
-                Some(("Increase Bet", h(KeyCode::KeyE), BlackjackInput::Bet { up: true })),
-                Some(("Decrease Bet", h(KeyCode::KeyQ), BlackjackInput::Bet { up: false })),
-                Some(("Max Bet", h(KeyCode::KeyS), BlackjackInput::MaxBet)),
-                Some(("Exit Game", h(KeyCode::KeyR), BlackjackInput::Exit)),
+                Some((tr("Deal"), h(KeyCode::KeyW), BlackjackInput::Deal)),
+                Some((tr("Increase Bet"), h(KeyCode::KeyE), BlackjackInput::Bet { up: true })),
+                Some((tr("Decrease Bet"), h(KeyCode::KeyQ), BlackjackInput::Bet { up: false })),
+                Some((tr("Max Bet"), h(KeyCode::KeyS), BlackjackInput::MaxBet)),
+                Some((tr("Exit Game"), h(KeyCode::KeyR), BlackjackInput::Exit)),
             ]
         } else {
             let l = self.table.legal(self.chips);
             let b = |on: bool, label, key, a| on.then_some((label, key, BlackjackInput::Play(a)));
             [
-                b(l.hit, "Hit", h(KeyCode::KeyF), Action::Hit),
-                b(l.double, "Double Down", h(KeyCode::KeyW), Action::Double),
-                b(l.split, "Split", h(KeyCode::KeyE), Action::Split),
-                b(l.switch, "Switch Hands", h(KeyCode::KeyQ), Action::Switch),
-                b(l.surrender, "Surrender", h(KeyCode::KeyS), Action::Surrender),
-                b(l.stay, "Stay", h(KeyCode::KeyR), Action::Stay),
+                b(l.hit, tr("Hit"), h(KeyCode::KeyF), Action::Hit),
+                b(l.double, tr("Double Down"), h(KeyCode::KeyW), Action::Double),
+                b(l.split, tr("Split"), h(KeyCode::KeyE), Action::Split),
+                b(l.switch, tr("Switch Hands"), h(KeyCode::KeyQ), Action::Switch),
+                b(l.surrender, tr("Surrender"), h(KeyCode::KeyS), Action::Surrender),
+                b(l.stay, tr("Stay"), h(KeyCode::KeyR), Action::Stay),
             ]
         }
     }
@@ -174,7 +175,7 @@ impl Session {
     /// The third row's title: the casino's name as its record has it ("Gommorah
     /// Earnings:" [observed: the owner's screenshot]).
     pub fn earnings_title(&self) -> String {
-        format!("{} Earnings:", self.def.name)
+        trf("{casino} Earnings:", &[("casino", &self.def.name)])
     }
 }
 
@@ -375,12 +376,13 @@ fn seed(casino: FormId, now: f32) -> u64 {
     t ^ ((casino.0 as u64) << 24) ^ now.to_bits() as u64
 }
 
-/// The line shown when the menu does not open [hypothesis: the words are NVForever's].
+/// The line shown when the menu does not open [hypothesis: the words are NVForever's],
+/// in the chosen language (`lang/*.toml`, #3146).
 pub fn refusal_line(r: Closed, casino: &str, chip: &str) -> String {
     match r {
-        Closed::NoCasino => "This table is closed.".into(),
-        Closed::NoChips => format!("You need {chip}s to play here."),
-        Closed::Banned => format!("You have been banned from gambling at {casino}."),
+        Closed::NoCasino => tr("This table is closed.").into(),
+        Closed::NoChips => trf("You need {chip}s to play here.", &[("chip", &chip)]),
+        Closed::Banned => trf("You have been banned from gambling at {casino}.", &[("casino", &casino)]),
     }
 }
 
@@ -409,7 +411,7 @@ fn open(
     };
     let def = rt.game.data.casinos.get(&r.casino).cloned();
     let chip = fnv_game::casino::chip(&rt.game, r.casino);
-    let chip_name = chip.and_then(|c| sim.name(c).map(str::to_string)).unwrap_or_else(|| "chip".into());
+    let chip_name = chip.and_then(|c| sim.name(c).map(str::to_string)).unwrap_or_else(|| tr("chip").into());
     let max_winnings = if r.max_winnings > 0 { r.max_winnings } else { def.as_ref().map_or(0, |d| d.max_winnings) };
     let now = time.elapsed_secs();
     let (opening, chips) = with_world(rt, &mut sim, |rt| {
@@ -555,15 +557,15 @@ fn auto_play(screen: Res<BlackjackScreen>, time: AidTime, mut out: MessageWriter
 /// The result line of a round [hypothesis: the words are NVForever's].
 pub fn result_line(outcomes: &[(Outcome, u32)], dealer: u32, net: i64) -> String {
     let words = |o: Outcome| match o {
-        Outcome::Blackjack => "Blackjack",
-        Outcome::Win => "You win",
-        Outcome::Push => "Push",
-        Outcome::Lose => "Dealer wins",
-        Outcome::Bust => "Bust",
-        Outcome::Surrendered => "Surrendered",
+        Outcome::Blackjack => tr("Blackjack"),
+        Outcome::Win => tr("You win"),
+        Outcome::Push => tr("Push"),
+        Outcome::Lose => tr("Dealer wins"),
+        Outcome::Bust => tr("Bust"),
+        Outcome::Surrendered => tr("Surrendered"),
     };
     let parts: Vec<&str> = outcomes.iter().map(|(o, _)| words(*o)).collect();
-    let dealer = if dealer > 21 { "Dealer busts".to_string() } else { format!("Dealer has {dealer}") };
+    let dealer = if dealer > 21 { tr("Dealer busts").to_string() } else { trf("Dealer has {dealer}", &[("dealer", &dealer)]) };
     let net = match net {
         n if n > 0 => format!("+{n}"),
         n => n.to_string(),
@@ -641,7 +643,7 @@ fn apply(
                         info!("blackjack: round {}: bet {bet} of {chips} chips", s.table.rounds);
                         schedule(s, events, t, &mut stats, rt, &mut sim);
                     }
-                    Err(Refusal::Chips) => s.status = Some(format!("You don't have enough {}s.", s.chip_name)),
+                    Err(Refusal::Chips) => s.status = Some(trf("You don't have enough {chip}s.", &[("chip", &s.chip_name)])),
                     Err(e) => info!("blackjack: deal refused ({e:?})"),
                 }
             }
