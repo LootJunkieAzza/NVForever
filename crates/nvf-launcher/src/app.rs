@@ -1675,15 +1675,18 @@ impl App {
         ui.label(RichText::new("NEW GAME START").small().strong().color(theme::GOLD_TEXT));
         card(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. Clear puts the fields back to the New Vegas opening. Save writes them.").small().color(WEAK));
+            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. Clear restores quest 00102037 and FNVIntro.bik. Save writes this file.").small().color(WEAK));
+            if let Some(path) = self.ini_path() {
+                ui.label(RichText::new(path.display().to_string()).small().color(WEAK)).on_hover_text("Linux: ~/.local/share/nvforever (or $XDG_DATA_HOME/nvforever), unless NVFOREVER_HOME is set. Windows: Documents\\My Games\\NVForever. An existing nvforever.ini in that folder is the file used.");
+            }
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("Quest").small());
-                ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("quest id").desired_width(120.0));
+                ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("00102037").desired_width(120.0));
                 ui.label(RichText::new("Film").small());
-                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text("fnvintro.bik").desired_width(160.0));
+                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text("FNVIntro.bik").desired_width(160.0));
                 ui.checkbox(&mut self.start_edit.no_film, "No intro film");
-                if ui.add_enabled(self.start_edit != crate::start::Fields::default(), egui::Button::new("Clear")).on_hover_text("Back to the New Vegas opening. Save to keep it.").clicked() {
-                    self.start_edit = crate::start::Fields::default();
+                if ui.add_enabled(self.start_edit != crate::start::Fields::original(), egui::Button::new("Clear")).on_hover_text("Quest 00102037 (VCG00) and FNVIntro.bik, the opening a fresh game uses. Save writes it.").clicked() {
+                    self.start_edit = crate::start::Fields::original();
                 }
             });
         });

@@ -9,6 +9,26 @@ pub const SECTION: &str = "General";
 pub const QUEST_KEY: &str = "sCharGenQuest";
 pub const INTRO_KEY: &str = "sIntroMovie";
 
+/// The quest a new game starts when nothing else is set.
+///
+/// FormID `00102037`, editor ID `VCG00`, named "Welcome To Fabulous New Vegas".
+/// [documented: Fallout Wiki, Fallout: New Vegas quest IDs, the `00102037` row and the
+/// VCG00 stage table]
+/// [documented: GECK Wiki, INI Settings, `SCharGenQuest` default `00102037`]
+/// `001FFFF8` is not this quest. That value is a mod's start, and a base-game load
+/// order has no quest there [documented: `engine/nvf-play/src/game_start.rs`].
+pub const DEFAULT_QUEST: &str = "00102037";
+
+/// The intro film a new game plays from `Data\Video` when the film is not turned off.
+///
+/// [documented: public mod pages that replace `Data\Video\FNVIntro.bik` to change the
+/// new-game intro]
+/// [documented: `engine/nvf-play/src/game_start.rs`, `DEFAULT_INTRO` is
+/// `video\fnvintro.bik` when `sIntroMovie` is absent]
+/// The GECK Wiki's `SIntroMovie` default `Fallout INTRO Vsk.bik` is Fallout 3's film.
+/// New Vegas does not ship that file [documented: `game_start.rs`].
+pub const DEFAULT_FILM: &str = "FNVIntro.bik";
+
 /// The card's fields.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Fields {
@@ -28,10 +48,20 @@ fn value(text: &str, key: &str) -> Option<String> {
 }
 
 impl Fields {
+    /// The opening a fresh game uses: quest `00102037` and `FNVIntro.bik`.
+    pub fn original() -> Fields {
+        Fields { quest: DEFAULT_QUEST.into(), film: DEFAULT_FILM.into(), no_film: false }
+    }
+
     /// The fields as the INI's text has them.
     pub fn read(text: &str) -> Fields {
         let film = value(text, INTRO_KEY);
-        Fields { quest: value(text, QUEST_KEY).unwrap_or_default(), no_film: film.as_deref().is_some_and(str::is_empty), film: film.unwrap_or_default() }
+        let quest = value(text, QUEST_KEY).filter(|s| !s.is_empty()).unwrap_or_else(|| DEFAULT_QUEST.into());
+        match film {
+            None => Fields { quest, film: DEFAULT_FILM.into(), no_film: false },
+            Some(f) if f.is_empty() => Fields { quest, film: DEFAULT_FILM.into(), no_film: true },
+            Some(f) => Fields { quest, film: f, no_film: false },
+        }
     }
 
     /// `text` with these fields written: an empty field takes its line out (the game's
@@ -87,11 +117,11 @@ mod tests {
     #[test]
     fn read_and_write() {
         let ini = "[Game]\nPath=F:\\FNV\n\n[Settings]\ngrass=1\n";
-        assert_eq!(Fields::read(ini), Fields::default());
+        assert_eq!(Fields::read(ini), Fields::original());
         let on = Fields { quest: "001FFFF8".into(), film: String::new(), no_film: true }.write(ini);
         assert_eq!(ini_get(&on, "General", "sCharGenQuest").as_deref(), Some("001FFFF8"));
         assert_eq!(ini_get(&on, "General", "sIntroMovie").as_deref(), Some(""));
-        assert_eq!(Fields::read(&on), Fields { quest: "001FFFF8".into(), film: String::new(), no_film: true });
+        assert_eq!(Fields::read(&on), Fields { quest: "001FFFF8".into(), film: DEFAULT_FILM.into(), no_film: true });
         // Emptied: both lines go, every other line stays.
         let off = Fields::default().write(&on);
         assert_eq!(ini_get(&off, "General", "sCharGenQuest"), None);
@@ -108,5 +138,18 @@ mod tests {
         assert!(quoted.no_film);
         // A comment naming the key is not a key.
         assert!(Fields::default().write("[General]\n; sCharGenQuest=old\nsCharGenQuest=001FFFF8\n").contains("; sCharGenQuest=old"));
+    }
+
+    #[test]
+    fn clear_restores_the_original_opening() {
+        let ini = "[General]\nSCharGenQuest=001FFFF8\nSIntroMovie=\n";
+        let cleared = Fields::original();
+        assert_eq!(cleared.quest, "00102037");
+        assert_eq!(cleared.film, "FNVIntro.bik");
+        assert!(!cleared.no_film);
+        let out = cleared.write(ini);
+        assert_eq!(ini_get(&out, "General", "sCharGenQuest").as_deref(), Some("00102037"));
+        assert_eq!(ini_get(&out, "General", "sIntroMovie").as_deref(), Some("FNVIntro.bik"));
+        assert_eq!(Fields::read(&out), cleared);
     }
 }

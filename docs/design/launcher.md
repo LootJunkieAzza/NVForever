@@ -54,8 +54,10 @@ without the launcher is the same as before.
   moves is fitted onto its steps as the game fits it (from 0, to the thousandth); one only
   drawn keeps the INI's value, so opening a tab changes nothing. Save writes only the changed keys over the file as it is on disk then.
   The **NVForever.ini** tab on this page holds the launcher's own keys, including the new-game start
-  (`[General] sCharGenQuest`, `sIntroMovie`, and no intro film). Clear puts those fields back to the
-  New Vegas opening. Save writes them. The Mods page does not have this card.
+  (`[General] sCharGenQuest`, `sIntroMovie`, and no intro film). Clear puts the quest back to
+  `00102037` (VCG00) and the film back to `FNVIntro.bik`. Save writes that file. On Linux the
+  file is in `~/.local/share/nvforever` (or `$XDG_DATA_HOME/nvforever`); on Windows it is in
+  `Documents\My Games\NVForever`. `NVFOREVER_HOME` overrides both. The Mods page does not have this card.
 - **Mods**: NVForever's own `plugins.txt` (turn on/off with the box or a click on the name; drag a row anywhere but its box to move it, with a gold line where it lands; FalloutNV.esm stays first). The new-game start is not on this page. Opening the page runs
   `fnv_install::plugins::sync`, as the game's start does, so new plugins get their lines.
 - **Game folder**: `[Game] Path` with the required-files check, the program to start
