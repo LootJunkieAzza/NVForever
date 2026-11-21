@@ -2548,8 +2548,11 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     w.change_setting("fAVDCarryWeightsBase", Setting::Float(300.0)).unwrap();
     assert!(w.edit_leveled(id(LL_LOOT), |l| l.chance_none = 100));
     assert!(w.edit_base_entries(id(SAFE), |e| e.push(Entry::new(id(KEY), 1))));
+    assert!(w.container_respawns(id(SAFE)));
+    w.set_container_respawns(id(SAFE), false);
+    assert!(!w.container_respawns(id(SAFE)));
     let text = serde_json::to_string(&w.snapshot()).unwrap();
-    for absent in ["fAVDCarryWeightsBase", "favdcarryweightsbase", "chance_none"] {
+    for absent in ["fAVDCarryWeightsBase", "favdcarryweightsbase", "chance_none", "container_respawns"] {
         assert!(!text.contains(absent), "{absent} is not saved");
     }
     let snap: fnv_sim::Snapshot = serde_json::from_str(&text).unwrap();
@@ -2565,11 +2568,20 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     assert_eq!(back.setting_f32("fAVDCarryWeightsBase"), Some(150.0));
     assert_ne!(back.leveled_list(id(LL_LOOT)).unwrap().chance_none, 100);
     assert!(back.base_entries(id(SAFE)).unwrap().iter().all(|e| e.item != id(KEY)));
+    assert!(back.container_respawns(id(SAFE)), "fresh-run restore resets session SetContainerRespawns override");
     // A load in the same run: the session edits carry over.
     back.put_session(w.take_session());
     assert_eq!(back.setting_f32("fAVDCarryWeightsBase"), Some(300.0));
     assert_eq!(back.leveled_list(id(LL_LOOT)).unwrap().chance_none, 100);
     assert!(back.base_entries(id(SAFE)).unwrap().iter().any(|e| e.item == id(KEY)));
+    assert!(!back.container_respawns(id(SAFE)), "same-run put_session preserves SetContainerRespawns override");
+    // A WorldSession holding only a container_respawns override is non-empty.
+    let mut only_respawns = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert!(only_respawns.take_session().is_empty());
+    only_respawns.set_container_respawns(id(SAFE), false);
+    let session = only_respawns.take_session();
+    assert!(!session.is_empty());
+    assert!(only_respawns.take_session().is_empty());
     // Older snapshots, without the new fields, still load.
     let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
     for k in ["created_inventory_sources", "power_armor_training", "carry_bonus", "weight_rules"] {

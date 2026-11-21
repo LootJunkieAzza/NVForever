@@ -41,8 +41,6 @@ pub struct GapsState {
     pub perk_levels: HashMap<FormId, u8>,
     /// SetPerkFlag's flags: (perk, flag ID 0 trait, 1 playable, 2 hidden).
     pub perk_flags: HashMap<(FormId, u8), bool>,
-    /// SetContainerRespawns's flags, by container base.
-    pub respawns: HashMap<FormId, bool>,
     /// SetDestructionDataHealth's values.
     pub destruction_health: HashMap<FormId, i32>,
     /// References whose activation SetInteractionDisabled turned off.
@@ -876,18 +874,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // CONT's Respawns flag; SetContainerRespawns takes the value first and returns 0
-        // [observed: gaps8].
+        // [observed: gaps8]. Stored on `World` so cell resets (`World::reset_containers`),
+        // `ResetInterior`, and merchant restocks (`World::restocks`) all read it.
         "getcontainerrespawns" => {
             let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
-            let rec = match g.world.forms.get(b).map(|x| &x.data) {
-                Some(fnv_sim::forms::BaseData::Container(c)) => c.respawns,
-                _ => false,
-            };
-            yes(g.gaps.respawns.get(&b).copied().unwrap_or(rec))
+            yes(g.world.container_respawns(b))
         }
         "setcontainerrespawns" => {
             if let Some(b) = form(args, 1).or(subject).map(|f| base(g, f)) {
-                g.gaps.respawns.insert(b, num(args, 0, 0.0) != 0.0);
+                g.world.set_container_respawns(b, num(args, 0, 0.0) != 0.0);
             }
             zero
         }

@@ -137,7 +137,17 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   entries carry nothing for them [observed by the owner in game, 2026-10-08]; non-item entries stay
   [hypothesis].
 - **CONT DATA**: flags u8 (bit 1 "Respawns"), weight f32 [documented: xEdit]. 3,417
-  container bases; 177 respawn; 845 have no CNTO [observed].
+  container bases; 177 respawn; 845 have no CNTO [observed]. Session-only
+  `SetContainerRespawns` / `GetContainerRespawns` (`World::set_container_respawns`,
+  `World::container_respawns`, `nvse_gaps.rs`) override a `CONT` base's Respawns
+  flag for the current session (non-containers are ignored; carried across a
+  same-run load via `WorldSession` / `World::take_session` / `World::put_session`,
+  not saved in `Snapshot`) [documented: GECK wiki `SetContainerRespawns` /
+  `GetContainerRespawns`, base-form flag toggle; observed: `gaps8`, value-first
+  returns 0 and reads back; hypothesis: session-only lifetime, like `base_edits`]
+  and are read by `World::reset_containers` (timed cell respawn and `ResetInterior`)
+  as well as `World::restocks` (merchant container restocking) [hypothesis: live
+  container-respawn consumers read the updated `CONT` Respawns flag].
 - **Respawn**: when a cell is loaded again after staying unloaded for at least the
   respawn delay, its containers whose base has the Respawns flag return to their
   authored state (new leveled roll, anything left inside lost; lock restored
