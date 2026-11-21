@@ -596,6 +596,24 @@ pub const SECTIONS: &[Section] = &[
             "tweak-min-splatter",
         ],
     ),
+    // The flashlight's own rows (nvforever `flashlight.rs`), not one of #1892's: the switch,
+    // the lists, then the sliders [design: not in the original].
+    group_section(
+        "Quality of Life",
+        "Flashlight",
+        &[
+            "flashlight-shadows",
+            "flashlight-type",
+            "flashlight-colour",
+            "flashlight-red",
+            "flashlight-green",
+            "flashlight-blue",
+            "flashlight-range",
+            "flashlight-brightness",
+            "flashlight-beam-width",
+            "flashlight-beam-softness",
+        ],
+    ),
     // Tweaks > HUD.
     group_section(
         "HUD",
@@ -999,7 +1017,16 @@ pub const SHOWN_WITH: &[(&str, &str, &[&str])] = &[
 /// choices by name, why) [design: the menu overhaul], as [`NEEDS`] for a row that needs a
 /// choice rather than a row switched on. The game's page
 /// (`nvf_play::settings::Settings::disabled_status`) and the launcher both go by it.
-pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[("vats-slowdown", "vats-style", &["Classic"], "Classic V.A.T.S. only.")];
+pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[
+    ("vats-slowdown", "vats-style", &["Classic"], "Classic V.A.T.S. only."),
+    // A point light has no cone (Bevy's `PointLight`).
+    ("flashlight-beam-width", "flashlight-type", &["Spot"], "Spot flashlight only."),
+    // The light takes the Pip-Boy's colour, not the sliders'.
+    ("flashlight-red", "flashlight-colour", &["Warm white", "Cool white", "Amber", "Red", "Green", "Blue", "Custom"], "Not while Colour is Pip-Boy."),
+    ("flashlight-green", "flashlight-colour", &["Warm white", "Cool white", "Amber", "Red", "Green", "Blue", "Custom"], "Not while Colour is Pip-Boy."),
+    ("flashlight-blue", "flashlight-colour", &["Warm white", "Cool white", "Amber", "Red", "Green", "Blue", "Custom"], "Not while Colour is Pip-Boy."),
+    ("flashlight-beam-softness", "flashlight-type", &["Spot"], "Spot flashlight only."),
+];
 
 /// What a row needs of another row to apply: `parent` on (a switch on, a list past its first
 /// choice) when `choices` is empty, else `parent` on one of `choices` (by name). `why` is

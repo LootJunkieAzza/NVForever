@@ -686,7 +686,7 @@ type Watched = (&'static ActorRig, &'static GlobalTransform, &'static InheritedV
 
 /// The light sources, the camera and the worldspace's records.
 type Scene<'w, 's> = (
-    Query<'w, 's, (&'static PointLight, &'static GlobalTransform, &'static InheritedVisibility)>,
+    Query<'w, 's, (&'static PointLight, &'static GlobalTransform, &'static InheritedVisibility), Without<crate::flashlight::PlayerFlashlight>>,
     Query<'w, 's, (&'static SpotLight, &'static GlobalTransform, &'static InheritedVisibility), Without<crate::flashlight::PlayerFlashlight>>,
     Query<'w, 's, &'static GlobalTransform, With<PlayerCamera>>,
     Option<Res<'w, WorldData>>,
