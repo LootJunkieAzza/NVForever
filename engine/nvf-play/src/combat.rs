@@ -1577,14 +1577,16 @@ impl Combat {
         }
         let style = AttackStyle::of(w, false, false);
         // God mode keeps the magazine full (the shots take nothing).
-        let rounds = if cy.no_ammo {
+        // A weapon of Ammo Use 0 spends none (#3023): as one with no ammo.
+        let free = cy.no_ammo || cy.ammo_use == 0;
+        let rounds = if free {
             u32::MAX / 2
         } else if god_mode() && cy.regen.is_none() {
             cy.clip_size
         } else {
             cy.magazine
         };
-        if !cy.no_ammo && rounds < cy.ammo_use {
+        if !free && rounds < cy.ammo_use {
             return Err("Out of ammo.");
         }
         let range = self.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
@@ -1594,7 +1596,7 @@ impl Combat {
             cost,
             style,
             // A burst's rounds are one mark's (§16.1).
-            rounds_per_shot: if cy.no_ammo { 1 } else { cy.ammo_use * style.shots_per_mark() },
+            rounds_per_shot: if free { 1 } else { cy.ammo_use * style.shots_per_mark() },
             rounds,
             reach: if range > 0.0 { range } else { crate::vats_mode::REACH },
             melee_reach: 0.0,

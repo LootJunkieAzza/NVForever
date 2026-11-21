@@ -282,6 +282,52 @@ pub(crate) struct Faded {
     made_from: AssetId<NifMaterial>,
 }
 
+impl Faded {
+    /// Make `material` the one the fade gives back when the actor's alpha is released (a
+    /// texture swap's copy, texture_swap.rs), so the release cannot bring back the material
+    /// worn before the swap (#2981: its authored set, mark, metallic or gloss); the faded copy
+    /// is made again from it at the next sync (`made_from` no longer matches). Whether it
+    /// changed.
+    pub(crate) fn retarget(&mut self, material: &Handle<NifMaterial>) -> bool {
+        if self.original.id() == material.id() {
+            return false;
+        }
+        self.original = material.clone();
+        true
+    }
+}
+
+/// The mesh's own material under the see-through copies it may wear (#2981): the material
+/// both SetActorAlpha's [`Faded`] and a fade's `nvf_play::fade::Fading` give back in the end,
+/// never one of their blended copies. Whichever of the two started second copied what the
+/// mesh wore then, so its stored original may be the other's copy:
+/// - actor alpha first: the fade's original is the alpha's copy; `Faded::original` is the
+///   mesh's own;
+/// - fade first: the alpha's original is the fade's copy, and the fade's original is the
+///   mesh's own; once that fade has ended it removed its copy, and the alpha's original
+///   names a material that is gone (`live` says which exist).
+///
+/// A texture swap (`crate::texture_swap`) matches and copies this material, so it does not
+/// bake a fade's alpha into a material that stays [design]. How the two see-through copies
+/// hand the mesh back when both run is not changed here, and two sequences still give the
+/// swap a wrong source (neither system keeps the mesh's own handle apart from its copies):
+/// the alpha outliving a fade with no second fade running (a removed copy: no swap), and
+/// the alpha released while a fade that started second still runs (the fade's original is
+/// the alpha's copy).
+pub(crate) fn persistent_material(drawn: &Handle<NifMaterial>, drawing: Option<&nvf_assets::nif_material::MaterialOverride>, faded: Option<&Faded>, fading: Option<&nvf_play::fade::Fading>, live: impl Fn(AssetId<NifMaterial>) -> bool) -> Handle<NifMaterial> {
+    match (faded, fading) {
+        // The alpha copied this fade's copy, or the copy of an earlier fade that removed it
+        // at its end while the alpha stayed on: the fade under way holds the mesh's own.
+        (Some(a), Some(f)) if a.original.id() == f.copy().id() || !live(a.original.id()) => f.original().clone(),
+        // The alpha's stored original, also when no fade runs and a fade that ended removed
+        // it: the swap then finds nothing to copy and is not made, as before #2981. What the
+        // mesh wears then may be the alpha's cached copy, which must not become the source.
+        (Some(a), _) => a.original.clone(),
+        (None, Some(f)) => f.original().clone(),
+        (None, None) => nvf_assets::nif_material::plain_material(drawn, drawing).clone(),
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct Shaders {
     records: HashMap<u32, Option<Box<EffectShader>>>,
@@ -963,6 +1009,18 @@ fn report(mut exit: MessageReader<AppExit>, st: Res<Shaders>) {
 
 #[cfg(test)]
 mod tests {
+    /// #2981: a swap retargets the alpha fade's stored original, so its release gives back the
+    /// swapped material, and the next sync makes the faded copy again from it.
+    #[test]
+    fn a_swap_retargets_the_alpha_fades_original() {
+        let mut materials = bevy::prelude::Assets::<nvf_assets::NifMaterial>::default();
+        let (old, new) = (materials.add(nvf_assets::nif_material(Default::default())), materials.add(nvf_assets::nif_material(Default::default())));
+        let mut f = super::Faded { made_from: old.id(), original: old.clone(), alpha: 0.5 };
+        assert!(f.retarget(&new));
+        assert_eq!(f.original, new);
+        assert_ne!(f.made_from, f.original.id(), "the faded copy is made again from the swapped material");
+        assert!(!f.retarget(&new));
+    }
     use super::*;
     use crate::sky::{BODY_LAYER, SHADOW_LAYER};
     use bevy::asset::{AssetApp, AssetPlugin};

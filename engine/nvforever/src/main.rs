@@ -561,6 +561,8 @@ struct Args {
     /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal), for comparing them one at a time.
+    /// The switches on in vanilla are left on unless named off: no-glow, no-eye-adaptation,
+    /// no-neon-glow, no-water-mirror, no-authored-materials.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
     /// Ambient occlusion on at this level whatever the look (--graphics, --graphics-only)
@@ -1061,6 +1063,15 @@ fn parse_smoothing(value: &str) -> Result<nvf_play::smooth_terrain::Smoothing, S
 #[global_allocator]
 static ALLOCATOR: crash::SaysWhenEmpty = crash::SaysWhenEmpty;
 
+/// The Mod Organizer 2 folders this run reads, for the reports' redaction (#3152): the
+/// `--mo2` instance (or the one that started this process) with its mods and overwrite
+/// folders.
+fn report_mo2_folders(args: &Args) -> Vec<(std::path::PathBuf, &'static str)> {
+    let Some(instance) = args.mo2.clone().or_else(fnv_install::mo2::instance_dir) else { return Vec::new() };
+    let layout = fnv_install::mo2::Layout::open(&instance, args.profile.as_deref()).ok();
+    reports::mo2_folders(&instance, layout.as_ref())
+}
+
 fn main() -> AppExit {
     // Started as this run's exit watcher (exit_watch.rs): wait for the game's process, no game.
     if exit_watch::run_if_watcher() {
@@ -1082,7 +1093,10 @@ fn main() -> AppExit {
     // On a processor with L3 domains of different sizes, the game's threads on the largest
     // (cpu_placement.rs): before any thread pool or other thread starts, so all of them
     // start there. Logged once the log is up.
-    let cpu_placed = cpu_placement::place(args.cpu_cache_placement);
+    let mut cpu_placed = cpu_placement::place(args.cpu_cache_placement);
+    // Rayon's global pool (the load-time data building) with the same budget, before its
+    // first use (#3148).
+    cpu_placed.size_rayon();
     if args.explore {
         eprintln!("explore: the free-camera explorer (--explore)");
     }
@@ -1668,6 +1682,12 @@ fn main() -> AppExit {
     // `fix_smooth_terrain`), still before the first cell.
     nvf_play::smooth_terrain::set_setting(if args.no_smooth_terrain { nvf_play::smooth_terrain::Smoothing::Off } else { args.smooth_terrain.unwrap_or(nvf_play::smooth_terrain::Smoothing::DEFAULT) });
     nvf_play::smooth_terrain::fix();
+    // Authored materials (#2981): the run's state, fixed before the first material is made
+    // (the command line's, then the INI's saved row by its precedence), so cached models
+    // never mix the two; the page's row changes the next start's.
+    let authored = settings::authored_after_ini(graphics.authored_materials, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::authored::set_enabled(authored);
+    app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
     let start_upscaler = {
         let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
         let ini = given.as_ref().and_then(|_| settings::settings_text_at_start()).map(|text| settings::UpscalerIni::read(&text));
@@ -1913,7 +1933,7 @@ fn main() -> AppExit {
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
-    .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
+    .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), mo2_folders: report_mo2_folders(&args), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
     .add_systems(Last, (crash::note_place, crash::test_device_lost, events_log::note_context, stray_commands::report))
     // After Bevy's window-closed exit, which writes AppExit in Last too: before it, closing
     // the window left no clean-exit line and the run was reported as a native crash (#2203).

@@ -2083,3 +2083,55 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
    21 and the REPCONN basement are still to capture (section 8).
 6. The engine's handling of SCOL references: whether it draws the combined mesh (assumed)
    or the parts.
+
+## Water surface ownership during streaming
+
+[design] Loaded exterior cells own their local water planes. Distant water fills
+eligible cells outside that loaded set, inside the configured LOD range. A cell
+must not retain both owners after stream reconciliation. Cell count alone does
+not identify that set: replacing one loaded cell with another can leave its size
+unchanged.
+
+[design] Distant-water invalidation includes camera cell, effective LOD radius
+(including off/interior) and the exact loaded-cell keys. Compare stable keys
+without allocating each frame; retain a copy only when coverage changes. Then
+remove no-longer-eligible planes, create newly eligible planes and retain the
+same entities/materials for unaffected cells. Existing water type, depth,
+reflection, alpha, material and mesh policy is unchanged.
+
+[hypothesis] Coplanar retained distant/local planes are a causal renderer boundary
+to test for reported water flicker, not yet proof of every observed flicker.
+Controls must invoke the actual renderer producer with same-count replacements,
+steady coverage, LOD off/range changes and cell/world lifecycle; inspecting only
+an invalidation-key getter is insufficient. No original assets or GPU outcome is
+claimed by authored CPU fixtures.
+
+
+#### Current-camera underwater fog handoff
+
+[design: engine render scheduling] The water fog override is composed after the current
+camera transform propagates, before the reflection camera copies that fog. The
+weather/interior composition is shared with the ordinary sky updater. Leaving water
+restores its current values in the same frame, including weather, lighting, HDR emissive
+and interior-fog preferences changed while submerged; it does not replay a pre-entry
+snapshot [hypothesis: that the original's fog returns in the frame the camera leaves the
+water; not observed in the original game]. The WATR under-water fog colour rule (§6
+"Under-water colour") is unchanged by this handoff. No HUD alpha, breath recovery,
+radiation, image modifier, or water shader policy is changed by this handoff.
+
+The prior Update override read the previous propagated camera and requested a
+later sky refresh on exit. This is a source-predicted temporal mismatch, not proof
+that it explains the entire reported persistent cyan tint. Controls must move the
+real camera Transform through enter/exit/re-entry, assert the extracted current
+fog, and cover current exterior/interior restoration. GPU/original-profile
+acceptance remains separate from CPU producer results.
+
+
+### CPU validation scope
+
+The water producer/camera-fog and live-IMAD grade controls exercise CPU consumers;
+revision-specific CI and failure history are recorded in PR #2861. The
+identical-fixture baseline comparisons, nonfinite/overflow guard, auxiliary-camera
+and reflection scheduling, worldspace clearing, HDR restoration, native behavior,
+original mod initialization and installed-profile/persistent-cyan/GPU/FPS outcomes
+are not established by those controls.

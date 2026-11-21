@@ -545,6 +545,7 @@ fn write_saves(world: &mut World) {
             let line = format!("Cannot save {:?} now: {why}", r.name);
             info!("save: not now: {why}");
             world.resource_mut::<SaveLog>().0.push(line);
+            say_in_the_corner(world, format!("Cannot save now: {why}"));
             // The pause menu's status line says it too, instead of "Saving..." for good.
             let path = world.resource::<SaveConfig>().path_of(&r.name).unwrap_or_default();
             world.write_message(SaveDone { path, result: Err(format!("not now: {why}")) });
@@ -562,6 +563,7 @@ fn write_saves(world: &mut World) {
         done.push(key);
         if let Err(e) = save_now(world, &r) {
             warn!("save: failed: {e}");
+            say_in_the_corner(world, failed_note(r.kind, &e));
             world.resource_mut::<SaveLog>().0.push(format!("Save failed: {e}"));
             let path = world.resource::<SaveConfig>().path_of(&r.name).unwrap_or_default();
             world.write_message(SaveDone { path, result: Err(e) });
@@ -686,6 +688,37 @@ fn start_writer(w: &mut SaveWrites, batch: Vec<Unwritten>, shot: Option<Shot>) {
     }));
 }
 
+/// The corner message for a save that failed: which kind and a short reason, in
+/// NVForever's own words. Without it a quicksave or an autosave that failed showed
+/// nothing, and the player believed the game was saved (#3147). The reason is the
+/// error's first line, cut at [`REASON_CHARS`] characters (the log has all of it).
+fn failed_note(kind: SaveKind, error: &str) -> String {
+    let what = match kind {
+        SaveKind::Auto => "Autosave failed",
+        SaveKind::Quick => "Quicksave failed",
+        SaveKind::Manual | SaveKind::System => "Save failed",
+    };
+    let line = error.lines().next().unwrap_or("").trim();
+    let mut reason: String = line.chars().take(REASON_CHARS).collect();
+    if reason.len() < line.len() {
+        reason.push_str("...");
+    }
+    if reason.is_empty() {
+        format!("{what}.")
+    } else {
+        format!("{what}: {reason}")
+    }
+}
+
+/// The characters of an error a corner message shows.
+const REASON_CHARS: usize = 120;
+
+fn say_in_the_corner(world: &mut World, text: String) {
+    if let Some(mut c) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
+        c.push(text.into());
+    }
+}
+
 /// Log the files the writer thread finished, for the console, the corner and the pause menu.
 fn report_written(world: &mut World) {
     let done: Vec<Written> = {
@@ -713,6 +746,7 @@ fn report_written(world: &mut World) {
             }
             Err(e) => {
                 warn!("save: failed: {e}");
+                say_in_the_corner(world, failed_note(d.kind, e));
                 format!("Save failed: {e}")
             }
         };
@@ -1017,6 +1051,28 @@ mod lambda_remap_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A failed save says so in the corner, by kind, with a short reason (#3147).
+    #[test]
+    fn a_failed_save_has_a_corner_message() {
+        assert_eq!(failed_note(SaveKind::Quick, "disk full"), "Quicksave failed: disk full");
+        assert_eq!(failed_note(SaveKind::Auto, "disk full\nmore"), "Autosave failed: disk full");
+        assert_eq!(failed_note(SaveKind::Manual, ""), "Save failed.");
+        assert_eq!(failed_note(SaveKind::System, " x "), "Save failed: x");
+        let long = failed_note(SaveKind::Quick, &"é".repeat(500));
+        assert_eq!(long.chars().count(), "Quicksave failed: ".len() + REASON_CHARS + 3);
+        assert!(long.ends_with("..."));
+        // It reaches the corner messages, once for the same text.
+        let mut world = World::new();
+        say_in_the_corner(&mut world, "nothing to hold it".into());
+        world.init_resource::<crate::corner_messages::CornerMessages>();
+        say_in_the_corner(&mut world, failed_note(SaveKind::Quick, "disk full"));
+        say_in_the_corner(&mut world, failed_note(SaveKind::Quick, "disk full"));
+        let mut c = world.resource_mut::<crate::corner_messages::CornerMessages>();
+        assert_eq!(c.waiting(), 1);
+        c.step(0.0);
+        assert_eq!(c.showing().map(|n| n.text.as_str()), Some("Quicksave failed: disk full"));
+    }
 
     fn csty_save_world(name: &str, callback_body: &str) -> (World, PathBuf, Vec<u8>) {
         use crate::script_draw::tests::{play_over, record, sub, top};

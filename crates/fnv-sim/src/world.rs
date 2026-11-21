@@ -1885,6 +1885,14 @@ impl<'a> World<'a> {
     /// engine generation; other references are not reset yet] Returns the containers
     /// reset.
     pub fn attach_cell(&mut self, cell: FormId) -> Result<Vec<FormId>, SimError> {
+        let never_resets = self.cell_never_resets(cell);
+        self.attach_cell_with_never_resets(cell, never_resets)
+    }
+
+    /// As [`World::attach_cell`], using an effective `never_resets` decision supplied by the
+    /// caller (so `fnv-game` can include session `SetZoneFlag` and `SetCellEncounterZone`
+    /// overrides alongside saved `SetZoneRespawns`).
+    pub fn attach_cell_with_never_resets(&mut self, cell: FormId, never_resets: bool) -> Result<Vec<FormId>, SimError> {
         let Some(since) = self.detached_cells.remove(&cell) else { return Ok(Vec::new()) };
         let now = self.calendar()?.days_passed;
         // GameDaysPassed is an f32 global, so an exact delay can come out a hair short
@@ -1895,7 +1903,7 @@ impl<'a> World<'a> {
         }
         // An encounter zone with "Never Resets" keeps its containers as they are
         // (docs/spec-notes/encounter-zones.md §4).
-        if self.cell_never_resets(cell) {
+        if never_resets {
             return Ok(Vec::new());
         }
         Ok(self.reset_containers(cell))

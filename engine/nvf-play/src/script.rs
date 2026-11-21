@@ -757,13 +757,15 @@ impl Runtime {
         let changed: Vec<FormId> = s.sim.refs.keys().chain(s.fade_moves.keys()).copied().collect::<BTreeSet<_>>().into_iter().collect();
         let data = self.game.data;
         let cfg = self.game.cfg;
-        let session = self.game.take_session();
         // The game restores on the played world, so that what it does there stays (the
         // moves above), and hands it back for `sim`; it keeps a stand-in between turns
         // (`with_world`).
         let stand_in = World::new(sim.forms, sim.refs, world.config());
-        self.game = Game::restore(data, world, cfg, &s)?;
-        self.game.put_session(session);
+        // A refused snapshot must not drain the active game's session.
+        let mut restored = Game::restore(data, world, cfg, &s)?;
+        let session = self.game.take_session();
+        restored.put_session(session);
+        self.game = restored;
         // The engine's seats are not saved, so a load stands the player and every NPC up
         // (docs/design/save-load.md §3.4): `Game::restore` clears each saved furniture use,
         // or GetSitting and its kin go on reading the seat (#1573, #2797).
@@ -2939,6 +2941,36 @@ mod restore_tests {
         assert!(e.contains("unsupported snapshot format"), "{e}");
         assert!(sim.world.peek(ACTOR).is_none() && sim.world.peek(MARKER).is_none());
         assert!(!rt.restored_from_save);
+    }
+
+    /// The session fields that `take_session` drains survive a `Game::restore` refusal.
+    #[test]
+    fn a_refused_restore_keeps_active_save_file_session_sentinels() {
+        use fnv_game::nvse_sup4::{SaveFile, SaveFiles};
+        let (mut rt, mut sim, good) = in_fade();
+        rt.game.save_files = SaveFiles {
+            saved: Some(SaveFile { name: "owned-active-save".into(), bytes: 41 }),
+            loaded: Some(SaveFile { name: "owned-active-load".into(), bytes: 73 }),
+        };
+        let before = rt.game.save_files.clone();
+        let played = sim.world.snapshot();
+        let stand_in = rt.game.world.snapshot();
+        let mut refused = good.clone();
+        refused.format = "fnv.game.state/unsupported-test".into();
+        // World restoration is valid: the refusal is in Game::restore, after the
+        // old ordering had already drained these active session fields.
+        fnv_sim::World::restore(sim.forms, sim.refs, &refused.sim).unwrap();
+        let error = rt.restore_save(&mut sim, refused).unwrap_err();
+        assert!(error.contains("unsupported snapshot format"), "{error}");
+        assert_eq!(rt.game.save_files, before, "a refused Game restore must not drain the active session");
+        assert_eq!(sim.world.snapshot(), played);
+        assert_eq!(rt.game.world.snapshot(), stand_in);
+        assert!(!rt.restored_from_save);
+        // The successful neighbor still transfers this same active session.
+        rt.restore_save(&mut sim, good).unwrap();
+        assert_eq!(rt.game.save_files, before);
+        assert!(rt.restored_from_save);
+        assert_eq!(sim.world.peek(ACTOR).unwrap().cell, Some(MARKER_CELL));
     }
 
     #[test]

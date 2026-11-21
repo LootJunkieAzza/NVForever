@@ -236,6 +236,10 @@ pub fn reset_interior(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 pub fn set_zone_respawns(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let zone = a.form(0)?;
     g.world.set_zone_respawns(zone, a.num(1)? != 0.0);
+    // A new SetZoneRespawns supersedes an earlier session SetZoneFlag bit-1 override.
+    if let Some(c) = g.other.zone_changes.get_mut(&zone) {
+        c.never_resets = None;
+    }
     none()
 }
 

@@ -56,6 +56,9 @@ own rules are not known]:
 - what is still open at the end of a file is closed there (each included file is read
   on its own, so this stays inside the include);
 - a start tag cut short by `<` ends there, open (its own end tag follows);
+- an element opened inside 256 open ones is left out with everything in it, up to its own
+  end tag [design: `xml::MAX_DEPTH`, NVForever's own guard against running out of stack on
+  a broken or crafted file, #3156; no vanilla file comes near it];
 - an unquoted attribute value runs to a space or `>`, stray quotes dropped;
 - `<!-- -->` comments, `<?…?>` and `<!…>` are skipped; `&amp;` `&lt;` `&gt;` `&quot;`
   `&apos;` `&#N;` are decoded; any other `&name;` is kept by name;

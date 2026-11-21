@@ -762,9 +762,25 @@ impl Game<'_> {
 
 /// `actor.GetFriendHit target`: the friendly hits `target` made on the actor that still
 /// count [documented: GECK wiki GetFriendHit, Friendly Fire].
+///
+/// In a parameterless CTDA condition (function index 288, empty CTDA parameter list in
+/// `FalloutNV.esm`, e.g. dialogue INFOs with `GetFriendHit > 0`), the implicit attacker
+/// is the condition's target (`Game::condition_target`, or `0` when absent) [hypothesis:
+/// `eval_conditions` supplies the conversation/interaction target in `condition_target`,
+/// matching `Exists` in `functions::fighting`; native behavior when `target` is absent
+/// or differs from the player is unobserved]. Ordinary script calls still require an
+/// explicit actor argument (`a.form(0)?`).
 pub fn get_friend_hit(g: &mut Game, ctx: &crate::functions::Ctx, a: &crate::functions::Args) -> Result<fnv_script::vm::Value, String> {
     let r = ctx.subject()?;
-    Ok(fnv_script::vm::Value::Num(g.friend_hits(r, a.form(0)?) as f64))
+    let by = if ctx.in_condition && a.0.is_empty() {
+        let Some(target) = g.condition_target else {
+            return Ok(fnv_script::vm::Value::ZERO);
+        };
+        target
+    } else {
+        a.form(0)?
+    };
+    Ok(fnv_script::vm::Value::Num(g.friend_hits(r, by) as f64))
 }
 
 /// `actor.GetAttacked`: 1 once someone attacked the actor, cleared when it drops out of

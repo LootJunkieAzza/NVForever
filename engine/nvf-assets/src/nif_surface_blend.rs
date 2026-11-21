@@ -10,7 +10,8 @@
 //! NIF pipeline it replaces (the view and mesh groups are the same mesh pipeline's).
 //!
 //! [design] Round 10a, landscape detail: with bindless textures the blend type's index
-//! table (binding 100) is longer, 50..[`PALETTE_END`] instead of 50..54. After the four
+//! table (binding 100) is longer, 50..[`PALETTE_END`] instead of the ordinary 50..57 (whose 54-56, the window
+//! environment map's, the blend type has not: a shape that reflects is never given it). After the four
 //! ordinary entries come [`PALETTE_IMAGES`] texture entries and [`PALETTE_SAMPLERS`]
 //! sampler entries: the landscape layer textures (diffuse and normal maps) and samplers a
 //! publication's detail quadrants sample ([`TerrainPalette`]). Their slots are local to
@@ -744,8 +745,8 @@ mod tests {
             assert_eq!(descriptor.fragment.as_ref().unwrap().targets, original.fragment.as_ref().unwrap().targets);
             assert_eq!(descriptor.fragment.as_ref().unwrap().shader_defs.contains(&"MESH_TERRAIN_BLEND".into()), !prepass);
         }}
-        assert_eq!(NifSurfaceBlendUniform::min_size().get(), 192, "the ordinary 144 bytes (#2551's terrain row included), then three vec4s");
-        assert_eq!(crate::nif_material::NifSurfaceUniform::min_size().get(), 144, "the ordinary uniform is main's");
+        assert_eq!(NifSurfaceBlendUniform::min_size().get(), 192, "the ordinary rows up to #2551's terrain row (144 bytes), then three vec4s");
+        assert_eq!(crate::nif_material::NifSurfaceUniform::min_size().get(), 160, "the ordinary uniform: the same 144 bytes, then #2462's env row, which the blend type has not");
     }
 
     fn textures(descriptor: &BindlessDescriptor) -> usize {
@@ -763,9 +764,10 @@ mod tests {
         // type's `bind_group_layout_entries` is that type's, checked below): the same slot
         // types and texture count as the ordinary NIF type.
         let colour = NifSurfaceBlendColour::bindless_descriptor().unwrap();
-        assert_eq!(textures(&colour), textures(&ordinary));
-        assert_eq!(textures(&colour), 2);
-        assert_eq!(&colour.resources[50..], &ordinary.resources[50..], "same slot types: 50 data, 51 texture, 52 sampler, 53 texture");
+        // The ordinary type has two more since #2462 (the window environment map's cube and
+        // mask at 54 and 56, which the blend type has not), so the blend binds fewer.
+        assert_eq!((textures(&colour), textures(&ordinary)), (2, 4));
+        assert_eq!(&colour.resources[50..], &ordinary.resources[50..54], "same slot types: 50 data, 51 texture, 52 sampler, 53 texture");
         assert_eq!((colour.buffers[0].binding_number.0, colour.buffers[0].bindless_index.0, colour.buffers[0].size), (101, 50, Some(192)));
         let source = include_str!("nif_surface_blend.rs");
         let fields = source.split("pub struct NifSurfaceBlendColour {").nth(1).unwrap().split("\n}").next().unwrap();
@@ -780,14 +782,14 @@ mod tests {
         // longer index table, 50..454, whose entries after the ordinary four are the palette's
         // 384 textures and 16 samplers; the ordinary type's table is unchanged.
         let blend = NifSurfaceBlend::bindless_descriptor().unwrap();
-        assert_eq!(&blend.resources[50..54], &ordinary.resources[50..]);
+        assert_eq!(&blend.resources[50..54], &ordinary.resources[50..54]);
         assert_eq!(blend.resources.len(), PALETTE_END as usize);
         assert!(blend.resources[54..54 + PALETTE_IMAGES].iter().all(|r| *r == R::Texture2d));
         assert!(blend.resources[54 + PALETTE_IMAGES..].iter().all(|r| *r == R::SamplerFiltering));
         assert_eq!(blend.index_tables.len(), 1, "no second table and no second storage binding");
         let (b, o) = (&blend.index_tables[0], &ordinary.index_tables[0]);
         assert_eq!((b.indices.start.0, b.indices.end.0, b.binding_number.0), (50, PALETTE_END, 100));
-        assert_eq!((o.indices.start.0, o.indices.end.0, o.binding_number.0), (50, 54, 100), "the ordinary NifSurface table is main's");
+        assert_eq!((o.indices.start.0, o.indices.end.0, o.binding_number.0), (50, 57, 100), "the ordinary NifSurface table is main's");
         assert_eq!(PALETTE_END, 454, "the attribute on NifSurfaceBlendColour spells it out");
         assert!(palette_index_table(&blend).is_some_and(|t| t.binding_number.0 == 100));
         assert_eq!(blend.buffers.len(), colour.buffers.len(), "no buffer of its own");

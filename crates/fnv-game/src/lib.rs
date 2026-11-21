@@ -77,6 +77,7 @@ pub mod connections;
 pub mod crafting;
 pub mod crime;
 pub mod data;
+mod ysi_filename;
 pub mod source_compile;
 pub mod softlock;
 pub mod plugin_questions;

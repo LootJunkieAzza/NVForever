@@ -30,10 +30,8 @@ privately). Nothing here comes from the executable. Blackjack: blackjack.md.
   requirement]. Otherwise a corner message says why [hypothesis: the words are
   NVForever's].
 - It is a menu: the world and the game clock stand still (`PlayState::Menu`), menu code
-  1101 to scripts [hypothesis: the menu's `&RouletteMenu;` class number is not in the
-  menu files; NVForever's own, unused by any script, above the codes the game is known to
-  use; it was 1036 until 2026-10-17, which is the race menu's (ShowRaceMenu,
-  layer5-captures.md §10.3), and the race menu could then not be closed].
+  1082 to scripts (`RouletteMenu` in `fnv_ui::value::MENU_CLASSES`) [documented: GECK wiki
+  MenuMode].
 - Placed tables: The Tops (0x0011ED93 in `TOPSCasino`), Gomorrah (3), the Ultra-Luxe (4),
   the Atomic Wrangler and Vikki & Vance [observed: `fnvtool world refs --interiors`].
 

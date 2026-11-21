@@ -816,3 +816,114 @@ fn material_edits_clone_and_update_the_plain_source_beneath_a_cloak() {
     assert!(!materials.get(&private).unwrap().extension.refract);
     assert_eq!(materials.get(&private).unwrap().base.base_color.alpha(), 0.7);
 }
+
+/// An authored material (#2981) on the flat fixture's shape: the mark and a legacy look.
+fn authored_shape(app: &mut App, shape: Entity) -> Handle<NifMaterial> {
+    use nvf_assets::authored::{LegacyLook, AUTHORED_MARK};
+    let mut m = nvf_assets::nif_material::nif_material(StandardMaterial { reflectance: 0.5, ..default() });
+    m.extension.emissive_rule.w = AUTHORED_MARK;
+    m.extension.legacy = Some(LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None });
+    let h = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(m);
+    app.world_mut().entity_mut(shape).insert(MeshMaterial3d(h.clone()));
+    h
+}
+
+/// Review of stage 3 (#2981): a specular colour edit then an alpha edit of the same shape,
+/// drained in one mirror update, go to one private copy that draws both; before, each made
+/// its own copy of the old material, and the second deferred insert won with the set's white
+/// highlight in place of the scripted colour.
+#[test]
+fn a_tint_then_an_alpha_edit_in_one_update_share_one_private_copy() {
+    let (mut app, _files, reference, shape) = legacy_flat_fixture(true, "ConcreteFlatShape");
+    let original = authored_shape(&mut app, shape);
+    app.update();
+    let made_before = app.world().resource::<Assets<NifMaterial>>().len();
+    call_ref(&mut app, reference, "setmaterialpropertyvalue", &[XVal::Str("ConcreteFlatShape".into()), XVal::Num(0.0), XVal::Num(1.0)]);
+    call_ref(&mut app, reference, "setmaterialpropertyvalue", &[XVal::Str("ConcreteFlatShape".into()), XVal::Num(7.0), XVal::Num(0.4)]);
+    app.update();
+    let private = app.world().get::<MeshMaterial3d<NifMaterial>>(shape).unwrap().0.clone();
+    assert_ne!(private, original);
+    assert_eq!(app.world().resource::<TestMemory>().0.owned.get(&shape), Some(&private));
+    let materials = app.world().resource::<Assets<NifMaterial>>();
+    assert_eq!(materials.len(), made_before + 1, "one private copy, not one per edit");
+    let m = materials.get(&private).unwrap();
+    // The fixture's stored values are 0.25 each; the script set red to 1.
+    assert_eq!(m.base.specular_tint, Color::linear_rgb(1.0, 0.25, 0.25), "the scripted colour is drawn");
+    assert_eq!(m.base.base_color.alpha(), 0.4);
+    assert!(nvf_assets::authored::is_authored(m));
+    let o = materials.get(&original).unwrap();
+    assert_eq!((o.base.specular_tint, o.base.base_color.alpha()), (Color::WHITE, 1.0), "the shared material is untouched");
+}
+
+/// A folder of generated files (removed at the end) with one diffuse that has an authored set.
+struct SetFiles(std::path::PathBuf);
+impl Drop for SetFiles {
+    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+}
+
+/// Review of stage 3 (#2981): a specular colour a script set on a named shape stays drawn
+/// after a script's texture swap puts another diffuse's authored set on that shape, through
+/// the mirror producer and the production swap (`texture_swap::Swapping::sync`); before, the
+/// set's application reset it to white.
+#[test]
+fn a_scripted_tint_stays_drawn_after_a_swap_to_another_authored_set() {
+    use fnv_game::functions::misc::TextureSwaps;
+    #[derive(Resource, Default)]
+    struct Swaps(TextureSwaps);
+    let (mut app, _files, reference, shape) = legacy_flat_fixture(true, "ConcreteFlatShape");
+    // [documented: nvf-assets authored/tests.rs `Pack`] A BC1 diffuse and a BC7 `_orm` under
+    // `textures\pbr\` at the same relative path make an authored set; no game files.
+    let dir = SetFiles(std::env::temp_dir().join(format!("nvf-mirror-swap-set-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())));
+    let header = |tag: &[u8; 4]| {
+        let mut b = vec![0u8; 128];
+        b[..4].copy_from_slice(b"DDS ");
+        for (at, v) in [(4, 124u32), (8, 0x1007), (12, 4), (16, 4), (28, 1), (76, 32), (80, 4), (108, 0x1000)] {
+            b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        b[84..88].copy_from_slice(tag);
+        b
+    };
+    let mut diffuse = header(b"DXT1");
+    diffuse.extend_from_slice(&[0xFF, 0xFF, 0, 0, 0, 0, 0, 0]);
+    let mut orm = header(b"DX10");
+    for v in [98u32, 3, 0, 1, 0] {
+        orm.extend_from_slice(&v.to_le_bytes());
+    }
+    orm.extend_from_slice(&[0; 16]);
+    for (rel, bytes) in [("textures/swapped/card.dds", diffuse), ("textures/pbr/swapped/card_orm.dds", orm)] {
+        let p = dir.0.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, bytes).unwrap();
+    }
+    let schema = fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
+    app.insert_resource(GameData::new(Arc::new(fnv_vfs::Vfs::open(&dir.0, &[]).unwrap()), Arc::new(schema)));
+    let forms: &'static fnv_sim::FormStore = Box::leak(Box::default());
+    let refs: &'static fnv_sim::RefTable = Box::leak(Box::default());
+    app.insert_resource(nvf_play::sim::SimState { forms, refs, world: fnv_sim::World::new(forms, refs, Default::default()) })
+        .insert_resource(crate::outfits::tests::empty_world_data())
+        .init_resource::<crate::texture_swap::Swapped>()
+        .init_resource::<Swaps>()
+        .add_systems(Update, (|swaps: Res<Swaps>, sim: Res<nvf_play::sim::SimState>, world: Res<crate::world::WorldData>, mut drawing: crate::texture_swap::Swapping| drawing.sync(&swaps.0, &sim, &world)).after(produce));
+    authored_shape(&mut app, shape);
+    app.world_mut().entity_mut(shape).insert(nvf_assets::actor::ShapeName("ConcreteFlatShape".into()));
+    app.update();
+    call_ref(&mut app, reference, "setmaterialpropertyvalue", &[XVal::Str("ConcreteFlatShape".into()), XVal::Num(0.0), XVal::Num(1.0)]);
+    app.update();
+    let red = Color::linear_rgb(1.0, 0.25, 0.25);
+    let private = app.world().get::<MeshMaterial3d<NifMaterial>>(shape).unwrap().0.clone();
+    assert_eq!(app.world().resource::<Assets<NifMaterial>>().get(&private).unwrap().base.specular_tint, red);
+    {
+        let mut swaps = app.world_mut().resource_mut::<Swaps>();
+        swaps.0.by_ref.insert(FormId(reference.0), vec![("concreteflatshape".into(), r"textures\swapped\card.dds".into())]);
+        swaps.0.generation += 1;
+    }
+    app.update();
+    let swapped = app.world().get::<MeshMaterial3d<NifMaterial>>(shape).unwrap().0.clone();
+    assert_ne!(swapped, private, "the swap's copy is drawn");
+    let materials = app.world().resource::<Assets<NifMaterial>>();
+    let m = materials.get(&swapped).unwrap();
+    assert!(nvf_assets::authored::is_authored(m), "the new diffuse's set is on it");
+    assert!(m.base.metallic_roughness_texture.is_some());
+    assert_ne!(m.base.metallic_roughness_texture, materials.get(&private).unwrap().base.metallic_roughness_texture, "not the old set's maps");
+    assert_eq!(m.base.specular_tint, red, "the scripted colour stays drawn across the new set");
+}

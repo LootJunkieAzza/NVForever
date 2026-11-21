@@ -14,7 +14,12 @@ What exists already and is reused, not rewritten:
   check at start for an earlier run that ended with no clean exit and no crash report (a
   native crash, a kill), crash reports for panics (`crash-<time>-<pid>.txt`: thread,
   message, location, backtrace, command line, cell and position), and `redact`, which
-  writes the player's home folder as `%USERPROFILE%` (#1710).
+  writes the player's home folder as `%USERPROFILE%` (#1710). Off Windows it also
+  hides the removable-drive mounts under the player's name (`/run/media/<user>`,
+  `/media/<user>`); one list (`crash::name_folders`) feeds it, the reports and the Linux
+  signal handler. A report also writes the Data, game and NVForever folders and, on a
+  Mod Organizer 2 run, the instance and its mods and overwrite folders as names
+  (`<Data>`, `<MO2 mods>`, ...) (#3152).
 - [documented: `docs/design/frame-telemetry.md`] Bounded frame telemetry (JSONL schema 1),
   a developer aid behind `NVF_PLAY_TEST_FRAME_TELEMETRY`. Its schema is a model for the
   performance part below, but it stays a developer aid; nothing below turns it on.

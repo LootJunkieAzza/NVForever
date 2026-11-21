@@ -10,6 +10,7 @@ publish = false
 bevy.workspace = true
 fnv-nif.workspace = true
 fnv-dds.workspace = true
+fnv-pbr.workspace = true
 fnv-vfs.workspace = true
 fnv-world.workspace = true
 

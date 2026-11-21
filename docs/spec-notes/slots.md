@@ -31,9 +31,8 @@ executable. Blackjack: blackjack.md; roulette: roulette.md.
 - Refused, a corner message says why (`fnv_game::casino::closed_line`) [hypothesis: the
   words are NVForever's].
 - It is a menu: the world and the game clock stand still (`PlayState::Menu`), menu code
-  1103 to scripts [hypothesis: the menu's `&SlotMachineMenu;` class number is not in the
-  menu files and no shipped script asks for it; NVForever's own, next to roulette's 1101
-  and blackjack's 1102].
+  1080 to scripts (`SlotMachineMenu` in `fnv_ui::value::MENU_CLASSES`) [documented: GECK wiki
+  MenuMode].
 - Placed machines: seven `vTopsSlot01` in `TOPSCasino` (0x0015CBDC, 0x0016546A …),
   Gomorrah's, the Atomic Wrangler's and Vikki & Vance's [observed: `fnvtool world refs`].
 

@@ -731,8 +731,13 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
     whose render bounds (each mesh's box in its own space) the ray enters before the first
     collision hit of any kind, so walls and table tops hide what is behind them; a box the
     eye is inside does not count; ties go to the collision hit [hypothesis: many small
-    items have no collision, yet the game lets the player pick them up]. Collision on the
-    trigger layer (12) does not block the ray [hypothesis].
+    items have no collision, yet the game lets the player pick them up]. An actor's render
+    box is rough (a skinned mesh's bind-pose bounds, which do not follow a body lying on
+    the floor [hypothesis]): any other box the ray enters before the first collision hit
+    wins over it, nearer or not, so an item beside a body is taken rather than the body
+    searched; with no such box the body is picked by its box as before (#3125) [design].
+    The console's click keeps the plain nearest rule. Collision on the trigger layer (12)
+    does not block the ray [hypothesis].
   - **What is offered**: references the simulation considers present (not taken, enabled)
     whose base is an item, container, door, actor or placed explosive with a weapon to
     give; activators and furniture only with a display name (FULL) [hypothesis: unnamed

@@ -1413,10 +1413,7 @@ mod tests {
             let index: String = PAPERDOLL_FILES.iter().map(|name| format!("{name}.dds owned-paperdoll-atlas.dds, 0, 2D, 0, 0, 0, 0.125, 0.125\n")).collect();
             std::fs::write(owned.0.join("textures/interface/interfaceshared.tai"), index).unwrap();
         }
-        let data = nvf_assets::GameData {
-            vfs: Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()),
-            schema: Arc::new(fnv_nif::Schema::default()),
-        };
+        let data = nvf_assets::GameData::new(Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
         let mut world = World::new();
         world.run_system_once(move |mut commands: Commands| {
             let mut kit = Kit::default();

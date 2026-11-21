@@ -57,6 +57,17 @@ impl SimState {
         actor_ref(placed, created)
     }
 
+    /// Whether a reference is a creature: a placed ACRE, or a reference created at run time
+    /// (PlaceAtMe, PlaceLeveledActorAtMe) of a CREA or LVLC base, read as [`SimState::is_actor`]
+    /// reads it. A created creature has no placement, so its record type alone told it
+    /// from an NPC and it was offered Talk (#3124).
+    pub fn is_creature(&self, form_id: u32) -> bool {
+        let id = FormId(form_id);
+        let placed = self.refs.get(id).map(|p| p.sig);
+        let created = id.is_dynamic().then(|| self.world.peek(id).and_then(|s| self.forms.sig(s.base))).flatten();
+        creature_ref(placed, created)
+    }
+
     /// Whether a reference could pass [`SimState::is_actor`] now or later, whatever the
     /// simulation does: a placed ACHR or ACRE (a placed reference's record type never
     /// changes) or any id without a placement that is dynamic (a created reference's base
@@ -214,9 +225,42 @@ pub fn actor_ref(placed_sig: Option<[u8; 4]>, created_base_sig: Option<[u8; 4]>)
     }
 }
 
+/// Whether a reference is a creature, as [`actor_ref`] tells an actor: by its placed record
+/// type (ACRE), else by its created base's (CREA, or the LVLC it was made from).
+pub fn creature_ref(placed_sig: Option<[u8; 4]>, created_base_sig: Option<[u8; 4]>) -> bool {
+    match (placed_sig, created_base_sig) {
+        (Some(s), _) => &s == b"ACRE",
+        (None, Some(b)) => matches!(&b, b"CREA" | b"LVLC"),
+        (None, None) => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #3124: a created creature (PlaceAtMe of a CREA, PlaceLeveledActorAtMe of an LVLC) is a
+    /// creature as a placed ACRE is; a created NPC, a placed ACHR and an item are not.
+    #[test]
+    fn created_creatures_are_creatures_as_placed_ones_are() {
+        assert!(creature_ref(Some(*b"ACRE"), None));
+        assert!(!creature_ref(Some(*b"ACHR"), None) && !creature_ref(Some(*b"REFR"), None));
+        assert!(creature_ref(None, Some(*b"CREA")) && creature_ref(None, Some(*b"LVLC")));
+        assert!(!creature_ref(None, Some(*b"NPC_")) && !creature_ref(None, Some(*b"LVLN")) && !creature_ref(None, Some(*b"MISC")) && !creature_ref(None, None));
+
+        // Over a simulation: a creature and an NPC made at run time (bases known by their
+        // signatures alone, as hitvol's tests make them).
+        let mut forms = FormStore::default();
+        forms.sigs.insert(FormId(0x10), *b"CREA");
+        forms.sigs.insert(FormId(0x11), *b"NPC_");
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
+        let refs: &'static RefTable = Box::leak(Box::default());
+        let mut sim = SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) };
+        let creature = sim.world.place(FormId(0x10), None, [0.0; 3], [0.0; 3], 1).unwrap().0;
+        let npc = sim.world.place(FormId(0x11), None, [0.0; 3], [0.0; 3], 1).unwrap().0;
+        assert!(sim.is_creature(creature) && sim.is_actor(creature));
+        assert!(!sim.is_creature(npc) && sim.is_actor(npc));
+    }
 
     #[test]
     fn created_actors_are_actors_as_placed_ones_are() {

@@ -26,6 +26,16 @@ const FROM_TEMPLATE: u32 = 0x834;
 const OWN_FLAG_IGNORED: u32 = 0x835;
 const CELL_A: u32 = 0x200;
 const CELL_B: u32 = 0x201;
+const CELL_RESPAWN: u32 = 0x202;
+const CELL_SAFE: u32 = 0x203;
+const ZONE_RESPAWN: u32 = 0x100;
+const ZONE_SAFE: u32 = 0x101;
+const LOOT: u32 = 0x860;
+const STASH: u32 = 0x861;
+const CHEST_BASE: u32 = 0x870;
+const CHEST_RESPAWN: u32 = 0x350;
+const CHEST_SAFE: u32 = 0x351;
+const ACTOR_SAFE: u32 = 0x352;
 const BASES: [u32; 6] = [RESPAWN_CORPSE, CORPSE, RESPAWN_LIVING, LIVING, FROM_TEMPLATE, OWN_FLAG_IGNORED];
 const RESPAWN: u32 = 0x8;
 const BASE_DATA: u16 = 0x80;
@@ -60,12 +70,27 @@ fn placed(base: u32, x: f32) -> Vec<u8> {
     record(b"ACHR", 0, reference(base).0, &[sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", data)])
 }
 
-fn cell(fid: u32, edid: &str, refs: &[u8]) -> Vec<u8> {
-    let c = record(b"CELL", 0, fid, &[sub(b"EDID", z(edid))]);
+fn cell_with_zone(fid: u32, edid: &str, zone: Option<u32>, refs: &[u8]) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid))];
+    if let Some(z) = zone {
+        subs.push(sub(b"XEZN", z.to_le_bytes().to_vec()));
+    }
+    let c = record(b"CELL", 0, fid, &subs);
     [c, group(fid.to_le_bytes(), 6, &group(fid.to_le_bytes(), 9, refs))].concat()
 }
 
+fn cell(fid: u32, edid: &str, refs: &[u8]) -> Vec<u8> {
+    cell_with_zone(fid, edid, None, refs)
+}
+
 fn plugin_bytes() -> Vec<u8> {
+    let item = |fid: u32, edid: &str| record(b"MISC", 0, fid, &[sub(b"EDID", z(edid)), sub(b"DATA", [1i32.to_le_bytes(), 1f32.to_le_bytes()].concat())]);
+    let cnto = |item: u32, count: i32| sub(b"CNTO", [item.to_le_bytes(), count.to_le_bytes()].concat());
+    let chest_base = record(b"CONT", 0, CHEST_BASE, &[sub(b"EDID", z("RespawnChest")), cnto(LOOT, 1), sub(b"DATA", [&[2u8][..], &10f32.to_le_bytes()[..]].concat())]);
+    let refr = |fid: u32, base: u32| record(b"REFR", 0, fid, &[sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let eczn = |fid: u32, edid: &str, flags: u8| {
+        record(b"ECZN", 0, fid, &[sub(b"EDID", z(edid)), sub(b"DATA", [0u32.to_le_bytes().to_vec(), vec![0, 0, flags, 0]].concat())])
+    };
     let npcs = [
         npc(RESPAWN_CORPSE, "TestFiendDEAD", 0, RESPAWN, None),
         npc(CORPSE, "TestGhoulDEAD", 0, 0, None),
@@ -84,8 +109,24 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let refs: Vec<u8> = BASES.iter().enumerate().flat_map(|(i, &b)| placed(b, 100.0 * i as f32)).collect();
-    let cells = [cell(CELL_A, "TestCellA", &refs), cell(CELL_B, "TestCellB", &[])].concat();
-    [tes4(), top(b"GLOB", &globs), top(b"NPC_", &npcs), top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cells)))].concat()
+    let safe_actor = record(b"ACHR", 0, ACTOR_SAFE, &[sub(b"NAME", RESPAWN_LIVING.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let cells = [
+        cell(CELL_A, "TestCellA", &refs),
+        cell(CELL_B, "TestCellB", &[]),
+        cell_with_zone(CELL_RESPAWN, "RespawnZoneCell", Some(ZONE_RESPAWN), &refr(CHEST_RESPAWN, CHEST_BASE)),
+        cell_with_zone(CELL_SAFE, "SafeZoneCell", Some(ZONE_SAFE), &[refr(CHEST_SAFE, CHEST_BASE), safe_actor].concat()),
+    ]
+    .concat();
+    [
+        tes4(),
+        top(b"GLOB", &globs),
+        top(b"MISC", &[item(LOOT, "RespawnLoot"), item(STASH, "PlayerStash")].concat()),
+        top(b"CONT", &chest_base),
+        top(b"NPC_", &npcs),
+        top(b"ECZN", &[eczn(ZONE_RESPAWN, "RespawnZone", 0), eczn(ZONE_SAFE, "SafeZone", 1)].concat()),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cells))),
+    ]
+    .concat()
 }
 
 struct Fixture {
@@ -193,4 +234,58 @@ fn reset_interior_resets_at_the_next_load_without_bringing_actors_back() {
     g.player_entered(Some(FormId(CELL_B)));
     g.player_entered(Some(FormId(CELL_A)));
     assert!(g.take_cell_resets().is_empty());
+}
+
+/// Session `SetZoneFlag` bit 1 and `SetCellEncounterZone` overrides must govern both
+/// respawning containers (`World::attach_cell_with_never_resets`) and respawning actors
+/// inside `Game::cell_entered`.
+#[test]
+fn session_zone_overrides_govern_container_and_actor_cell_resets() {
+    let f = fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game, body: &str| {
+        g.run_query(&format!("Begin Function {{}}\n{body}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap()
+    };
+    g.new_game();
+
+    // (a) Turning Never Resets ON via session SetZoneFlag prevents container wipe in RespawnZoneCell.
+    g.player_entered(Some(FormId(CELL_RESPAWN)));
+    assert_eq!(g.world.item_count(FormId(CHEST_RESPAWN), FormId(LOOT)).unwrap(), 1);
+    g.world.remove_item(FormId(CHEST_RESPAWN), FormId(LOOT), 1).unwrap();
+    g.world.add_item(FormId(CHEST_RESPAWN), FormId(STASH), 1).unwrap();
+    q(&mut g, "SetZoneFlag RespawnZone 1 1");
+    g.player_entered(Some(FormId(CELL_B)));
+    g.world.advance_hours(72.0).unwrap();
+    g.player_entered(Some(FormId(CELL_RESPAWN)));
+    assert!(g.take_cell_resets().is_empty(), "SetZoneFlag 1 1 must suppress timed cell reset");
+    assert_eq!(g.world.item_count(FormId(CHEST_RESPAWN), FormId(STASH)).unwrap(), 1, "container stash must not be wiped under SetZoneFlag 1 1");
+    assert_eq!(g.world.item_count(FormId(CHEST_RESPAWN), FormId(LOOT)).unwrap(), 0);
+
+    // (b) Reassigning RespawnZoneCell to SafeZone via SetCellEncounterZone also preserves containers.
+    q(&mut g, "SetZoneFlag RespawnZone 1 0\nSetCellEncounterZone RespawnZoneCell SafeZone");
+    g.player_entered(Some(FormId(CELL_B)));
+    g.world.advance_hours(72.0).unwrap();
+    g.player_entered(Some(FormId(CELL_RESPAWN)));
+    assert!(g.take_cell_resets().is_empty(), "SetCellEncounterZone SafeZone must suppress timed cell reset");
+    assert_eq!(g.world.item_count(FormId(CHEST_RESPAWN), FormId(STASH)).unwrap(), 1, "container stash must not be wiped under SetCellEncounterZone SafeZone");
+
+    // (c) Turning Never Resets OFF on authored SafeZone via SetZoneFlag 1 0 resets BOTH
+    // respawning containers and dead respawning actors after 72 h.
+    g.player_entered(Some(FormId(CELL_SAFE)));
+    assert_eq!(g.world.item_count(FormId(CHEST_SAFE), FormId(LOOT)).unwrap(), 1);
+    g.world.remove_item(FormId(CHEST_SAFE), FormId(LOOT), 1).unwrap();
+    g.world.add_item(FormId(CHEST_SAFE), FormId(STASH), 1).unwrap();
+    assert!(g.kill(FormId(ACTOR_SAFE), Some(FormId::PLAYER_REF)));
+    q(&mut g, "SetZoneFlag SafeZone 1 0");
+    g.player_entered(Some(FormId(CELL_B)));
+    g.world.advance_hours(72.0).unwrap();
+    g.player_entered(Some(FormId(CELL_SAFE)));
+    let resets = g.take_cell_resets();
+    assert_eq!(resets.len(), 1, "SetZoneFlag SafeZone 1 0 must enable timed cell reset");
+    assert_eq!(resets[0].cell, FormId(CELL_SAFE));
+    assert_eq!(resets[0].containers, vec![FormId(CHEST_SAFE)], "respawning container must be reset under SetZoneFlag 1 0");
+    assert_eq!(resets[0].respawned, vec![FormId(ACTOR_SAFE)]);
+    assert!(!g.is_dead(FormId(ACTOR_SAFE)));
+    assert_eq!(g.world.item_count(FormId(CHEST_SAFE), FormId(LOOT)).unwrap(), 1, "container authored loot must be restored");
+    assert_eq!(g.world.item_count(FormId(CHEST_SAFE), FormId(STASH)).unwrap(), 0, "container stash must be cleared on reset");
 }

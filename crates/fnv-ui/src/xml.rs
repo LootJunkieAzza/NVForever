@@ -77,12 +77,21 @@ fn name_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':' | '+')
 }
 
+/// How many elements may be open inside one another. The trees this reader builds are
+/// walked by functions that call themselves once per level (and dropped the same way), so
+/// a file with tens of thousands of nested start tags would overflow the stack (#3156).
+/// [hypothesis: far beyond any real menu; the limit is NVForever's own, the original's
+/// is not known.]
+pub const MAX_DEPTH: usize = 256;
+
 /// Reads `src`; never fails.
 pub fn parse(src: &str) -> Doc {
     let chars: Vec<char> = src.chars().collect();
     let mut p = Parser { s: &chars, i: 0, line: 1, warnings: Vec::new() };
     // The open elements; the bottom one is the document.
     let mut stack: Vec<Element> = vec![Element::default()];
+    // How many elements past `MAX_DEPTH` are open; they and what is in them are left out.
+    let mut too_deep = 0usize;
     while p.i < chars.len() {
         if p.peek_str("<!--") {
             let line = p.line;
@@ -99,8 +108,10 @@ pub fn parse(src: &str) -> Doc {
             if !closed {
                 p.warn(line, "CDATA not closed");
             }
-            let text: String = chars[start..end].iter().collect();
-            push_text(&mut stack, text);
+            if too_deep == 0 {
+                let text: String = chars[start..end].iter().collect();
+                push_text(&mut stack, text);
+            }
         } else if p.peek_str("<?") || p.peek_str("<!") {
             p.advance(2);
             p.skip_past(">");
@@ -109,14 +120,23 @@ pub fn parse(src: &str) -> Doc {
             p.advance(2);
             let name = p.take_while(name_char);
             p.skip_past(">");
-            close(&mut stack, &name, line, &mut p.warnings);
+            if too_deep > 0 {
+                too_deep -= 1;
+            } else {
+                close(&mut stack, &name, line, &mut p.warnings);
+            }
         } else if p.peek() == Some('<') && p.peek_at(1).is_some_and(|c| c.is_ascii_alphabetic() || c == '_') {
             let line = p.line;
             p.advance(1);
             let name = p.take_while(name_char);
             let (attrs, empty) = p.attributes(line);
             let el = Element { name, attrs, children: Vec::new(), line };
-            if empty {
+            if too_deep > 0 {
+                too_deep += usize::from(!empty);
+            } else if !empty && stack.len() > MAX_DEPTH {
+                p.warn(line, &format!("<{}> is nested more than {MAX_DEPTH} deep; left out with what is in it", el.name));
+                too_deep = 1;
+            } else if empty {
                 stack.last_mut().unwrap().children.push(Node::Element(el));
             } else {
                 stack.push(el);
@@ -132,8 +152,10 @@ pub fn parse(src: &str) -> Doc {
                 }
                 p.advance(1);
             }
-            let raw: String = chars[start..p.i].iter().collect();
-            push_content(&mut stack, &raw);
+            if too_deep == 0 {
+                let raw: String = chars[start..p.i].iter().collect();
+                push_content(&mut stack, &raw);
+            }
         }
     }
     while stack.len() > 1 {
@@ -403,6 +425,35 @@ mod tests {
         let names: Vec<_> = i.elements().map(|e| e.name.as_str()).collect();
         assert_eq!(names, ["systemcolor", "locus"]);
         assert_eq!(d.warnings.len(), 1, "{:?}", d.warnings);
+    }
+
+    #[test]
+    fn nesting_stops_at_the_cap() {
+        // 100,000 nested start tags, none closed: the tree is built, walked and dropped
+        // without running out of stack (#3156).
+        let deep = "<a>".repeat(100_000);
+        let d = parse(&deep);
+        let mut depth = 0;
+        let mut at = el(&d.nodes[0]);
+        while let Some(inner) = at.elements().next() {
+            depth += 1;
+            at = inner;
+        }
+        assert_eq!(depth + 1, MAX_DEPTH);
+        assert!(d.warnings.iter().any(|w| w.contains("nested more than 256 deep")), "{:?}", &d.warnings[..2]);
+        assert_eq!(d.clone().nodes, d.nodes);
+        // What is past the cap is left out whole, and the file reads on after it.
+        let src = format!("{}<deep><x/>text</deep><kept/>{}<after/>", "<a>".repeat(MAX_DEPTH), "</a>".repeat(MAX_DEPTH));
+        let d = parse(&src);
+        assert_eq!(d.warnings.len(), 1, "{:?}", d.warnings);
+        assert_eq!(d.nodes.len(), 2);
+        assert!(el(&d.nodes[1]).is("after"));
+        let mut at = el(&d.nodes[0]);
+        for _ in 1..MAX_DEPTH {
+            at = at.elements().next().unwrap();
+        }
+        assert_eq!(at.children.len(), 1);
+        assert!(at.elements().next().unwrap().is("kept"));
     }
 
     #[test]

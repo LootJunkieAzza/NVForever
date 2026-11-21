@@ -86,6 +86,26 @@ pub fn choose(
     best
 }
 
+/// [`choose`] for the crosshair, with some boxes only rough (`rough`: an actor's render
+/// box, its skinned mesh's bind-pose bounds, which do not follow a body lying on the
+/// floor [hypothesis]). A precise box the ray enters before the collision hit wins over
+/// any rough one, nearer or not: an ammo box or a syringe beside a body is taken, not the
+/// body searched (#3125). Without one, the rule is [`choose`]'s over every box, so a body
+/// is still searched by its box and an actor's collision hit keeps winning.
+pub fn choose_precise_first(
+    hit: Option<RayHit>,
+    bounds: impl IntoIterator<Item = (u32, f32, bool)>,
+    reach: f32,
+    mut accept: impl FnMut(u32) -> bool,
+) -> Option<Pick> {
+    let all: Vec<(u32, f32, bool)> = bounds.into_iter().collect();
+    let precise = choose(hit, all.iter().filter(|b| !b.2).map(|b| (b.0, b.1)), reach, &mut accept);
+    if precise.is_some_and(|p| p.source == Source::Bounds) {
+        return precise;
+    }
+    choose(hit, all.iter().map(|b| (b.0, b.1)), reach, accept)
+}
+
 /// Distance along a ray (`origin`, unit `dir`, world space) at which it enters a box
 /// given in an entity's own space (`center`, `half` extents) placed by `to_world`. `None`
 /// when the ray misses, the box is behind, or `origin` is inside the box.
@@ -171,6 +191,30 @@ mod tests {
         assert_eq!(p.distance, 119.0);
         // Rejected candidates are skipped, not chosen.
         assert_eq!(choose(None, [(1, 10.0), (2, 20.0)], REACH, |id| id == 2).unwrap().form_id, 2);
+    }
+
+    /// #3125: a body's render box entered first does not hide an item's box entered
+    /// after it; without an item, the body is still picked by its box; a precise box
+    /// behind a collision hit stays hidden.
+    #[test]
+    fn an_item_beside_a_body_wins_over_the_body_s_box() {
+        // The ray enters the ghoul's box (8, rough) at 60 and the ammo box's (4) at 95.
+        let p = choose_precise_first(None, [(8, 60.0, true), (4, 95.0, false)], REACH, ANY).unwrap();
+        assert_eq!(p, Pick { form_id: 4, distance: 95.0, source: Source::Bounds });
+        // Plain `choose` (the console's click) keeps the nearest.
+        assert_eq!(choose(None, [(8, 60.0), (4, 95.0)], REACH, ANY).unwrap().form_id, 8);
+        // Only the body: searched by its box.
+        let p = choose_precise_first(None, [(8, 60.0, true)], REACH, ANY).unwrap();
+        assert_eq!((p.form_id, p.source), (8, Source::Bounds));
+        // An item that cannot be taken does not stand in the body's way.
+        assert_eq!(choose_precise_first(None, [(8, 60.0, true), (4, 95.0, false)], REACH, |id| id != 4).unwrap().form_id, 8);
+        // The floor at 90 hides an item box entered at 95.
+        let floor = RayHit { form_id: None, distance: 90.0 };
+        assert_eq!(choose_precise_first(Some(floor), [(8, 60.0, true), (4, 95.0, false)], REACH, ANY).unwrap().form_id, 8);
+        // A living actor's collision hit nearer than its box: collision, as before.
+        let actor = RayHit { form_id: Some(8), distance: 70.0 };
+        let p = choose_precise_first(Some(actor), [(8, 65.0, true)], REACH, ANY).unwrap();
+        assert_eq!((p.form_id, p.source), (8, Source::Collision));
     }
 
     #[test]

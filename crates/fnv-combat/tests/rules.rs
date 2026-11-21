@@ -1768,3 +1768,22 @@ fn the_radius_buff_keeps_the_inner_part_whole() {
     assert!((fnv_combat::damage::explosion_damage(&t, 100.0, 100.0, 100.0) - 20.0).abs() < 1e-3);
     assert!((fnv_combat::damage::explosion_damage(&CombatTuning::default(), 100.0, 100.0, 100.0) - 25.0).abs() < 1e-3);
 }
+
+/// #3023: a weapon whose Ammo Use is 0 (the Laser Detonator: automatic, a clip of one, Fire
+/// Rate 10) spends no round a shot: held, it fires at its rate with no reload between
+/// shots, from an empty magazine and with nothing carried.
+#[test]
+fn ammo_use_zero_spends_no_round_and_never_reloads() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { clip_size: 1, ammo_use: 0, automatic: true, attack_shots_per_sec: 10.0, ..gun(20) };
+    let timing = Timing { interval: 0.1, fire_delay: 0.0, reload: 2.0, spin_up: 0.0, rounds: None, attach: None };
+    for magazine in [1, 0] {
+        let mut c = Cycle::new(&w, timing, false, magazine);
+        let ev = run(&mut c, &t, 200, 0.01, |_| true, 0);
+        assert!(!ev.iter().any(|e| matches!(e, Event::ReloadStarted | Event::DryFire)), "{ev:?}");
+        assert!(ev.iter().all(|e| !matches!(e, Event::Fired { rounds } if *rounds != 0)), "{ev:?}");
+        let n = shots(&ev);
+        assert!((19..=21).contains(&n), "about 10 a second for 2 s from a magazine of {magazine}: {n}");
+        assert_eq!(c.magazine, magazine);
+    }
+}

@@ -3396,3 +3396,52 @@ already talking takes over at once, same topic or another; nothing is queued or 
      moving ones, and the change from walking to standing can let one creature
      pass briefly into the other. Both are left for the follow-up on the character
      controller's movement path.
+
+## Added 2026-11-21 (script effects shown by name, #3119)
+
+245. **How do the ITEMS card and STATS > EFF write a Script effect flagged Display Name
+     Only?** (P3; #3119, pipboy.md §5.) The GECK wiki says such an effect shows its name
+     and that the names of several are put together [documented: GECK wiki Base Effect];
+     it does not say where or how. Ours: after the value changes, comma-separated
+     ("STR +2, Damage +25%"), the EFF line titled with the item's name [hypothesis]. With a
+     Psycho, a Cateye and a Steady carried, read the ITEMS > Aid card of each; use the
+     Psycho and read STATS > Status > EFF while it lasts; a screenshot of each answers it.
+
+## Added 2026-11-21 (Ammo Use 0 on a ranged weapon, #3023)
+
+246. **Does a ranged weapon with Ammo Use 0 fire without spending or carrying its ammo,
+     and does it ever reload?** (P2; #3023.) The GECK wiki calls Ammo Use "the amount of
+     ammo used per shot" [documented: GECK wiki Weapons] and says nothing of 0. Of the
+     base game's and the add-ons' 502 WEAP records, 25 have Ammo Use 0; all but one are
+     melee weapons or detonators without a projectile; the one ranged weapon is Lonesome
+     Road's Laser Detonator (NVDLC04WeapSonicDetonator, automatic, clip 1, Fire Rate 10,
+     Microfusion Breeder ammo) [observed: `fnvtool combat form` over the six masters].
+     Ours: no round is spent, so it fires at its rate with no reload and needs none carried
+     [hypothesis]. In the Divide, hold the trigger on one of the laser targets for 5 s with
+     and without Microfusion Breeder rounds carried: count the beams (a video at 30 fps
+     does it), watch for a reload, and read the ammo count before and after.
+
+## Added 2026-11-21 (what GetDestructionStage counts, #3053)
+
+247. **Does GetDestructionStage give the stage counted from 1 (DSTD index + 1) or the
+     stage's DSTD damage-stage field?** (P2; #3053, scripts.md.) The wiki says it returns
+     "the current Damage Stage" [documented: GECK wiki GetDestructionStage]. Counting from
+     0 cannot be it: Zeta's generator core tests 8 with eight stages, the Brain waits for 7
+     with seven [observed: their scripts and DEST]. Ours: index + 1 [hypothesis]; the
+     damage-stage field fits every case found too. They differ on Point Lookout's
+     DLC04DarMuckBubble (0x0A012C5E: index 1, damage stage 3, at 40 %): damage one to under
+     40 % with the console (`DamageObject`) and print `GetDestructionStage` (2 or 3).
+
+## Added 2026-11-15 (the Camp McCarran observation window, #2462)
+
+249. **How does the observation window at Camp McCarran look from each side?** (P3;
+     #2462, nif.md §6 "Window glass and environment maps".) Ours since #2462: the pane
+     (VWindow01 0x000FB2F4 in CampMCTermInt02, `vwindow01.nif`) draws its environment
+     cube `ShinyBright_e.dds` added over its blend, not weighted by its texture alpha
+     (about 0.05 in the middle), so grey reflection streaks show from both sides
+     [hypothesis]. In CampMCTermInt02 take one frame from the observation side
+     (`player.setpos x 112`, `y 1200`, `z 18672`, facing north) and one from inside the
+     interrogation room (`x 112`, `y 1700`, `z 18672`, facing south), then a third from
+     the room side while strafing past, to see whether the streaks move with the view.
+     Streaks moving with the view as bright as the frame agree with ours; a pane that is
+     only a faint grey film, or nothing, says the reflection is weighted by alpha.

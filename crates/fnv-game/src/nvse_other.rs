@@ -211,11 +211,16 @@ fn alt_groups(ex: bool, args: &[XVal], dflt: [bool; 7], short: [bool; 7]) -> [bo
 
 impl<'a> Game<'a> {
     /// Change a package for the session: a copy of its definition, changed, takes its
-    /// place for every reader (`Game::package_def`).
+    /// place for every reader (`Game::package_def`). A change that leaves the definition
+    /// as it is makes no copy: the copies live for the session (readers hold `&'a`), and a
+    /// mod's main-loop script may call a setter with the same values every frame (#3150).
     pub(crate) fn change_package(&mut self, p: FormId, change: impl FnOnce(&mut crate::package::PackageDef)) {
         let Some(def) = self.package_def(&p) else { return };
         let mut new = def.clone();
         change(&mut new);
+        if new == *def {
+            return;
+        }
         let leaked: &'a crate::package::PackageDef = Box::leak(Box::new(new));
         self.package_overrides.insert(p, leaked);
     }

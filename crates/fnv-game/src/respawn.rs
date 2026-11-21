@@ -64,6 +64,16 @@ impl Game<'_> {
         base_of(self, r).and_then(|b| self.template_source(b, r, |d| d.template_base)).is_some_and(|(_, d)| d.respawn)
     }
 
+    /// Whether `cell`'s encounter zone currently has "Never Resets", accounting for
+    /// `SetCellEncounterZone` / `SetWorldspaceEncounterZone`, saved `SetZoneRespawns`,
+    /// and session `SetZoneFlag` changes.
+    pub fn cell_never_resets(&self, cell: FormId) -> bool {
+        let Some(z) = crate::nvse_jg5::cell_zone(self, cell) else {
+            return false;
+        };
+        self.zone(z).map_or_else(|| self.world.cell_never_resets(cell), |d| d.never_resets)
+    }
+
     /// Whether `cell` will reset at its next load: `None` while the player is in it or
     /// before the loaded area has ever held it; else whether ResetInterior marked it or
     /// it has been left for `iHoursToRespawnCell` game hours outside a zone that never
@@ -77,7 +87,7 @@ impl Game<'_> {
         }
         let now = self.world.calendar().ok().map(|k| k.days_passed);
         let away = now.zip(self.world.detached_since(cell)).map(|(n, s)| (f64::from(n) - f64::from(s)) * 24.0);
-        Some(away.is_some_and(|h| h + 1e-3 >= f64::from(self.world.respawn_hours())) && !self.world.cell_never_resets(cell))
+        Some(away.is_some_and(|h| h + 1e-3 >= f64::from(self.world.respawn_hours())) && !self.cell_never_resets(cell))
     }
 
     /// The cells `left` are no longer in the loaded area: their reset clock starts.
@@ -97,11 +107,12 @@ impl Game<'_> {
         let full = self.forms.expired_cells_full.remove(&cell);
         let since = self.world.detached_since(cell);
         let now = self.world.calendar().ok().map(|c| c.days_passed);
-        let containers = self.world.attach_cell(cell).unwrap_or_default();
+        let never_resets = self.cell_never_resets(cell);
+        let containers = self.world.attach_cell_with_never_resets(cell, never_resets).unwrap_or_default();
         let away = now.zip(since).map(|(n, s)| (n as f64 - s as f64) * 24.0);
         // The same slack as `World::attach_cell` (GameDaysPassed is an f32). An encounter
         // zone with "Never Resets" is never reset (docs/spec-notes/encounter-zones.md §4).
-        let timed = away.filter(|h| h + 1e-3 >= self.world.respawn_hours() as f64 && !self.world.cell_never_resets(cell));
+        let timed = away.filter(|h| h + 1e-3 >= self.world.respawn_hours() as f64 && !never_resets);
         // ResetInteriorAlt's reset brings the dead respawning actors back as a timed one
         // [documented: ResetInteriorAlt, "will also let dead actors that were set to
         // respawn be resurrected"].

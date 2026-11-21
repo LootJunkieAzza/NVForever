@@ -136,9 +136,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     let v = match name {
         // ---- LU ----
         // IDLE MODL; the setter for the session [observed: plugins1].
-        "getidleanimpath" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "MODL", "")) {
-            Some(XVal::Str(s)) => XVal::Str(s),
-            _ => XVal::Str(String::new()),
+        "getidleanimpath" => match form(args, 0) {
+            Some(f) if g.idle_def(f).is_some() => XVal::Str(g.idle_animation_path(f).unwrap_or_default().to_string()),
+            Some(f) => match crate::nvse::record_value(g, f, "MODL", "") {
+                Some(XVal::Str(s)) => XVal::Str(s),
+                _ => XVal::Str(String::new()),
+            },
+            None => XVal::Str(String::new()),
         },
         "setidleanimpath" => {
             if let Some(f) = form(args, 0) {

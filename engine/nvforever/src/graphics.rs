@@ -212,7 +212,16 @@ pub struct Graphics {
     pub heat_haze: bool,
     /// A dust haze in the weather's fog (haze.rs; off in every preset) [design, #2675].
     pub desert_haze: bool,
+    /// Surfaces whose diffuse has an authored PBR set under `textures\pbr\` are shaded from
+    /// it (#2981, docs/spec-notes/pbr-materials.md; on in both looks: a texture pack's maps
+    /// are assets, as a diffuse replacer is). Read once at the start (nvf_assets
+    /// `authored::set_enabled`, main.rs); this field is the settings row's value for the
+    /// next start.
+    pub authored_materials: bool,
 }
+
+/// The settings key of the Authored materials row (#2981).
+pub const AUTHORED_MATERIALS_KEY: &str = "authored-materials";
 
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
 /// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
@@ -294,6 +303,8 @@ impl Graphics {
             heat_haze: false,
             // Off in every preset: an addition of our own [design, #2675].
             desert_haze: false,
+            // On in both looks [design, #2981]: without a pack nothing changes.
+            authored_materials: true,
         }
     }
 
@@ -319,6 +330,7 @@ impl Graphics {
             "terrain-shadows" => &mut self.terrain_shadows,
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
+            AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
             _ => return None,
         })
     }
@@ -338,9 +350,10 @@ impl Graphics {
                 "no-eye-adaptation" => g.eye_adaptation = false,
                 "no-neon-glow" => g.neon_glow = false,
                 "no-water-mirror" => g.water_mirror = false,
+                "no-authored-materials" => g.authored_materials = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-authored-materials", KEYS.join(", "))),
                 },
             }
         }
@@ -374,6 +387,7 @@ impl Graphics {
             (self.terrain_shadows, "terrain shadows"),
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
+            (!self.authored_materials, "no authored materials"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -1477,6 +1491,18 @@ mod tests {
         assert_eq!(graphics, vec![vanilla, Graphics::only(&["taa".into(), "light-shafts".into()]).unwrap(), enhanced, vanilla, vanilla]);
         assert_eq!(cycle.iter().map(|c| c.no_sun_shadows).collect::<Vec<_>>(), vec![false, false, false, true, false]);
         assert_eq!((cycle[4].shadow_distance, cycle[4].cascades), (Some(8000.0), Some(3)));
+    }
+
+    #[test]
+    fn authored_materials_are_on_in_both_looks_and_can_be_switched_off() {
+        assert!(Graphics::preset(Preset::Vanilla).authored_materials && Graphics::preset(Preset::Enhanced).authored_materials);
+        let off = Graphics::only(&["no-authored-materials".into()]).expect("no-authored-materials");
+        assert!(!off.authored_materials);
+        assert_eq!(off.describe(), "light glow, no authored materials");
+        assert!(Graphics::only(&[]).unwrap().authored_materials, "--graphics-only leaves it on unless told");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch(AUTHORED_MATERIALS_KEY).unwrap() = false;
+        assert!(!g.authored_materials);
     }
 
     #[test]

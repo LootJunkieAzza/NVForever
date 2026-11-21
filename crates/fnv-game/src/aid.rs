@@ -343,6 +343,27 @@ impl Game<'_> {
         out
     }
 
+    /// The base effects of an ingestible shown by their name alone
+    /// ([`crate::data::MagicEffectDef::shows_name`]) whose conditions pass for `actor` now,
+    /// once each in the order the item names them: for the item's EFFECTS figure beside
+    /// [`Game::aid_preview`]'s values (#3119) [hypothesis: the original lists the name;
+    /// its layout is not captured].
+    pub fn aid_preview_names(&mut self, actor: FormId, item: FormId) -> Vec<FormId> {
+        let data = self.data;
+        let Some(items) = data.effect_items.get(&item) else { return Vec::new() };
+        let mut out: Vec<FormId> = Vec::new();
+        for (index, e) in items.iter().enumerate() {
+            if out.contains(&e.effect) || !data.magic_effects.get(&e.effect).is_some_and(|m| m.shows_name()) {
+                continue;
+            }
+            let label = format!("{} effect {index} (preview)", data.name(item));
+            if self.conditions_pass(&e.conditions, Some(actor), Some(actor), &label) {
+                out.push(e.effect);
+            }
+        }
+        out
+    }
+
     /// An actor uses an ingestible (the caller has taken it from the inventory): its
     /// effects apply with the item's potency, its usage monitor counts the use, and the
     /// addiction roll is made. docs/spec-notes/aid-items.md §4–§5.

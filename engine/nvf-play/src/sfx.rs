@@ -2573,10 +2573,10 @@ mod tests {
         std::fs::write(fx.join("broken.wav"), b"not a sound file").unwrap();
         std::fs::write(fx.join("takes").join("a.wav"), half_second()).unwrap();
         std::fs::write(fx.join("takes").join("b.wav"), half_second()).unwrap();
-        let data = nvf_assets::GameData {
-            vfs: Arc::new(fnv_vfs::Vfs::open(&dir.0, &[]).unwrap()),
-            schema: Arc::new(fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap()),
-        };
+        let data = nvf_assets::GameData::new(
+            Arc::new(fnv_vfs::Vfs::open(&dir.0, &[]).unwrap()),
+            Arc::new(fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap()),
+        );
         let mut forms = FxForms::default();
         forms.sounds.insert(BEEP, record("TestBeep", Some("fx\\beep.wav"), &[]));
         forms.sounds.insert(BROKEN, record("TestBroken", Some("fx\\broken.wav"), &[]));
@@ -2970,7 +2970,8 @@ mod tests {
         std::fs::create_dir_all(&beds).unwrap();
         std::fs::write(beds.join("a.wav"), bed).unwrap();
         let vfs = Arc::new(fnv_vfs::Vfs::open(&files.0, &[]).unwrap());
-        app.world_mut().resource_mut::<nvf_assets::GameData>().vfs = vfs;
+        let schema = app.world().resource::<nvf_assets::GameData>().schema.clone();
+        app.insert_resource(nvf_assets::GameData::new(vfs, schema));
         let gate = gated_index(&mut app);
         app.world_mut().resource_mut::<Sfx>().forms.sounds.insert(FOLDER_BED, record("TestBed", Some("fx\\beds"), &["Loop"]));
         app.init_resource::<crate::ambient::Ambient>()

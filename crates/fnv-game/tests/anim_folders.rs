@@ -60,8 +60,15 @@ fn fixture() -> Fixture {
 
 /// The Data folder: `meshes\AnimGroupOverride` with the JSON files and their folders,
 /// spelled in mixed case as mods spell them, plus an empty, a broken and a JSON file
-/// naming a folder that is not there (all left out).
+/// naming a folder that is not there (all left out). Written once for the process: the
+/// tests run side by side, and one rewriting a JSON file while another read the folder
+/// made that file look empty or broken to the reader (#3172).
 fn files() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(write_files);
+}
+
+fn write_files() {
     use fnv_game::mod_files::{set_roots, Roots};
     let dir = std::env::temp_dir().join(format!("nvf-anim-folders-{}", std::process::id()));
     let ago = dir.join("Meshes/AnimGroupOverride");

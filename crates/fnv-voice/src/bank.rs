@@ -53,6 +53,19 @@ impl VoiceBank {
         self.file_for_voice(info, response, self.index.voice_of(speaker_base)?)
     }
 
+    /// The file of a recording's response (a Voice note's, a holotape): as said by its
+    /// speaker ([`VoiceBank::file`]), else by the line's fixed speaker (ANAM) when its
+    /// voice type has the file. Dead Money's Dog Command Tape names Dog as the note's
+    /// speaker while its line is God's (ANAM NVDLC01God), recorded in God's voice and filed
+    /// in his folder only [observed: DeadMoney - Main.bsa, #3022; hypothesis: the original
+    /// plays it].
+    pub fn recording_file(&self, info: u32, response: usize, speaker_base: u32) -> Option<String> {
+        self.file(info, response, speaker_base).or_else(|| {
+            let fixed = self.index.lines.get(&info)?.speaker.filter(|&s| s != speaker_base)?;
+            self.file(info, response, fixed)
+        })
+    }
+
     /// The decoded bytes of a file (for playback): those [`VoiceBank::info`] just read
     /// for its length when it did, else read now.
     pub fn read(&self, path: &str) -> Option<Vec<u8>> {
@@ -147,6 +160,50 @@ mod tests {
             bank.info(&format!("sound\\voice\\b{k}.wav"));
         }
         assert_eq!(bank.recent.lock().unwrap().len(), RECENT);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// #3022: a recording whose speaker's voice type has no file for a response plays the
+    /// one in the line's fixed speaker's (ANAM) folder; the speaker's own file comes first;
+    /// a line without a fixed speaker finds nothing else.
+    #[test]
+    fn a_recording_falls_back_to_the_line_s_fixed_speaker() {
+        use crate::index::{Line, Response};
+        const DOG: u32 = 0x0100_1301;
+        const GOD: u32 = 0x0100_E413;
+        const DOG_VOICE: u32 = 0x0100_3572;
+        const GOD_VOICE: u32 = 0x0100_E415;
+        const INFO: u32 = 0x0100_DFC7;
+        const PLAIN: u32 = 0x0100_DFC8;
+        let mut ix = VoiceIndex { plugins: vec!["FalloutNV.esm".into(), "DeadMoney.esm".into()], ..VoiceIndex::default() };
+        ix.voice_types.insert(DOG_VOICE, "DogVoice".into());
+        ix.voice_types.insert(GOD_VOICE, "GodVoice".into());
+        ix.speakers.insert(DOG, DOG_VOICE);
+        ix.speakers.insert(GOD, GOD_VOICE);
+        ix.edids.insert(0x0100_1304, "DogQuest".into());
+        ix.edids.insert(0x0100_DFBB, "DogTopic".into());
+        let response = Response { number: 1, sound: None, chars: 10, letters: 0 };
+        let line = |speaker| Line { quest: Some(0x0100_1304), topic: Some(0x0100_DFBB), speaker, responses: vec![response.clone()] };
+        ix.lines.insert(INFO, line(Some(GOD)));
+        ix.lines.insert(PLAIN, line(None));
+        let dir = std::env::temp_dir().join(format!("fnv-voice-fixed-{}", std::process::id()));
+        let god_file = crate::path::voice_path("DeadMoney.esm", "GodVoice", "DogQuest", "DogTopic", INFO, 1, "ogg");
+        let write = |path: &str| {
+            let f = dir.join(path.replace('\\', "/"));
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, b"OggS").unwrap();
+        };
+        write(&god_file);
+        write(&crate::path::voice_path("DeadMoney.esm", "GodVoice", "DogQuest", "DogTopic", PLAIN, 1, "ogg"));
+        let bank = VoiceBank::new(ix, Arc::new(Vfs::open(&dir, &[]).unwrap()));
+        assert_eq!(bank.file(INFO, 0, DOG), None, "Dog's folder has nothing");
+        assert_eq!(bank.recording_file(INFO, 0, DOG), Some(god_file.clone()), "the fixed speaker's file");
+        assert_eq!(bank.recording_file(PLAIN, 0, DOG), None, "no fixed speaker: nothing else");
+        // Dog's own file, once there, comes first.
+        let dog_file = crate::path::voice_path("DeadMoney.esm", "DogVoice", "DogQuest", "DogTopic", INFO, 1, "ogg");
+        write(&dog_file);
+        let bank = VoiceBank::new(bank.index.clone(), Arc::new(Vfs::open(&dir, &[]).unwrap()));
+        assert_eq!(bank.recording_file(INFO, 0, DOG), Some(dog_file));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

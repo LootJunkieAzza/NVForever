@@ -1348,6 +1348,58 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   soft outer band blends over it instead of hiding it. Whether the game draws its hair
   this way, alpha-tests it, or does something else that comes out the same is not known
   [hypothesis]. Smoke checks `hair-solid-chet`, `hair-shaved-mohawk`.
+- **Window glass and environment maps** (#2462). The observation window of Camp
+  McCarran's interrogation room (`CampMCTermInt02`, reference 000FB2F4, base `VWindow01`)
+  is `dungeons\vault\accessories\vwindow01.nif` [observed: `fnvtool world refs`,
+  `fnvtool nif decode`]:
+  - One NiTriStrips, `VWindow01:0`, 40 vertices, 84 triangles: a flat 165 × 76 unit
+    sheet (frame and pane in one, local Y = 0) laid down twice, once with every normal
+    −Y and once +Y, so the model is two-sided by geometry; there is no
+    NiStencilProperty [observed]. Every vertex colour has alpha 0.3; the shader does not
+    set Vertex_Alpha (bit 3), so the renderers ignore it (`fix_vertex_colors`).
+  - NiAlphaProperty flags 4333 (0x10ED), threshold 0: blend SRC_ALPHA /
+    INV_SRC_ALPHA, no alpha test [documented: nif.xml AlphaFlags]. NiMaterialProperty:
+    alpha 1, glossiness 80, black specular and emissive colour [observed].
+  - BSShaderPPLightingProperty, shader type 1, shader flags 0x82200180: Environment_Mapping
+    (bit 7), Alpha_Texture (8), Window_Environment_Mapping (21), Remappable_Textures (25),
+    ZBuffer_Test (31); flags 2 = 1 (ZBuffer_Write); `environment_map_scale` 1.0; no
+    Specular bit [observed values; documented: nif.xml BSShaderFlags / BSShaderFlags2
+    names].
+  - Texture set: 0 `VGlass01.dds` (512 × 256 DXT5), 1 `VGlass01_n.dds` (128 × 64 DXT1,
+    flat: every texel (128, 128, 255)), 4 `textures\effects\ShinyBright_e.dds`, slots 2, 3
+    and 5 empty [observed]. `ShinyBright_e.dds` is a cube map (DDS caps2 0xFE00: all six
+    faces) of 32 × 32 DXT1 faces, dark (mean ≈ (35, 46, 44) of 255) with bright
+    streaks up to ≈ 240 [observed].
+  - The diffuse texture is a light grey (≈ 95 in the middle) whose alpha is very low
+    where the pane is: mean 14 of 255 over the middle half (u 0.25–0.75, v 0.3–0.7),
+    ≈ 50–80 towards the frame, at most 159 [observed]. Drawn as its base colour alone,
+    the pane covers what is behind it by about 5%: from the lit side a faint grey film,
+    from the dark side (the face seen there gets no light) a near-black 5% over dark
+    lockers, which cannot be seen at all. That is the bug as reported [observed: the
+    smoke frames `glass-mccarran-*` before the change].
+  - What the pane lacks is its environment map, which the renderers did not draw at all
+    (gap audit §2.1: bits 7 and 21 and slots 4/5 unread). 490 PP files (2,639 placed
+    references) set Window_Environment_Mapping [observed, gap audit]. The renderers now
+    draw slot 4 on lit shapes that set both Environment_Mapping and
+    Window_Environment_Mapping: the cube is read in the direction of the view reflected
+    about the surface normal, scaled by `environment_map_scale` and by the environment
+    mask (slot 5, its red channel) when the set has one, and added to the lit colour
+    [hypothesis: the shader's own sums are not documented; a reflection is light added
+    over the surface]. On a blended shape the reflection is added over the blend, not
+    weighted by the texture's alpha (the shape is drawn premultiplied: lit colour × alpha
+    + reflection) [hypothesis: weighted by the pane's alpha of about 0.05 the bright map
+    could not be seen either, and a bright reflection on a nearly clear pane only makes
+    sense if it shows; an observer frame of the window from both sides would settle it:
+    observer-checks.md 249].
+    The reflection does not depend on the lights, so the pane shows from its dark side
+    too.
+  - Cube axes: the game is Z-up; a cube map's faces are laid out for a Y-up lookup (+Y
+    the third face). The lookup direction is the game-space reflection (x, y, z) taken as
+    (x, z, y) [hypothesis: unverified against the original; on a blurry 32-texel cube it
+    only places the streaks].
+  - Shapes with Environment_Mapping alone (metal, most bottles: 1,663 PP files carry bit
+    7 in all) are left as they were [design: the scope of #2462; reflections on all of
+    them would change the look of much of the clutter and want their own check].
 
 ## 7. Coverage status
 

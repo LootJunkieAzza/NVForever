@@ -799,3 +799,41 @@ fn stewie_ammo_child_choice_and_actual_inventory_totals_follow_the_parent_separa
         }
     }
 }
+
+#[test]
+fn stewie_pipboy_queries_keep_unbound_fallback_and_follow_current_choices_after_handoff() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    let ini = b"[Tweaks]\nbDisableStealthEffectInPipboy=1\nbKeepPipboyLightOnCellChange=0\n[Other]\nbDisableStealthEffectInPipboy=7\n";
+    assert!(g.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+    // Unbound headless games retain the layered INI fallback.
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \"bDisableStealthEffectInPipboy:Tweaks\")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \"bKeepPipboyLightOnCellChange:Tweaks\")"), n(0.0));
+    let chosen = fnv_game::tweaks::Tweaks {
+        no_stealth_shimmer_in_pipboy: false,
+        ..Default::default()
+    };
+    g.bind_stewie_stat_settings(&chosen);
+    let version = q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")");
+    assert_eq!(version, n(941.0));
+    for name in ["StewVal", "StewieGetValue"] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bDisableStealthEffectInPipboy : Tweaks \")")), n(0.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bKeepPipboyLightOnCellChange : Tweaks \")")), n(1.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bDisableStealthEffectInPipboy:Other\")")), n(7.0));
+    }
+    g.tweaks.no_stealth_shimmer_in_pipboy = true;
+    let before = g.tweaks.clone();
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \" bdisablestealtheffectinpipboy : tweaks \")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \" bkeeppipboylightoncellchange : tweaks \")"), n(1.0));
+    assert_eq!(g.tweaks, before, "queries do not mutate settings");
+    // Restore clears application authority until rebound.
+    let saved = g.snapshot();
+    let mut restored = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..Default::default() }, &saved).unwrap();
+    assert!(restored.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bDisableStealthEffectInPipboy:Tweaks\")"), n(1.0));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bKeepPipboyLightOnCellChange:Tweaks\")"), n(0.0));
+    restored.bind_stewie_stat_settings(&chosen);
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bDisableStealthEffectInPipboy:Tweaks\")"), n(0.0));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bKeepPipboyLightOnCellChange:Tweaks\")"), n(1.0));
+}

@@ -313,7 +313,6 @@ impl Game<'_> {
     /// A Travel package to near `target`, made for a script, run on `actor` as its script
     /// package (AddScriptPackage's place).
     fn force_travel(&mut self, actor: FormId, target: FormId, flags: f64) -> Result<(), String> {
-        let id = self.travel_handle()?;
         let flags = flags as u32;
         let mut f = 0;
         if flags & 1 != 0 {
@@ -323,9 +322,19 @@ impl Game<'_> {
             f |= crate::package::flags::ALWAYS_SNEAK;
         }
         let def = PackageDef { ty: PackageType::Travel, flags: f, location: Some(Location { kind: LocationKind::NearReference(Some(target)), radius: TRAVEL_RADIUS }), ..PackageDef::default() };
-        self.other.jip13.made_packages = id.0 - MADE_PACKAGE_BASE + 1;
-        let leaked: &PackageDef = Box::leak(Box::new(def));
-        self.package_overrides.insert(id, leaked);
+        // The same journey asked again (a script calling every frame) keeps the package it
+        // already made for the actor: each one made lives for the session (#3150).
+        let had = self.extra.get(&actor).and_then(|x| x.script_package).filter(|id| id.0 >= MADE_PACKAGE_BASE && self.package_overrides.get(id).is_some_and(|d| **d == def));
+        let id = match had {
+            Some(id) => id,
+            None => {
+                let id = self.travel_handle()?;
+                self.other.jip13.made_packages = id.0 - MADE_PACKAGE_BASE + 1;
+                let leaked: &PackageDef = Box::leak(Box::new(def));
+                self.package_overrides.insert(id, leaked);
+                id
+            }
+        };
         self.extra.entry(actor).or_default().script_package = Some(id);
         if self.runs_packages() {
             self.set_package(actor, Some(id));

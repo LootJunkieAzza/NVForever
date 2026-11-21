@@ -70,7 +70,7 @@ lab `L5.ext.showoff2`): 49 of 50 rows match.
 | GetCreatureFootWeight, GetCreatureTurningSpeed `[creature]` | WNAM, TNAM; -1 for no creature [documented; observed: the dog 1 and 90, Doc -1] |
 | SetCreatureFootWeight, SetCreatureTurningSpeed, SetCreatureBaseScale, SetCreatureReach `value [creature]` | WNAM, TNAM, BNAM, RNAM for the session; refused below 0; 1 when set [documented; observed: turning speed 45 read back, -1 refused] |
 | GetCellEncounterZone (GetCellZone) `cell` | the cell's zone [documented; observed: Doc's house none] |
-| GetZoneRespawns `zone` | not "Never Resets" [documented; observed: Vault 11 0, Hoover Dam 1] |
+| GetZoneRespawns `zone` | not "Never Resets", reading saved `SetZoneRespawns` and session `SetZoneFlag` overrides through `Game::zone` [documented; observed: Vault 11 0, Hoover Dam 1; hypothesis: live override interaction] |
 | IsBaseForm `form`, IsReferenceCloned, IsActorAlt `[form]` | a record that is no placed reference; a reference made in play (0xFF); an NPC or creature [documented; observed: the pistol 1, the player and Doc's reference 0] |
 | ModNumericGameSetting `setting by` | the setting changed by the amount; 0 for no such setting [documented; observed: fMoveRunMult 4 + 1 = 5] |
 | GetShowOffDebugMode, SetShowOffDebugMode | the switch kept; nothing more is printed |

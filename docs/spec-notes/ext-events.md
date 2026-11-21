@@ -353,3 +353,45 @@ controls were unreached. The engine control passed once (full engine 3422 passed
 zero failed, three ignored; strict engine Clippy passed). The typed-filter fixture
 correction and its identical-fixture baseline are unexecuted at authoring. This
 changes fixture inputs and diagnostics only, preserving production policy.
+
+## Named key and gamepad button events (`OnKeyDown`, `OnKeyUp`, `OnButtonDown`, `OnButtonUp`)
+
+[documented: GECK wiki, [OnKeyDown](https://geckwiki.com/index.php?title=OnKeyDown),
+[OnKeyUp](https://geckwiki.com/index.php?title=OnKeyUp)] `OnKeyDown` and `OnKeyUp`
+notify a `SetEventHandler`-registered UDF when a keyboard key or mouse button is
+pressed or released, passing the DirectX scancode (256 + n for mouse buttons) as one
+numeric argument. Registration accepts either the plain event name or a colon-qualified
+scancode (`"OnKeyDown:38"`, `"OnKeyUp:203"`).
+
+[documented: GECK wiki, [OnButtonDown](https://geckwiki.com/index.php?title=OnButtonDown),
+[OnButtonUp](https://geckwiki.com/index.php?title=OnButtonUp)] `OnButtonDown` and
+`OnButtonUp` notify a `SetEventHandler`-registered UDF when a gamepad button is pressed
+or released, passing the pressed or released XInput single-button code (`1` D-pad up,
+`2` D-pad down, `4` D-pad left, `8` D-pad right, `16` Start, `32` Back, `64`/`128`
+thumbsticks, `256`/`512` shoulders, `1024` guide, `4096` A, `8192` B, `16384` X,
+`32768` Y) as one numeric argument. A colon-qualified suffix (`"OnButtonDown:4"`,
+`"OnButtonDown:12288"`) accepts either a single button code or a combined decimal
+bitmask so one registration listens for any button bit in that mask.
+
+[design] `Game::jip_keys` (invoked from both `Game::tick` and `Game::page_tick`)
+advances held-key and held-button snapshots once per frame even without subscribers,
+matching `control_edges` ([control-input-events.md](control-input-events.md)). Key
+edges read `ScriptInput::held` and dispatch JIP's `keydown`/`keyup` alongside plain
+`"OnKeyDown"`/`"OnKeyUp"` and colon-qualified `"OnKeyDown:<code>"`/`"OnKeyUp:<code>"`.
+Button edges read `Pad::buttons | Pad::held_buttons` (matching `GetPressedButtons` /
+`IsButtonPressed`) and dispatch plain `"OnButtonDown"`/`"OnButtonUp"` followed by all
+colon-qualified `"OnButtonDown:<mask>"`/`"OnButtonUp:<mask>"` handlers whose decimal
+bitmask overlaps the changed single-button bit, ordered by priority descending and
+registration sequence ascending, with `GetCurrentEventName` returning each handler's
+registered event string.
+
+[hypothesis] Relative ordering between JIP `SetOnKeyDownEventHandler` /
+`SetOnKeyUpEventHandler`, plain `OnKeyDown`/`OnKeyUp`, colon-qualified
+`OnKeyDown:<code>`/`OnKeyUp:<code>`, control events, and `OnButtonDown`/`OnButtonUp`
+within the same frame is a mapped NVForever ordering not yet measured in the original
+game. Whether `DisableKey` suppresses named `OnKeyDown`/`OnKeyUp` or `DisableButton`
+suppresses `OnButtonDown`/`OnButtonUp`, whether `HoldButton` triggers `OnButtonDown`,
+and how native handles multi-button bitmask priority ties or plain `"OnButtonDown"`
+without a colon suffix have not been observed in original-game captures; NVForever
+delivers disabled-key and disabled-button transitions consistently with
+`SetOnKeyDownEventHandler` and `OnControlDown`.

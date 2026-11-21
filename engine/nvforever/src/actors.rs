@@ -518,6 +518,24 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
                 materials[i] = ctx.material_with_texture(&p.model, &part, i, t);
             }
         }
+        // #2981: a shape whose role makes it skin (one of the race's skin textures) or the
+        // face (the head's texture targets), or the hair model's, takes no authored set, for
+        // good, from the moment the role is known here, whether or not a FaceGen tint follows
+        // (the actor may have no FaceGen data, or its offset may be missing). Skipped when no
+        // shape can take a set (the setting off, or no authored set in the mount): nothing to
+        // exclude, and no copies made.
+        if nvf_assets::authored::mount_has_sets(&ctx.models.data) {
+            let mut cache = world.facegen.lock().expect("facegen cache");
+            for (i, s) in part.shapes.iter().enumerate().filter(|(_, s)| !s.cap) {
+                let given = worn_skin[i].or(p.texture.as_deref().filter(|_| takes_texture[i]));
+                let race_skin = given.or_else(|| s.base_texture()).map(fnv_vfs::texture_path).is_some_and(|t| {
+                    [&a.body_texture, &a.hand_texture].into_iter().flatten().any(|k| fnv_vfs::texture_path(k) == t)
+                });
+                if race_skin || p.role == "hair" || (p.role == "head:head" && takes_texture[i]) {
+                    materials[i] = cache.role_legacy(&mut ctx.models.materials, &materials[i]);
+                }
+            }
+        }
         let mut meshes = vec![None; part.shapes.len()];
         if let Some(shape) = &shape {
             let _span = info_span!("actor::facegen_morph").entered();

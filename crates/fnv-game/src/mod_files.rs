@@ -265,25 +265,49 @@ pub fn files_in(rel: &str) -> Vec<String> {
     list_files(rel, false)
 }
 
-fn list_files(rel: &str, deep: bool) -> Vec<String> {
-    fn walk(dir: &Path, prefix: &str, deep: bool, seen: &mut std::collections::HashSet<String>, out: &mut Vec<String>) {
-        let Ok(rd) = std::fs::read_dir(dir) else { return };
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            let rel = if prefix.is_empty() { name } else { format!("{prefix}\\{name}") };
-            if e.path().is_dir() {
-                if deep {
-                    walk(&e.path(), &rel, deep, seen, out);
-                }
-            } else if seen.insert(rel.to_ascii_lowercase()) {
-                out.push(rel);
+/// The files under `dir` added to `out` as paths relative to it (`\` between parts), a
+/// path once (`seen`, lower case); subfolders too when `deep`. A folder that is a link
+/// (a symlink, an NTFS junction) to a folder the walk is already inside is not entered:
+/// a junction to its own parent would otherwise be walked until the system's path limit
+/// (#3154). `open` holds the real paths of the folders the walk is inside.
+fn walk_files(dir: &Path, prefix: &str, deep: bool, open: &mut Vec<PathBuf>, seen: &mut std::collections::HashSet<String>, out: &mut Vec<String>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        let rel = if prefix.is_empty() { name } else { format!("{prefix}\\{name}") };
+        let path = e.path();
+        if path.is_dir() {
+            if !deep {
+                continue;
             }
+            // A plain folder's real path is its parent's with its name; only a link is
+            // resolved (a system call each).
+            let linked = e.file_type().map_or(true, |t| !t.is_dir());
+            let real = match open.last() {
+                Some(parent) if !linked => parent.join(e.file_name()),
+                _ => match path.canonicalize() {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                },
+            };
+            if open.contains(&real) {
+                continue;
+            }
+            open.push(real);
+            walk_files(&path, &rel, deep, open, seen, out);
+            open.pop();
+        } else if seen.insert(rel.to_ascii_lowercase()) {
+            out.push(rel);
         }
     }
+}
+
+fn list_files(rel: &str, deep: bool) -> Vec<String> {
     let (mut seen, mut out) = (std::collections::HashSet::new(), Vec::new());
     for root in roots().read {
         if let Some(dir) = find_dir(&root, rel) {
-            walk(&dir, "", deep, &mut seen, &mut out);
+            let mut open: Vec<PathBuf> = dir.canonicalize().into_iter().collect();
+            walk_files(&dir, "", deep, &mut open, &mut seen, &mut out);
         }
     }
     out.sort_by_key(|n| n.to_ascii_lowercase());
@@ -1363,7 +1387,57 @@ fn glob(pat: &str, s: &str) -> bool {
 
 #[cfg(test)]
 mod path_tests {
-    use super::{on_disk, on_disk_any_case};
+    use super::{on_disk, on_disk_any_case, walk_files};
+
+    /// A folder link at `link` to `target`: a symlink on unix, an NTFS junction on Windows
+    /// (no privilege needed, unlike a Windows symlink). Whether it was made.
+    fn link_dir(target: &std::path::Path, link: &std::path::Path) -> bool {
+        #[cfg(unix)]
+        return std::os::unix::fs::symlink(target, link).is_ok();
+        #[cfg(windows)]
+        return std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().is_ok_and(|o| o.status.success());
+        #[cfg(not(any(unix, windows)))]
+        return false;
+    }
+
+    fn listing(dir: &std::path::Path) -> Vec<String> {
+        let (mut seen, mut out) = (std::collections::HashSet::new(), Vec::new());
+        let mut open: Vec<std::path::PathBuf> = dir.canonicalize().into_iter().collect();
+        walk_files(dir, "", true, &mut open, &mut seen, &mut out);
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn a_deep_listing_does_not_walk_round_a_folder_link() {
+        let base = std::env::temp_dir().join(format!("nvf-link-walk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("a/sub")).unwrap();
+        std::fs::create_dir_all(base.join("b")).unwrap();
+        std::fs::create_dir_all(base.join("elsewhere")).unwrap();
+        std::fs::write(base.join("a/one.txt"), "1").unwrap();
+        std::fs::write(base.join("a/sub/two.txt"), "2").unwrap();
+        std::fs::write(base.join("b/three.txt"), "3").unwrap();
+        std::fs::write(base.join("elsewhere/four.txt"), "4").unwrap();
+        // a\sub\up -> a (its own grandparent), a\to_b -> b and b\to_a -> a (a ring of
+        // two), a\out -> elsewhere (a link that leads nowhere back).
+        // (Paths joined part by part: mklink takes no `/`.)
+        let (a, b) = (base.join("a"), base.join("b"));
+        let made = link_dir(&a, &a.join("sub").join("up")) && link_dir(&b, &a.join("to_b")) && link_dir(&a, &b.join("to_a")) && link_dir(&base.join("elsewhere"), &a.join("out"));
+        if made {
+            // Each link back into a folder the walk is inside is left out; the others
+            // are followed once.
+            assert_eq!(listing(&base.join("a")), ["one.txt", "out\\four.txt", "sub\\two.txt", "to_b\\three.txt"]);
+        } else {
+            eprintln!("folder links could not be made here; only the plain listing is checked");
+            assert_eq!(listing(&base.join("a")), ["one.txt", "sub\\two.txt"]);
+        }
+        // Remove the links first: removing the tree must not go through them.
+        for l in ["a/sub/up", "a/to_b", "b/to_a", "a/out"] {
+            let _ = std::fs::remove_dir(base.join(l));
+        }
+        std::fs::remove_dir_all(&base).ok();
+    }
     use std::path::Path;
 
     #[test]

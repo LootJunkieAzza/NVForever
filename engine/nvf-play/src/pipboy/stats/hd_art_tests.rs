@@ -53,7 +53,7 @@ fn draw_art(size: u32, atlas: Option<bool>, page: PageArt, tga: bool) -> Drawn {
             std::fs::write(&image, crate::interface::tests::authored_rgba_dds(1024, 1024)).unwrap(); files.files.push(image);
         }
     }
-    let data = nvf_assets::GameData { vfs: Arc::new(fnv_vfs::Vfs::open(&files.root, &[]).unwrap()), schema: Arc::new(fnv_nif::Schema::default()) };
+    let data = nvf_assets::GameData::new(Arc::new(fnv_vfs::Vfs::open(&files.root, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
     let _canvas = crate::interface::original_units();
     let mut world = World::new();
     world.run_system_once(move |mut commands: Commands| {

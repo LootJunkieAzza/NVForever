@@ -20,6 +20,13 @@ pub struct TraitState {
     pub ism: HashMap<(FormId, i64), u32>,
 }
 
+impl TraitState {
+    /// A session override for an active image-space modifier's renderer consumer.
+    pub fn image_modifier_override(&self, form: FormId, trait_id: i64) -> Option<f64> {
+        self.values.get(&(form, IMAD, trait_id)).copied()
+    }
+}
+
 const SOUND: u8 = 0;
 const WEATHER: u8 = 1;
 const COLOR: u8 = 2;
@@ -148,7 +155,9 @@ fn rest_float(d: Option<&Json>, i: usize) -> f64 {
 }
 
 /// An image space modifier's trait: its first keyframe of each array [observed:
-/// FadeToBlack9sISFX, the multiply/add pairs 1/0, the tint 255]; the radial blur centre
+/// FadeToBlack9sISFX, the multiply/add pairs 1/0, the tint 255]; the tint (47–50) is
+/// 0–255 alpha included [observed: original FNV 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+/// 2026-11-20, image-modifiers.md]; the radial blur centre
 /// from DNAM's floats 49 and 50 after its first two fields [observed: both 0.5; the
 /// offset is a hypothesis]; traits 65–67 0 [hypothesis].
 fn imad_trait(g: &Game, s: FormId, t: i64) -> f64 {
@@ -168,7 +177,7 @@ fn imad_trait(g: &Game, s: FormId, t: i64) -> f64 {
         47 => key(*b"TNAM", "red") * 255.0,
         48 => key(*b"TNAM", "green") * 255.0,
         49 => key(*b"TNAM", "blue") * 255.0,
-        50 => key(*b"TNAM", "alpha"),
+        50 => key(*b"TNAM", "alpha") * 255.0,
         51 => key(*b"NAM3", "red") * 255.0,
         52 => key(*b"NAM3", "green") * 255.0,
         53 => key(*b"NAM3", "blue") * 255.0,

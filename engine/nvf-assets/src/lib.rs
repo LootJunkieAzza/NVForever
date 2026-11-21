@@ -5,6 +5,7 @@
 pub mod actor;
 pub mod anim_blend;
 pub mod anim_play;
+pub mod authored;
 mod bc5_field;
 pub mod camera_shot;
 pub mod data;
@@ -14,6 +15,7 @@ pub mod model;
 pub mod model_light;
 pub mod morph;
 pub mod particles;
+mod pbr_field;
 pub mod read_pool;
 pub mod release;
 pub mod nif_material;

@@ -234,6 +234,140 @@ that kind. Not used by the lab.
 
 Defined in docs/spec-notes/dds.md together with the texture notes.
 
+## `fnvtool pbr list --data <Data> [plugins…] [--mods <folder> | --mo2 <instance> [--profile p]] [--archive-list l]` → `fnv.pbr.listing/1`
+
+The authored material sets under `textures\pbr\` that a load order supplies (#2981; the
+format: docs/spec-notes/pbr-materials.md). The VFS is mounted with the steps of the
+engine's developer start (`--data`): folders given relative are made absolute from the
+current folder; the plugins (arguments; else with `--mo2` the profile's active plugins, or
+the masters when it has none; else the base game and the add-on masters in Data) are
+looked up through the mods folders, opened, and those that cannot be read or whose
+masters are missing or load later are left out with a warning
+(`fnv_esm::loadorder::drop_unloadable`, as engine `world::open_plugins`); then the
+remaining plugins' archives, Data's loose files and NVForever's mods folder (`--mods`) or
+the Mod Organizer 2 profile's mods (`--mo2`, with the profile's archive list unless
+`--archive-list` is given). A plugin given as a full path (`--mo2-profile`) is opened
+there and given to the VFS by its file name. A damaged archive fails the command (exit
+1), as `fnvtool bsa check` does and as the engine refuses to start.
+
+`mount` names the exact inputs: `data`, `loose_roots` (lowest first, Data first),
+`plugins_from`, `plugins_asked`, `plugins` (used), `plugins_dropped` (`plugin`, `why`),
+`archive_list` (`names`, `from`; `null`: the shipped list), `archive_order_env` (the
+`NVF_ARCHIVE_ORDER` override when set, else `null`) and `archives` (mounted, lowest
+precedence first: `name`, `file`). Where the engine's mount still differs (checked
+against engine `main.rs`, `setup.rs` and `world.rs`):
+
+- **Plugin list**: a player's start (no `--data`) takes the home `plugins.txt` or Mod
+  Organizer 2's synced list, which this command does not read. A plugin asked for by name
+  and missing is left out with a warning in both programs. Without plugin arguments both
+  take the base game and the add-on masters present in Data (the engine logs the masters
+  it plays with when some are missing; this command lists them in `plugins_asked`);
+  under `--mo2` with a profile that has no active plugins both try every master and warn
+  for the missing ones.
+- **Mods folder**: outside `--mo2` the engine always layers the home `mods` folder (for
+  plugins and loose files); this command only the `--mods` given. Under `--mo2` neither
+  uses the home folder.
+- **Archive list**: the engine sets `[Archive] SArchiveList` from NVForever.ini first, and
+  the list can be set only once per run (`fnv_vfs::set_archive_list`), so with both an INI
+  list and a Mod Organizer 2 profile's list the engine keeps the INI's. This command reads
+  no INI: it takes `--archive-list`, else the profile's list, else the shipped one.
+- **Code page**: the engine takes `NVF_CODE_PAGE`, else `[Text] CodePage` of NVForever.ini,
+  before opening plugins; this command only `NVF_CODE_PAGE` (else Windows-1252). Master
+  names are decoded when a plugin is opened, so set `NVF_CODE_PAGE` to the INI's value
+  when the load order has non-ASCII plugin names.
+- **Game folder**: the engine takes the install root or its Data folder and refuses an
+  install that lacks required game files (`setup.rs`, `validate`); this command takes any
+  folder as Data.
+- **`--mo2-profile`** (the general fnvtool option) supplies the profile's plugin paths only,
+  made absolute; the mods' loose files and archives are mounted only with `--mo2`, or, for
+  one mod root, with `--mods` naming it.
+
+Other keys: `sets` (sorted by stem: `stem`,
+`diffuse` (the diffuse's path without extension), `state` (`authored`, `height-only`,
+`incomplete`), `members`: per member present (`orm`, `normal`, `height`, `scalars`,
+`albedo`) its `path` and `source`, the winning file: `{"kind": "archive", "archive",
+"file"}` or `{"kind": "loose", "root", "file"}`), `unmatched` (files under
+`textures\pbr\` that belong to no set), `totals` (`files`, `sets`, `active`, `authored`,
+`height_only`, `incomplete`, `unmatched`, `members` per member) and `summary` (the line
+the engine logs). Only presence is reported; the files are not read. Not used by the lab.
+
+## `fnvtool pbr check <folder>`, `fnvtool pbr selftest` → `fnv.pbr.check/1`
+
+A validator for one authored material pack on disk (#2981; the format:
+docs/spec-notes/pbr-materials.md). No game data and no VFS: `<folder>` is a mod folder
+holding `textures\pbr\`, its `textures` folder (one holding `pbr\`) or the `pbr` folder
+itself (named `pbr`), folder names matched without regard to ASCII case. A folder that
+names itself is taken first: a `pbr` folder inside a `textures` folder, then a `textures`
+folder holding `pbr\`, so a pack's own subfolder named `pbr` or `textures` is read as part
+of the pack, never as its root; then a folder holding `textures\pbr\`, one holding
+`pbr\`, and last any folder named `pbr`. Each file under the `pbr` folder is judged from its DDS headers (the first 148
+bytes: the header and the DX10 extension) and its length; a scalar file is read whole.
+No pixel is decoded and the maps' content is not judged. The command prints the document
+and exits 1 when any finding is an error (warnings do not fail it). `selftest` runs the
+same checks (`crates/fnvtool/src/pbr_check.rs`, one function for files on disk and bytes
+in memory) on a pack built in code: a clean set (DX10 BC7 `_orm` 8x8, BC5_UNORM `_n`
+16x16, BC4_UNORM `_p` 4x4, a scalar file) and seven broken files. It prints the document,
+then the line `pbr selftest: PASS (3 formats, 7 expected findings)` (or `FAIL (...)`
+naming what was missed or raised besides, and exit 1). Smoke scenario `pbr-selftest`.
+
+Keys:
+
+- `schema`: `fnv.pbr.check/1`.
+- `root`: `folder` (as given), `form` (`mod`, `textures`, `pbr`; `selftest` for the
+  self-test), `pbr_folder` (the folder read; `null` for the self-test).
+- `ok`: no error found.
+- `files` (sorted by path, ASCII case folded): `path`, `member` (`orm`, `normal`,
+  `height`, `scalars`, `albedo`, `null` when unmatched), `bytes` (the file's length),
+  `format` (as the file states it: the DXGI name for a DX10 header, e.g. `BC7_UNORM_SRGB`,
+  else the legacy name, e.g. `DXT1`; a description for an unknown one; `null` when the
+  file is not a DDS member or its header does not parse), `width`, `height`, `levels`,
+  `payload_bytes` (the pixel data the header's layout needs; `null` when it cannot be
+  sized), `accepted` (no error in the file).
+- `findings` (sorted by path, then errors first, then code): `level` (`error`,
+  `warning`), `code`, `path` (the file's game path, `textures\pbr\...` spelled as the
+  pack's folders and files are; for `incomplete-set` the set's stem), `message` (one
+  sentence).
+- `totals`: `files`, `bytes`, `sets` (`total`, `authored`, `height_only`, `incomplete`,
+  as `fnv_pbr::PbrIndex` classifies them), `unmatched`, `members` (per member: `files`;
+  for `orm`, `normal` and `height` also `formats`, a count per format name, and
+  `largest_side`, the largest width or height, `null` with none), `formats` (every format
+  name read, sorted), `gpu_bytes_estimate` (the `payload_bytes` of every `_orm`, `_n` and
+  `_p` without an error in a set that is authored or height only), `errors`, `warnings`.
+- `selftest` (self-test only): `formats` (the clean set's), `expected`, `missing`,
+  `unexpected` (each a list of `path`, `code`), `pass`, `verdict` (the last line).
+
+Codes, errors: the file is malformed, or it breaks the **pack format's** rules, what
+docs/spec-notes/pbr-materials.md allows per member. These are not a list of what the
+engine's loader refuses: the loader may accept more (an uncompressed RGBA `_orm`, for
+example), and a pack should not rely on that.
+
+| Code | When |
+|---|---|
+| `dds-unreadable` | a `_orm`, `_n` or `_p` whose header does not parse (not DDS, cut inside its headers), or that counts more than 32 mip levels |
+| `bad-header-size` | a header whose own size field is not 124, or whose pixel format's size field is not 32 (docs/spec-notes/dds.md) |
+| `format-not-allowed` | a format not in the member's list: `_orm` BC7, BC1, BC3; `_n` BC5 (unsigned or signed), BC7, BC1, BC3; `_p` BC4 (unsigned or signed), BC1, BC3 (an `_SRGB` DX10 code counts as its format) |
+| `not-single-2d` | a cube map, a volume, a DX10 array of more than one texture or a 1D texture |
+| `bad-size` | a side of 0 or above 16384 |
+| `not-block-aligned` | a top level whose width or height is not a multiple of 4 |
+| `extra-mips` | more mip levels than a full chain down to 1x1 has (the renderer refuses such a texture) |
+| `truncated` | less pixel data than the header's size, format and levels need |
+| `toml-invalid` | a scalar file that is not UTF-8 or not TOML |
+
+Warnings (allowed, ignored in this version, or probably not meant):
+
+| Code | When |
+|---|---|
+| `incomplete-mips` | fewer mip levels than a full chain down to 1x1 (including none) |
+| `not-power-of-two` | a side that is not a power of two (allowed; tools differ on the small levels) |
+| `srgb-linear-member` | a DX10 `_SRGB` code on a member, which is read as linear anyway |
+| `trailing-bytes` | bytes after the pixel data the header describes (never read) |
+| `scalar-ignored-or-clamped` | one per warning of `fnv_pbr::parse_scalars`: an unknown key or a table, a value that is not a finite number, a number clamped into its range |
+| `albedo-reserved` | a `_albedo` file (reserved, counted, not read; not checked further) |
+| `incomplete-set` | a set with neither `_orm` nor `_p` (only `_n`, `.toml` or `_albedo`), which changes nothing |
+| `unmatched-file` | a file under `textures\pbr\` that is no member of any set |
+
+Not used by the lab.
+
 ## `fnvtool spt list <archive>` → `fnv.spt.listing/1`, `fnvtool spt dump <source> [--path p]` → `fnv.spt.dump/1`
 
 SpeedTree parameter files (docs/spec-notes/speedtree.md). `list`: one row per `.spt` in

@@ -1101,7 +1101,7 @@ game's Data folder, read-only).
 | `bShowWeaponAmmoUseInMenus` | done | yes |  | Rounds per Shot |
 | `bSkipSkillMenuIfNoPointsToAssign` | done | yes |  | Perks First When No Points |
 | `bSortEquipableAmmo` | done | yes |  | Usable Ammo First |
-| `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (the option for emptying a category not built) |
+| `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (also keeps the emptied category after transferring its last item, matching `bPreventSwitchWhenEmptyingCategory`) |
 | `bTakeAllInCompanionContainers` | done | yes |  | already so: Take All shows for companions |
 | `b12HourPipboyClock` | done |  |  | 12-Hour Pip-Boy Clock |
 | `b24HourSleepWaitClock` | done |  |  | already so: the wait clock is 24-hour |

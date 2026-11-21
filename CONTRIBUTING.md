@@ -12,7 +12,7 @@ breaks them can't be merged, however good it is.
   attach game files. Crash logs from `Documents\My Games\NVForever\logs` are fine.
   Report security problems privately instead: see [SECURITY.md](SECURITY.md).
 - **Fix something or build something.** [docs/status.md](docs/status.md) says what is
-  built and [docs/outstanding.md](docs/outstanding.md) says what is left. Every pull
+  built and what is partly built, and the open issues say what is left. Every pull
   request starts from an issue: open one first (or use an open one) saying what you will
   add or fix, so we can agree on the approach before you spend time on it. Only a typo or
   broken link in the docs can go straight to a pull request.

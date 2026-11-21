@@ -20,6 +20,15 @@ use nvf_play::phys::PhysState;
 use nvf_play::sim::SimState;
 use std::collections::HashMap;
 
+/// Apply the water override to the same camera transform the renderer extracts.
+pub struct UnderwaterFogPlugin;
+
+impl Plugin for UnderwaterFogPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(PostUpdate, underwater_fog.after(bevy::transform::TransformSystems::Propagate));
+    }
+}
+
 /// Water types read so far, by FormID.
 #[derive(Default)]
 pub struct WaterTypes(HashMap<u32, Option<Water>>);
@@ -136,8 +145,8 @@ pub fn underwater_fog(
     world: Res<WorldData>,
     streamer: Res<Streamer>,
     mut dw: ResMut<DistantWater>,
-    mut sky: ResMut<SkyState>,
-    mut cam: Query<(&GlobalTransform, &Transform, Has<ChildOf>, &mut DistanceFog), crate::fly::WorldCamera>,
+    sky: Res<SkyState>,
+    mut cam: Query<(&GlobalTransform, &mut DistanceFog), crate::fly::WorldCamera>,
     phys: Option<Res<PhysState>>,
     sim: Option<Res<SimState>>,
     graphics: Option<Res<crate::graphics::Graphics>>,
@@ -145,17 +154,12 @@ pub fn underwater_fog(
     mut types: Local<WaterTypes>,
     mut placed_types: Local<HashMap<u32, Option<u32>>>,
     mut was_under: Local<bool>,
-    mut weather: Local<Option<(Color, FogFalloff)>>,
-    mut written: Local<Option<(Color, FogFalloff)>>,
+    screen: Option<Res<crate::imagespace::ScreenModifiers>>,
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
 ) {
-    let Ok((gt, transform, parented, mut fog)) = cam.single_mut() else { return };
+    let Ok((gt, mut fog)) = cam.single_mut() else { return };
     let enhanced = graphics.is_some_and(|g| g.water_effects);
-    // This frame's camera: the camera is placed in Update (`control::place_camera`, before
-    // this system) and its GlobalTransform is propagated only in PostUpdate, so reading
-    // the GlobalTransform here lagged a frame behind the picture: on going under, one
-    // frame drew the weather's fog under the surface, and on coming up the under-water
-    // fog over it. The world camera is a root entity, its Transform already global.
-    let camera = bevy_to_game(if parented { gt.translation() } else { transform.translation });
+    let camera = bevy_to_game(gt.translation());
     let under = water_above(&world, &streamer, &mut dw, phys.as_deref(), sim.as_deref(), &mut placed_types, camera, enhanced);
     let water = under.and_then(|(_, wid)| {
         let wid = if enhanced { remaps.as_ref().map_or(wid, |r| r.resolve(wid)) } else { wid };
@@ -163,27 +167,14 @@ pub fn underwater_fog(
     });
     let Some(w) = water else {
         if std::mem::take(&mut *was_under) {
-            // Back above the surface: the weather's fog again. `update_sky` already ran
-            // this frame, so its refresh shows only next frame: give back the weather's
-            // fog as it last wrote it now, rather than one frame of under-water fog above
-            // the surface.
+            // Back above the surface: reapply the current weather/interior fog immediately
+            // without forcing an unrelated sky refresh.
             info!("underwater: the camera is out of the water, the cell's fog again");
-            // Only over this system's own fog: after a door or a weather change this
-            // frame `update_sky` has already written the fog that belongs here.
-            let ours = (*written).take().is_some_and(|(c, f)| c == fog.color && same_falloff(&f, &fog.falloff));
-            if let Some((color, falloff)) = (*weather).take().filter(|_| ours) {
-                fog.color = color;
-                fog.falloff = falloff;
-            }
-            sky.refresh();
+            let emissive = screen.as_deref().map_or(1.0, |s| s.hdr_ratio(fnv_world::imagespace::HDR_EMISSIVE_MULT));
+            crate::sky::apply_cell_fog(&sky, &mut fog, emissive, tweaks.as_ref().is_some_and(|t| t.no_interior_fog));
         }
         return;
     };
-    // The fog `update_sky` wrote (on going under, or when the weather changed while under):
-    // anything other than what this system wrote last frame.
-    if !(*written).as_ref().is_some_and(|(c, f)| *c == fog.color && same_falloff(f, &fog.falloff)) {
-        *weather = Some((fog.color, fog.falloff.clone()));
-    }
     let depth = under.map_or(0.0, |(h, _)| h - camera.z);
     let colour = fog_bytes(w.shallow, w.deep, depth);
     if !std::mem::replace(&mut *was_under, true) {
@@ -202,15 +193,6 @@ pub fn underwater_fog(
     let (near, far) = depth_fog_range(w.above_fog, w.under_fog, depth, enhanced);
     fog.color = Color::LinearRgba(LinearRgba::rgb(r, g, b));
     fog.falloff = FogFalloff::Linear { start: near, end: far.max(near + 1.0) };
-    *written = Some((fog.color, fog.falloff.clone()));
-}
-
-/// Whether two fog falloffs are the same (FogFalloff has no `PartialEq`).
-fn same_falloff(a: &FogFalloff, b: &FogFalloff) -> bool {
-    match (a, b) {
-        (FogFalloff::Linear { start: s0, end: e0 }, FogFalloff::Linear { start: s1, end: e1 }) => s0 == s1 && e0 == e1,
-        _ => false,
-    }
 }
 
 /// [`fog_bytes`]' colour unrounded, in linear light.
@@ -224,8 +206,7 @@ fn fog_linear(shallow: [u8; 3], deep: [u8; 3], depth: f32) -> [f32; 3] {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEEP_AT, depth_fog_range, fog_bytes, fog_linear, fog_water_type, highest_submerged, same_falloff};
-    use bevy::pbr::FogFalloff;
+    use super::{DEEP_AT, depth_fog_range, fog_bytes, fog_linear, fog_water_type, highest_submerged};
     use fnv_world::sky::srgb_to_linear;
 
     /// Water effects' unrounded colour: the byte rule's colour where it lands on whole
@@ -243,14 +224,6 @@ mod tests {
         // A unit down changes the colour by far less than one byte step.
         let (a, b) = (fog_linear(shallow, deep, 400.0), fog_linear(shallow, deep, 401.0));
         assert!(a[1] > b[1] && a[1] - b[1] < 0.1 * (srgb_to_linear(60) - srgb_to_linear(59)));
-    }
-
-    #[test]
-    fn falloffs_compare_by_value() {
-        let linear = FogFalloff::Linear { start: -100.0, end: 500.0 };
-        assert!(same_falloff(&linear, &FogFalloff::Linear { start: -100.0, end: 500.0 }));
-        assert!(!same_falloff(&linear, &FogFalloff::Linear { start: -100.0, end: 501.0 }));
-        assert!(!same_falloff(&FogFalloff::Exponential { density: 1.0 }, &FogFalloff::Exponential { density: 1.0 }));
     }
 
     #[test]

@@ -222,8 +222,11 @@ impl PixelFormat {
                 b"ATI2" => Ok(Format::Bc5U),
                 b"BC5S" => Ok(Format::Bc5S),
                 // The legacy codes a reader is to handle for BC4 [documented: MS
-                // "Programming Guide for DDS", common formats table]; `ATI1` is not listed.
-                b"BC4U" => Ok(Format::Bc4U),
+                // "Programming Guide for DDS", common formats table]. `ATI1` is not in
+                // that table; it is the older code for the same unsigned format
+                // [documented: DirectXTex wiki, "DDS I/O Functions", Remarks: `ATI1` and
+                // `BC4U` both read as BC4_UNORM; #3151].
+                b"BC4U" | b"ATI1" => Ok(Format::Bc4U),
                 b"BC4S" => Ok(Format::Bc4S),
                 _ => Err(self.describe()),
             };
@@ -1113,7 +1116,18 @@ mod dx10_tests {
         assert_eq!((t.format, t.srgb_hint(), t.header.data_offset(), t.alpha_opaque()), (Format::Bc4U, None, 128, false));
         legacy[84..88].copy_from_slice(b"BC4S");
         assert_eq!(Dds::parse(&legacy).unwrap().format, Format::Bc4S);
+        // `ATI1` is the older code for BC4 unsigned (#3151): the same reading as `BC4U`.
         legacy[84..88].copy_from_slice(b"ATI1");
+        let t = Dds::parse(&legacy).unwrap();
+        assert_eq!((t.format, t.srgb_hint(), t.header.data_offset(), t.alpha_opaque()), (Format::Bc4U, None, 128, false));
+        assert_eq!(decode_bc4(t.format, 4, 4, t.levels[0][0]).unwrap(), [0.0; 16]);
+        // The size guards hold for it too (#1995): a block short, and a side past the cap.
+        assert!(Dds::parse(&legacy[..legacy.len() - 1]).is_err());
+        legacy[16..20].copy_from_slice(&0x8000_0000u32.to_le_bytes());
+        assert!(Dds::parse(&legacy).is_err());
+        // Other codes stay refused.
+        legacy[16..20].copy_from_slice(&4u32.to_le_bytes());
+        legacy[84..88].copy_from_slice(b"ATI3");
         assert!(matches!(Dds::parse(&legacy), Err(DdsError::Unsupported(_))));
     }
 

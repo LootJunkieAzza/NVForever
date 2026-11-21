@@ -93,6 +93,13 @@ default 3]` [documented: SetGameMainLoopCallback].
 - Observed: a lambda registered with delay 1 and flag 1 ran, with GetSelf the player
   [observed: loop.ran, loop.this]. How many times per frame was not measured: a capture
   query does not run on every game frame.
+- Zero/null callable registration (`XVal::Ref(0)` or `XVal::Num(0.0)`): NVForever
+  refuses to enqueue a form-zero main-loop callback and emits one `ScriptError` plus
+  structured warning via `handler_failed_with_registrar` (carrying registrar provenance)
+  at registration time rather than dispatching form zero every frame (#2603) [design;
+  native handling of null `SetGameMainLoopCallback` callable tokens is unobserved].
+  Active main-loop registrations also retain registrar provenance (including across
+  `take_session`/`put_session` handoff) for runtime dispatch errors.
 
 ## 4. Evidence still to get
 
@@ -127,10 +134,11 @@ runs only where the game fires it (`Game::jip_event`):
 | noteadded, queststage, mouseoverchange, menuclick | the note, SetStage, the menus' tiles | J6, T8 |
 | projectileimpact | a shot in flight hits anything, terrain included: `Game::projectile_impact`, on the shot's temporary reference; the filter is matched against its PROJ base | #1408 |
 | menuopen, menuclose | `Game::open_menu`, `Game::close_menu`, the menu under the tutorial menu closing, and a Pip-Boy page left for another [hypothesis: each page is a menu of its own code]. The dialogue menu (1009) is not reported | #1408 |
-| keydown, keyup | each frame, the keys and mouse buttons (256 + n) held by the player that changed since the last (`Game::jip_keys`), disabled keys included [documented] | #1408 |
+| keydown, keyup | each frame, the keys and mouse buttons (256 + n) held by the player that changed since the last (`Game::jip_keys`), disabled keys included [documented]; named `OnKeyDown`/`OnKeyUp` (plain and `:code`) and gamepad `OnButtonDown`/`OnButtonUp` (plain and `:bitmask`) share the same frame entry point ([ext-events.md](ext-events.md)) | #1408 |
 | controldown, controlup | the existing key-event frame entry point, comparing the selected-device 28-control snapshot; both JIP and colon-name handlers ([contract](control-input-events.md)) | authored engine controls, unrun |
 | crafting | the recipe menu made an item: once per output, with all of it (`Game::item_crafted`) [hypothesis: the page does not say how a recipe made several times is reported] | #1408 |
 | locationdiscover | the engine found a map marker, with the marker reference (`Game::challenge_marker_found`) | #1408 |
+| dialogtopic | a dialogue line is spoken (`dialogue.rs` `speak` and `game.rs` `say_line`), with `this = speaker` and `arg0 = info` when matched by an INFO filter or `topic` when matched by a topic/wildcard filter [documented; hypothesis: unfiltered/wildcard passes topic] | authored controls |
 
 Not fired yet: criticalhit, fireweapon, reloadweapon, animaction, playgroup,
-dialogtopic, fasttravel, pctargetchange, triggerdown/up.
+fasttravel, pctargetchange, triggerdown/up.

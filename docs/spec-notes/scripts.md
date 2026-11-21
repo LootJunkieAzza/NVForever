@@ -1101,9 +1101,13 @@ then, in a loaded cell) [hypothesis]; trace event `placed`. DropMe and Drop use 
 drop rule; DropMe acts as a return and neither runs OnDrop [documented: catalogue notes].
 Ownership lives in the reference's Layer 4 extra data; SetOwnership with no owner gives
 the player's base (0x7) [documented]. Destruction: the stage is the highest DSTD index
-whose health percent the remaining health (DEST health − damage) has fallen to, 0 when
-damaged above every stage, −1 without data or damage [documented −1: GECK wiki
-GetDestructionStage; the rest hypothesis]; a stage with the Destroy flag sets the
+whose health percent the remaining health (DEST health − damage) has fallen to, and
+GetDestructionStage gives it counted from 1 (index + 1), 0 when damaged above every stage,
+−1 without data or damage [documented −1: GECK wiki GetDestructionStage; the rest
+hypothesis; the count from 1 fits the masters' scripts, which compare it with values only
+it reaches: Zeta's generator core (eight stages) disables itself at 7, its Destroy stage,
+and tests 8; Point Lookout's Brain (seven stages) bursts at 7; DLC04DarMuckBubble (two
+stages) tests `>= 2` (#3053, observer check 247)]; a stage with the Destroy flag sets the
 destroyed state, one with Disable disables the reference, a stage change runs
 OnDestructionStageChange [hypothesis from the flag names]; a block with a parameter
 (`Begin OnDestructionStageChange 3`) runs only for the stage reached counted from 1 (DSTD

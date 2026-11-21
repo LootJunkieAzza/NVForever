@@ -340,6 +340,7 @@ fn glare_material(own: &NifMaterial) -> NifMaterial {
     m.extension.alpha_cut = 0.0;
     m.extension.falloff = Falloff::NONE.params;
     m.extension.soft = Vec4::ZERO;
+    nvf_assets::authored::clear_for_unlit_copy(&mut m);
     m
 }
 
@@ -357,6 +358,7 @@ fn menus_material(own: &NifMaterial, image: Handle<Image>) -> NifMaterial {
     m.base.uv_transform = bevy::math::Affine2::from_scale(scale);
     m.extension.pipboy_screen = true;
     (m.extension.pipboy_a, m.extension.pipboy_b) = ScreenLook::default().surface();
+    nvf_assets::authored::clear_for_unlit_copy(&mut m);
     m
 }
 
@@ -848,6 +850,26 @@ mod tests {
         assert_eq!(m.base.base_color.to_linear(), LinearRgba::rgb(r, g, b));
         // The source is a copy away, and keeps the engine's add.
         assert!(!own.extension.add_linear && own.base.base_color == Color::WHITE);
+    }
+
+    /// #2981: the glare and menus copies of a material that wore an authored set carry none
+    /// of it (no ORM, occlusion or depth map, no mark, no legacy look to apply one again).
+    #[test]
+    fn the_unlit_copies_of_an_authored_material_carry_no_set() {
+        let mut images = Assets::<Image>::default();
+        let mut own = surface(Color::WHITE);
+        own.base.alpha_mode = AlphaMode::Opaque;
+        let orm = images.add(Image::default());
+        own.base.metallic_roughness_texture = Some(orm.clone());
+        own.base.occlusion_texture = Some(orm);
+        own.base.depth_map = Some(images.add(Image::default()));
+        own.extension.emissive_rule.w = nvf_assets::authored::AUTHORED_MARK;
+        own.extension.legacy = Some(nvf_assets::authored::LegacyLook { normal: None, specular: None, roughness: 1.0, reflectance: 0.3, metallic: 0.0, tangents: false, specular_tint: Color::WHITE, scripted_tint: None });
+        for m in [glare_material(&own), menus_material(&own, Handle::default())] {
+            assert!(m.base.metallic_roughness_texture.is_none() && m.base.occlusion_texture.is_none() && m.base.depth_map.is_none());
+            assert!(!nvf_assets::authored::is_authored(&m) && m.extension.legacy.is_none());
+        }
+        assert!(own.base.metallic_roughness_texture.is_some(), "the source left alone");
     }
 
     #[test]

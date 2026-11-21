@@ -18,6 +18,11 @@ impl Game<'_> {
             self.tweaks.hardcore_ammo_weight
         } else if section.eq_ignore_ascii_case("Tweaks") && key.eq_ignore_ascii_case("bIndividialItemStats") {
             self.tweaks.single_item_figures
+        } else if section.eq_ignore_ascii_case("Tweaks") && key.eq_ignore_ascii_case("bDisableStealthEffectInPipboy") {
+            self.tweaks.no_stealth_shimmer_in_pipboy
+        } else if section.eq_ignore_ascii_case("Tweaks") && key.eq_ignore_ascii_case("bKeepPipboyLightOnCellChange") {
+            // NVForever already keeps the Pip-Boy light on across cell changes (docs/design/tweaks.md).
+            true
         } else {
             return None;
         };

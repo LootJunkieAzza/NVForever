@@ -164,6 +164,8 @@ fn show(
             m.base.unlit = true;
             m.base.alpha_mode = AlphaMode::Opaque;
             m.base.uv_transform = bevy::math::Affine2::from_scale(TEXTURE_UNITS / TARGET.as_vec2());
+            // An unlit copy carries nothing of an authored set (#2981), as the Pip-Boy's.
+            nvf_assets::authored::clear_for_unlit_copy(&mut m);
             material = models.materials.add(m);
             drawn.glass = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
         } else if name.eq_ignore_ascii_case("glare:0") {
@@ -174,6 +176,9 @@ fn show(
             m.emissive = LinearRgba::BLACK;
             m.emissive_texture = None;
             m.normal_map_texture = None;
+            m.metallic_roughness_texture = None;
+            m.occlusion_texture = None;
+            m.depth_map = None;
             m.unlit = true;
             m.alpha_mode = AlphaMode::Add;
             glare = Some(plain.add(m));

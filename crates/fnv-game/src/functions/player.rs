@@ -150,12 +150,16 @@ fn controls(a: &Args, default: [bool; 7], missing: bool) -> [bool; 7] {
     out
 }
 
-pub fn disable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn disable_player_controls(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     // A left-out parameter is 0: the group is left as it is [hypothesis; §5.2 has a
     // capture that does not fit any simple rule].
     let which = controls(a, [true, true, true, true, false, false, false], false);
     for (d, w) in g.player.controls_disabled.iter_mut().zip(which) {
         *d |= w;
+    }
+    // Who holds the controls, for the players' reports (#3044).
+    if which.iter().any(|w| *w) {
+        g.player.controls_disabled_by = Some(crate::game::ControlsCaller { unit: ctx.unit.to_string(), quest: ctx.quest, reference: ctx.on.or(ctx.self_ref) });
     }
     none()
 }
@@ -172,6 +176,9 @@ pub fn enable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Valu
         if w {
             *d = false;
         }
+    }
+    if !g.player.controls_disabled.iter().any(|d| *d) {
+        g.player.controls_disabled_by = None;
     }
     none()
 }

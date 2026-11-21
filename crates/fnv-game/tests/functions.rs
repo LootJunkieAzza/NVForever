@@ -830,14 +830,15 @@ fn ownership_destruction_regions_challenges_and_calendar() {
     assert_eq!(call(&mut g, 0x1116, Some(ACTI_REF), &[r(F1)]), 1.0);
     call(&mut g, 0x118C, Some(ACTI_REF), &[]);
     assert_eq!(call(&mut g, 0x1116, Some(ACTI_REF), &[r(F1)]), 0.0);
-    // Destruction: no damage −1; 60 of 100 → stage 1; 40 more → stage 2, destroyed.
+    // Destruction: no damage −1; above every stage 0; 60 of 100 → index 1, GetDestructionStage
+    // 2 (counted from 1, #3053); 40 more → index 2 (3), destroyed.
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), -1.0);
     call(&mut g, 0x116C, Some(ACTI_REF), &[n(10.0)]);
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 0.0);
     call(&mut g, 0x116C, Some(ACTI_REF), &[n(50.0)]);
-    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 1.0);
-    call(&mut g, 0x116C, Some(ACTI_REF), &[n(40.0)]);
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
+    call(&mut g, 0x116C, Some(ACTI_REF), &[n(40.0)]);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 3.0);
     assert_eq!(call(&mut g, 0x10CB, Some(ACTI_REF), &[]), 1.0);
     call(&mut g, 0x11D8, Some(ACTI_REF), &[]);
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), -1.0);
@@ -888,7 +889,8 @@ fn destruction_stages_from_combat_damage() {
     let c = g.damage_object(acti, 100.0).unwrap();
     assert_eq!((c.after, c.destroyed), (2, true));
     assert!(g.damage_object(acti, 10.0).is_none());
-    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
+    // Index 2 counted from 1 (#3053).
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 3.0);
 }
 
 fn capped_destruction_fixture() -> Fixture {
@@ -924,6 +926,42 @@ fn a_burning_object_is_listed_until_it_explodes() {
         g.damage_object(acti, 20.0);
     }
     assert!(g.burning_explosives().is_empty());
+}
+
+/// #3053: GetDestructionStage counts the stage reached from 1, so Mothership Zeta's
+/// generator core (eight stages; index 6 at 5 % Cap Damage + Destroy, index 7 at 1 %
+/// Disable) reads 7 once destroyed, the value its script disables it at; a destroyed
+/// object takes no more damage (GECK wiki Destructible Object Stage), so 8 is not reached.
+#[test]
+fn get_destruction_stage_counts_from_one_as_the_zeta_core_needs() {
+    use fnv_game::data::{DestructionDef, DestructionStage as Stage};
+    let mut f = fixture();
+    let stages = [98, 90, 70, 40, 20, 10, 5, 1]
+        .into_iter()
+        .enumerate()
+        .map(|(i, health_percent)| Stage {
+            health_percent,
+            index: i as u8,
+            damage_stage: i as u8 + 1,
+            flags: match i {
+                6 => Stage::CAP_DAMAGE | Stage::DESTROY,
+                7 => Stage::DISABLE,
+                _ => 0,
+            },
+            ..Stage::default()
+        })
+        .collect();
+    f.data.destructibles.insert(FormId(ACTI), DestructionDef { health: 800, stages, ..DestructionDef::default() });
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), -1.0);
+    g.damage_object(acti, 20.0).unwrap();
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 1.0, "98 %: the first stage, 1");
+    let c = g.damage_object(acti, 1100.0).unwrap();
+    assert!(c.destroyed && !c.disabled);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 7.0, "the Destroy stage reads 7");
+    assert!(g.damage_object(acti, 100.0).is_none(), "destroyed: no more damage");
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 7.0);
 }
 
 fn destruction_roundtrip<'a>(f: &'a Fixture, g: &Game<'_>) -> Game<'a> {
@@ -987,7 +1025,7 @@ fn cap_damage_continues_after_each_saved_threshold_including_old_rounding() {
             let loaded = g.extra[&acti].damage;
             assert!((loaded.unwrap() - damage.unwrap()).abs() <= 1e-12, "{loaded:?} vs {damage:?}");
             let damage = loaded;
-            assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), stage as f64);
+            assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), stage as f64 + 1.0);
             if stage == 2 {
                 assert!(g.extra[&acti].destroyed);
                 assert!(!g.world.get(acti).unwrap().enabled());
@@ -1029,7 +1067,7 @@ fn cap_damage_and_stage_lookup_agree_for_roundoff_below_a_saved_threshold() {
         }
         g.extra.get_mut(&acti).unwrap().damage = Some(damage);
         g = destruction_roundtrip(&f, &g);
-        assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), stage as f64);
+        assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), stage as f64 + 1.0);
         let next = g.damage_object(acti, 1e-6).unwrap();
         assert_eq!((next.before, next.after), (stage as i32, stage as i32));
         assert!(g.extra[&acti].damage.unwrap() > damage + 1e-7);
@@ -1055,11 +1093,12 @@ fn cap_crossings_use_damage_even_when_the_stage_already_reads_zero() {
     assert!(g.extra[&acti].damage.unwrap() < 0.4);
     g.damage_object(acti, 10.0).unwrap();
     assert_eq!(g.extra[&acti].damage, Some(0.4));
-    // A distinct, small interval below the later stage must not be rounded away.
+    // A distinct, small interval below the later stage must not be rounded away: the
+    // script still reads index 0, counted from 1 (#3053).
     g.damage_object(acti, 0.6 - 1e-10).unwrap();
-    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 0.0);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 1.0);
     g.damage_object(acti, 5e-11).unwrap();
-    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 0.0);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 1.0);
     let next = g.damage_object(acti, 10.0).unwrap();
     assert_eq!((next.before, next.after), (0, 1));
     assert_eq!(g.extra[&acti].damage, Some(1.0));

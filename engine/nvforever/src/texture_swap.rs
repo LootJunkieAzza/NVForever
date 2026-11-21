@@ -17,7 +17,10 @@
 //! fade does not bring the old texture back (the psych test's card fades in as Doc
 //! Mitchell's line swaps its texture, smoke test `rorschach-cards`): `Faded` takes the
 //! swapped material as its own and SetActorAlpha copies it again; a fade's copy is
-//! dropped and the fade's next step copies the swapped material.
+//! dropped and the fade's next step copies the swapped material. With both on, the one
+//! that started second may keep the other's see-through copy as its original; the swap
+//! matches and copies the mesh's own material beneath both
+//! (`crate::effect_shaders::persistent_material`, #2981).
 
 use bevy::prelude::*;
 use nvf_assets::actor::ShapeName;
@@ -137,13 +140,9 @@ impl Swapping<'_, '_> {
                         continue;
                     }
                     // A mesh drawn see-through wears a copy: the swap goes to its own material
-                    // (module notes).
-                    let own = match (&faded, fading) {
-                        (_, Some(f)) => f.original().id(),
-                        (Some(f), None) => f.original.id(),
-                        // [design, #2557] Texture copies must not inherit the cloak.
-                        (None, None) => nvf_assets::nif_material::plain_material(mat, drawing).id(),
-                    };
+                    // (module notes), never to a copy one fade made of the other's (#2981).
+                    // [design, #2557] Texture copies must not inherit the cloak either.
+                    let own = crate::effect_shaders::persistent_material(mat, drawing, faded.as_deref(), fading, |id| models.materials.contains(id)).id();
                     let original = swapped.original.get(&own).copied().unwrap_or(own);
                     if !targets.contains(&original) && name.is_none_or(|n| !same_shape(&n.0, shape)) {
                         continue;
@@ -159,6 +158,9 @@ impl Swapping<'_, '_> {
                             };
                             let Some(mut m) = models.materials.get(original).cloned() else { continue };
                             m.base.base_color_texture = Some(image);
+                            // The new diffuse's authored set, or the legacy look (#2981).
+                            let a = &mut *models;
+                            nvf_assets::authored::retexture(&mut m, texture, &mut a.textures, &a.data, &mut a.images, a.formats.as_deref());
                             let h = models.materials.add(m);
                             swapped.original.insert(h.id(), original);
                             swapped.made.insert(key, h.clone());
@@ -167,15 +169,23 @@ impl Swapping<'_, '_> {
                         }
                     };
                     match (faded.as_mut(), fading) {
-                        (_, Some(f)) if f.original().id() != copy.id() => {
+                        (also_faded, Some(f)) if f.original().id() != copy.id() => {
+                            // With the actor's alpha fade on too, its stored original takes the
+                            // swap as well, or releasing it would bring back the material worn
+                            // before (#2981: an old authored set, mark or gloss).
+                            if let Some(fd) = also_faded {
+                                fd.retarget(&copy);
+                            }
                             models.materials.remove(f.copy());
                             commands.entity(e).insert(MeshMaterial3d(copy)).remove::<Fading>();
                         }
-                        (_, Some(_)) => {}
-                        (Some(f), None) => {
-                            if f.original.id() != copy.id() {
-                                f.original = copy;
+                        (also_faded, Some(_)) => {
+                            if let Some(fd) = also_faded {
+                                fd.retarget(&copy);
                             }
+                        }
+                        (Some(f), None) => {
+                            f.retarget(&copy);
                         }
                         (None, None) if copy.id() != mat.id() => {
                             commands.entity(e).insert(MeshMaterial3d(copy));
@@ -191,6 +201,201 @@ impl Swapping<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::same_shape;
+    use bevy::prelude::*;
+    use fnv_sim::FormId;
+    use nvf_assets::NifMaterial;
+
+    #[derive(Resource, Default)]
+    struct Swaps(fnv_game::functions::misc::TextureSwaps);
+
+    #[derive(Resource, Default)]
+    struct Alphas(std::collections::BTreeMap<FormId, f32>);
+
+    const TEXTURE: &str = "textures\\synthetic-fade-swap.dds";
+    /// An unknown reference is present, so a fade in runs for it (nvf_play fade.rs `start`).
+    const REFERENCE: u32 = 0xFF00_0001;
+
+    /// The production systems in the fixture's order (the swap before the fades' step, the
+    /// actor's alpha after it; the game declares no order between the last two), a synthetic
+    /// texture and one named shape wearing its own material.
+    fn overlap_app() -> (App, impl Sized, Entity, Handle<NifMaterial>) {
+        let (mut app, _files) = crate::outfits::tests::asset_fixture();
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::default());
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::default());
+        app.insert_resource(nvf_play::sim::SimState { forms, refs, world: fnv_sim::World::new(forms, refs, Default::default()) })
+            .insert_resource(crate::outfits::tests::empty_world_data())
+            .init_resource::<Time<Virtual>>()
+            .init_resource::<super::Swapped>()
+            .init_resource::<Swaps>()
+            .init_resource::<crate::effect_shaders::Shaders>()
+            .init_resource::<Alphas>()
+            .add_plugins(nvf_play::fade::FadePlugin)
+            .add_systems(Update, (
+                (|swaps: Res<Swaps>, sim: Res<nvf_play::sim::SimState>, world: Res<crate::world::WorldData>, mut drawing: super::Swapping| drawing.sync(&swaps.0, &sim, &world)).before(nvf_play::PlaySet::Sync),
+                (|alpha: Res<Alphas>, mut drawing: crate::effect_shaders::AlphaDrawing| { drawing.sync(&alpha.0); }).after(nvf_play::PlaySet::Sync),
+            ));
+        // [documented: engine/nvf-assets/src/texture.rs tests::dds] A synthetic
+        // one-block DDS offered to the normal texture loader, no game files.
+        let texture = TEXTURE;
+        let mut dds = vec![0u8; 136];
+        dds[..4].copy_from_slice(b"DDS ");
+        for (at, value) in [(4, 124u32), (8, 0x1007), (12, 4), (16, 4), (28, 1), (76, 32), (80, 4), (108, 0x1000)] {
+            dds[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        dds[84..88].copy_from_slice(b"DXT1");
+        app.world_mut().resource_mut::<nvf_assets::TextureCache>().offer(texture.into(), dds, 0.0);
+        // An unknown reference is present, so a fade in runs for it (nvf_play fade.rs `start`).
+        let reference = REFERENCE;
+        let own = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(nvf_assets::nif_material::nif_material(StandardMaterial::default()));
+        let e = app.world_mut().spawn((MeshMaterial3d(own.clone()), nvf_play::RefVisual(reference), Visibility::Inherited, nvf_assets::actor::ShapeName("testshape".into()))).id();
+        app.update();
+        (app, _files, e, own)
+    }
+
+    /// #2981, review of stage 3: a mesh under SetActorAlpha and a fade at once, the swap made
+    /// while both run, through the production systems (`Swapping::sync`, nvf_play's fade
+    /// `step` and `AlphaDrawing::sync`), the fade stepped before the actor's alpha in this
+    /// fixture (`overlap_app`). In both start orders the swap copies the model's
+    /// material, the handle an unnamed shape is matched by (`targets` in `Swapping::sync`),
+    /// never a see-through copy, and the swapped material has no fade's alpha baked in.
+    ///
+    /// How the two see-through copies hand the mesh back is not this change's subject and
+    /// does not hold in every order, with or without a swap: `HELD` lists the orders that end
+    /// on the mesh's own (or swapped) material, opaque, with both markers gone, as the test
+    /// finds them, so a change to either system shows here.
+    #[test]
+    fn a_swap_under_both_fades_copies_the_mesh_own_material_in_either_start_order() {
+        // Not held, both without a swap: the alpha started first and released first (the fade's
+        // end puts the alpha's copy back), and the fade started first and ended first (the
+        // alpha's release puts back the fade copy the fade removed).
+        // Both are known bugs, older than #2981 and not this change's subject: the intended
+        // result is the mesh given back whole in all eight orders. When either starts to
+        // hold, add it here.
+        const HELD: &[&str] = &[
+            "swap false, alpha first true, alpha released first false",
+            "swap false, alpha first false, alpha released first true",
+            "swap true, alpha first true, alpha released first true",
+            "swap true, alpha first true, alpha released first false",
+            "swap true, alpha first false, alpha released first true",
+            "swap true, alpha first false, alpha released first false",
+        ];
+        let mut held = Vec::new();
+        for swap in [false, true] {
+            for alpha_first in [true, false] {
+                for alpha_released_first in [true, false] {
+                    let case = format!("swap {swap}, alpha first {alpha_first}, alpha released first {alpha_released_first}");
+                    let (mut app, _files, e, own) = overlap_app();
+                    let (reference, texture) = (REFERENCE, TEXTURE);
+                    let (own_mode, own_depth) = {
+                        let m = app.world().resource::<Assets<NifMaterial>>().get(&own).unwrap().clone();
+                        (m.base.alpha_mode, m.extension.depth_write)
+                    };
+                    let start_alpha = |app: &mut App| {
+                        app.world_mut().resource_mut::<Alphas>().0.insert(FormId(reference), 0.5);
+                        app.update();
+                    };
+                    let start_fade = |app: &mut App| {
+                        app.world_mut().write_message(nvf_play::fade::RefFade { form_id: reference, fade_in: true });
+                        app.update();
+                    };
+                    if alpha_first {
+                        start_alpha(&mut app);
+                        start_fade(&mut app);
+                    } else {
+                        start_fade(&mut app);
+                        start_alpha(&mut app);
+                    }
+                    assert!(app.world().get::<crate::effect_shaders::Faded>(e).is_some(), "{case}: alpha on");
+                    let fading = app.world().get::<nvf_play::fade::Fading>(e).unwrap_or_else(|| panic!("{case}: fade on")).original().clone();
+                    if alpha_first {
+                        assert_ne!(fading, own, "{case}: the fade copied the alpha's see-through copy (the case the swap must look beneath)");
+                    } else {
+                        assert_eq!(fading, own, "{case}");
+                    }
+                    let expected = if swap {
+                        {
+                            let mut swaps = app.world_mut().resource_mut::<Swaps>();
+                            swaps.0.by_ref.insert(FormId(reference), vec![("testshape".into(), texture.into())]);
+                            swaps.0.generation += 1;
+                        }
+                        app.update();
+                        let swapped = app.world().resource::<super::Swapped>();
+                        assert_eq!(swapped.made.len(), 1, "{case}");
+                        let copy = swapped.made.values().next().unwrap().clone();
+                        assert_eq!(swapped.original.get(&copy.id()), Some(&own.id()), "{case}: the swap copied the model's material");
+                        let materials = app.world().resource::<Assets<NifMaterial>>();
+                        let m = materials.get(&copy).unwrap();
+                        assert!(m.base.base_color_texture.is_some(), "{case}: the new diffuse");
+                        assert!(materials.get(&own).unwrap().base.base_color_texture.is_none(), "{case}");
+                        assert_eq!((m.base.base_color.alpha(), m.base.alpha_mode, m.extension.depth_write), (1.0, own_mode, own_depth), "{case}: no fade's alpha baked into the swapped material");
+                        copy
+                    } else {
+                        own.clone()
+                    };
+                    let release_alpha = |app: &mut App| {
+                        app.world_mut().resource_mut::<Alphas>().0.clear();
+                        app.update();
+                    };
+                    let end_fade = |app: &mut App| {
+                        app.world_mut().resource_mut::<Time<Virtual>>().advance_by(std::time::Duration::from_secs_f32(3.0));
+                        app.update();
+                    };
+                    if alpha_released_first {
+                        release_alpha(&mut app);
+                        end_fade(&mut app);
+                    } else {
+                        end_fade(&mut app);
+                        release_alpha(&mut app);
+                    }
+                    app.update();
+                    app.update();
+                    let worn = app.world().get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0.clone();
+                    let opaque = app.world().resource::<Assets<NifMaterial>>().get(&worn).is_some_and(|m| (m.base.base_color.alpha(), m.base.alpha_mode, m.extension.depth_write) == (1.0, own_mode, own_depth));
+                    let unmarked = app.world().get::<crate::effect_shaders::Faded>(e).is_none() && app.world().get::<nvf_play::fade::Fading>(e).is_none();
+                    if worn == expected && opaque && unmarked {
+                        held.push(case);
+                    }
+                }
+            }
+        }
+        assert_eq!(held, HELD, "the orders that give the mesh back whole");
+    }
+
+    /// #2981, second review: the actor's alpha spans two fades. The first fade ends and
+    /// removes its copy, which the alpha still names as its original; a swap during the
+    /// second fade must copy the mesh's own material, not that removed copy.
+    #[test]
+    fn a_swap_during_a_second_fade_under_one_actor_alpha_copies_the_mesh_own_material() {
+        let (mut app, _files, e, own) = overlap_app();
+        let fade = |app: &mut App| {
+            app.world_mut().write_message(nvf_play::fade::RefFade { form_id: REFERENCE, fade_in: true });
+            app.update();
+        };
+        fade(&mut app);
+        app.world_mut().resource_mut::<Alphas>().0.insert(FormId(REFERENCE), 0.5);
+        app.update();
+        app.world_mut().resource_mut::<Time<Virtual>>().advance_by(std::time::Duration::from_secs_f32(3.0));
+        app.update();
+        app.update();
+        assert!(app.world().get::<nvf_play::fade::Fading>(e).is_none(), "the first fade is over");
+        let stale = app.world().get::<crate::effect_shaders::Faded>(e).expect("alpha still on").original.clone();
+        assert!(app.world().resource::<Assets<NifMaterial>>().get(&stale).is_none(), "the alpha's stored original is the first fade's removed copy");
+        fade(&mut app);
+        assert!(app.world().get::<nvf_play::fade::Fading>(e).is_some(), "the second fade runs");
+        {
+            let mut swaps = app.world_mut().resource_mut::<Swaps>();
+            swaps.0.by_ref.insert(FormId(REFERENCE), vec![("testshape".into(), TEXTURE.into())]);
+            swaps.0.generation += 1;
+        }
+        app.update();
+        let swapped = app.world().resource::<super::Swapped>();
+        assert_eq!(swapped.made.len(), 1, "the swap was made");
+        let copy = swapped.made.values().next().unwrap().clone();
+        assert_eq!(swapped.original.get(&copy.id()), Some(&own.id()), "the swap copied the model's material");
+        let m = app.world().resource::<Assets<NifMaterial>>().get(&copy).unwrap();
+        assert!(m.base.base_color_texture.is_some(), "the new diffuse");
+        assert_eq!(m.base.base_color.alpha(), 1.0, "no fade's alpha baked in");
+    }
 
     #[test]
     fn a_swap_finds_shapes_named_with_or_without_hashes() {

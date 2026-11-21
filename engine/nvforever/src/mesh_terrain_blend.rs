@@ -289,8 +289,11 @@ pub mod reason {
     /// Drawn under a billboard holder that turns to the camera (#2549, nvf-assets
     /// model.rs `BakedBillboards`); last, so earlier precedence is unchanged.
     pub const BILLBOARD: u32 = 1 << 26;
+    /// Reflects a window environment map (#2462, nvf-assets `NifSurface::env`): the blend
+    /// type has no environment bindings (its table has the landscape palette at 54 on).
+    pub const ENVIRONMENT_MAP: u32 = 1 << 27;
     /// Bits and the names the logs use (`excluded-<name>=`).
-    pub const NAMES: [(u32, &str); 27] = [
+    pub const NAMES: [(u32, &str); 28] = [
         (WORLD, "world"), (RIG, "rig"), (PARTICLES, "particles"), (POSED, "posed"),
         (DAMAGE_STAGES, "damage-stages"), (DEST, "dest"), (DISTANT, "distant"),
         (EMITTANCE, "emittance"), (MORPH, "morph"), (MISSING_SOURCE, "missing-source"),
@@ -300,6 +303,7 @@ pub mod reason {
         (FALLOFF, "falloff"), (HOLES_VALUE, "holes-value"), (HOLES_TEXTURE, "holes-texture"),
         (FACEGEN, "facegen"), (PIPBOY, "pipboy"), (ADD_LINEAR, "add-linear"), (SOFT, "soft"),
         (DEPTH_BIAS, "depth-bias-nonfinite"), (BILLBOARD, "billboard"),
+        (ENVIRONMENT_MAP, "environment-map"),
     ];
     /// The first reason in precedence order, `none` for an empty mask.
     pub fn first(mask: u32) -> &'static str {
@@ -397,6 +401,7 @@ pub fn material_reasons(m: &NifMaterial) -> u32 {
         (s.holes != nvf_assets::nif_material::NO_HOLES, HOLES_VALUE), (s.holes_texture.is_some(), HOLES_TEXTURE),
         (s.facegen_offset.is_some(), FACEGEN), (s.pipboy_screen, PIPBOY), (s.add_linear, ADD_LINEAR),
         (s.soft != Vec4::ZERO, SOFT), (!b.depth_bias.is_finite(), DEPTH_BIAS),
+        (s.env.x > 0.0 || s.env_cube.is_some(), ENVIRONMENT_MAP),
     ])
 }
 
@@ -1610,7 +1615,7 @@ mod tests {
         let prefix = "mesh terrain blend: ready eligible-shapes=12 resident-cells=9 generation=3 variant=status shape=height resolution=512 shading=albedo";
         assert!(line.starts_with(&format!("{prefix} weight-version=1 stat-shapes=2 excluded-shapes=2 pending-material-shapes=1 excluded-world=0 excluded-rig=1 excluded-particles=1 excluded-posed=0")), "{line}");
         assert!(line.contains(" excluded-missing-source=1 excluded-temporary=0 excluded-alpha-mode=0"), "{line}");
-        assert!(line.ends_with(" excluded-depth-bias-nonfinite=0 excluded-billboard=0 admitted-blend=1 admitted-bias=1 admitted-decal=1 admitted-mask=0 admitted-alpha-cut=1 scol-shapes=1 detail=colour"), "round 7: SCOL shapes after the census; round 10a: the detail mode last: {line}");
+        assert!(line.ends_with(" excluded-depth-bias-nonfinite=0 excluded-billboard=0 excluded-environment-map=0 admitted-blend=1 admitted-bias=1 admitted-decal=1 admitted-mask=0 admitted-alpha-cut=1 scol-shapes=1 detail=colour"), "round 7: SCOL shapes after the census; round 10a: the detail mode last: {line}");
         let layered = crate::terrain_surface::PublishedSurface { detail: vec![((0, 0), 1), ((1, 0), 3)], ..surface.clone() };
         assert!(ready_line(&layered, 3, &parse("8:status:height:512:albedo").unwrap(), &census).ends_with(" scol-shapes=1 detail=layers detail-quadrants=2"));
         for (_, name) in reason::NAMES { assert!(line.contains(&format!(" excluded-{name}=")), "every reason is printed, zero included: {name}"); }

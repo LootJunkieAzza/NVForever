@@ -784,6 +784,19 @@ impl Extend<FormId> for KnownTopics {
 }
 
 /// The player's state outside the world's reference table.
+/// Who called DisablePlayerControls ([`PlayerState::controls_disabled_by`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ControlsCaller {
+    /// The script unit's label (`Ctx::unit`: the owner record, a quest stage, a dialogue line).
+    pub unit: String,
+    /// The quest whose script or stage result ran it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub quest: Option<FormId>,
+    /// The reference the script runs on.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reference: Option<FormId>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
     pub xp: f64,
@@ -840,6 +853,11 @@ pub struct PlayerState {
     /// text, sneaking.
     #[serde(default)]
     pub controls_disabled: [bool; 7],
+    /// The last DisablePlayerControls call that still holds a group: the running unit's
+    /// label, its quest and its reference, for the players' reports' controls_locked event
+    /// (#3044) [design]. Cleared once EnablePlayerControls leaves no group disabled.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub controls_disabled_by: Option<ControlsCaller>,
     /// SetHardcore (otherwise the configuration's).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub hardcore: Option<bool>,
@@ -1412,6 +1430,7 @@ pub struct Game<'a> {
     pub showoff: crate::nvse_showoff::ShowOffState,
     /// Mods' INI and other files (`crate::mod_files`).
     pub mod_files: crate::mod_files::ModFiles,
+    pub(crate) ysi_filename: crate::ysi_filename::State,
     /// SUP batch 6's state: the mouse, the cursor, the debug texts, the lockpick menu …
     /// (`crate::nvse_sup6`; the engine fills and takes it).
     pub sup: crate::nvse_sup6::SupState,
@@ -2378,6 +2397,9 @@ pub struct Session {
     /// [documented: SetGameMainLoopCallback, 8 "auto-remove on load game"; observed:
     /// save-read, runtime lambdas did not run after a load, flag 8 or not].
     main_loop: Vec<crate::jip_events::MainLoop>,
+    /// Registrar provenance for carried `main_loop` entries plus the prior `JipEvents.seq`.
+    main_loop_registrars: std::collections::HashMap<u64, std::sync::Arc<crate::jip_provenance::Registrar>>,
+    jip_seq: u64,
     restarted_seen: BTreeSet<String>,
     handler_seq: u64,
     /// ppNVSE's instance and item-mod handlers, and the instances to deconstruct.
@@ -2541,6 +2563,7 @@ impl<'a> Game<'a> {
             hud: Default::default(),
             showoff: Default::default(),
             mod_files: Default::default(),
+            ysi_filename: Default::default(),
             sup: Default::default(),
             lu3: Default::default(),
             sup7: Default::default(),
@@ -3717,7 +3740,7 @@ impl<'a> Game<'a> {
             EventCall::CurrentName => XVal::Str(self.event_names.last().cloned().unwrap_or_default()),
             EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters, registrar)))),
             EventCall::MainLoop { func, add, delay, flags, on } => {
-                self.jip_main_loop(func, add, delay, flags, on.and_then(|v| v.as_form()).map(FormId));
+                self.jip_main_loop(func, add, delay, flags, on.and_then(|v| v.as_form()).map(FormId), registrar);
                 XVal::Num(0.0)
             }
         })
@@ -3771,7 +3794,7 @@ impl<'a> Game<'a> {
             .filter(|h| h.filters.iter().all(|(_, v)| !matches!(v, fnv_script::vm::XVal::Array(_))))
             .cloned()
             .collect();
-        let main_loop = self
+        let main_loop: Vec<_> = self
             .jip
             .main_loop
             .iter()
@@ -3782,15 +3805,17 @@ impl<'a> Game<'a> {
                 m
             })
             .collect();
+        let (main_loop_registrars, jip_seq) = self.jip.take_main_loop_registrars(&main_loop);
         let pp = self.pp_take_session();
         let sr_registered = self.sr.take_registered();
-        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits) }
+        Session { handlers, main_loop, main_loop_registrars, jip_seq, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits) }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
     pub fn put_session(&mut self, s: Session) {
         self.handlers = s.handlers;
         self.jip.main_loop = s.main_loop;
+        self.jip.restore_main_loop_registrars(s.main_loop_registrars, s.jip_seq);
         for callback in &mut self.jip.main_loop {
             callback.last_clock = functions::clock_now(self.time);
         }
@@ -3833,6 +3858,32 @@ impl<'a> Game<'a> {
         }
         self.npc_door_run = door_run;
         self.event_names.pop();
+        hs.len()
+    }
+
+    /// Run every handler whose lower-case event name satisfies `matches` and whose filters
+    /// match, highest priority first, ties in registration order. Each handler sees its
+    /// own registered event name via `GetCurrentEventName` (used for bitmask-qualified
+    /// events such as `OnButtonDown:<mask>`).
+    pub(crate) fn dispatch_event_matching(&mut self, matches: impl Fn(&str) -> bool, args: Vec<fnv_script::vm::XVal>, on: Option<FormId>) -> usize {
+        if self.handlers.is_empty() {
+            return 0;
+        }
+        let mut hs: Vec<Handler> = self.handlers.iter().filter(|h| matches(&h.event) && self.handler_matches(h, &args, on)).cloned().collect();
+        if hs.is_empty() {
+            return 0;
+        }
+        hs.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.seq.cmp(&b.seq)));
+        let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
+        let door_run = self.npc_door_run.take();
+        for h in &hs {
+            self.event_names.push(h.name.clone());
+            if let Err(error) = self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
+                self.handler_failed(format!("event handler for {}", h.name), error);
+            }
+            self.event_names.pop();
+        }
+        self.npc_door_run = door_run;
         hs.len()
     }
 
@@ -5076,6 +5127,7 @@ impl<'a> Game<'a> {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
             self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
         }
+        self.jip_dialog_topic(speaker, topic, info);
     }
 
     /// The lines being said outside a conversation move on to their next responses as
@@ -7344,6 +7396,9 @@ impl Host for Exec<'_, '_> {
     }
 
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
+        if crate::ysi_filename::handles(name, args) {
+            return Some(crate::ysi_filename::call(self.game, on, args));
+        }
         if functions::player_source::handles(name) {
             let source_ctx = Ctx { unit: self.unit.shared_key().clone(), opcode: 0, on: None, self_ref: self.ctx.self_ref,
                 action_ref: self.ctx.action_ref, quest: self.ctx.quest, inst: None, in_condition: false };

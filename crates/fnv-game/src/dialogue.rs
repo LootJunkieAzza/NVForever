@@ -29,6 +29,10 @@ use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+/// The Editor ID of the speech challenge's failure topic (DIAL 0x000000FD in both masters)
+/// [documented: GECK wiki Topics Tab; observed: FalloutNV.esm, Fallout3.esm].
+pub const SPEECH_CHALLENGE_FAILURE: &str = "SpeechChallengeFailure";
+
 /// How far from the player a StartConversation speaker may be and still talk at once,
 /// game units ([`Game::walk_up_greet`]) [design: twice the AI's standard talk distance].
 pub const WALK_UP_REACH: f32 = 300.0;
@@ -758,6 +762,7 @@ impl<'a> Game<'a> {
         if def.has(info_flag::RUN_IMMEDIATELY) {
             self.run_line_result(actor, def, true);
         }
+        self.jip_dialog_topic(actor, topic, info);
     }
 
     fn emit_response(&mut self, actor: FormId, def: &InfoDef, info: FormId, position: usize) {
@@ -1064,6 +1069,11 @@ impl<'a> Game<'a> {
         let dv = self.dialogue_view();
         let priority = |t: &FormId| dv.topic(t).map_or(50.0, |d| d.priority);
         let mut links = self.links_after(topic, def);
+        // The speech challenge's failure topic is what the actor says when a challenge
+        // fails [documented: GECK wiki Topics Tab, SpeechChallengeFailure], not a choice
+        // for the player: its lines' Link From names the challenge it answers, and offered
+        // through it the list showed its Editor ID (Megaton's Lucas Simms in TTW, #3024).
+        links.retain(|l| l.from.is_none() || !dv.topic(&l.topic).and_then(|d| d.edid.as_deref()).is_some_and(|e| e.eq_ignore_ascii_case(SPEECH_CHALLENGE_FAILURE)));
         if !def.choices.is_empty() {
             links.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)));
             let out = self.offer(actor, &links);

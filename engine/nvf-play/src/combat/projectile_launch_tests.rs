@@ -200,6 +200,9 @@ fn consumer_weapon(id: FormId, name: &str, ammo: Option<FormId>, projectile: For
     // R2 throwing-weapon helper remains unchanged for its original controls.
     let mut dnam = vec![0; 204];
     dnam[..4].copy_from_slice(&3u32.to_le_bytes());
+    // Ammo Use 1 (schema WeaponDNAM byte 14): an ordinary gun spends a round a shot; 0
+    // would spend none (#3023).
+    dnam[14] = 1;
     dnam[36..40].copy_from_slice(&projectile.0.to_le_bytes());
     dnam[42] = 1;
     let mut subs = vec![sub(b"EDID", z(name)), sub(b"DNAM", dnam), sub(b"DATA", [0i32.to_le_bytes().to_vec(), 100i32.to_le_bytes().to_vec(), 1f32.to_le_bytes().to_vec(), 10i16.to_le_bytes().to_vec(), vec![1]].concat())];

@@ -190,7 +190,7 @@ mod tests {
         }
         fn data(&self)->nvf_assets::GameData {
             let vfs=fnv_vfs::Vfs::open(&self.root,&[]).unwrap();let schema=fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
-            nvf_assets::GameData{vfs:Arc::new(vfs),schema:Arc::new(schema)}
+            nvf_assets::GameData::new(Arc::new(vfs),Arc::new(schema))
         }
     }
     impl Drop for Files {fn drop(&mut self){let _=std::fs::remove_file(&self.file);let _=std::fs::remove_dir(self.root.join("textures"));let _=std::fs::remove_dir(&self.root);}}

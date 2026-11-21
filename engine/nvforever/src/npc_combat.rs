@@ -2487,7 +2487,7 @@ pub(crate) fn fight(
             // hop; idles.md §14): no attack until it has ended [documented: GECK wiki Idle
             // Animations Window, "No Attacking"]. An attack would end the idle
             // (`attack_anims.rs`), so it is held instead.
-            let idle_holds = idle.and_then(|i| i.0.cur.as_ref()).filter(|p| g.data.idles.get(&FormId(p.idle)).is_some_and(|d| d.no_attacking));
+            let idle_holds = idle.and_then(|i| i.0.cur.as_ref()).filter(|p| g.idle_def(FormId(p.idle)).is_some_and(|d| d.no_attacking));
             if let Some(p) = idle_holds {
                 if fighter.idle_hold_seen != Some(p.serial) {
                     fighter.idle_hold_seen = Some(p.serial);

@@ -168,7 +168,7 @@ way.
 | 71, 72 | BC1_UNORM, _SRGB | DXT1 |
 | 74, 75 | BC2_UNORM, _SRGB | DXT3 |
 | 77, 78 | BC3_UNORM, _SRGB | DXT5 |
-| 80, 81 | BC4_UNORM, BC4_SNORM | BC4: one channel, 8-byte blocks (legacy `BC4U`, `BC4S`) |
+| 80, 81 | BC4_UNORM, BC4_SNORM | BC4: one channel, 8-byte blocks (legacy `BC4U` or `ATI1`, `BC4S`) |
 | 83, 84 | BC5_UNORM, BC5_SNORM | BC5 (dds-bc5.md; legacy `ATI2`, `BC5S`) |
 | 87, 91 | B8G8R8A8_UNORM, _SRGB | A8R8G8B8 (§2): bytes B, G, R, A |
 | 98, 99 | BC7_UNORM, _SRGB | BC7: four channels, 16-byte blocks |
@@ -178,9 +178,32 @@ same formats [documented: MS "Programming Guide for DDS", common formats table].
 BC4 and BC5 also come with legacy headers: Microsoft's guide lists the FourCCs `BC4U`
 and `BC4S` for BC4_UNORM and BC4_SNORM, and `ATI2` and `BC5S` for BC5_UNORM and
 BC5_SNORM; all four are read, with data at byte 128 and no sRGB hint or alpha mode.
-`ATI1` and `BC5U` are not in that table and are not read [documented: MS "Programming
-Guide for DDS", common formats table]. BC7 has no legacy FourCC in that table, so BC7
-is read from a DX10 header only.
+`ATI1` and `BC5U` are not in that table [documented: MS "Programming Guide for DDS",
+common formats table]. BC7 has no legacy FourCC in that table, so BC7 is read from a
+DX10 header only.
+
+`ATI1` is read as BC4_UNORM, the same as `BC4U` (#3151). It is the FourCC of ATI's
+one-channel "3Dc+" format, the older name of BC4 [documented: Wikipedia, "3Dc", the
+3Dc+ section: FourCC `ATI1`, also known as BC4], and Microsoft's own DDS library reads
+`ATI1` and `BC4U` alike as BC4_UNORM [documented: DirectXTex wiki, "DDS I/O Functions",
+the Remarks table of legacy FourCCs]. The OpenGL name for the format, RGTC1, is "BC4
+unsigned" [documented: Khronos EXT_texture_compression_rgtc, table C.3]. `BC5U` is
+still not read: the same DirectXTex table gives it as BC5_UNORM, but no file with it
+has been seen.
+
+[observed: the loose `.dds` files of the two mod list installs, Blue Moon and High and
+Dry, headers only, 2026-11-21: 60,826 files; no FourCC (masks) 23,257, `DXT1` 19,980,
+`DXT5` 14,806, `DXT3` 2,737, DX10 BC3_UNORM_SRGB 41, `ATI2` 3, `BC5S` 1, DX10 BC7 1;
+none with `ATI1`, `BC4U`, `BC4S`, `BC5U` or a BC6H code. Archives were not looked in.]
+So `ATI1` is read on the documents' word; no file with it was at hand to draw.
+
+BC6H (DXGI 95 `BC6H_UF16`, 96 `BC6H_SF16`; high dynamic range colour in 16-byte
+blocks) is not read and stays refused as `unknown(dxgi=N)` [design, #3151]: it has no
+legacy FourCC in Microsoft's table, so it needs a DX10 header; the engine has no CPU
+decoder for it and no use that takes values above 1 from a texture file (the sky and
+the lights are computed, not sampled from HDR images). [hypothesis: the codes 95 and 96
+are from memory of `dxgiformat.h`; Microsoft's BC6H page names the two formats without
+their numbers.] A mod texture in BC6H is drawn as missing and listed in the log.
 
 ### 6.3 What NVForever does with it [design: #2981]
 

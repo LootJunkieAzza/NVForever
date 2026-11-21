@@ -1447,7 +1447,8 @@ billboard holder that turns it to the camera (#2549; `excluded-billboard`, last 
 reasons' order, merge of upstream main f4dbc82f8). A material is left out
 for Add, Multiply, Premultiplied or AlphaToCoverage alpha, unlit, refraction, first person,
 depth write, transmission, falloff, holes, FaceGen, the Pip-Boy screen, linear add, soft
-edges or a non-finite depth bias; ordinary Blend, a finite depth bias, the lit decal flag,
+edges, a non-finite depth bias or a window environment map (#2462;
+`excluded-environment-map`: the blend type has no environment bindings); ordinary Blend, a finite depth bias, the lit decal flag,
 Mask and an alpha cut are admitted and keep their descriptors exactly. A material owned for
 the moment by a fade, an effect shader or a material override never blends; the owner's
 restore brings the blend back. Never by asset name.
@@ -2137,6 +2138,19 @@ longer exists (the settings menu overhaul); the haze is a row of its own, "Deser
   (1920x1080): from the air over Goodsprings at 12:00 looking north-east, at 18:30 west,
   at 06:30 east, under the overcast and the hazy weather, and the street, in the PR. The
   cost is not measured on a slower GPU or at 1920x1080.
+
+### 3.17 Authored materials (`authored-materials`; on in both looks)
+
+A texture pack's authored PBR sets under `textures\pbr\` (#2981,
+docs/spec-notes/pbr-materials.md): lit NIF shapes whose diffuse has a set take their
+occlusion, roughness, highlight strength and normal from it. On in `vanilla` and `enhanced`,
+like a diffuse replacer: without a pack nothing changes. Read once at the start (a change
+applies at the next start); `--graphics-only no-authored-materials` or the settings switch
+turns it off, and then the material path reads no file under `textures\pbr\`. Lit NIF shapes
+with texture coordinates take a set; unlit, additive, multiplied and refracting shapes,
+particles, hair, skin and FaceGen heads, landscape LOD and the Pip-Boy's and interface
+textures never do; without an `_n` (or tangents on the drawn mesh) the game's own normal map
+stays, its alpha no longer a highlight mask (docs/spec-notes/pbr-materials.md). [design]
 
 ## 4. Tried and dropped
 

@@ -97,10 +97,10 @@ impl Plugin for WaterPlugin {
                 (
                     sync_remaps.before(crate::world::stream),
                     update_water_sky.after(crate::sky::update_sky),
-                    crate::underwater::underwater_fog.after(crate::sky::update_sky),
                     distant_water.after(crate::world::stream),
                 ),
-            );
+            )
+            .add_plugins(crate::underwater::UnderwaterFogPlugin);
     }
 }
 
@@ -349,8 +349,21 @@ pub struct DistantWater {
     /// land, `[x0, y0, x1, y1]` in game units ([`DistantWater::wet_area`]).
     wet: HashMap<(i32, i32), [f32; 4]>,
     planes: HashMap<(i32, i32), Entity>,
-    /// Camera cell and loaded-cell count the planes were placed for.
-    built_for: Option<((i32, i32), usize)>,
+    /// Actual coverage the planes were placed for; a count cannot identify cells.
+    built_for: Option<WaterCoverage>,
+}
+
+struct WaterCoverage {
+    centre: (i32, i32),
+    radius: i32,
+    loaded: HashSet<(i32, i32)>,
+}
+
+impl WaterCoverage {
+    fn matches(&self, centre: (i32, i32), radius: i32, loaded: &HashMap<(i32, i32), Entity>) -> bool {
+        self.centre == centre && self.radius == radius && self.loaded.len() == loaded.len()
+            && loaded.keys().all(|cell| self.loaded.contains(cell))
+    }
 }
 
 impl DistantWater {
@@ -461,14 +474,13 @@ pub fn distant_water(
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let g = bevy_to_game(cam.translation());
     let centre = cell_of(g.x, g.y);
-    let key = (centre, streamer.loaded.len());
-    if dw.built_for == Some(key) {
+    let r = if lod.enabled && streamer.interior.is_none() { lod.radius * 4 + 3 } else { -1 };
+    if dw.built_for.as_ref().is_some_and(|key| key.matches(centre, r, &streamer.loaded)) {
         return;
     }
-    dw.built_for = Some(key);
+    dw.built_for = Some(WaterCoverage { centre, radius: r, loaded: streamer.loaded.keys().copied().collect() });
     // The cells the LOD covers around the camera (its chunks are 4 cells), minus the
     // loaded ones (they have their own water).
-    let r = if lod.enabled && streamer.interior.is_none() { lod.radius * 4 + 3 } else { -1 };
     let want: HashSet<(i32, i32)> = (-r..=r)
         .flat_map(|dx| (-r..=r).map(move |dy| (centre.0 + dx, centre.1 + dy)))
         .filter(|c| !streamer.loaded.contains_key(c))
@@ -677,3 +689,7 @@ mod wet_tests {
         assert_eq!(wet_vertices(&h, 50.0), Some([0, 0, 13, 22]));
     }
 }
+
+#[cfg(test)]
+#[path = "water_lifecycle_tests.rs"]
+mod lifecycle_tests;

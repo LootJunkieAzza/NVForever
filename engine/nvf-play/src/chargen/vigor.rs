@@ -542,6 +542,10 @@ fn draw(
                 let Some(mut mat) = ctx.materials.get(&m.0).cloned() else { continue };
                 let name = names.get(e).map(|n| n.as_str()).unwrap_or("");
                 mat.base.unlit |= model::is_glow(name);
+                if mat.base.unlit {
+                    // An unlit copy takes no authored set (#2981).
+                    nvf_assets::authored::make_legacy(&mut mat);
+                }
                 let [r, g, b] = model::shade(name, r == o.roots[1]);
                 let c = mat.base.base_color.to_srgba();
                 mat.base.base_color = Color::srgba(c.red * r, c.green * g, c.blue * b, c.alpha);
@@ -605,6 +609,8 @@ fn draw(
         let img = ctx.textures.get(&tex, true, &ctx.data, &mut ctx.images, ctx.formats.as_deref());
         if let (Some(img), Some(mut m)) = (img, ctx.materials.get_mut(h)) {
             m.base.base_color_texture = Some(img);
+            // The new picture's authored set, or the legacy look (#2981).
+            nvf_assets::authored::retexture(&mut m, &tex, &mut ctx.textures, &ctx.data, &mut ctx.images, ctx.formats.as_deref());
         }
         o.shown.insert(e, tex);
     }

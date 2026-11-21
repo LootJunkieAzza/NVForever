@@ -135,6 +135,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "pbr-selftest"
+kind = "tool"
+source = "[design] docs/spec-notes/pbr-materials.md (NVForever's own pack format, #2981); DDS headers [documented] MS DDS_HEADER / DDS_HEADER_DXT10. Files built in memory by fnvtool, no game data."
+note = "fnvtool pbr selftest builds a clean set (DX10 BC7 _orm, BC5_UNORM _n of another size, BC4_UNORM _p, a scalar file) and seven broken files in memory, runs the pbr check validator on them and passes only when exactly the seven expected findings are raised and the clean set reads as its three formats."
+areas = ["graphics"]
+paths = ["crates/fnv-pbr/", "crates/fnv-dds/", "crates/fnvtool/src/pbr_cmd.rs", "crates/fnvtool/src/pbr_check.rs"]
+commands = [["pbr", "selftest"]]
+expect = [
+  { json = "selftest.verdict", schema = "fnv.pbr.check/1", equals = "pbr selftest: PASS (3 formats, 7 expected findings)", count = 1 },
+  { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC7_UNORM", count = 1 },
+  { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC5_UNORM", count = 1 },
+  { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC4_UNORM", count = 1 },
+  { json = "selftest.pass", schema = "fnv.pbr.check/1", equals = true, count = 1 },
+  { json = "selftest.missing.#", schema = "fnv.pbr.check/1", equals = 0, count = 1 },
+  { json = "selftest.unexpected.#", schema = "fnv.pbr.check/1", equals = 0, count = 1 },
+]
+
+[[scenario]]
 name = "ui-bit-test-operator"
 kind = "tool"
 source = "[documented] GECK UIO Extra XML Operators; docs/spec-notes/ui-bit-test-operator.md. Authored portable XML expressions without game data."
@@ -6420,7 +6438,7 @@ forbid = [
 [[scenario]]
 name = "grenade-bouquet-self-damage"
 source = "[design] #1819; docs/spec-notes/combat-rules.md, object destruction: Cap Damage stops the first crossing hit, then self-damage must pass it; the issue's supplied data lists bouquet 0016526B at health 20 with stages 98/95/75 percent"
-note = "In TestTraps the player moves onto plate 0016526C, the activate parent of bouquet 0016526B. Require all three stages, its stage explosion and disabled/destroyed state; a loose model or resting wreck alone is insufficient. [hypothesis] The issue's roughly 4.6 seconds follows from its data; ordered logs allow frame scheduling variation without requiring that duration."
+note = "In TestTraps the player moves onto plate 0016526C, the activate parent of bouquet 0016526B. GetDestructionStage counts the last stage (index 2) from 1, so 3 (#3053). Require all three stages, its stage explosion and disabled/destroyed state; a loose model or resting wreck alone is insufficient. [hypothesis] The issue's roughly 4.6 seconds follows from its data; ordered logs allow frame scheduling variation without requiring that duration."
 areas = ["traps", "scripts", "combat"]
 paths = ["crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/combat.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "8:moveto:player:0x0016526C", NVF_PLAY_TEST_CONSOLE = "22:0016526B.getdestructionstage;0016526B.getdisabled;0016526B.getdestroyed;22.5:close" }
@@ -6432,7 +6450,7 @@ order = [[
   "combat: 0x0016526B destruction stage 0 -> 1",
   "combat: 0x0016526B destruction stage 1 -> 2, destroyed, disabled, 1 explosion(s)",
   "combat: explosion GrenadeFragExplosion at ",
-  "console: GetDestructionStage on 0x0016526B >> 2.00",
+  "console: GetDestructionStage on 0x0016526B >> 3.00",
   "console: GetDisabled on 0x0016526B >> 1.00",
   "console: GetDestroyed on 0x0016526B >> 1.00",
 ]]
@@ -6732,6 +6750,21 @@ forbid = [
   { text = "pipboy: the menus are on the model's screen", label = "the arm raised with no Pip-Boy worn" },
   { text = "pipboy: screen treatment on", label = "the screen menu has no background or scanlines" },
   { text = "pipboy: the glare is over the menus", label = "the screen menu has no glass" },
+]
+
+[[scenario]]
+name = "pipboy-holotape-fixed-speaker"
+source = "issue 3022 (holotapes.md section 3): Dead Money's Dog Command Tape names Dog as its speaker while its line is God's (ANAM); its one file is in God's voice folder, and the tape plays it"
+note = "NVDLC01DogCommandNote is given by the console at 8 s and picked at 15 s; its FormID 0100DFCF assumes Dead Money is the first plugin after FalloutNV.esm (the owner's install, as fnvtool reads it). INFO 0100DFC7 has one response, 2.88 s."
+areas = ["pipboy", "audio"]
+paths = ["engine/nvf-play/src/holotape.rs", "crates/fnv-voice/src/bank.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote NVDLC01DogCommandNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=0100DFCF,22:close" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720"]
+run_seconds = 26
+expect = [
+  { re = 'holotape: NVDLC01DogCommandNote plays .* said by NVDLC01Dog, 1 responses', label = "the tape is picked and its line found" },
+  { text = 'holotape: playing sound\voice\deadmoney.esm\nvdlc01creatureuniquegod\nvdlc01dog_nvdlc01dogdialo_0000dfc7_1.ogg', label = "God's file plays" },
+  { text = "holotape: no file for", count = 0, label = "no response is skipped" },
 ]
 
 [[scenario]]
@@ -8151,6 +8184,20 @@ expect = [
   { json = "use.uses.?item=Buffout.usage", equals = 60.0, label = "the second Buffout's usage 60" },
   { json = "use.values_after.Strength", equals = 5.0 },
   { json = "use.values_after.Health", equals = 179.0 },
+]
+
+[[scenario]]
+name = "created-creature-prompt"
+source = "issue 3124: a creature made at run time (PlaceAtMe) is told a creature by its base; one without Allow PC Dialogue shows its name only, not Talk, as a placed one"
+note = "a Brahmin (CrBrahmin 0001CFA2) is PlaceAtMe'd at 3 s, the first created reference 0xFF000000, and moved 150 units in front of the player (heading 0, north). Without the fix the prompt reads Talk."
+areas = ["activation", "reticle", "creatures"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/sim.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrBrahmin:1,3.5:moveto:0xFF000000:player:0:150:0" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { re = 'reticle: prompt "[^"]*" on "Brahmin"', min = 1, label = "the created brahmin is under the crosshair" },
+  { re = 'reticle: prompt "[^"]*Talk[^"]*" on "Brahmin"', count = 0, label = "no Talk on a created creature without Allow PC Dialogue" },
 ]
 
 [[scenario]]
@@ -17533,6 +17580,52 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-script-effect-names"
+source = "[documented] GECK wiki Base Effect: a Script effect flagged Display Name Only shows its name; issue 3119: Psycho's card and STATS > EFF said nothing"
+note = "Psycho (ALCH 00015166) is added at 9 s; ITEMS > Aid is opened at 13.5 s and walked down row by row (the start carries other aid items; each row's card is logged as it is selected); the drop aid uses Psycho at 19 s; STATS > Status > EFF is opened at 23-24 s. Its effect PsychoMagicEffect (MGEF 000679F4) is a Script effect named \"Damage +25%\" with Display Name Only [observed: FalloutNV.esm, #3119]."
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/stats/read.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Psycho:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=2,14:key=down,14.4:key=down,14.8:key=down,15.2:key=down,15.6:key=down,16:key=down,16.4:key=down,17:close,22:open,23:page=stats,23.5:tab=0,27:close", NVF_PLAY_TEST_DROP = "19:00015166:use", NVF_PLAY_TEST_PIPBOY_STATS = "24:sub=2" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'pipboy items: Psycho selected: .*effects: Some\("Damage \+25%"\)', min = 1, label = "the card names the Script effect" },
+  { re = 'aid: the player used Psycho', label = "Psycho is used" },
+  { re = 'pipboy stats: LVL .*, [1-9]\d* effects,', min = 1, label = "STATS lists an effect while Psycho lasts (none before #3119)" },
+]
+
+[[scenario]]
+name = "pipboy-items-heading-heal"
+source = "issue 3120: a Stimpak used from ITEMS > Aid heals a frame after the list changes; the hand-built page's heading draws the new HP with the Pip-Boy still open"
+note = "Health 200 less 60 is 140; the Stimpak at potency 1.3 (Medicine 15) gives 39, so 179 (aid-items). The drop aid opens ITEMS at 16 s, selects the Stimpak (00015169; the start carries other aid items) and uses it, closing half a second later. Without the fix the heading is logged at 140 after the use and not again."
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/stats/read.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:damage:player:Health:60,9.4:call:player:AddItem:Stimpak:1", NVF_PLAY_TEST_DROP = "16:00015169:use" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  { text = "pipboy items: heading HP 140/200", min = 1, label = "the page opens on the damaged HP" },
+  { re = 'aid: the player used Stimpak .*Health 140 → 179', label = "the Stimpak heals" },
+  { text = "pipboy items: heading HP 179/200", min = 1, label = "the heading draws the healed HP, the Pip-Boy still open" },
+]
+order = [["pipboy items: heading HP 140/200", { re = 'aid: the player used Stimpak' }, "pipboy items: heading HP 179/200"]]
+
+[[scenario]]
+name = "tiles-items-heading-heal"
+source = "issue 3120: with [UI] TileMenus=InventoryMenu the tile page writes the healed HP after a Stimpak is used from ITEMS > Aid"
+note = "the same steps as pipboy-items-heading-heal on the tile page."
+areas = ["pipboy", "aid", "ui", "menus"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/stats/read.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:damage:player:Health:60,9.4:call:player:AddItem:Stimpak:1", NVF_PLAY_TEST_DROP = "16:00015169:use" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  { re = 'tiles: InventoryMenu page from tiles: .*HP 140/200,', min = 1, label = "the tile page opens on the damaged HP" },
+  { re = 'tiles: InventoryMenu page from tiles: .*HP 179/200,', min = 1, label = "the tile page writes the healed HP, the Pip-Boy still open" },
+]
+order = [[{ re = 'HP 140/200,' }, { re = 'aid: the player used Stimpak' }, { re = 'tiles: InventoryMenu page from tiles: .*HP 179/200,' }]]
+
+[[scenario]]
 name = "pipboy-aid-effects"
 source = "owner's playtest list 7 items 5, 20 and 33 (docs/spec-notes/aid-items.md §14, pipboy.md §5): an aid item's EFFECTS are the effects whose conditions pass for the player, one line per value (Programmer's Digest one Science +10 without Comprehension or Retention, the Blood Pack HP +1 without Hematophage, the Stimpak one HP line); the ITEMS heading reads HP and DT; a skill book is listed on the Aid tab"
 areas = ["pipboy"]
@@ -18723,6 +18816,23 @@ expect = [
   { re = 'hotkeys: slot 4: equipped \.357 Magnum Revolver', label = "a tap of 4 after closing equips the revolver" },
 ]
 order = [["pipboy hotkeys: key 3 held", "hotkeys: slot 3 holds", "moved from slot 3", "slot 2 is Ammo Swap", "cannot be hotkeyed", "hotkeys: slot 4: equipped"]]
+
+[[scenario]]
+name = "dismember-quarry-deathclaws"
+source = "issue 3026: a player's 0.8.x log had the gore of two of seven dismembered Quarry Junction Deathclaws come to rest 7,000 to 700,000 units from the corpse; every piece should come to rest near its trunk"
+note = "The player (god mode) stands on the high ground south-west of the QJDeathclawAmbusher references 000E6307 and 000E631C of the player's log; they charge, and the hit aid explodes each head with an overkill sniper shot at 12 and 12.6 s, beside the player and about 900 units above the quarry floor (also the young Deathclaw 000E745F at 14 s, its body out of reach). Corpses and pieces roll down to the floor together, 1,300 to 1,700 units from where they started (seen 2026-11-21); the at-rest line measures from the corpse, so the pieces end within a few hundred units of it."
+areas = ["combat"]
+paths = ["engine/nvforever/src/dismember.rs", "engine/nvf-play/src/dismember.rs", "crates/fnv-phys/src/gore.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "12:0x000E6307:5000:WeapSniperRifle:limb=PerceptionCondition,12.6:0x000E631C:5000:WeapSniperRifle:limb=PerceptionCondition,14:0x000E745F:5000:WeapSniperRifle:limb=PerceptionCondition" }
+args = ["--play", "--world", "WastelandNV", "--pos=-21500,21300,5900", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'dismember: .* 0x000E6307: Head exploded', label = "the first Deathclaw's head explodes" },
+  { re = 'dismember: .* 0x000E631C: Head exploded', label = "the second's too" },
+  { re = 'dismember: gore of 000E6307 at rest: \d+ pieces lie \d+ to (?P<n>\d+) units', range = [0, 1500], label = "every piece of the first comes to rest within 1,500 units of its trunk" },
+  { re = 'dismember: gore of 000E631C at rest: \d+ pieces lie \d+ to (?P<n>\d+) units', range = [0, 1500], label = "and of the second" },
+  { re = 'dismember: gore piece \d+ of \S+ (left the loaded cells|fell through the ground)', count = 0, label = "no piece leaves the loaded cells or falls through the ground here" },
+]
 
 [[scenario]]
 name = "dismember-geckos"
@@ -29550,6 +29660,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-stats-perks-not-playable"
+source = "[documented] GECK wiki Category:Perk: Hidden keeps a perk off the interface, Playable is the level-up menu's; issue 3118: perks given by scripts (challenge perks, implants) are not Playable and are listed"
+note = "the aid gives Lord Death (0015EAE4, a challenge perk, DATA 00 00 03 00 00), the Strength Implant (0014C069) and Intense Training (00044CB1, Playable) before the page opens; the hand-built Perks tab lists all three in name order and down walks them. A --cell start has no perks of its own (tiles-stats-perks counts 2 rows from two)."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/stats/read.rs", "engine/nvf-play/src/pipboy/stats/mod.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=0015EAE4,20.05:perk=0014C069,20.1:perk=00044CB1,29:down,30:down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,32:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 35
+expect = [
+  { re = 'pipboy stats: LVL .*; \d+ S\.P\.E\.C\.I\.A\.L\., \d+ skills, 3 perks,', min = 1, label = "three perks listed: the two that are not Playable with the Playable one" },
+  { re = 'pipboy stats: Perks: Intense Training( \d+)? selected', min = 1, label = "the Playable perk, first by name" },
+  { re = 'pipboy stats: Perks: Lord Death( \d+)? selected', min = 1, label = "the challenge perk (not Playable, not Hidden) is a row" },
+  { re = 'pipboy stats: Perks: Strength Implant( \d+)? selected', min = 1, label = "the implant (not Playable, not Hidden) is a row" },
+]
+
+[[scenario]]
 name = "tiles-stats-perks-off"
 source = "[design] pipboy.md section 5.1.2: without the switch the Perks tab is the hand-built one: nothing of the tile page runs"
 note = "the same steps and times as tiles-stats-perks, at the hand-built places. Shots to compare with it."
@@ -33804,4 +33930,87 @@ run_seconds = 12
 expect = [
   { re = 'combat: swing reaches 1 actors .*1 of them out of the fan of rays at eye height', label = "the level knife swing reaches the low creature through the ground fallback" },
   { re = 'combat: .*, 1 swings \(0 chained, 0 power, 1 hits\)', label = "the short weapon hits once at the widened blocking stop" },
+]
+
+# ------------------------------------------------------------------ authored PBR materials (#2981)
+
+[[scenario]]
+name = "pbr-authored-field"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md: generated authored sets on the real material path; engineering comparator policy, not original-game pixels"
+areas = ["renderer", "textures", "nif"]
+paths = ["crates/fnv-dds/src/lib.rs", "crates/fnv-pbr/", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_spawn/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/authored/", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/pbr_field/", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/data.rs", "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1" }
+# The setting is pinned on: both field scenarios share a home, and a given switch wins over a saved row in a timed run.
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials"]
+run_seconds = 20
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "pbr field: authored sets found (orm in both slots", count = 1 },
+  { text = "pbr field: actual NIF material source, 5 panels (plain, lit, dark, reference, flat), setting on", count = 1 },
+  { re = 'pbr field: readback \d means plain=', count = 2, label = "each readback logs the panels' means and differences" },
+  { text = "pbr field: first rendered readback PASS", count = 1 },
+  { text = "pbr field: second rendered readback PASS", count = 1 },
+  { text = "pbr field: occlusion alone darkens, the two-channel normal matches the three-channel reference, the normal shows PASS", count = 1 },
+  { re = 'authored materials summary: [1-9]\d* material builds applied a set \([1-9]\d* distinct set stems at build\)', count = 1, label = "the exit summary counts the field's authored material builds" },
+]
+order = [["pbr field: first rendered readback PASS", "pbr field: second rendered readback PASS", "pbr field: occlusion alone darkens, the two-channel normal matches the three-channel reference, the normal shows PASS"]]
+forbid = [
+  { re = '(?i)pbr field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "Panels plain (no set), lit (_orm occlusion 1 + two-channel BC5 _n decoded on a worker), dark (as lit but for the ORM's red), reference (lit's _orm and the same normal as a three-channel game normal map) and flat (_orm, no normal), identical diffuse bytes, one light with a Y component. The thresholds (pbr_field.rs) are set from the first real readbacks with margins. Each run reserves a new run-* child under pbr-field-home/pbr-field-output with both readbacks (.rgba, .ppm) and the comparator reports."
+manual = "Open readback-1.ppm and readback-2.ppm in the evidence directory: the third panel is darker than the second (occlusion alone), the second and fourth look the same, the fifth differs from the fourth (the normal's tilt)."
+
+[[scenario]]
+name = "pbr-authored-field-off"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md: the Authored materials setting off: the material path builds no index, loads no textures\\pbr\\ file and leaves every material the game's own"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "no-authored-materials"]
+run_seconds = 20
+timeout = 180
+expect = [
+  "authored materials: off",
+  { text = 'pbr field: setting off, no index built and no textures\pbr\ file loaded by the material path', count = 1 },
+  { re = 'pbr field: readback \d means plain=', count = 2, label = "each readback logs the panels' means with the setting off" },
+  { re = "pbr field: first rendered readback PASS", count = 1, label = "first readback with the setting off" },
+  { re = "pbr field: second rendered readback PASS", count = 1, label = "second readback with the setting off" },
+  { text = "pbr field: setting off, plain-material panels identical and the reference distinct PASS", count = 1 },
+  { text = "authored materials summary: off (setting)", count = 1 },
+]
+forbid = [
+  { re = '(?i)pbr field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = 'authored materials: \d+ sets under' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The same field with the setting off: the index is never built (no 'authored materials: N sets' line), the material path loads no pbr file (the fixture's own check reads the generated files first), the plain, lit, dark and flat panels draw the same and the reference (its game normal map) differs from them."
+
+[[scenario]]
+name = "glass-mccarran-observation"
+source = "docs/spec-notes/nif.md §6 \"Window glass and environment maps\" (issue #2462, owner's playtest 2026-11-14: the interrogation room's window at Camp McCarran has no visible glass): CampMCTermInt02, the window 000FB2F4 (vwindow01.nif, Window_Environment_Mapping, ShinyBright_e.dds) seen from the observation side, south of it, looking north into the interrogation room; one frame in target/smoke (glass_mccarran_south.png)"
+areas = ["rendering"]
+paths = ["engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "8:glass_mccarran_south.png" }
+args = ["--play", "--cell", "CampMCTermInt02", "--pos=112,1200,18672", "--heading", "35", "--no-voice", "--no-messages"]
+run_seconds = 10
+manual = "glass_mccarran_south.png: the window in the wall ahead shows a pane: grey streaks of reflection over the room beyond, which stays readable through it"
+expect = [
+  { re = 'vwindow01\.nif: 1 shape\(s\) with a window environment map \(textures.effects.ShinyBright_e\.dds, scale 1\.00, over the blend\): VWindow01:0', label = "the pane is drawn with its environment map, added over its blend" },
+  { re = 'test aid: screenshot .*glass_mccarran_south\.png', label = "the observation-side frame is saved" },
+]
+
+[[scenario]]
+name = "glass-mccarran-interrogation"
+source = "docs/spec-notes/nif.md §6 \"Window glass and environment maps\" (issue #2462): the same window seen from inside the interrogation room, north of it, looking south at the dark lockers behind it, where the owner saw no pane at all; one frame in target/smoke (glass_mccarran_north.png)"
+areas = ["rendering"]
+paths = ["engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "8:glass_mccarran_north.png" }
+args = ["--play", "--cell", "CampMCTermInt02", "--pos=112,1700,18672", "--heading", "145", "--no-voice", "--no-messages"]
+run_seconds = 10
+manual = "glass_mccarran_north.png: the window ahead shows a pane over the dark lockers beyond (reflection streaks), not an empty opening"
+expect = [
+  { re = 'vwindow01\.nif: 1 shape\(s\) with a window environment map \(textures.effects.ShinyBright_e\.dds, scale 1\.00, over the blend\): VWindow01:0', label = "the pane is drawn with its environment map, added over its blend" },
+  { re = 'test aid: screenshot .*glass_mccarran_north\.png', label = "the interrogation-side frame is saved" },
 ]

@@ -403,6 +403,43 @@ fn terminal_menu_items() {
 }
 
 #[test]
+fn casino_menu_close_events_fire_on_documented_menu_codes_1080_1081_1082() {
+    assert_eq!(fnv_game::slots::MENU_CODE, 1080);
+    assert_eq!(fnv_game::blackjack::MENU_CODE, 1081);
+    assert_eq!(fnv_game::roulette::MENU_CODE, 1082);
+    let f = fixture();
+    let mut g = game(&f);
+    g.tweaks.no_casino_bans = true;
+    fnv_game::casino::add_earnings(&mut g, FormId(CSNO), 1000, 1000);
+    for menu_code in [1080u16, 1081, 1082] {
+        q(
+            &mut g,
+            &format!(
+                "SetOnMenuCloseEventHandler (begin function {{int iMenu}}\n\
+                 if (GetCasinoWinningsLevel TestCasino) == 3\n\
+                   PlayerREF.AddItem TestChip iMenu\n\
+                 endif\n\
+                 end) 1 {menu_code}"
+            ),
+        );
+    }
+    for (menu_code, expected_total) in [
+        (fnv_game::slots::MENU_CODE, 1080i32),
+        (fnv_game::blackjack::MENU_CODE, 1080 + 1081),
+        (fnv_game::roulette::MENU_CODE, 1080 + 1081 + 1082),
+    ] {
+        g.open_menu(menu_code);
+        assert_eq!(g.close_menu(), Some(menu_code));
+        assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), expected_total);
+    }
+    // Unregistered menu does not trigger the casino close handlers.
+    g.open_menu(fnv_game::caravan::MENU_CODE);
+    assert_eq!(g.close_menu(), Some(fnv_game::caravan::MENU_CODE));
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), 1080 + 1081 + 1082);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+}
+
+#[test]
 fn quest_delay() {
     let f = fixture();
     let mut g = game(&f);

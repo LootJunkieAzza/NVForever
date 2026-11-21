@@ -1171,6 +1171,26 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `authored-materials`: Authored materials
+
+- On the page: On: surfaces whose textures a texture pack gives material maps for
+  (textures\pbr\) are shaded from them. Off: every surface uses the game's own values.
+  Takes effect at the next start.
+- In full: [design, #2981] A texture pack may give a game texture a set of material maps
+  under `textures\pbr\` (occlusion, roughness and metallic in `_orm`, a normal map in `_n`,
+  scalars in a `.toml`); the shapes drawn with that texture then take their roughness,
+  highlight strength, occlusion and normal from the set (docs/spec-notes/pbr-materials.md).
+  Lit NIF shapes with texture coordinates take a set; unlit, additive, multiplied and
+  refracting shapes, particles, hair, skin and FaceGen heads, landscape LOD and the Pip-Boy's
+  and interface textures never do. A set without `_n` (or a shape whose drawn mesh has no
+  tangents) keeps the game's own normal map, its alpha no longer a highlight mask. On in
+  both looks: without a pack nothing changes. Off: the material path reads no file under
+  `textures\pbr\` and every material is the game's own. Read once at the start, so a change
+  applies at the next start. Not in the original.
+- Command-line switches: `--graphics-only` (`--graphics-only no-authored-materials`)
+- More: docs/spec-notes/pbr-materials.md
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `terrain-height-blend`: Terrain height blending
 
 - On the page: On: where ground textures meet, the new one shows through its brighter stones

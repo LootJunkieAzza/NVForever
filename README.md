@@ -46,8 +46,8 @@ cargo run --release --bin nvforever -- --data "<path to Fallout New Vegas>/Data"
 ```
 
 More: [docs/development.md](docs/development.md) (build, test, options, tools) ·
-[docs/status.md](docs/status.md) (what's built) ·
-[docs/outstanding.md](docs/outstanding.md) (what's left).
+[docs/status.md](docs/status.md) (what's built and what's left) ·
+[open issues](https://github.com/LootJunkieAzza/NVForever/issues) (the work to do).
 
 ## Community
 

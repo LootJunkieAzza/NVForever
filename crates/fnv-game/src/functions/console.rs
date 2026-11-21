@@ -628,8 +628,9 @@ fn set_mfg(m: &mut std::collections::BTreeMap<u8, f32>, id: u8, v: f32) {
 /// actor in the loaded area", "Essential actors are put into their usual temporary
 /// unconscious state rather than being killed"; hypothesis: the dead and the disabled are
 /// left alone]. Each death is `Game::kill`'s, as KillActor's.
-pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
-    let killer = a.first().map(|w| form(g, w)).transpose()?;
+/// Shared loaded-area kill pass used by both console `killall` and source-compiled
+/// `KillAllActors` / `KillAll` calls [documented: GECK wiki KillAllActors].
+pub(crate) fn kill_all_actors_in_loaded(g: &mut Game, killer: Option<FormId>) -> (usize, usize) {
     let placed = g.world.placed;
     let is_actor = |r: &FormId| placed.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
     let mut actors: std::collections::BTreeSet<FormId> = std::collections::BTreeSet::new();
@@ -650,6 +651,12 @@ pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<
             killed += 1;
         }
     }
+    (killed, knocked)
+}
+
+pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
+    let killer = a.first().map(|w| form(g, w)).transpose()?;
+    let (killed, knocked) = kill_all_actors_in_loaded(g, killer);
     Ok(vec![format!("KillAllActors >> {killed} killed, {knocked} essential knocked out")])
 }
 
@@ -1018,7 +1025,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (33, 90), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (33, 89), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));

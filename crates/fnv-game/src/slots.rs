@@ -11,10 +11,9 @@ use rand_core::RngCore;
 /// The help message shown the first time the menu opens (slots.md §5) [observed:
 /// FalloutNV.esm MESG `HelpSlots`, flags Message Box and Auto Display].
 pub const HELP_MESSAGE: FormId = FormId(0x0017_2096);
-/// The menu's code to scripts (slots.md §1) [hypothesis: NVForever's own; the menu file's
-/// `&SlotMachineMenu;` class number is not in the menu files and no shipped script asks
-/// for it; roulette's is 1101, blackjack's 1102].
-pub const MENU_CODE: u16 = 1103;
+/// The menu's code to scripts (slots.md §1) [documented: GECK wiki MenuMode /
+/// `fnv_ui::value::MENU_CLASSES`, `SlotMachineMenu = 1080`].
+pub const MENU_CODE: u16 = 1080;
 /// Symbols on a reel: 1 to 6 and W [documented: GECK wiki GetCasinoReelStops].
 pub const SYMBOLS: usize = 7;
 /// The winning symbol W, the seventh (index 6) [documented: same page].
