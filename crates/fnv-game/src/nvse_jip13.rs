@@ -12,7 +12,7 @@
 //! ([`Game::take_phys_requests`]).
 
 use crate::game::{Game, RunCtx};
-use crate::nif_blocks::{apply, extrinsic_angles, mul, node_place, rotation, Mat};
+use crate::nif_blocks::{apply, extrinsic_angles, mul, node_place, rotation, transpose, Mat};
 use crate::package::{Location, LocationKind, PackageDef, PackageType};
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
@@ -192,10 +192,6 @@ fn outputs(g: &mut Game, ret: XVal, outs: &[f64]) -> XVal {
 
 fn mat9(m: &[f32; 9]) -> Mat {
     [[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]]
-}
-
-fn transpose(m: &Mat) -> Mat {
-    [[m[0][0], m[1][0], m[2][0]], [m[0][1], m[1][1], m[2][1]], [m[0][2], m[1][2], m[2][2]]]
 }
 
 /// The rotation of angles (radians) taken about the turning axes X, then Y, then Z

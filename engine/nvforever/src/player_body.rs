@@ -730,6 +730,18 @@ struct Rig {
     /// First person: the node that turns with the pitch, and the camera node.
     looking: Option<usize>,
     camera: Option<usize>,
+    /// First person: the turn that nodes a script put above the camera node add to it
+    /// this frame, in the world ([`script_offset`]); the view takes it.
+    script_turn: Option<Quat>,
+    /// Where [`pose_rig`] placed the rig's root this frame, before the first-person lens
+    /// ([`place_lens`]) takes it under itself: the rig's place for the scripts' world
+    /// positions (`nif_mirror`, [`PlayerBody::posed_root`]).
+    posed_root: Option<Transform>,
+    /// First person: what the camera was placed from this frame: the script nodes' offset
+    /// above the camera node ([`script_offset`]), the rig's root and the camera node in
+    /// the animator's model space; [`follow_script_nodes`] moves the view by what the
+    /// scripts changed after.
+    script_used: Option<(Affine3A, Affine3A, Affine3A)>,
     /// First person: the node above the arms that the sway turns and moves
     /// (`view_sway.rs`).
     translate: Option<usize>,
@@ -813,6 +825,70 @@ fn affine(t: Transform) -> Affine3A {
     Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.translation)
 }
 
+/// What nodes a script put above skeleton node `c` (JIP's InsertNode, moved by
+/// SetNifBlockRotation and SetNifBlockTranslation, `crate::nif_mirror`) add to its place
+/// in the rig, in model space; `None` without such nodes. The bones take the animator's
+/// pose, the inserted nodes their own transforms, through the drawn entities up to the
+/// skeleton's root. In the original the first-person camera hangs from the skeleton
+/// [hypothesis: B42 True Leaning leans the view by nodes it inserts above `Camera1st`
+/// and `Bip01 Looking`; observed: mods_reference ln_B42Leaning.txt].
+fn script_offset(a: &Animator, c: usize, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>) -> Option<Affine3A> {
+    let root = *a.nodes.first()?;
+    let mut e = *a.nodes.get(c)?;
+    let (mut drawn, mut plain, mut inserted) = (Affine3A::IDENTITY, Affine3A::IDENTITY, false);
+    for _ in 0..256 {
+        if e == root {
+            return inserted.then(|| drawn * plain.inverse());
+        }
+        match a.nodes.iter().position(|&n| n == e) {
+            Some(i) => {
+                let l = affine(a.locals[i]);
+                drawn = l * drawn;
+                plain = l * plain;
+            }
+            None => {
+                drawn = transforms.get(e).map_or(Affine3A::IDENTITY, |t| affine(*t)) * drawn;
+                inserted = true;
+            }
+        }
+        e = parents.get(e).ok()?.parent();
+    }
+    None
+}
+
+/// The script nodes above the first-person camera node as the mirror set them this frame
+/// (`nif_mirror`, after the scripts ran): the view and the arms' lens move by what they
+/// changed since the body was posed ([`drive_body`], before the scripts), so the view is
+/// drawn with the same values as the arms. Without it the view kept the previous frame's
+/// while a lean eased in or out, and shook against the arms [observed: the owner's
+/// playtest of B42 True Leaning, 2026-11-20].
+fn follow_script_nodes(state: Res<PlayerBody>, parents: Query<&ChildOf>, mut transforms: Query<&mut Transform>, cams: Query<Entity, With<nvf_play::PlayerCamera>>) {
+    let Some(f) = state.body.as_ref().and_then(|b| b.first.as_ref()).filter(|_| state.script_view) else { return };
+    let (Some((used, root_m, plain)), Some(c)) = (f.script_used, f.camera) else { return };
+    let Some(now) = script_offset(&f.animator, c, &parents, &transforms) else { return };
+    if now.abs_diff_eq(used, 1e-4) {
+        return;
+    }
+    let moved = Vec3::from((root_m * now * plain).translation - (root_m * used * plain).translation);
+    let root = root_m.to_scale_rotation_translation().1;
+    let turn = |o: Affine3A| root * o.to_scale_rotation_translation().1 * root.inverse();
+    let turned = turn(now) * turn(used).inverse();
+    if let Some(mut t) = cams.single().ok().and_then(|cam| transforms.get_mut(cam).ok()) {
+        t.translation += nvf_play::space::to_bevy(moved.to_array());
+        t.rotation = nvf_play::space::view_rotation(turned) * t.rotation;
+    }
+    // The lens stands at the eye ([`place_lens`]); the rig's root under it keeps its pose.
+    let (Some([outer, _]), Some(posed)) = (f.lens, f.posed_root) else { return };
+    let Ok(at) = transforms.get(outer).copied() else { return };
+    let at = Transform { translation: at.translation + moved, ..at };
+    if let Ok(mut t) = transforms.get_mut(outer) {
+        *t = at;
+    }
+    if let Ok(mut t) = transforms.get_mut(f.root) {
+        *t = Transform::from_matrix(at.to_matrix().inverse() * posed.to_matrix());
+    }
+}
+
 /// An entity drawn for a part of the third-person body.
 struct Drawn {
     entity: Entity,
@@ -868,7 +944,13 @@ impl Rig {
     /// of the way onto the camera node, the barrel's axis (the weapon model's +X
     /// [observed: every `ProjectileNode` lies ahead along it]) along `view` (model
     /// space). Nothing when the weapon has no such node or does not hang below `t`.
-    fn line_up_sights(&mut self, t: usize, share: f32, view: Vec3) {
+    ///
+    /// Nodes scripts put above the camera node and above `t` (`script_offset`: a lean's,
+    /// ISControl's `##trm`) are drawn with: the eye, the view and the gun are taken where
+    /// they are drawn, so the sights meet the eye the view is drawn from [hypothesis:
+    /// B42 True Leaning and ISControl move them while aiming; observed: their
+    /// `ln_B42Leaning.txt`, `ln_ISControl.txt`].
+    fn line_up_sights(&mut self, t: usize, share: f32, view: Vec3, (parents, transforms): (&Query<&ChildOf>, &Query<&mut Transform>)) {
         let (Some(camera), Some(hand)) = (self.camera, self.weapon_parent) else { return };
         let a = &self.animator;
         let mut up = Some(hand);
@@ -907,8 +989,12 @@ impl Rig {
         }
         let relief = if iron { self.sight_relief.unwrap_or(0.0) } else { 0.0 };
         let a = &self.animator;
+        let at_camera = script_offset(a, camera, parents, transforms).unwrap_or(Affine3A::IDENTITY);
+        let above = script_offset(a, t, parents, transforms).unwrap_or(Affine3A::IDENTITY);
+        let (eye, view) = (at_camera.transform_point3(eye), at_camera.transform_vector3(view));
+        let (sight, barrel) = (above.transform_point3(sight), above.transform_vector3(barrel));
         let g = crate::iron_sights::correction(eye + view.normalize_or_zero() * relief, view, sight, barrel, share);
-        let parent = a.skel.parents[t].map_or(Affine3A::IDENTITY, |p| a.model_space(p));
+        let parent = above * a.skel.parents[t].map_or(Affine3A::IDENTITY, |p| a.model_space(p));
         let moved = parent.inverse() * g * parent * affine(self.animator.locals[t]);
         self.animator.locals[t] = Transform::from_matrix(Mat4::from(moved));
     }
@@ -1172,6 +1258,9 @@ pub struct PlayerBody {
     motion: Motion,
     /// Why the body could not be built (reported once).
     failed: Option<String>,
+    /// This frame's first-person view takes the turn of the script nodes above the camera
+    /// node (`Rig::script_turn`), so [`follow_script_nodes`] keeps it with them.
+    script_view: bool,
 }
 
 impl PlayerBody {
@@ -1253,6 +1342,14 @@ impl PlayerBody {
         self.script_rig(false)
     }
 
+    /// Where a player rig's root was posed this frame, before the first-person lens
+    /// (`Rig::posed_root`): the rig's place in the world, as the scripts' world
+    /// positions take it (`nif_mirror`).
+    pub fn posed_root(&self, first_person: bool) -> Option<Transform> {
+        let body = self.body.as_ref()?;
+        if first_person { body.first.as_ref()?.posed_root } else { body.third.posed_root }
+    }
+
     /// Each built player rig separately, including a hidden rig, for script model
     /// selection. Its names and entities must stay with the same model (#2387).
     pub fn script_rig(&self, first_person: bool) -> Option<(Entity, crate::limbs::ActorRig)> {
@@ -1282,7 +1379,7 @@ impl PlayerBody {
                 view, root, lens: None, folder: String::new(), skeleton: actor.skeleton,
                 animator: Animator::new(actor.skel, actor.nodes, None),
                 clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), head: None,
-                eye_local: Vec3::ZERO, looking: None, camera: None, translate: None,
+                eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None, script_used: None, translate: None,
                 weapon_node: None, weapon_parent: None, attached: None,
                 weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
                 idle_logged: false, sights_turned: None, muzzle: None, muzzle_entity: None,
@@ -1516,6 +1613,7 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<crate::script_sequences::PlayerSequences>()
             .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
             .add_systems(Update, toggle_iron_sights)
+            .add_systems(PostUpdate, follow_script_nodes.after(crate::nif_mirror::MirrorSystems).before(bevy::transform::TransformSystems::Propagate))
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
             .add_systems(PostUpdate, sequence_pose_aid::observe.after(bevy::transform::TransformSystems::Propagate))
             .add_systems(Last, report);
@@ -2089,6 +2187,9 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         eye_local,
         looking,
         camera,
+        script_turn: None,
+        posed_root: None,
+        script_used: None,
         translate,
         weapon_node,
         weapon_parent,
@@ -2242,7 +2343,7 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// the rig's other clips are not played: a special idle takes the place of what the body
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
-fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
+fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, (transforms, parents): (&mut Query<&mut Transform>, &Query<&ChildOf>)) -> Option<(Vec3, Option<Quat>)> {
     let Posed { root, look_pitch, special, sequences, sequence_dt, pipboy, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
@@ -2799,7 +2900,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         a.locals[l].rotation = Quat::from_rotation_x(look_pitch) * bind.rotation;
     }
     if let (Some((share, view)), Some(t)) = (sights.filter(|(s, _)| *s > 0.0), rig.translate) {
-        rig.line_up_sights(t, share, view);
+        rig.line_up_sights(t, share, view, (parents, &*transforms));
     }
     let a = &mut rig.animator;
     if let Some(t) = rig.translate.filter(|_| sway != SwayPose::NONE) {
@@ -2814,12 +2915,18 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     if let Ok(mut t) = transforms.get_mut(rig.root) {
         *t = root;
     }
+    rig.posed_root = Some(root);
     let root_m = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation);
     match rig.view {
-        View::First => rig.camera.map(|c| {
-            let m = root_m * a.model_space(c);
-            (m.translation.into(), view_driven.then(|| m.to_scale_rotation_translation().1))
-        }),
+        View::First => {
+            let c = rig.camera?;
+            // With the nodes a script put above the camera: their move and turn too.
+            let offset = script_offset(a, c, parents, transforms);
+            let m = root_m * offset.unwrap_or(Affine3A::IDENTITY) * a.model_space(c);
+            rig.script_turn = offset.map(|o| root.rotation * o.to_scale_rotation_translation().1 * root.rotation.inverse());
+            rig.script_used = offset.map(|o| (o, root_m, a.model_space(c)));
+            Some((m.translation.into(), view_driven.then(|| m.to_scale_rotation_translation().1)))
+        }
         View::Third => rig.head.map(|h| ((root_m * a.model_space(h)).transform_point3(rig.eye_local), None)),
     }
 }
@@ -3214,7 +3321,7 @@ fn drive_body(
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
         (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::vats_mode::VatsMode>>, Option<Res<nvf_play::inertia::MovementInertia>>, Option<ResMut<PlayerBlows>>),
     ),
-    mut driven: ResMut<nvf_play::player::ViewDriven>,
+    (mut driven, parents): (ResMut<nvf_play::player::ViewDriven>, Query<&ChildOf>),
 ) {
     let state = &mut *state;
     player.body_view = None;
@@ -3620,7 +3727,7 @@ fn drive_body(
     let lean = if third_view { crate::sprint_view::lean(sprint_share) } else { Quat::IDENTITY };
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading) * lean, scale: Vec3::splat(body.scale * script_scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences:&sequences.third, sequence_dt: dt, pipboy: None, sway: SwayPose::NONE, sights: None };
-    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
+    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, (&mut transforms, &parents)).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
@@ -3823,7 +3930,7 @@ fn drive_body(
     if let Some(f) = body.first.as_mut() {
         f.animator.smooth_seams(smooth.then_some(SEAM_SECONDS));
     }
-    let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
+    let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, (&mut transforms, &parents)));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than
     // the world's, and narrower still while the Pip-Boy shows.
@@ -3869,6 +3976,14 @@ fn drive_body(
     if roll != 0.0 && player.body_view.is_none() && !third_view {
         player.body_view = Some(crate::sprint_view::rolled_view(player.heading, player.pitch, roll));
     }
+    // A script's nodes above the camera node turn the first-person view with them (a
+    // lean's roll, `script_offset`); an idle's view has them already.
+    let script_turn = body.first.as_ref().and_then(|f| f.script_turn).filter(|_| !third_view && first.and_then(|(_, v)| v).is_none());
+    if let Some(turn) = script_turn {
+        let view = player.body_view.unwrap_or_else(|| crate::sprint_view::rolled_view(player.heading, player.pitch, 0.0));
+        player.body_view = Some(turn * view);
+    }
+    state.script_view = script_turn.is_some();
     m.events = events;
 
     // The eye: the first-person camera node; without that rig, the head's eye, swung

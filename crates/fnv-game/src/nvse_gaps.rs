@@ -1407,13 +1407,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 None => XVal::Num(-2048.0),
             }
         }
-        // `[max]`: the distance along the crosshair to what it meets, 0 for nothing
-        // within reach (the engine's crosshair ray) [observed: gaps8, 93.84 on the save;
-        // hypothesis: nothing reads 0].
+        // `[max]`: the distance along the crosshair to what it meets (the engine's
+        // crosshair ray) [observed: gaps8, 93.84 on the save]; -1 for nothing there
+        // [documented: GetReticleRange, -1 when the point is invalid].
         "getreticlerange" => {
             let hit = g.senses.reticle.as_ref().and_then(|r| r.hit);
             let max = num(args, 0, 0.0);
-            XVal::Num(hit.map_or(0.0, f64::from).min(if max > 0.0 { max } else { f64::MAX }))
+            XVal::Num(hit.map_or(-1.0, |h| f64::from(h).min(if max > 0.0 { max } else { f64::MAX })))
         }
         // An attack is on the way: the body's attack, follow-through or return action
         // [documented: IsAttacking; observed: gaps4, 0 standing; hypothesis: the actions].

@@ -308,12 +308,13 @@ fn nif_block_materials_and_places() {
     q(&mut g, "DoorRef.SetMaterialPropertyValue \"Arm\" 7 0.6\nDoorRef.SetMaterialPropertyValue \"Panel:1\" 9 1");
     assert!(g.scene.take_edits().is_empty(), "no material, no value 9: nothing for the engine");
     // The translation into script variables: to the parent, then in the world (the arm
-    // turned a quarter round about Z, the reference at 10 20 30, unturned).
+    // at Z 90, drawn with that rotation's transpose, so X goes to -Y
+    // (`SceneNode::rotation`); the reference at 10 20 30, unturned).
     let place = |g: &mut Game, f: &str| s(g, &format!("let fR := DoorRef.{f}\nlet sOut := sv_Construct \"%g %.2f %.2f %.2f\" fR fX fY fZ\nSetFunctionValue sOut"));
     assert_eq!(place(&mut g, "GetNifBlockTranslationAlt \"Panel:1\" fX fY fZ"), "1 5.00 0.00 0.00");
-    assert_eq!(place(&mut g, "GetNifBlockTranslationAlt \"Panel:1\" fX fY fZ 1"), "1 10.00 25.00 40.00");
+    assert_eq!(place(&mut g, "GetNifBlockTranslationAlt \"Panel:1\" fX fY fZ 1"), "1 10.00 15.00 40.00");
     // A missing block: 0, the variables kept [documented].
-    assert_eq!(place(&mut g, "GetNifBlockTranslationAlt \"Panel:1\" fX fY fZ 1\nlet fR := DoorRef.GetNifBlockTranslationAlt \"None\" fX fY fZ 1"), "0 10.00 25.00 40.00");
+    assert_eq!(place(&mut g, "GetNifBlockTranslationAlt \"Panel:1\" fX fY fZ 1\nlet fR := DoorRef.GetNifBlockTranslationAlt \"None\" fX fY fZ 1"), "0 10.00 15.00 40.00");
     // The rotation: to the parent (none), then the world's (the arm's), then intrinsic.
     // No turn gives Y as asin(-0), -0, and `%.2f` keeps its sign [observed: `%f` of -0,
     // #1919; the original's nif-blocks nb.obj.rot reads "90.00 -0.00 90.00"; hypothesis:

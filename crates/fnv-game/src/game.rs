@@ -4215,6 +4215,9 @@ impl<'a> Game<'a> {
         let (dt, frame) = (self.cfg.frame_seconds, self.frame);
         self.gaps.sounds.tick(dt, frame);
         self.projectiles_tick(dt as f32);
+        // InsertNode's nodes in models drawn since (`crate::nvse_jippp`), before the
+        // per-frame handlers that move them.
+        self.insert_runtime_nodes();
         self.jg_event(crate::nvse_jip3::JgEvent::RenderUpdate, None);
         self.hud_tick();
         self.lu3_tick();

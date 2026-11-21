@@ -174,7 +174,9 @@ fn node_bound(at: usize, tree: &[(Entity, Option<usize>)], globals: &Query<&Glob
 
 /// What the mirror reads beside the nodes: their places in the world and boxes (bounds),
 /// and the particle systems.
-type Extra<'w, 's> = (Query<'w, 's, &'static GlobalTransform>, Query<'w, 's, &'static Aabb>, Option<ResMut<'w, crate::particles::Particles>>, Option<Res<'w, crate::world::WorldData>>);
+/// With the simulation: the played world, where the references stand (outside a game turn
+/// the game's own world is a stand-in, `nvf_play::script::with_world`).
+type Extra<'w, 's> = (Query<'w, 's, &'static GlobalTransform>, Query<'w, 's, &'static Aabb>, Option<ResMut<'w, crate::particles::Particles>>, Option<Res<'w, crate::world::WorldData>>, Option<Res<'w, nvf_play::sim::SimState>>);
 
 /// Each named shape's NiMaterialProperty values in a model file (under meshes), in
 /// GetMaterialPropertyValue's order: specular R G B, emissive R G B, glossiness, alpha,
@@ -406,10 +408,12 @@ fn merge_held(target: &mut OrderedHeld, source: OrderedHeld) {
     }
 }
 
+/// A held rotation is in the scripts' angles, whose rotation is the transpose (the
+/// inverse) of the one a node is drawn with (`fnv_game::nif_blocks::SceneNode::rotation`).
 fn apply_value(entity: Entity, held: Held, nodes: &mut NodeQuery) {
     if let Ok(mut t) = nodes.get_mut(entity) {
         if let Some(v) = held.translation { t.1.translation = v; }
-        if let Some(q) = held.rotation { t.1.rotation = q; }
+        if let Some(q) = held.rotation { t.1.rotation = q.inverse(); }
         if let Some(s) = held.scale { t.1.scale = Vec3::splat(s); }
     }
 }
@@ -417,7 +421,7 @@ fn apply_value(entity: Entity, held: Held, nodes: &mut NodeQuery) {
 fn apply_held(root: Entity, node: &str, held: Held, nodes: &mut NodeQuery, rig: &RigNames) {
     if let Some(mut t) = find(root, node, nodes, rig).and_then(|e| nodes.get_mut(e).ok()) {
         if let Some(v) = held.translation { t.1.translation = v; }
-        if let Some(q) = held.rotation { t.1.rotation = q; }
+        if let Some(q) = held.rotation { t.1.rotation = q.inverse(); }
         if let Some(s) = held.scale { t.1.scale = Vec3::splat(s); }
     }
 }
@@ -473,7 +477,7 @@ fn mirror_game(
     mem: &mut Memory,
     (data, drawn, mut assets): Materials,
     (shapes, meshes): Shapes,
-    (globals, boxes, mut particles, world): Extra,
+    (globals, boxes, mut particles, world, sim): Extra,
     dropped: Dropped,
 ) {
     let Memory { logged, held, bound_held, pending_held, edit_order, tables, materials, owned, attachment_materials, props, files } = mem;
@@ -816,6 +820,18 @@ fn mirror_game(
                 .map(|p| crate::particles::placed_systems(p, r.0).into_iter().map(|d| (d.name.clone(), d.emitter.object.clone(), crate::particles::script_values(d))).collect())
                 .unwrap_or_default() };
             let walked = walk(root, &nodes, &rig);
+            // A player rig's root is told in the reference's own frame (its position and
+            // angles), as the world positions compose it back (`fnv_game::nif_blocks::
+            // node_place`): its pose, not the entity's transform, which the first-person
+            // lens holds at the eye and the third person in the world. Without it a
+            // first-person node's world position was the player's feet [observed: B42
+            // True Leaning's `B42TLCamB` at the feet, its sideways ray along the ground].
+            let posed = rigs.1.as_deref().filter(|_| r == FormId::PLAYER_REF).and_then(|p| p.posed_root(view == ModelView::FirstPerson));
+            let placed = sim.as_deref().and_then(|s| s.world.peek(r)).map(|s| (s.pos, s.rot));
+            let root_told = posed.zip(placed).map(|(p, (rp, ra))| {
+                let rr = Quat::from_euler(EulerRot::ZYX, ra[2], ra[1], ra[0]);
+                Transform { translation: rr.inverse() * (p.translation - Vec3::from(rp)), rotation: rr.inverse() * p.rotation, scale: p.scale }
+            });
             let tree: Vec<SceneNode> = walked
                 .iter()
                 .enumerate()
@@ -823,11 +839,13 @@ fn mirror_game(
                 .filter_map(|(k, e, parent)| {
                     let base = name_of(e, &nodes, &rig);
                     let (_, t, _, hidden, _, attached) = nodes.get(e).ok()?;
+                    let t = root_told.filter(|_| k == 0 && rig.root == Some(e)).unwrap_or(*t);
                     // A name seen before gets ":0", ":1" … [observed: "Object", "Object:0"].
                     let n = seen.entry(base.to_ascii_lowercase()).or_insert(0);
                     let shown = if *n == 0 { base.clone() } else { format!("{base}:{}", *n - 1) };
                     *n += 1;
-                    let (z, y, x) = t.rotation.to_euler(EulerRot::ZYX);
+                    // Told in the scripts' angles: the drawn rotation's inverse (`apply_value`).
+                    let (z, y, x) = t.rotation.inverse().to_euler(EulerRot::ZYX);
                     let material = if let Some(attached) = attached { attachment_materials.get(&e).copied().or(attached.material) }
                         else if view == ModelView::FirstPerson { None }
                         else { materials.get(&(r.0, view, shown.clone())).or_else(|| table.get(&base)).copied() };

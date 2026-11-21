@@ -21,6 +21,9 @@ pub struct Jip3State {
     pub jg_handlers: Vec<(JgEvent, XVal, Option<FormId>)>,
     /// FreezeTime's mode: game time stands still (`Game::tick`).
     pub time_frozen: bool,
+    /// The quantized game clock at the last RenderUpdate dispatch: its handlers'
+    /// GetSecondsPassed is the time since (docs/spec-notes/jip-callback-clock.md).
+    pub render_clock: Option<f64>,
 }
 
 /// The JohnnyGuitar events whose handlers this file keeps.
@@ -76,6 +79,17 @@ impl Game<'_> {
     /// RenderUpdate) [documented: the SetJohnnyOn…EventHandler pages; hypothesis: the
     /// arguments].
     pub(crate) fn jg_event(&mut self, ev: JgEvent, subject: Option<FormId>) {
+        // A RenderUpdate handler runs every frame as a function, with no script instance
+        // of its own: its GetSecondsPassed (and its nested calls') is the game-clock time
+        // since the previous dispatch, as a main-loop callback's (jip-callback-clock.md)
+        // [hypothesis: B42 True Leaning eases its lean by GetSecondsPassed in its handler;
+        // observed: mods_reference ln_B42Leaning.txt]. A clock that went back (another
+        // session) gives 0.
+        let seconds = (ev == JgEvent::RenderUpdate).then(|| {
+            let now = crate::functions::clock_now(self.time);
+            let last = self.gaps.jip3.render_clock.replace(now);
+            last.map_or(0.0, |l| (now - l).max(0.0))
+        });
         if self.gaps.jip3.jg_handlers.iter().all(|(e, _, _)| *e != ev) {
             return;
         }
@@ -90,7 +104,7 @@ impl Game<'_> {
                 continue;
             }
             let args = subject.map(|s| vec![XVal::Ref(s.0)]).unwrap_or_default();
-            if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
+            if let Err(error) = self.run_function_with_seconds(&f, None, args, None, (RunCtx::default(), seconds)) {
                 self.handler_failed("JohnnyGuitar event handler".into(), error);
             }
         }

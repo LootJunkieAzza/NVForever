@@ -80,6 +80,7 @@ mod lutana;
 mod nellis_hangar_doors;
 mod nif_player_models;
 mod model_has_block;
+mod script_node_mods;
 mod lutana2;
 mod lutana3;
 mod magic_archetypes;

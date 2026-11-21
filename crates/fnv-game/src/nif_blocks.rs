@@ -27,7 +27,12 @@ pub enum ModelView {
 pub struct SceneNode {
     pub name: String,
     pub parent: Option<usize>,
-    /// Local translation (game units), rotation (degrees, X Y Z extrinsic) and scale.
+    /// Local translation (game units), rotation (degrees, X Y Z extrinsic) and scale. The
+    /// angles are those of the transpose of the rotation the node is drawn with
+    /// ([`drawn`]) [observed: GetNifBlockRotation of the 10mm pistol's ProjectileNode,
+    /// 90 0 90, is its file matrix's rows taken as columns, the transpose of the drawn
+    /// one; B42 True Leaning's lean right steps right and turns its nodes -18° about Y,
+    /// a roll right only so, mods_reference ln_B42Leaning.txt].
     pub translation: [f32; 3],
     pub rotation: [f32; 3],
     pub scale: f32,
@@ -164,6 +169,11 @@ pub struct SceneMirror {
     /// Set…PropertyValue), laid over each tree the engine tells: reference, node, alpha
     /// (else stencil), item, value.
     prop_sets: Vec<(FormId, ModelView, String, bool, usize, f32)>,
+    /// The nodes InsertNode put into each drawn model (reference, model, node name), with
+    /// that model's identity then: a model drawn anew lacks them and gets them again
+    /// ([`SceneMirror::insert_node`]), the same model is not given a second copy while
+    /// the engine's tree does not show the first yet.
+    inserted: HashMap<(FormId, ModelView, String), Option<u64>>,
 }
 
 impl SceneMirror {
@@ -319,6 +329,37 @@ impl SceneMirror {
     fn queue_for(&mut self, view: ModelView, edit: SceneEdit) {
         let target = self.target_for(view, &edit);
         self.queue_targeted(view, edit, target);
+    }
+
+    /// InsertNode's node `name` under `target` (`as_parent`: between `target` and its
+    /// parent) in each drawn model of `r` that has `target` and lacks `name`, the player's
+    /// two models both: shown in the mirror at once and queued for the engine. A model is
+    /// given the node once ([`SceneMirror::inserted`]). Whether any drawn model has
+    /// `target`.
+    pub(crate) fn insert_node(&mut self, r: FormId, target: &str, name: &str, as_parent: bool) -> bool {
+        self.watched.insert(r);
+        let mut views: Vec<ModelView> = self.trees.keys().filter(|(t, _)| *t == r).map(|(_, v)| *v).collect();
+        views.sort_by_key(|v| *v as u8);
+        let mut any = false;
+        for view in views {
+            let model = self.identified.get(&(r, view)).copied().flatten();
+            let key = (r, view, name.to_string());
+            let Some(t) = self.trees.get_mut(&(r, view)) else { continue };
+            let Some(i) = find(t, target) else { continue };
+            any = true;
+            if find(t, name).is_some() || self.inserted.get(&key) == Some(&model) {
+                continue;
+            }
+            let node = SceneNode { name: name.to_string(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None };
+            t.push(node);
+            if as_parent {
+                let new = t.len() - 1;
+                t[i].parent = Some(new);
+            }
+            self.inserted.insert(key, model);
+            self.queue_for(view, SceneEdit::Insert { r, target: target.to_string(), name: name.to_string(), as_parent });
+        }
+        any
     }
 
     /// A node of a reference's tree as the mirror holds it now (the reference watched
@@ -534,6 +575,15 @@ pub(crate) fn rotation(a: [f32; 3]) -> Mat {
     mul(&rz, &mul(&ry, &rx))
 }
 
+/// The rotation a node of those angles (radians, [`SceneNode::rotation`]) is drawn with.
+pub(crate) fn drawn(a: [f32; 3]) -> Mat {
+    transpose(&rotation(a))
+}
+
+pub(crate) fn transpose(m: &Mat) -> Mat {
+    [[m[0][0], m[1][0], m[2][0]], [m[0][1], m[1][1], m[2][1]], [m[0][2], m[1][2], m[2][2]]]
+}
+
 /// [`rotation`]'s angles back, in degrees.
 pub(crate) fn extrinsic_angles(m: &Mat) -> [f32; 3] {
     let y = (-m[2][0]).clamp(-1.0, 1.0).asin();
@@ -547,9 +597,9 @@ fn intrinsic_angles(m: &Mat) -> [f32; 3] {
     [(-m[1][2]).atan2(m[2][2]), y, (-m[0][1]).atan2(m[0][0])].map(f32::to_degrees)
 }
 
-/// A node's translation and rotation: as its parent holds it, or (`world`) in the world,
-/// through the nodes above it and the reference's own position and angles. `None`
-/// without the tree or the node.
+/// A node's translation and drawn rotation ([`drawn`]): as its parent holds it, or
+/// (`world`) in the world, through the nodes above it and the reference's own position
+/// and angles. `None` without the tree or the node.
 pub(crate) fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32; 3], Mat)> {
     node_place_for(g, r, node, world, ModelView::Reference)
 }
@@ -557,7 +607,7 @@ pub(crate) fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Op
 fn node_place_for(g: &mut Game, r: FormId, node: &str, world: bool, view: ModelView) -> Option<([f32; 3], Mat)> {
     let t = g.scene.tree_for(r, view)?.clone();
     let mut i = find(&t, node)?;
-    let local = |n: &SceneNode| (n.translation, rotation(n.rotation.map(f32::to_radians)), n.scale);
+    let local = |n: &SceneNode| (n.translation, drawn(n.rotation.map(f32::to_radians)), n.scale);
     let (mut pos, mut rot, _) = local(&t[i]);
     if !world {
         return Some((pos, rot));
@@ -798,23 +848,23 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             if !add {
                 return Some(Ok(zero));
             }
-            let Some(t) = g.scene.tree_for(target_ref, view) else { return Some(Ok(zero)) };
-            let Some(i) = find(t, target) else { return Some(Ok(zero)) };
             if name == "insertnode" {
+                // Into every drawn model of the reference, the player's both; a model
+                // drawn later gets it from the runtime node list
+                // (`Game::insert_runtime_nodes`) [hypothesis: B42 True Leaning inserts
+                // under Camera1st, a node of the first-person skeleton only, with no model
+                // named; observed: mods_reference ln_B42Leaning.txt].
                 let (as_parent, nm) = match what.strip_prefix('^') {
-                    Some(n) => (true, n.to_string()),
-                    None => (false, what.to_string()),
+                    Some(n) => (true, n),
+                    None => (false, what),
                 };
-                let node = SceneNode { name: nm.clone(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None };
-                t.push(node);
-                if as_parent {
-                    let new = t.len() - 1;
-                    t[i].parent = Some(new);
-                }
-                g.scene.queue_for(view, SceneEdit::Insert { r: target_ref, target: target.to_string(), name: nm, as_parent });
-            } else {
-                g.scene.queue_for(view, SceneEdit::Attach { r: target_ref, target: target.to_string(), model: what.to_string() });
+                return Some(Ok(XVal::Num(f64::from(u8::from(g.scene.insert_node(target_ref, target, nm, as_parent))))));
             }
+            let Some(t) = g.scene.tree_for(target_ref, view) else { return Some(Ok(zero)) };
+            if find(t, target).is_none() {
+                return Some(Ok(zero));
+            }
+            g.scene.queue_for(view, SceneEdit::Attach { r: target_ref, target: target.to_string(), model: what.to_string() });
             XVal::Num(1.0)
         }
         // ---- JIP batch 9 (docs/spec-notes/jip-ui-9.md §3)
@@ -863,6 +913,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getnifblockrotationalt" => {
             let which = num(args, 1, 0.0) as i64;
             let Some((_, m)) = node_place_for(g, r, &text(args, 0), which == 1 || which == 3, view) else { return Some(Ok(outputs(g, 0.0, &[]))) };
+            // The angles of the drawn rotation's transpose, as a node's own ([`SceneNode::rotation`]).
+            let m = transpose(&m);
             let a = if which >= 2 { intrinsic_angles(&m) } else { extrinsic_angles(&m) };
             outputs(g, 1.0, &a.map(f64::from))
         }
