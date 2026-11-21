@@ -1675,7 +1675,7 @@ impl App {
         ui.label(RichText::new("NEW GAME START").small().strong().color(theme::GOLD_TEXT));
         card(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. Clear restores quest 00102037 and FNVIntro.bik. Save writes this file.").small().color(WEAK));
+            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. Clear restores the base game (00102037 and FNVIntro.bik). Save writes this file.").small().color(WEAK));
             if let Some(path) = self.ini_path() {
                 ui.label(RichText::new(path.display().to_string()).small().color(WEAK)).on_hover_text("Linux: ~/.local/share/nvforever (or $XDG_DATA_HOME/nvforever), unless NVFOREVER_HOME is set. Windows: Documents\\My Games\\NVForever. An existing nvforever.ini in that folder is the file used.");
             }
@@ -1685,10 +1685,21 @@ impl App {
                 ui.label(RichText::new("Film").small());
                 ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text("FNVIntro.bik").desired_width(160.0));
                 ui.checkbox(&mut self.start_edit.no_film, "No intro film");
-                if ui.add_enabled(self.start_edit != crate::start::Fields::original(), egui::Button::new("Clear")).on_hover_text("Quest 00102037 (VCG00) and FNVIntro.bik, the opening a fresh game uses. Save writes it.").clicked() {
+                if ui.add_enabled(self.start_edit != crate::start::Fields::original(), egui::Button::new("Clear")).on_hover_text("Back to the base game: quest 00102037 (VCG00) and FNVIntro.bik. Save writes it.").clicked() {
                     self.start_edit = crate::start::Fields::original();
                 }
             });
+            let ttw = self.mods.as_ref().and_then(|l| l.entries.iter().find(|e| e.name.eq_ignore_ascii_case(crate::start::TTW_PLUGIN))).map(|e| e.active);
+            if ttw.is_some() && !self.start_edit.is_ttw() && ui.button("Use Tale of Two Wastelands' start").on_hover_text("Quest 001FFFF8 and no intro film, as that mod's guide writes them. Save to keep it. Clear puts the base game back.").clicked() {
+                self.start_edit = crate::start::Fields::ttw();
+            }
+            if self.start_edit.is_ttw() && ttw == Some(false) {
+                ui.label(RichText::new(format!("{} is off in the load order. Turn it on, or this start quest is not found.", crate::start::TTW_PLUGIN)).small().color(BAD));
+            }
+            let quest = self.start_edit.quest.trim();
+            if ttw == Some(true) && !self.start_edit.is_ttw() && (quest.is_empty() || quest.eq_ignore_ascii_case(crate::start::DEFAULT_QUEST) || quest.eq_ignore_ascii_case("VCG00")) {
+                ui.label(RichText::new("Tale of Two Wastelands is on, and a new game still starts at the New Vegas opening.").small().color(BAD));
+            }
         });
         ui.add_space(4.0);
         ui.label(RichText::new("GAME").small().strong().color(theme::GOLD_TEXT));

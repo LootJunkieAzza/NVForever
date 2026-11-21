@@ -29,6 +29,11 @@ pub const DEFAULT_QUEST: &str = "00102037";
 /// New Vegas does not ship that file [documented: `game_start.rs`].
 pub const DEFAULT_FILM: &str = "FNVIntro.bik";
 
+/// Tale of Two Wastelands' master. The start button is offered while the load order has it.
+pub const TTW_PLUGIN: &str = "TaleOfTwoWastelands.esm";
+/// TTW's start quest, as its installation guide writes it (`SCharGenQuest=001FFFF8`, `SIntroMovie=`).
+pub const TTW_QUEST: &str = "001FFFF8";
+
 /// The card's fields.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Fields {
@@ -77,6 +82,16 @@ impl Fields {
         } else {
             ini_set(&t, SECTION, INTRO_KEY, film)
         }
+    }
+
+    /// Whether these are Tale of Two Wastelands' start: its quest and no film.
+    pub fn is_ttw(&self) -> bool {
+        self.quest.trim().eq_ignore_ascii_case(TTW_QUEST) && self.no_film
+    }
+
+    /// Tale of Two Wastelands' start. Clear is the other way, back to the base game.
+    pub fn ttw() -> Fields {
+        Fields { quest: TTW_QUEST.into(), film: String::new(), no_film: true }
     }
 }
 
@@ -151,5 +166,19 @@ mod tests {
         assert_eq!(ini_get(&out, "General", "sCharGenQuest").as_deref(), Some("00102037"));
         assert_eq!(ini_get(&out, "General", "sIntroMovie").as_deref(), Some("FNVIntro.bik"));
         assert_eq!(Fields::read(&out), cleared);
+    }
+
+    #[test]
+    fn ttw_start_is_its_quest_and_no_film() {
+        let fields = Fields::ttw();
+        assert!(fields.is_ttw());
+        assert!(!Fields::original().is_ttw());
+        let out = fields.write("[General]\nsCharGenQuest=00102037\nsIntroMovie=FNVIntro.bik\n");
+        assert_eq!(ini_get(&out, "General", "sCharGenQuest").as_deref(), Some("001FFFF8"));
+        assert_eq!(ini_get(&out, "General", "sIntroMovie").as_deref(), Some(""));
+        assert!(Fields::read(&out).is_ttw());
+        let back = Fields::original().write(&out);
+        assert_eq!(ini_get(&back, "General", "sCharGenQuest").as_deref(), Some("00102037"));
+        assert_eq!(ini_get(&back, "General", "sIntroMovie").as_deref(), Some("FNVIntro.bik"));
     }
 }
