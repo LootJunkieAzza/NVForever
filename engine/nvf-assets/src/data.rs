@@ -88,6 +88,14 @@ impl GameData {
         Ok(GameData::new(Arc::new(vfs), Arc::new(schema)))
     }
 
+    /// The launcher's mods folder: enabled mod folders layered over `Data`, lowest first.
+    /// Mod files are read from those folders only. The base game stays in `data_dir`.
+    pub fn open_launcher_mods<S: AsRef<str>>(data_dir: &Path, mods_dir: &Path, layers: &[PathBuf], plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
+        let vfs = Vfs::open_launcher_mods(data_dir, mods_dir, layers, plugins).map_err(|e| e.to_string())?;
+        let schema = Schema::load_dir(schema_dir).map_err(|e| e.to_string())?;
+        Ok(GameData { vfs: Arc::new(vfs), schema: Arc::new(schema) })
+    }
+
     /// [`GameData::open_for_plugins`] with loose files of the mods folders `roots` layered
     /// over `Data`, lowest precedence first (#1526, Mod Organizer 2's profile).
     pub fn open_for_plugins_layered<S: AsRef<str>>(data_dir: &Path, roots: &[PathBuf], plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
