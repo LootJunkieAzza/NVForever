@@ -86,6 +86,7 @@ use nvf_play::sfx::{PlaySound, Sfx};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::light_shadows::{ShadowSource, SourceKind};
 use crate::player_body::PlayerBody;
 use crate::weapons::{HeldWeapon, Muzzle};
 use crate::world::{WorldData, WorldRoot};
@@ -522,7 +523,13 @@ fn flash(
         if let Some(l) = light.filter(|l| l.radius > 0.0) {
             let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
             let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
-            commands.entity(holder).with_child((PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() }, Transform::IDENTITY));
+            // It casts lamp shadows when the ALC shadows row is on (`crate::light_shadows`);
+            // the flash's own shapes are `NotShadowCaster` (`spawn_effect`).
+            commands.entity(holder).with_child((
+                PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() },
+                Transform::IDENTITY,
+                ShadowSource(SourceKind::MuzzleFlash),
+            ));
             fx.lights += 1;
         }
     }
@@ -839,6 +846,8 @@ fn explosions(
                 FadingLight { full: intensity, age: 0.0 },
                 Transform::from_translation(Vec3::from_array(b.point) + Vec3::Z * 32.0),
                 ChildOf(world_root),
+                // ALC shadows (`crate::light_shadows`); its model's shapes cast none.
+                ShadowSource(SourceKind::Explosion),
             ));
         }
     }

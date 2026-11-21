@@ -3,7 +3,7 @@ import package::render::{
     mesh_view_bindings as view_bindings,
     shadow_sampling::{
         SPOT_SHADOW_TEXEL_SIZE, sample_shadow_cubemap, sample_shadow_cubemap_pcss,
-        sample_shadow_map, sample_shadow_map_pcss,
+        sample_shadow_map, sample_shadow_map_pcss, nvf_spot_shadow_layer,
     }
 };
 
@@ -14,7 +14,40 @@ import bevy_render::{
 
 const flip_z: vec3<f32> = vec3<f32>(1.0, 1.0, -1.0);
 
+// NVForever held light shadow maps (light.rs `HoldLightShadowMaps`): how much of its
+// shadow a point or spot light casts, 0..1. The game fades a light's shadow in and out; it
+// carries 255 - fade * 255 in bits 24..31 of the light's flags, so 0 (every other light)
+// is full strength.
+fn nvf_shadow_fade(light_id: u32) -> f32 {
+    let bits = (view_bindings::clustered_lights.data[light_id].flags >> 24u) & 0xffu;
+    return 1.0 - f32(bits) / 255.0;
+}
+
+// NVForever held light shadow maps: Bevy's point shadow, faded.
 fn fetch_point_shadow(
+    light_id: u32,
+    frag_position: vec4<f32>,
+    surface_normal: vec3<f32>,
+    frag_coord_xy: vec2<f32>,
+) -> f32 {
+    let shadow = nvf_fetch_point_shadow_unfaded(light_id, frag_position, surface_normal, frag_coord_xy);
+    return mix(1.0, shadow, nvf_shadow_fade(light_id));
+}
+
+// NVForever held light shadow maps: Bevy's spot shadow, faded.
+fn fetch_spot_shadow(
+    light_id: u32,
+    frag_position: vec4<f32>,
+    surface_normal: vec3<f32>,
+    near_z: f32,
+    frag_coord_xy: vec2<f32>,
+) -> f32 {
+    let shadow = nvf_fetch_spot_shadow_unfaded(light_id, frag_position, surface_normal, near_z, frag_coord_xy);
+    return mix(1.0, shadow, nvf_shadow_fade(light_id));
+}
+
+// NVForever held light shadow maps: Bevy's `fetch_point_shadow`, renamed.
+fn nvf_fetch_point_shadow_unfaded(
     light_id: u32,
     frag_position: vec4<f32>,
     surface_normal: vec3<f32>,
@@ -66,7 +99,8 @@ fn fetch_point_shadow(
     return sample_shadow_cubemap(frag_ls * flip_z, distance_to_light, depth, light_id, frag_coord_xy);
 }
 
-fn fetch_spot_shadow(
+// NVForever held light shadow maps: Bevy's `fetch_spot_shadow`, renamed.
+fn nvf_fetch_spot_shadow_unfaded(
     light_id: u32,
     frag_position: vec4<f32>,
     surface_normal: vec3<f32>,
@@ -110,7 +144,8 @@ fn fetch_spot_shadow(
     let depth = near_z / -projected_position.z;
 
     // If soft shadows are enabled, use the PCSS path.
-    let array_index = i32(light_id) + view_bindings::lights.spot_light_shadowmap_offset;
+    // NVForever held light shadow maps: the light's layer from its flags, else Bevy's.
+    let array_index = nvf_spot_shadow_layer(light_id);
     if ((*light).soft_shadow_size > 0.0) {
         return sample_shadow_map_pcss(
             shadow_uv,

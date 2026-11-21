@@ -1085,6 +1085,29 @@ fn register_graphics(app: &mut App) {
             ask_keep: false,
         },
     );
+    // Shadows of placed lights (light_shadows.rs; graphics-enhanced.md §3.17): Off,
+    // Performance or Quality as the Sun shadows row, saved by name, off by default [design].
+    add_choice_list(
+        app,
+        Setting {
+            key: "light-shadows",
+            group: GROUP_GRAPHICS,
+            label: "ALC shadows",
+            note: LIGHT_SHADOWS_NOTE,
+            switches: "--light-shadows",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| crate::light_shadows::CHOICES.iter().map(|c| c.to_string()).collect(),
+            chosen: light_shadows_chosen,
+            pick: take_light_shadows,
+            save: light_shadows_chosen,
+            load: take_light_shadows,
+            ask_keep: false,
+        },
+    );
     nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| crate::upscaler::temporal_active(w).then_some("Off (upscaling active)"));
     // Frame generation: Off, FSR 3.1 or DLSS (#2317), each choice dimmed with its reason; the
     // INI's old on/off still reads. Then DLSS's frames per real frame.
@@ -1370,6 +1393,8 @@ fn register_pipeline_waits(app: &mut App) {
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-effects", "water-mirror", "sun-shadows", "grade",
         "terrain-height-blend", "terrain-anti-tiling", "cloud-shadows", "terrain-shadows", "heat-haze", MESH_BLEND_KEY,
+        // ALC shadows' first point and spot light shadow views specialize their passes.
+        "light-shadows",
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
     }
@@ -1576,6 +1601,27 @@ fn take_shadow_resolution(w: &mut World, text: &str) -> bool {
     match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::SHADOW_RESOLUTIONS.len())) {
         Some(i) => {
             graphics::set_shadow_resolution_choice(w, i);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The ALC shadows row's note (light_shadows.rs; ALC: All Lights Cast, the user-visible
+/// name since 2026-11-19, once Lamp shadows; the INI key stays `light-shadows`).
+const LIGHT_SHADOWS_NOTE: &str = "ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the shadow distance, so walls stop their light. Performance redraws less often. Costs frame rate. Not in the original.";
+
+fn light_shadows_chosen(w: &World) -> String {
+    let choice = w.get_resource::<crate::light_shadows::LightShadows>().map_or(0, |l| l.choice);
+    crate::light_shadows::CHOICES[choice.min(crate::light_shadows::CHOICES.len() - 1)].to_string()
+}
+
+/// The ALC shadows choice `text` names.
+fn take_light_shadows(w: &mut World, text: &str) -> bool {
+    let names: Vec<String> = crate::light_shadows::CHOICES.iter().map(|c| c.to_string()).collect();
+    match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, crate::light_shadows::CHOICES.len())) {
+        Some(i) => {
+            w.insert_resource(crate::light_shadows::LightShadows { choice: i });
             true
         }
         None => false,
@@ -2752,6 +2798,7 @@ dlss-model=Preset K
             ("anti-aliasing", &["--msaa", "--graphics-only"]),
             ("shadow-filter", &[]),
             ("shadow-resolution", &[]),
+            ("light-shadows", &["--light-shadows"]),
             (FRAME_GENERATION_KEY, &["--frame-generation"]),
             (FRAMES_KEY, &[]),
             ("latency-reduction", &["--latency-reduction"]),

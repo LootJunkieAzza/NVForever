@@ -311,6 +311,10 @@ fn calculate_contact_shadow(
 
     let depth_size = vec2<f32>(textureDimensions(view_bindings::depth_prepass_texture));
     var rm = raymarch::depth_ray_march_new_from_depth(depth_size);
+    // NVForever (main pass viewport): drawn below its output size (FSR, DLSS), the view fills
+    // only `main_pass_viewport` of the depth texture (`DepthRayMarch::depth_uv_scale`).
+    rm.depth_uv_scale = view_bindings::view.main_pass_viewport.zw / depth_size;
+    rm.depth_uv_offset = view_bindings::view.main_pass_viewport.xy / depth_size;
     raymarch::depth_ray_march_from_cs(&rm, position_world_to_ndc(world_position));
     raymarch::depth_ray_march_to_ws(&rm, world_position + light_dir * view_bindings::contact_shadows_settings.length);
     rm.linear_steps = contact_shadow_steps;

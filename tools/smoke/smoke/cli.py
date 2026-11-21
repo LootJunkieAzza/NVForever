@@ -1,7 +1,9 @@
 """python tools/smoke <command> — the smoke tests of CLAUDE.md as data.
 
   run    [selection] [--checks] [--no-merge] [--exe X] [--data D] [--fnvtool T]
-  plan   [selection]            what would run, launch by launch (nothing is started)
+         [--size WxH] [--extra-args ARGS]
+  plan   [selection] [--size WxH] [--extra-args ARGS]
+                                what would run, launch by launch (nothing is started)
   check  [selection]            judge the logs of the last run again (no launch)
   list                          every scenario with its areas
   verify [REV]                  the scenario file after a merge: rules a healthy file keeps
@@ -25,6 +27,12 @@ the ones that write what it reads (`with_home_writers`); the
 longest start first, so a long launch does not start last and hold up the end of the
 run (the report stays in plan order). --fail-fast starts no launch after the first FAIL.
 --exclusive takes both game locks per launch, one game on the machine at a time.
+`run`/`plan --size WxH` (e.g. 3840x2160) starts every nvforever launch with that window
+size: it replaces a scenario's `--size X` / `--size=X`, or is added. `--extra-args ARGS`
+(split like a shell, repeatable; `--extra-args=--no-music` for one flag alone) adds
+arguments to every nvforever launch, e.g. "--graphics enhanced"; fnvtool runs get neither.
+Both go on the summary line and into every game scenario's summary.json row
+(`size`, `extra_args`); <launch>.cmd.txt has the full command line.
 """
 from __future__ import annotations
 
@@ -40,7 +48,7 @@ from pathlib import Path
 
 from . import choose, front, integrity, slots
 from .expect import ScenarioError
-from .plan import Launch, plan
+from .plan import Launch, plan, split_args, window_size
 from .runner import (Env, Locks, Verdict, default_lock_paths, exe_is_stale, judge, missing_requirements,
                      read_lines, report, run_launch, unmet_platforms)
 from .scenarios import GAME, Suite, load
@@ -76,6 +84,14 @@ def parser() -> argparse.ArgumentParser:
         q.add_argument("--no-merge", action="store_true", help="one launch per scenario")
         q.add_argument("--games-only", action="store_true", help="leave out fnvtool scenarios")
         q.add_argument("--tools-only", action="store_true", help="only fnvtool scenarios")
+        if name in ("run", "plan"):
+            q.add_argument("--size", type=size_arg, default=None, metavar="WxH",
+                           help="every nvforever launch's window size (e.g. 3840x2160): replaces a "
+                                "scenario's --size, or is added")
+            q.add_argument("--extra-args", action="append", default=[], metavar="ARGS",
+                           help='more nvforever arguments for every game launch, split like a shell '
+                                '(--extra-args "--graphics enhanced"; one flag alone: --extra-args=--no-music); '
+                                "repeatable; not for fnvtool runs")
         if name == "run":
             q.add_argument("--checks", action="store_true", help="also run the push checks the change calls for")
             q.add_argument("--exe", type=Path, default=None,
@@ -99,6 +115,36 @@ def parser() -> argparse.ArgumentParser:
             q.add_argument("--fail-fast", action="store_true",
                            help="start no launch after the first FAIL (the rest are reported as SKIP)")
     return p
+
+
+def size_arg(text: str) -> str:
+    try:
+        return window_size(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+
+def window_options(a) -> dict:
+    """The run's `--size` and `--extra-args` (split), as summary.json records them; {} without."""
+    size = getattr(a, "size", None)
+    extra = [x for s in (getattr(a, "extra_args", None) or []) for x in split_args(s)]
+    opts = {}
+    if size:
+        opts["size"] = size
+    if extra:
+        opts["extra_args"] = extra
+    return opts
+
+
+def window_line(opts: dict) -> str | None:
+    if not opts:
+        return None
+    parts = (["--size", opts["size"]] if "size" in opts else []) + opts.get("extra_args", [])
+    return "every game launch with: " + subprocess.list2cmdline(parts)
+
+
+def planned(suite: Suite, chosen: list, a, opts: dict) -> list[Launch]:
+    return plan(suite, chosen, a.no_merge, opts.get("size"), opts.get("extra_args", []))
 
 
 def out_dir(a) -> Path:
@@ -223,7 +269,10 @@ def cmd_list(a, suite: Suite, say) -> int:
 def cmd_plan(a, suite: Suite, say) -> int:
     chosen, files = selection(a, suite, say)
     print_checks(suite, files, say)
-    launches = plan(suite, chosen, a.no_merge)
+    opts = window_options(a)
+    launches = planned(suite, chosen, a, opts)
+    if window_line(opts):
+        say(window_line(opts))
     total = 0.0
     for x in launches:
         if x.kind == GAME:
@@ -291,7 +340,8 @@ def cmd_run(a, suite: Suite, say) -> int:
     chosen, files = selection(a, suite, say)
     checks = print_checks(suite, files, say)
     env = resolve(a, suite, say)
-    launches = plan(suite, chosen, a.no_merge)
+    opts = window_options(a)
+    launches = planned(suite, chosen, a, opts)
     games = [x for x in launches if x.kind == GAME]
     if games:
         if not env.data:
@@ -306,6 +356,8 @@ def cmd_run(a, suite: Suite, say) -> int:
     say(f"{len(chosen)} scenarios in {len(games)} game launches and {len(launches) - len(games)} tool runs; logs in {env.out}")
     if games:
         say(f"nvforever: {env.exe}")
+        if window_line(opts):
+            say(window_line(opts))
     # `front = true` launches need the screen to themselves: run after the others, one at a
     # time under both game locks (smoke/front.py).
     rest, fronts = front.split(launches, chains(launches))
@@ -333,7 +385,8 @@ def cmd_run(a, suite: Suite, say) -> int:
             line = front.last_line(env.out / f"{x.name}.front.txt")
             say(f"  {x.name}: {line or 'front: no record (not on Windows, or the launch did not start)'}")
     checks_ok = run_checks(checks, env, say) if (a.checks and checks) else True
-    return finish(verdicts, env, time.monotonic() - started, checks_ok, say)
+    in_games = {s.name for x in games for s in x.scenarios}
+    return finish(verdicts, env, time.monotonic() - started, checks_ok, say, opts if games else {}, in_games)
 
 
 def game_gate(a, say, groups: int | None = None):
@@ -465,13 +518,22 @@ def cmd_check(a, suite: Suite, say) -> int:
     return finish(verdicts, env, None, True, say)
 
 
-def finish(verdicts: list[Verdict], env: Env, secs, checks_ok: bool, say) -> int:
+def finish(verdicts: list[Verdict], env: Env, secs, checks_ok: bool, say,
+           opts: dict | None = None, in_games: set[str] = frozenset()) -> int:
+    """The summary line and summary.json (one row per scenario; a game scenario's row
+    also holds the run's `size` and `extra_args` when it had them, `window_options`)."""
+    opts = opts or {}
     n = {k: sum(1 for v in verdicts if v.status == k) for k in ("PASS", "FAIL", "KNOWN", "SKIP")}
     t = f" in {secs / 60:.1f} min" if secs is not None else ""
-    say(f"smoke: {n['PASS']} passed, {n['FAIL']} failed, {n['KNOWN']} known failing, {n['SKIP']} skipped{t}")
+    w = ""
+    if opts:
+        w = (f" at {opts['size']}" if "size" in opts else "") + (
+            f" with {subprocess.list2cmdline(opts['extra_args'])}" if "extra_args" in opts else "")
+    say(f"smoke: {n['PASS']} passed, {n['FAIL']} failed, {n['KNOWN']} known failing, {n['SKIP']} skipped{t}{w}")
     (env.out / "summary.json").write_text(json.dumps(
         [{"scenario": v.scenario, "status": v.status,
-          "failures": [{"what": o.what, "label": o.label, "detail": o.detail, "known": o.known} for o in v.failures]}
+          "failures": [{"what": o.what, "label": o.label, "detail": o.detail, "known": o.known} for o in v.failures],
+          **(opts if v.scenario in in_games else {})}
          for v in verdicts], indent=1))
     return 1 if n["FAIL"] or not checks_ok else 0
 
