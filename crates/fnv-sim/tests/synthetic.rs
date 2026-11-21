@@ -2723,3 +2723,35 @@ fn load_door_lock_key_empty_pairs_and_non_doors() {
     let w = World::new(&f.forms, &f.refs, SimConfig::default());
     assert_eq!(w.lock_of(a), None, "missing partners are not locks");
 }
+
+/// A created actor keeps where it was made across a save (`RefState::made_at`, its
+/// editor location, #2278), through the save's JSON; a created actor of a save written
+/// before that field existed takes the place it was saved at, and a dropped item, which
+/// has no creation place by design, still has none (#3042).
+#[test]
+fn a_created_actor_keeps_where_it_was_made_across_a_save() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let made_here = [100.0, 200.0, 0.0];
+    let walked_to = [900.0, -300.0, 10.0];
+    let g = w.place(id(GUARD), Some(id(CELL_A)), made_here, [0.0; 3], 1).unwrap();
+    w.get(g).unwrap().pos = walked_to;
+    w.add_item(FormId::PLAYER_REF, id(STIMPAK), 1).unwrap();
+    let item = w.drop_item(FormId::PLAYER_REF, id(STIMPAK), 1).unwrap()[0];
+    assert_eq!(w.peek(item).unwrap().made_at, None);
+    let json = serde_json::to_value(w.snapshot()).unwrap();
+    let back = World::restore(&f.forms, &f.refs, &serde_json::from_value(json.clone()).unwrap()).unwrap();
+    assert_eq!(back.peek(g).unwrap().made_at, Some((Some(id(CELL_A)), made_here)));
+    assert_eq!(back.peek(g).unwrap().pos, walked_to);
+    assert_eq!(back.peek(item).unwrap().made_at, None, "a dropped item has no creation place");
+    // A save from before the field: the actor's entry has no `made_at`.
+    let mut old = json;
+    let entry = old["refs"].as_object_mut().unwrap().get_mut(&format!("{g}")).expect("the actor's entry by its FormID");
+    assert!(entry.as_object_mut().unwrap().remove("made_at").is_some());
+    let back = World::restore(&f.forms, &f.refs, &serde_json::from_value(old).unwrap()).unwrap();
+    assert_eq!(back.peek(g).unwrap().made_at, Some((Some(id(CELL_A)), walked_to)), "the place it was saved at");
+    assert_eq!(back.peek(item).unwrap().made_at, None);
+    // And the next save keeps it.
+    let again = World::restore(&f.forms, &f.refs, &back.snapshot()).unwrap();
+    assert_eq!(again.peek(g).unwrap().made_at, Some((Some(id(CELL_A)), walked_to)));
+}

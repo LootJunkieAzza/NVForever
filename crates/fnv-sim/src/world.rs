@@ -217,7 +217,9 @@ pub struct RefState {
     pub dropped_by: Option<FormId>,
     /// A reference created at run time ([`World::place`]): the cell and position it was
     /// created at, its editor location for packages and `GetStartingPos`-like questions
-    /// that a placed reference answers from the plugins (#2278) [hypothesis].
+    /// that a placed reference answers from the plugins (#2278) [hypothesis]. Saved with
+    /// the reference; a created actor of an older save without it takes its saved place
+    /// on a load (`World::made_at_from_saved_place`, #3042).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub made_at: Option<(Option<FormId>, [f32; 3])>,
     /// A shot's temporary reference for scripts (`fnv_game::nvse_proj`): the engine draws
@@ -2458,6 +2460,27 @@ impl<'a> World<'a> {
         w.power_armor_training = s.power_armor_training;
         w.carry_bonus = s.carry_bonus.clone();
         w.weight_rules = s.weight_rules.clone();
+        w.made_at_from_saved_place();
         Ok(w)
+    }
+
+    /// A created actor of a save written before [`RefState::made_at`] existed (#2278
+    /// came with 0.8.0) has no creation place, and kept none in every save after: its
+    /// packages near the editor location failed after each load (#3042). It takes the
+    /// place it was saved at, the nearest fact the save holds [decision]. That is only an
+    /// approximation of where it was made: combat, following someone or a scripted MoveTo
+    /// may have moved it before the save, and then it is anchored where it stood.
+    /// Only actors (NPC_, CREA and the leveled actor lists placed as themselves), because
+    /// a dropped item has no creation place by design ([`World::drop_item`]); every actor
+    /// [`World::place`] makes has one, so `None` on a present created actor marks the
+    /// older save, and the snapshot format stays `fnv.sim.state/1` (save-load.md §4).
+    fn made_at_from_saved_place(&mut self) {
+        let forms = self.forms;
+        let actor = |base: FormId| matches!(forms.sig(base).as_ref(), Some(b"NPC_" | b"CREA" | b"LVLN" | b"LVLC"));
+        for (_, s) in self.refs.range_mut(FormId::FIRST_DYNAMIC..) {
+            if s.made_at.is_none() && !s.deleted && actor(s.base) {
+                s.made_at = Some((s.cell, s.pos));
+            }
+        }
     }
 }
