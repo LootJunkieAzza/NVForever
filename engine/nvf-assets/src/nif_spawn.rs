@@ -233,6 +233,21 @@ impl Props {
     pub(crate) fn is_bare(&self) -> bool {
         !self.has_properties
     }
+
+    /// Drawn without lighting (a BSShaderNoLightingProperty): effects, glows.
+    pub(crate) fn unlit_part(&self) -> bool {
+        self.unlit
+    }
+
+    /// The glow map, when the shape has one.
+    pub(crate) fn glow_part(&self) -> Option<&str> {
+        self.glow.as_deref()
+    }
+
+    /// The shape takes its vertex alpha ([`uses_vertex_alpha`]).
+    pub(crate) fn vertex_alpha_part(&self) -> bool {
+        self.vertex_alpha
+    }
 }
 
 /// Some block of the model derives from BSShaderProperty, so its shapes without any
@@ -588,10 +603,15 @@ pub fn gloss_roughness(gloss: f32) -> f32 {
 /// alphas on 709 of 1,173 vertices)].
 pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
     let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) else { return };
-    let clean = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 1.0 };
     for c in colors.iter_mut() {
-        *c = [clean(c[0]), clean(c[1]), clean(c[2]), if vertex_alpha { clean(c[3]) } else { 1.0 }];
+        *c = clean_vertex_color(*c, vertex_alpha);
     }
+}
+
+/// One vertex colour cleaned as [`fix_vertex_colors`] cleans them.
+pub(crate) fn clean_vertex_color(c: [f32; 4], vertex_alpha: bool) -> [f32; 4] {
+    let clean = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 1.0 };
+    [clean(c[0]), clean(c[1]), clean(c[2]), if vertex_alpha { clean(c[3]) } else { 1.0 }]
 }
 
 /// The vertex colours of an unlit shape (BSShaderNoLightingProperty) taken as display

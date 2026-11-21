@@ -53,6 +53,8 @@
 //! - **Desert haze** (`desert-haze`, off in every preset): a thin dust haze added to the
 //!   weather's own distance fog, thicker with distance and toward the ground, warmer toward
 //!   the sun, as far as the weather's fog leaves room for it (haze.rs, #2675).
+//! - **Distant lights** (`distant-lights`, off in both presets): at night, placed lights in
+//!   the cells beyond the loaded ones show as small glows (distant_lights.rs, #3013).
 //!
 //! Another switch is off in both looks and not part of `enhanced`: **Blend meshes into
 //! ground** (`mesh-terrain-blend`, `mesh_terrain_blend.rs`), outdoor roads, rocks and
@@ -218,6 +220,9 @@ pub struct Graphics {
     /// `authored::set_enabled`, main.rs); this field is the settings row's value for the
     /// next start.
     pub authored_materials: bool,
+    /// Glows of placed lights beyond the loaded cells at night (distant_lights.rs; off in
+    /// both presets) [design, #3013].
+    pub distant_lights: bool,
 }
 
 /// The settings key of the Authored materials row (#2981).
@@ -225,7 +230,7 @@ pub const AUTHORED_MATERIALS_KEY: &str = "authored-materials";
 
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
 /// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 20] = [
+pub const KEYS: [&str; 21] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -246,6 +251,7 @@ pub const KEYS: [&str; 20] = [
     "terrain-shadows",
     "heat-haze",
     "desert-haze",
+    "distant-lights",
 ];
 
 impl Graphics {
@@ -305,6 +311,8 @@ impl Graphics {
             desert_haze: false,
             // On in both looks [design, #2981]: without a pack nothing changes.
             authored_materials: true,
+            // Off in both looks: an addition of our own [design, #3013].
+            distant_lights: false,
         }
     }
 
@@ -331,6 +339,7 @@ impl Graphics {
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
             AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
+            "distant-lights" => &mut self.distant_lights,
             _ => return None,
         })
     }
@@ -388,6 +397,7 @@ impl Graphics {
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
             (!self.authored_materials, "no authored materials"),
+            (self.distant_lights, "distant lights"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {

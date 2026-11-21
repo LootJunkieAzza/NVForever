@@ -1300,6 +1300,22 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   the slider's end
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `distant-lights`: Distant lights (experimental)
+
+- On the page: On: at night, lamps in the places beyond the loaded area show as small
+  glows, so towns can be seen from afar. They light nothing. Not in the original.
+- In full: On: the placed lights of the cells up to 12 cells away that are not loaded, and
+  the objects there that glow by themselves (lamps, glow cards, light beams, lit sign
+  panels, neon), are drawn as small soft glows in their own colour, at most 400 of them,
+  the nearest and brightest first, lights standing close together as one. They fade out
+  toward the edge of that reach and into the weather's fog, give way to the real lights as their cells load,
+  and fade away as the sun rises. A lamp that is switched off, or disabled by the game,
+  shows none. Sprites only: nothing is lit and no shadow is cast. Off in both presets; not
+  in the original. Outdoors only.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.22
+- Registered in `engine/nvforever/src/settings.rs`
+
 ## Graphics › World and Animation
 
 ### `head-tracking`: Head tracking

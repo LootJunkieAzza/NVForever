@@ -2205,6 +2205,65 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the HDR view's parts come and go" }]
 
 [[scenario]]
+name = "distant-lights"
+source = "[design, #3013] docs/design/graphics-enhanced.md §3.22 Distant lights at night (engine/nvforever/src/distant_lights.rs, distant_lights.wesl): started with --graphics-only distant-lights at Goodsprings 22:00, the distant lights come on once, list the cells in reach with their light references and glow statics, draw glows, and the glows' pipeline compiles and is ready (pipeline_gate.rs `distant lights pipeline <n> ready`, with NVF_PLAY_TEST_PIPELINE_LOG); the exit summary counts cells, lights, glow statics and glows drawn, without a rendering, validation or pipeline error. Whether towns glow where they should is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/distant_lights.rs", "engine/nvforever/src/distant_lights.wesl", "engine/nvf-assets/src/model_glow.rs", "engine/nvforever/src/pipeline_gate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "22", "--graphics-only", "distant-lights"]
+run_seconds = 30
+order = [[
+  { text = "distant lights: on (reach 12 cells, cap 400)", label = "the distant lights come on from the start" },
+  { re = 'distant lights summary: (?P<n>\d+) cells listed', range = [1, 2000], label = "the exit summary: cells in the 12 cells' reach listed" },
+]]
+expect = [
+  { re = 'graphics: .*distant lights', label = "the graphics line names the distant lights" },
+  { text = "distant lights: on (reach 12 cells, cap 400)", count = 1, label = "the distant lights on once" },
+  { re = 'distant lights summary: \d+ cells listed \(\d+ references\), (?P<n>\d+) lights', range = [1, 100000], label = "light references beyond the loaded area become glows" },
+  { re = 'distant lights summary: .*?, (?P<n>\d+) glow statics, ', range = [1, 100000], label = "statics whose model glows (glow cards, lamps, beams) are found around Goodsprings" },
+  { re = 'distant lights summary: .*?, (?P<n>\d+) drawn at most', range = [1, 400], label = "glows were drawn, within the cap" },
+  { re = 'distant lights pipeline \d+ ready', label = "the glows' pipeline (distant_lights.wesl) compiled and is ready" },
+]
+forbid = [
+  { text = "distant lights: off", label = "the distant lights went off while the switch stayed on" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the distant lights' glows" },
+  { text = "Shader validation error", label = "a glow shader that does not validate" },
+  { text = "Validation Error", label = "a graphics API validation error with the distant lights on from the start" },
+  { text = "failed and will not be tried again", label = "the glows' pipeline failed for good" },
+  { text = "panicked", label = "a panic with the distant lights on from the start" },
+]
+
+[[scenario]]
+name = "distant-lights-switch"
+source = "[design, #3013] docs/design/graphics-enhanced.md §3.22 Distant lights at night, Switching (engine/nvforever/src/distant_lights.rs): the settings page's Distant lights row switched on while the game runs at Goodsprings 22:00 turns the glows on and their pipeline compiles; switched off again later it drops them, without a rendering, validation or pipeline error; the exit summary is logged as it was on"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/distant_lights.rs", "engine/nvforever/src/distant_lights.wesl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PAUSE = "10:12,22:24", NVF_PLAY_TEST_SETTINGS = "11:distant-lights,23:distant-lights" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "22"]
+run_seconds = 28
+order = [[
+  "settings: distant-lights on",
+  { text = "distant lights: on (reach 12 cells, cap 400)", label = "the row turns the distant lights on in play" },
+  "settings: distant-lights off",
+  { text = "distant lights: off", label = "and off again: the glows are dropped" },
+  { re = 'distant lights summary: (?P<n>\d+) cells listed', range = [1, 2000], label = "the exit summary: cells listed while they were on" },
+]]
+expect = [
+  { re = 'graphics: .*distant lights', label = "the graphics line names the distant lights while on" },
+  { re = 'distant lights summary: .*?, (?P<n>\d+) glow statics, ', range = [1, 100000], label = "statics whose model glows were found while the row was on" },
+  { re = 'distant lights summary: .*?, (?P<n>\d+) drawn at most', range = [1, 400], label = "glows were drawn while the row was on" },
+  { re = 'distant lights pipeline \d+ ready', label = "the glows' pipeline compiled and is ready after the row turned them on" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the distant lights come and go" },
+  { text = "Shader validation error", label = "a glow shader that does not validate while the distant lights come and go" },
+  { text = "Validation Error", label = "a graphics API validation error while the distant lights come and go" },
+  { text = "failed and will not be tried again", label = "the glows' pipeline failed for good while switching" },
+  { text = "panicked", label = "a panic while the distant lights come and go" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
 name = "terrain-height-blend"
 source = "[design, #2550] engine/nvforever/src/terrain.rs \"Height blending\", terrain.wesl and terrain_weights.wesl: the Terrain height blending switch (off by default and in both presets) switched on while the game runs flips the loaded folded materials and their TERRAIN_HEIGHT_BLEND pipeline compiles and is ready; off and on again flips them back, without a rendering or pipeline error. Pictures of the on/off look are taken by hand"
 areas = ["renderer", "graphics", "terrain", "settings"]

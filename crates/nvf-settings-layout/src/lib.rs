@@ -208,7 +208,7 @@ pub const SECTIONS: &[Section] = &[
     section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-resolution", "shadow-distance", "fine-shadows", "cloud-shadows", "terrain-shadows"]),
     section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "light-shafts", "heat-haze", "desert-haze", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
     section("Graphics", Some("Water"), &["water-reflections", "water-mirror", "water-effects"]),
-    section("Graphics", Some("Detail and Distance"), &["distant-lod", "grass", "anisotropic", "authored-materials", "terrain-height-blend", "terrain-anti-tiling", "mesh-terrain-blend", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance", "tree-distance"]),
+    section("Graphics", Some("Detail and Distance"), &["distant-lod", "grass", "anisotropic", "authored-materials", "terrain-height-blend", "terrain-anti-tiling", "mesh-terrain-blend", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance", "tree-distance", "distant-lights"]),
     section("Graphics", Some("World and Animation"), &["head-tracking", "foot-ik", "sky-clock"]),
     // The owner's own layout of the movement work (tech/movement-inertia, 2026-11-15).
     section(NVF_FEATURES_TAB, Some("Advanced Movement"), &["advanced-movement", "movement-weight"]),
