@@ -915,6 +915,10 @@ pub struct PlayerState {
     /// a script clears them [design].
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub enemy_of_script: BTreeSet<FormId>,
+    /// Factions the player has been expelled from (SetPCExpelled / GetPCExpelled)
+    /// [documented: GECK wiki SetPCExpelled, GetPCExpelled].
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub expelled_from: BTreeSet<FormId>,
     /// SetInCharGen.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub in_chargen: bool,

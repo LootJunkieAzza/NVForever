@@ -492,6 +492,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x103C, "GetFactionRankDifference", Impl(actor::get_faction_rank_difference)),
             (0x10C6, "SetPCEnemyOfFaction", Impl(actor::set_pc_enemy_of_faction)),
             (0x10C5, "GetPCEnemyOfFaction", Impl(actor::get_pc_enemy_of_faction)),
+            (0x10C1, "GetPCExpelled", Impl(actor::get_pc_expelled)),
             (0x11C9, "ClearFactionPlayerEnemyFlag", Impl(actor::clear_faction_player_enemy_flag)),
             (0x11CC, "GetActorFactionPlayerEnemy", Impl(actor::get_actor_faction_player_enemy)),
             (0x10AB, "IgnoreCrime", Impl(actor::ignore_crime)),

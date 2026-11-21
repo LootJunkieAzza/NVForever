@@ -1025,7 +1025,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (33, 89), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (33, 87), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));
