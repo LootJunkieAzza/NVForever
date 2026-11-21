@@ -92,6 +92,9 @@ pub enum Shared {
     /// Kill credit for player `to` (shared-progression plan §4.2).
     KillCredit { to: u8, target: u32, target_base: u32, npc: bool, xp: u32, karma: i32, killer: bool, infamy: Vec<(u32, i32)> },
     HitCredit { to: u8, target: u32, weapon: u32, part: u32, dealt: u32, critical: bool, crippled: bool },
+    /// `what` for player `to` alone: the host's catch-up for a player that came back
+    /// ([`Returns`]; nvf-coop `net::Progress::For`).
+    For { to: u8, what: Box<Shared> },
 }
 
 /// The mailbox between this module and nvforever's `coop`.
@@ -121,6 +124,122 @@ pub struct CoopProgress {
     pub joint_peers: std::collections::BTreeMap<u8, (u64, bool)>,
     /// The host: each other player's actor in this world, by id (nvforever `coop`).
     pub peer_actors: std::collections::BTreeMap<u8, FormId>,
+    /// The other players in the session now, connected or not, and those heard from
+    /// now (not lost), by id (nvforever `coop`).
+    pub present: std::collections::BTreeSet<u8>,
+    pub connected: std::collections::BTreeSet<u8>,
+    /// The other players' names, by id (nvforever `coop`).
+    pub peer_names: std::collections::BTreeMap<u8, String>,
+    /// The host: the players that dropped, and what they would have got ([`Returns`]).
+    pub returns: Returns,
+    /// A guest: the quests it was told the host went on without it in.
+    pub unshared_told: std::collections::BTreeSet<u32>,
+}
+
+/// The host's catch-up for players that drop and come back (owner, 2026-11-20: "when
+/// someone reconnects they will get whatever they would've gotten had they been there").
+///
+/// - A player (its character's stable ID, [`Shared::JointChoice`]) that no connected id
+///   answers for any more, lost or gone, is **away** from that moment.
+/// - Everything the host sends its players while one is away (stage offers, quest
+///   rewards, hand-outs, quests ended) is kept for it, at most [`Returns::KEEP_MAX`], for
+///   as long as the host's game runs.
+/// - When it is back (its connection heard again, or a new join with the same
+///   character), it gets all of it, in order, for it alone ([`Shared::For`]): a stage
+///   offer only when it shares quest progress this time. Its own game's checks decide
+///   each one as they would have then, so the quest stays shared.
+/// - For [`Returns::WARN_FOR`] after a player dropped, the host is told when it moves a
+///   quest on or turns one in: a warning, never a block (owner: "it should warn the host,
+///   not prevent").
+#[derive(Debug, Default)]
+pub struct Returns {
+    away: std::collections::BTreeMap<u64, Away>,
+}
+
+#[derive(Debug)]
+struct Away {
+    name: String,
+    since: std::time::Instant,
+    backlog: Vec<Shared>,
+    warned: std::collections::BTreeSet<u32>,
+}
+
+/// A player back: its id, name and what it gets.
+#[derive(Debug, PartialEq)]
+pub struct Back {
+    pub id: u8,
+    pub name: String,
+    pub items: Vec<Shared>,
+}
+
+impl Returns {
+    /// How long after a drop the host is warned about moving quests on.
+    pub const WARN_FOR: std::time::Duration = std::time::Duration::from_secs(60);
+    /// At most this much is kept for one player.
+    pub const KEEP_MAX: usize = 2000;
+
+    /// Who went away and who came back: `joint` is each player's character and choice by
+    /// id, `connected` the ids heard from now. Returns the names of the newly away, and
+    /// the players back with their catch-up.
+    pub fn track(&mut self, joint: &std::collections::BTreeMap<u8, (u64, bool)>, connected: &std::collections::BTreeSet<u8>, names: &std::collections::BTreeMap<u8, String>, now: std::time::Instant) -> (Vec<String>, Vec<Back>) {
+        let here = |ch: u64| joint.iter().find(|(id, (c, _))| *c == ch && connected.contains(id)).map(|(id, (_, on))| (*id, *on));
+        let mut gone = Vec::new();
+        for (id, &(ch, _)) in joint {
+            if here(ch).is_none() && !self.away.contains_key(&ch) {
+                let name = names.get(id).cloned().unwrap_or_else(|| format!("Player {}", id + 1));
+                gone.push(name.clone());
+                self.away.insert(ch, Away { name, since: now, backlog: Vec::new(), warned: Default::default() });
+            }
+        }
+        let mut back = Vec::new();
+        let chars: Vec<u64> = self.away.keys().copied().collect();
+        for ch in chars {
+            let Some((id, on)) = here(ch) else { continue };
+            let Some(a) = self.away.remove(&ch) else { continue };
+            let items = a
+                .backlog
+                .into_iter()
+                .filter_map(|w| match w {
+                    Shared::Stage { quest, stage, line, line_end, prior, .. } if on && id < 8 => Some(Shared::Stage { quest, stage, line, line_end, prior, to: 1 << id }),
+                    Shared::Stage { .. } => None,
+                    w => Some(w),
+                })
+                .map(|w| Shared::For { to: id, what: Box::new(w) })
+                .collect();
+            back.push(Back { id, name: names.get(&id).cloned().unwrap_or(a.name), items });
+        }
+        (gone, back)
+    }
+
+    /// Keeps `what`, just sent to the players here, for each player away; returns the
+    /// host's warnings: one per quest and player while that player dropped less than
+    /// [`Returns::WARN_FOR`] ago. `quest_name` names a quest the Pip-Boy lists.
+    pub fn record(&mut self, what: &Shared, quest_name: impl Fn(u32) -> Option<String>, now: std::time::Instant) -> Vec<String> {
+        let quest = match what {
+            Shared::Stage { quest, .. } | Shared::QuestEnded { quest, .. } => Some(*quest),
+            Shared::Reward { quest, .. } | Shared::Gift { quest, .. } => Some(*quest).filter(|q| *q != 0),
+            _ => return Vec::new(),
+        };
+        let mut warn = Vec::new();
+        for a in self.away.values_mut() {
+            if a.backlog.len() < Self::KEEP_MAX {
+                a.backlog.push(what.clone());
+            }
+            let Some(q) = quest else { continue };
+            let since = now.saturating_duration_since(a.since);
+            if since < Self::WARN_FOR && a.warned.insert(q) {
+                if let Some(n) = quest_name(q) {
+                    warn.push(format!("{} dropped {} s ago: they get {n} when they are back", a.name, since.as_secs().max(1)));
+                }
+            }
+        }
+        warn
+    }
+
+    /// Players away now.
+    pub fn away(&self) -> usize {
+        self.away.len()
+    }
 }
 
 /// A guest's hand-outs taken and not yet told: their lines ([`gift_lines`]) wait until
@@ -347,7 +466,29 @@ fn take_inbox(
     let p = &mut *p;
     let mut script = script;
     let now = std::time::Instant::now();
-    for (id, what) in std::mem::take(&mut p.inbox) {
+    if p.role != Role::Guest {
+        p.unshared_told.clear();
+    }
+    // The host's catch-up for this player ([`Returns`]): taken as if heard now, in order.
+    let mut caught_up = 0;
+    let (role, me) = (p.role, p.my_id);
+    let inbox: Vec<(u8, Shared)> = std::mem::take(&mut p.inbox)
+        .into_iter()
+        .filter_map(|(id, w)| match w {
+            Shared::For { to, what } if id == 0 && role == Role::Guest && me == Some(to) => {
+                caught_up += 1;
+                Some((0, *what))
+            }
+            Shared::For { .. } => None,
+            w => Some((id, w)),
+        })
+        .collect();
+    if caught_up > 0 {
+        let host = mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str());
+        say(&mut corner, format!("Back with {host}: caught up on what you missed"));
+        info!("co-op: {caught_up} catch-up messages from the host");
+    }
+    for (id, what) in inbox {
         match what {
             Shared::Reward { quest, xp, caps } if p.role == Role::Guest && id == 0 => {
                 let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
@@ -455,6 +596,7 @@ fn take_inbox(
             // Joint progression (`fnv_game::coop_joint`; plan §3).
             Shared::JointChoice { character, on } if p.role == Role::Host && id != 0 => {
                 info!("co-op: player {} shares quest progress: {} (character {character:016x})", id + 1, if on { "yes" } else { "no" });
+                p.joint_peers.retain(|other, (c, _)| *other == id || *c != character);
                 p.joint_peers.insert(id, (character, on));
             }
             Shared::StageResult { quest, stage, taken } if p.role == Role::Host => {
@@ -482,7 +624,17 @@ fn take_inbox(
                             say(&mut corner, format!("Shared quest progress: {n}"));
                         }
                     }
-                    Err(why) => info!("co-op: the host set {} stage {stage}: not claimed ({why})", rt.game.data.name(q)),
+                    Err(why) => {
+                        info!("co-op: the host set {} stage {stage}: not claimed ({why})", rt.game.data.name(q));
+                        // The host went on without this player (owner, 2026-11-20): told
+                        // once per quest; rewards still come, the quest is not shared.
+                        if let (fnv_game::coop_joint::TurnedDown::Missed(_), Some(n)) = (why, name) {
+                            if p.unshared_told.insert(quest) {
+                                let host = mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str());
+                                say(&mut corner, format!("{host} went on without you: {n} is no longer shared. You still get XP and caps"));
+                            }
+                        }
+                    }
                 }
                 p.outbox.push(Shared::StageResult { quest, stage, taken: taken.is_ok() });
             }
@@ -576,7 +728,7 @@ fn joint_question(mut p: ResMut<CoopProgress>, social: Option<ResMut<crate::coop
 }
 
 /// The host: rewards of the quests it completed, for the guests.
-fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
+fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>) {
     let Some(mut st) = script else { return };
     let Some(rt) = st.rt.as_mut() else { return };
     let host = p.role == Role::Host;
@@ -591,6 +743,7 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
     }
     if p.role != Role::Host {
         p.joint_peers.clear();
+        p.returns = Returns::default();
     }
     rt.game.coop_joint_on = p.role == Role::Guest && p.joint_on == Some(true);
     if p.role == Role::Guest && !p.joint_sent && p.my_id.is_some() {
@@ -603,9 +756,30 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
     if !host {
         return;
     }
+    // Players that dropped and came back ([`Returns`]).
+    let now = std::time::Instant::now();
+    {
+        let p = &mut *p;
+        let (gone, back) = p.returns.track(&p.joint_peers, &p.connected, &p.peer_names, now);
+        for n in gone {
+            say(&mut corner, format!("{n} dropped: what they miss reaches them when they are back"));
+        }
+        for b in back {
+            info!("co-op: {} is back: {} catch-up messages", b.name, b.items.len());
+            if !b.items.is_empty() {
+                say(&mut corner, format!("{} is back: caught up on what they missed", b.name));
+            }
+            p.outbox.extend(b.items);
+        }
+        // Players that left: their entries go (their character waits in `returns`).
+        let present = p.present.clone();
+        p.joint_peers.retain(|id, _| present.contains(id));
+    }
+    let before = p.outbox.len();
     rt.game.coop_joint_guests = p
         .joint_peers
         .iter()
+        .filter(|(id, _)| p.connected.contains(id))
         .filter_map(|(id, &(character, on))| p.peer_actors.get(id).map(|a| (*a, fnv_game::coop_joint::JointGuest { character, on })))
         .collect();
     for o in rt.game.take_joint_offers() {
@@ -646,6 +820,16 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
             info!("co-op: {} completed: {} XP and {} caps to the guests", rt.game.data.name(r.quest), r.xp, r.caps);
         }
         p.outbox.push(Shared::Reward { quest: r.quest.0, xp: r.xp.max(0.0) as u32, caps: r.caps.max(0) as u32 });
+    }
+    // Kept for the players away, and the host warned while one dropped just now.
+    if p.returns.away() > 0 {
+        let sent: Vec<Shared> = p.outbox[before..].to_vec();
+        let name = |q: u32| rt.game.data.quests.get(&FormId(q)).and_then(|d| d.name.clone()).filter(|n| !n.trim().is_empty());
+        for w in &sent {
+            for line in p.returns.record(w, name, now) {
+                say(&mut corner, line);
+            }
+        }
     }
 }
 
@@ -871,6 +1055,51 @@ mod tests {
         assert_eq!(follow_request(SaveKind::Quick, &cfg).name, fnv_save::QUICK_NAME);
         assert_eq!(follow_request(SaveKind::Auto, &cfg).kind, SaveKind::Auto);
         assert_eq!(follow_request(SaveKind::Manual, &cfg).kind, SaveKind::Manual);
+    }
+
+    /// A player that drops gets, when back, what the host sent meanwhile, for it alone
+    /// (owner, 2026-11-20); the host is warned once per quest in the first minute only.
+    #[test]
+    fn a_returning_player_gets_what_it_missed_and_the_host_is_warned_in_the_first_minute() {
+        use std::collections::{BTreeMap, BTreeSet};
+        use std::time::Duration;
+        let t0 = std::time::Instant::now();
+        let mut r = Returns::default();
+        let joint: BTreeMap<u8, (u64, bool)> = [(1, (0xAAAA, true)), (2, (0xBBBB, true))].into();
+        let names: BTreeMap<u8, String> = [(1, "Laptop".to_string()), (2, "Guest".to_string())].into();
+        let both: BTreeSet<u8> = [1, 2].into();
+        assert_eq!(r.track(&joint, &both, &names, t0), (vec![], vec![]));
+        // Player 1 drops.
+        let only2: BTreeSet<u8> = [2].into();
+        let (gone, back) = r.track(&joint, &only2, &names, t0);
+        assert_eq!((gone, back), (vec!["Laptop".to_string()], vec![]));
+        assert_eq!(r.track(&joint, &only2, &names, t0).0, Vec::<String>::new(), "told once");
+        let stage = |s: i32, prior: Vec<i32>| Shared::Stage { quest: 0x21A, stage: s, line: 0, line_end: false, prior, to: 0b100 };
+        let name = |q: u32| (q == 0x21A).then(|| "Bye Bye Love".to_string());
+        let w = r.record(&stage(40, vec![5, 10, 20, 30]), name, t0 + Duration::from_secs(10));
+        assert_eq!(w, vec!["Laptop dropped 10 s ago: they get Bye Bye Love when they are back".to_string()]);
+        assert!(r.record(&stage(50, vec![5, 10, 20, 30, 40]), name, t0 + Duration::from_secs(12)).is_empty(), "once per quest");
+        assert!(r.record(&Shared::Reward { quest: 0x19, xp: 100, caps: 0 }, name, t0 + Duration::from_secs(70)).is_empty(), "past the minute: no warning");
+        assert!(r.record(&Shared::Save { stamp: 1, kind: SaveKind::Auto }, name, t0).is_empty());
+        // Back with a new id (a new join, same character): all three, in order, for it alone.
+        let joint2: BTreeMap<u8, (u64, bool)> = [(3, (0xAAAA, true)), (2, (0xBBBB, true))].into();
+        let names2: BTreeMap<u8, String> = [(3, "Laptop".to_string()), (2, "Guest".to_string())].into();
+        let now: BTreeSet<u8> = [2, 3].into();
+        let (gone, back) = r.track(&joint2, &now, &names2, t0 + Duration::from_secs(80));
+        assert!(gone.is_empty());
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].id, 3);
+        let to3 = |w: Shared| Shared::For { to: 3, what: Box::new(w) };
+        let st = |s: i32, prior: Vec<i32>| Shared::Stage { quest: 0x21A, stage: s, line: 0, line_end: false, prior, to: 0b1000 };
+        assert_eq!(back[0].items, vec![to3(st(40, vec![5, 10, 20, 30])), to3(st(50, vec![5, 10, 20, 30, 40])), to3(Shared::Reward { quest: 0x19, xp: 100, caps: 0 })]);
+        assert_eq!(r.away(), 0);
+        // Back without sharing quest progress: rewards only.
+        let (_, _) = r.track(&joint2, &[2].into(), &names2, t0);
+        r.record(&stage(60, vec![]), name, t0);
+        r.record(&Shared::QuestEnded { quest: 0x21A, failed: false }, name, t0);
+        let off: BTreeMap<u8, (u64, bool)> = [(3, (0xAAAA, false))].into();
+        let (_, back) = r.track(&off, &[3].into(), &names2, t0);
+        assert_eq!(back[0].items, vec![to3(Shared::QuestEnded { quest: 0x21A, failed: false })]);
     }
 
     /// The join question waits for the syncing screen, takes the answer, and is asked

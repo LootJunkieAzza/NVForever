@@ -74,8 +74,9 @@ pub const MAGIC: [u8; 4] = *b"NVCO";
 /// 132 (ship24.2): the lobby takes 6 players (`MAX_GUESTS` 5), so a 131 game (4 players) and
 /// a 132 game never join each other. 133 (shared progression): `Progress` tags 6-10 (the
 /// join answer, stage offers and results, kill and hit credit; kill credit carries the
-/// guest's infamy), which a 132 game cannot read.
-pub const VERSION: u8 = 133;
+/// guest's infamy), which a 132 game cannot read. 134: `Progress` tag 11 (`Progress::For`,
+/// a returning player's catch-up), which a 133 game cannot read.
+pub const VERSION: u8 = 134;
 pub const MAX_GUESTS: usize = 5;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -544,6 +545,10 @@ pub enum Progress {
     /// A guest's own hit, for its hit and damage challenges (`weapon`/`part` 0 and
     /// `u32::MAX` for none). Only the host's are taken.
     HitCredit { to: u8, target: u32, weapon: u32, part: u32, dealt: u32, critical: bool, crippled: bool },
+    /// `what`, for player `to` alone (each game takes only its own): the host's
+    /// catch-up for a player that dropped and came back, what it would have got had it
+    /// been there (owner, 2026-11-20). Never nested. Only the host's are taken.
+    For { to: u8, what: Box<Progress> },
 }
 
 impl Progress {
@@ -2466,83 +2471,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
         Msg::Progress { id, seq, what } => {
             b.extend_from_slice(&[18, *id]);
             b.extend_from_slice(&seq.to_le_bytes());
-            match what {
-                Progress::Reward { quest, xp, caps } => {
-                    b.push(0);
-                    for v in [quest, xp, caps] {
-                        b.extend_from_slice(&v.to_le_bytes());
-                    }
-                }
-                Progress::Save { stamp, kind } => {
-                    b.push(1);
-                    b.extend_from_slice(&stamp.to_le_bytes());
-                    b.push(*kind);
-                }
-                Progress::Reload { stamp } => {
-                    b.push(2);
-                    b.extend_from_slice(&stamp.to_le_bytes());
-                }
-                Progress::Gift { batch, item, count, quest, stage } => {
-                    b.push(4);
-                    for v in [batch, item, count, quest, stage] {
-                        b.extend_from_slice(&v.to_le_bytes());
-                    }
-                }
-                Progress::QuestEnded { quest, failed } => {
-                    b.push(5);
-                    b.extend_from_slice(&quest.to_le_bytes());
-                    b.push(*failed as u8);
-                }
-                Progress::JointChoice { character, on } => {
-                    b.push(6);
-                    b.extend_from_slice(&character.to_le_bytes());
-                    b.push(*on as u8);
-                }
-                Progress::Stage { quest, stage, line, line_end, prior, to } => {
-                    b.push(7);
-                    b.extend_from_slice(&quest.to_le_bytes());
-                    b.extend_from_slice(&stage.to_le_bytes());
-                    b.extend_from_slice(&line.to_le_bytes());
-                    b.push(*line_end as u8);
-                    b.push(*to);
-                    let n = prior.len().min(255);
-                    b.push(n as u8);
-                    for s in &prior[..n] {
-                        b.extend_from_slice(&s.to_le_bytes());
-                    }
-                }
-                Progress::StageResult { quest, stage, taken } => {
-                    b.push(8);
-                    b.extend_from_slice(&quest.to_le_bytes());
-                    b.extend_from_slice(&stage.to_le_bytes());
-                    b.push(*taken as u8);
-                }
-                Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => {
-                    b.push(9);
-                    b.push(*to);
-                    b.extend_from_slice(&target.to_le_bytes());
-                    b.extend_from_slice(&target_base.to_le_bytes());
-                    b.push(*npc as u8);
-                    b.extend_from_slice(&xp.to_le_bytes());
-                    b.extend_from_slice(&karma.to_le_bytes());
-                    b.push(*killer as u8);
-                    let n = infamy.len().min(255);
-                    b.push(n as u8);
-                    for (r, d) in &infamy[..n] {
-                        b.extend_from_slice(&r.to_le_bytes());
-                        b.extend_from_slice(&d.to_le_bytes());
-                    }
-                }
-                Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled } => {
-                    b.push(10);
-                    b.push(*to);
-                    for v in [target, weapon, part, dealt] {
-                        b.extend_from_slice(&v.to_le_bytes());
-                    }
-                    b.push(*critical as u8);
-                    b.push(*crippled as u8);
-                }
-            }
+            put_progress(&mut b, what);
         }
         Msg::Rel { epoch, frame } => {
             b.push(30);
@@ -2566,6 +2495,132 @@ fn encode(msg: &Msg) -> Vec<u8> {
         }
     }
     b
+}
+
+/// A [`Progress`]'s tag and fields (after a [`Msg::Progress`]'s header).
+fn put_progress(b: &mut Vec<u8>, what: &Progress) {
+    match what {
+        Progress::Reward { quest, xp, caps } => {
+            b.push(0);
+            for v in [quest, xp, caps] {
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        Progress::Save { stamp, kind } => {
+            b.push(1);
+            b.extend_from_slice(&stamp.to_le_bytes());
+            b.push(*kind);
+        }
+        Progress::Reload { stamp } => {
+            b.push(2);
+            b.extend_from_slice(&stamp.to_le_bytes());
+        }
+        Progress::Gift { batch, item, count, quest, stage } => {
+            b.push(4);
+            for v in [batch, item, count, quest, stage] {
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        Progress::QuestEnded { quest, failed } => {
+            b.push(5);
+            b.extend_from_slice(&quest.to_le_bytes());
+            b.push(*failed as u8);
+        }
+        Progress::JointChoice { character, on } => {
+            b.push(6);
+            b.extend_from_slice(&character.to_le_bytes());
+            b.push(*on as u8);
+        }
+        Progress::Stage { quest, stage, line, line_end, prior, to } => {
+            b.push(7);
+            b.extend_from_slice(&quest.to_le_bytes());
+            b.extend_from_slice(&stage.to_le_bytes());
+            b.extend_from_slice(&line.to_le_bytes());
+            b.push(*line_end as u8);
+            b.push(*to);
+            let n = prior.len().min(255);
+            b.push(n as u8);
+            for s in &prior[..n] {
+                b.extend_from_slice(&s.to_le_bytes());
+            }
+        }
+        Progress::StageResult { quest, stage, taken } => {
+            b.push(8);
+            b.extend_from_slice(&quest.to_le_bytes());
+            b.extend_from_slice(&stage.to_le_bytes());
+            b.push(*taken as u8);
+        }
+        Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => {
+            b.push(9);
+            b.push(*to);
+            b.extend_from_slice(&target.to_le_bytes());
+            b.extend_from_slice(&target_base.to_le_bytes());
+            b.push(*npc as u8);
+            b.extend_from_slice(&xp.to_le_bytes());
+            b.extend_from_slice(&karma.to_le_bytes());
+            b.push(*killer as u8);
+            let n = infamy.len().min(255);
+            b.push(n as u8);
+            for (r, d) in &infamy[..n] {
+                b.extend_from_slice(&r.to_le_bytes());
+                b.extend_from_slice(&d.to_le_bytes());
+            }
+        }
+        Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled } => {
+            b.push(10);
+            b.push(*to);
+            for v in [target, weapon, part, dealt] {
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+            b.push(*critical as u8);
+            b.push(*crippled as u8);
+        }
+        Progress::For { to, what } => {
+            b.push(11);
+            b.push(*to);
+            // One level only: a For inside a For is sent as its own inside.
+            match &**what {
+                Progress::For { what, .. } => put_progress(b, what),
+                w => put_progress(b, w),
+            }
+        }
+    }
+}
+
+/// A [`Progress`] as [`put_progress`] wrote it.
+fn get_progress(r: &mut Reader) -> Option<Progress> {
+    Some(match r.u8()? {
+        0 => Progress::Reward { quest: r.u32()?, xp: r.u32()?, caps: r.u32()? },
+        1 => Progress::Save { stamp: r.u32()?, kind: r.u8()? },
+        2 => Progress::Reload { stamp: r.u32()? },
+        // Before quest and stage were sent (a build of 2026-11-13 or older).
+        3 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: 0, stage: Progress::NO_STAGE },
+        4 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: r.u32()?, stage: r.u32()? },
+        5 => Progress::QuestEnded { quest: r.u32()?, failed: r.u8()? != 0 },
+        6 => Progress::JointChoice { character: u64::from(r.u32()?) | (u64::from(r.u32()?) << 32), on: r.u8()? != 0 },
+        7 => {
+            let (quest, stage, line, line_end, to) = (r.u32()?, r.u32()? as i32, r.u32()?, r.u8()? != 0, r.u8()?);
+            let n = r.u8()?;
+            let prior = (0..n).map(|_| r.u32().map(|s| s as i32)).collect::<Option<Vec<_>>>()?;
+            Progress::Stage { quest, stage, line, line_end, prior, to }
+        }
+        8 => Progress::StageResult { quest: r.u32()?, stage: r.u32()? as i32, taken: r.u8()? != 0 },
+        9 => {
+            let (to, target, target_base, npc, xp, karma, killer) = (r.u8()?, r.u32()?, r.u32()?, r.u8()? != 0, r.u32()?, r.u32()? as i32, r.u8()? != 0);
+            let n = r.u8()?;
+            let infamy = (0..n).map(|_| Some((r.u32()?, r.u32()? as i32))).collect::<Option<Vec<_>>>()?;
+            Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy }
+        }
+        10 => Progress::HitCredit { to: r.u8()?, target: r.u32()?, weapon: r.u32()?, part: r.u32()?, dealt: r.u32()?, critical: r.u8()? != 0, crippled: r.u8()? != 0 },
+        11 => {
+            let to = r.u8()?;
+            match get_progress(r)? {
+                Progress::For { .. } => return None,
+                w => Progress::For { to, what: Box::new(w) },
+            }
+        }
+        _ => return None,
+    })
 }
 
 fn decode(b: &[u8]) -> Option<Msg> {
@@ -2729,31 +2784,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
         }
         18 => {
             let (id, seq) = (r.u8()?, r.u16()?);
-            let what = match r.u8()? {
-                0 => Progress::Reward { quest: r.u32()?, xp: r.u32()?, caps: r.u32()? },
-                1 => Progress::Save { stamp: r.u32()?, kind: r.u8()? },
-                2 => Progress::Reload { stamp: r.u32()? },
-                // Before quest and stage were sent (a build of 2026-11-13 or older).
-                3 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: 0, stage: Progress::NO_STAGE },
-                4 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: r.u32()?, stage: r.u32()? },
-                5 => Progress::QuestEnded { quest: r.u32()?, failed: r.u8()? != 0 },
-                6 => Progress::JointChoice { character: u64::from(r.u32()?) | (u64::from(r.u32()?) << 32), on: r.u8()? != 0 },
-                7 => {
-                    let (quest, stage, line, line_end, to) = (r.u32()?, r.u32()? as i32, r.u32()?, r.u8()? != 0, r.u8()?);
-                    let n = r.u8()?;
-                    let prior = (0..n).map(|_| r.u32().map(|s| s as i32)).collect::<Option<Vec<_>>>()?;
-                    Progress::Stage { quest, stage, line, line_end, prior, to }
-                }
-                8 => Progress::StageResult { quest: r.u32()?, stage: r.u32()? as i32, taken: r.u8()? != 0 },
-                9 => {
-                    let (to, target, target_base, npc, xp, karma, killer) = (r.u8()?, r.u32()?, r.u32()?, r.u8()? != 0, r.u32()?, r.u32()? as i32, r.u8()? != 0);
-                    let n = r.u8()?;
-                    let infamy = (0..n).map(|_| Some((r.u32()?, r.u32()? as i32))).collect::<Option<Vec<_>>>()?;
-                    Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy }
-                }
-                10 => Progress::HitCredit { to: r.u8()?, target: r.u32()?, weapon: r.u32()?, part: r.u32()?, dealt: r.u32()?, critical: r.u8()? != 0, crippled: r.u8()? != 0 },
-                _ => return None,
-            };
+            let what = get_progress(&mut r)?;
             Msg::Progress { id, seq, what }
         }
         13 => Msg::Clock(ClockView { year: r.f32()?, month: r.f32()?, day: r.f32()?, hour: r.f32()?, days_passed: r.f32()? }),
@@ -3016,6 +3047,8 @@ mod tests {
             Msg::Progress { id: 0, seq: 13, what: Progress::QuestEnded { quest: 0x0010_4C1F, failed: true } },
             Msg::Progress { id: 2, seq: 14, what: Progress::JointChoice { character: 0x0123_4567_89AB_CDEF, on: true } },
             Msg::Progress { id: 0, seq: 15, what: Progress::Stage { quest: 0x0011_76B8, stage: 100, line: 0x0013_E51E, line_end: true, prior: vec![1, 10, 20, 50], to: 0b0110 } },
+            Msg::Progress { id: 0, seq: 16, what: Progress::For { to: 2, what: Box::new(Progress::Stage { quest: 0x0011_76B8, stage: 20, line: 0, line_end: false, prior: vec![1, 10], to: 0b0100 }) } },
+            Msg::Progress { id: 0, seq: 17, what: Progress::For { to: 1, what: Box::new(Progress::Reward { quest: 0x0011_76B8, xp: 300, caps: 50 }) } },
             Msg::Progress { id: 1, seq: 16, what: Progress::StageResult { quest: 0x0011_76B8, stage: 100, taken: false } },
             Msg::Progress { id: 0, seq: 17, what: Progress::KillCredit { to: 1, target: 0x0010_4C1D, target_base: 0x0010_4C1E, npc: true, xp: 10, karma: -5, killer: true, infamy: vec![(0x0010_4C2A, 30)] } },
             Msg::Progress { id: 0, seq: 18, what: Progress::HitCredit { to: 2, target: 0x0010_4C1D, weapon: 0x0E3778, part: u32::MAX, dealt: 12, critical: true, crippled: false } },
