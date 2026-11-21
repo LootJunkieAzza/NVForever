@@ -1675,7 +1675,7 @@ impl App {
         ui.label(RichText::new("NEW GAME START").small().strong().color(theme::GOLD_TEXT));
         card(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. Empty is the New Vegas opening.").small().color(WEAK));
+            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. Saved with the button above. There is no Clear button.").small().color(WEAK));
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("Quest").small());
                 ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("quest id").desired_width(120.0));
@@ -2389,43 +2389,6 @@ impl App {
         self.clashes = clash_notes(&rows, &self.folder_files);
     }
 
-    /// New game start (`src/start.rs`). Quest and intro film are written to
-    /// `NVForever.ini` `[General]` by Save start. There is no Clear: this does not
-    /// put the fields back to the New Vegas opening.
-    fn start_box(&mut self, ui: &mut egui::Ui) {
-        let saved = crate::start::Fields::read(&self.ini_text);
-        let mut save = false;
-        let mut undo = false;
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("New game start").small().color(GOLD)).on_hover_text("Written to NVForever.ini [General]. An empty quest or film takes that line out. No intro film writes sIntroMovie with nothing after it.");
-            ui.label(RichText::new("Quest").small());
-            ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("quest id").desired_width(120.0));
-            ui.label(RichText::new("Film").small());
-            ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text("fnvintro.bik").desired_width(140.0));
-            ui.checkbox(&mut self.start_edit.no_film, "No intro film");
-            let changed = self.start_edit != saved;
-            if ui.add_enabled(changed, egui::Button::new("Save start")).on_hover_text("Writes the quest and film into NVForever.ini. Other lines stay.").clicked() {
-                save = true;
-            }
-            if ui.add_enabled(changed, egui::Button::new("Undo")).clicked() {
-                undo = true;
-            }
-        });
-        if undo {
-            self.start_edit = saved;
-        }
-        if save {
-            let fields = self.start_edit.clone();
-            match self.write_ini(|t| fields.write(&t)) {
-                Ok(()) => {
-                    self.reload_ini();
-                    self.message = Some(("New game start saved.".into(), false));
-                }
-                Err(e) => self.message = Some((e, true)),
-            }
-        }
-    }
-
     fn mods_page(&mut self, ui: &mut egui::Ui) {
         let help = "Left: the profile and the mod list. Right: plugins or saves. Drag a row to change priority. Right-click a mod or a plugin. Drop a folder or an archive on the list to install it. Apply saves the lists. Nothing is copied into Data.";
         ui.horizontal(|ui| {
@@ -2457,7 +2420,6 @@ impl App {
         self.install_warn_row(ui);
         self.root_ask_row(ui);
         self.mod_note_row(ui);
-        self.start_box(ui);
         ui.separator();
         let apply_h = 40.0;
         let list_h = (ui.available_height() - apply_h - ui.spacing().item_spacing.y).max(48.0);

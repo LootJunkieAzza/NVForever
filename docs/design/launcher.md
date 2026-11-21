@@ -53,11 +53,9 @@ without the launcher is the same as before.
   `[Settings]` key the game's menu does not place (an older build's) is not shown. A slider the player
   moves is fitted onto its steps as the game fits it (from 0, to the thousandth); one only
   drawn keeps the INI's value, so opening a tab changes nothing. Save writes only the changed keys over the file as it is on disk then.
-- **Mods**: NVForever's own `plugins.txt` (turn on/off with the box or a click on the name; drag a row anywhere but its box to move it, with a gold line where it lands; FalloutNV.esm stays first). A "New game start" row (`src/start.rs`, #2945) has the
-  start quest and intro film as free text (`[General] sCharGenQuest`, `sIntroMovie`
-  of the INI, written by its Save start button over the file as it is on disk; an empty field
-  takes its line out, the game's default; "No intro film" writes `sIntroMovie=`). There is no
-  button that resets those fields to the New Vegas opening. Opening the page runs
+  The **NVForever.ini** tab on this page holds the launcher's own keys, including the new-game start
+  (`[General] sCharGenQuest`, `sIntroMovie`, and no intro film). There is no Clear button for that start.
+- **Mods**: NVForever's own `plugins.txt` (turn on/off with the box or a click on the name; drag a row anywhere but its box to move it, with a gold line where it lands; FalloutNV.esm stays first). The new-game start is not on this page. Opening the page runs
   `fnv_install::plugins::sync`, as the game's start does, so new plugins get their lines.
 - **Game folder**: `[Game] Path` with the required-files check, the program to start
   (`[Launcher] Exe`, else `nvforever(.exe)` beside the launcher, else this checkout's
