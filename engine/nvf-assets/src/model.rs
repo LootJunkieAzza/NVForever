@@ -1580,6 +1580,10 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     let bytes = game.read(path).ok_or("not in any archive")?;
     let schema = game.schema.clone();
     let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
+    if file.size_table_ignored {
+        // Its size table is wrong; the blocks were split by decoding them (#3198).
+        bevy::log::info!("model: {path}: its block-size table does not fit its blocks; read block by block");
+    }
     let dec = Decoded::new(&file, &bytes, &schema);
     let objects = scene_objects(&file, &dec);
     let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
