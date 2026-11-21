@@ -17,6 +17,12 @@ use serde_json::Value as Json;
 const GUN: u32 = 0x800;
 const PIP: u32 = 0x801;
 const VEST: u32 = 0x802;
+const RIFLE: u32 = 0x803;
+const MOD_MAGS: u32 = 0x804;
+const MOD_SCOPE: u32 = 0x805;
+const MOD_SILENCER: u32 = 0x806;
+const VENDOR_BOX: u32 = 0x807;
+const VENDOR_REF: u32 = 0x808;
 const BOOM: u32 = 0x810;
 
 struct Fixture {
@@ -34,6 +40,30 @@ fn weap(id: u32, edid: &str, anim: u32) -> Vec<u8> {
     record(b"WEAP", 0, id, &[sub(b"EDID", z(edid)), sub(b"DATA", data), sub(b"DNAM", dnam)])
 }
 
+fn modded_weap(id: u32, edid: &str, value: i32, mods: [u32; 3]) -> Vec<u8> {
+    let data = [value.to_le_bytes().to_vec(), 100i32.to_le_bytes().to_vec(), 5.0f32.to_le_bytes().to_vec(), vec![0; 3]].concat();
+    let mut dnam = 5u32.to_le_bytes().to_vec();
+    dnam.resize(204, 0);
+    record(
+        b"WEAP",
+        0,
+        id,
+        &[
+            sub(b"EDID", z(edid)),
+            sub(b"WMI1", mods[0].to_le_bytes().to_vec()),
+            sub(b"WMI2", mods[1].to_le_bytes().to_vec()),
+            sub(b"WMI3", mods[2].to_le_bytes().to_vec()),
+            sub(b"DATA", data),
+            sub(b"DNAM", dnam),
+        ],
+    )
+}
+
+fn imod(id: u32, edid: &str, value: i32) -> Vec<u8> {
+    let data = [value.to_le_bytes().to_vec(), 0.0f32.to_le_bytes().to_vec()].concat();
+    record(b"IMOD", 0, id, &[sub(b"EDID", z(edid)), sub(b"DATA", data)])
+}
+
 fn armo(id: u32, edid: &str, biped: u32, general: u8) -> Vec<u8> {
     let bmdt = [biped.to_le_bytes().to_vec(), vec![general, 0, 0, 0]].concat();
     let data = [5i32.to_le_bytes().to_vec(), 100i32.to_le_bytes().to_vec(), 1.0f32.to_le_bytes().to_vec()].concat();
@@ -42,12 +72,20 @@ fn armo(id: u32, edid: &str, biped: u32, general: u8) -> Vec<u8> {
 
 fn fixture() -> Fixture {
     let expl = record(b"EXPL", 0, BOOM, &[sub(b"EDID", z("TestBoom"))]);
+    let cont = record(b"CONT", 0, VENDOR_BOX, &[sub(b"EDID", z("VendorStock"))]);
+    let refr = record(b"REFR", 0, VENDOR_REF, &[sub(b"EDID", z("VendorStockRef")), sub(b"NAME", VENDOR_BOX.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let cell = record(b"CELL", 0, 0x820, &[sub(b"EDID", z("ShopCell"))]);
+    let children = group(0x820u32.to_le_bytes(), 6, &group(0x820u32.to_le_bytes(), 8, &refr));
+    let cells = top(b"CELL", &group(0u32.to_le_bytes(), 2, &group(0u32.to_le_bytes(), 3, &[cell, children].concat())));
     let bytes = [
         tes4(),
-        top(b"WEAP", &weap(GUN, "TestPistol", 3)),
+        top(b"WEAP", &[weap(GUN, "TestPistol", 3), modded_weap(RIFLE, "TestRifle", 75, [MOD_MAGS, MOD_SCOPE, MOD_SILENCER])].concat()),
+        top(b"IMOD", &[imod(MOD_MAGS, "ModMags", 75), imod(MOD_SCOPE, "ModScope", 125), imod(MOD_SILENCER, "ModSilencer", 100)].concat()),
         top(b"ARMO", &[armo(PIP, "TestPip", 1 << 6, 0x40), armo(VEST, "TestVest", 1 << 2, 0)].concat()),
+        top(b"CONT", &cont),
         top(b"EXPL", &expl),
         top(b"NPC_", &record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))])),
+        cells,
     ]
     .concat();
     let plugins = vec![Plugin::parse(&bytes, "ShowOff5Test.esm".into()).unwrap()];
@@ -171,4 +209,100 @@ fn s(g: &mut Game, body: &str) -> String {
         XVal::Str(t) => t,
         v => panic!("{body}: {v:?}"),
     }
+}
+
+#[test]
+fn calculated_item_value_includes_weapon_mods_and_live_barter_multipliers() {
+    use fnv_game::nvse_jip12::BarterView;
+    use fnv_sim::inventory::Extra;
+
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Add rifle to player and merchant container, and obtain their script inventory refs.
+    g.world.inventory_mut(FormId::PLAYER_REF).unwrap().add_extra(FormId(RIFLE), 1, Extra { condition: Some(1.0), mods: 0, ..Extra::default() });
+    g.world.inventory_mut(FormId(VENDOR_REF)).unwrap().add_extra(FormId(RIFLE), 1, Extra { condition: Some(1.0), mods: 7, ..Extra::default() });
+    let inv_ref = |g: &mut Game, holder: &str| -> FormId {
+        match q(g, &format!("array_var a\nlet a := {holder}.GetInvRefsForItem TestRifle\nSetFunctionValue a[0]")) {
+            XVal::Ref(r) => FormId(r),
+            v => panic!("expected ref for {holder}: {v:?}"),
+        }
+    };
+    let player_rifle = inv_ref(&mut g, "player");
+    let vendor_rifle = inv_ref(&mut g, "VendorStockRef");
+    let on = |g: &mut Game, target: FormId, expr: &str| {
+        let ctx = RunCtx { self_ref: Some(target), ..RunCtx::default() };
+        match g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({expr})\nEnd\n"), ctx).unwrap() {
+            XVal::Num(x) => x,
+            v => panic!("{expr}: {v:?}"),
+        }
+    };
+
+    // Base rifle (value 75) at full condition: 75 * 0.0316 * 10^1.5 = 74.946 -> 74.
+    // Attached mods (75, 125, 100) add their full IMOD values without condition scaling
+    // [observed: o26_value, docs/spec-notes/weapon-mods.md §6].
+    assert_eq!(on(&mut g, player_rifle, "GetCalculatedItemValue"), 74.0);
+    for (flags, expected) in [(1, 149.0), (2, 199.0), (4, 174.0), (3, 274.0), (7, 374.0)] {
+        assert_eq!(on(&mut g, player_rifle, &format!("SetWeaponRefModFlags {flags}")), 1.0);
+        assert_eq!(on(&mut g, player_rifle, "GetCalculatedItemValue"), expected, "mods={flags}");
+    }
+
+    // Condition scales only the weapon's own value; attached mods keep their full +300.
+    // 50%: 75 * 0.0316 * 5^1.5 = 26.497 -> 26 / 326.
+    // 25%: 75 * 0.0316 * 2.5^1.5 = 9.368 -> 9 / 309.
+    // 75%: 75 * 0.0316 * 7.5^1.5 = 48.678 -> 48 / 348.
+    for (cond, bare, modded) in [(0.5_f64, 26.0, 326.0), (0.25, 9.0, 309.0), (0.75, 48.0, 348.0)] {
+        assert_eq!(on(&mut g, player_rifle, &format!("SetItemRefCurrentHealth {cond} 1")), 1.0);
+        assert_eq!(on(&mut g, player_rifle, "SetWeaponRefModFlags 0"), 1.0);
+        assert_eq!(on(&mut g, player_rifle, "GetCalculatedItemValue"), bare, "bare cond={cond}");
+        assert_eq!(on(&mut g, player_rifle, "SetWeaponRefModFlags 7"), 1.0);
+        assert_eq!(on(&mut g, player_rifle, "GetCalculatedItemValue"), modded, "modded cond={cond}");
+    }
+
+    // World-placed/dropped reference reads RefState.extra (condition + mods).
+    g.world.inventory_mut(FormId(VENDOR_REF)).unwrap().add_extra(FormId(RIFLE), 1, Extra { condition: Some(0.5), mods: 7, ..Extra::default() });
+    let dropped = g.world.drop_item_at(FormId(VENDOR_REF), FormId(RIFLE), 1, fnv_sim::inventory::Pick::row(Some(0.5), 7)).unwrap()[0];
+    assert_eq!(on(&mut g, dropped, "GetCalculatedItemValue"), 326.0);
+
+    // SetItemValue overrides base item value while preserving mod values.
+    q(&mut g, "TestRifle.SetItemValue 100");
+    // 50% of 100: 100 * 0.0316 * 5^1.5 = 35.33 -> 35 + 300 = 335.
+    assert_eq!(on(&mut g, dropped, "GetCalculatedItemValue"), 335.0);
+    q(&mut g, "TestRifle.SetItemValue 75");
+    assert_eq!(on(&mut g, dropped, "GetCalculatedItemValue"), 326.0);
+
+    // Barter closed: accountForBarter=1 does not apply barter multiplier.
+    assert_eq!(on(&mut g, player_rifle, "SetItemRefCurrentHealth 0.5 1"), 1.0);
+    assert_eq!(on(&mut g, player_rifle, "GetCalculatedItemValue 1"), 326.0);
+
+    // Barter open with live BarterView: honours BarterView::mult and SetBarterPriceMult
+    // overrides for both player sell (side 1) and merchant buy (side 0).
+    g.open_menu(menus::BARTER);
+    g.set_barter_view(Some(BarterView {
+        merchant_caps: 500,
+        stock: FormId(VENDOR_REF),
+        bought: Vec::new(),
+        sold: Vec::new(),
+        mult: [1.4, 0.5],
+    }));
+    // Player selling: 326.497 * 0.5 = 163.248 -> 163.
+    assert_eq!(on(&mut g, player_rifle, "GetCalculatedItemValue 1"), 163.0);
+    // Merchant selling to player: 374.946 * 1.4 = 524.924 -> 524.
+    assert_eq!(on(&mut g, vendor_rifle, "GetCalculatedItemValue 1"), 524.0);
+
+    // SetBarterPriceMult overrides take precedence over BarterView::mult.
+    q(&mut g, "SetBarterPriceMult 1 0.8\nSetBarterPriceMult 0 1.25");
+    // Player selling: 326.497 * 0.8 = 261.198 -> 261.
+    assert_eq!(on(&mut g, player_rifle, "GetCalculatedItemValue 1"), 261.0);
+    // Merchant selling to player: 374.946 * 1.25 = 468.682 -> 468.
+    assert_eq!(on(&mut g, vendor_rifle, "GetCalculatedItemValue 1"), 468.0);
+
+    // Closing BarterView falls back to GMST Barter skill formula while menu stays open.
+    g.set_barter_view(None);
+    assert!(on(&mut g, player_rifle, "GetCalculatedItemValue 1") < 326.0);
+    assert!(on(&mut g, vendor_rifle, "GetCalculatedItemValue 1") > 374.0);
+
+    // Non-item returns -1; Stewie gate remains at 941.
+    assert_eq!(n(&mut g, "player.GetCalculatedItemValue"), -1.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
 }
