@@ -330,6 +330,11 @@ impl Anims {
         self.stances.lock().expect("stances").entry(key).or_insert(s).clone()
     }
 
+    /// Whether the stance `prefix` of `skeleton` is loaded (or known not to load).
+    pub fn stance_loaded(&self, skeleton: &str, prefix: &str) -> bool {
+        self.stances.lock().expect("stances").contains_key(&(fnv_vfs::normalize(skeleton), prefix.to_string()))
+    }
+
     /// Whether the standing set of `skeleton` and `body` and the stance `prefix` (if any)
     /// are loaded (or known not to load), and the stances of its body weapons `arms`.
     pub fn loaded(&self, skeleton: &str, body: Body, prefix: Option<&str>, arms: &[&str]) -> bool {

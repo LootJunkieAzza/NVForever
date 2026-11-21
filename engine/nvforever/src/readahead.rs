@@ -559,6 +559,7 @@ pub fn read_ahead(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     time: Res<Time>,
+    pace: Res<crate::stream_pace::StreamPace>,
 ) {
     let unseen = loading.as_deref().is_some_and(|l| l.unseen_frames());
     if ahead.unseen != unseen {
@@ -566,6 +567,9 @@ pub fn read_ahead(
     }
     let Some(aw) = actor_world.as_deref().filter(|_| !ahead.off) else { return };
     let t0 = Instant::now();
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let budget = if unseen { PREPARE_BUDGET } else { pace.time(PREPARE_BUDGET) };
+    let _spending = (!unseen).then(|| pace.spending());
     let ahead = &mut *ahead;
     // [design] #2956 follow-up: each cell's actors are read from the load order's
     // records (placement, base, initial enable state: all fixed for the run) once per
@@ -603,6 +607,7 @@ pub fn read_ahead(
     // Outdoors, once the start's cells are in.
     let centre = streamer.centre.filter(|_| streamer.interior.is_none() && streamer.settled);
     if centre.is_some() && centre != ahead.centre {
+        let _span = info_span!("readahead::list_ring").entered();
         let cells = ring(centre.unwrap_or_default(), streamer.radius);
         let mut listed = HashSet::new();
         for &g in &cells {
@@ -679,11 +684,12 @@ pub fn read_ahead(
     // Through the queue once at most: a part still being read goes to the back.
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     let mut left = ahead.jobs.len();
-    while left > 0 && t0.elapsed() < PREPARE_BUDGET {
+    while left > 0 && t0.elapsed() < budget {
         left -= 1;
         let Some(job) = ahead.jobs.pop_front() else { break };
         match job {
             Job::Actor { reference, base, creature } => {
+                let _span = info_span!("readahead::plan").entered();
                 let shared = sim.as_deref().map(|s| &s.world);
                 let equipment_world = residents.as_deref().map_or(shared, |r| r.prefetch_world(reference, shared));
                 let Some(mut plan) = actor_plan(aw, equipment_world, reference, base, creature) else { continue };
@@ -692,6 +698,7 @@ pub fn read_ahead(
             Job::Prepare(path, skel) => match ctx.cache.part_state(&path) {
                 PartState::Reading => ahead.jobs.push_back(Job::Prepare(path, skel)),
                 PartState::Read => {
+                    let _span = info_span!("readahead::prepare").entered();
                     ahead.queued.remove(&path);
                     ahead.parts_prepared += 1;
                     if skel {

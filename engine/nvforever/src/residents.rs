@@ -3257,7 +3257,7 @@ pub fn drive(
     mut nav: ResMut<NavState>,
     world: Res<WorldData>,
     streamer: Res<Streamer>,
-    (actor_world, mut ahead): (Option<Res<ActorWorld>>, ResMut<crate::readahead::ReadAhead>),
+    (actor_world, mut ahead, pace): (Option<Res<ActorWorld>>, ResMut<crate::readahead::ReadAhead>, Res<crate::stream_pace::StreamPace>),
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
@@ -3439,7 +3439,8 @@ pub fn drive(
         nav.lead = core.list.first().and_then(|r| core.ai.agents.get(&r.actor)).map(|a| Lead { space: a.walker.space, feet: a.walker.feet, heading: a.walker.heading });
     }
     let on_furniture: HashSet<u32> = seated.iter().map(|v| v.0).collect();
-    let mut budget = SPAWNS_PER_FRAME;
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let mut budget = pace.count(SPAWNS_PER_FRAME);
     let _span = info_span!("ai::draw_and_place").entered();
     for r in core.list.iter_mut().filter(|r| r.joined && !r.failed) {
         // Furniture: sit once drawn; get up before leaving.

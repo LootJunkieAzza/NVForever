@@ -188,6 +188,7 @@ mod frame_gen;
 mod fsr;
 mod upscaler;
 mod speech_look;
+mod stream_pace;
 mod stress_sample;
 mod profile;
 mod perf_overlay;
@@ -1841,6 +1842,9 @@ fn main() -> AppExit {
     .insert_resource(readahead::ReadAhead::from_env())
     .add_systems(Update, readahead::read_ahead.run_if(world::world_not_held).after(world::stream).after(world::draw_waiting_actors))
     .add_systems(Last, readahead::report)
+    .init_resource::<stream_pace::StreamPace>()
+    .add_systems(First, stream_pace::follow)
+    .add_systems(Last, stream_pace::report)
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
     .add_systems(Update, particles::sync_idle_materials.after(anim_objects::hold).before(nvf_assets::material_anim::bind_rig_materials))

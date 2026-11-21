@@ -36,6 +36,7 @@ use bevy::camera::visibility::NoAutoAabb;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::tasks::{futures::check_ready, Task};
 use fnv_world::placed::{base_object, placement, tree_billboard};
 use fnv_world::{cell_of, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
@@ -69,6 +70,8 @@ pub struct DistantTrees {
     want: Vec<Grid>,
     /// TREE references per cell (enabled at the start), read once.
     cells: HashMap<Grid, Arc<Vec<Placed>>>,
+    /// Cells whose references are being read on a read thread ([`READS_IN_FLIGHT`]).
+    reading: HashMap<Grid, Task<Vec<Placed>>>,
     bases: HashMap<u32, Board>,
     drawn: HashMap<Grid, DrawnCell>,
     /// Trees drawn as distant billboards.
@@ -92,6 +95,7 @@ impl DistantTrees {
         }
         self.centre = None;
         self.want.clear();
+        self.reading.clear();
         self.count = 0;
     }
 
@@ -152,20 +156,32 @@ pub fn cells_within(p: Vec2, dist: f32) -> Vec<Grid> {
     out.into_iter().map(|(_, g)| g).collect()
 }
 
-/// The TREE references of an exterior cell (its own and the persistent ones standing
-/// in it) that are enabled at the start.
-fn cell_trees(world: &WorldData, g: Grid) -> Vec<Placed> {
+/// [design] Cells whose TREE references are read at once on the read pool
+/// (docs/design/streaming-hitches.md §3.5): two frames' worth of [`CELLS_PER_FRAME`], so
+/// the cards always have cells to be built from.
+const READS_IN_FLIGHT: usize = 48;
+
+/// The references of an exterior cell: its own and the persistent ones standing in it.
+fn cell_refs(world: &WorldData, g: Grid) -> Vec<u32> {
     let mut refs: Vec<u32> = world.grid_cell(g).map(|c| c.refs.clone()).unwrap_or_default();
     if let Some(p) = world.persistent_by_grid.get(&g) {
         refs.extend(p);
     }
+    refs
+}
+
+/// The TREE references among `refs` that are enabled at the start. Reads the load order's
+/// records only, so it runs on a read thread ([`update_distant_trees`]): it took up to
+/// 5 ms of a frame for a step's cells on the main thread [observed 2026-11-20,
+/// `profile hitch`: `treelod::update_distant_trees`].
+fn trees_of(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, refs: &[u32]) -> Vec<Placed> {
     let mut out = Vec::new();
     let mut is_tree: HashMap<u32, bool> = HashMap::new();
-    for r in refs {
-        let Some(p) = placement(world.lo, world.schema, r) else { continue };
+    for &r in refs {
+        let Some(p) = placement(lo, schema, r) else { continue };
         let Some(base) = p.base else { continue };
-        let tree = *is_tree.entry(base).or_insert_with(|| base_object(world.lo, world.schema, base).is_some_and(|b| &b.sig == b"TREE" && b.is_speedtree()));
-        if tree && world.enabled(&p, 0) {
+        let tree = *is_tree.entry(base).or_insert_with(|| base_object(lo, schema, base).is_some_and(|b| &b.sig == b"TREE" && b.is_speedtree()));
+        if tree && crate::world::enabled(lo, schema, &p, 0) {
             out.push(Placed { base, pos: p.position, scale: p.scale });
         }
     }
@@ -235,6 +251,7 @@ pub fn update_distant_trees(
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
     mut materials: ResMut<Assets<BillboardMaterial>>,
+    pace: Res<crate::stream_pace::StreamPace>,
     distances: Option<Res<DrawDistances>>,
 ) {
     let (flag, far) = (lod.settings.trees, lod.settings.far);
@@ -269,6 +286,7 @@ pub fn update_distant_trees(
         // Keep the reference lists of cells a little beyond the range.
         let r = (dist / CELL_SIZE).ceil() as i32 + 3;
         trees.cells.retain(|g, _| (g.0 - c.0).abs() <= r && (g.1 - c.1).abs() <= r);
+        trees.reading.retain(|g, _| (g.0 - c.0).abs() <= r && (g.1 - c.1).abs() <= r);
     }
     // Fade steps of the drawn cells follow their cells (culled when fully drawn).
     for (g, d) in trees.drawn.iter_mut() {
@@ -280,9 +298,45 @@ pub fn update_distant_trees(
             }
         }
     }
-    let missing: Vec<Grid> = trees.want.iter().filter(|g| !trees.drawn.contains_key(g)).take(CELLS_PER_FRAME).copied().collect();
+    // The cells' TREE references are read on the read pool, nearest first; a cell's cards
+    // are built once its list is in.
+    let mut read = Vec::new();
+    trees.reading.retain(|g, task| match check_ready(task) {
+        Some(list) => {
+            read.push((*g, list));
+            false
+        }
+        None => true,
+    });
+    for (g, list) in read {
+        trees.cells.insert(g, Arc::new(list));
+    }
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let per_frame = pace.count(CELLS_PER_FRAME);
+    let mut missing: Vec<Grid> = Vec::new();
+    let on_read_threads = crate::stream_pace::on_read_threads();
+    for &g in trees.want.iter().filter(|g| !trees.drawn.contains_key(g)) {
+        if !on_read_threads && missing.len() < per_frame {
+            // As before: read here, within the frame's count.
+            trees.cells.entry(g).or_insert_with(|| Arc::new(trees_of(world.lo, world.schema, &cell_refs(&world, g))));
+        }
+        if trees.cells.contains_key(&g) {
+            if missing.len() < per_frame {
+                missing.push(g);
+            }
+        } else if on_read_threads {
+            let in_flight = trees.reading.len();
+            if let std::collections::hash_map::Entry::Vacant(reading) = trees.reading.entry(g) {
+                if in_flight < READS_IN_FLIGHT {
+                    let (lo, schema, refs) = (world.lo, world.schema, cell_refs(&world, g));
+                    reading.insert(nvf_assets::read_pool::read_pool().spawn(async move { trees_of(lo, schema, &refs) }));
+                }
+            }
+        }
+    }
+    let _spending = (!missing.is_empty()).then(|| pace.spending());
     for g in missing {
-        let placed = trees.cells.entry(g).or_insert_with(|| Arc::new(cell_trees(&world, g))).clone();
+        let Some(placed) = trees.cells.get(&g).cloned() else { continue };
         let mut by_base: HashMap<u32, Vec<Placed>> = HashMap::new();
         for t in placed.iter() {
             by_base.entry(t.base).or_default().push(*t);

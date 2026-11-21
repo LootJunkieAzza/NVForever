@@ -457,6 +457,7 @@ pub fn distant_water(
     mut dw: ResMut<DistantWater>,
     mut models: ModelCtx,
     mut water: WaterCtx,
+    pace: Res<crate::stream_pace::StreamPace>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let g = bevy_to_game(cam.translation());
@@ -466,6 +467,9 @@ pub fn distant_water(
         return;
     }
     dw.built_for = Some(key);
+    let _spending = pace.spending();
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let reads_a_frame = pace.count(SURFACE_READS_PER_FRAME);
     // The cells the LOD covers around the camera (its chunks are 4 cells), minus the
     // loaded ones (they have their own water).
     let r = if lod.enabled && streamer.interior.is_none() { lod.radius * 4 + 3 } else { -1 };
@@ -490,7 +494,7 @@ pub fn distant_water(
             continue;
         }
         if !dw.surface_known(c) {
-            if reads >= SURFACE_READS_PER_FRAME {
+            if reads >= reads_a_frame {
                 dw.built_for = None;
                 continue;
             }
