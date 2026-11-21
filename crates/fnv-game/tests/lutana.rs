@@ -38,6 +38,9 @@ const LSCT: u32 = 0x91D;
 const LSCT2: u32 = 0x91E;
 const HAIR: u32 = 0x91F;
 const LIGH: u32 = 0x920;
+const NOTE2: u32 = 0x921;
+const ROOM: u32 = 0x930;
+const TERM_REF: u32 = 0x931;
 
 fn le(v: u32) -> Vec<u8> {
     v.to_le_bytes().to_vec()
@@ -81,18 +84,25 @@ fn plugin_bytes() -> Vec<u8> {
     let soun = edid(b"SOUN", SOUN, "TestSound", &[]);
     // TERM DNAM: difficulty 3 (Hard), flags, server, unused; PNAM the password note.
     let term = edid(b"TERM", TERM, "TestTerminal", &[sub(b"DNAM", vec![3, 0, 0, 0]), sub(b"PNAM", le(NOTE))]);
-    let note = edid(b"NOTE", NOTE, "TestNote", &[sub(b"DATA", vec![0])]);
+    let notes = [
+        edid(b"NOTE", NOTE, "TestNote", &[sub(b"DATA", vec![0])]),
+        edid(b"NOTE", NOTE2, "TestNote2", &[sub(b"DATA", vec![0])]),
+    ]
+    .concat();
     let lscr = edid(b"LSCR", LSCR, "TestScreen", &[sub(b"WMI1", le(LSCT))]);
     let lsct = [edid(b"LSCT", LSCT, "TestType", &[]), edid(b"LSCT", LSCT2, "TestType2", &[])].concat();
     // HAIR DATA flags: Playable (1).
     let hair = edid(b"HAIR", HAIR, "TestHair", &[sub(b"DATA", vec![1])]);
     // LIGH DATA: time, radius 200, colour, flags, falloff, FOV, value, weight.
     let ligh = edid(b"LIGH", LIGH, "TestLight", &[sub(b"DATA", [le(0), le(200), vec![255, 255, 255, 0], le(0), f32b(1.0), f32b(90.0), le(0), f32b(0.0)].concat())]);
+    let term_ref = edid(b"REFR", TERM_REF, "TestTerminalRef", &[sub(b"NAME", le(TERM)), sub(b"DATA", vec![0; 24])]);
+    let cell = [edid(b"CELL", ROOM, "TestRoom", &[sub(b"DATA", vec![1])]), group(ROOM.to_le_bytes(), 6, &group(ROOM.to_le_bytes(), 9, &term_ref))].concat();
+    let cells = top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell)));
     [
         tes4(),
         top(b"GLOB", &glob),
         top(b"SOUN", &soun),
-        top(b"NOTE", &note),
+        top(b"NOTE", &notes),
         top(b"MISC", &misc),
         top(b"LIGH", &ligh),
         top(b"HAIR", &hair),
@@ -110,6 +120,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"ECZN", &eczn),
         top(b"LSCT", &lsct),
         top(b"LSCR", &lscr),
+        cells,
     ]
     .concat()
 }
@@ -438,4 +449,78 @@ SetFunctionValue s") {
         return;
     }
     panic!("the clock turned a minute on every try");
+}
+
+/// Session `SetPasswordNote` overrides must reach `GetPasswordNote`, `PlayerHasKey`,
+/// `terminal::has_password` (`still_locked`, `opening`, `opens_by_password`), ignore
+/// non-terminals, reset on fresh-run restore, and survive same-run `put_session` (#2272).
+#[test]
+fn set_password_note_reaches_terminal_opening_prompt_player_has_key_and_session() {
+    use fnv_game::hacking::{Difficulty, Refusal};
+    use fnv_game::terminal::{self, Opening};
+
+    let f = fixture();
+    let mut g = game(&f);
+    g.tweaks.terminal_password_prompt = true;
+
+    // 1. Baseline authored password note + non-TERM guard.
+    assert_eq!(n(&mut g, "GetPasswordNote TestTerminal"), f64::from(NOTE));
+    assert_eq!(n(&mut g, "TestTerminalRef.GetPasswordNote"), f64::from(NOTE));
+    q(&mut g, "SetPasswordNote TestNote ItemA");
+    assert_eq!(n(&mut g, "GetPasswordNote ItemA"), 0.0, "non-TERM form must stay 0");
+    assert_eq!(n(&mut g, "TestTerminalRef.PlayerHasKey"), 0.0);
+    assert!(!terminal::opens_by_password(&mut g, FormId(TERM_REF), FormId(TERM)));
+    assert_eq!(terminal::still_locked(&mut g, FormId(TERM_REF), FormId(TERM)), Some(Difficulty::Hard));
+    assert_eq!(terminal::opening(&mut g, FormId(TERM_REF), FormId(TERM), 0.0), Some(Opening::Refused(Refusal::Science { needed: 75.0 })));
+
+    // 2. Filing the authored note unlocks the terminal without hacking.
+    q(&mut g, "AddNoteNS TestNote");
+    assert_eq!(n(&mut g, "TestTerminalRef.PlayerHasKey"), 1.0);
+    assert!(terminal::opens_by_password(&mut g, FormId(TERM_REF), FormId(TERM)));
+    assert_eq!(terminal::still_locked(&mut g, FormId(TERM_REF), FormId(TERM)), None);
+
+    // 3. Clearing the password note locks the terminal back out even while TestNote is held.
+    q(&mut g, "SetPasswordNote 0 TestTerminal");
+    assert_eq!(n(&mut g, "GetPasswordNote TestTerminal"), 0.0);
+    assert_eq!(n(&mut g, "TestTerminalRef.GetPasswordNote"), 0.0);
+    assert_eq!(n(&mut g, "TestTerminalRef.PlayerHasKey"), 0.0);
+    assert!(!terminal::opens_by_password(&mut g, FormId(TERM_REF), FormId(TERM)));
+    assert_eq!(terminal::still_locked(&mut g, FormId(TERM_REF), FormId(TERM)), Some(Difficulty::Hard));
+    assert_eq!(terminal::opening(&mut g, FormId(TERM_REF), FormId(TERM), 0.0), Some(Opening::Refused(Refusal::Science { needed: 75.0 })));
+
+    // 4. Reassigning via reference receiver to TestNote2: TestNote alone no longer opens it.
+    q(&mut g, "TestTerminalRef.SetPasswordNote TestNote2");
+    assert_eq!(n(&mut g, "GetPasswordNote TestTerminal"), f64::from(NOTE2));
+    assert_eq!(n(&mut g, "TestTerminalRef.GetPasswordNote"), f64::from(NOTE2));
+    assert_eq!(n(&mut g, "TestTerminalRef.PlayerHasKey"), 0.0);
+    assert!(!terminal::opens_by_password(&mut g, FormId(TERM_REF), FormId(TERM)));
+    assert_eq!(terminal::still_locked(&mut g, FormId(TERM_REF), FormId(TERM)), Some(Difficulty::Hard));
+
+    // 5a. Fresh-run restore (without Session transfer) reverts to authored TestNote (which player holds).
+    let snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.checked_snapshot().unwrap()).unwrap()).unwrap();
+    let fresh_world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut fresh = Game::restore(&f.data, fresh_world, GameConfig::default(), &snap).unwrap();
+    fresh.tweaks.terminal_password_prompt = true;
+    assert_eq!(n(&mut fresh, "GetPasswordNote TestTerminal"), f64::from(NOTE));
+    assert_eq!(n(&mut fresh, "TestTerminalRef.PlayerHasKey"), 1.0);
+    assert!(terminal::opens_by_password(&mut fresh, FormId(TERM_REF), FormId(TERM)));
+    assert_eq!(terminal::still_locked(&mut fresh, FormId(TERM_REF), FormId(TERM)), None);
+
+    // 5b. Same-run restore with put_session preserves SetPasswordNote TestNote2 across load.
+    let session = g.take_session();
+    let world_session = g.world.take_session();
+    let mut same_world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    same_world.put_session(world_session);
+    let mut same_run = Game::restore(&f.data, same_world, GameConfig::default(), &snap).unwrap();
+    same_run.put_session(session);
+    same_run.tweaks.terminal_password_prompt = true;
+    assert_eq!(n(&mut same_run, "GetPasswordNote TestTerminal"), f64::from(NOTE2));
+    assert_eq!(n(&mut same_run, "TestTerminalRef.PlayerHasKey"), 0.0);
+    assert!(!terminal::opens_by_password(&mut same_run, FormId(TERM_REF), FormId(TERM)));
+    assert_eq!(terminal::still_locked(&mut same_run, FormId(TERM_REF), FormId(TERM)), Some(Difficulty::Hard));
+    // Filing TestNote2 now opens the terminal straight to its menu without hacking.
+    q(&mut same_run, "AddNoteNS TestNote2");
+    assert_eq!(n(&mut same_run, "TestTerminalRef.PlayerHasKey"), 1.0);
+    assert!(terminal::opens_by_password(&mut same_run, FormId(TERM_REF), FormId(TERM)));
+    assert_eq!(terminal::opening(&mut same_run, FormId(TERM_REF), FormId(TERM), 0.0), Some(Opening::Menu));
 }
