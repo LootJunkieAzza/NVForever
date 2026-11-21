@@ -16,7 +16,7 @@
 
 mod scalars;
 
-pub use scalars::{parse_scalars, ScalarFile, Scalars, DEFAULT_REFLECTANCE, DEFAULT_ROUGHNESS_SCALE, PARALLAX_DEPTH_RANGE, REFLECTANCE_RANGE, ROUGHNESS_SCALE_RANGE};
+pub use scalars::{parse_scalars, ScalarFile, Scalars, DEFAULT_METAL_GAIN, DEFAULT_METAL_GAIN_WITH_ALBEDO, DEFAULT_REFLECTANCE, DEFAULT_ROUGHNESS_SCALE, METAL_GAIN_RANGE, PARALLAX_DEPTH_RANGE, REFLECTANCE_RANGE, ROUGHNESS_SCALE_RANGE};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,8 +40,9 @@ pub enum Member {
     Height,
     /// `<stem>.toml`: optional scalars ([`parse_scalars`]).
     Scalars,
-    /// `<stem>_albedo.dds`: reserved for a later version; recognised and counted, never
-    /// activates a set, not read.
+    /// `<stem>_albedo.dds`: optional base colour (sRGB colour, its alpha the material's
+    /// alpha), drawn in place of the game's diffuse by an authored set; never activates a set
+    /// on its own (`_orm` stays the required member).
     Albedo,
 }
 
@@ -128,12 +129,12 @@ pub fn classify(path: &str) -> Option<(String, Member)> {
 /// What a set does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetState {
-    /// It has `_orm`: the authored material applies (with `_n`, `_p` and scalars if present).
+    /// It has `_orm`: the authored material applies (with `_n`, `_p`, `_albedo` and scalars if
+    /// present).
     Authored,
     /// `_p` without `_orm`: the game's own material with height only.
     HeightOnly,
-    /// Neither `_orm` nor `_p` (only `_n`, `.toml` or the reserved `_albedo`): activates
-    /// nothing.
+    /// Neither `_orm` nor `_p` (only `_n`, `.toml` or `_albedo`): activates nothing.
     Incomplete,
 }
 
@@ -203,7 +204,7 @@ pub struct Counts {
     pub normal: usize,
     pub height: usize,
     pub scalars: usize,
-    /// Reserved `_albedo` files (counted, never used in this version).
+    /// `_albedo` files (drawn by authored sets only).
     pub albedo: usize,
     /// Files under `textures\pbr\` that are no member of any set.
     pub unmatched: usize,
@@ -339,7 +340,7 @@ impl PbrIndex {
     pub fn summary(&self) -> String {
         let c = &self.counts;
         format!(
-            "authored materials: {} sets under textures\\pbr\\ ({} with _orm, {} height only; files: {} _orm, {} _n, {} _p, {} .toml, {} _albedo reserved), {} incomplete sets and {} unmatched files ignored",
+            "authored materials: {} sets under textures\\pbr\\ ({} with _orm, {} height only; files: {} _orm, {} _n, {} _p, {} .toml, {} _albedo), {} incomplete sets and {} unmatched files ignored",
             c.active(),
             c.authored,
             c.height_only,

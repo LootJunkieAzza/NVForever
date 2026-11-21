@@ -4658,6 +4658,7 @@ dependencies = [
  "fnv-pbr",
  "fnv-vfs",
  "fnv-world",
+ "half",
  "naga",
 ]
 

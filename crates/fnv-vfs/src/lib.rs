@@ -425,6 +425,14 @@ impl Vfs {
         Ok(vfs)
     }
 
+    /// Index `root`'s loose files over every layer already indexed (the highest precedence),
+    /// for this mount only: nothing is written anywhere. For a test aid that mounts a fixture
+    /// folder it created for the run (nvf-assets `pbr_field/reflect.rs` `seed_mount_pack`)
+    /// instead of writing into a mods folder.
+    pub fn add_loose_root(&mut self, root: &Path) {
+        self.index_loose(root);
+    }
+
     /// The folders loose files were read from, lowest precedence first (`Data` first).
     pub fn loose_roots(&self) -> &[PathBuf] {
         &self.loose_roots
@@ -681,6 +689,29 @@ mod tests {
         assert_eq!(normal_map_beside("textures\\characters\\male\\.dds"), None);
         assert_eq!(normal_map_beside("textures\\characters\\male\\headhuman."), None);
         assert_eq!(normal_map_beside("textures\\characters\\male\\headhuman"), None);
+    }
+
+    /// A folder added after the mount opened lies over Data's loose files and is listed last.
+    #[test]
+    fn an_added_loose_root_lies_over_every_other() {
+        let base = std::env::temp_dir().join(format!("nvf-vfs-added-root-{}", std::process::id()));
+        let (data, extra) = (base.join("Data"), base.join("extra"));
+        std::fs::create_dir_all(data.join("textures/a")).unwrap();
+        std::fs::create_dir_all(extra.join("textures/a")).unwrap();
+        std::fs::write(data.join("textures/a/both.dds"), b"data").unwrap();
+        std::fs::write(data.join("textures/a/data_only.dds"), b"data").unwrap();
+        std::fs::write(extra.join("textures/a/both.dds"), b"extra").unwrap();
+        std::fs::write(extra.join("textures/a/extra_only.dds"), b"extra").unwrap();
+        let mut vfs = Vfs::open(&data, &[]).unwrap();
+        assert!(!vfs.exists("textures\\a\\extra_only.dds"));
+        vfs.add_loose_root(&extra);
+        assert_eq!(vfs.read("textures\\a\\both.dds").unwrap().unwrap(), b"extra");
+        assert_eq!(vfs.read("textures\\a\\data_only.dds").unwrap().unwrap(), b"data");
+        assert_eq!(vfs.read("textures\\a\\extra_only.dds").unwrap().unwrap(), b"extra");
+        assert_eq!(vfs.loose_roots().last(), Some(&extra));
+        // Nothing was written into either folder.
+        assert_eq!(std::fs::read(data.join("textures/a/both.dds")).unwrap(), b"data");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

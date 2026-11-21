@@ -306,8 +306,9 @@ No pixel is decoded and the maps' content is not judged. The command prints the 
 and exits 1 when any finding is an error (warnings do not fail it). `selftest` runs the
 same checks (`crates/fnvtool/src/pbr_check.rs`, one function for files on disk and bytes
 in memory) on a pack built in code: a clean set (DX10 BC7 `_orm` 8x8, BC5_UNORM `_n`
-16x16, BC4_UNORM `_p` 4x4, a scalar file) and seven broken files. It prints the document,
-then the line `pbr selftest: PASS (3 formats, 7 expected findings)` (or `FAIL (...)`
+16x16, BC4_UNORM `_p` 4x4, BC7_UNORM_SRGB `_albedo` 8x8, a scalar file) and seven broken
+files. It prints the document, then the line `pbr selftest: PASS (4 formats, 7 expected
+findings)` (or `FAIL (...)`
 naming what was missed or raised besides, and exit 1). Smoke scenario `pbr-selftest`.
 
 Keys:
@@ -329,10 +330,13 @@ Keys:
   sentence).
 - `totals`: `files`, `bytes`, `sets` (`total`, `authored`, `height_only`, `incomplete`,
   as `fnv_pbr::PbrIndex` classifies them), `unmatched`, `members` (per member: `files`;
-  for `orm`, `normal` and `height` also `formats`, a count per format name, and
+  for `orm`, `normal`, `height` and `albedo` also `formats`, a count per format name, and
   `largest_side`, the largest width or height, `null` with none), `formats` (every format
   name read, sorted), `gpu_bytes_estimate` (the `payload_bytes` of every `_orm`, `_n` and
-  `_p` without an error in a set that is authored or height only), `errors`, `warnings`.
+  `_p` without an error in a set that is authored or height only, and of every `_albedo`
+  without an error in an authored set), `errors`, `warnings`. Scalar values are not
+  listed: a scalar file is only validated (`metal_gain`, `parallax_depth`,
+  `roughness_scale`, `reflectance`, docs/spec-notes/pbr-materials.md "Scalars").
 - `selftest` (self-test only): `formats` (the clean set's), `expected`, `missing`,
   `unexpected` (each a list of `path`, `code`), `pass`, `verdict` (the last line).
 
@@ -343,9 +347,9 @@ example), and a pack should not rely on that.
 
 | Code | When |
 |---|---|
-| `dds-unreadable` | a `_orm`, `_n` or `_p` whose header does not parse (not DDS, cut inside its headers), or that counts more than 32 mip levels |
+| `dds-unreadable` | a `_orm`, `_n`, `_p` or `_albedo` whose header does not parse (not DDS, cut inside its headers), or that counts more than 32 mip levels |
 | `bad-header-size` | a header whose own size field is not 124, or whose pixel format's size field is not 32 (docs/spec-notes/dds.md) |
-| `format-not-allowed` | a format not in the member's list: `_orm` BC7, BC1, BC3; `_n` BC5 (unsigned or signed), BC7, BC1, BC3; `_p` BC4 (unsigned or signed), BC1, BC3 (an `_SRGB` DX10 code counts as its format) |
+| `format-not-allowed` | a format not in the member's list: `_orm` BC7, BC1, BC3; `_n` BC5 (unsigned or signed), BC7, BC1, BC3; `_p` BC4 (unsigned or signed), BC1, BC3; `_albedo` BC7, BC1, BC3 (an `_SRGB` DX10 code counts as its format) |
 | `not-single-2d` | a cube map, a volume, a DX10 array of more than one texture or a 1D texture |
 | `bad-size` | a side of 0 or above 16384 |
 | `not-block-aligned` | a top level whose width or height is not a multiple of 4 |
@@ -359,10 +363,10 @@ Warnings (allowed, ignored in this version, or probably not meant):
 |---|---|
 | `incomplete-mips` | fewer mip levels than a full chain down to 1x1 (including none) |
 | `not-power-of-two` | a side that is not a power of two (allowed; tools differ on the small levels) |
-| `srgb-linear-member` | a DX10 `_SRGB` code on a member, which is read as linear anyway |
+| `srgb-linear-member` | a DX10 `_SRGB` code on a linear member (`_orm`, `_n`, `_p`), which is read as linear anyway; never on `_albedo`, which is colour and read as sRGB whatever its header says |
 | `trailing-bytes` | bytes after the pixel data the header describes (never read) |
 | `scalar-ignored-or-clamped` | one per warning of `fnv_pbr::parse_scalars`: an unknown key or a table, a value that is not a finite number, a number clamped into its range |
-| `albedo-reserved` | a `_albedo` file (reserved, counted, not read; not checked further) |
+| `albedo-without-orm` | a `_albedo` in a height-only set (`_p`, no `_orm`): only an authored set draws it |
 | `incomplete-set` | a set with neither `_orm` nor `_p` (only `_n`, `.toml` or `_albedo`), which changes nothing |
 | `unmatched-file` | a file under `textures\pbr\` that is no member of any set |
 

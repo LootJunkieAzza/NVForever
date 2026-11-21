@@ -1133,7 +1133,7 @@ fn register_graphics(app: &mut App) {
         Setting { key: AO_KEY, group: GROUP_GRAPHICS, label: "Ambient occlusion", note: AO_NOTE, switches: "--graphics, --ambient-occlusion", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| AO_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: ao_chosen, pick: take_ao, save: ao_chosen, load: take_ao, ask_keep: false },
     );
-    let switches: [Switch; 19] = [
+    let switches: [Switch; 20] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1218,6 +1218,16 @@ fn register_graphics(app: &mut App) {
             AUTHORED_MATERIALS_SWITCHES,
             |w| w.resource::<Graphics>().authored_materials,
             |w, on| w.resource_mut::<Graphics>().authored_materials = on,
+        ),
+        // #2981 reflections: read once at the start like Authored materials (main.rs,
+        // nvf_assets `reflection_cube::set_enabled`); the row keeps the next start's choice.
+        (
+            crate::graphics::AUTHORED_REFLECTIONS_KEY,
+            "Reflections on authored materials",
+            AUTHORED_REFLECTIONS_NOTE,
+            AUTHORED_MATERIALS_SWITCHES,
+            |w| w.resource::<Graphics>().authored_reflections,
+            |w, on| w.resource_mut::<Graphics>().authored_reflections = on,
         ),
         (
             "terrain-height-blend",
@@ -1317,6 +1327,19 @@ pub(crate) const AUTHORED_MATERIALS_SWITCHES: &str = "--graphics-only";
 pub(crate) fn authored_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
     let Some(given) = given else { return command_line };
     let stored = stored_at_start(crate::graphics::AUTHORED_MATERIALS_KEY).and_then(|v| nvf_play::settings::parse_switch(&v));
+    nvf_play::settings::switch_after_ini(command_line, stored, given, AUTHORED_MATERIALS_SWITCHES)
+}
+
+/// The Reflections on authored materials row's note (#2981 reflections): it needs a pack and
+/// Authored materials, and takes effect at the next start (main.rs).
+pub(crate) const AUTHORED_REFLECTIONS_NOTE: &str = "On: surfaces with a texture pack's material maps reflect the sky outdoors and the cell's ambient colours indoors. Needs such a pack and Authored materials on. Takes effect at the next start.";
+
+/// The run's Reflections on authored materials state (#2981 reflections), decided before the
+/// first NIF pipeline by [`authored_after_ini`]'s rule: the command line's
+/// (`--graphics-only no-authored-reflections`, else on), then the INI's stored row.
+pub(crate) fn reflections_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
+    let Some(given) = given else { return command_line };
+    let stored = stored_at_start(crate::graphics::AUTHORED_REFLECTIONS_KEY).and_then(|v| nvf_play::settings::parse_switch(&v));
     nvf_play::settings::switch_after_ini(command_line, stored, given, AUTHORED_MATERIALS_SWITCHES)
 }
 
@@ -2766,6 +2789,7 @@ dlss-model=Preset K
             ("sharpen", &["--graphics"]),
             ("anisotropic", &["--graphics"]),
             (crate::graphics::AUTHORED_MATERIALS_KEY, &["--graphics-only"]),
+            (crate::graphics::AUTHORED_REFLECTIONS_KEY, &["--graphics-only"]),
             ("terrain-height-blend", &["--graphics", "--graphics-only"]),
             ("terrain-anti-tiling", &["--graphics", "--graphics-only"]),
             ("light-shafts", &["--graphics"]),
@@ -2813,6 +2837,23 @@ dlss-model=Preset K
         assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, MESH_BLEND_KEY), Some("0".to_string()), "{ini}");
         assert!(!ini_app(&path, &ini, UpscalerChoice::Off, GivenSwitches::default()).world().resource::<Graphics>().mesh_terrain_blend, "and off again at the next");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #2981 reflections: the Reflections on authored materials row follows Authored
+    /// materials, on in a vanilla start, switches `Graphics::authored_reflections` and is
+    /// start-only (no pipeline wait: the run's state is fixed in main.rs).
+    #[test]
+    fn the_reflections_row_follows_authored_materials_and_switches_the_next_start() {
+        let mut app = rows_app();
+        let i = row(&app, crate::graphics::AUTHORED_REFLECTIONS_KEY);
+        assert_eq!(i, row(&app, crate::graphics::AUTHORED_MATERIALS_KEY) + 1, "right after Authored materials");
+        let s = app.world().resource::<Settings>().list()[i];
+        assert_eq!((s.group, s.label, s.note, s.switches), (GROUP_GRAPHICS, "Reflections on authored materials", AUTHORED_REFLECTIONS_NOTE, "--graphics-only"));
+        assert_eq!(nvf_play::settings::note_over_budget(s.note), None);
+        assert!((s.get)(app.world()), "on in a vanilla start");
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), i), Some(false));
+        assert!(!app.world().resource::<Graphics>().authored_reflections);
+        assert!(app.world().resource::<Graphics>().authored_materials, "the materials row is its own");
     }
 
     /// A settings page with the INI at `path` holding `text`, `apply_stored` run once.

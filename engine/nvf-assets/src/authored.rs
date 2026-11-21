@@ -8,8 +8,9 @@
 //!   paths the index names, the scalar file read once per mount ([`scalars_cached`],
 //!   `GameData::pbr_scalars`).
 //! - [`apply`] / [`restore`]: a set on a material and back, from the legacy look every
-//!   eligible shape's material keeps ([`LegacyLook`]); [`retexture`] is the one rule for a
-//!   lit copy whose diffuse is replaced later.
+//!   eligible shape's material keeps ([`LegacyLook`]), the set's `_albedo` drawn in place of
+//!   the game's diffuse where it has one; [`retexture`] is the one rule for a lit copy whose
+//!   diffuse is replaced later.
 //!
 //! [design] The rules are NVForever's own (the format is ours); none describes the original.
 
@@ -47,8 +48,15 @@ pub struct AuthoredSet {
     pub orm: Handle<Image>,
     /// `_n` in the two-channel role, when the set has one and it loaded.
     pub normal: Option<Handle<Image>>,
+    /// `_albedo` in the colour role (sRGB, as the game's diffuse), when the set has one and it
+    /// loaded: the base colour texture in place of the game's diffuse ([`apply`]).
+    pub albedo: Option<Handle<Image>>,
     /// The scalar file's values (all `None` without one).
     pub scalars: Scalars,
+    /// The base colour gain of the set's metals ([`set_metal_gain`]: the run's override, the
+    /// scalar file's `metal_gain`, or its default), carried to the shader by
+    /// `NifSurface::metal_gain` ([`apply`]).
+    pub metal_gain: f32,
 }
 
 /// The files [`find`] and the decoders already warned about (one warning per file).
@@ -104,7 +112,8 @@ pub fn authored_found(index: &PbrIndex, key: &str) -> Option<Found> {
 /// index names it, exactly: never resolved again, so a `\xbox\` member stays the one listed;
 /// role), or `None`: the setting off (`enabled`; nothing is asked of the index then), no
 /// authored set, or an `_orm` that does not load (one warning per file; the shape keeps the
-/// game's material). An `_n` that does not load leaves the game's normal map in use.
+/// game's material). An `_n` that does not load leaves the game's normal map in use, an
+/// `_albedo` that does not load the game's diffuse (and the metal gain's default for it).
 pub(crate) fn find(data: &GameData, enabled: bool, key: &str, memo: &Memo, mut load: impl FnMut(&str, TextureUsage) -> Option<Handle<Image>>) -> Option<AuthoredSet> {
     if !enabled {
         return None;
@@ -123,8 +132,16 @@ pub(crate) fn find(data: &GameData, enabled: bool, key: &str, memo: &Memo, mut l
         }
         h
     });
+    let albedo = found.path(Member::Albedo).and_then(|path| {
+        let h = load(&path, TextureUsage::Color);
+        if h.is_none() {
+            memo.warn_once(&path, || format!("authored materials: {path} could not be loaded; the game's diffuse stays the base colour"));
+        }
+        h
+    });
     let scalars = found.path(Member::Scalars).map(|path| data.pbr_scalars(&path)).unwrap_or_default();
-    Some(AuthoredSet { stem: found.stem, orm, normal, scalars })
+    let metal_gain = set_metal_gain(&scalars, albedo.is_some(), metal_gain_override());
+    Some(AuthoredSet { stem: found.stem, orm, normal, albedo, scalars, metal_gain })
 }
 
 /// The value of `NifSurface::emissive_rule.w` that marks a material shaded from an authored
@@ -141,6 +158,10 @@ pub const AUTHORED_MARK: f32 = 1.0;
 /// copies carry it along.
 #[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct LegacyLook {
+    /// The game's diffuse: the base colour texture as the material was built, or as a later
+    /// swap put it ([`retexture`]); a set's `_albedo` replaces it while the set is on, and
+    /// [`restore`] gives it back.
+    pub diffuse: Option<Handle<Image>>,
     /// The game's normal map in use (after the tangent check).
     pub normal: Option<Handle<Image>>,
     /// The specular mask (the normal map, when its alpha is one: `nif_spawn::specular`).
@@ -176,12 +197,14 @@ pub fn key_eligible(key: &str) -> bool {
 }
 
 /// The metallic value an authored material is built with: 0 (the ORM's blue channel then has
-/// no effect: no reflection source exists yet, docs/spec-notes/pbr-materials.md "Metallic"),
-/// or 1 in the metallic channel view ([`PbrView::Metallic`]), so the material's sample of
-/// the blue channel is the per-texel value the view shows, and under the metallic debug
-/// switch ([`metallic_debug`]), so the blue channel takes effect.
+/// no effect: no reflection source, docs/spec-notes/pbr-materials.md "Metallic"), or 1 in the
+/// metallic channel view ([`PbrView::Metallic`]), so the material's sample of the blue
+/// channel is the per-texel value the view shows, under the metallic debug switch
+/// ([`metallic_debug`]), so the blue channel takes effect, and with reflections on
+/// (`reflection_cube::enabled`), where nif_material.wesl holds the sampled value at 0 in every
+/// view without a reflection cube, so only a view with one shades a metal as a metal.
 pub fn authored_metallic() -> f32 {
-    if view() == PbrView::Metallic || metallic_debug() { 1.0 } else { 0.0 }
+    if view() == PbrView::Metallic || metallic_debug() || crate::reflection_cube::enabled() { 1.0 } else { 0.0 }
 }
 
 /// The environment variable of the metallic debug switch ([`metallic_debug`]).
@@ -193,7 +216,10 @@ pub const METALLIC_ENV: &str = "NVF_PBR_METALLIC";
 /// the metal's share of it on authored materials ((1 - m) of it is removed, m the sampled
 /// metallic), so a metal shows the ambient light in its colour instead of drawing black where
 /// no lamp's highlight falls (`NVF_PBR_METALLIC` shader def) [design, DESIGN option (b)].
-/// Every other material is drawn as without it.
+/// Every other material is drawn as without it. With reflections on
+/// (`reflection_cube::enabled`) the "keep the metal share" rule is retired: the shader def is
+/// not set and the full ambient highlight is removed, also at metallic 1, since the cube
+/// replaces it (nif_material.rs, reflections slice 1).
 pub fn metallic_debug() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| {
@@ -205,6 +231,62 @@ pub fn metallic_debug() -> bool {
     })
 }
 
+/// The environment variable of the metal gain override ([`metal_gain_override`]).
+pub const METAL_GAIN_ENV: &str = "NVF_PBR_METAL_GAIN";
+
+/// The value of [`METAL_GAIN_ENV`] as a gain: `Ok(None)` for no value (or an empty one),
+/// `Ok(Some(g))` for a number in the scalar file's range (`fnv_pbr::METAL_GAIN_RANGE`, 1 to
+/// 40), `Err` with the reason otherwise.
+pub fn parse_metal_gain(text: Option<&str>) -> Result<Option<f32>, String> {
+    let range = fnv_pbr::METAL_GAIN_RANGE;
+    let Some(t) = text.map(str::trim).filter(|t| !t.is_empty()) else { return Ok(None) };
+    match t.parse::<f32>() {
+        Ok(g) if range.contains(&g) => Ok(Some(g)),
+        Ok(g) => Err(format!("{METAL_GAIN_ENV}={g} is outside {} to {}", range.start(), range.end())),
+        Err(_) => Err(format!("{METAL_GAIN_ENV}={t} is not a number")),
+    }
+}
+
+/// The metal gain override (a tuning aid, off by default; `NVF_PBR_METAL_GAIN=<gain>`, 1 to
+/// 40, read once at the start, NifMaterialPlugin): every set's metal gain
+/// ([`AuthoredSet::metal_gain`]) is this value for the run, whatever its scalar file or
+/// `_albedo` says, so a gain can be judged by picture [design]. A value that is no number or
+/// out of range is warned about once and the sets keep their own gains. Not a
+/// `NVF_PLAY_TEST_*` aid: it does not make a run unattended.
+pub fn metal_gain_override() -> Option<f32> {
+    static GAIN: OnceLock<Option<f32>> = OnceLock::new();
+    *GAIN.get_or_init(|| match parse_metal_gain(std::env::var(METAL_GAIN_ENV).ok().as_deref()) {
+        Ok(Some(g)) => {
+            info!("authored materials: metal gain override ({METAL_GAIN_ENV}={g}): every authored set's metal gain is {g} for this run");
+            Some(g)
+        }
+        Ok(None) => None,
+        Err(reason) => {
+            warn!("authored materials: {reason}; each set keeps its own metal gain");
+            None
+        }
+    })
+}
+
+/// A set's metal gain: `over` (the run's override, [`metal_gain_override`]) when given, else
+/// the scalar file's `metal_gain`, else its default by whether an `_albedo` is drawn
+/// (`albedo`: 1, real reflectances) or the game's diffuse (12) [design].
+pub fn set_metal_gain(scalars: &Scalars, albedo: bool, over: Option<f32>) -> f32 {
+    over.unwrap_or_else(|| scalars.metal_gain_or_default(albedo))
+}
+
+/// The base colour an authored metal is lit with in a view with a reflection cube: the CPU
+/// mirror of nif_material.wesl's `nvf_metal_base` (tests compare the two by their rules):
+/// mix(base, lifted, metallic), lifted = base x min(gain, 1 / brightest channel), never below
+/// base. One gain on all three channels, limited so the brightest channel reaches 1, keeps
+/// the hue (the experiment before it clipped each channel at 1, which shifted bright texels
+/// towards white) [design].
+pub fn lifted_base(base: Vec3, gain: f32, metallic: f32) -> Vec3 {
+    let brightest = base.x.max(base.y).max(base.z.max(1e-4));
+    let lifted = base * gain.min(1.0 / brightest).max(1.0);
+    base.lerp(lifted, metallic)
+}
+
 /// The environment variable that picks a channel view ([`PbrView`]).
 pub const VIEW_ENV: &str = "NVF_PBR_VIEW";
 
@@ -214,7 +296,7 @@ pub const VIEW_ENV: &str = "NVF_PBR_VIEW";
 /// "NVF_PBR_VIEW"). Refracting shapes return before it; additive draws add it by their alpha
 /// and multiplied ones stay neutral, so effects fade out of the view. Picked once at
 /// the start by `NVF_PBR_VIEW` = `roughness` | `metallic` | `occlusion` | `normal` |
-/// `authored` [design]. Not a `NVF_PLAY_TEST_*` aid: it does not make a run unattended.
+/// `authored` | `reflection` [design]. Not a `NVF_PLAY_TEST_*` aid: it does not make a run unattended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PbrView {
     Off,
@@ -228,10 +310,17 @@ pub enum PbrView {
     Normal,
     /// Authored shapes tinted orange, every other shape grey, by its base colour's brightness.
     Authored,
+    /// What an authored surface reflects: the view's reflection cube at level 0 along the
+    /// surface's mirror direction, as a white perfect mirror writes it (texel x intensity x
+    /// exposure, tone-mapped as the rest of the picture), so its scale can be judged against
+    /// the sky in the same frame. Every other shape grey as in [`PbrView::Authored`];
+    /// authored shapes orange where the view has no cube or reflections are off. Only the
+    /// opted-in NIF fragment (`reflection_cube::REFLECT_DEF`) reads the cube.
+    Reflection,
 }
 
 impl PbrView {
-    pub const ALL: [PbrView; 5] = [PbrView::Roughness, PbrView::Metallic, PbrView::Occlusion, PbrView::Normal, PbrView::Authored];
+    pub const ALL: [PbrView; 6] = [PbrView::Roughness, PbrView::Metallic, PbrView::Occlusion, PbrView::Normal, PbrView::Authored, PbrView::Reflection];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -241,6 +330,7 @@ impl PbrView {
             PbrView::Occlusion => "occlusion",
             PbrView::Normal => "normal",
             PbrView::Authored => "authored",
+            PbrView::Reflection => "reflection",
         }
     }
 
@@ -262,6 +352,7 @@ impl PbrView {
             PbrView::Occlusion => &["NVF_PBR_VIEW", "NVF_PBR_VIEW_OCCLUSION"],
             PbrView::Normal => &["NVF_PBR_VIEW", "NVF_PBR_VIEW_NORMAL"],
             PbrView::Authored => &["NVF_PBR_VIEW", "NVF_PBR_VIEW_AUTHORED"],
+            PbrView::Reflection => &["NVF_PBR_VIEW", "NVF_PBR_VIEW_REFLECTION"],
         }
     }
 }
@@ -280,7 +371,7 @@ pub fn view() -> PbrView {
                 v
             }
             None => {
-                warn!("authored materials: {VIEW_ENV}={text} is none of roughness, metallic, occlusion, normal, authored; no channel view");
+                warn!("authored materials: {VIEW_ENV}={text} is none of roughness, metallic, occlusion, normal, authored, reflection; no channel view");
                 PbrView::Off
             }
         }
@@ -291,9 +382,17 @@ pub fn view() -> PbrView {
 /// map (one image in both slots), no specular mask, the scalars' roughness scale and
 /// reflectance (their defaults without a file), [`authored_metallic`], the set's `_n` when it
 /// has one and the drawn mesh has tangents (else the game's normal map, its alpha no longer a
-/// mask), and the mark ([`AUTHORED_MARK`]). Everything else (base colour, alpha, glow,
+/// mask), the mark ([`AUTHORED_MARK`]) and the set's metal gain (`NifSurface::metal_gain`);
+/// the set's `_albedo` as the base colour texture when it has one (`NifSurface::
+/// authored_albedo` records it), else the game's diffuse ([`LegacyLook::diffuse`]) where
+/// another set's `_albedo` was drawn. Everything else (the base colour factor, alpha, glow,
 /// decal, the extension's other values) stays. Whether the set's `_n` was applied.
 pub fn apply(material: &mut crate::NifMaterial, set: &AuthoredSet, legacy: &LegacyLook) -> bool {
+    drop_albedo(material, legacy);
+    if let Some(albedo) = &set.albedo {
+        material.base.base_color_texture = Some(albedo.clone());
+        material.extension.authored_albedo = Some(albedo.clone());
+    }
     let b = &mut material.base;
     b.metallic_roughness_texture = Some(set.orm.clone());
     b.occlusion_texture = Some(set.orm.clone());
@@ -313,11 +412,14 @@ pub fn apply(material: &mut crate::NifMaterial, set: &AuthoredSet, legacy: &Lega
     let applied = normal.is_some();
     b.normal_map_texture = normal.or_else(|| legacy.normal.clone());
     material.extension.emissive_rule.w = AUTHORED_MARK;
+    material.extension.metal_gain = set.metal_gain;
     applied
 }
 
-/// Put the legacy look back on `material` (the inverse of [`apply`]).
+/// Put the legacy look back on `material` (the inverse of [`apply`]): the game's diffuse too,
+/// where the set's `_albedo` is still the base colour texture.
 pub fn restore(material: &mut crate::NifMaterial, legacy: &LegacyLook) {
+    drop_albedo(material, legacy);
     let b = &mut material.base;
     b.metallic_roughness_texture = None;
     b.occlusion_texture = None;
@@ -328,6 +430,18 @@ pub fn restore(material: &mut crate::NifMaterial, legacy: &LegacyLook) {
     b.metallic = legacy.metallic;
     b.specular_tint = legacy.specular_tint;
     material.extension.emissive_rule.w = 0.0;
+    material.extension.metal_gain = 0.0;
+}
+
+/// Take a set's `_albedo` off `material` (`NifSurface::authored_albedo`): the game's diffuse
+/// back as the base colour texture where the `_albedo` is still the one drawn; a texture a
+/// caller put there since (a picture, a swap's new diffuse) stays.
+fn drop_albedo(material: &mut crate::NifMaterial, legacy: &LegacyLook) {
+    if let Some(albedo) = material.extension.authored_albedo.take() {
+        if material.base.base_color_texture.as_ref() == Some(&albedo) {
+            material.base.base_color_texture = legacy.diffuse.clone();
+        }
+    }
 }
 
 /// A script's change of a shape's glossiness (nvforever `nif_mirror.rs`, the material
@@ -397,14 +511,20 @@ pub fn make_legacy(material: &mut crate::NifMaterial) -> bool {
 
 /// Clear every authored map from an unlit copy (the Pip-Boy's glare and menus copies,
 /// nvforever `pipboy_arm.rs`): the ORM in both slots, the depth map (Bevy applies parallax
-/// before its unlit test), the mark and the legacy look, so nothing of a set reaches it
-/// whatever its source wore [design, a second guard beside the `textures\pipboy3000\`
-/// exclusion].
+/// before its unlit test), the mark, the metal gain, a set's `_albedo` (the game's diffuse back
+/// where it is still the texture drawn; a picture the caller put there stays) and the legacy
+/// look, so nothing of a set reaches it whatever its source wore [design, a second guard
+/// beside the `textures\pipboy3000\` exclusion].
 pub fn clear_for_unlit_copy(material: &mut crate::NifMaterial) {
+    if let Some(legacy) = material.extension.legacy.clone() {
+        drop_albedo(material, &legacy);
+    }
+    material.extension.authored_albedo = None;
     material.base.metallic_roughness_texture = None;
     material.base.occlusion_texture = None;
     material.base.depth_map = None;
     material.extension.emissive_rule.w = 0.0;
+    material.extension.metal_gain = 0.0;
     material.extension.legacy = None;
 }
 
@@ -423,10 +543,13 @@ pub enum Retextured {
 /// `texture` (a NIF texture path; script `SwapTexture`, the blackjack cards, the Vigor
 /// Tester's buttons and digits): from the material's legacy look ([`LegacyLook`], carried by
 /// the copy), the new diffuse's set is applied (its scalars' defaults, the game's normal map
-/// where it has no `_n` or the drawn mesh has no tangents), or, without one, the legacy
-/// look is put back if a set was on it. Always from the legacy look, never from what the
-/// copy wore: a copy of a material that wore another diffuse's set takes none of it. Only
-/// the set's fields change; tint, animation, fade and every other value stay.
+/// where it has no `_n` or the drawn mesh has no tangents, its `_albedo` in place of the new
+/// diffuse where it has one), or, without one, the legacy look is put back if a set was on
+/// it. Always from the legacy look, never from what the copy wore: a copy of a material that
+/// wore another diffuse's set takes none of it. The caller must put the replacement diffuse
+/// on the copy before this call. It becomes the legacy look's diffuse ([`LegacyLook::diffuse`])
+/// even when it happens to be the previous set's `_albedo` image. Only the set's fields change;
+/// tint, animation, fade and every other value stay.
 pub fn retexture(
     material: &mut crate::NifMaterial,
     texture: &str,
@@ -436,7 +559,12 @@ pub fn retexture(
     formats: Option<&bevy::image::CompressedImageFormatSupport>,
 ) -> Retextured {
     use crate::nif_spawn::TextureSource;
-    let Some(legacy) = material.extension.legacy.clone() else { return Retextured::Untouched };
+    let Some(mut legacy) = material.extension.legacy.clone() else { return Retextured::Untouched };
+    let shown = material.base.base_color_texture.clone();
+    if shown != legacy.diffuse {
+        legacy.diffuse = shown;
+        material.extension.legacy = Some(legacy.clone());
+    }
     let mut source = crate::nif_spawn::StoreTextures { textures, data, images, formats };
     let key = source.resolve(texture);
     match key_eligible(&key).then(|| source.authored(&key)).flatten() {

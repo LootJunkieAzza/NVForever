@@ -148,6 +148,7 @@ mod wrecks;
 mod talk_clips;
 mod readahead;
 mod reflection;
+mod reflection_sky;
 mod minimap_render;
 mod refraction;
 mod residents;
@@ -562,7 +563,7 @@ struct Args {
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal), for comparing them one at a time.
     /// The switches on in vanilla are left on unless named off: no-glow, no-eye-adaptation,
-    /// no-neon-glow, no-water-mirror, no-authored-materials.
+    /// no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
     /// Ambient occlusion on at this level whatever the look (--graphics, --graphics-only)
@@ -1242,6 +1243,24 @@ fn main() -> AppExit {
         }
         None => fnv_install::EngineHome::user().map(|h| h.mods()).into_iter().collect(),
     };
+    // Test aid (reflections, #2981): the PBR reflection field's generated sets written into a
+    // fresh folder of this run under an explicit NVFOREVER_HOME, every file created new, then
+    // mounted over every other loose layer for this run only, so the mount has authored sets
+    // (nvf_assets pbr_field/reflect.rs `seed_mount_pack`). No mods folder is written.
+    let mount_pack: Option<PathBuf> = if nvf_assets::mount_pack_requested() {
+        match nvf_assets::seed_mount_pack() {
+            Ok((dir, n)) => {
+                eprintln!("pbr mount pack: {n} generated files written under {} (this run's own folder, mounted over every other loose layer)", dir.display());
+                Some(dir)
+            }
+            Err(e) => {
+                eprintln!("pbr mount pack: FAIL {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let opened = world::open_plugins(args.data(), &mods, &args.plugins);
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // No setting names the code page: the plugins' own text says it (#1443).
@@ -1325,8 +1344,13 @@ fn main() -> AppExit {
     // the layers lowest precedence first (usvfs' merge order), unlike the plugin lookup
     // above, which wants the overwrite folder first.
     let game = match &mo2 {
-        Some(l) => GameData::open_for_plugins_layered(args.data(), &l.mod_roots(), &args.plugins, &args.nif_schema),
-        None => GameData::open_for_plugins_in(args.data(), mods.first().map(|p| p.as_path()), &args.plugins, &args.nif_schema),
+        Some(l) => {
+            // The mount pack's folder (test aid) as the highest layer, for this run only.
+            let mut roots = l.mod_roots();
+            roots.extend(mount_pack.iter().cloned());
+            GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
+        }
+        None => GameData::open_for_plugins_in_over(args.data(), mods.first().map(|p| p.as_path()), mount_pack.as_deref(), &args.plugins, &args.nif_schema),
     };
     let game = match game {
         Ok(g) => g,
@@ -1688,6 +1712,23 @@ fn main() -> AppExit {
     let authored = settings::authored_after_ini(graphics.authored_materials, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::authored::set_enabled(authored);
     app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
+    // Reflections on authored materials (#2981): the run's state by the same rule, fixed
+    // before the first NIF pipeline (the opt-in def and the metallic factor); the world
+    // camera's cube is made later, only where the mount has authored sets
+    // (reflection_sky.rs).
+    let reflections = settings::reflections_after_ini(graphics.authored_reflections, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::reflection_cube::set_enabled(reflections && authored);
+    app.add_systems(Startup, move || {
+        info!(
+            "authored reflections: {}",
+            match (reflections, authored) {
+                (true, true) => "on (authored materials reflect the world camera's cube where the mount has authored sets)",
+                (true, false) => "off (Authored materials is off)",
+                _ => "off (setting)",
+            }
+        )
+    });
+    app.add_plugins(reflection_sky::ReflectionSkyPlugin { row: reflections, authored });
     let start_upscaler = {
         let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
         let ini = given.as_ref().and_then(|_| settings::settings_text_at_start()).map(|text| settings::UpscalerIni::read(&text));

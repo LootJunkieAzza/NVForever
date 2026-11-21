@@ -864,7 +864,7 @@ mod tests {
         own.base.occlusion_texture = Some(orm);
         own.base.depth_map = Some(images.add(Image::default()));
         own.extension.emissive_rule.w = nvf_assets::authored::AUTHORED_MARK;
-        own.extension.legacy = Some(nvf_assets::authored::LegacyLook { normal: None, specular: None, roughness: 1.0, reflectance: 0.3, metallic: 0.0, tangents: false, specular_tint: Color::WHITE, scripted_tint: None });
+        own.extension.legacy = Some(nvf_assets::authored::LegacyLook { diffuse: None, normal: None, specular: None, roughness: 1.0, reflectance: 0.3, metallic: 0.0, tangents: false, specular_tint: Color::WHITE, scripted_tint: None });
         for m in [glare_material(&own), menus_material(&own, Handle::default())] {
             assert!(m.base.metallic_roughness_texture.is_none() && m.base.occlusion_texture.is_none() && m.base.depth_map.is_none());
             assert!(!nvf_assets::authored::is_authored(&m) && m.extension.legacy.is_none());

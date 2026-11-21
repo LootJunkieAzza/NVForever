@@ -1177,8 +1177,9 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   Takes effect at the next start.
 - In full: [design, #2981] A texture pack may give a game texture a set of material maps
   under `textures\pbr\` (occlusion, roughness and metallic in `_orm`, a normal map in `_n`,
-  scalars in a `.toml`); the shapes drawn with that texture then take their roughness,
-  highlight strength, occlusion and normal from the set (docs/spec-notes/pbr-materials.md).
+  a base colour in `_albedo`, scalars in a `.toml`); the shapes drawn with that texture then
+  take their roughness, highlight strength, occlusion and normal from the set, and their
+  base colour from its `_albedo` where it has one (docs/spec-notes/pbr-materials.md).
   Lit NIF shapes with texture coordinates take a set; unlit, additive, multiplied and
   refracting shapes, particles, hair, skin and FaceGen heads, landscape LOD and the Pip-Boy's
   and interface textures never do. A set without `_n` (or a shape whose drawn mesh has no
@@ -1187,6 +1188,25 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   `textures\pbr\` and every material is the game's own. Read once at the start, so a change
   applies at the next start. Not in the original.
 - Command-line switches: `--graphics-only` (`--graphics-only no-authored-materials`)
+- More: docs/spec-notes/pbr-materials.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `authored-reflections`: Reflections on authored materials
+
+- On the page: On: surfaces with a texture pack's material maps reflect the sky outdoors and
+  the cell's ambient colours indoors. Needs such a pack and Authored materials on. Takes
+  effect at the next start.
+- In full: [design, #2981] Surfaces shaded from an authored set reflect a small cube of the
+  world camera's surroundings, blurred by their roughness, and the `_orm`'s metallic channel
+  takes effect: outdoors the sky as drawn, sunlit ground and a broad glow toward
+  the sun or the moon; indoors the cell's ambient colour with its fog colour at the
+  horizon. No clouds, sun disc, nearby objects or rooms are reflected. A metal's base colour
+  is lifted by its set's metal gain (12 by default with the game's diffuse) so it reflects
+  as a metal. Only authored materials reflect: the game's own materials, terrain, trees, grass and water are
+  unchanged. Nothing changes without a pack, or with Authored materials off. Off: metallic
+  stays held at 0 and no cube is made. Read once at the start, so a change applies at the
+  next start. Not in the original.
+- Command-line switches: `--graphics-only` (`--graphics-only no-authored-reflections`)
 - More: docs/spec-notes/pbr-materials.md
 - Registered in `engine/nvforever/src/settings.rs`
 

@@ -822,7 +822,7 @@ fn authored_shape(app: &mut App, shape: Entity) -> Handle<NifMaterial> {
     use nvf_assets::authored::{LegacyLook, AUTHORED_MARK};
     let mut m = nvf_assets::nif_material::nif_material(StandardMaterial { reflectance: 0.5, ..default() });
     m.extension.emissive_rule.w = AUTHORED_MARK;
-    m.extension.legacy = Some(LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None });
+    m.extension.legacy = Some(LegacyLook { diffuse: None, normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None });
     let h = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(m);
     app.world_mut().entity_mut(shape).insert(MeshMaterial3d(h.clone()));
     h

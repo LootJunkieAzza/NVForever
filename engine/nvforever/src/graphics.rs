@@ -218,10 +218,19 @@ pub struct Graphics {
     /// `authored::set_enabled`, main.rs); this field is the settings row's value for the
     /// next start.
     pub authored_materials: bool,
+    /// Authored materials reflect the sky or the room around them (#2981 reflections,
+    /// reflection_sky.rs; docs/spec-notes/pbr-materials.md "Reflections on authored
+    /// materials"; on in both looks: without a pack, or with Authored materials off, nothing
+    /// changes). Read once at the start (nvf_assets `reflection_cube::set_enabled`, main.rs);
+    /// this field is the settings row's value for the next start.
+    pub authored_reflections: bool,
 }
 
 /// The settings key of the Authored materials row (#2981).
 pub const AUTHORED_MATERIALS_KEY: &str = "authored-materials";
+
+/// The settings key of the Reflections on authored materials row (#2981).
+pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
 
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
 /// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
@@ -305,6 +314,8 @@ impl Graphics {
             desert_haze: false,
             // On in both looks [design, #2981]: without a pack nothing changes.
             authored_materials: true,
+            // On in both looks [design, #2981]: without a pack nothing reflects.
+            authored_reflections: true,
         }
     }
 
@@ -331,6 +342,7 @@ impl Graphics {
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
             AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
+            AUTHORED_REFLECTIONS_KEY => &mut self.authored_reflections,
             _ => return None,
         })
     }
@@ -351,9 +363,10 @@ impl Graphics {
                 "no-neon-glow" => g.neon_glow = false,
                 "no-water-mirror" => g.water_mirror = false,
                 "no-authored-materials" => g.authored_materials = false,
+                "no-authored-reflections" => g.authored_reflections = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-authored-materials", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections", KEYS.join(", "))),
                 },
             }
         }
@@ -388,6 +401,7 @@ impl Graphics {
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
             (!self.authored_materials, "no authored materials"),
+            (!self.authored_reflections, "no authored reflections"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -1503,6 +1517,19 @@ mod tests {
         let mut g = Graphics::preset(Preset::Vanilla);
         *g.switch(AUTHORED_MATERIALS_KEY).unwrap() = false;
         assert!(!g.authored_materials);
+    }
+
+    #[test]
+    fn authored_reflections_are_on_in_both_looks_and_can_be_switched_off() {
+        assert!(Graphics::preset(Preset::Vanilla).authored_reflections && Graphics::preset(Preset::Enhanced).authored_reflections);
+        let off = Graphics::only(&["no-authored-reflections".into()]).expect("no-authored-reflections");
+        assert!(!off.authored_reflections && off.authored_materials, "the materials row stays on");
+        assert_eq!(off.describe(), "light glow, no authored reflections");
+        let only = Graphics::only(&["authored-materials".into()]).unwrap();
+        assert!(only.authored_reflections, "--graphics-only leaves it on unless told");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch(AUTHORED_REFLECTIONS_KEY).unwrap() = false;
+        assert!(!g.authored_reflections);
     }
 
     #[test]

@@ -1022,6 +1022,7 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     // keep their legacy look for later swaps (`crate::authored::LegacyLook`).
     if eligible {
         let legacy = crate::authored::LegacyLook {
+            diffuse: material.base.base_color_texture.clone(),
             normal: material.base.normal_map_texture.clone(),
             specular: material.base.specular_texture.clone(),
             roughness: material.base.perceptual_roughness,

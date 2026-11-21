@@ -229,11 +229,16 @@ fn foreign_layer(layers: &RenderLayers, anchor: Option<&TransmissionAnchor>) -> 
 /// A VFS over the generated files, after checking each reads back as written (the fixture's
 /// own check reads every file, the set members included, straight from the VFS).
 fn owned_data(out: &Path, schema: Arc<fnv_nif::Schema>) -> Result<GameData, String> {
+    owned_data_of(out, schema, &fixture())
+}
+
+/// [`owned_data`] over the files `files` (the reflection field's, reflect.rs).
+fn owned_data_of(out: &Path, schema: Arc<fnv_nif::Schema>, files: &[(&str, Vec<u8>)]) -> Result<GameData, String> {
     let vfs = fnv_vfs::Vfs::open(out, &[]).map_err(|e| format!("owned VFS: {e}"))?;
-    for (rel, expected) in fixture() {
+    for (rel, expected) in files {
         let path = rel.replace('/', "\\");
         let actual = vfs.read(&path).ok_or_else(|| format!("missing owned VFS {path}"))?.map_err(|e| format!("owned VFS {path}: {e}"))?;
-        if actual != expected || vfs.source_of(&path) != Some("loose") {
+        if actual != *expected || vfs.source_of(&path) != Some("loose") {
             return Err(format!("different owned VFS payload {path}"));
         }
     }
@@ -496,7 +501,12 @@ fn create_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 // A new child per run; earlier evidence is kept. create_dir is the reservation.
 fn new_output(home: &Path, stamp: u128, process: u32) -> std::io::Result<PathBuf> {
-    let root = home.join("pbr-field-output");
+    new_output_in(home, "pbr-field-output", stamp, process)
+}
+
+/// [`new_output`] under `home`'s folder `folder` (the reflection field's own).
+fn new_output_in(home: &Path, folder: &str, stamp: u128, process: u32) -> std::io::Result<PathBuf> {
+    let root = home.join(folder);
     match fs::create_dir(&root) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -605,3 +615,6 @@ fn write_fixture(out: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+/// The reflection field (#2981 reflections, slice 1), on this field's helpers.
+pub(crate) mod reflect;

@@ -382,7 +382,7 @@ mod tests {
         use nvf_assets::authored::{is_authored, LegacyLook, AUTHORED_MARK};
         let mut images = Assets::<Image>::default();
         let mut materials = Assets::<NifMaterial>::default();
-        let look = LegacyLook { normal: None, specular: None, roughness: 0.7, reflectance: 0.3, metallic: 0.0, tangents: false, specular_tint: Color::WHITE, scripted_tint: None };
+        let look = LegacyLook { diffuse: None, normal: None, specular: None, roughness: 0.7, reflectance: 0.3, metallic: 0.0, tangents: false, specular_tint: Color::WHITE, scripted_tint: None };
         let mut authored = nvf_assets::nif_material(StandardMaterial::default());
         let orm = images.add(Image::default());
         authored.base.metallic_roughness_texture = Some(orm.clone());
