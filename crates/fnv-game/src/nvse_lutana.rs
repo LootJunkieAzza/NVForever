@@ -553,12 +553,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "setzoneflag" => {
             if let (Some(z), Some(bit)) = (form(args, 0).filter(|z| g.world.forms.zones.contains_key(z)), num(args, 1).map(|b| b as i64 as u8)) {
                 let on = num(args, 2).unwrap_or(0.0) != 0.0;
-                let c = g.other.zone_changes.entry(z).or_default();
                 if bit & 1 != 0 {
-                    c.never_resets = Some(on);
+                    g.other.zone_changes.entry(z).or_default().never_resets = Some(on);
                 }
                 if bit & 2 != 0 {
-                    c.match_pc_below_min = Some(on);
+                    g.world.set_zone_match_level(z, on);
                 }
             }
             zero

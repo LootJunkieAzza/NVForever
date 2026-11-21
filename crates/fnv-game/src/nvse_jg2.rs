@@ -104,7 +104,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // GetRefEncounterZone, alias GetRefZone]; SetRefEncounterZone `[zone]` and
         // SetCellEncounterZone `cell [zone]`, none removing it, 1 when done [documented].
         "getrefencounterzone" | "getrefzone" => {
-            let z = subject.and_then(|r| g.other.ref_zones.get(&r).copied().unwrap_or_else(|| g.world.placed.get(r).and_then(|p| p.encounter_zone)));
+            let z = subject.and_then(|r| g.world.ref_own_zone(r));
             XVal::Ref(z.map_or(0, |z| z.0))
         }
         "setrefencounterzone" | "setrefzone" => {
@@ -114,7 +114,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if form(args, 0).is_some() && z.is_none() {
                 return Some(Ok(zero));
             }
-            g.other.ref_zones.insert(r, z);
+            g.world.set_ref_zone(r, z);
             XVal::Num(1.0)
         }
         "setcellencounterzone" | "setcellzone" => {
@@ -123,7 +123,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if form(args, 1).is_some() && z.is_none() {
                 return Some(Ok(zero));
             }
-            g.other.cell_zones.insert(c, z);
+            g.world.set_cell_zone(c, z);
             XVal::Num(1.0)
         }
         // `form [female]`: the message (small) icon, MICO, an armor's female one MIC2

@@ -91,7 +91,7 @@ changes. The engine's crafting menu (`engine/nvf-play/src/crafting.rs`) reads
 | GetCellCoords `[cell]` | a string map with "x" and "y", XCLC [documented]; an interior cell 0 and 0 [observed: lutana1 cell.coords.doccell] |
 | GetWaterFormEffect `[water]` | WATR XNAM's actor effect [documented]; with no water, the player's cell's [hypothesis: the bare call does not compile in the original, lutana1 water.effect.none] |
 | GetZone `ref` | the encounter zone of the reference's parent cell, SetCellEncounterZone's first [documented] |
-| GetZoneFlag, SetZoneFlag `zone flag [on]` | ECZN DATA flags 1 Never Resets, 2 Match PC Below Minimum Level [documented: the table]; GetZoneFlag 1 when any bit of the mask is set [observed: lutana1 zone.flag.vault11zone.3]; set through `Game::zone`, so GetZoneMatchLevel reads it [hypothesis: the zone's respawn and level checks still read the record] |
+| GetZoneFlag, SetZoneFlag `zone flag [on]` | ECZN DATA flags 1 Never Resets, 2 Match PC Below Minimum Level [documented: the table]; GetZoneFlag 1 when any bit of the mask is set [observed: lutana1 zone.flag.vault11zone.3]; set through `Game::zone` / `World::set_zone_match_level` (carried across same-run loads via `Game::Session` / `WorldSession`, not saved) so `GetZoneMatchLevel`, `GetZoneRespawns`, `Game::cell_never_resets`, `World::enter_zone`, and `World::level_at` all read it [hypothesis: session-only lifetime and consumer interaction] |
 | GetChanceNoneGlobal `list` | LVLG, SetChanceNoneGlobal's first [documented] |
 
 ## 6. Activators, terminals, locks

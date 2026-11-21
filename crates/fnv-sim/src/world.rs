@@ -442,16 +442,43 @@ pub struct Snapshot {
 /// start empty, as the scripts' session does (GetGameRestarted is true again in the new
 /// run, so a mod that makes such edits on GetGameRestarted makes them again; saving the
 /// edits as well would make it add its leveled-list entries twice) [decision].
+/// Session-only encounter-zone level/flag overrides (`SetZoneMinLevel`, `SetZoneFlag`
+/// bit 2 "Match PC Below Minimum Level") and zone assignment overrides
+/// (`SetRefEncounterZone`, `SetCellEncounterZone`, `SetWorldspaceEncounterZone`).
+/// Carried across same-run loads in [`WorldSession`], not saved in [`Snapshot`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct ZoneSession {
+    pub(crate) min_levels: BTreeMap<FormId, i8>,
+    pub(crate) match_levels: BTreeMap<FormId, bool>,
+    pub(crate) ref_zones: BTreeMap<FormId, Option<FormId>>,
+    pub(crate) cell_zones: BTreeMap<FormId, Option<FormId>>,
+    pub(crate) world_zones: BTreeMap<FormId, Option<FormId>>,
+}
+
+impl ZoneSession {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.min_levels.is_empty()
+            && self.match_levels.is_empty()
+            && self.ref_zones.is_empty()
+            && self.cell_zones.is_empty()
+            && self.world_zones.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WorldSession {
     setting_changes: BTreeMap<String, crate::settings::Setting>,
     leveled_edits: BTreeMap<FormId, crate::forms::LeveledList>,
     base_edits: BTreeMap<FormId, Vec<crate::forms::Entry>>,
+    zone_session: ZoneSession,
 }
 
 impl WorldSession {
     pub fn is_empty(&self) -> bool {
-        self.setting_changes.is_empty() && self.leveled_edits.is_empty() && self.base_edits.is_empty()
+        self.setting_changes.is_empty()
+            && self.leveled_edits.is_empty()
+            && self.base_edits.is_empty()
+            && self.zone_session.is_empty()
     }
 }
 
@@ -580,6 +607,9 @@ pub struct World<'a> {
     /// world starts from a number no other world of this process used, as
     /// `lock_serial`.
     presence_serial: u64,
+    /// Session-only encounter-zone level/flag and assignment overrides ([`WorldSession`]).
+    /// Not saved in [`Snapshot`] [hypothesis: session-only, like other record setters].
+    pub(crate) zone_session: ZoneSession,
     /// ShowOff's SetEnableParent: a reference's enable parent for the session in place of
     /// its XESP (`None`: removed) [documented: SetEnableParent]. Not saved [hypothesis: the
     /// page does not say the change is savebaked].
@@ -627,6 +657,7 @@ impl<'a> World<'a> {
             deleted_created: BTreeMap::new(),
             lock_serial: serial,
             presence_serial: serial,
+            zone_session: ZoneSession::default(),
             enable_parent_edits: BTreeMap::new(),
             own_enable: std::collections::BTreeSet::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
@@ -2425,6 +2456,7 @@ impl<'a> World<'a> {
             setting_changes: std::mem::take(&mut self.setting_changes),
             leveled_edits: std::mem::take(&mut self.leveled_edits),
             base_edits: std::mem::take(&mut self.base_edits),
+            zone_session: std::mem::take(&mut self.zone_session),
         }
     }
 
@@ -2433,6 +2465,7 @@ impl<'a> World<'a> {
         self.setting_changes = s.setting_changes;
         self.leveled_edits = s.leveled_edits;
         self.base_edits = s.base_edits;
+        self.zone_session = s.zone_session;
     }
 
     pub fn restore(forms: &'a FormStore, placed: &'a RefTable, s: &Snapshot) -> Result<World<'a>, String> {

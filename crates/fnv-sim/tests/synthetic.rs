@@ -2580,6 +2580,49 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     assert!(!back.power_armor_training());
 }
 
+/// Session-only zone overrides (`set_zone_min_level`, `set_zone_match_level`,
+/// `set_cell_zone`, `set_ref_zone`) reach `enter_zone` and `level_at`, stay out of
+/// `Snapshot`, reset on fresh-run restore, and survive same-run `World::put_session`
+/// (#2272).
+#[test]
+fn session_zone_overrides_reach_entry_level_at_and_world_session() {
+    let f = levels_fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    // Authored baseline: LOCK_ZONE has min_level 11, ROOM has no zone.
+    assert_eq!(w.level_at(id(ZONED_CHEST), 3).level, 11);
+    assert_eq!(w.level_at(id(LEVELED_CHEST), 3).level, 3);
+    assert!(w.take_session().is_empty());
+
+    // Lower LOCK_ZONE min_level to 6 and assign ROOM -> LOCK_ZONE.
+    w.set_zone_min_level(id(LOCK_ZONE), 6);
+    w.set_cell_zone(id(ROOM), Some(id(LOCK_ZONE)));
+    assert_eq!(w.level_at(id(ZONED_CHEST), 3).level, 6);
+    assert_eq!(w.level_at(id(LEVELED_CHEST), 3).level, 6);
+
+    // Enabling Match PC Below Minimum Level makes a level-3 player stay at 3.
+    w.set_zone_match_level(id(LOCK_ZONE), true);
+    assert_eq!(w.level_at(id(ZONED_CHEST), 3).level, 3);
+
+    // Not saved in Snapshot: fresh-run restore reverts to authored min_level 11 & ROOM=None.
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
+    let mut fresh = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert_eq!(fresh.level_at(id(ZONED_CHEST), 3).level, 11);
+    assert_eq!(fresh.level_at(id(LEVELED_CHEST), 3).level, 3);
+    assert_eq!(fresh.enter_zone(id(LOCK_ZONE), 3), Some(11));
+
+    // Same-run restore with put_session preserves all zone overrides and makes WorldSession non-empty.
+    let session = w.take_session();
+    assert!(!session.is_empty());
+    assert!(w.take_session().is_empty());
+    let mut same_run = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    same_run.put_session(session);
+    assert_eq!(same_run.cell_zone_of(id(ROOM)), Some(id(LOCK_ZONE)));
+    assert_eq!(same_run.level_at(id(LEVELED_CHEST), 3).level, 3);
+    same_run.set_zone_match_level(id(LOCK_ZONE), false);
+    assert_eq!(same_run.enter_zone(id(LOCK_ZONE), 3), Some(6));
+    assert_eq!(same_run.level_at(id(LEVELED_CHEST), 3).level, 6);
+}
+
 // ---- a second plugin moving and deleting the master's references (#999) -----------
 
 /// A plugin over Test.esm (master index 0) that moves STIM_REF from CELL_A to CELL_B,
