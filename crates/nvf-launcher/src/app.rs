@@ -804,9 +804,11 @@ impl App {
         if self.play_dirty_ask {
             self.play_dirty_ask = false;
         } else if self.page_unsaved() {
-            self.play_dirty_ask = true;
-            self.message = Some(("The mod list or the load order is unsaved. Play again to start anyway.".into(), true));
-            return;
+            self.remember_lists();
+            if self.page_unsaved() {
+                self.message = Some(("The mod list could not be stored, so the game was not started.".into(), true));
+                return;
+            }
         }
         if !self.edits.is_empty() {
             let r = self.save_settings();
@@ -898,6 +900,7 @@ impl eframe::App for App {
         for url in take_links(ctx) {
             launch::open_url(&url);
         }
+        self.remember_lists();
     }
 }
 
@@ -1675,7 +1678,7 @@ impl App {
         ui.label(RichText::new("NEW GAME START").small().strong().color(theme::GOLD_TEXT));
         card(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. Clear restores the base game (00102037 and FNVIntro.bik). Save writes this file.").small().color(WEAK));
+            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. TTW off is the base game. TTW on is Tale of Two Wastelands. Save writes this file.").small().color(WEAK));
             if let Some(path) = self.ini_path() {
                 ui.label(RichText::new(path.display().to_string()).small().color(WEAK)).on_hover_text("Linux: ~/.local/share/nvforever (or $XDG_DATA_HOME/nvforever), unless NVFOREVER_HOME is set. Windows: Documents\\My Games\\NVForever. An existing nvforever.ini in that folder is the file used.");
             }
@@ -1685,20 +1688,15 @@ impl App {
                 ui.label(RichText::new("Film").small());
                 ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text("FNVIntro.bik").desired_width(160.0));
                 ui.checkbox(&mut self.start_edit.no_film, "No intro film");
-                if ui.add_enabled(self.start_edit != crate::start::Fields::original(), egui::Button::new("Clear")).on_hover_text("Back to the base game: quest 00102037 (VCG00) and FNVIntro.bik. Save writes it.").clicked() {
-                    self.start_edit = crate::start::Fields::original();
+                let mut ttw_on = self.start_edit.is_ttw();
+                let ttw_label = if ttw_on { "TTW on" } else { "TTW off" };
+                if ui.checkbox(&mut ttw_on, ttw_label).on_hover_text("On: quest 001FFFF8 and no intro film. Off: the base game, quest 00102037 and FNVIntro.bik. Save writes it.").changed() {
+                    self.start_edit = if ttw_on { crate::start::Fields::ttw() } else { crate::start::Fields::original() };
                 }
             });
-            let ttw = self.mods.as_ref().and_then(|l| l.entries.iter().find(|e| e.name.eq_ignore_ascii_case(crate::start::TTW_PLUGIN))).map(|e| e.active);
-            if ttw.is_some() && !self.start_edit.is_ttw() && ui.button("Use Tale of Two Wastelands' start").on_hover_text("Quest 001FFFF8 and no intro film, as that mod's guide writes them. Save to keep it. Clear puts the base game back.").clicked() {
-                self.start_edit = crate::start::Fields::ttw();
-            }
-            if self.start_edit.is_ttw() && ttw == Some(false) {
-                ui.label(RichText::new(format!("{} is off in the load order. Turn it on, or this start quest is not found.", crate::start::TTW_PLUGIN)).small().color(BAD));
-            }
-            let quest = self.start_edit.quest.trim();
-            if ttw == Some(true) && !self.start_edit.is_ttw() && (quest.is_empty() || quest.eq_ignore_ascii_case(crate::start::DEFAULT_QUEST) || quest.eq_ignore_ascii_case("VCG00")) {
-                ui.label(RichText::new("Tale of Two Wastelands is on, and a new game still starts at the New Vegas opening.").small().color(BAD));
+            let ttw_loaded = self.mods.as_ref().and_then(|l| l.entries.iter().find(|e| e.name.eq_ignore_ascii_case(crate::start::TTW_PLUGIN))).map(|e| e.active);
+            if self.start_edit.is_ttw() && ttw_loaded != Some(true) {
+                ui.label(RichText::new(format!("{} is not on in the load order. Turn it on, or this start quest is not found.", crate::start::TTW_PLUGIN)).small().color(BAD));
             }
         });
         ui.add_space(4.0);
@@ -2271,6 +2269,28 @@ impl App {
 
     fn page_unsaved(&self) -> bool {
         self.mods_dirty || (!self.saved_lists.is_empty() && self.lists_text() != self.saved_lists)
+    }
+
+    /// Writes the mod list and the load order without a profile and without the Save button.
+    /// The home's `plugins.txt` and `mod-order.txt` are the default. An open profile is updated
+    /// too, and still overrides that default the next time it is opened.
+    fn remember_lists(&mut self) {
+        if !self.page_unsaved() || self.mods.is_none() {
+            return;
+        }
+        if let Err(e) = self.save_mods() {
+            if self.message.as_ref().map(|(m, _)| m != &e).unwrap_or(true) {
+                self.message = Some((e, true));
+            }
+            return;
+        }
+        if let Some(dir) = self.picked_profile_dir() {
+            if self.profile_owned(&dir) {
+                let _ = Self::write_profile_lists(&dir, &self.mod_rows, self.mods.as_ref());
+            }
+        }
+        self.mods_dirty = false;
+        self.saved_lists = self.lists_text();
     }
 
     fn restore_remembered_profile(&mut self) {
