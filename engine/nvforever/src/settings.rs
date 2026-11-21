@@ -479,7 +479,7 @@ pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread, t
 pub(crate) const FPS_SPLIT_SWITCHES: &str = "";
 
 /// The Tree distance row's note [design: our own words, #3016].
-const TREE_DISTANCE_NOTE: &str = "How far from you trees beyond the loaded cells are drawn as flat pictures, at most as far as distant land reaches. Farther runs slower.";
+const TREE_DISTANCE_NOTE: &str = "How far from you trees beyond the loaded cells are drawn as flat pictures, at most as far as distant objects are drawn. Farther runs slower.";
 
 /// The field of view's least and greatest degrees on the settings page, in steps of 5.
 const FOV_MIN: f32 = 50.0;

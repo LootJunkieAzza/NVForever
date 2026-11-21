@@ -1797,8 +1797,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   | `[LOD] fLODMultObjects`, `fLODMultTrees`, `fLODFadeOutPercent` | 5, 0.5, 0.6 | — |
   | `[Grass] fGrassStartFadeDistance` | 7,000 | 0 / 3,000 / 5,000 / 7,000 |
 
-  Readings [hypothesis]: fBlockLoadDistance is how far terrain chunks and object
-  blocks are drawn, fBlockLoadDistanceLow how far the finest (level 4) chunks reach,
+  Readings [hypothesis]: fBlockLoadDistance is how far object blocks are drawn (first
+  read as the terrain chunks' reach too; the original draws terrain farther, "Terrain
+  reach" below), fBlockLoadDistanceLow how far the finest (level 4) chunks reach,
   fSplitDistanceMult scales the distances at which coarser chunks give way to finer
   ones (at Very High and Low, fSplitDistanceMult × 8 cells × 4,096 = 49,152 and 24,576
   lands within 2% of fBlockLoadDistanceLow; at Medium and High it does not), and
@@ -1806,6 +1807,21 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   and uGridDistantTreeRange look like the older distant-land settings (cell counts) that
   the new terrain system replaces. Which INI file wins when both set a value is not
   known. What NVForever does with each: layer3.md "Distant LOD".
+- **Terrain reach**: at one pose, the hill above Goodsprings (-65347, 5770, z 13970,
+  heading 27°, night), the original shows a jagged mountain range along the whole
+  horizon toward Vegas; with terrain chunks cut off at 125,000 ours shows a flat, low
+  horizon there. Of the `--lod-distance` values tried (that sweep, before terrain got its
+  own reach, also moved the object blocks and the distant water), 150,000, 175,000 and
+  200,000 did not match the original's skyline and 250,000, the first one that did,
+  matched it along its whole width [observed: capture of the original over xNVSE and our
+  runs at the same pose, 2026-11-19, #3055]. So 250,000 is a default calibrated at that
+  pose, not a measured distance: how far the original actually draws terrain (whole
+  chunks reach past any cut-off, so a smaller reach of its own could give the same
+  skyline), and whether it is one fixed distance for every place and preset, is
+  [hypothesis]. No key in `[TerrainManager]` of `Fallout_default.ini` or the four
+  presets gives 250,000 [observed: the files]. NVForever takes one fixed terrain reach
+  independent of fBlockLoadDistance, which then bounds only the object blocks
+  [hypothesis]; nothing showed the object blocks' reach to be wrong.
 - How the game hides LOD under loaded cells, and exactly when it switches levels, is not
   known; the renderer's rules are [hypothesis] (layer3.md, `engine/nvforever/src/lod.rs`).
 

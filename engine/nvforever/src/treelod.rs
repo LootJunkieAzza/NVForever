@@ -109,8 +109,9 @@ impl DistantTrees {
 }
 
 /// The Tree distance slider's part of the distant LOD's far limit `far` in whole game
-/// units. The slider ends at `far`: billboards beyond it would stand where no distant
-/// terrain is drawn (lod.rs draws no chunk beyond `far`) [design, #3016].
+/// units. The slider ends at `far`, where the object blocks stop, so billboards never
+/// stand beyond the buildings and rocks around them (the terrain reaches farther,
+/// `LodSettings::terrain_reach`) [design, #3016, #3055].
 pub fn part_reach(far: f32, part: f32) -> f32 {
     (far.max(0.0) * part.clamp(0.0, 1.0)).round()
 }

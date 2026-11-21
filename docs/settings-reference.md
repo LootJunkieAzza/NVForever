@@ -1291,10 +1291,11 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 ### `tree-distance`: Tree distance
 
 - On the page: How far from you trees beyond the loaded cells are drawn as flat pictures, at
-  most as far as distant land reaches. Farther runs slower.
-- In full: Shown as a distance in game units, in steps of 2,500 up to how far distant land
-  is drawn (125,000 units by default); billboards farther out would stand where no distant
-  land is drawn. It starts at 40,000 units, as before the row.
+  most as far as distant objects are drawn. Farther runs slower.
+- In full: Shown as a distance in game units, in steps of 2,500 up to how far distant object
+  blocks are drawn (125,000 units by default), so the billboards stop where the buildings and
+  rocks around them stop; distant land reaches farther (250,000 units). It starts at 40,000
+  units, as before the row.
 - Command line: `--tree-distance` sets where the slider starts (40,000 units by default, at
   most `--lod-distance`; 0 draws no distant trees whatever the slider); `--lod-distance` sets
   the slider's end

@@ -311,10 +311,17 @@ struct Args {
     /// Override the weather's fog distances: "near,far" in game units.
     #[arg(long)]
     fog: Option<String>,
-    /// Distant LOD (terrain chunks, object blocks) out to this distance in game units
-    /// (the game's fBlockLoadDistance; default the owner's INI value) [hypothesis: lod.rs].
+    /// Distant object LOD blocks out to this distance in game units (the game's
+    /// fBlockLoadDistance; default the owner's INI value) [hypothesis: lod.rs]; the
+    /// terrain reaches at least as far. 0 drops only the object blocks: --no-lod turns
+    /// off all distant LOD (terrain, water, objects and trees).
     #[arg(long, default_value_t = 125_000.0)]
     lod_distance: f32,
+    /// Distant terrain LOD chunks (and the distant water on them) out to this distance in
+    /// game units, or to --lod-distance when that is larger (default calibrated at one
+    /// pose above Goodsprings, #3055) [observed + hypothesis: lod.rs].
+    #[arg(long, default_value_t = 250_000.0)]
+    lod_terrain_distance: f32,
     /// Finest terrain LOD (level 4) within this distance (fBlockLoadDistanceLow).
     #[arg(long, default_value_t = 50_000.0)]
     lod_near_distance: f32,
@@ -922,6 +929,7 @@ fn parse_vec<const N: usize>(s: &str) -> Option<[f32; N]> {
 fn lod_settings(args: &Args) -> lod::LodSettings {
     lod::LodSettings {
         far: args.lod_distance.max(0.0),
+        terrain_far: args.lod_terrain_distance.max(0.0),
         near: args.lod_near_distance.max(0.0),
         split: args.lod_split.max(0.0),
         trees: args.tree_distance.max(0.0),
