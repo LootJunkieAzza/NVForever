@@ -93,7 +93,9 @@ pub struct OtherState {
     pub lev_actors: HashMap<FormId, crate::nvse_leveled::LevList>,
     /// Generic*Form's changed lists, by (list code, form) (`Game::generic_list`).
     pub generic: HashMap<(i64, FormId), Vec<FormId>>,
-    /// SetOwningFactionRequiredRank's ranks, by reference (over the record's XRNK).
+    /// SetOwningFactionRequiredRank's ranks, by reference (over the record's XRNK), read
+    /// through `Game::owner_rank` / `Game::ownership_in` and carried across same-run loads
+    /// in `Game::Session`.
     pub owner_ranks: HashMap<FormId, i32>,
     /// SetZoneMinLevel's and SetZoneOwner's changes, by encounter zone (`nvse_anh`).
     pub zone_changes: HashMap<FormId, crate::nvse_anh::ZoneChange>,

@@ -822,7 +822,7 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
         // [documented: GetParentCellOwner; GetOwningFactionRequiredRank] the cell's owner
         // and the faction rank a reference's owner needs.
         "getparentcellowner" => XVal::Ref(subject.and_then(|r| g.cell_of(r)).and_then(|c| g.cell_ownership(c)).map_or(0, |o| o.owner.0)),
-        "getowningfactionrequiredrank" => XVal::Num(subject.and_then(|r| g.other.owner_ranks.get(&r).or_else(|| g.data.owner_ranks.get(&r))).map_or(0.0, |&r| f64::from(r))),
+        "getowningfactionrequiredrank" => XVal::Num(subject.and_then(|r| g.owner_rank(r)).map_or(0.0, f64::from)),
         // `GetBipedModelPath which [form]`: 0 male biped (MODL), 1 female biped (MOD3),
         // 2 male ground (MOD2), 3 female ground (MOD4) [observed: nvse-misc, leather armor].
         "getbipedmodelpath" => {

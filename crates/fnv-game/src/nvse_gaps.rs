@@ -995,7 +995,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Characters\_Male\Skeleton.NIF]; a leveled or templated actor's as NX reads it
         // (`crate::nvse_nx::skeleton_model`).
         "getskeletonmodel" => XVal::Str(form(args, 0).or(subject).map(|f| crate::nvse_nx::skeleton_model(g, f)).unwrap_or_default()),
-        "getownerofcell" => XVal::Ref(form(args, 0).and_then(|c| g.data.cells.get(&c)).and_then(|c| c.owner).map_or(0, |o| o.0)),
+        "getownerofcell" => XVal::Ref(form(args, 0).and_then(|c| g.cell_ownership(c)).map_or(0, |o| o.owner.0)),
         // PKDT general flags bit by bit [observed: gaps7, Doc's sandbox 9 and 21 set];
         // SetPackageFlag returns 0, for the session [observed: gaps8].
         "getpackageflag" | "setpackageflag" => {
