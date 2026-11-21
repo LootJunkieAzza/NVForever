@@ -105,9 +105,10 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 /// missing" messages although NVForever runs the functions TTW calls from them
 /// (`TTW_GetPlugins` and the other `TTW_*`, StewieGetValue; `fnv_game::nvse_small`)
 /// [design, owner 2026-11-08: "technically the dll is present, just in engine"]:
-/// Stewie's Tweaks is reported at 941, the lowest TTW 3.4 accepts, and ttw_nvse at 1,
-/// as TTW only asks whether it is there. Most of Stewie's tweaks themselves are not
-/// built (ext-small.md).
+/// Stewie's Tweaks was reported at 941, the lowest TTW 3.4 accepts, and ttw_nvse at 1,
+/// as TTW only asks whether it is there. Stewie's is now [`STEWIE_VERSION`], the
+/// highest mod gate whose dependent mods' Stewie features are all built (ext-version.md
+/// §5.1). Most of Stewie's tweaks themselves are not built (ext-small.md).
 ///
 /// The same holds for every other plugin whose functions the engine builds: a mod that
 /// asks `IsPluginInstalled "SUP NVSE Plugin"` before calling SUP's functions got 0 and
@@ -136,7 +137,7 @@ pub const PLUGINS: [(&str, f64); 15] = [
     ("kNVSE", 37.0),
     ("JohnnyGuitarNVSE", 528.0),
     ("MCM Extensions", 1.0),
-    ("lStewieAl's Tweaks", 941.0),
+    ("lStewieAl's Tweaks", STEWIE_VERSION),
     ("ttw_nvse", 1.0),
     ("CUI", 120.0),
     ("hNVSE", 120.0),
@@ -146,6 +147,12 @@ pub const PLUGINS: [(&str, f64); 15] = [
     ("Extensions for NVSE", UNOBSERVED_VERSION),
     ("UI Organizer Plugin", UNOBSERVED_VERSION),
 ];
+
+/// The Stewie's Tweaks version reported: 9.45, whose No Casino Bans fix (GetCasinoWinningStage
+/// never reads banned; `fnv_game::casino::script_winnings_level`) is what Casino Rewards
+/// Fix's 945 gate stands for [documented: the plugin's public changelog, 9.45]. Higher
+/// gates (960 StewieGetValue users, 970) wait for their features (ext-version.md §5.1).
+pub const STEWIE_VERSION: f64 = 945.0;
 
 /// The version reported for a plugin the engine builds whose own number is neither
 /// documented nor read in the original: higher than any a mod asks for, since mods

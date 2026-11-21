@@ -176,6 +176,7 @@ low.
   TTW calls from both (`TTW_*`, StewieGetValue, `fnv_game::nvse_small`). Neither plugin
   is on the owner's install, so neither version was read: 941 is the lowest TTW accepts,
   and TTW never asks ttw_nvse's. Most of Stewie's tweaks are not built (ext-small.md).
+  Since 2026-11-18 Stewie's is 945 (§5.1).
 - **The other plugins the engine builds** (2026-11-12): until then a mod asking
   `IsPluginInstalled "SUP NVSE Plugin"` got 0 and `GetPluginVersion` -1 for every plugin
   outside the list above, though all of that plugin's catalogue functions run here
@@ -205,6 +206,30 @@ low.
   when that setting is off or missing there.
 - **GetNVSEVersionFull**: a JIP function; answer only once JIP's module exists.
 - **GetLNVersion**: 0, as documented.
+
+### 5.1 Stewie's Tweaks: reported version by the features built
+
+[design, 2026-11-18] Mods gate on `GetPluginVersion "lStewieAl's Tweaks"` for a
+feature that came in that version [documented: the plugin's public changelog,
+https://www.nexusmods.com/newvegas/mods/66347?tab=logs]. The version reported is the
+highest gate whose dependent mods' Stewie features are all built here; it is never the
+version of a DLL found on disk (the engine is not that DLL). A higher gate rises only
+when its features are built, with a row here and a test (`fnv_script::vm::jip::
+STEWIE_VERSION`; `jg3::stewie_945_gate_passes_with_the_casino_stage_fix_and_higher_gates_still_stop`).
+
+| Reported | Feature it stands for (changelog) | Built in NVForever | Mods unblocked (installed list, 2026-11-18) |
+|---|---|---|---|
+| 941 | TTW 3.4's minimum | TTW's `TTW_*` and StewieGetValue calls | Tale of Two Wastelands; gates 905/906 (Explosion Reactions, Animated Moments, Drowning Visuals, Modern Minimap's MCM list) |
+| 945 | 9.45 "No Casino Bans - make GetCasinoWinningStage not return banned" | `casino::script_winnings_level` (blackjack.md §4) | Casino Rewards Fix 1.1 (`< 945` guard; then GetCasinoWinningsLevel, dialogue/menu-close events) |
+| 960 (not reported) | 9.60 "Add Command StewieGetValue (alias StewVal)", xNVSE 6.3.0 | StewieGetValue for some keys only | Pip-Boy UI Tweaks (StewVal of item-stat, critical and weightless-item keys; menu search buttons), Quality of Life ESPless (`bKeepPipboyLightOnCellChange`), MCM Extender requirement lists asking 960 |
+| 970 (not reported) | 9.70 inventory/AddItem refresh and WASD menu changes | no | Barter Categories Icons (also reads `bSynchronizeContainerCategories` and `bPreventSwitchWhenEmptyingCategory` from Stewie's INI) |
+
+[observed: the installed mods' scripts and requirement lists, read locally on
+2026-11-18; only the gate numbers and the function/key names they call are kept] The
+"Mods unblocked" column. [design] The reported number 945 is an engine design choice
+(the engine is not the plugin and has no version of its own). [hypothesis] The mods
+that pass the 945 gate need no Stewie feature from the changelog's 9.42 to 9.44
+entries beyond what is built here; that has not been observed in the original game.
 
 ## 6. Open (to observe)
 

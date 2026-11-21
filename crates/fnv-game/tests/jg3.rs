@@ -349,9 +349,26 @@ fn no_casino_bans_changes_real_source_reward_and_ban_branch_outputs_without_vers
         q(&mut g, "if (GetCasinoWinningsLevel TestCasino) == 4\nPlayerREF.AddItem TestChip 1\nelseif (GetCasinoWinningsLevel TestCasino) == 3\nPlayerREF.AddItem TestChip2 1\nendif");
         assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), if enabled { 0 } else { 1 });
         assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP2)).unwrap(), if enabled { 1 } else { 0 });
-        assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+        assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
         assert_eq!(g.player.casino_earnings[&FormId(CSNO)], 1000);
     }
+}
+
+/// The reported Stewie's Tweaks version stands for this fix (ext-version.md §5.1): a mod
+/// gating at 945 for the 9.45 No Casino Bans fix passes its guard and then reads no banned
+/// stage, where higher gates (960) still stop.
+#[test]
+fn stewie_945_gate_passes_with_the_casino_stage_fix_and_higher_gates_still_stop() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.tweaks.no_casino_bans = true;
+    fnv_game::casino::add_earnings(&mut g, FormId(CSNO), 1000, 1000);
+    let guard = |gate: u32| format!("if GetPluginVersion \"lStewieAl's Tweaks\" < {gate}\nreturn\nendif\nif (GetCasinoWinningStage TestCasino) == 4\nPlayerREF.AddItem TestChip 1\nelse\nPlayerREF.AddItem TestChip2 1\nendif");
+    q(&mut g, &guard(945));
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP2)).unwrap(), 1, "the 945 gate passes");
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), 0, "and no banned stage is read");
+    q(&mut g, &guard(960));
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP2)).unwrap(), 1, "the 960 gate still stops");
 }
 
 #[test]
