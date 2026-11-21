@@ -392,3 +392,26 @@ for each effect, and how it fits a long description.
   player's sound changes to a mod sound [design], and at debug level each NPC
   shot's choice (`combat: npc <ref> shot sound <SOUN> (silenced|plain, 3D|distant)`).
 
+
+## 8. Models changed by scripts
+
+- **The setters**: SetWeaponModel `weapon mask path` sets `MODL` (0) or `MWD1`–`MWD7`
+  (1–7) [documented: SetWeaponModel's table]; SetModelPath sets `MODL` [documented];
+  SetWeapon1stPersonModel `weapon trait [model]` sets `WNAM` (0) or `WNM1`–`WNM7` (1–7)
+  [documented: SetWeapon1stPersonModel]. With no model it clears that form, so first
+  person draws the third-person model the weapon has for the combination (§2)
+  [hypothesis: WAP Year One's script files set every `MODL`/`MWD` model of a weapon with
+  SetWeaponModel and then call SetWeapon1stPersonModel with no model for each of 0–7,
+  which only means something as a clear; observed: its `gr_10mmP.txt`].
+- **Drawn**: the changes hold for the session (`fnv_game::Game::weapon_model_changes`);
+  the renderer copies them into its record view (`engine/nvforever/src/weapon_models.rs`),
+  so the player's weapon in both views and an NPC's weapon taken up afterwards are drawn
+  with them. A change that goes (a load) puts the record's models back. The player's
+  weapon is drawn again as soon as its model changes [design].
+- **Alternate textures**: a model a script set is drawn without the record's alternate
+  texture list for the model it replaced [hypothesis: the list names that model's
+  shapes]; the third-person `MOD4` held in place of `MODL` (Lucky's) gives way to a
+  script's `MODL` [hypothesis: the mod meant its model to be seen].
+- **Not built**: a weapon lying in the world or placed in a cell keeps its record's
+  model; an NPC already holding the weapon keeps the old model until it takes up
+  another weapon or is drawn anew.

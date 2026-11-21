@@ -344,6 +344,15 @@ fn weapons() {
     assert_eq!((n(&mut g, "GetWeaponSemiAutoFireDelay TestGun 1"), n(&mut g, "GetWeaponSemiAutoFireDelay TestGun 0")), (0.5, 0.25));
     q(&mut g, "SetWeaponModel TestGun 3 \"weapons\\gun13.nif\"");
     assert_eq!((s(&mut g, "GetWeaponModel TestGun 3"), s(&mut g, "GetWeaponModel TestGun 0")), ("weapons\\gun13.nif".to_string(), "weapons\\gun.nif".to_string()));
+    // The renderer is told (weapon-mods.md §8); no first-person model clears the form, as
+    // WAP's script files call it.
+    let stamp = g.weapon_model_stamp();
+    q(&mut g, "SetWeapon1stPersonModel TestGun 0");
+    assert_ne!(g.weapon_model_stamp(), stamp);
+    let changes = g.weapon_model_changes();
+    let c = &changes[&FormId(WEAP)];
+    assert_eq!((c.world[3].clone(), c.world[0].clone(), c.first_person[0].clone(), c.first_person[3].clone()), (Some(Some("weapons\\gun13.nif".to_string())), None, Some((None, None)), None));
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestGun 0"), 0.0);
     q(&mut g, "SetWeaponModReloadAnim TestGun 8");
     assert_eq!(n(&mut g, "GetWeaponModReloadAnim TestGun"), 8.0);
     // Embedded weapon: the condition actor values 0-6, and the node.

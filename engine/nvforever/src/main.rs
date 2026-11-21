@@ -211,6 +211,7 @@ mod underwater_caustics;
 mod vigor_view;
 mod walk_probe;
 mod water;
+mod weapon_models;
 mod window_icon;
 mod window_mode;
 mod world;
@@ -2062,6 +2063,8 @@ fn main() -> AppExit {
             // The player knocked down (player_knockdown.rs).
             app.add_plugins(player_knockdown::PlayerKnockdownPlugin);
             app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin, appearance::AppearancePlugin, zones::ZonesPlugin));
+            // Weapon models scripts set, drawn (weapon_models.rs).
+            app.add_plugins(weapon_models::WeaponModelsPlugin);
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
             if shadow_probe::enabled() {

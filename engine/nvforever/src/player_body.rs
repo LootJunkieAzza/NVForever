@@ -1011,6 +1011,9 @@ struct Motion {
     /// The weapon's mod flags: its model is the one for them (`Weapon::model_for`,
     /// docs/spec-notes/weapon-mods.md §2).
     weapon_mods: u8,
+    /// The weapon's models as last drawn, third and first person: a script that sets them
+    /// (`crate::weapon_models`) draws the weapon again.
+    weapon_models: [Option<String>; 2],
     prefix: &'static str,
     /// The weapon's DNAM Hand Grip ([`Frame::grip`]).
     grip: Option<u8>,
@@ -1101,6 +1104,7 @@ impl Default for Motion {
         Motion {
             weapon: None,
             weapon_mods: 0,
+            weapon_models: [None, None],
             prefix: UNARMED,
             grip: None,
             hands: WeaponHands::default(),
@@ -1779,12 +1783,14 @@ fn ensure_body(
     }
     let Some(body) = state.body.as_mut() else { return };
     let m = &mut state.motion;
-    if !rebuilt && m.weapon == weapon && m.weapon_mods == weapon_mods {
+    let w = weapon.and_then(|id| world.actors.weapons.get(&id));
+    let drawn = [false, true].map(|first| w.and_then(|w| w.model_for(first, weapon_mods)));
+    if !rebuilt && m.weapon == weapon && m.weapon_mods == weapon_mods && m.weapon_models.iter().zip(drawn).all(|(a, b)| a.as_deref() == b) {
         return;
     }
     m.weapon = weapon;
     m.weapon_mods = weapon_mods;
-    let w = weapon.and_then(|id| world.actors.weapons.get(&id));
+    m.weapon_models = drawn.map(|d| d.map(str::to_string));
     m.prefix = w.and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or(UNARMED, AnimType::prefix);
     m.grip = w.and_then(|w| w.grip);
     info!("player weapon: {}, animations {}", weapon.map_or("none (fists)".to_string(), |w| w.to_string()), m.prefix);

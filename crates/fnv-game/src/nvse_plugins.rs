@@ -366,14 +366,19 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 _ => XVal::Ref(0),
             }
         }
+        // No model clears the combination's form, so first person draws the third-person
+        // model the weapon has for it (weapon-mods.md §2, §8) [hypothesis: WAP's script
+        // files set MODL and MWD1–MWD7 with SetWeaponModel and then call this with no model
+        // for each of 0–7, for new first-person models; observed: mods_reference WAP
+        // gr_10mmP.txt].
         "setweapon1stpersonmodel" => {
-            let (Some(w), Some(m)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
+            let Some(w) = form(args, 0) else { return Some(Ok(zero)) };
             let sub = match num(args, 1, -1.0) as i64 {
                 0 => "WNAM/".to_string(),
                 k @ 1..=7 => format!("WNM{k}/"),
                 _ => return Some(Ok(zero)),
             };
-            g.field_overrides.insert((w, sub), XVal::Ref(m.0));
+            g.field_overrides.insert((w, sub), XVal::Ref(form(args, 2).map_or(0, |m| m.0)));
             zero
         }
         // `armor modelID(1-4) index3D`, success(0/1) [documented: ClearArmorAltTexture].
