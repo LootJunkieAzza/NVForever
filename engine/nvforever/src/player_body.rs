@@ -780,6 +780,9 @@ struct Rig {
     sight_relief: Option<f32>,
     /// Third person: the entities drawn for the body's parts.
     drawn: Vec<Drawn>,
+    /// The forms of the appearance's parts with at least one shape spawned (a part
+    /// whose model did not load has none), in the parts' order.
+    spawned_forms: Vec<FormId>,
     /// First person: whether the rig is shown (last applied).
     shown: Option<bool>,
     /// Third person: what of the rig the camera sees (last applied).
@@ -1003,6 +1006,9 @@ struct Body {
     scale: f32,
     third: Rig,
     first: Option<Rig>,
+    /// The armour addons (ARMO and WEAP BIPL members, by Editor ID) the first-person rig
+    /// wears and drew a shape of, for the log.
+    first_addons: Vec<String>,
 }
 
 /// State kept across body rebuilds (an outfit change rebuilds the body).
@@ -1287,7 +1293,7 @@ impl PlayerBody {
                 weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
                 idle_logged: false, sights_turned: None, muzzle: None, muzzle_entity: None,
                 casing: None, casing_entity: None, sighting: None, scope_eye: None, sight_relief: None,
-                use_lens: false, drawn: Vec::new(), shown: Some(false), seen: None,
+                use_lens: false, drawn: Vec::new(), spawned_forms: Vec::new(), shown: Some(false), seen: None,
                 furniture: None, since_attack: f32::INFINITY, attack_loop: None,
                 wound_up: None, wound_hit: None, sighting2: None, attack_eject: None, ejected: false, carry: None,
             }
@@ -1297,6 +1303,7 @@ impl PlayerBody {
                 worn: Vec::new(), look: None, change: fnv_actor::Change::default(),
                 female: false, scale: 1.0, third: rig(third, View::Third),
                 first: first.map(|r| rig(r, View::First)),
+                first_addons: Vec::new(),
             }),
             ..Self::default()
         }
@@ -1668,7 +1675,8 @@ fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>,
     // A weapon with "Hide Backpack" goes with the armour: while it is equipped the body is
     // dressed without the pieces in the Backpack slot (`Resolver::resolve_wearing`).
     // So does one with armour addons of its own (WEAP BIPL: a hand-to-hand weapon's hand
-    // model, `Resolver::resolve_wearing`), for the third-person body ([`build`]).
+    // model, `Resolver::resolve_wearing`), for the third-person body and, when the weapon
+    // has no model of its own, the first-person arms ([`build`]).
     worn.extend(weapon.filter(|w| world.actors.weapons.get(w).is_some_and(|x| x.hide_backpack || !x.addons.is_empty())));
     (worn, weapon, weapon.map_or(0, |w| inv.equipped_mods(w)))
 }
@@ -1764,8 +1772,10 @@ fn ensure_body(
                     b.third.eye_local,
                     b.first.as_ref().map_or("missing".to_string(), |f| format!("{} nodes from {}", f.animator.nodes.len(), f.folder)),
                     worn.iter().map(|w| w.to_string()).collect::<Vec<_>>(),
-                    // Their biped model lists' armour addons (`fnv_actor::records::Armor::addons`).
-                    worn.iter().filter_map(|w| world.actors.armors.get(w)).flat_map(|a| a.addons.iter().map(|x| world.actors.armors.get(x).and_then(|x| x.edid.clone()).unwrap_or_else(|| x.to_string()))).collect::<Vec<_>>()
+                    // The armour addons of their biped model lists the first-person rig
+                    // wears (`fnv_actor::first_person::worn_addons`; a held fist weapon's
+                    // hand model among them, #3226).
+                    b.first_addons
                 );
                 state.body = Some(b);
                 rebuilt = true;
@@ -1956,10 +1966,12 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
-    // The first-person arms keep the bare hand: a held weapon's own addons (the power
-    // fist's metal hand, `equipped`) are for the third-person body only [hypothesis: the
-    // first-person weapon models are drawn over the arms' hands as before].
-    let first_worn: Vec<FormId> = worn.iter().copied().filter(|w| world.actors.weapons.get(w).is_none_or(|x| x.addons.is_empty())).collect();
+    // A held weapon's own addons (WEAP BIPL, `equipped`) are worn by the first-person
+    // arms only when the weapon has no model of its own for that view: the Bladed
+    // Gauntlet's or the knuckles' hand model is all there is of them (#3226). The power
+    // fist's metal hand stays the third-person body's: its rigid model is drawn over the
+    // arms' bare hand (`first_person::wears_weapon_addons`).
+    let first_worn = first_person::first_person_worn(&world.actors, worn);
     let first_a = if first_worn.len() == worn.len() { None } else { Some(world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(&first_worn), look)?) };
     let (fa, shows) = first_person::appearance(&world.actors, first_a.as_ref().unwrap_or(&a), |p| vfs.exists(p));
     let first = match build_rig(commands, parent, world, ctx, &fa, View::First, Some(&shows)) {
@@ -1969,7 +1981,15 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
             None
         }
     };
-    Ok(Body { worn: worn.to_vec(), look: look.cloned(), change: world.change(FormId::PLAYER_REF.0), female: a.female, scale, third, first })
+    // Of those, the ones the built rig drew a shape of (none without a rig).
+    let first_addons = first.as_ref().map_or_else(Vec::new, |r| {
+        first_person::worn_addons(&world.actors, &first_worn, &fa)
+            .into_iter()
+            .filter(|x| r.spawned_forms.contains(x))
+            .map(|x| world.actors.armors.get(&x).and_then(|x| x.edid.clone()).unwrap_or_else(|| x.to_string()))
+            .collect()
+    });
+    Ok(Body { worn: worn.to_vec(), look: look.cloned(), change: world.change(FormId::PLAYER_REF.0), female: a.female, scale, third, first, first_addons })
 }
 
 /// Spawn one rig of appearance `a` under `parent` (its transform set each frame).
@@ -2028,6 +2048,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     let hide: Vec<bool> = uses.iter().map(|(i, _)| head_part(*i)).collect();
     // Third person: per part, how the first-person rig shows it.
     let arms: Vec<Option<Show>> = uses.iter().map(|(i, _)| (view == View::Third).then(|| first_person::show(&world.actors, &a.parts[*i])).flatten()).collect();
+    let part_index: Vec<usize> = uses.iter().map(|(i, _)| *i).collect();
     let mut uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
     if view == View::First {
         // The arms take no shadow from the unseen body they are in the middle of.
@@ -2048,6 +2069,13 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     let drawn = (spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of))
         .map(|((&entity, &p), &s)| Drawn { entity, head: hide[p], arm: shape_shows(arms[p], uses[p].part.shapes[s].name.as_deref()) })
         .collect();
+    let mut spawned_forms: Vec<FormId> = Vec::new();
+    for &p in &spawned.part_of {
+        let form = a.parts[part_index[p]].form;
+        if !spawned_forms.contains(&form) {
+            spawned_forms.push(form);
+        }
+    }
     if view == View::First {
         // The arms rig casts no shadow on the world: the third-person body casts the
         // player's.
@@ -2108,6 +2136,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         use_lens: false,
         sight_relief: None,
         drawn,
+        spawned_forms,
         shown: None,
         seen: None,
         furniture: None,

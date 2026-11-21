@@ -188,6 +188,7 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
         use_lens: false,
         sight_relief: None,
         drawn: vec![],
+        spawned_forms: vec![],
         shown: None,
         seen: None,
         furniture: None,

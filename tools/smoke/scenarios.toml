@@ -6226,13 +6226,31 @@ name = "worn-addons-lucky"
 source = "playtest list 7 items 3 and 28 (fnv_actor::records Armor::addons, held_world_model): the CaravanPack's Lightweight Leather Armor wears its biped model list's gloves; Lucky is held in third person as its own engraved model"
 note = "the player equips PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L) and Lucky (WeapNV357RevolverUnique 0x000E2C86; MOD4 357revolverCustom.nif)"
 areas = ["actors", "weapons"]
-paths = ["crates/fnv-actor/src/records.rs", "crates/fnv-actor/src/resolve.rs", "schemas/fnv/objects.json"]
+paths = ["crates/fnv-actor/src/records.rs", "crates/fnv-actor/src/resolve.rs", "crates/fnv-actor/src/first_person.rs", "schemas/fnv/objects.json"]
 env = { NVF_PLAY_TEST_EQUIP = "001735E0,000E2C86", NVF_PLAY_TEST_CONTROL = "6:weapon" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 12
 expect = [
   { re = 'player body: .*wearing \[[^\]]*001735E0[^\]]*\] with the addons \["LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "the armour's gloves are worn with it" },
   { re = 'player weapon: mods 0 on, models Some\("weapons\W+1handpistol\W+357revolverCustom\.nif"\)', label = "Lucky's own model in third person" },
+]
+
+[[scenario]]
+name = "fist-addon-first-person"
+source = "issue #3226 (fnv_actor::first_person::wears_weapon_addons, engine/nvforever/src/player_body.rs build; docs/spec-notes/actors.md §9.2): a fist weapon with no model of its own (WeapBladedGauntlet 0x001519E0: no MODL, BIPL -> ARMABladedGuantlet, Right Hand) was left off the first-person arms, so nothing of it was drawn in first person. The arms now wear its addon, the armour's right glove giving way as on the third-person body; the power fist (a rigid MODL) keeps the bare hand under its model in first person, as before"
+note = "the player wears PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L), is given WeapBladedGauntlet and WeapPowerFist (0x00004347, MODL PowerFistRigid.NIF, BIPL -> ARMAPowerfist) at 2 s, equips the gauntlet at 3 s, draws it at 4 s, swings at 6 and 7 s and switches to the power fist at 8 s. Each equip rebuilds the body; the rebuild's line lists the addons the first-person rig wears and drew a shape of (`first_person::worn_addons`, `Rig::spawned_forms`), only when that rig was built ('N nodes from <folder>', not 'missing')"
+areas = ["actors", "weapons"]
+paths = ["crates/fnv-actor/src/first_person.rs", "crates/fnv-actor/src/resolve.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "001735E0", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:WeapBladedGauntlet:1,2:call:player:AddItem:WeapPowerFist:1,3:call:player:EquipItem:WeapBladedGauntlet,8:call:player:EquipItem:WeapPowerFist", NVF_PLAY_TEST_CONTROL = "4:weapon,6:fire,7:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'player body: armour drawn \[[^\]]*"ARMABladedGuantlet"', label = "the third-person body wears the gauntlet" },
+  { re = 'player body: .*first-person rig \d+ nodes from \S+, wearing \[[^\]]*001519E0[^\]]*\] with the addons \[[^\]]*"ARMABladedGuantlet"[^\]]*\]', label = "the built first-person rig drew the gauntlet (before #3226 only the armour's gloves)" },
+  { re = 'player body: .*wearing \[[^\]]*001519E0[^\]]*\] with the addons \[(?:(?!ARMABladedGuantlet)[^\]])*\]', count = 0, label = "no rebuild with the gauntlet equipped leaves it off the first-person rig" },
+  { re = 'player body: .*wearing \[[^\]]*001519E0[^\]]*\] with the addons \[[^\]]*"LeatherArmorGloveR"', count = 0, label = "the armour's right glove gives way to it, one hand model per hand" },
+  { re = 'combat: WeapBladedGauntlet swing ', label = "the gauntlet swings while worn" },
+  { re = 'player body: .*first-person rig \d+ nodes from \S+, wearing \[[^\]]*00004347[^\]]*\] with the addons \["LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "switched to the power fist: the gauntlet is gone, the arms keep the glove under the rigid fist" },
 ]
 
 # ------------------------------------------------------------------ objects' and actors' animation groups
