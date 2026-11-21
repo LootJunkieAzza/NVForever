@@ -2720,12 +2720,9 @@ impl App {
                 }
             }
         });
-        match self.right_tab {
-            1 => {
-                self.saves_tab(ui);
-                return;
-            }
-            _ => {}
+        if self.right_tab == 1 {
+            self.saves_tab(ui);
+            return;
         }
         self.backup_row(ui);
         let folders = self.plugin_folders.clone();

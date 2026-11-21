@@ -320,7 +320,7 @@ pub fn mod_content_layers(mods: &Path) -> Vec<PathBuf> {
             }
         }
     }
-    dirs.sort_by(|a, b| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase()));
+    dirs.sort_by_key(|a| a.0.to_ascii_lowercase());
     ordered.extend(dirs.into_iter().map(|(_, p)| p));
     ordered.into_iter().map(|p| mod_content_root(&p)).collect()
 }
