@@ -2418,6 +2418,10 @@ pub struct Session {
     kept_calls: Vec<crate::delayed::Delayed>,
     /// The form lists' ListAddForm/ListRemove… edits (`Game::list_edits`), issue #2944.
     list_edits: std::collections::HashMap<FormId, Vec<FormId>>,
+    /// Session-only destruction data edits (`Jip6State::destruction`: `SetDestructionDataHealth`,
+    /// `SetDestructionDataTargetable`, `AddDestructionStage`, `RemoveDestructionStage`,
+    /// `SetNthDestructionStage*`).
+    destruction: std::collections::HashMap<FormId, crate::data::DestructionDef>,
 }
 
 /// An event handler: the event (lower case), the function or lambda, the filters by
@@ -3808,7 +3812,7 @@ impl<'a> Game<'a> {
         let (main_loop_registrars, jip_seq) = self.jip.take_main_loop_registrars(&main_loop);
         let pp = self.pp_take_session();
         let sr_registered = self.sr.take_registered();
-        Session { handlers, main_loop, main_loop_registrars, jip_seq, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits) }
+        Session { handlers, main_loop, main_loop_registrars, jip_seq, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits), destruction: std::mem::take(&mut self.other.jip6.destruction) }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
@@ -3829,6 +3833,7 @@ impl<'a> Game<'a> {
         self.save_files = s.save_files;
         self.put_kept_calls(s.kept_calls);
         self.list_edits = s.list_edits;
+        self.other.jip6.destruction = s.destruction;
     }
 
     /// Run every handler registered for `event` whose filters match, highest priority

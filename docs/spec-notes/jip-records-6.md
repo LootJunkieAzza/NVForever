@@ -18,6 +18,8 @@ data reads 0, none or "".
 
 | Function | NVForever |
 |---|---|
+| Get/SetDestructionDataHealth `object [health]` | DEST's `health` (`i32`); `SetDestructionDataHealth` returns 0 [observed: gaps8, 75 reads back], ignores NaN/infinity and forms without destruction data [hypothesis: as `SetDestructionDataTargetable`], and updates `Game::destruction` (`Jip6State::destruction`) |
+| GetDestructionDataNumStages `object` | count of DSTD stages on `Game::destruction` (reference resolves to its base) [documented: GetDestructionDataNumStages; observed: gaps3] |
 | Get/SetDestructionDataTargetable `object [0/1]` | DEST's flag VATS Targetable |
 | GetNthDestructionStageDebris / Explosion `object index` | DSTD's debris and explosion |
 | GetNthDestructionStageReplacement `object index` | the stage's DMDL path, "" without one |
@@ -47,8 +49,11 @@ The setters return 0, except SetNthDestructionStageReplacement, which returns 1 
 jip6 dest.setrepl, jip6b dest.setexpl.result, dest.settarget.result].
 
 The game reads the changed data too (`Game::destruction`: object damage, the stages'
-models and explosions, VATS targeting, GetDestructionStage). The page says the changes
-reach only references made after the call [documented: AddDestructionStage, "no effect on
+models and explosions, VATS targeting, GetDestructionStage). Session destruction edits
+(`Jip6State::destruction`) are carried across same-run loads via `Game::take_session` /
+`put_session` and are not saved in `GameSnapshot` [documented: AddDestructionStage, "the
+changes will not be saved with the game"; hypothesis: carried across same-run loads]. The
+page says the changes reach only references made after the call [documented: AddDestructionStage, "no effect on
 existing references"]; NVForever reads a base's data each time a reference is damaged, so
 existing references take them too [decision: one store per base, nothing kept per
 reference].
