@@ -73,7 +73,20 @@
 //!     back to player 1's window, the next frame ([`p2_give_focus_back`]; a program may give
 //!     the focus away while it holds it).
 //!
+//! - **Player 2's start** ([`start_p2`]): its command line is player 1's as acted on
+//!   ([`p2_args`]; a game started with no arguments, as from Mod Organizer 2, has its
+//!   `--play` only there), its own console goes to `split\p2-console.txt`, so what it says
+//!   before its log is up is kept, and player 1's game watches its process: one that ends
+//!   with an error ends split screen at once, with player 2's console's last lines in player
+//!   1's log and a corner message ([`p2_ended`]) [observed: the owner's runs of 2026-11-21
+//!   from Mod Organizer 2, player 2's game refused its command line and no window came].
+//! - **The taskbar**: neither half covers the monitor, so Windows kept the taskbar over
+//!   their bottom edge; player 1's window is marked full screen for the taskbar while split
+//!   ([`mark_fullscreen`]) and unmarked when it ends.
+//!
 //! Log: `split: split screen on`, `split: split screen ended (…)`,
+//! `split: player 2's command line: …`, `split: player 2's game (pid …) ended (…)`,
+//! `split: player 1's window marked full screen for the taskbar …`,
 //! `split: player 2's game started (pid …)`, `split: controllers assigned (…)`,
 //! `split: player 2's controller is …`, `split: player 2's controller unplugged`,
 //! `split: every controller is player 1's again …`, `split: focus: …`, `split: input: …`,
@@ -472,6 +485,11 @@ struct P1 {
     p2_hwnd: Option<isize>,
     /// Whether this game's window had the focus (logged as it changes).
     focused: Option<bool>,
+    /// Player 2's game as this game started it, watched for an early end
+    /// ([`p2_ended`]); `None` once it ended or when this game took over one already running.
+    p2_child: Option<std::process::Child>,
+    /// This game's window, once marked full screen for the taskbar ([`mark_fullscreen`]).
+    marked: Option<isize>,
 }
 
 /// A window as it was, to give it back.
@@ -561,6 +579,8 @@ fn split_asks(
                     port: None,
                     p2_hwnd: None,
                     focused: None,
+                    p2_child: None,
+                    marked: None,
                 });
                 split.on = true;
                 info!("split: split screen on");
@@ -588,6 +608,9 @@ fn end_split(commands: &mut Commands, p1: &P1, window: Option<&mut Window>, conn
     let text = std::fs::read_to_string(&file).unwrap_or_default();
     write_file(&file, &format!("{text}end=1\n"));
     let _ = std::fs::remove_file(p1.dir.join("p2.txt"));
+    if let Some(h) = p1.marked {
+        mark_fullscreen(h, false);
+    }
     if let (Some(w), Some(before)) = (window, &p1.before) {
         before.give_back(w);
     }
@@ -860,6 +883,7 @@ fn p1_session(
     mut saved: MessageReader<nvf_play::save::SaveDone>,
     (script, play, coop): GameParts,
     (mut split, mut save_asks, layout): (ResMut<SplitScreen>, MessageWriter<nvf_play::save::SaveRequest>, Res<SplitLayout>),
+    mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>,
 ) {
     let now = time.elapsed_secs();
     // The settings page's layout, at once: both windows are placed again (player 2's
@@ -878,15 +902,29 @@ fn p1_session(
     // The screen splits at once [owner]: player 1's half as soon as split screen is on in
     // the world, before player 2's game is up (its half is black until it is).
     if in_world || p1.state != P1State::Waiting {
-        if let (Ok((mut window, _)), Ok(monitor)) = (windows.single_mut(), monitors.single()) {
+        if let (Ok((mut window, handle)), Ok(monitor)) = (windows.single_mut(), monitors.single()) {
             let mine = halves(monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height), p1.layout)[0];
             if p1.before.is_none() {
                 p1.before = Some(WindowBefore::of(&window, mine));
             }
             p1.half = Some(mine.1);
-            if place(&mut window, mine) && p1.placed != Some(mine) {
+            let changed = place(&mut window, mine);
+            if changed && p1.placed != Some(mine) {
                 p1.placed = Some(mine);
                 info!("split: player 1's window on {:?} at {}x{}", mine.0, mine.1.x, mine.1.y);
+            }
+            // The halves are the screen: no taskbar over them ([`mark_fullscreen`]). Once
+            // the window is on its half: leaving full screen unmarks it (winit's own mark
+            // of a full-screen window), after this frame's systems.
+            if p1.marked.is_none() && !changed {
+                if let Some(h) = handle.and_then(hwnd_of) {
+                    p1.marked = Some(h);
+                    if mark_fullscreen(h, true) {
+                        info!("split: player 1's window marked full screen for the taskbar (it goes under the halves)");
+                    } else {
+                        warn!("split: the taskbar did not take player 1's window as full screen");
+                    }
+                }
             }
         }
     }
@@ -950,8 +988,16 @@ fn p1_session(
                     if game.is_none() {
                         return;
                     }
-                    if let Err(e) = start_p2(&p1.dir, port, p2_half, p1.save.as_deref(), game.as_ref()) {
-                        warn!("split: player 2's game not started: {e}");
+                    match start_p2(&p1.dir, port, p2_half, p1.save.as_deref(), game.as_ref()) {
+                        Ok(child) => p1.p2_child = Some(child),
+                        Err(e) => {
+                            warn!("split: player 2's game not started: {e}");
+                            if let Some(c) = corner.as_mut() {
+                                c.push(P2_STOPPED.to_string().into());
+                            }
+                            split.ask = Some(false);
+                            return;
+                        }
                     }
                 }
                 p1.state = P1State::Running;
@@ -961,6 +1007,20 @@ fn p1_session(
         _ => {}
     }
     if p1.state != P1State::Running {
+        return;
+    }
+    // Player 2's game ended with an error (it could not start, or it crashed): split
+    // screen ends at once and the player is told, rather than player 1 waiting on a half
+    // that stays black [observed: the owner's run of 2026-11-21 04:07, no window].
+    let p1 = &mut *p1;
+    let p2_file = p1.dir.join("p2.txt");
+    let current = || read_kv(&p2_file, "pid").and_then(|v| v.parse::<u32>().ok()).filter(|p| process_alive(*p));
+    if let Some(why) = p2_ended(&mut p1.p2_child, &p1.dir, current) {
+        warn!("split: {why}");
+        if let Some(c) = corner.as_mut() {
+            c.push(P2_STOPPED.to_string().into());
+        }
+        split.ask = Some(false);
         return;
     }
     // This game left the lobby it was a guest in (or the host ended it): player 2's link
@@ -1087,18 +1147,28 @@ struct PremadeData {
 /// player 2's half. Its saves are the four premades ([`premade_saves`]), and it starts on
 /// its main menu with the guest's join screen up ([`p2_open_join`]), so player 2 picks one
 /// there (plan §7).
-fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option<&str>, game: Option<&PremadeData>) -> Result<(), String> {
+fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option<&str>, game: Option<&PremadeData>) -> Result<std::process::Child, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let home = dir.join("p2-home");
     std::fs::create_dir_all(home.join("saves")).map_err(|e| e.to_string())?;
     let mine = fnv_install::EngineHome::user().ok_or("no home folder")?;
-    // Player 2 plays with player 1's settings.
-    let _ = std::fs::copy(mine.config_file(), fnv_install::EngineHome::new(&home).config_file());
+    let theirs = fnv_install::EngineHome::new(&home);
+    // Player 2 plays with player 1's settings (the game's folder among them) and load order.
+    let _ = std::fs::copy(mine.config_file(), theirs.config_file());
+    if mine.plugins_file().is_file() {
+        let _ = std::fs::copy(mine.plugins_file(), theirs.plugins_file());
+    }
     let made = premade_saves(&mine.saves(), &home, host_save, game)?;
-    let mut args = crate::restart_args(&std::env::args().skip(1).collect::<Vec<_>>());
-    strip_coop_args(&mut args);
-    args.extend(["--menu".into(), "--split-p2".into(), dir.display().to_string(), "--size".into(), format!("{}x{}", size.x, size.y), "--window-at".into(), format!("{},{}", at.x, at.y)]);
+    let args = p2_args(&crate::command_line(), dir, (at, size));
+    // What player 2's game writes before its log is up (a refused command line, a game
+    // folder it cannot use) and its console after, where player 1's game can read it
+    // ([`p2_ended`]): a game started from Mod Organizer 2 or a shortcut has no console.
+    let console_path = dir.join(P2_CONSOLE);
+    let console = std::fs::File::create(&console_path).map_err(|e| format!("{}: {e}", console_path.display()))?;
+    let console2 = console.try_clone().map_err(|e| e.to_string())?;
+    info!("split: player 2's command line: {} {}", exe.display(), args.join(" "));
     let mut cmd = std::process::Command::new(exe);
+    cmd.stdin(std::process::Stdio::null()).stdout(console).stderr(console2);
     // Test aids `NVF_SPLIT_TEST_P2_<NAME>`: player 2's game gets each as its own
     // `NVF_PLAY_TEST_<NAME>` (e.g. `NVF_SPLIT_TEST_P2_LOBBY=25:pick=0`,
     // `NVF_SPLIT_TEST_P2_SHOT_DIR`, `NVF_SPLIT_TEST_P2_GOTO`), so the two games' aids
@@ -1125,7 +1195,83 @@ fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option
         .map_err(|e| e.to_string())?;
     info!("split: player 2's game started (pid {}) to pick from {made}", child.id());
     write_file(&dir.join("p2.txt"), &format!("pid={}\n", child.id()));
-    Ok(())
+    Ok(child)
+}
+
+/// Player 2's console, in player 1's session folder ([`start_p2`]).
+const P2_CONSOLE: &str = "p2-console.txt";
+
+/// What player 1 is told when player 2's game could not start or stopped (its corner
+/// messages; the reason is in the log).
+const P2_STOPPED: &str = "Player 2's game stopped. Split screen ended; the log says why.";
+
+/// Player 2's command line, from this game's as acted on (`line`: main.rs `command_line`,
+/// with the mode a start without one gets, `--play --menu`): without this game's load,
+/// window and co-op arguments, on its main menu on its half. `--menu` needs `--play`, which
+/// a game started with no arguments (from Mod Organizer 2, a shortcut, a double-click) has
+/// only on the acted-on line, not on the one it was started with [observed: the owner's
+/// run of 2026-11-21 04:07; the same command line refused with "the following required
+/// arguments were not provided: --play", exit code 2, before any log].
+fn p2_args(line: &[String], dir: &Path, (at, size): (IVec2, UVec2)) -> Vec<String> {
+    let mut args = crate::restart_args(line);
+    strip_coop_args(&mut args);
+    if !args.iter().any(|a| a == "--play") {
+        args.insert(0, "--play".into());
+    }
+    args.extend(["--menu".into(), "--split-p2".into(), dir.display().to_string(), "--size".into(), format!("{}x{}", size.x, size.y), "--window-at".into(), format!("{},{}", at.x, at.y)]);
+    args
+}
+
+/// Player 2's game, when it has ended with an error: why, with the end of its console
+/// ([`P2_CONSOLE`]), for the log. A clean end is not one (a load's restart hands over to a
+/// new run, which writes its own `pid` to `p2.txt`; an end of that one is seen there,
+/// `P2_GONE`), nor an error end once another run of player 2's (`current`) has taken over.
+/// The child is let go once it has ended.
+fn p2_ended(child: &mut Option<std::process::Child>, dir: &Path, current: impl Fn() -> Option<u32>) -> Option<String> {
+    let status = child.as_mut()?.try_wait().ok()??;
+    let pid = child.take().map_or(0, |c| c.id());
+    if status.success() {
+        info!("split: player 2's game (pid {pid}) ended ({status})");
+        return None;
+    }
+    if let Some(other) = current().filter(|p| *p != pid) {
+        info!("split: player 2's game (pid {pid}) ended ({status}); its new run (pid {other}) plays on");
+        return None;
+    }
+    let console = std::fs::read(dir.join(P2_CONSOLE)).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+    Some(format!("player 2's game (pid {pid}) ended ({status}); its console: {}", console_tail(&console, 12)))
+}
+
+/// The last `n` lines of a console's text that say something, without its colour codes,
+/// on one line.
+fn console_tail(text: &str, n: usize) -> String {
+    let plain = strip_ansi(text);
+    let lines: Vec<&str> = plain.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect();
+    let tail = &lines[lines.len().saturating_sub(n)..];
+    if tail.is_empty() {
+        "(nothing)".into()
+    } else {
+        tail.join(" | ")
+    }
+}
+
+/// `text` without its ANSI escape sequences (`ESC [ ... letter`).
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for d in chars.by_ref() {
+                if d.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Player 2's saves: one per premade, `<p2 home>\saves\<Name>.nvfsave`, named after its
@@ -1606,6 +1752,62 @@ fn give_foreground(_window: isize) -> bool {
     false
 }
 
+/// Marks player 1's window as a full-screen one (`on`), or as an ordinary one again, for the
+/// taskbar: while a window so marked is the active one, the taskbar goes to the bottom of
+/// the stack instead of staying over it [documented: Win32 `ITaskbarList2::MarkFullscreenWindow`].
+/// Windows takes only a window that covers its whole monitor as full screen on its own, and
+/// neither half does, so without it the taskbar stayed over the halves' bottom edge
+/// [observed: the owner's screenshot, 2026-11-21]. Done on a thread of its own, in a
+/// single-threaded COM apartment of its own (the taskbar's object asks for one). True when
+/// the taskbar took it.
+#[cfg(windows)]
+fn mark_fullscreen(window: isize, on: bool) -> bool {
+    use std::ffi::c_void;
+    use windows_sys::core::{GUID, HRESULT};
+    use windows_sys::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
+    /// `ITaskbarList2`'s table of functions: `IUnknown`'s, `ITaskbarList`'s, then its own
+    /// [documented: shobjidl_core.h, the order the interfaces declare them].
+    #[repr(C)]
+    struct TaskbarList2 {
+        query_interface: usize,
+        add_ref: usize,
+        release: unsafe extern "system" fn(*mut c_void) -> u32,
+        hr_init: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+        add_tab: usize,
+        delete_tab: usize,
+        activate_tab: usize,
+        set_active_alt: usize,
+        mark_fullscreen_window: unsafe extern "system" fn(*mut c_void, *mut c_void, i32) -> HRESULT,
+    }
+    /// IID_ITaskbarList2 [documented: shobjidl_core.h].
+    const IID_ITASKBARLIST2: GUID = GUID::from_u128(0x602d4995_b13a_429b_a66e_1935e44f4317);
+    let run = move || {
+        // SAFETY: COM is set up and torn down on this thread only; the object is checked,
+        // used through its documented table and released before the apartment ends.
+        unsafe {
+            let init = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
+            let mut list: *mut c_void = std::ptr::null_mut();
+            let made = CoCreateInstance(&windows_sys::Win32::UI::Shell::TaskbarList, std::ptr::null_mut(), CLSCTX_INPROC_SERVER, &IID_ITASKBARLIST2, &mut list);
+            let mut ok = false;
+            if made >= 0 && !list.is_null() {
+                let table = &**(list as *mut *const TaskbarList2);
+                ok = (table.hr_init)(list) >= 0 && (table.mark_fullscreen_window)(list, window as *mut c_void, i32::from(on)) >= 0;
+                (table.release)(list);
+            }
+            if init >= 0 {
+                CoUninitialize();
+            }
+            ok
+        }
+    };
+    std::thread::Builder::new().name("split taskbar".into()).spawn(run).ok().and_then(|t| t.join().ok()).unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+fn mark_fullscreen(_window: isize, _on: bool) -> bool {
+    false
+}
+
 /// Whether process `pid` is running.
 #[cfg(windows)]
 fn process_alive(pid: u32) -> bool {
@@ -1820,6 +2022,58 @@ mod tests {
         let mut a: Vec<String> = ["--play", "--split", "--host", "47960", "--coop-name=Host", "--data", "D"].map(String::from).to_vec();
         strip_coop_args(&mut a);
         assert_eq!(a, ["--play", "--data", "D"]);
+    }
+
+    /// A game started with no arguments (Mod Organizer 2, a shortcut) has `--play` only on
+    /// its acted-on line; player 2's line must parse either way [observed: the owner's run
+    /// of 2026-11-21, `--menu` without `--play` refused].
+    #[test]
+    fn player_2s_command_line_parses_however_player_1_started() {
+        use clap::Parser;
+        let half = (IVec2::new(0, 720), UVec2::new(2560, 720));
+        let dir = Path::new(r"C:\home\split");
+        let parses = |line: Vec<String>| {
+            let args = p2_args(&line, dir, half);
+            let full: Vec<String> = std::iter::once("nvforever".to_string()).chain(args.iter().cloned()).collect();
+            crate::Args::try_parse_from(&full).map(|_| args).map_err(|e| e.to_string())
+        };
+        let owner = crate::with_default_mode(vec!["nvforever".into()])[1..].to_vec();
+        for line in [vec![], owner, ["--play", "--load", "x.nvfsave", "--split", "--host", "47960"].map(String::from).to_vec(), ["--data", "D", "--play", "--menu"].map(String::from).to_vec()] {
+            let args = parses(line.clone()).unwrap_or_else(|e| panic!("{line:?}: {e}"));
+            assert_eq!(args.iter().filter(|a| *a == "--play").count(), 1, "{args:?}");
+            assert_eq!(args.iter().filter(|a| *a == "--menu").count(), 1, "{args:?}");
+            assert!(!args.iter().any(|a| a == "--load" || a == "--split" || a == "--host"), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn player_2s_console_end_is_read_without_its_colours() {
+        let text = "\u{1b}[2m2026\u{1b}[0m \u{1b}[32m INFO\u{1b}[0m one\n\nerror: the following required arguments were not provided:\n  --play\n\nUsage: nvforever.exe --play --menu\n";
+        assert_eq!(console_tail(text, 3), "error: the following required arguments were not provided: |   --play | Usage: nvforever.exe --play --menu");
+        assert_eq!(console_tail(text, 9), "2026  INFO one | error: the following required arguments were not provided: |   --play | Usage: nvforever.exe --play --menu");
+        assert_eq!(console_tail("", 3), "(nothing)");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn player_2s_game_ending_with_an_error_is_seen_and_a_clean_end_is_not() {
+        let dir = std::env::temp_dir().join(format!("nvf-split-ended-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(P2_CONSOLE), "error: refused\n").unwrap();
+        let ended = |code: u32, current: Option<u32>| {
+            let mut child = Some(std::process::Command::new("cmd").args(["/c", &format!("exit {code}")]).spawn().unwrap());
+            child.as_mut().unwrap().wait().unwrap();
+            let why = p2_ended(&mut child, &dir, || current);
+            assert!(child.is_none(), "let go once ended");
+            why
+        };
+        let why = ended(2, None).expect("an error end is seen");
+        assert!(why.contains("exit code: 2") && why.ends_with("its console: error: refused"), "{why}");
+        assert_eq!(ended(0, None), None, "a clean end (a load's restart) is not");
+        assert_eq!(ended(1, Some(u32::MAX)), None, "another run of player 2's plays on");
+        let mut none = None;
+        assert_eq!(p2_ended(&mut none, &dir, || None), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -1252,6 +1252,8 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     let barter_on = view.barter.as_ref().is_some_and(|b| b.menu().is_some());
     let inventory_on = view.inventory.as_ref().is_some_and(|i| i.ready.is_some());
     let mut blur_now = super::menus::TileMenuBlur::default();
+    // A menu drawn from its file this frame: `screen()` is then its own (`super::hud_screen_scale`).
+    let mut file_menu = false;
     for (name, on, z, drawn) in [
         (super::menus::MESSAGE_MENU, game.is_some_and(|g| super::menus::message_tiled(switch.message, g)), MESSAGE_Z, &mut others.message),
         (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g, prompt_open, container_on || barter_on || inventory_on)), QUANTITY_Z, &mut others.quantity),
@@ -1277,6 +1279,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         blur_now.repair_services |= name == super::repair_services_menu::REPAIR_SERVICES_MENU && menu.is_some();
         blur_now.traits |= name == super::trait_menu::TRAIT_MENU && menu.is_some();
         blur_now.tags |= name == super::tag_menu::TAG_MENU && menu.is_some();
+        file_menu |= menu.is_some() && name != super::vats_menu::VATS_MENU;
         let pieces = match menu {
             Some((ui, menu)) => {
                 if drawn.told_menu != Some(menu) {
@@ -1319,6 +1322,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
+    super::note_file_menu_drawn(file_menu);
     pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
     repair_page(&mut commands, game, &mut view, &mut kit, &mut others.repair_page, &mut nodes, heading, &glyphs);
     item_mod_page(&mut commands, game, &mut view, &mut kit, &mut others.item_mod, &mut nodes, heading, &glyphs);
