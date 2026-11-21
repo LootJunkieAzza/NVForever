@@ -89,7 +89,10 @@ mod frame_pace;
 mod frame_telemetry;
 mod blit_warm;
 mod handoff;
+mod distant_objects;
+mod full_detail;
 mod furniture;
+mod game_digest;
 mod graphics;
 mod grass;
 mod grass_fire_fx;
@@ -560,7 +563,8 @@ struct Args {
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
     /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
-    /// shadow-filter-hardware or shadow-filter-temporal), for comparing them one at a time.
+    /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
+    /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
     /// The switches on in vanilla are left on unless named off: no-glow, no-eye-adaptation,
     /// no-neon-glow, no-water-mirror, no-authored-materials.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
@@ -1819,6 +1823,8 @@ fn main() -> AppExit {
     .insert_resource(screen_modifiers)
     .insert_resource(fly::AutoFly(args.auto_fly))
     .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen).with_origin(lod_origin))
+    // What each object block holds by cell (#3014, the distant objects read it).
+    .init_resource::<lod::BlockContents>()
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     // The terrain wireframe (#2149), off unless asked for: it builds nothing while off.
     .add_plugins(terrain_wireframe::TerrainWireframePlugin { on: args.terrain_wireframe })
@@ -1850,6 +1856,7 @@ fn main() -> AppExit {
         centre: None,
         waiting: Vec::new(),
         model_overrides: Default::default(),
+        travels: 0,
     })
     .insert_resource(world)
     .init_resource::<nvf_assets::actor::ActorParts>()
@@ -1911,6 +1918,14 @@ fn main() -> AppExit {
     .add_systems(Last, activators::report)
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_plugins(destroyed::DestroyedPlugin)
+    // The full-detail scenery ring (#2701), off unless the settings or --graphics-only turn
+    // it on: draw-only cells beyond the loaded ones (full_detail.rs).
+    .add_plugins(full_detail::FullDetailPlugin)
+    // Distant objects (#3014), off unless the settings or --graphics-only turn it on:
+    // draw-only scenery beyond the ring the LOD blocks do not hold (distant_objects.rs).
+    .add_plugins(distant_objects::DistantObjectsPlugin)
+    // Test aid NVF_PLAY_TEST_GAME_DIGEST: the game's state at given times (game_digest.rs).
+    .add_plugins(game_digest::GameDigestPlugin)
     .add_systems(Update, (doors::script_drawn, doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(PreUpdate, actors::take_background_work)
@@ -2762,7 +2777,8 @@ struct AnimCost {
 
 fn advance_animations(
     time: Res<Time>,
-    playing: Query<&mut nvf_assets::anim_play::Playing>,
+    // A full-detail ring copy's idle stays still while its cell is hidden (full_detail.rs).
+    playing: Query<&mut nvf_assets::anim_play::Playing, Without<full_detail::RingDormant>>,
     transforms: Query<&mut Transform>,
     visibility: Query<&mut Visibility>,
     mut cost: ResMut<AnimCost>,

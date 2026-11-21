@@ -120,6 +120,7 @@ impl<'a> Game<'a> {
         }
         for z in zones {
             if let Some(level) = self.world.enter_zone(z, player_level) {
+                self.zone_levels_set += 1;
                 let min_level = self.world.forms.zones.get(&z).map_or(0, |d| d.min_level);
                 self.push_level_news(LevelNews::Zone { zone: z, level, min_level, player_level });
             }

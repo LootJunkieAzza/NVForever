@@ -1385,6 +1385,12 @@ fn is_actor(refs: &RefTable, id: FormId) -> bool {
 }
 
 impl Residents {
+    /// The residents in the high process now (FormIDs), for the game digest test aid
+    /// (game_digest.rs).
+    pub fn high_process_ids(&self) -> Vec<u32> {
+        self.core.list.iter().filter(|r| self.core.ai.is_high(r.actor)).map(|r| r.actor.0).collect()
+    }
+
     /// Put an actor's walker where its body now stands (game space feet, heading), as
     /// after getting up from furniture: a knocked-out actor laid over its ragdoll to get up
     /// (`knockouts.rs`) is drawn there from now on. False for an actor that is not a

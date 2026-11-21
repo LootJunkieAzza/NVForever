@@ -1753,6 +1753,26 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   the tower's legs as a lattice and trees on the hill, where drawing the block opaque gave
   a solid tower base and black boxes]; its cutoff is not known, the renderers use alpha
   above 128 (`engine/nvf-assets/src/nif_spawn.rs`, `shape_alpha_mode`).
+- **What goes into the object blocks** (#3014): the editor's Generate Objects makes LOD
+  "for all refs in the world that are marked visible when distant", from LOD meshes that
+  sit in the full mesh's folder and end in `_lod.nif`; a base's "Visible When Distant"
+  flag adds its references "if a corresponding LOD model exists" [documented: GECK wiki
+  "World LOD", LOD Object Generation; "Static", Flags]. The flag is header bit 15 (32768)
+  on the base record and on the reference (§2) [documented: GECK wiki "SetFlagsLow",
+  "GetReferenceFlag"]. Measured from the data in a read-only study, 2026-11-18, to be
+  measured again [observed]: all 692 base-game `*_lod.nif` sit beside their full models,
+  with low-resolution textures of their own, a median 219 triangles against 4,968 for the
+  full model; community LOD packs add about 650 more in the same naming, and one pack
+  names them `_lod_0.nif` / `_lod_1.nif` with no `_lod` sibling. In WastelandNV 15,333
+  references carry the reference flag, every one with a `_lod` model for its base; 1,716
+  more have a flagged base without the reference flag. A widely used LOD plugin flags 835
+  more base records, which puts about 74,600 unflagged references under a flagged base,
+  and the blocks it regenerates hold them. So whether a block may hold a reference
+  depends on the reference's flag and its base's, in any plugin's version of either, and
+  on the load order the blocks were made for. Unflagged STAT, SCOL and MSTT references
+  whose bound radius is at least 0.01 of their distance: about 1,200-2,000 (130-260
+  distinct models) in the cells 3 to 8 steps around Goodsprings, Primm and Novac,
+  1,900-2,700 out to 12 steps; at 0.004 about 2.5 to 3 times as many.
 - **Settings**: `lodsettings\<world>.dlodsettings`, 24 bytes. For WastelandNV:
   u32 4, u32 32, u32 128, i16 −64, i16 −64, i16 63, i16 63, u32 4 [observed], read as
   smallest and largest level, grid size in cells, south-west and north-east cells, and

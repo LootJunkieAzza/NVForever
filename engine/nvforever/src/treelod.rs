@@ -29,7 +29,7 @@ use crate::draw_distance::DrawDistances;
 use crate::fade;
 use crate::lod::{square_distance, LodState};
 use crate::tree::{BillboardMaterial, TreeBillboards};
-use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
+use crate::world::{bevy_to_game, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::NoAutoAabb;
@@ -152,6 +152,26 @@ pub fn cells_within(p: Vec2, dist: f32) -> Vec<Grid> {
     out.into_iter().map(|(_, g)| g).collect()
 }
 
+/// Whether base `b` is a tree the distant billboards draw (a TREE with a SpeedTree), for a
+/// reference `enabled` at the start ([`distant_tree_enabled`]); the full-detail ring draws
+/// exactly these trees in full (full_detail.rs).
+pub fn distant_tree(b: &fnv_world::placed::BaseObject, enabled: bool) -> bool {
+    &b.sig == b"TREE" && b.is_speedtree() && distant_tree_enabled(enabled)
+}
+
+/// The billboards' enable rule: the state at the start, not the game's now.
+pub fn distant_tree_enabled(enabled_at_start: bool) -> bool {
+    enabled_at_start
+}
+
+/// Whether placed reference `p` of base `b` is a tree the distant billboards draw, and so
+/// the one the full-detail ring draws in full (full_detail.rs): a [`distant_tree`] that is
+/// no imposter (drawn by region, imposters.rs) and no primitive (editor-only), enabled at
+/// the start. The one rule both use, so they cannot drift apart.
+pub fn distant_tree_ref(p: &fnv_world::placed::Placement, b: &fnv_world::placed::BaseObject, enabled_at_start: bool) -> bool {
+    !p.imposter && p.draws_base_model() && distant_tree(b, enabled_at_start)
+}
+
 /// The TREE references of an exterior cell (its own and the persistent ones standing
 /// in it) that are enabled at the start.
 fn cell_trees(world: &WorldData, g: Grid) -> Vec<Placed> {
@@ -160,12 +180,12 @@ fn cell_trees(world: &WorldData, g: Grid) -> Vec<Placed> {
         refs.extend(p);
     }
     let mut out = Vec::new();
-    let mut is_tree: HashMap<u32, bool> = HashMap::new();
+    let mut bases: HashMap<u32, Option<fnv_world::placed::BaseObject>> = HashMap::new();
     for r in refs {
         let Some(p) = placement(world.lo, world.schema, r) else { continue };
         let Some(base) = p.base else { continue };
-        let tree = *is_tree.entry(base).or_insert_with(|| base_object(world.lo, world.schema, base).is_some_and(|b| &b.sig == b"TREE" && b.is_speedtree()));
-        if tree && world.enabled(&p, 0) {
+        let b = bases.entry(base).or_insert_with(|| base_object(world.lo, world.schema, base).filter(|b| distant_tree(b, true)));
+        if b.as_ref().is_some_and(|b| distant_tree_ref(&p, b, world.enabled(&p, 0))) {
             out.push(Placed { base, pos: p.position, scale: p.scale });
         }
     }
@@ -228,7 +248,7 @@ fn board(world: &WorldData, base: u32, models: &mut ModelCtx, materials: &mut As
 #[allow(clippy::too_many_arguments)]
 pub fn update_distant_trees(
     mut commands: Commands,
-    streamer: Res<Streamer>,
+    drawn: crate::full_detail::DrawnCells,
     world: Res<WorldData>,
     mut lod: ResMut<LodState>,
     root: Query<Entity, With<WorldRoot>>,
@@ -241,7 +261,7 @@ pub fn update_distant_trees(
     let dist = reach(flag, far, distances.map_or_else(|| start_part(flag, far), |d| d.trees));
     let lod = &mut *lod;
     let trees = &mut lod.trees;
-    if !lod.enabled || dist <= 0.0 || streamer.interior.is_some() {
+    if !lod.enabled || dist <= 0.0 || drawn.streamer.interior.is_some() {
         if !trees.drawn.is_empty() {
             trees.clear(&mut commands);
         }
@@ -272,7 +292,7 @@ pub fn update_distant_trees(
     }
     // Fade steps of the drawn cells follow their cells (culled when fully drawn).
     for (g, d) in trees.drawn.iter_mut() {
-        let k = fade::step(streamer.cell_level(*g));
+        let k = fade::step(drawn.tree_level(*g));
         if k != d.step {
             d.step = k;
             for &e in &d.entities {
@@ -290,7 +310,7 @@ pub fn update_distant_trees(
         let mut bases: Vec<u32> = by_base.keys().copied().collect();
         bases.sort_unstable();
         let origin = Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0);
-        let step = fade::step(streamer.cell_level(g));
+        let step = fade::step(drawn.tree_level(g));
         let mut d = DrawnCell { entities: Vec::new(), trees: 0, step };
         for b in bases {
             let board = trees.bases.entry(b).or_insert_with(|| board(&world, b, &mut models, &mut materials)).clone();

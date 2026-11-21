@@ -243,7 +243,9 @@ struct OrderedHeld {
     order: [u64; 3],
 }
 
-pub(crate) type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'static ChildOf>), crate::lights::NotLightSource>;
+/// Draw-only entities (the full-detail ring, `nvf_play::DrawOnly`) are not the game's: the
+/// scripts' NIF functions never find them.
+pub(crate) type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'static ChildOf>), (crate::lights::NotLightSource, Without<nvf_play::DrawOnly>)>;
 
 /// Distinguish an explicit NIF rename from factory entity labels on actor roots.
 /// The marker dies with the entity; it is not a FormId/name override for a new rig.
@@ -966,6 +968,22 @@ mod tests {
         assert_eq!(root(&mut world), None, "its light sources alone");
         let drawn = world.spawn((Transform::IDENTITY, RefVisual(R))).id();
         assert_eq!(root(&mut world), Some(drawn), "not a light source beside it");
+    }
+
+    /// #2701: the full-detail ring's draw-only copy of a reference (`nvf_play::DrawOnly`) is
+    /// never what the scripts' NIF functions find: only the loaded cell's own entity.
+    #[test]
+    fn a_draw_only_entity_is_not_a_references_root() {
+        const R: u32 = 0x302;
+        fn root(world: &mut World) -> Option<Entity> {
+            world.run_system_once(|rigs: Rigs, visuals: Visuals| root_of(R, ModelView::Reference, &rigs, &visuals)).unwrap()
+        }
+        let mut world = World::new();
+        world.spawn((Transform::IDENTITY, RefVisual(R), nvf_play::DrawOnly));
+        assert_eq!(root(&mut world), None, "the ring's copy alone");
+        assert_eq!(world.run_system_once(|v: Visuals| v.iter().count()).unwrap(), 0);
+        let drawn = world.spawn((Transform::IDENTITY, RefVisual(R))).id();
+        assert_eq!(root(&mut world), Some(drawn), "the loaded cell's entity");
     }
 
     #[test]

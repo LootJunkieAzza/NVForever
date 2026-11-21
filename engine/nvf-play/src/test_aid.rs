@@ -109,7 +109,7 @@
 //! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`,
 //! `NVF_PLAY_TEST_PROFILE_HITCH_MS`, `NVF_PLAY_TEST_PROFILE_HITCH_SPANS`,
 //! `NVF_PLAY_TEST_TILE_COUNTS`, `NVF_PLAY_TEST_HITVOL_SCAN`,
-//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`): with them alone the run is played by
+//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`, `NVF_PLAY_TEST_GAME_DIGEST`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //!
@@ -458,7 +458,7 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 /// sets `NVF_PLAY_TEST_UNATTENDED`, which does nothing but drive the run: `drives_run` looks
 /// at the name alone, so any value counts, and a load's new run drops it like any driving
 /// aid (`profile-slow-frames`).
-pub const MEASURING_AIDS: [&str; 9] = [
+pub const MEASURING_AIDS: [&str; 10] = [
     "NVF_PLAY_TEST_SAMPLE",
     "NVF_PLAY_TEST_PROFILE",
     "NVF_PLAY_TEST_PROFILE_COUNTS",
@@ -469,6 +469,8 @@ pub const MEASURING_AIDS: [&str; 9] = [
     "NVF_PLAY_TEST_HITVOL_COMPARE",
     // The mod log is for a mod list played by hand (`crate::mod_log`).
     crate::mod_log::ENV,
+    // Logs digests of the game's state at given times (nvforever game_digest.rs).
+    "NVF_PLAY_TEST_GAME_DIGEST",
 ];
 
 /// Whether this environment variable is a test aid that drives the run (any

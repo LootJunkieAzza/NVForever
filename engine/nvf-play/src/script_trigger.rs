@@ -65,6 +65,9 @@ use std::collections::{BTreeSet, HashMap};
 
 #[derive(Default)]
 pub struct Triggers {
+    /// Actors that entered a trigger so far (each OnTriggerEnter), for the game digest test
+    /// aid (nvforever game_digest.rs).
+    pub entered: u64,
     /// The volumes of each candidate, once read (empty: no usable primitive or model
     /// trigger), with the pose they were built at: a reference a script moves, turns
     /// or rescales gets them built again at its new pose (#1091).
@@ -298,6 +301,7 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     let ch = trigger_changes(&rt.triggers.inside, &now);
     let g = &mut rt.game;
     let who = |g: &fnv_game::Game, a: FormId| if a == FormId::PLAYER_REF { "player".to_string() } else { g.data.name(a) };
+    rt.triggers.entered += ch.entered.len() as u64;
     for &(t, a) in &ch.entered {
         bevy::log::info!("script: {} entered trigger {}", who(g, a), g.data.name(t));
         g.ref_event(t, event::ON_TRIGGER_ENTER, Some(Value::Ref(a.0)), Some(a));

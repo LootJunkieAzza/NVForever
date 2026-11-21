@@ -427,10 +427,15 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
     );
 }
 
+/// A rig [`publish_poses`] reads: its clip, and the reference or scripted group it moves.
+type PosedRig = (&'static Playing, AnyOf<(&'static nvf_play::RefVisual, &'static GroupRig)>);
+
 /// The clip every drawn object plays and how far into it (seconds after its start), for
 /// the collision that follows it (`nvf_play::phys::ObjectPoses`, issue #1396): the rigs
 /// of scripted groups, idles, activators and containers alike.
-pub fn publish_poses(poses: Option<ResMut<nvf_play::phys::ObjectPoses>>, rigs: Query<(&Playing, AnyOf<(&nvf_play::RefVisual, &GroupRig)>)>) {
+/// The full-detail ring's draw-only rigs (`nvf_play::DrawOnly`) are not the game's: their
+/// poses are not published.
+pub fn publish_poses(poses: Option<ResMut<nvf_play::phys::ObjectPoses>>, rigs: Query<PosedRig, Without<nvf_play::DrawOnly>>) {
     let Some(mut poses) = poses else { return };
     let poses = &mut poses.playing;
     poses.clear();

@@ -35,7 +35,6 @@ use crate::player::Player;
 use crate::sim::SimState;
 use crate::loading::TravelRequest;
 use crate::{space, OpenContainer, PlaySet, PlayState, PlayWorld, RefChanged, RefVisual, Travel};
-use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use fnv_phys::{layers, Filter, Owner};
 use fnv_sim::forms::{BaseData, ItemKind};
@@ -219,7 +218,7 @@ pub(crate) fn find_target(
     phys: Option<ResMut<PhysState>>,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
-    visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
+    visuals: crate::PickVisuals,
     mut target: ResMut<Target>,
     mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,

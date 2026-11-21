@@ -1354,7 +1354,7 @@ pub fn advance(time: Res<Time>, mut state: ResMut<AnimState>, mut transforms: Qu
 /// Advance every [`Playing`] component (world objects with their own animation), posing
 /// their nodes and showing and hiding them ([`Playing::show`]). Returns how many nodes
 /// switched between shown and hidden.
-pub fn advance_instances(time: Res<Time>, mut playing: Query<&mut Playing>, mut transforms: Query<&mut Transform>, mut visibility: Query<&mut Visibility>) -> usize {
+pub fn advance_instances<F: bevy::ecs::query::QueryFilter>(time: Res<Time>, mut playing: Query<&mut Playing, F>, mut transforms: Query<&mut Transform>, mut visibility: Query<&mut Visibility>) -> usize {
     let dt = time.delta_secs();
     let mut switched = 0;
     for mut p in &mut playing {

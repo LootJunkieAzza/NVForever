@@ -71,7 +71,7 @@
 
 use crate::fade;
 use crate::lodgen::{self, Baker, GenJob};
-use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
+use crate::world::{bevy_to_game, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::VisibilityRange;
 use bevy::image::{CompressedImageFormats, ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
@@ -333,6 +333,85 @@ impl LodState {
     }
 }
 
+/// What each level-4 square's object block holds, by cell: bit `y * 4 + x` of its mask
+/// ([`chunk_bit`]) is set when the block's segment for that cell is not empty (#3014; read
+/// by `crate::distant_objects`, which leaves a reference to the block when the block may
+/// hold it). A square is known once its block has been prepared for drawing
+/// ([`update_lod`]): a square without a block file, or whose file did not load, holds
+/// nothing (mask 0); a block shape without usable segments counts as holding every cell
+/// ([`segment_mask`]). Unknown until then [design].
+#[derive(Resource, Default)]
+pub struct BlockContents {
+    /// The LOD files' worldspace name and grid origin the masks are of.
+    world: String,
+    origin: Grid,
+    squares: HashMap<Grid, u16>,
+    /// Counts the changes (a settled distant frame compares it).
+    rev: u64,
+}
+
+impl BlockContents {
+    /// Whether the object block of cell `c`'s square has a non-empty segment for `c`;
+    /// `None` while that block is not known yet.
+    pub fn segment(&self, c: Grid) -> Option<bool> {
+        let (sq, bit) = chunk_bit(c, self.origin);
+        self.squares.get(&sq).map(|m| m & bit != 0)
+    }
+
+    /// Square `sq` holds the cells of `mask`, for other modules' tests.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, sq: Grid, mask: u16) {
+        self.set(sq, mask);
+    }
+
+    /// Counts the changes of the masks.
+    pub fn rev(&self) -> u64 {
+        self.rev
+    }
+
+    /// The masks known (squares).
+    #[cfg(test)]
+    pub fn known(&self) -> usize {
+        self.squares.len()
+    }
+
+    /// Forget everything when the LOD files change (another worldspace's).
+    fn follow(&mut self, world: &str, origin: Grid) {
+        if self.world != world || self.origin != origin {
+            self.world = world.to_string();
+            self.origin = origin;
+            self.squares.clear();
+            self.rev += 1;
+        }
+    }
+
+    /// Square `sq` (its south-west cell) holds the cells of `mask`.
+    fn set(&mut self, sq: Grid, mask: u16) {
+        if self.squares.insert(sq, mask) != Some(mask) {
+            self.rev += 1;
+        }
+    }
+}
+
+/// The cells of a level-4 square an object block holds anything for ([`BlockContents`]),
+/// from its shapes' segments (triangle ranges, one per cell in [`segment_cell`] order): a
+/// non-empty segment sets its cell's bit; a shape with no segments or more than the
+/// square has cells sets every bit (its objects cannot be told apart by cell).
+pub fn segment_mask<'a>(shapes: impl IntoIterator<Item = &'a [std::ops::Range<usize>]>) -> u16 {
+    let mut mask = 0u16;
+    for segments in shapes {
+        if segments.is_empty() || segments.len() > CELLS {
+            return u16::MAX;
+        }
+        for (i, r) in segments.iter().enumerate() {
+            if !r.is_empty() {
+                mask |= 1 << segment_cell(i);
+            }
+        }
+    }
+    mask
+}
+
 /// Threads baking generated terrain (lodgen::Baker, at the lowest priority).
 const BAKE_THREADS: usize = 2;
 /// Finished bakes taken per frame: each uploads two textures and builds a mesh on the main
@@ -583,17 +662,37 @@ fn open_edges(idx: &[u32]) -> Vec<(u32, u32)> {
     out
 }
 
+/// The masks of the level-4 squares holding `cells` (cell, fully drawn; on the grid from
+/// `o`): cells fully drawn, cells drawn at all (bit `y * 4 + x`, [`chunk_bit`]).
+pub(crate) fn block_masks(cells: &[(Grid, bool)], o: Grid) -> HashMap<Grid, (u16, u16)> {
+    let mut masks: HashMap<Grid, (u16, u16)> = HashMap::new();
+    for &(c, full) in cells {
+        let (ch, bit) = chunk_bit(c, o);
+        let m = masks.entry(ch).or_default();
+        m.1 |= bit;
+        if full {
+            m.0 |= bit;
+        }
+    }
+    masks
+}
+
+/// Distant LOD each frame. The cells it gives way to are the loaded ones and, with the
+/// full-detail ring on, the ring's (`crate::full_detail::DrawnCells`): both cut the LOD
+/// terrain out and hide their object-block segments alike.
 pub fn update_lod(
     mut commands: Commands,
-    streamer: Res<Streamer>,
+    drawn: crate::full_detail::DrawnCells,
     mut lod: ResMut<LodState>,
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
+    mut contents: ResMut<BlockContents>,
 ) {
     if !lod.enabled {
         return;
     }
+    contents.follow(&lod.world_name, lod.origin);
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let update_started = std::time::Instant::now();
     let g = bevy_to_game(cam.translation());
@@ -643,17 +742,10 @@ pub fn update_lod(
             }
         }
     }
-    // Which cells are loaded, and which are fully drawn, per level-4 square.
-    let full: HashSet<Grid> = streamer.loaded.keys().filter(|c| !streamer.fades.contains_key(c)).copied().collect();
-    let mut masks: HashMap<Grid, (u16, u16)> = HashMap::new();
-    for c in streamer.loaded.keys() {
-        let (ch, bit) = chunk_bit(*c, o);
-        let m = masks.entry(ch).or_default();
-        m.1 |= bit;
-        if full.contains(c) {
-            m.0 |= bit;
-        }
-    }
+    // Which cells are drawn (loaded, or the full-detail ring's), and which are fully
+    // drawn, per level-4 square.
+    let full: HashSet<Grid> = drawn.full();
+    let masks = block_masks(&drawn.cells(true), o);
     let mut changed = false;
     let started = std::time::Instant::now();
     let mut rebuilt = 0usize;
@@ -715,7 +807,7 @@ pub fn update_lod(
         let key = BlockKey { full: full_mask, present };
         let steps: [u8; CELLS] = match present {
             0 => [0; CELLS],
-            _ => std::array::from_fn(|i| fade::step(streamer.cell_level(chunk_cell(sq, i)))),
+            _ => std::array::from_fn(|i| fade::step(drawn.block_level(chunk_cell(sq, i)))),
         };
         match lod.block_entities.get_mut(&sq) {
             Some(b) if b.key == key => {
@@ -766,6 +858,8 @@ pub fn update_lod(
                     }
                 };
                 lod.put_off_runs.remove(&sq);
+                // What the block holds by cell, for the distant objects (#3014).
+                contents.set(sq, model.as_ref().map_or(0, |m| segment_mask(m.shapes.iter().map(|s| s.segments.as_slice()))));
                 if had {
                     lod.block_stats.rebuilt += 1;
                 } else {
@@ -1271,6 +1365,34 @@ mod tests {
         assert_eq!(b.count_vertices(), 3);
         let Some(VertexAttributeValues::Float32x2(uv)) = b.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
         assert_eq!(uv, &vec![[4.0, 0.0], [5.0, 0.0], [6.0, 0.0]]);
+    }
+
+    /// #3014: a block's mask sets the cells of its non-empty segments (segment i is cell
+    /// (i / 4, i mod 4), x-major); a shape without segments, or with too many, holds every
+    /// cell; no shape holds nothing; shapes add up. The contents answer per cell.
+    #[test]
+    fn block_contents_from_segments() {
+        let segments = [0..0, 0..2, 2..2, 2..2, 2..2, 2..2, 2..3];
+        assert_eq!(segment_mask([&segments[..]]), (1 << segment_cell(1)) | (1 << segment_cell(6)));
+        assert_eq!(segment_mask([&segments[..]]), (1 << 4) | (1 << 9), "cells (0, 1) and (1, 2)");
+        assert_eq!(segment_mask(std::iter::empty::<&[std::ops::Range<usize>]>()), 0, "a block with no shape");
+        assert_eq!(segment_mask([&[][..]]), u16::MAX, "a shape without segments: every cell");
+        assert_eq!(segment_mask([&vec![0..1; CELLS + 1][..]]), u16::MAX, "too many segments");
+        let other = 0..1;
+        assert_eq!(segment_mask([&segments[..], std::slice::from_ref(&other)]), (1 << 4) | (1 << 9) | 1, "two shapes");
+        let mut c = BlockContents::default();
+        c.follow("wastelandnv", (-64, -64));
+        assert_eq!(c.segment((-20, 1)), None, "unknown until its block is prepared");
+        // Square (-20, 0) on the grid from (-64, -64); cell (-20, 1) is its bit 4.
+        c.set((-20, 0), 1 << 4);
+        assert_eq!(c.segment((-20, 1)), Some(true));
+        assert_eq!(c.segment((-19, 1)), Some(false), "an empty segment");
+        assert_eq!(c.segment((-17, 3)), Some(false), "same square");
+        assert_eq!(c.segment((-16, 0)), None, "the next square");
+        c.follow("wastelandnv", (-64, -64));
+        assert_eq!(c.known(), 1, "the same files: kept");
+        c.follow("freeside", (-10, -8));
+        assert_eq!((c.known(), c.segment((-20, 1))), (0, None), "another worldspace's files: forgotten");
     }
 
     #[test]
