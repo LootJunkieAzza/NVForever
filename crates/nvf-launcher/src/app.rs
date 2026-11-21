@@ -139,6 +139,16 @@ pub struct App {
     apply_ask: bool,
     /// Path typed into Add on the Mods page.
     add_path: String,
+    /// Folder typed on the Mods page. Its profiles are listed beside it. // nvf-profiles
+    profile_path: String,
+    /// Profile name, then the folder that holds its lists.
+    profile_choices: Vec<(String, PathBuf)>,
+    /// The profile chosen in the list.
+    profile_pick: Option<String>,
+    /// The Profiles box, so a drop there is not installed as a mod.
+    profile_rect: egui::Rect,
+    /// Clear links is asking before it removes linked mods.
+    clear_links_ask: bool,
     /// An open archive installer, when a drop needs choices. // nvf-archive-install
     wizard: Option<crate::fomod::Wizard>,
     /// Bottom bar height. Saved when the user lets go of the grip.
@@ -240,6 +250,11 @@ impl App {
             backup_keep: 5,
             apply_ask: false,
             add_path: String::new(),
+            profile_path: String::new(),
+            profile_choices: Vec::new(),
+            profile_pick: None,
+            profile_rect: egui::Rect::NOTHING,
+            clear_links_ask: false,
             wizard: None,
             bar_h: 86.0,
             monitors: crate::display::monitors(),
@@ -861,7 +876,8 @@ fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
     if let Ok(rd) = std::fs::read_dir(&mods) {
         for entry in rd.flatten() {
             let path = entry.path();
-            if path.is_symlink() || !path.is_dir() {
+            // nvf-mod-symlink: a directory link in the mods folder is a mod folder.
+            if !path.is_dir() {
                 continue;
             }
             let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else { continue };
@@ -1746,6 +1762,58 @@ impl App {
         self.drop_gone_plugins();
         self.mod_rows = load_mod_rows(&home);
         self.refresh_plugin_notes();
+        self.keep_data_plugins();
+        self.drop_inactive_mod_plugins();
+    }
+
+    /// Plugins that belong only to a mod folder that is off leave the list. A plugin already in Data stays.
+    fn drop_inactive_mod_plugins(&mut self) {
+        let Some(game) = self.game() else { return };
+        let off: HashSet<String> = self.mod_rows.iter().filter(|r| !r.on).map(|r| r.name.clone()).collect();
+        if off.is_empty() {
+            return;
+        }
+        let owned: HashSet<String> = self.plugin_home.iter().filter(|(_, folder)| off.contains(*folder)).map(|(p, _)| p.clone()).collect();
+        let Some(list) = self.mods.as_mut() else { return };
+        let before = list.entries.len();
+        list.entries.retain(|entry| {
+            let key = entry.name.to_ascii_lowercase();
+            if entry.name.eq_ignore_ascii_case("FalloutNV.esm") {
+                return true;
+            }
+            !(owned.contains(&key) && game.data_file(&entry.name).is_none())
+        });
+        let gone = before - list.entries.len();
+        if gone > 0 {
+            self.mods_dirty = true;
+            self.message = Some((format!("Removed {gone} plugins from mods that are off. Save to keep that."), false));
+        }
+    }
+
+    /// A folder that is off does not turn off a plugin already in the game Data folder.
+    fn keep_data_plugins(&mut self) {
+        let Some(game) = self.game() else { return };
+        let off: HashSet<String> = self.mod_rows.iter().filter(|r| !r.on).map(|r| r.name.clone()).collect();
+        if off.is_empty() {
+            return;
+        }
+        let owned: Vec<String> = self.plugin_home.iter().filter(|(_, folder)| off.contains(*folder)).map(|(plugin, _)| plugin.clone()).collect();
+        let Some(list) = self.mods.as_mut() else { return };
+        let mut changed = false;
+        for entry in &mut list.entries {
+            let key = entry.name.to_ascii_lowercase();
+            if entry.active || !owned.iter().any(|n| n == &key) {
+                continue;
+            }
+            if game.data_file(&entry.name).is_some() {
+                entry.active = true;
+                changed = true;
+            }
+        }
+        if changed {
+            self.mods_dirty = true;
+            self.message = Some(("Plugins already in the game Data folder were left on. Save to keep that.".into(), false));
+        }
     }
 
     /// A plugin whose file is not in Data and not under the mods folder is taken off
@@ -1856,8 +1924,6 @@ impl App {
                 .color(WEAK),
         );
         ui.label(RichText::new("Left: mod folders. A check turns that folder's plugins on. A lower folder's copy of a file is the one used. Right: plugins. Click one to mark its folder.").small().color(WEAK));
-        self.mod_tools(ui);
-        self.backup_row(ui);
         self.start_box(ui);
         ui.separator();
         let list_h = (ui.available_height() - 40.0).max(80.0);
@@ -1904,6 +1970,7 @@ impl App {
                 self.show_overwrites = !self.show_overwrites;
             }
         });
+        self.mod_tools(ui);
         ui.add(egui::TextEdit::singleline(&mut self.mod_find).hint_text("Find a mod").desired_width(ui.available_width()));
         let mod_find = self.mod_find.trim().to_ascii_lowercase();
         let marked = self.picked_plugin.as_ref().and_then(|key| self.plugin_home.get(key)).cloned();
@@ -2002,15 +2069,30 @@ impl App {
                     self.mod_rows[i].on = on;
                     let folder = self.mod_rows[i].name.clone();
                     let keys: HashSet<String> = self.plugin_home.iter().filter(|(_, owned)| *owned == &folder).map(|(key, _)| key.clone()).collect();
-                    if let Some(list) = &mut self.mods {
-                        for entry in &mut list.entries {
-                            if entry.name.eq_ignore_ascii_case("FalloutNV.esm") {
-                                continue;
-                            }
-                            if keys.contains(&entry.name.to_ascii_lowercase()) {
-                                entry.active = on;
+                    // nvf-data-keep: turning this folder off leaves a plugin on when that file is already in the game Data folder.
+                    let in_data: HashSet<String> = self.game().map(|g| keys.iter().filter(|name| g.data_file(name).is_some()).cloned().collect()).unwrap_or_default();
+                    // nvf-off-mod: a folder that is off is taken out of the plugin list, except files already in Data.
+                    if on {
+                        if let Some(home) = self.home.clone() {
+                            let names: Vec<String> = plugins::plugins_in_tree(&home.mods().join(&folder)).into_iter().map(|(n, _)| n).collect();
+                            if let Some(list) = &mut self.mods {
+                                list.add_new(&names);
+                                for entry in &mut list.entries {
+                                    let key = entry.name.to_ascii_lowercase();
+                                    if names.iter().any(|n| n.eq_ignore_ascii_case(&key)) {
+                                        entry.active = true;
+                                    }
+                                }
                             }
                         }
+                    } else if let Some(list) = &mut self.mods {
+                        list.entries.retain(|entry| {
+                            if entry.name.eq_ignore_ascii_case("FalloutNV.esm") {
+                                return true;
+                            }
+                            let key = entry.name.to_ascii_lowercase();
+                            !(keys.contains(&key) && !in_data.contains(&key))
+                        });
                     }
                     self.mods_dirty = true;
                     self.recompute_clashes();
@@ -2064,13 +2146,15 @@ impl App {
     }
 
     fn plugin_column(&mut self, ui: &mut egui::Ui) {
+        self.profile_row(ui);
+        self.backup_row(ui);
         let folders = self.plugin_folders.clone();
         let masters = self.plugin_masters.clone();
         let active = self.mods.as_ref().map(|l| l.entries.iter().filter(|e| e.active).count()).unwrap_or(0);
-        let count_color = if active > 255 { BAD } else if active >= 250 { GOLD } else { WEAK };
+        // nvf-no-plugin-cap: the count is how many are on. There is no slot limit.
         ui.horizontal(|ui| {
             ui.label(RichText::new("PLUGINS").small().color(GOLD));
-            ui.label(RichText::new(format!("{active} / 255")).small().color(count_color)).on_hover_text("255 slots, counting the base game.");
+            ui.label(RichText::new(active.to_string()).small().color(WEAK)).on_hover_text("Plugins turned on.");
         });
         let Some(list) = &mut self.mods else {
             ui.label("No plugin list yet: set the game folder first, or start the game once.");
@@ -2340,6 +2424,24 @@ impl App {
         if n == 0 {
             return;
         }
+        // nvf-profile-drop: a folder dropped on Profiles is a profile folder, not a mod.
+        let over_profile = ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| self.profile_rect.contains(p));
+        if over_profile {
+            let path = ctx.input(|i| {
+                i.raw.dropped_files.iter().find_map(|f| {
+                    let path = f.path();
+                    path.exists().then(|| path.to_path_buf())
+                })
+            });
+            match path {
+                Some(path) => {
+                    self.profile_path = path.display().to_string();
+                    self.read_profiles();
+                }
+                None => self.message = Some(("That drop had no file path.".into(), true)),
+            }
+            return;
+        }
         if self.wizard.is_some() {
             self.message = Some(("Finish the open installer first.".into(), true));
             return;
@@ -2605,6 +2707,536 @@ impl App {
         if plugins_new || order_new { Ok("Backup saved.") } else { Ok("That backup is already the newest.") }
     }
 
+    fn profile_row(&mut self, ui: &mut egui::Ui) {
+        let block = ui.vertical(|ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new("Profiles").small().color(GOLD));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.profile_path)
+                    .hint_text("Drop a profile folder here, or type its path")
+                    .desired_width(ui.available_width()),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Read").on_hover_text("Finds profiles in that folder.").clicked() {
+                    self.read_profiles();
+                }
+                let shown = self.profile_pick.clone().unwrap_or_else(|| {
+                    if self.profile_choices.is_empty() { "no profiles".into() } else { "choose a profile".into() }
+                });
+                egui::ComboBox::from_id_salt("profile-which").width(140.0).selected_text(shown).show_ui(ui, |ui| {
+                    for (name, _) in &self.profile_choices {
+                        if ui.selectable_label(self.profile_pick.as_deref() == Some(name.as_str()), name).clicked() {
+                            self.profile_pick = Some(name.clone());
+                        }
+                    }
+                });
+                if ui.add_enabled(self.profile_pick.is_some(), egui::Button::new("Load")).on_hover_text("Puts that profile's folder order and plugin order into this page. Files stay where they are.").clicked() {
+                    self.load_chosen_profile();
+                }
+                // nvf-clear-links: debug. Linked mods leave this list. The game Data folder is not opened.
+                if self.clear_links_ask {
+                    if ui.button("Clear them").clicked() {
+                        self.clear_links_ask = false;
+                        self.clear_linked_mods();
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.clear_links_ask = false;
+                    }
+                } else if ui.button("Clear links").on_hover_text("Removes a mod only when this page added it while loading a profile, and only when that link points at another folder already in the mods folder. Every other link stays. The game Data folder is not changed.").clicked() {
+                    self.clear_links_ask = true;
+                    self.message = Some(("Clear profile links that point at another folder in the mods folder? The game Data folder is not changed.".into(), false));
+                }
+            });
+        });
+        self.profile_rect = block.response.rect;
+    }
+
+    fn read_profiles(&mut self) {
+        let path = PathBuf::from(self.profile_path.trim());
+        if path.as_os_str().is_empty() || !path.exists() {
+            self.message = Some(("That folder was not found.".into(), true));
+            return;
+        }
+        let found = Self::profile_folders(&path);
+        if found.is_empty() {
+            self.profile_choices.clear();
+            self.profile_pick = None;
+            self.message = Some(("That folder has no profiles.".into(), true));
+            return;
+        }
+        self.profile_pick = found.first().map(|(n, _)| n.clone());
+        let n = found.len();
+        self.profile_choices = found;
+        self.message = Some((format!("Found {n} profiles."), false));
+    }
+
+    fn load_chosen_profile(&mut self) {
+        let Some(name) = self.profile_pick.clone() else {
+            self.message = Some(("Choose a profile.".into(), true));
+            return;
+        };
+        let Some(dir) = self.profile_choices.iter().find(|(n, _)| n == &name).map(|(_, p)| p.clone()) else {
+            self.message = Some(("Choose a profile.".into(), true));
+            return;
+        };
+        let Some(game) = self.game() else {
+            self.message = Some(("Set the game folder first. Nothing was linked.".into(), true));
+            return;
+        };
+        let mods_text = std::fs::read_to_string(dir.join("modlist.txt")).unwrap_or_default();
+        let plugins_text = std::fs::read_to_string(dir.join("plugins.txt")).unwrap_or_default();
+        let order_text = std::fs::read_to_string(dir.join("loadorder.txt")).unwrap_or_default();
+        if mods_text.trim().is_empty() && plugins_text.trim().is_empty() && order_text.trim().is_empty() {
+            self.message = Some(("That profile has no folder list and no plugin list.".into(), true));
+            return;
+        }
+        let profile_mods = Self::profile_mod_rows(&mods_text);
+        let home_mods = self.home.as_ref().map(|h| h.mods());
+        let mut placed = Vec::new();
+        let mut linked = 0usize;
+        let mut skipped = 0usize;
+        let mut missing = 0usize;
+        for (mod_name, on) in &profile_mods {
+            let Some(src) = Self::find_mod_dir(&dir, mod_name, home_mods.as_deref()) else {
+                missing += 1;
+                continue;
+            };
+            if let Some(mods) = &home_mods {
+                Self::ensure_mod_link(mods, mod_name, &src);
+            }
+            if *on {
+                let (n, s) = Self::symlink_mod_into_data(&src, &game.data);
+                linked += n;
+                skipped += s;
+            } else {
+                Self::unlink_data_symlinks_into(&game.data, &src);
+            }
+            placed.push(ModRow { name: mod_name.clone(), on: *on });
+        }
+        if !placed.is_empty() {
+            let mut rows = Vec::new();
+            for row in &self.mod_rows {
+                if !placed.iter().any(|p| p.name.eq_ignore_ascii_case(&row.name)) {
+                    rows.push(ModRow { name: row.name.clone(), on: row.on });
+                }
+            }
+            rows.extend(placed);
+            self.mod_rows = rows;
+        }
+        let active = Self::profile_plugin_names(&plugins_text);
+        let mut order = Self::profile_plugin_names(&order_text);
+        if order.is_empty() {
+            order = active.clone();
+        }
+        let active_keys: HashSet<String> = active.iter().map(|n| n.to_ascii_lowercase()).collect();
+        if !order.is_empty() || !active.is_empty() {
+            let mut entries = Vec::new();
+            let mut seen = HashSet::new();
+            if !order.iter().any(|n| n.eq_ignore_ascii_case("FalloutNV.esm")) {
+                entries.push(plugins::PluginEntry { name: "FalloutNV.esm".into(), active: true });
+                seen.insert("falloutnv.esm".to_string());
+            }
+            for plugin in &order {
+                let key = plugin.to_ascii_lowercase();
+                if !seen.insert(key.clone()) {
+                    continue;
+                }
+                let on = plugin.eq_ignore_ascii_case("FalloutNV.esm") || active_keys.contains(&key);
+                entries.push(plugins::PluginEntry { name: plugin.clone(), active: on });
+            }
+            if let Some(list) = &self.mods {
+                for entry in &list.entries {
+                    if seen.insert(entry.name.to_ascii_lowercase()) {
+                        entries.push(plugins::PluginEntry { name: entry.name.clone(), active: false });
+                    }
+                }
+            }
+            self.mods = Some(plugins::PluginList { entries });
+        }
+        self.mods_dirty = true;
+        self.refresh_plugin_notes();
+        self.recompute_clashes();
+        let folders = self.mod_rows.iter().filter(|r| profile_mods.iter().any(|(n, _)| n.eq_ignore_ascii_case(&r.name))).count();
+        self.message = Some((format!("Loaded {name}: {folders} folders, {linked} files linked into Data, {skipped} left in place, {missing} not found. Nothing was copied. Save to keep the order."), false));
+    }
+
+    fn clear_linked_mods(&mut self) {
+        let Some(home) = &self.home else {
+            self.message = Some(("No mods folder yet.".into(), true));
+            return;
+        };
+        let mods = home.mods();
+        let record = mods.join(".nvf-profile-links");
+        let names = Self::recorded_links(&record);
+        if names.is_empty() {
+            self.message = Some(("No profile links were recorded. Nothing was removed.".into(), false));
+            return;
+        }
+        let Ok(mods_root) = std::fs::canonicalize(&mods) else {
+            self.message = Some(("The mods folder could not be read. Nothing was removed.".into(), true));
+            return;
+        };
+        let mut removing = Vec::new();
+        let mut drop_plugins = HashSet::new();
+        for name in &names {
+            let path = mods.join(name);
+            if !Self::profile_link_inside_mods(&mods_root, name, &path) {
+                continue;
+            }
+            for (plugin, _) in plugins::plugins_in_tree(&path) {
+                drop_plugins.insert(plugin.to_ascii_lowercase());
+            }
+            removing.push(name.clone());
+        }
+        let mut keep_plugins = HashSet::new();
+        if let Ok(rd) = std::fs::read_dir(&mods) {
+            for entry in rd.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if removing.iter().any(|n| n.eq_ignore_ascii_case(&name)) || !path.is_dir() {
+                    continue;
+                }
+                for (plugin, _) in plugins::plugins_in_tree(&path) {
+                    keep_plugins.insert(plugin.to_ascii_lowercase());
+                }
+            }
+        }
+        drop_plugins.retain(|name| !keep_plugins.contains(name));
+        let keys: HashSet<String> = removing.iter().map(|n| n.to_ascii_lowercase()).collect();
+        self.mod_rows.retain(|row| !keys.contains(&row.name.to_ascii_lowercase()));
+        if let Some(list) = &mut self.mods {
+            list.entries.retain(|entry| entry.name.eq_ignore_ascii_case("FalloutNV.esm") || !drop_plugins.contains(&entry.name.to_ascii_lowercase()));
+        }
+        let mut removed = 0usize;
+        for name in &removing {
+            let path = mods.join(name);
+            if Self::profile_link_inside_mods(&mods_root, name, &path) && std::fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+        }
+        let left: Vec<String> = names.into_iter().filter(|n| !removing.iter().any(|r| r.eq_ignore_ascii_case(n))).collect();
+        Self::write_recorded_links(&record, &left);
+        self.mods_dirty = true;
+        self.refresh_plugin_notes();
+        self.recompute_clashes();
+        let plugins_n = drop_plugins.len();
+        self.message = Some((format!("Cleared {removed} profile links and {plugins_n} plugins. Other links were left alone. The game Data folder was not changed."), false));
+    }
+
+    fn recorded_links(path: &Path) -> Vec<String> {
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.contains('/') && !line.contains('\\') && !line.contains(".."))
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn write_recorded_links(path: &Path, names: &[String]) {
+        let mut body = String::new();
+        for name in names {
+            body.push_str(name);
+            body.push('\n');
+        }
+        let _ = std::fs::write(path, body);
+    }
+
+    /// True when this link points at a different folder that is already inside the mods folder.
+    fn profile_link_inside_mods(mods_root: &Path, name: &str, path: &Path) -> bool {
+        let Ok(meta) = std::fs::symlink_metadata(path) else { return false };
+        if !meta.file_type().is_symlink() {
+            return false;
+        }
+        let Ok(target) = std::fs::canonicalize(path) else { return false };
+        let Ok(rel) = target.strip_prefix(mods_root) else { return false };
+        let Some(first) = rel.components().next() else { return false };
+        let holder = first.as_os_str().to_string_lossy();
+        !holder.is_empty() && !holder.starts_with('.') && !holder.eq_ignore_ascii_case(name)
+    }
+
+    // nvf-data-link: a profile load puts each turned-on mod into Data as links. Files are never copied.
+    fn link_on_rows_into_data(&self) {
+        let Some(game) = self.game() else { return };
+        let Some(home) = &self.home else { return };
+        let mods = home.mods();
+        for row in &self.mod_rows {
+            let path = mods.join(&row.name);
+            if !path.is_dir() || !Self::looks_like_one_mod(&path) {
+                continue;
+            }
+            if row.on {
+                Self::symlink_mod_into_data(&path, &game.data);
+            } else {
+                Self::unlink_data_symlinks_into(&game.data, &path);
+            }
+        }
+    }
+
+    fn find_mod_dir(profile_dir: &Path, name: &str, home_mods: Option<&Path>) -> Option<PathBuf> {
+        let mut found = Vec::new();
+        if let Some(mods) = home_mods {
+            found.push(mods.join(name));
+            if let Ok(rd) = std::fs::read_dir(mods) {
+                for entry in rd.flatten() {
+                    found.push(entry.path().join(name));
+                }
+            }
+        }
+        if let Some(instance) = profile_dir.parent().and_then(|p| p.parent()) {
+            if let Some(dir) = Self::instance_subdir(instance, "mod_directory", "mods") {
+                found.push(dir.join(name));
+            }
+            found.push(instance.join("mods").join(name));
+        }
+        found.into_iter().find(|p| p.is_dir())
+    }
+
+    fn instance_subdir(instance: &Path, key: &str, default: &str) -> Option<PathBuf> {
+        let rd = std::fs::read_dir(instance).ok()?;
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ini")) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Some(raw) = Self::ini_setting(&text, "Settings", key) else { continue };
+            let raw = raw.replace("%BASE_DIR%", &instance.to_string_lossy());
+            let dir = PathBuf::from(&raw);
+            let dir = if dir.is_absolute() { dir } else { instance.join(dir) };
+            if dir.is_dir() {
+                return Some(dir);
+            }
+        }
+        let fallback = instance.join(default);
+        fallback.is_dir().then_some(fallback)
+    }
+
+    fn ensure_mod_link(mods: &Path, name: &str, src: &Path) {
+        let dest = mods.join(name);
+        if dest.exists() || !src.is_dir() {
+            return;
+        }
+        let Ok(mods_root) = std::fs::canonicalize(mods) else { return };
+        let Ok(target) = std::fs::canonicalize(src) else { return };
+        let _ = std::os::unix::fs::symlink(&target, &dest);
+        let Ok(rel) = target.strip_prefix(&mods_root) else { return };
+        let Some(first) = rel.components().next() else { return };
+        let holder = first.as_os_str().to_string_lossy();
+        if holder.eq_ignore_ascii_case(name) || holder.starts_with('.') {
+            return;
+        }
+        // nvf-profile-link-record: only an inward profile link is listed, so Clear links can remove that one later.
+        let record = mods.join(".nvf-profile-links");
+        let mut names = Self::recorded_links(&record);
+        if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            names.push(name.to_string());
+            Self::write_recorded_links(&record, &names);
+        }
+    }
+
+    fn symlink_mod_into_data(src: &Path, data: &Path) -> (usize, usize) {
+        let root = if src.join("Data").is_dir() { src.join("Data") } else { src.to_path_buf() };
+        let mut linked = 0usize;
+        let mut skipped = 0usize;
+        let mut seen = HashSet::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            let key = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+            if !seen.insert(key) {
+                continue;
+            }
+            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            for entry in rd.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                if path.is_dir() {
+                    if matches!(name.as_str(), "fomod" | "meta" | "optional" | "docs" | "source" | "__macosx") {
+                        continue;
+                    }
+                    stack.push(path);
+                    continue;
+                }
+                if !path.is_file() {
+                    continue;
+                }
+                let Ok(rel) = path.strip_prefix(&root) else { continue };
+                let dest = data.join(rel);
+                if let Some(parent) = dest.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Ok(meta) = std::fs::symlink_metadata(&dest) {
+                    if meta.file_type().is_symlink() {
+                        let _ = std::fs::remove_file(&dest);
+                    } else {
+                        skipped += 1;
+                        continue;
+                    }
+                }
+                let target = std::fs::canonicalize(&path).unwrap_or(path);
+                if std::os::unix::fs::symlink(&target, &dest).is_ok() {
+                    linked += 1;
+                }
+            }
+        }
+        (linked, skipped)
+    }
+
+    fn unlink_data_symlinks_into(data: &Path, src: &Path) {
+        let Ok(src) = std::fs::canonicalize(src) else { return };
+        let mut stack = vec![data.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            for entry in rd.flatten() {
+                let path = entry.path();
+                let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+                if meta.file_type().is_symlink() {
+                    if std::fs::canonicalize(&path).is_ok_and(|t| t.starts_with(&src)) {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                    continue;
+                }
+                if meta.is_dir() {
+                    stack.push(path);
+                }
+            }
+        }
+    }
+
+    fn looks_like_one_mod(path: &Path) -> bool {
+        let root = if path.join("Data").is_dir() { path.join("Data") } else { path.to_path_buf() };
+        let Ok(rd) = std::fs::read_dir(&root) else { return false };
+        let mut game_file = false;
+        let mut nested = 0usize;
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            let child = entry.path();
+            if child.is_file() && (name.ends_with(".esp") || name.ends_with(".esm") || name.ends_with(".bsa")) {
+                game_file = true;
+            }
+            if child.is_dir() && matches!(name.as_str(), "meshes" | "textures" | "sound" | "music" | "video" | "menus" | "interface" | "shaders" | "nvse") {
+                game_file = true;
+            }
+            if child.is_dir() && (child.join("Data").is_dir() || Self::dir_has_plugin(&child)) {
+                nested += 1;
+            }
+        }
+        game_file && nested < 2
+    }
+
+    fn dir_has_plugin(path: &Path) -> bool {
+        std::fs::read_dir(path).ok().into_iter().flatten().flatten().any(|e| {
+            let n = e.file_name().to_string_lossy().to_ascii_lowercase();
+            e.path().is_file() && (n.ends_with(".esp") || n.ends_with(".esm"))
+        })
+    }
+
+    fn profile_folders(root: &Path) -> Vec<(String, PathBuf)> {
+        let mut dirs = vec![root.to_path_buf(), root.join("profiles")];
+        if let Some(extra) = Self::profiles_dir_from_settings(root) {
+            dirs.push(extra);
+        }
+        let mut found = Vec::new();
+        let mut seen = HashSet::new();
+        for dir in dirs {
+            if dir.join("modlist.txt").is_file() && seen.insert(dir.clone()) {
+                let label = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "profile".into());
+                found.push((label, dir));
+                continue;
+            }
+            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            for entry in rd.flatten() {
+                let path = entry.path();
+                if path.is_dir() && path.join("modlist.txt").is_file() && seen.insert(path.clone()) {
+                    found.push((entry.file_name().to_string_lossy().into_owned(), path));
+                }
+            }
+        }
+        found.sort_by(|a, b| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase()));
+        found
+    }
+
+    fn profiles_dir_from_settings(root: &Path) -> Option<PathBuf> {
+        let rd = std::fs::read_dir(root).ok()?;
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ini")) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Some(raw) = Self::ini_setting(&text, "Settings", "profiles_directory") else { continue };
+            let raw = raw.replace("%BASE_DIR%", &root.to_string_lossy());
+            let dir = PathBuf::from(&raw);
+            let dir = if dir.is_absolute() { dir } else { root.join(dir) };
+            if dir.is_dir() {
+                return Some(dir);
+            }
+        }
+        None
+    }
+
+    fn ini_setting(text: &str, section: &str, key: &str) -> Option<String> {
+        let mut here = false;
+        for line in text.lines() {
+            let t = line.trim();
+            if let Some(name) = t.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                here = name.eq_ignore_ascii_case(section);
+                continue;
+            }
+            if !here {
+                continue;
+            }
+            let Some((k, v)) = t.split_once('=') else { continue };
+            if !k.trim().eq_ignore_ascii_case(key) {
+                continue;
+            }
+            let v = v.trim();
+            let v = v.strip_prefix("@ByteArray(").and_then(|s| s.strip_suffix(')')).unwrap_or(v);
+            return Some(v.replace("\\\\", "\\"));
+        }
+        None
+    }
+
+    /// A plus is on, a minus is off. The file names the winner first. This page uses the winner last.
+    fn profile_mod_rows(text: &str) -> Vec<(String, bool)> {
+        let mut rows = Vec::new();
+        for line in text.lines() {
+            let line = line.trim_end().trim_start_matches('\u{feff}');
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let (on, name) = if let Some(n) = line.strip_prefix('+') {
+                (true, n)
+            } else if let Some(n) = line.strip_prefix('-') {
+                (false, n)
+            } else {
+                continue;
+            };
+            if name.is_empty() || name.ends_with("_separator") {
+                continue;
+            }
+            rows.push((name.to_string(), on));
+        }
+        rows.reverse();
+        rows
+    }
+
+    fn profile_plugin_names(text: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        for line in text.lines() {
+            let t = line.trim().trim_start_matches('\u{feff}');
+            if t.is_empty() || t.starts_with('#') {
+                continue;
+            }
+            let name = t.strip_prefix('*').unwrap_or(t).trim();
+            if name.is_empty() || names.iter().any(|n: &String| n.eq_ignore_ascii_case(name)) {
+                continue;
+            }
+            names.push(name.to_string());
+        }
+        names
+    }
+
     fn backup_row(&mut self, ui: &mut egui::Ui) {
         let Some(home) = self.home.clone() else { return };
         if self.backup_keep != self.backup_max as usize {
@@ -2666,6 +3298,7 @@ impl App {
     }
 
     fn save_mods(&mut self) -> Result<(), String> {
+        self.link_on_rows_into_data();
         let (Some(home), Some(list)) = (&self.home, &self.mods) else { return Err("no plugin list".into()) };
         let path = home.plugins_file();
         let next = list.to_text();

@@ -209,16 +209,23 @@ fn skip_plugin_dir(name: &str) -> bool {
 }
 
 fn walk_plugins(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>) {
-    if depth == 0 || dir.is_symlink() {
+    // nvf-link-walk: a mod folder may be a link, and links inside it are read too.
+    let mut seen = std::collections::HashSet::new();
+    walk_plugins_seen(dir, depth, out, &mut seen);
+}
+
+fn walk_plugins_seen(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>, seen: &mut std::collections::HashSet<PathBuf>) {
+    if depth == 0 {
+        return;
+    }
+    let key = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if !seen.insert(key) {
         return;
     }
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     let mut dirs = Vec::new();
     for entry in rd.flatten() {
         let path = entry.path();
-        if path.is_symlink() {
-            continue;
-        }
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
         if path.is_dir() {
             if !skip_plugin_dir(name) {
@@ -229,7 +236,7 @@ fn walk_plugins(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>) {
         }
     }
     for child in dirs {
-        walk_plugins(&child, depth - 1, out);
+        walk_plugins_seen(&child, depth - 1, out, seen);
     }
 }
 
