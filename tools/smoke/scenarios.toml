@@ -6392,6 +6392,20 @@ forbid = [
 ]
 
 [[scenario]]
+name = "trap-pitching-machine-fires"
+source = "issue 3128: a pitching machine's FireWeapon TrapBaseball throws its balls from the model's ProjectileNode; started from its own origin they hit the machine at once"
+note = "TestTraps' pitching machine 0x00165268 (TrapPitchingMachine01) at (3140, 7777, 8449); activated for the plate 0x0016526C with the OnActivate flag (Activate 0016526C 1; without it the console's Activate plays the default Open and the script never runs) at 8 s, its script plays Forward and fires TrapBaseball every 0.5 s, 12 balls. The player stands 600 units in front of it."
+areas = ["traps", "combat"]
+paths = ["crates/fnv-game/src/functions/fighting.rs", "crates/fnv-game/src/nif_blocks.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:00165268.activate 0016526C 1;8.5:close" }
+args = ["--cell", "TestTraps", "--pos=3140,8377,8460", "--heading", "180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'combat: FireWeapon: 0x00165268 fires', min = 3, label = "the machine fires its balls" },
+  { re = 'combat: FireWeapon: 0x00165268 fires TrapBaseball from \(-?\d+, -?\d+, (?P<n>-?\d+)\)', range = [8500, 8540], label = "the balls leave its ProjectileNode, about 70 units above its origin (8449), not its origin" },
+]
+
+[[scenario]]
 name = "grenade-bouquet-self-damage"
 source = "[design] #1819; docs/spec-notes/combat-rules.md, object destruction: Cap Damage stops the first crossing hit, then self-damage must pass it; the issue's supplied data lists bouquet 0016526B at health 20 with stages 98/95/75 percent"
 note = "In TestTraps the player moves onto plate 0016526C, the activate parent of bouquet 0016526B. Require all three stages, its stage explosion and disabled/destroyed state; a loose model or resting wreck alone is insufficient. [hypothesis] The issue's roughly 4.6 seconds follows from its data; ordered logs allow frame scheduling variation without requiring that duration."

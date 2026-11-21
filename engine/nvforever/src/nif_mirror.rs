@@ -75,6 +75,39 @@ struct FileNode {
 
 /// A model file's nodes and shapes (under meshes), depth first from its root, children in
 /// stored order, as `walk` tells drawn ones.
+/// A reference's node tree from its model file's nodes (`file`): names (a repeated name
+/// as "name:0", "name:1" …), parents and local transforms, with the scripts' held
+/// transforms and materials over them.
+fn file_scene(
+    r: FormId,
+    file: &[FileNode],
+    table: &HashMap<String, [f32; 9]>,
+    held: &HashMap<(u32, ModelView, String), Held>,
+    materials: &HashMap<(u32, ModelView, String), [f32; 9]>,
+) -> Vec<SceneNode> {
+    let mut seen: HashMap<String, u32> = HashMap::new();
+    file.iter()
+        .map(|f| {
+            let n = seen.entry(f.name.to_ascii_lowercase()).or_insert(0);
+            let shown = if *n == 0 { f.name.clone() } else { format!("{}:{}", f.name, *n - 1) };
+            *n += 1;
+            let h = held.get(&(r.0, ModelView::Reference, shown.clone())).copied().unwrap_or_default();
+            let (z, y, x) = h.rotation.unwrap_or(f.rotation).to_euler(EulerRot::ZYX);
+            let material = materials.get(&(r.0, ModelView::Reference, shown.clone())).or_else(|| table.get(&f.name)).copied();
+            SceneNode {
+                name: shown,
+                parent: f.parent,
+                translation: h.translation.unwrap_or(f.translation).to_array(),
+                rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+                scale: h.scale.unwrap_or(f.scale),
+                flags: 0,
+                material,
+                info: None,
+            }
+        })
+        .collect()
+}
+
 fn file_tree(data: &GameData, model: &str) -> Vec<FileNode> {
     let mut out = Vec::new();
     if model.is_empty() {
@@ -736,28 +769,7 @@ fn mirror_game(
             let Some(d) = data.as_deref() else { continue };
             let file = files.entry(model.clone()).or_insert_with(|| file_tree(d, &model));
             let table = tables.entry(model.clone()).or_insert_with(|| material_table(d, &model));
-            let mut seen: HashMap<String, u32> = HashMap::new();
-            let tree: Vec<SceneNode> = file
-                .iter()
-                .map(|f| {
-                    let n = seen.entry(f.name.to_ascii_lowercase()).or_insert(0);
-                    let shown = if *n == 0 { f.name.clone() } else { format!("{}:{}", f.name, *n - 1) };
-                    *n += 1;
-                    let h = held.get(&(r.0, ModelView::Reference, shown.clone())).copied().unwrap_or_default();
-                    let (z, y, x) = h.rotation.unwrap_or(f.rotation).to_euler(EulerRot::ZYX);
-                    let material = materials.get(&(r.0, ModelView::Reference, shown.clone())).or_else(|| table.get(&f.name)).copied();
-                    SceneNode {
-                        name: shown,
-                        parent: f.parent,
-                        translation: h.translation.unwrap_or(f.translation).to_array(),
-                        rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
-                        scale: h.scale.unwrap_or(f.scale),
-                        flags: 0,
-                        material,
-                        info: None,
-                    }
-                })
-                .collect();
+            let tree = file_scene(r, file, table, held, materials);
             if logged.insert(r.0 ^ 0x4000_0000) {
                 info!("nif mirror: {:08X} told from its model file {model:?} (drawn flat), {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
@@ -832,6 +844,22 @@ fn mirror_game(
                     })
                 })
                 .collect();
+            // A model drawn without its nodes' names, or without node entities (a cell model's,
+            // TestTraps' pitching machine, #3128), is told from its file instead, as
+            // a flat-drawn item is, so scripts and FireWeapon find its nodes by name.
+            let unnamed = tree.iter().all(|n| n.name.is_empty() || n.name.starts_with(':'));
+            if let (true, ModelView::Reference, Some(d), Some(model)) = (unnamed, view, data.as_deref(), model.as_deref()) {
+                let file = files.entry(model.to_string()).or_insert_with(|| file_tree(d, model));
+                if !file.is_empty() {
+                    let table = tables.entry(model.to_string()).or_insert_with(|| material_table(d, model));
+                    let tree = file_scene(r, file, table, held, materials);
+                    if logged.insert(r.0 ^ 0x2000_0000) {
+                        info!("nif mirror: {:08X} drawn without node names: told from its model file {model:?}, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
+                    }
+                    game.scene.set_tree(r, tree);
+                    continue;
+                }
+            }
             if logged.insert(r.0 | 0x8000_0000) {
                 info!("nif mirror: {:08X} told, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
