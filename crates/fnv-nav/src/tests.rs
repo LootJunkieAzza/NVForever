@@ -758,6 +758,40 @@ fn locked_doors_that_open_in_place_close_the_way_without_the_key() {
 }
 
 #[test]
+fn a_door_that_opens_in_place_and_is_not_in_the_world_bars_nothing() {
+    // #2405, Point Lookout's mansion: two doors in one doorway, the quest's spawn door
+    // (opened by its stage) and a locked one placed initially disabled for later. The
+    // disabled one stood in Desmond's way; a door not in the world bars nothing.
+    use crate::graph::DoorLock;
+    let mut g = graph(&[(grid(1, [0.0, 0.0], 10, 1, 100.0, &[], flat), W)]);
+    let locked = DoorLock { level: 255, key: None };
+    g.set_in_place_doors(vec![hinged(0xD00, 500.0, 0.0), hinged(0xD01, 500.0, 0.0)], |_| Some(locked));
+    let from = Place { space: W, pos: [50.0, 50.0, 0.0] };
+    let to = Place { space: W, pos: [950.0, 50.0, 0.0] };
+    let spawn_open = PathParams { open_doors: vec![0xD00], ..Default::default() };
+    // Both in the world: the locked one closes the way, and the search says how much it
+    // searched before giving up (the failed leg's triangles were not counted: "0
+    // triangles searched" read as no door at all).
+    match g.find_path(from, to, &spawn_open) {
+        Err(PathError::Unreachable { expanded }) => assert!(expanded > 0, "{expanded}"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(g.doors_closing(from, to, &spawn_open), Some(vec![0xD01]), "the door to blame");
+    // Disabled (as placed, or by a script): no barrier, and no stop in front of it.
+    let changes = g.sync_door_presence([(0xD01, false)]);
+    assert_eq!(changes.gone, vec![0xD01]);
+    let path = g.find_path(from, to, &spawn_open).unwrap();
+    assert_eq!(path.legs[0].door_stops.iter().map(|s| s.door).collect::<Vec<_>>(), vec![0xD00]);
+    assert_eq!(g.doors_closing(from, to, &spawn_open), Some(vec![]));
+    // Enabled again: closed again.
+    assert_eq!(g.sync_door_presence([(0xD01, true)]).back, vec![0xD01]);
+    assert!(g.find_path(from, to, &spawn_open).is_err());
+    // A way no door would open: nothing to blame.
+    let island = graph(&[(grid(1, [0.0, 0.0], 2, 1, 100.0, &[], flat), W), (grid(2, [1000.0, 0.0], 2, 1, 100.0, &[], flat), W)]);
+    assert_eq!(island.doors_closing(from, Place { space: W, pos: [1050.0, 50.0, 0.0] }, &PathParams::default()), None);
+}
+
+#[test]
 fn locked_door_overlap_allows_only_endpoints_outside_its_footprint() {
     // [design, #2716] Synthetic rotated door: model y is game -x. The goal's
     // triangle reaches x=500, but the goal at x=450 is outside the footprint.

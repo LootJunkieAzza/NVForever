@@ -205,7 +205,26 @@ against it (GetMajorCrimeCount) [documented: HelpCrime]. Its friends join throug
 assistance (§10.3); the faction enemy flag is **not** set for an assault [design: one
 punch would make a whole town hostile everywhere; owner to decide]. SendAssaultAlarm
 turns the named victim (or, with the player named, the first present member of the
-faction given) on the player and makes it say Assault [documented].
+faction given) on the player and makes it say Assault [documented]. With a faction given
+and no member present and alive, nobody turns and no crime is counted: the calling actor
+is no member of the faction, so it is never the stand-in [documented: the wiki's "it will
+pick an NPC in the … faction"; hypothesis: the original does nothing then, observer
+check 241]. Only the form with no faction falls back to the calling actor [design,
+#2926]; a freed Techatticup hostage's `SendAssaultAlarm Player
+CaesarsLegionTechMineFaction` turned the hostage itself before.
+
+Techatticup (#2926): each NCR hostage (TechMineNCRHostage2REF 0x0012319C,
+TechMineNCRHostage1REF 0x0012319B, SCPT 0x00123191) ends its "Untie him." branch with
+`SendAssaultAlarm Player 0x001400F9` (CaesarsLegionTechMineFaction) [observed:
+FalloutNV.esm, script decompile and fnvtool esm decode]. With the mine's raiders alive the
+pick works: in a headless run of the untie path, 17 members of the faction are present and
+alive and the victim is TecLegionaryRaider5REF (ACHR 0x0011F654, base 0x00123192)
+[observed: our headless walkthrough techatticup-hostages-2926, its `assault alarm:` log
+line; the reference from fnvtool esm decode]. The reporter's hostage turned because the
+mine had been cleared first, the usual order: no member was alive and the old fallback
+picked the caller [hypothesis, fits the reporter's log]. The walkthrough
+techatticup-hostages-dead-2926 kills the faction's actors first and expects nobody to
+turn.
 
 ### 3.6 Who sees, and what turning means
 

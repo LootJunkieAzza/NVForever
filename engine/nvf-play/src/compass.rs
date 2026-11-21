@@ -337,7 +337,8 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
     if let (true, Some(p), Some(loc)) = (reach > 0.0, player.as_deref(), location.as_deref()) {
         if loc.interior.is_none() {
             for (form, pos, _) in state.markers_of(loc.world) {
-                let near = (pos[0] - p.feet[0]).hypot(pos[1] - p.feet[1]) <= reach;
+                // Not a marker out of the world now (#3123), as discovery skips it.
+                let near = (pos[0] - p.feet[0]).hypot(pos[1] - p.feet[1]) <= reach && sim.present(form);
                 if near && rt.game.player.map_markers.insert(FormId(form)) {
                     info!("compass: {} marked on the map, within {reach:.0} units (tweak)", FormId(form));
                 }

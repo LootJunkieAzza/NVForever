@@ -136,9 +136,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     let v = match name {
         // ---- LU ----
         // IDLE MODL; the setter for the session [observed: plugins1].
-        "getidleanimpath" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "MODL", "")) {
-            Some(XVal::Str(s)) => XVal::Str(s),
-            _ => XVal::Str(String::new()),
+        "getidleanimpath" => match form(args, 0) {
+            Some(f) if g.idle_def(f).is_some() => XVal::Str(g.idle_animation_path(f).unwrap_or_default().to_string()),
+            Some(f) => match crate::nvse::record_value(g, f, "MODL", "") {
+                Some(XVal::Str(s)) => XVal::Str(s),
+                _ => XVal::Str(String::new()),
+            },
+            None => XVal::Str(String::new()),
         },
         "setidleanimpath" => {
             if let Some(f) = form(args, 0) {
@@ -246,9 +250,23 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let p: Vec<f64> = (0..6).map(|k| num(args, k, 0.0)).collect();
             XVal::Num(((p[3] - p[0]).powi(2) + (p[4] - p[1]).powi(2) + (p[5] - p[2]).powi(2)).sqrt())
         }
-        // Forms only the masters define [observed: plugins1, the stimpak 0 and 0;
-        // hypothesis: NVForever does not follow overrides by index here].
-        "getformoverrideindex" | "isformoverridden" => zero,
+        // Load-order override queries backed by `GameData::form_overrides`
+        // [documented: GECK wiki GetFormOverrideIndex, IsFormOverridden;
+        // observed: plugins1, non-overridden Stimpak returns 0 and 0].
+        "isformoverridden" => yes(form(args, 0).or(subject).is_some_and(|f| g.data.is_form_overridden(f))),
+        "getformoverrideindex" => {
+            let Some(f) = form(args, 0).or(subject) else { return Some(Ok(XVal::Num(-1.0))) };
+            let idx = if let Some(i) = g.data.form_override_index(f) {
+                f64::from(i)
+            } else if f.0 >> 24 >= 0xFE {
+                255.0
+            } else if g.world.placed.get(f).is_some() {
+                f64::from(f.0 >> 24)
+            } else {
+                -1.0
+            };
+            XVal::Num(idx)
+        }
         // ZNAM; Set… for the session, none leaving the sound [observed: plugins2, the
         // beep reads back, a null set does not clear it].
         "getputdownsound" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "ZNAM", "")) {
@@ -362,14 +380,19 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 _ => XVal::Ref(0),
             }
         }
+        // No model clears the combination's form, so first person draws the third-person
+        // model the weapon has for it (weapon-mods.md §2, §8) [hypothesis: WAP's script
+        // files set MODL and MWD1–MWD7 with SetWeaponModel and then call this with no model
+        // for each of 0–7, for new first-person models; observed: mods_reference WAP
+        // gr_10mmP.txt].
         "setweapon1stpersonmodel" => {
-            let (Some(w), Some(m)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
+            let Some(w) = form(args, 0) else { return Some(Ok(zero)) };
             let sub = match num(args, 1, -1.0) as i64 {
                 0 => "WNAM/".to_string(),
                 k @ 1..=7 => format!("WNM{k}/"),
                 _ => return Some(Ok(zero)),
             };
-            g.field_overrides.insert((w, sub), XVal::Ref(m.0));
+            g.field_overrides.insert((w, sub), XVal::Ref(form(args, 2).map_or(0, |m| m.0)));
             zero
         }
         // `armor modelID(1-4) index3D`, success(0/1) [documented: ClearArmorAltTexture].

@@ -125,7 +125,7 @@ pub const SHOT_LEAST: f32 = 0.5;
 pub const SHOT_MOST: f32 = 10.0;
 /// How far the room about the actors is measured, units [design: past the largest
 /// distance the masters' paths compare with, 320, observed].
-pub const ROOM_REACH: f32 = 1024.0;
+pub const ROOM_REACH: f32 = fnv_game::vats::AREA_REACH;
 /// The camera keeps this far in front of what it would go into, units [design].
 pub const WALL_MARGIN: f32 = 8.0;
 /// The slowest the world's clock is taken [design].
@@ -477,9 +477,56 @@ impl KillCam {
         self.asked
     }
 
+    /// A kill camera (not a classic VATS attack camera) is playing.
+    pub fn kill_playing(&self) -> bool {
+        self.show.as_ref().is_some_and(|s| matches!(s.kind, Kind::Kill))
+    }
+
     /// An attack's camera is playing.
     pub fn attack_playing(&self) -> bool {
         self.show.as_ref().is_some_and(|s| matches!(s.kind, Kind::Attack(_)))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_with_kill_show() -> Self {
+        Self {
+            show: Some(Show {
+                kind: Kind::Kill,
+                target: FormId(0x1234),
+                shots: Vec::new(),
+                next: 0,
+                playing: None,
+                real: 0.0,
+                held: 0,
+                angle: None,
+                fallback: None,
+                seen: None,
+                focus: 0.0,
+                moved: TargetMoved::default(),
+            }),
+            ..Self::default()
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_with_attack_show() -> Self {
+        Self {
+            show: Some(Show {
+                kind: Kind::Attack(CamStage::Shoot),
+                target: FormId(0x1234),
+                shots: Vec::new(),
+                next: 0,
+                playing: None,
+                real: 0.0,
+                held: 0,
+                angle: None,
+                fallback: None,
+                seen: None,
+                focus: 0.0,
+                moved: TargetMoved::default(),
+            }),
+            ..Self::default()
+        }
     }
 
     /// The world clock's speed it asks for (`script::time_multiplier`): the playing

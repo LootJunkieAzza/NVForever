@@ -300,11 +300,14 @@ mod tests {
     /// #2198's upscaler rows, #2169's FSR library row, #2242's upscaling counter row, #2317's
     /// Generated frames row, the field of view rows, the menu scale and Physics rate rows,
     /// #2662's grass fires, #2550's terrain height blending, #2551's terrain anti-tiling,
-    /// #2688's sound cover, #2670's cloud shadows, #2149's smooth terrain and its Debug row terrain wireframe, the
+    /// #2688's sound cover, #2670's cloud shadows, #2671's terrain shadows, #2149's smooth terrain and its Debug row terrain wireframe, the
     /// overhaul's menu font, the Advanced Movement rows of tech/movement-inertia, Weapon
     /// Inertia and Camera Motion in place of weapon sway and head bob, #2843's Shadow
-    /// resolution row, Gore Shake and #2670's Cloud shadows; #2661's mesh terrain blend row), by the group it registers with.
-    const KNOWN: [(&str, &str); 128] = [
+    /// resolution row, Gore Shake and #2670's Cloud shadows; #2661's mesh terrain blend row, the
+    /// Quick Loot rows; #2965's heat haze row; #2675's desert haze row; Sprint; #2671's terrain
+    /// shadows row; #2981's authored materials row; #2701's full-detail scenery row; #3014's
+    /// distant objects row), by the group it registers with.
+    const KNOWN: [(&str, &str); 143] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -312,12 +315,19 @@ mod tests {
         ("movement-inertia", "Gameplay"),
         ("weapon-handling", "Gameplay"),
         ("advanced-recoil", "Gameplay"),
+        ("sprint", "Gameplay"),
         ("animation-smoothing", "Gameplay"),
         ("sound-cover", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
         ("reload-slows", "Gameplay"),
         ("grass-fire", "Gameplay"),
+        ("quick-loot", "Gameplay"),
+        ("quick-loot-scale", "Gameplay"),
+        ("quick-loot-background", "Gameplay"),
+        ("quick-loot-weight", "Gameplay"),
+        ("quick-loot-value", "Gameplay"),
+        ("quick-loot-value-per-weight", "Gameplay"),
         ("music", "Gameplay"),
         ("voice", "Gameplay"),
         ("dialogue-look", "Gameplay"),
@@ -391,6 +401,7 @@ mod tests {
         ("item-distance", "Display"),
         ("shadow-distance", "Display"),
         ("grass-distance", "Display"),
+        ("tree-distance", "Display"),
         ("upscaler", "Graphics"),
         ("upscaler-quality", "Graphics"),
         ("dlss-model", "Graphics"),
@@ -404,18 +415,25 @@ mod tests {
         ("ambient-occlusion", "Graphics"),
         ("fine-shadows", "Graphics"),
         ("cloud-shadows", "Graphics"),
+        ("terrain-shadows", "Graphics"),
         ("bloom", "Graphics"),
         ("glow", "Graphics"),
         ("eye-adaptation", "Graphics"),
         ("neon-glow", "Graphics"),
         ("sharpen", "Graphics"),
         ("anisotropic", "Graphics"),
+        ("authored-materials", "Graphics"),
         ("terrain-height-blend", "Graphics"),
         ("terrain-anti-tiling", "Graphics"),
         ("mesh-terrain-blend", "Graphics"),
+        ("full-detail", "Graphics"),
+        ("distant-objects", "Graphics"),
         ("smooth-terrain", "Graphics"),
         ("light-shafts", "Graphics"),
+        ("heat-haze", "Graphics"),
+        ("desert-haze", "Graphics"),
         ("water-reflections", "Graphics"),
+        ("water-effects", "Graphics"),
         ("water-mirror", "Graphics"),
         ("quality", "Graphics"),
         ("volume-master", "Sound"),
@@ -528,7 +546,8 @@ mod tests {
         mark-recurring-challenges hide-hotkeyed-containers hide-hotkeyed-barter hide-hotkeyed-repair \
         map-zoom-at-pointer console-homes shift-screenshot-hides print-plugin-names \
         weapon-requirements-matter console-model-details back-pace strafe-pace hack-no-single-chars \
-        hack-no-repeat-words hack-dud-when-full hack-spare-guessed run-overencumbered over-run-ap over-jump-ap \
+        hack-no-repeat-words hack-dud-when-full hack-spare-guessed hack-mark-guesses-as-duds \
+        hack-keep-matching-chars hack-compact-guesses hack-replenish-bonus run-overencumbered over-run-ap over-jump-ap \
         npc-melee-part-damage disarm-needs-skill disarm-mult disarm-explode-mult cap-skills-by-special skill-cap-base \
         skill-cap-per-special skill-cap-per-luck skill-cap-most cap-skills-spare-tagged hold-breath breath-sway \
         breath-ap scope-wheel-zoom wheel-cycles-hotkeys dpad-cycles-hotkeys keys-with-pad double-tap-ammo \
@@ -634,7 +653,7 @@ mod tests {
         assert_eq!(keys(&list, &l, "Controls")[..6], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", ""]);
         assert_eq!(
             keys(&list, &l, NVF_FEATURES_TAB),
-            ["[Advanced Movement]", "advanced-movement", "movement-weight", "", "[Gameplay]", "movement-inertia", "weapon-handling", "advanced-recoil", "", "[Visual Only]", "weapon-inertia", "animation-smoothing", "camera-motion", "", "[World Interaction]", "grass-fire"]
+            ["[Advanced Movement]", "advanced-movement", "movement-weight", "", "[Gameplay]", "movement-inertia", "weapon-handling", "advanced-recoil", "sprint", "", "[Visual Only]", "weapon-inertia", "animation-smoothing", "camera-motion", "", "[World Interaction]", "grass-fire", "", "[Quick Loot]", "quick-loot", "quick-loot-scale", "quick-loot-background", "quick-loot-weight", "quick-loot-value", "quick-loot-value-per-weight"]
         );
         assert_eq!(keys(&list, &l, "Debug"), ["overlay", "hit-markers", "god-mode", "navmesh", "terrain-wireframe", "scope-3d"]);
         assert!(keys(&list, &l, "Tweaks").is_empty(), "an empty tab is still a tab");
@@ -644,12 +663,19 @@ mod tests {
         assert_eq!(at("upscaler"), "Display > Upscaling and Anti-Aliasing");
         assert_eq!(at("sky-clock"), "Graphics > World and Animation");
         assert_eq!(at("grass-fire"), "NVF Features > World Interaction");
+        assert_eq!(at("quick-loot"), "NVF Features > Quick Loot");
         assert_eq!(at("button-style"), "Controls > Input");
         assert_eq!(at("terrain-anti-tiling"), "Graphics > Detail and Distance", "beside terrain height blending (#2551)");
+        assert_eq!(at("authored-materials"), "Graphics > Detail and Distance", "beside anisotropic filtering, the other texture row (#2981)");
         assert_eq!(at("mesh-terrain-blend"), "Graphics > Detail and Distance", "beside the terrain rows (#2661)");
         assert_eq!(at("cloud-shadows"), "Graphics > Shadows", "after Longer sun shadows (#2670)");
+        assert_eq!(at("terrain-shadows"), "Graphics > Shadows", "after Cloud shadows (#2671)");
         assert_eq!(at("sound-cover"), "Gameplay > Game", "#2688");
         assert_eq!(l.control_placement("bind:Jump").unwrap().path(), "Controls > Movement");
+        assert_eq!(l.control_placement("bind:Sprint").unwrap().path(), "Controls > Movement", "beside the movement controls (#3000)");
+        // Sprint is not greyed under the Global Toggle, as its Advanced Movement neighbours
+        // (#3000); only its binding is, while it is off.
+        assert!(needs("sprint").is_empty());
         // The registry itself is left as it was: its order and each row's group.
         let again = registry(&KNOWN);
         assert!(list.iter().zip(&again).all(|(a, b)| a.key == b.key && a.group == b.group && a.label == b.label && a.note == b.note));
@@ -722,8 +748,8 @@ mod tests {
     #[test]
     fn every_tweak_of_1892_has_its_group_and_category() {
         let tweaks = tweak_rows();
-        // 560 less the console and screenshot keys, bindings since 2026-11-16 (Controls).
-        assert_eq!(tweaks.len(), 558);
+        // 564 less the console and screenshot keys, bindings since 2026-11-16 (Controls).
+        assert_eq!(tweaks.len(), 562);
         let mut rows: Vec<(&'static str, &'static str)> = KNOWN.to_vec();
         rows.extend(&tweaks);
         let list = registry(&rows);
@@ -744,6 +770,7 @@ mod tests {
         let next = |k: &str| list[l.ordered_settings().skip_while(|&i| list[i].key != k).nth(1).unwrap()].key;
         assert_eq!(next("tweak-take-all-confirm"), "tweak-take-all-confirm-min");
         assert_eq!(next("tweak-revive-companions"), "tweak-revive-down-seconds");
+        assert_eq!(next("tweak-hack-mark-guesses-as-duds"), "tweak-hack-keep-matching-chars");
         // The engine's own tabs are as they were.
         assert_eq!(keys(&list, &l, "Audio"), keys(&registry(&KNOWN), &resolve_layout(&registry(&KNOWN)), "Audio"));
     }

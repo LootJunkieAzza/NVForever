@@ -81,6 +81,8 @@ const S_LF_FROM: u32 = 0xF54;
 const S_LF_PLAIN: u32 = 0xF55;
 const S_LF_TO: u32 = 0xF56;
 const T_CHAT: u32 = 0x957;
+const T_FAIL: u32 = 0x9E0;
+const S_FAIL: u32 = 0xFE0;
 const T_ANSWER: u32 = 0x958;
 const C_CHAT: u32 = 0xF57;
 const C_OPENER: u32 = 0xF58;
@@ -667,6 +669,9 @@ fn plugin_bytes() -> Vec<u8> {
             50.0,
             vec![L { id: S_LF_TO, quest: QA, speaker: me, responses: one("To"), link_from: vec![T_LF_FROM, T_LF_PLAIN], ..L::default() }],
         ),
+        // Fallout 3's speech challenge failure topic: a line whose Link From names the
+        // challenge's topic (Lucas Simms's MegTownFatherChoice answer, #3024).
+        topic(T_FAIL, "SpeechChallengeFailure", "", topic_type::TOPIC, 0, 50.0, vec![L { id: S_FAIL, quest: QA, speaker: me, responses: one("Sorry friend."), link_from: vec![T_LF_PLAIN], ..L::default() }]),
         // Between actors: TestChat's line links nowhere; TestAnswer's second line names
         // TestChat in its Link From, its first (an opener) does not.
         topic(T_CHAT, "TestChat", "TestChat", topic_type::CONVERSATION, 0, 50.0, vec![L { id: C_CHAT, quest: QA, ty: CONV, speaker: me, responses: one("Chat"), ..L::default() }]),
@@ -1391,6 +1396,20 @@ fn a_topic_is_offered_after_the_topics_its_lines_link_from() {
     h.start_dialogue(actor(), Some(FormId(T_LF_PLAIN))).unwrap();
     listen(&mut h);
     assert_eq!(offered(&h), vec![T_TOP2, T_TOP, T_LF_TO, T_SKILL, GOODBYE]);
+}
+
+/// #3024: SpeechChallengeFailure is not offered as a player choice through Link From
+/// (its line links from the topic just said); other Link From topics still are.
+#[test]
+fn the_speech_challenge_failure_topic_is_not_a_player_choice() {
+    let f = fixture();
+    assert!(f.data.linked_from[&FormId(T_LF_PLAIN)].contains(&FormId(T_FAIL)));
+    let mut g = game(&f);
+    g.start_dialogue(actor(), Some(FormId(T_LF_PLAIN))).unwrap();
+    listen(&mut g);
+    let list = offered(&g);
+    assert!(!list.contains(&T_FAIL), "{list:?}");
+    assert!(list.contains(&T_LF_TO), "{list:?}");
 }
 
 #[test]
@@ -3359,4 +3378,72 @@ fn a_group_condition_on_the_speaker_lets_others_than_the_fixed_speaker_say_a_lin
     assert!(!g.can_say(talker, player, FormId(GR_FIXED)), "not the fixed speaker");
     assert!(!g.can_say(chatter, player, FormId(GR_CREW)), "the fixed speaker, but not in the faction");
     assert!(g.can_say(chatter, player, FormId(GR_FIXED)));
+}
+
+#[test]
+fn set_on_dialog_topic_event_handler_fires_for_info_topic_and_wildcard_filters() {
+    let f = fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game, body: &str| {
+        let src = format!("Begin Function {{ }}\n{body}\nEnd\n");
+        g.run_query(&src, fnv_game::game::RunCtx::default()).unwrap();
+    };
+    // Register an INFO-filtered handler (using bare hex FormID like Casino Rewards Fix),
+    // a DIAL topic-filtered handler, an unrelated INFO handler (must not fire), and an
+    // unfiltered wildcard handler.
+    let info_hex = format!("{C_BYE:08X}");
+    let other_hex = format!("{I_BYE:08X}");
+    let topic_hex = format!("{T_BYE:08X}");
+    run(
+        &mut g,
+        &format!(
+            "SetOnDialogTopicEventHandler (begin function {{ref rForm}}\n\
+             PlayerREF.AuxVarSetRef \"*dt_info_self\" (GetSelf)\n\
+             PlayerREF.AuxVarSetRef \"*dt_info_form\" rForm\n\
+             end) 1 {info_hex}"
+        ),
+    );
+    run(
+        &mut g,
+        &format!(
+            "SetOnDialogTopicEventHandler (begin function {{ref rForm}}\n\
+             PlayerREF.AuxVarSetRef \"*dt_topic_self\" (GetSelf)\n\
+             PlayerREF.AuxVarSetRef \"*dt_topic_form\" rForm\n\
+             end) 1 {topic_hex}"
+        ),
+    );
+    run(
+        &mut g,
+        &format!(
+            "SetOnDialogTopicEventHandler (begin function {{ref rForm}}\n\
+             PlayerREF.AuxVarSetFlt \"*dt_other\" 1\n\
+             end) 1 {other_hex}"
+        ),
+    );
+    run(
+        &mut g,
+        "SetOnDialogTopicEventHandler (begin function {ref rForm}\n\
+         PlayerREF.AuxVarSetRef \"*dt_wild_form\" rForm\n\
+         PlayerREF.AuxVarSetFlt \"*dt_wild\" ((PlayerREF.AuxVarGetFlt \"*dt_wild\") + 1)\n\
+         end) 1",
+    );
+    g.start_dialogue(actor(), None).unwrap();
+    listen(&mut g);
+    assert_eq!(pick(&mut g, T_BYE), FormId(C_BYE));
+    let aux_flt = |g: &mut Game, key: &str| -> f64 {
+        let src = format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"{key}\")\nEnd\n");
+        g.run_query(&src, fnv_game::game::RunCtx::default()).unwrap().num().unwrap()
+    };
+    let aux_ref = |g: &mut Game, key: &str| -> u32 {
+        let src = format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarGetRef \"{key}\")\nEnd\n");
+        g.run_query(&src, fnv_game::game::RunCtx::default()).unwrap().value().unwrap().as_form().unwrap_or(0)
+    };
+    assert_eq!(aux_ref(&mut g, "*dt_info_self"), NPC1_REF, "INFO-filtered handler gets speaker as GetSelf");
+    assert_eq!(aux_ref(&mut g, "*dt_info_form"), C_BYE, "INFO-filtered handler receives the spoken INFO form");
+    assert_eq!(aux_ref(&mut g, "*dt_topic_self"), NPC1_REF, "topic-filtered handler gets speaker as GetSelf");
+    assert_eq!(aux_ref(&mut g, "*dt_topic_form"), T_BYE, "topic-filtered handler receives the spoken DIAL topic form");
+    assert_eq!(aux_flt(&mut g, "*dt_other"), 0.0, "non-matching INFO filter must not fire");
+    assert_eq!(aux_ref(&mut g, "*dt_wild_form"), T_BYE, "unfiltered wildcard handler receives the spoken topic");
+    // Greeting + T_BYE = 2 spoken lines for the unfiltered wildcard handler.
+    assert_eq!(aux_flt(&mut g, "*dt_wild"), 2.0, "unfiltered wildcard handler fired for both greeting and topic");
 }

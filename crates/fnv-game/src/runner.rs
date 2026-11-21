@@ -1639,7 +1639,9 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             };
             let line = if talk.say_to {
                 let topic = talk.topic.ok_or_else(|| format!("{} is Say To without a topic", g.data.name(p)))?;
-                g.say(a, Some(target), topic, true).ok_or_else(|| format!("{} has no line of {} to say", g.data.name(a), g.data.name(topic)))?
+                // As the AI says it (`fnv_ai` carry): a Conversation line to another actor
+                // or a talking activator goes on as their conversation.
+                g.say_package_line(a, target, topic).ok_or_else(|| format!("{} has no line of {} to say", g.data.name(a), g.data.name(topic)))?
             } else if target == FormId::PLAYER_REF {
                 // A conversation also for a greeting with the Goodbye flag (`Game::force_greet`).
                 g.force_greet(a, talk.topic)?

@@ -404,7 +404,14 @@ impl Walk<'_> {
             }
             let m = mesh_data(d);
             let base = vertices.len() as u32;
-            vertices.extend(m.positions);
+            // NiTriStripsData under a bhkNiTriStripsShape is stored in game units, not
+            // Havok units: render extent / stored extent has a median of 1.00 over the 13
+            // single-object meshes of Fallout3 - Meshes.bsa that use it, where every other
+            // shape family is 7.0 [observed: fnvtool collide survey, collision.md §2].
+            // Brought into Havok units here so the shared conversion's ×7 gives game
+            // units again (without it TTW's MegatonRampTurn90Sml railing was seven times
+            // its size and walled off the walkway beside it).
+            vertices.extend(m.positions.into_iter().map(|p| p.map(|v| v / HAVOK_SCALE)));
             triangles.extend(m.triangles.into_iter().map(|t| t.map(|v| v.saturating_add(base))));
         }
         let materials = vec![mat; triangles.len()];
@@ -812,6 +819,19 @@ mod tests {
         let Some(Shape::TriMesh { triangles, materials, .. }) = w.shape(0) else { panic!("a mesh") };
         assert_eq!((triangles.len(), materials), (1, vec![0]));
         assert_eq!(w.problems.len(), 1, "{:?}", w.problems);
+    }
+
+    #[test]
+    fn strips_shape_vertices_are_game_units() {
+        // Stored in game units (collision.md §2), so the walk returns them in Havok
+        // units and the ×7 conversion restores them.
+        let (raw, dec) = blocks(vec![
+            ("bhkNiTriStripsShape", vec![("strips_data", Value::RefList(vec![1]))]),
+            ("NiTriStripsData", vec![("vertices", Value::FloatList { dim: 3, data: vec![0.0, 0.0, 0.0, 70.0, 0.0, 0.0, 0.0, 140.0, 0.0] })]),
+        ]);
+        let mut w = walk(&raw, &dec);
+        let Some(Shape::TriMesh { vertices, .. }) = w.shape(0) else { panic!("a mesh") };
+        assert_eq!(vertices, vec![[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 20.0, 0.0]]);
     }
 
     fn sim(t: [f32; 3]) -> Similarity {

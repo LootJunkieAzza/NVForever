@@ -20,7 +20,8 @@
 //!   over all of them ([`MovementInertia::advanced`]); under Gameplay, Movement Inertia (the
 //!   ground inertia here, the eased crouch, the take-off and landing dip and a hard
 //!   landing's weight), Weapon Handling (the slower draw, put-away and aim, the weapon's
-//!   weight in them) and Advanced Recoil; under Visual Only, Animation Smoothing here and
+//!   weight in them), Advanced Recoil, Sprint (its shared state and contract:
+//!   `crate::stance`); under Visual Only, Animation Smoothing here and
 //!   nvforever's Weapon Inertia and Camera Motion (`PlayerBody`) [design: the owner,
 //!   2026-11-15, "simplify the Advanced Movement menu ... add 2 categories"].
 //! - **Movement Weight** (a dropdown under the Global Toggle, [`MOVEMENT_WEIGHTS`]): 100 %
@@ -279,6 +280,8 @@ pub struct MovementInertia {
     /// and the attributes, and the weapon in hand's [`handling`] for the hand-back after a
     /// reload or an attack (1 with it off), kept by [`follow_weapon`].
     pub weapon_handling: bool,
+    /// Sprint ([`Self::sprint_on`]): the Sprint control runs faster for AP (`crate::stance`).
+    pub sprint: bool,
     pub handling: f32,
     /// Movement Weight, 0.25 to 1 ([`MOVEMENT_WEIGHTS`]): the share of the inertia's times.
     pub weight: f32,
@@ -311,7 +314,7 @@ impl Default for MovementInertia {
     /// What a new game gets: the Global Toggle and Advanced Recoil on, the rest off, so an app
     /// that only adds the resource (a test app, `crate::player::PlayerPlugin`) plays as shipped.
     fn default() -> Self {
-        MovementInertia { advanced: true, on: false, smooth: false, recoil: true, weapon_handling: false, handling: 1.0, weight: 1.0, weapon_weight: None, agility: 5.0, strength: 5.0, axes: [Spring::REST; 2], last_key: [0.0; 2], starting: None, gliding: None, reports: Vec::new(), ran: true, grounded: true, last_feet: None, last_placed: None }
+        MovementInertia { advanced: true, on: false, smooth: false, recoil: true, weapon_handling: false, sprint: false, handling: 1.0, weight: 1.0, weapon_weight: None, agility: 5.0, strength: 5.0, axes: [Spring::REST; 2], last_key: [0.0; 2], starting: None, gliding: None, reports: Vec::new(), ran: true, grounded: true, last_feet: None, last_placed: None }
     }
 }
 
@@ -357,6 +360,12 @@ impl MovementInertia {
     /// The view's kick eases in and partly settles back (Advanced Recoil).
     pub fn soft_recoil(&self) -> bool {
         self.advanced && self.recoil
+    }
+
+    /// The Sprint control acts: its key (the player's; none by default) runs faster for AP
+    /// (Sprint under the Global Toggle; `crate::stance`).
+    pub fn sprint_on(&self) -> bool {
+        self.advanced && self.sprint
     }
 
     /// Movement Weight as a share, 0.25 to 1.
@@ -583,18 +592,19 @@ impl MovementInertia {
 
 /// Log Advanced Movement's switches kept here at the start and whenever one changes (a smoke
 /// check of the defaults: the owner, 2026-11-16, every part off but Advanced Recoil).
-pub fn log_switches(inertia: Res<MovementInertia>, mut last: Local<Option<[bool; 5]>>) {
-    let now = [inertia.advanced, inertia.on, inertia.weapon_handling, inertia.recoil, inertia.smooth];
+pub fn log_switches(inertia: Res<MovementInertia>, mut last: Local<Option<[bool; 6]>>) {
+    let now = [inertia.advanced, inertia.on, inertia.weapon_handling, inertia.recoil, inertia.smooth, inertia.sprint];
     if *last != Some(now) {
         *last = Some(now);
         let s = |b: bool| if b { "on" } else { "off" };
         info!(
-            "advanced movement: Global Toggle {}, Movement Inertia {}, Weapon Handling {}, Advanced Recoil {}, Animation Smoothing {}",
+            "advanced movement: Global Toggle {}, Movement Inertia {}, Weapon Handling {}, Advanced Recoil {}, Animation Smoothing {}, Sprint {}",
             s(now[0]),
             s(now[1]),
             s(now[2]),
             s(now[3]),
-            s(now[4])
+            s(now[4]),
+            s(now[5])
         );
     }
 }
@@ -704,6 +714,16 @@ mod tests {
         assert!((heavy.aim_seconds(true) - AIM_IN_SECONDS * 1.35).abs() < 1e-5);
         let pistol = MovementInertia { weapon_weight: Some(3.0), ..MovementInertia::all_on() };
         assert!((pistol.aim_seconds(true) - AIM_IN_SECONDS).abs() < 1e-5 && (pistol.aim_seconds(false) - AIM_OUT_SECONDS).abs() < 1e-5, "a pistol keeps the tuned aim");
+    }
+
+    #[test]
+    fn sprint_is_off_by_default_and_needs_the_global_toggle() {
+        let m = MovementInertia::default();
+        assert!(!m.sprint && !m.sprint_on(), "off by default");
+        let on = MovementInertia { sprint: true, ..MovementInertia::default() };
+        assert!(on.sprint_on());
+        let off = MovementInertia { advanced: false, ..on };
+        assert!(!off.sprint_on() && off.sprint, "it keeps its own choice under the Global Toggle");
     }
 
     #[test]

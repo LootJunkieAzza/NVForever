@@ -1445,6 +1445,9 @@ struct Drawn {
     thumb: Option<(usize, bool)>,
     /// The Controls tab's values, in `GAME_CONTROLS`' order, on the device in use.
     controls: Vec<String>,
+    /// Why each control's row is greyed now, in `GAME_CONTROLS`' order
+    /// (`crate::stance::binding_greyed`: Sprint with its switch off).
+    controls_greyed: Vec<Option<&'static str>>,
     /// The device in use: its name, and whether it is a controller.
     device: (&'static str, bool),
     automatic_input: bool,
@@ -1492,6 +1495,14 @@ struct Drawn {
 }
 
 impl Drawn {
+    /// Why Controls row `c` is greyed (Sprint's binding with its switch off);
+    /// `None`: it is not.
+    fn control_greyed(&self, c: ControlRow) -> Option<&'static str> {
+        let ControlRow::Binding(k, _) = c else { return None };
+        let at = crate::bindings::GAME_CONTROLS.iter().position(|(x, _, _)| *x == k)?;
+        self.controls_greyed.get(at).copied().flatten()
+    }
+
     /// Category `p`'s rows shown and whether it is open (unknown: none, open).
     fn heading(&self, p: crate::settings_layout::Placement) -> (usize, bool) {
         self.headings.iter().find(|h| h.0 == p).map_or((0, true), |h| (h.1, h.2))
@@ -2265,10 +2276,16 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
                 }
                 let vw = crate::pad::button_width(&f.entry, &value, glyphs);
                 let parts = row_parts(x, ValueKind::Binding(vw));
-                sm_text(r, &f.entry, &fit_text(width, name, parts.label_room()), parts.label.0, BASE + 2.0, color(Shade::Bright));
+                // A greyed binding (Sprint with its switch off, `crate::stance`) is
+                // drawn dim like a greyed setting, its reason the state the aids read; why is
+                // the note's.
+                let greyed = d.control_greyed(c);
+                let shade = color(if greyed.is_some() { Shade::Dim } else { Shade::Bright });
+                sm_text(r, &f.entry, &fit_text(width, name, parts.label_room()), parts.label.0, BASE + 2.0, shade);
                 // The full words stay in the state the aids read; what is drawn is cut to the
                 // row (a button's picture is narrow and always fits).
-                r.spawn((SwitchState(id), Text::new(value.clone()), Node { display: Display::None, ..default() }));
+                let state = greyed.map_or_else(|| value.clone(), |why| tr(why).to_string());
+                r.spawn((SwitchState(id), Text::new(state), Node { display: Display::None, ..default() }));
                 let (shown, sw) = if vw > parts.text_room() + 0.01 {
                     let cut = fit_text(width, &value, parts.text_room());
                     let w = width(&cut);
@@ -2276,7 +2293,7 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
                 } else {
                     (value.clone(), vw)
                 };
-                crate::pad::set_button(r, &f.entry, &shown, parts.text_x(sw), BASE + 2.0, color(Shade::Bright), glyphs);
+                crate::pad::set_button(r, &f.entry, &shown, parts.text_x(sw), BASE + 2.0, shade, glyphs);
             });
         }
         // The Tweaks tab's Category row: the group shown, in a list's box; Enter, Left and
@@ -2545,7 +2562,7 @@ impl RowX {
 /// at the end with [`CUT_MARK`]; only the mark, or nothing, where even that does not fit.
 /// What is cut is only what is drawn: the search, the log and the hidden texts the aids read
 /// keep the full words [design: #2377].
-fn fit_text(width_of: impl Fn(&str) -> f32, text: &str, room: f32) -> String {
+pub(crate) fn fit_text(width_of: impl Fn(&str) -> f32, text: &str, room: f32) -> String {
     let room = room + 0.01;
     if width_of(text) <= room {
         return text.to_string();
@@ -3023,6 +3040,9 @@ fn act_on_row(id: RowId, action: RowAction, settings: &Settings, view: &mut Paus
                 commands.queue(move |world: &mut World| crate::bindings::set_device(world, d));
                 sounds.write(flipped);
             }
+            // A greyed binding (Sprint with its switch off) cannot be rebound or
+            // cleared; why is in its note.
+            (ControlRow::Binding(..), Activate | Clear) if view.drawn.as_ref().and_then(|d| d.control_greyed(c)).is_some() => {}
             (ControlRow::Binding(k, _), Activate) => {
                 listening.0 = Some((k, controls.device));
                 let what = if controls.device == crate::bindings::InputDevice::Controller { "controller button" } else { "key" };
@@ -5140,6 +5160,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.help_is_console)).iter().map(|e| (e.label(), true)).collect()),
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
+        controls_greyed: crate::bindings::GAME_CONTROLS.iter().map(|(c, _, _)| crate::stance::binding_greyed(world, *c)).collect(),
         device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
         automatic_input: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.automatic_input_switching),
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
@@ -5188,12 +5209,16 @@ fn stand_in_name(list: &[Setting], id: RowId) -> String {
 /// list ("Stands for: Jump (Controller)."), so a choice there is plain [design: #1953].
 fn note_of(list: &[Setting], id: RowId, d: &Drawn) -> String {
     let mut note = row_note(list, id, d);
-    // A greyed row: why, after its own note [design: the menu overhaul].
-    if let RowId::Setting(i) = id {
-        if let Some(why) = d.disabled.get(i).copied().flatten() {
-            let why = fnv_util::words::trf("Greyed out: {why}", &[("why", &tr(why))]);
-            note = if note.is_empty() { why } else { format!("{note} {why}") };
-        }
+    // A greyed row: why, after its own note [design: the menu overhaul]; a greyed binding
+    // the same way (`crate::stance::binding_greyed`).
+    let greyed = match id {
+        RowId::Setting(i) => d.disabled.get(i).copied().flatten(),
+        RowId::Control(c) => d.control_greyed(c),
+        _ => None,
+    };
+    if let Some(why) = greyed {
+        let why = fnv_util::words::trf("Greyed out: {why}", &[("why", &tr(why))]);
+        note = if note.is_empty() { why } else { format!("{note} {why}") };
     }
     match d.stand_ins.iter().find(|(by, _)| *by == id) {
         Some((_, names)) => {

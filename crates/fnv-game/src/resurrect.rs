@@ -122,7 +122,7 @@ impl Game<'_> {
     /// again (module notes): how many were added.
     fn roll_again(&mut self, r: FormId, rolls: u32) -> u32 {
         let Some(base) = base_of(self, r) else { return 0 };
-        if self.data.template_sources_any_pick(base, |d| d.template_inventory).len() < 2 {
+        if !self.inventory_chain_has_list_edit(base) && self.data.template_sources_any_pick(base, |d| d.template_inventory).len() < 2 {
             let added = self.world.restock_inventory(r).unwrap_or_default();
             if !added.is_empty() {
                 let said = |items: &[(FormId, i32)]| items.iter().map(|(i, n)| format!("{n} {}", self.data.name(*i))).collect::<Vec<_>>().join(", ");
@@ -131,7 +131,7 @@ impl Game<'_> {
             }
             return added.iter().map(|(_, n)| *n as u32).sum();
         }
-        let source = self.data.template_source_at(base, roll_seed(r, rolls), self.leveled_at(r), |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base);
+        let source = self.runtime_template_source(base, roll_seed(r, rolls), self.leveled_at(r), |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base);
         self.world.set_inventory_source(r, source);
         // A source with no carried items: it carries nothing (but a planted explosive's
         // live unit, `Extra::live`, #1640).
@@ -139,6 +139,22 @@ impl Game<'_> {
             let _ = self.world.clear_inventory_but_live(r);
         }
         0
+    }
+
+    /// Only an edited actor list reachable through this actor's Inventory chain can
+    /// change its regeneration policy. An unrelated list must not discard carried gear.
+    fn inventory_chain_has_list_edit(&self, base: FormId) -> bool {
+        if self.forms.actor_list_additions.is_empty() && self.other.lev_actors.is_empty() { return false; }
+        fn visit(g: &Game, id: FormId, depth: usize, seen: &mut std::collections::HashSet<FormId>) -> bool {
+            if depth > 32 || !seen.insert(id) { return false; }
+            if let Some(actor) = g.data.actors.get(&id) {
+                return actor.template.filter(|_| actor.template_inventory).is_some_and(|next| visit(g, next, depth + 1, seen));
+            }
+            let Some(list) = g.data.leveled_actors.get(&id) else { return false };
+            g.forms.actor_list_additions.contains_key(&id) || g.other.lev_actors.contains_key(&id)
+                || list.entries.iter().any(|(_, entry)| visit(g, *entry, depth + 1, seen))
+        }
+        visit(self, base, 0, &mut std::collections::HashSet::new())
     }
 
     /// The engine found the body of resurrected `r` lying at `pos` (game units): the

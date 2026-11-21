@@ -5,8 +5,10 @@
 // entry `apply` denoises that over the 4 x 4 texels its sample pattern repeats over, keeping
 // to texels on this pixel's surface (so nothing bleeds across a depth edge), and
 // multiplies the picture by it. Under FSR the passes run at the render size before FSR
-// instead, and entry `multiply` gives the factor to a blend (ssao.rs `ao_before_fsr`). An
-// engineering choice, not the original game's.
+// instead, and entry `multiply` gives the factor to a blend (ssao.rs `ao_before_fsr`). In
+// the lighting (ssao.rs `ao_lighting_pass`) entry `denoise` writes the denoised factor per
+// half-resolution texel for the lighting to read instead. An engineering choice, not the
+// original game's.
 //
 // Two estimates of the openness [engineering choice, #2897]: ground-truth ambient occlusion
 // (`gtao_visibility`, the default) and the older count of buried samples on a spiral
@@ -32,8 +34,13 @@ struct Ao {
     area: vec4<f32>,
     // x: 1 for the old estimate, 0 for ground-truth ambient occlusion; y: 1 to show the
     // factor alone as a grey picture (debug switch NVF_PLAY_DEBUG_AO, ssao.rs `AoDebug`);
-    // z, w unused.
+    // z: 1 when the occlusion is asked for in the lighting (ssao.rs; not read here); w unused.
     mode: vec4<f32>,
+    // The candidate remedies for the ground-truth estimate's shimmer on plants (debug aid
+    // NVF_PLAY_DEBUG_AO_VARIANT, ssao.rs `AoVariant`), all 0 for the estimate as shipped:
+    // x slice directions (0: SLICES), y depth samples on each side of a slice (0: STEPS),
+    // z the VARIANT_* flags, w unused.
+    variant: vec4<f32>,
 }
 
 @if(MULTISAMPLED) @group(0) @binding(0) var depth: texture_depth_multisampled_2d;
@@ -93,6 +100,41 @@ const PLANE_WEIGHT_FEW: f32 = 1.0;
 const PLANE_WEIGHT_BLEND: f32 = 2.0;
 const FALLBACK_TOLERANCE: f32 = 0.05;
 
+// The candidate remedies for the shimmer on plants (`Ao.variant.z`; ssao.rs `AoVariant`
+// mirrors the values, a test keeps them the same) [engineering choice: experiments, to be
+// measured; the one kept gets its own constants and the others go].
+// `wide` and `wide6`: where few texels lie on the pixel's plane (`sparse` below), the denoise
+// also reads the ring of texels around its 4 x 4, out to 8 x 8 (`wide`) or 6 x 6 (`wide6`).
+const VARIANT_WIDE: u32 = 1u;
+const VARIANT_WIDE6: u32 = 2u;
+// `soft`: where few texels lie on the pixel's plane, the result is pulled towards the plain
+// mean of the texels within SOFT_TOLERANCE of the pixel's distance (every turn of the 4 x 4
+// pattern once, at whatever depth), by up to SOFT_PULL.
+const VARIANT_SOFT: u32 = 4u;
+// `thin`: a sample below the horizon found so far lowers it by THIN_DECAY of the way down
+// to that sample (never below the hemisphere's edge), so a single leaf in front no longer
+// stands for a wall behind it.
+const VARIANT_THIN: u32 = 8u;
+// `nearest`: under multisampling every depth read takes the nearest of the pixel's samples
+// instead of sample 0. The prepass writes a cut-out's soft edge as a sample mask whose first
+// sample changes from pixel to pixel (nvf_assets coverage.wesl `sample_mask`, start
+// (x + 2y) mod n), so sample 0 holds the leaf from a share of the pixel that changes from
+// pixel to pixel too (4x: 1/8, 7/8, 5/8, 3/8): on every leaf's edge band the depth this pass
+// read was an ordered dither of leaf and background, which moves as the leaves sway. The
+// nearest sample holds the leaf wherever any sample does, the same share everywhere; on a
+// plane it is the same corner of every pixel, so the neighbouring depths stay a plane.
+const VARIANT_NEAREST: u32 = 16u;
+// How plane-less the neighbourhood is, from the plane-aware weights of the 16 texels: 1 at
+// or below SPARSE_FULL (where today's weights have gone over to the distance's fallback
+// wholly), 0 from SPARSE_NONE (half the texels on the plane). A leaf card is a plane of
+// its own, so a pixel on one often has three to six texels on its plane: the filter was
+// planar there yet averaged only those few of the sixteen turns.
+const SPARSE_FULL: f32 = 3.0;
+const SPARSE_NONE: f32 = 8.0;
+const SOFT_TOLERANCE: f32 = 0.5;
+const SOFT_PULL: f32 = 0.75;
+const THIN_DECAY: f32 = 0.25;
+
 fn dims() -> vec2<i32> {
     if ao.area.x > 0.0 {
         return vec2<i32>(ao.area.xy);
@@ -104,8 +146,25 @@ fn dims() -> vec2<i32> {
 // first-person arms and weapon at the depth they were squeezed from (nvf_assets
 // nif_material.rs "First-person depth").
 fn depth_at(p: vec2<i32>) -> f32 {
+    if (u32(ao.variant.z) & VARIANT_NEAREST) != 0u {
+        return nearest_depth_at(p);
+    }
     return unsqueeze(textureLoad(depth, clamp(p, vec2(0), dims() - 1), 0));
 }
+
+// Variant `nearest`: the nearest (largest, reverse z) of the pixel's samples, each unsqueezed.
+fn nearest_depth_at(p: vec2<i32>) -> f32 {
+    let q = clamp(p, vec2(0), dims() - 1);
+    var d = unsqueeze(textureLoad(depth, q, 0));
+    for (var s = 1; s < depth_samples(); s++) {
+        d = max(d, unsqueeze(textureLoad(depth, q, s)));
+    }
+    return d;
+}
+
+// The depth texture's samples a pixel (1 without multisampling).
+@if(MULTISAMPLED) fn depth_samples() -> i32 { return i32(textureNumSamples(depth)); }
+@if(!MULTISAMPLED) fn depth_samples() -> i32 { return 1; }
 
 // The view-space position of pixel `p` at depth value `d` (reverse infinite z:
 // distance = near / d), looking down −z.
@@ -264,8 +323,14 @@ fn gtao_visibility(half: vec2<i32>, c: vec2<f32>, p: vec3<f32>, n: vec3<f32>, on
     let offset = step_offset(half);
     var visible = 0.0;
     var unblocked = 0.0;
-    for (var k = 0; k < SLICES; k++) {
-        let phi = (f32(k) + turn) * PI / f32(SLICES);
+    // The variants' slice and step counts (NVF_PLAY_DEBUG_AO_VARIANT); SLICES and STEPS
+    // otherwise. The slices stay evenly spread over the half turn: slice k of n at
+    // (k + turn) pi / n, the sixteen turns between them.
+    let slices = select(SLICES, i32(ao.variant.x), ao.variant.x > 0.5);
+    let steps = select(STEPS, i32(ao.variant.y), ao.variant.y > 0.5);
+    let thin = (u32(ao.variant.z) & VARIANT_THIN) != 0u;
+    for (var k = 0; k < slices; k++) {
+        let phi = (f32(k) + turn) * PI / f32(slices);
         // The slice's direction on the screen (pixels, y down) and in view space (y up).
         let dir = vec2(cos(phi), sin(phi));
         let along = vec3(dir.x, -dir.y, 0.0);
@@ -284,13 +349,20 @@ fn gtao_visibility(half: vec2<i32>, c: vec2<f32>, p: vec3<f32>, n: vec3<f32>, on
         // away from it).
         var c_pos = -sin_g;
         var c_neg = sin_g;
-        for (var j = 0; j < STEPS; j++) {
-            let f = (f32(j) + offset) / f32(STEPS);
+        for (var j = 0; j < steps; j++) {
+            let f = (f32(j) + offset) / f32(steps);
             // From a pixel away out to the radius on the screen, closer together near the
             // pixel, where the contact shadows are [engineering choice].
             let reach = 1.0 + f * f * (on_screen - 1.0);
-            c_pos = max(c_pos, horizon_cosine(c + dir * reach, p, v, -sin_g, size, radius));
-            c_neg = max(c_neg, horizon_cosine(c - dir * reach, p, v, sin_g, size, radius));
+            let s_pos = horizon_cosine(c + dir * reach, p, v, -sin_g, size, radius);
+            let s_neg = horizon_cosine(c - dir * reach, p, v, sin_g, size, radius);
+            if thin {
+                c_pos = thin_horizon(c_pos, s_pos, -sin_g);
+                c_neg = thin_horizon(c_neg, s_neg, sin_g);
+            } else {
+                c_pos = max(c_pos, s_pos);
+                c_neg = max(c_neg, s_neg);
+            }
         }
         let h_neg = max(-acos(clamp(c_neg, -1.0, 1.0)), gamma - HALF_PI);
         let h_pos = min(acos(clamp(c_pos, -1.0, 1.0)), gamma + HALF_PI);
@@ -302,6 +374,16 @@ fn gtao_visibility(half: vec2<i32>, c: vec2<f32>, p: vec3<f32>, n: vec3<f32>, on
         return 1.0;
     }
     return clamp(visible / unblocked, 0.0, 1.0);
+}
+
+// Variant `thin`: the horizon `h` (a cosine from the view vector) after sample `s` on a side
+// whose hemisphere edge is `lowest`: a higher sample raises it as before; a lower one lets
+// it sink THIN_DECAY of the way towards the sample, never below the edge. The occluder is
+// taken to be thin (a leaf, a blade, a post) rather than the front of something solid
+// [hypothesis: the course notes cited at `gtao_visibility` describe a heuristic of this
+// kind for thin occluders; this form and its value are our own].
+fn thin_horizon(h: f32, s: f32, lowest: f32) -> f32 {
+    return select(mix(h, max(s, lowest), THIN_DECAY), s, s > h);
 }
 
 // The integral of cos(t - gamma) |sin t| from the view vector (t = 0) to the horizon at
@@ -369,6 +451,51 @@ fn multiply(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     return vec4(safe, safe, safe, 1.0);
 }
 
+// Under multisampling (ssao.rs `resolve_depth`): the depth prepass resolved once to one
+// sample, written as depth into a single-sampled texture of the prepass's format, which the
+// passes then read with their single-sampled pipelines. The value is sample 0 as it is, so
+// every pass reads what it read from the multisampled depth, bit for bit; with variant
+// `nearest` the sample whose unsqueezed depth is the nearest, as `nearest_depth_at` takes it
+// (the first such sample, as its `max` keeps it). Without multisampling it is not run (its
+// layout takes only the multisampled depth); it is written for either depth so the shader's
+// test resolves one source.
+@fragment
+fn resolve_depth(in: FullscreenVertexOutput) -> @builtin(frag_depth) f32 {
+    let p = vec2<i32>(floor(in.position.xy));
+    var raw = textureLoad(depth, p, 0);
+    if (u32(ao.variant.z) & VARIANT_NEAREST) != 0u {
+        var best = unsqueeze(raw);
+        for (var s = 1; s < depth_samples(); s++) {
+            let r = textureLoad(depth, p, s);
+            let u = unsqueeze(r);
+            if u > best {
+                best = u;
+                raw = r;
+            }
+        }
+    }
+    return raw;
+}
+
+// In the lighting (ssao.rs `ao_lighting_pass`, ssao_lighting.rs): for each half-resolution
+// texel q the factor of the full pixel 2q, denoised by the same filter `apply` and
+// `multiply` use (`openness_at`, the old estimate's or a variant's included), with that
+// pixel's distance, so the lighting can take each fragment's factor from the texels of its
+// own surface (ssao_lighting.wesl `nvf_ambient_visibility`). The sky and pixels beyond the
+// fade hold 1.
+@fragment
+fn denoise(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let px = vec2<i32>(floor(in.position.xy)) * 2;
+    let d = depth_at(px);
+    if d <= 0.0 {
+        return texel(1.0, SKY);
+    }
+    let open = openness_at(px, d);
+    // Never NaN nor outside 0..1 (comparisons with NaN are false).
+    let safe = select(1.0, clamp(open, 0.0, 1.0), open >= 0.0);
+    return texel(safe, ao.params.z / d);
+}
+
 // How open pixel `px` (depth value `d`, not the sky) is, from the half-resolution texels.
 fn openness_at(px: vec2<i32>, d: f32) -> f32 {
     if ao.mode.x > 0.5 {
@@ -391,6 +518,10 @@ fn openness_at(px: vec2<i32>, d: f32) -> f32 {
     // (a pole or a grass blade a pixel wide, a silhouette pixel in an odd row or column).
     var nearest = 1.0;
     var nearest_gap = 3.4e38;
+    // Variant `soft`: the plain sum and count of the texels within SOFT_TOLERANCE of this
+    // pixel's distance.
+    var soft_total = 0.0;
+    var soft_count = 0.0;
     for (var y = 0; y < 4; y++) {
         for (var x = 0; x < 4; x++) {
             let q = clamp(first + vec2(x, y), vec2(0), size - 1);
@@ -413,13 +544,77 @@ fn openness_at(px: vec2<i32>, d: f32) -> f32 {
                 nearest_gap = own_gap;
                 nearest = t.r;
             }
+            if own_gap <= SOFT_TOLERANCE * z + 1.0 {
+                soft_total += t.r;
+                soft_count += 1.0;
+            }
         }
     }
     // The plane's weights where enough texels lie on it, the distance's where few do.
     let planar = smoothstep(PLANE_WEIGHT_FEW, PLANE_WEIGHT_FEW + PLANE_WEIGHT_BLEND, weight);
     let sum = mix(dist_total, total, planar);
     let sum_weight = mix(dist_weight, weight, planar);
-    return select(nearest, sum / sum_weight, sum_weight > 0.0);
+    let open = select(nearest, sum / sum_weight, sum_weight > 0.0);
+    // The candidate remedies for plants (NVF_PLAY_DEBUG_AO_VARIANT); none by default.
+    let flags = u32(ao.variant.z);
+    if (flags & (VARIANT_WIDE | VARIANT_WIDE6 | VARIANT_SOFT)) == 0u {
+        return open;
+    }
+    let sparse = 1.0 - smoothstep(SPARSE_FULL, SPARSE_NONE, weight);
+    if sparse <= 0.0 {
+        return open;
+    }
+    var result = open;
+    if (flags & (VARIANT_WIDE | VARIANT_WIDE6)) != 0u {
+        // The ring around the 4 x 4 texels out to n x n, weighed as they are, then the same
+        // choice between the plane's weights and the distance's over all n x n (its
+        // thresholds scaled by the texel count), blended in by how sparse the plane is.
+        let n = select(6i, 8i, (flags & VARIANT_WIDE) != 0u);
+        let border = (n - 4) / 2;
+        var wide_total = total;
+        var wide_weight = weight;
+        var wide_dist_total = dist_total;
+        var wide_dist_weight = dist_weight;
+        for (var y = 0; y < n; y++) {
+            for (var x = 0; x < n; x++) {
+                if x >= border && x < border + 4 && y >= border && y < border + 4 {
+                    continue;
+                }
+                let q = clamp(first - border + vec2(x, y), vec2(0), size - 1);
+                let t = textureLoad(openness, q, 0);
+                let w = plane_weight(t.g, q, px, d, grad, near);
+                wide_total += t.r * w;
+                wide_weight += w;
+                let own_gap = abs(t.g - z);
+                let wd = max(1.0 - own_gap / (FALLBACK_TOLERANCE * z + 1.0), 0.0);
+                wide_dist_total += t.r * wd;
+                wide_dist_weight += wd;
+                if own_gap <= SOFT_TOLERANCE * z + 1.0 {
+                    soft_total += t.r;
+                    soft_count += 1.0;
+                }
+            }
+        }
+        let scale = f32(n * n) / 16.0;
+        let wide_planar = smoothstep(PLANE_WEIGHT_FEW * scale, (PLANE_WEIGHT_FEW + PLANE_WEIGHT_BLEND) * scale, wide_weight);
+        let wide_sum = mix(wide_dist_total, wide_total, wide_planar);
+        let wide_sum_weight = mix(wide_dist_weight, wide_weight, wide_planar);
+        result = mix(open, select(open, wide_sum / wide_sum_weight, wide_sum_weight > 0.0), sparse);
+    }
+    if (flags & VARIANT_SOFT) != 0u && soft_count > 0.0 {
+        result = mix(result, soft_total / soft_count, SOFT_PULL * sparse);
+    }
+    return result;
+}
+
+// The plane-aware weight of the texel at half-resolution `q` holding distance `dist`, for
+// pixel `px` (depth value `d`, depth gradient `grad`): as the 4 x 4 loop of `openness_at`
+// weighs its texels (written out again there so the estimate as shipped is untouched).
+fn plane_weight(dist: f32, q: vec2<i32>, px: vec2<i32>, d: f32, grad: vec2<f32>, near: f32) -> f32 {
+    let expected = d + dot(grad, vec2<f32>(q * 2 - px));
+    let plane = near / max(expected, 1e-7);
+    let gap = select(3.4e38, abs(dist - plane), expected > 0.0);
+    return max(1.0 - gap / (DENOISE_TOLERANCE * plane + 1.0), 0.0);
 }
 
 // How the depth value changes per pixel at pixel `px` (depth value `d`): on each axis from

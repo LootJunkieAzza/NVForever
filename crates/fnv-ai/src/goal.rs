@@ -431,6 +431,29 @@ pub fn place_of_ref(game: &Game, r: FormId) -> Option<Place> {
     Some(Place { space: space_of_cell(refs, cell?), pos })
 }
 
+/// [hypothesis, #2652; docs/spec-notes/use-weapon.md section 6, observer check 207]
+/// A Use Weapon target that is a non-actor placed reference in a sibling worldspace
+/// shares the shooter's coordinates. Actors and interiors still require the same
+/// space; worldspaces without a shared, nonempty immediate parent do not qualify.
+pub fn weapon_target_place(game: &Game, target: FormId, space: Space) -> Option<Place> {
+    let mut at = place_of_ref(game, target)?;
+    if at.space == space {
+        return Some(at);
+    }
+    let placed = game.world.placed.get(target)?;
+    if placed.sig != *b"REFR" || fnv_game::ai::is_actor_base(game.world.forms, placed.base) {
+        return None;
+    }
+    let (Space::World(shooter), Space::World(other)) = (space, at.space) else { return None };
+    let parents = &game.world.placed.world_parents;
+    let parent = parents.get(&FormId(shooter))?;
+    if parents.get(&FormId(other)) != Some(parent) {
+        return None;
+    }
+    at.space = space;
+    Some(at)
+}
+
 /// Where a reference was placed in the editor.
 pub fn editor_place(refs: &RefTable, r: FormId) -> Option<Place> {
     let p = refs.get(r)?;
@@ -441,6 +464,8 @@ pub fn editor_place(refs: &RefTable, r: FormId) -> Option<Place> {
 /// created at run time (PlaceAtMe, a leveled spawn), where it was created (#2278)
 /// [hypothesis: not measured in the original; without it every package near the editor
 /// location fails for a created actor, which then stands still].
+/// The creation place is saved with the reference; a created actor of a save from before
+/// that has the place it was saved at instead (`World::made_at_from_saved_place`, #3042).
 pub fn editor_place_of(game: &Game, r: FormId) -> Option<Place> {
     let refs = game.world.placed;
     editor_place(refs, r).or_else(|| {

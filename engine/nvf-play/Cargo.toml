@@ -49,6 +49,12 @@ png = "0.18"
 # [design, #2403] Synthetic private-screen fixtures for cross-crate reports tests only.
 report-test-support = []
 default = ["intro-video"]
+# [design, #2652] Synthetic runtime fixtures for downstream engine tests.
+test-support = []
 # The intro film before a new game (src/intro.rs); its Bink decoder is GPL-3.0-or-later,
 # as NVForever is (owner decision 2026-10-15).
 intro-video = ["dep:infinitier_bik_decoder"]
+
+[dev-dependencies]
+# Exercises the production native-result consumer without creating an OS window.
+bevy_winit = { version = "=0.20.1", features = ["cursor-test-support"] }

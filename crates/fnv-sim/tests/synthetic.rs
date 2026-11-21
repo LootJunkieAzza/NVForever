@@ -526,6 +526,32 @@ fn locked_container_needs_its_key() {
     assert!(w.peek(id(SAFE_REF)).unwrap().inventory.as_ref().unwrap().is_empty());
 }
 
+/// An AddItem on a placed container nothing has read yet (no state, cell never loaded,
+/// never opened) joins its authored contents: GetItemCount, a save and load, leaving and
+/// entering its cell before the respawn delay and taking everything all keep or move it
+/// (#3021: Old World Blues' terminal puts the X-13 Document in the X-13 test safe this
+/// way; what took it out in that run was the test's own failure script).
+#[test]
+fn add_item_before_a_container_is_read_is_kept() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig { seed: 1, ..SimConfig::default() });
+    let p = FormId::PLAYER_REF;
+    assert!(w.peek(id(SAFE_REF)).is_none(), "the safe has no state yet");
+    w.add_item(id(SAFE_REF), id(QUEST_KEY), 1).unwrap();
+    assert_eq!(w.item_count(id(SAFE_REF), id(QUEST_KEY)).unwrap(), 1);
+    assert_eq!(w.item_count(id(SAFE_REF), id(CAPS)).unwrap(), 3, "the authored contents are there too");
+    let mut w = World::restore(&f.forms, &f.refs, &w.snapshot()).unwrap();
+    w.detach_cell(id(CELL_A)).unwrap();
+    w.advance_hours(1.0).unwrap();
+    assert!(w.attach_cell(id(CELL_A)).unwrap().is_empty(), "no reset before the respawn delay");
+    assert_eq!(w.item_count(id(SAFE_REF), id(QUEST_KEY)).unwrap(), 1);
+    w.unlock(id(SAFE_REF)).unwrap();
+    assert_eq!(w.activate(p, id(SAFE_REF)).unwrap().outcome, Outcome::OpenedContainer { container: id(SAFE_REF) });
+    let moved = w.transfer_all(id(SAFE_REF), p).unwrap();
+    assert!(moved.contains(&(id(QUEST_KEY), 1)), "{moved:?}");
+    assert_eq!(w.item_count(p, id(QUEST_KEY)).unwrap(), 1);
+}
+
 #[test]
 fn picking_up_and_dropping_items() {
     let f = fixture();
@@ -2466,6 +2492,33 @@ fn deleted_created_references_are_pruned_from_saves() {
     assert!(pruned * 4 < whole, "{pruned} vs {whole}");
 }
 
+#[test]
+fn rerolled_inventory_sources_replace_and_clear_the_created_source_without_changing_placed_lifetime() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let made = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    w.give_items_of(made, id(LOCKER)).unwrap();
+    assert_eq!(w.item_count(made, id(PISTOL)).unwrap(), 1);
+    w.set_inventory_source(made, Some(id(SAFE)));
+    w.set_inventory_source(id(SAFE_REF), Some(id(LOCKER)));
+    assert!(w.reset_inventory(made).unwrap());
+    assert!(w.reset_inventory(id(SAFE_REF)).unwrap());
+    assert_eq!(w.item_count(made, id(PISTOL)).unwrap(), 0);
+    assert_eq!(w.item_count(id(SAFE_REF), id(PISTOL)).unwrap(), 1);
+    assert_eq!(w.snapshot().created_inventory_sources, [(made, id(SAFE))].into_iter().collect());
+    w.set_inventory_source(made, Some(id(LOCKER)));
+    assert!(w.reset_inventory(made).unwrap());
+    assert_eq!(w.item_count(made, id(PISTOL)).unwrap(), 1);
+    w.set_inventory_source(made, None);
+    w.set_inventory_source(id(SAFE_REF), None);
+    assert!(w.snapshot().created_inventory_sources.is_empty());
+    let mut back = World::restore(&f.forms, &f.refs, &w.snapshot()).unwrap();
+    for reference in [made, id(SAFE_REF)] {
+        assert!(back.reset_inventory(reference).unwrap());
+        assert_eq!(back.item_count(reference, id(PISTOL)).unwrap(), 0);
+    }
+}
+
 /// The run-time state a snapshot carries since #1084 (a created reference's inventory
 /// source, the power armour flag, carry bonuses and weight rules), and what it leaves
 /// to the session: game settings, leveled lists and base containers edited by script are
@@ -2495,8 +2548,11 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     w.change_setting("fAVDCarryWeightsBase", Setting::Float(300.0)).unwrap();
     assert!(w.edit_leveled(id(LL_LOOT), |l| l.chance_none = 100));
     assert!(w.edit_base_entries(id(SAFE), |e| e.push(Entry::new(id(KEY), 1))));
+    assert!(w.container_respawns(id(SAFE)));
+    w.set_container_respawns(id(SAFE), false);
+    assert!(!w.container_respawns(id(SAFE)));
     let text = serde_json::to_string(&w.snapshot()).unwrap();
-    for absent in ["fAVDCarryWeightsBase", "favdcarryweightsbase", "chance_none"] {
+    for absent in ["fAVDCarryWeightsBase", "favdcarryweightsbase", "chance_none", "container_respawns"] {
         assert!(!text.contains(absent), "{absent} is not saved");
     }
     let snap: fnv_sim::Snapshot = serde_json::from_str(&text).unwrap();
@@ -2512,11 +2568,20 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     assert_eq!(back.setting_f32("fAVDCarryWeightsBase"), Some(150.0));
     assert_ne!(back.leveled_list(id(LL_LOOT)).unwrap().chance_none, 100);
     assert!(back.base_entries(id(SAFE)).unwrap().iter().all(|e| e.item != id(KEY)));
+    assert!(back.container_respawns(id(SAFE)), "fresh-run restore resets session SetContainerRespawns override");
     // A load in the same run: the session edits carry over.
     back.put_session(w.take_session());
     assert_eq!(back.setting_f32("fAVDCarryWeightsBase"), Some(300.0));
     assert_eq!(back.leveled_list(id(LL_LOOT)).unwrap().chance_none, 100);
     assert!(back.base_entries(id(SAFE)).unwrap().iter().any(|e| e.item == id(KEY)));
+    assert!(!back.container_respawns(id(SAFE)), "same-run put_session preserves SetContainerRespawns override");
+    // A WorldSession holding only a container_respawns override is non-empty.
+    let mut only_respawns = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert!(only_respawns.take_session().is_empty());
+    only_respawns.set_container_respawns(id(SAFE), false);
+    let session = only_respawns.take_session();
+    assert!(!session.is_empty());
+    assert!(only_respawns.take_session().is_empty());
     // Older snapshots, without the new fields, still load.
     let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
     for k in ["created_inventory_sources", "power_armor_training", "carry_bonus", "weight_rules"] {
@@ -2669,4 +2734,36 @@ fn load_door_lock_key_empty_pairs_and_non_doors() {
     f.refs.refs.remove(&b);
     let w = World::new(&f.forms, &f.refs, SimConfig::default());
     assert_eq!(w.lock_of(a), None, "missing partners are not locks");
+}
+
+/// A created actor keeps where it was made across a save (`RefState::made_at`, its
+/// editor location, #2278), through the save's JSON; a created actor of a save written
+/// before that field existed takes the place it was saved at, and a dropped item, which
+/// has no creation place by design, still has none (#3042).
+#[test]
+fn a_created_actor_keeps_where_it_was_made_across_a_save() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let made_here = [100.0, 200.0, 0.0];
+    let walked_to = [900.0, -300.0, 10.0];
+    let g = w.place(id(GUARD), Some(id(CELL_A)), made_here, [0.0; 3], 1).unwrap();
+    w.get(g).unwrap().pos = walked_to;
+    w.add_item(FormId::PLAYER_REF, id(STIMPAK), 1).unwrap();
+    let item = w.drop_item(FormId::PLAYER_REF, id(STIMPAK), 1).unwrap()[0];
+    assert_eq!(w.peek(item).unwrap().made_at, None);
+    let json = serde_json::to_value(w.snapshot()).unwrap();
+    let back = World::restore(&f.forms, &f.refs, &serde_json::from_value(json.clone()).unwrap()).unwrap();
+    assert_eq!(back.peek(g).unwrap().made_at, Some((Some(id(CELL_A)), made_here)));
+    assert_eq!(back.peek(g).unwrap().pos, walked_to);
+    assert_eq!(back.peek(item).unwrap().made_at, None, "a dropped item has no creation place");
+    // A save from before the field: the actor's entry has no `made_at`.
+    let mut old = json;
+    let entry = old["refs"].as_object_mut().unwrap().get_mut(&format!("{g}")).expect("the actor's entry by its FormID");
+    assert!(entry.as_object_mut().unwrap().remove("made_at").is_some());
+    let back = World::restore(&f.forms, &f.refs, &serde_json::from_value(old).unwrap()).unwrap();
+    assert_eq!(back.peek(g).unwrap().made_at, Some((Some(id(CELL_A)), walked_to)), "the place it was saved at");
+    assert_eq!(back.peek(item).unwrap().made_at, None);
+    // And the next save keeps it.
+    let again = World::restore(&f.forms, &f.refs, &back.snapshot()).unwrap();
+    assert_eq!(again.peek(g).unwrap().made_at, Some((Some(id(CELL_A)), walked_to)));
 }

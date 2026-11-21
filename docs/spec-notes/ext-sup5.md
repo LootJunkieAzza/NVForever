@@ -53,7 +53,10 @@ is padded to 4,096 bytes so the file needs no mini stream [design]. A formula re
 file is written back as its last result [decision: NVForever writes no formulas].
 Formatting is neither read nor kept. Not checked against Excel on this machine (none
 installed): the reader reads what the writer writes, including a string table long
-enough for CONTINUE records (unit tests).
+enough for CONTINUE records (unit tests). On malformed compound files, the DIFAT chain
+walk and `fat_sectors` list are bounded by the file's sector count (`len / sector_size`)
+with cycle detection, invalid sector shifts are rejected, and `Book::parse` returns
+`None` without unbounded allocation [design].
 
 ## 2. JSON files
 

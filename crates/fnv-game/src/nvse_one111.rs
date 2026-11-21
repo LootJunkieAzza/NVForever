@@ -261,9 +261,9 @@ impl Game<'_> {
     }
 
     /// The DR or DT of the armour an actor wears: each piece's record value times its
-    /// condition's share [documented: GetActorTotalArmorDR, "calculated DR of all armor";
-    /// the share below half condition as SetArmorConditionPenalty documents it, 1 −
-    /// (0.5 − condition) × 1.0; hypothesis: the condition is part of "calculated"].
+    /// condition's share (`Game::armor_condition_mult`, honoring SetArmorConditionPenalty
+    /// and Stewie's `Tweaks::armor_condition_penalty`) [documented: GetActorTotalArmorDR,
+    /// "calculated DR of all armor"; hypothesis: the condition is part of "calculated"].
     fn one111_armor_total(&mut self, actor: FormId, dt: bool) -> f64 {
         let Ok(inv) = self.world.inventory_mut(actor) else { return 0.0 };
         let worn: Vec<(FormId, f32)> = inv.equipped().into_iter().map(|i| (i, inv.condition_in_use(i).unwrap_or(1.0))).collect();
@@ -276,8 +276,7 @@ impl Game<'_> {
                 Some(XVal::Num(x)) => x,
                 _ => 0.0,
             };
-            let share = 1.0 - (0.5 - f64::from(condition).clamp(0.0, 1.0)).max(0.0);
-            total += v * share;
+            total += v * self.armor_condition_mult(condition);
         }
         total
     }

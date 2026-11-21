@@ -33,6 +33,11 @@ and/or other countries. *Fallout: New Vegas* was developed by Obsidian Entertain
 Gamebryo, Havok, SpeedTree, FaceGen, Bink, Steam, Windows and all other product and
 company names mentioned in this repository are trademarks of their respective owners.
 
+NVForever's logo (the "NVF" gear and padlock: `engine/nvforever/assets/icon.png`,
+`nvforever.ico` and `crates/nvf-launcher/assets/`) is the project's own, made by the owner
+with Google Gemini (owner, 2026-11-18, #3006). It uses no Fallout or Bethesda mark, art or
+game asset.
+
 These names are used only to say what NVForever is compatible with and which file formats
 and behaviours it describes. Their use does not imply any affiliation or endorsement, and
 the project claims no rights in them. The name "NVForever" refers to this project only.
@@ -85,8 +90,14 @@ NVForever follows a clean-room process, in the spirit of OpenMW.
    documentation, the xEdit project's record definitions (Mozilla Public License 2.0) and
    the niftools `nif.xml` description of NIF blocks. xEdit's definitions and `nif.xml`
    are read as documentation and re-expressed in this project's own data format
-   (`schemas/`); no code from either is included and none is generated from them
-   ([schemas/README.md](schemas/README.md)).
+   (`schemas/`); no code from either is included and no code is generated from them
+   ([schemas/README.md](schemas/README.md)). One data file is extracted from xEdit's
+   definitions by script: `tools/capture/script_functions.py --xedit` reads the script
+   functions' condition indices and parameter types from `wbDefinitionsFNV.pas` into
+   `schemas/script/functions.json` (names, numbers and types only, cited as `xedit_index`
+   or `xedit_param_types`), which the compiler's parameter table reads. That is the
+   definitions used as documentation, in data, not their code (owner decision 2026-11-18,
+   #3006).
 2. *The data files of a lawfully purchased copy.* We read the game's own archives and
    plugins and record what is in them: counts, layouts that decode with nothing left
    over, files that can be rewritten byte for byte.

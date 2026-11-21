@@ -1039,7 +1039,15 @@ impl Game<'_> {
         if health > 0.0 && total >= health {
             self.extra.entry(r).or_default().burning = None;
         }
-        self.ref_event(r, event::ON_DESTRUCTION_STAGE_CHANGE, None, None);
+        // A block with a parameter (`Begin OnDestructionStageChange 3`, the Citadel's
+        // vertibird wrecks for Liberty Prime's march, SCPT 0x0A096CC8 in TTW, #3112)
+        // runs for the stage reached, counted from 1: the wreck's last of three stages
+        // (index 2) is its stage 3 [hypothesis: fit to the data, the only such block in a
+        // TTW load order; in both Fallout3.esm's four-stage and TTW's three-stage DEST of
+        // MQ11vertibirdPartyBus, 3 is index 2, whose DSTD damage stage is also 3]. One
+        // without a parameter runs for any stage. NVSE handlers keep their arguments.
+        self.ext_event(event::ON_DESTRUCTION_STAGE_CHANGE, r, None);
+        self.ref_blocks(r, event::ON_DESTRUCTION_STAGE_CHANGE, Some(Value::Num(f64::from(after + 1))), None);
         Some(out)
     }
 

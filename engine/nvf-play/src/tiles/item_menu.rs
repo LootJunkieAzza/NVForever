@@ -356,6 +356,16 @@ pub(super) fn mark_menu(ui: &mut Ui, menu_name: &str, lists: &[&str]) {
     }
     for list_path in lists {
         set(ui, &format!("{list_path}/{}", list::HIGHLIGHT), HOTRECT_FILL, Value::Num(1.0));
+        if let Some(list_id) = ui.find_tile(list_path) {
+            let rows: Vec<TileId> = ui
+                .tile(list_id)
+                .children
+                .iter()
+                .copied()
+                .filter(|&c| ui.is_live(c) && ui.tile(c).get("listindex").is_some())
+                .collect();
+            list::unclip_row_children(ui, list_id, rows);
+        }
     }
 }
 

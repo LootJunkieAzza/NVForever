@@ -25,7 +25,8 @@ fn main() {
         let Ok(data) = std::fs::read(f) else { continue };
         match fnv_dds::Dds::parse(&data) {
             Ok(d) => {
-                let extra = data.len() - fnv_dds::HEADER_LEN - d.header.expected_size(d.format);
+                // Counted from the end of the headers: 148 bytes in with a DX10 header.
+                let extra = data.len() - d.header.data_offset() - d.header.expected_size(d.format);
                 if extra > 0 {
                     over += 1;
                 }

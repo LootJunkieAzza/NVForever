@@ -267,7 +267,7 @@ const ARMS_SHADE_NEAR: f32 = 64.0;
 /// itself, whatever it draws: about 0.75 ms at Novac at 07:00 with 4096² maps for one
 /// caster as for three, against 0.25 ms for none [observed 2026-11-02, #1374].
 #[allow(clippy::type_complexity)]
-fn near_shade_casters(
+pub(crate) fn near_shade_casters(
     mut shade: Query<(&mut bevy::camera::visibility::CascadesVisibleEntities, &GlobalTransform), With<ArmsShade>>,
     views: Query<&GlobalTransform, With<Camera>>,
     casters: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform, Has<crate::terrain::LandMesh>)>,
@@ -730,6 +730,18 @@ struct Rig {
     /// First person: the node that turns with the pitch, and the camera node.
     looking: Option<usize>,
     camera: Option<usize>,
+    /// First person: the turn that nodes a script put above the camera node add to it
+    /// this frame, in the world ([`script_offset`]); the view takes it.
+    script_turn: Option<Quat>,
+    /// Where [`pose_rig`] placed the rig's root this frame, before the first-person lens
+    /// ([`place_lens`]) takes it under itself: the rig's place for the scripts' world
+    /// positions (`nif_mirror`, [`PlayerBody::posed_root`]).
+    posed_root: Option<Transform>,
+    /// First person: what the camera was placed from this frame: the script nodes' offset
+    /// above the camera node ([`script_offset`]), the rig's root and the camera node in
+    /// the animator's model space; [`follow_script_nodes`] moves the view by what the
+    /// scripts changed after.
+    script_used: Option<(Affine3A, Affine3A, Affine3A)>,
     /// First person: the node above the arms that the sway turns and moves
     /// (`view_sway.rs`).
     translate: Option<usize>,
@@ -780,6 +792,9 @@ struct Rig {
     sight_relief: Option<f32>,
     /// Third person: the entities drawn for the body's parts.
     drawn: Vec<Drawn>,
+    /// The forms of the appearance's parts with at least one shape spawned (a part
+    /// whose model did not load has none), in the parts' order.
+    spawned_forms: Vec<FormId>,
     /// First person: whether the rig is shown (last applied).
     shown: Option<bool>,
     /// Third person: what of the rig the camera sees (last applied).
@@ -811,6 +826,70 @@ const MUZZLE_NODES: [&str; 2] = ["ProjectileNode", "##ProjectileNode"];
 
 fn affine(t: Transform) -> Affine3A {
     Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.translation)
+}
+
+/// What nodes a script put above skeleton node `c` (JIP's InsertNode, moved by
+/// SetNifBlockRotation and SetNifBlockTranslation, `crate::nif_mirror`) add to its place
+/// in the rig, in model space; `None` without such nodes. The bones take the animator's
+/// pose, the inserted nodes their own transforms, through the drawn entities up to the
+/// skeleton's root. In the original the first-person camera hangs from the skeleton
+/// [hypothesis: B42 True Leaning leans the view by nodes it inserts above `Camera1st`
+/// and `Bip01 Looking`; observed: mods_reference ln_B42Leaning.txt].
+fn script_offset(a: &Animator, c: usize, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>) -> Option<Affine3A> {
+    let root = *a.nodes.first()?;
+    let mut e = *a.nodes.get(c)?;
+    let (mut drawn, mut plain, mut inserted) = (Affine3A::IDENTITY, Affine3A::IDENTITY, false);
+    for _ in 0..256 {
+        if e == root {
+            return inserted.then(|| drawn * plain.inverse());
+        }
+        match a.nodes.iter().position(|&n| n == e) {
+            Some(i) => {
+                let l = affine(a.locals[i]);
+                drawn = l * drawn;
+                plain = l * plain;
+            }
+            None => {
+                drawn = transforms.get(e).map_or(Affine3A::IDENTITY, |t| affine(*t)) * drawn;
+                inserted = true;
+            }
+        }
+        e = parents.get(e).ok()?.parent();
+    }
+    None
+}
+
+/// The script nodes above the first-person camera node as the mirror set them this frame
+/// (`nif_mirror`, after the scripts ran): the view and the arms' lens move by what they
+/// changed since the body was posed ([`drive_body`], before the scripts), so the view is
+/// drawn with the same values as the arms. Without it the view kept the previous frame's
+/// while a lean eased in or out, and shook against the arms [observed: the owner's
+/// playtest of B42 True Leaning, 2026-11-20].
+fn follow_script_nodes(state: Res<PlayerBody>, parents: Query<&ChildOf>, mut transforms: Query<&mut Transform>, cams: Query<Entity, With<nvf_play::PlayerCamera>>) {
+    let Some(f) = state.body.as_ref().and_then(|b| b.first.as_ref()).filter(|_| state.script_view) else { return };
+    let (Some((used, root_m, plain)), Some(c)) = (f.script_used, f.camera) else { return };
+    let Some(now) = script_offset(&f.animator, c, &parents, &transforms) else { return };
+    if now.abs_diff_eq(used, 1e-4) {
+        return;
+    }
+    let moved = Vec3::from((root_m * now * plain).translation - (root_m * used * plain).translation);
+    let root = root_m.to_scale_rotation_translation().1;
+    let turn = |o: Affine3A| root * o.to_scale_rotation_translation().1 * root.inverse();
+    let turned = turn(now) * turn(used).inverse();
+    if let Some(mut t) = cams.single().ok().and_then(|cam| transforms.get_mut(cam).ok()) {
+        t.translation += nvf_play::space::to_bevy(moved.to_array());
+        t.rotation = nvf_play::space::view_rotation(turned) * t.rotation;
+    }
+    // The lens stands at the eye ([`place_lens`]); the rig's root under it keeps its pose.
+    let (Some([outer, _]), Some(posed)) = (f.lens, f.posed_root) else { return };
+    let Ok(at) = transforms.get(outer).copied() else { return };
+    let at = Transform { translation: at.translation + moved, ..at };
+    if let Ok(mut t) = transforms.get_mut(outer) {
+        *t = at;
+    }
+    if let Ok(mut t) = transforms.get_mut(f.root) {
+        *t = Transform::from_matrix(at.to_matrix().inverse() * posed.to_matrix());
+    }
 }
 
 /// An entity drawn for a part of the third-person body.
@@ -868,7 +947,13 @@ impl Rig {
     /// of the way onto the camera node, the barrel's axis (the weapon model's +X
     /// [observed: every `ProjectileNode` lies ahead along it]) along `view` (model
     /// space). Nothing when the weapon has no such node or does not hang below `t`.
-    fn line_up_sights(&mut self, t: usize, share: f32, view: Vec3) {
+    ///
+    /// Nodes scripts put above the camera node and above `t` (`script_offset`: a lean's,
+    /// ISControl's `##trm`) are drawn with: the eye, the view and the gun are taken where
+    /// they are drawn, so the sights meet the eye the view is drawn from [hypothesis:
+    /// B42 True Leaning and ISControl move them while aiming; observed: their
+    /// `ln_B42Leaning.txt`, `ln_ISControl.txt`].
+    fn line_up_sights(&mut self, t: usize, share: f32, view: Vec3, (parents, transforms): (&Query<&ChildOf>, &Query<&mut Transform>)) {
         let (Some(camera), Some(hand)) = (self.camera, self.weapon_parent) else { return };
         let a = &self.animator;
         let mut up = Some(hand);
@@ -907,8 +992,12 @@ impl Rig {
         }
         let relief = if iron { self.sight_relief.unwrap_or(0.0) } else { 0.0 };
         let a = &self.animator;
+        let at_camera = script_offset(a, camera, parents, transforms).unwrap_or(Affine3A::IDENTITY);
+        let above = script_offset(a, t, parents, transforms).unwrap_or(Affine3A::IDENTITY);
+        let (eye, view) = (at_camera.transform_point3(eye), at_camera.transform_vector3(view));
+        let (sight, barrel) = (above.transform_point3(sight), above.transform_vector3(barrel));
         let g = crate::iron_sights::correction(eye + view.normalize_or_zero() * relief, view, sight, barrel, share);
-        let parent = a.skel.parents[t].map_or(Affine3A::IDENTITY, |p| a.model_space(p));
+        let parent = above * a.skel.parents[t].map_or(Affine3A::IDENTITY, |p| a.model_space(p));
         let moved = parent.inverse() * g * parent * affine(self.animator.locals[t]);
         self.animator.locals[t] = Transform::from_matrix(Mat4::from(moved));
     }
@@ -1003,6 +1092,9 @@ struct Body {
     scale: f32,
     third: Rig,
     first: Option<Rig>,
+    /// The armour addons (ARMO and WEAP BIPL members, by Editor ID) the first-person rig
+    /// wears and drew a shape of, for the log.
+    first_addons: Vec<String>,
 }
 
 /// State kept across body rebuilds (an outfit change rebuilds the body).
@@ -1011,6 +1103,9 @@ struct Motion {
     /// The weapon's mod flags: its model is the one for them (`Weapon::model_for`,
     /// docs/spec-notes/weapon-mods.md §2).
     weapon_mods: u8,
+    /// The weapon's models as last drawn, third and first person: a script that sets them
+    /// (`crate::weapon_models`) draws the weapon again.
+    weapon_models: [Option<String>; 2],
     prefix: &'static str,
     /// The weapon's DNAM Hand Grip ([`Frame::grip`]).
     grip: Option<u8>,
@@ -1061,8 +1156,13 @@ struct Motion {
     /// The camera's bob: first person's, and the third-person pivot's smoothing
     /// (`head_bob.rs`).
     head: crate::head_bob::HeadBob,
+    /// The last times (seconds of the game's clock) the sway moved the first-person arms and
+    /// the head moved the view off the clips' pose (the exit summary, a smoke check).
+    moved_at: [Option<f32>; 2],
     /// The first-person weapon lowered against a wall or a friend (`weapon_lower.rs`).
     lower: WeaponLower,
+    /// The first-person sprint pose's fade (`sprint_view.rs`).
+    sprint: crate::sprint_view::SprintView,
     /// The true iron sights were last reported on the eye (a smoke check).
     sights_told: bool,
     /// The weapon was last reported lowered (a smoke check).
@@ -1096,6 +1196,7 @@ impl Default for Motion {
         Motion {
             weapon: None,
             weapon_mods: 0,
+            weapon_models: [None, None],
             prefix: UNARMED,
             grip: None,
             hands: WeaponHands::default(),
@@ -1126,7 +1227,9 @@ impl Default for Motion {
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
             head: crate::head_bob::HeadBob::default(),
+            moved_at: [None; 2],
             lower: WeaponLower::default(),
+            sprint: crate::sprint_view::SprintView::default(),
             sights_told: false,
             lower_told: false,
             sights_share: 0.0,
@@ -1165,6 +1268,9 @@ pub struct PlayerBody {
     motion: Motion,
     /// Why the body could not be built (reported once).
     failed: Option<String>,
+    /// This frame's first-person view takes the turn of the script nodes above the camera
+    /// node (`Rig::script_turn`), so [`follow_script_nodes`] keeps it with them.
+    script_view: bool,
 }
 
 impl PlayerBody {
@@ -1246,6 +1352,14 @@ impl PlayerBody {
         self.script_rig(false)
     }
 
+    /// Where a player rig's root was posed this frame, before the first-person lens
+    /// (`Rig::posed_root`): the rig's place in the world, as the scripts' world
+    /// positions take it (`nif_mirror`).
+    pub fn posed_root(&self, first_person: bool) -> Option<Transform> {
+        let body = self.body.as_ref()?;
+        if first_person { body.first.as_ref()?.posed_root } else { body.third.posed_root }
+    }
+
     /// Each built player rig separately, including a hidden rig, for script model
     /// selection. Its names and entities must stay with the same model (#2387).
     pub fn script_rig(&self, first_person: bool) -> Option<(Entity, crate::limbs::ActorRig)> {
@@ -1275,12 +1389,12 @@ impl PlayerBody {
                 view, root, lens: None, folder: String::new(), skeleton: actor.skeleton,
                 animator: Animator::new(actor.skel, actor.nodes, None),
                 clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), head: None,
-                eye_local: Vec3::ZERO, looking: None, camera: None, translate: None,
+                eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None, script_used: None, translate: None,
                 weapon_node: None, weapon_parent: None, attached: None,
                 weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
                 idle_logged: false, sights_turned: None, muzzle: None, muzzle_entity: None,
                 casing: None, casing_entity: None, sighting: None, scope_eye: None, sight_relief: None,
-                use_lens: false, drawn: Vec::new(), shown: Some(false), seen: None,
+                use_lens: false, drawn: Vec::new(), spawned_forms: Vec::new(), shown: Some(false), seen: None,
                 furniture: None, since_attack: f32::INFINITY, attack_loop: None,
                 wound_up: None, wound_hit: None, sighting2: None, attack_eject: None, ejected: false, carry: None,
             }
@@ -1290,6 +1404,7 @@ impl PlayerBody {
                 worn: Vec::new(), look: None, change: fnv_actor::Change::default(),
                 female: false, scale: 1.0, third: rig(third, View::Third),
                 first: first.map(|r| rig(r, View::First)),
+                first_addons: Vec::new(),
             }),
             ..Self::default()
         }
@@ -1404,7 +1519,7 @@ impl MotionTrace {
                 match std::fs::File::create(&path) {
                     Ok(f) => {
                         let mut w = std::io::BufWriter::new(f);
-                        let _ = std::io::Write::write_all(&mut w, b"t,dt,heading,pitch,eye_x,eye_y,eye_z,hand_x,hand_y,hand_z,hand_rx,hand_ry,hand_rz,sway_x,sway_y,sway_z,sway_yaw,sway_pitch,sway_roll,sights,aiming,falling,sneaking,speed,drawn,feet_z,airborne,lhand_x,lhand_y,lhand_z,lens\n");
+                        let _ = std::io::Write::write_all(&mut w, b"t,dt,heading,pitch,eye_x,eye_y,eye_z,hand_x,hand_y,hand_z,hand_rx,hand_ry,hand_rz,sway_x,sway_y,sway_z,sway_yaw,sway_pitch,sway_roll,sights,aiming,falling,sneaking,speed,drawn,feet_z,airborne,lhand_x,lhand_y,lhand_z,lens,rgrip_x,rgrip_y,rgrip_z,rgrip_turn,lgrip_x,lgrip_y,lgrip_z\n");
                         info!("motion trace: writing {path}");
                         self.file = Some(w);
                         self.layers = std::fs::File::create(format!("{path}.layers")).ok().map(std::io::BufWriter::new);
@@ -1417,17 +1532,18 @@ impl MotionTrace {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn write(&mut self, t: f64, dt: f32, player: &Player, eye: Option<Vec3>, hand: Option<(Vec3, Vec3)>, sway: SwayPose, flags: (f32, bool, bool, bool, f32, bool), airborne: f32, left: Option<Vec3>, lens: f32) {
+    fn write(&mut self, t: f64, dt: f32, player: &Player, eye: Option<Vec3>, hand: Option<(Vec3, Vec3)>, sway: SwayPose, flags: (f32, bool, bool, bool, f32, bool), airborne: f32, left: Option<Vec3>, lens: f32, grips: Option<(Vec3, f32, Vec3)>) {
         let Some(w) = self.file.as_mut() else { return };
         let e = eye.unwrap_or(Vec3::NAN);
         let (h, r) = hand.unwrap_or((Vec3::NAN, Vec3::NAN));
         let l = left.unwrap_or(Vec3::NAN);
+        let (rg, rt, lg) = grips.unwrap_or((Vec3::NAN, f32::NAN, Vec3::NAN));
         let (yaw, pitch, roll) = sway.rotation.to_euler(EulerRot::ZXY);
         let (sights, aiming, falling, sneaking, speed, drawn) = flags;
         let b = |v: bool| u8::from(v);
         let line = format!(
-            "{t:.5},{dt:.5},{:.5},{:.5},{:.3},{:.3},{:.3},{:.4},{:.4},{:.4},{:.6},{:.6},{:.6},{:.4},{:.4},{:.4},{yaw:.5},{pitch:.5},{roll:.5},{sights:.4},{},{},{},{speed:.1},{},{:.3},{airborne:.3},{:.4},{:.4},{:.4},{lens:.5}\n",
-            player.heading, player.pitch, e.x, e.y, e.z, h.x, h.y, h.z, r.x, r.y, r.z, sway.offset.x, sway.offset.y, sway.offset.z, b(aiming), b(falling), b(sneaking), b(drawn), player.feet[2], l.x, l.y, l.z
+            "{t:.5},{dt:.5},{:.5},{:.5},{:.3},{:.3},{:.3},{:.4},{:.4},{:.4},{:.6},{:.6},{:.6},{:.4},{:.4},{:.4},{yaw:.5},{pitch:.5},{roll:.5},{sights:.4},{},{},{},{speed:.1},{},{:.3},{airborne:.3},{:.4},{:.4},{:.4},{lens:.5},{:.3},{:.3},{:.3},{rt:.2},{:.3},{:.3},{:.3}\n",
+            player.heading, player.pitch, e.x, e.y, e.z, h.x, h.y, h.z, r.x, r.y, r.z, sway.offset.x, sway.offset.y, sway.offset.z, b(aiming), b(falling), b(sneaking), b(drawn), player.feet[2], l.x, l.y, l.z, rg.x, rg.y, rg.z, lg.x, lg.y, lg.z
         );
         let _ = std::io::Write::write_all(w, line.as_bytes());
     }
@@ -1508,6 +1624,7 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<crate::script_sequences::PlayerSequences>()
             .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
             .add_systems(Update, toggle_iron_sights)
+            .add_systems(PostUpdate, follow_script_nodes.after(crate::nif_mirror::MirrorSystems).before(bevy::transform::TransformSystems::Propagate))
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
             .add_systems(PostUpdate, sequence_pose_aid::observe.after(bevy::transform::TransformSystems::Propagate))
             .add_systems(Last, report);
@@ -1642,6 +1759,11 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
         info!("player body summary: head bob {}, deepest first-person dip {:.2} units; third-person pivot over {} frames moved {pivot:.3} units a frame (rms) against the head's {head:.3}, pivot/head {:.2}", if body.head_bob { "on" } else { "off" }, m.head.peak_dip, m.head.frames, pivot / head.max(1e-3));
         info!("player body summary: head inertia, deepest take-off or landing dip {:.2} units; breathing camera {}, highest rise {:.2} units", m.head.peak_land.max(0.0) + 0.0, if body.head_bob { "on" } else { "off" }, m.head.peak_breath.max(0.0) + 0.0);
         info!("player body summary: most gun recoil back {:.2} units, most out of breath {:.2}", m.sway.peak_recoil.max(0.0) + 0.0, m.head.peak_exertion);
+        info!(
+            "player body summary: off the clips' pose, the arms last moved by Weapon Inertia {}, the view by the head's springs (Camera Motion, Movement Inertia's landing dip) {}",
+            m.moved_at[0].map_or("never".to_string(), |t| format!("at {t:.1} s")),
+            m.moved_at[1].map_or("never".to_string(), |t| format!("at {t:.1} s"))
+        );
         info!("player body summary: weapon lowering {}, lowered {} times, most {:.2}", if body.weapon_lower { "on" } else { "off" }, m.lower.times, m.lower.peak);
     }
 }
@@ -1655,7 +1777,8 @@ fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>,
     // A weapon with "Hide Backpack" goes with the armour: while it is equipped the body is
     // dressed without the pieces in the Backpack slot (`Resolver::resolve_wearing`).
     // So does one with armour addons of its own (WEAP BIPL: a hand-to-hand weapon's hand
-    // model, `Resolver::resolve_wearing`), for the third-person body ([`build`]).
+    // model, `Resolver::resolve_wearing`), for the third-person body and, when the weapon
+    // has no model of its own, the first-person arms ([`build`]).
     worn.extend(weapon.filter(|w| world.actors.weapons.get(w).is_some_and(|x| x.hide_backpack || !x.addons.is_empty())));
     (worn, weapon, weapon.map_or(0, |w| inv.equipped_mods(w)))
 }
@@ -1751,8 +1874,10 @@ fn ensure_body(
                     b.third.eye_local,
                     b.first.as_ref().map_or("missing".to_string(), |f| format!("{} nodes from {}", f.animator.nodes.len(), f.folder)),
                     worn.iter().map(|w| w.to_string()).collect::<Vec<_>>(),
-                    // Their biped model lists' armour addons (`fnv_actor::records::Armor::addons`).
-                    worn.iter().filter_map(|w| world.actors.armors.get(w)).flat_map(|a| a.addons.iter().map(|x| world.actors.armors.get(x).and_then(|x| x.edid.clone()).unwrap_or_else(|| x.to_string()))).collect::<Vec<_>>()
+                    // The armour addons of their biped model lists the first-person rig
+                    // wears (`fnv_actor::first_person::worn_addons`; a held fist weapon's
+                    // hand model among them, #3226).
+                    b.first_addons
                 );
                 state.body = Some(b);
                 rebuilt = true;
@@ -1766,12 +1891,14 @@ fn ensure_body(
     }
     let Some(body) = state.body.as_mut() else { return };
     let m = &mut state.motion;
-    if !rebuilt && m.weapon == weapon && m.weapon_mods == weapon_mods {
+    let w = weapon.and_then(|id| world.actors.weapons.get(&id));
+    let drawn = [false, true].map(|first| w.and_then(|w| w.model_for(first, weapon_mods)));
+    if !rebuilt && m.weapon == weapon && m.weapon_mods == weapon_mods && m.weapon_models.iter().zip(drawn).all(|(a, b)| a.as_deref() == b) {
         return;
     }
     m.weapon = weapon;
     m.weapon_mods = weapon_mods;
-    let w = weapon.and_then(|id| world.actors.weapons.get(&id));
+    m.weapon_models = drawn.map(|d| d.map(str::to_string));
     m.prefix = w.and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or(UNARMED, AnimType::prefix);
     m.grip = w.and_then(|w| w.grip);
     info!("player weapon: {}, animations {}", weapon.map_or("none (fists)".to_string(), |w| w.to_string()), m.prefix);
@@ -1943,10 +2070,12 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
-    // The first-person arms keep the bare hand: a held weapon's own addons (the power
-    // fist's metal hand, `equipped`) are for the third-person body only [hypothesis: the
-    // first-person weapon models are drawn over the arms' hands as before].
-    let first_worn: Vec<FormId> = worn.iter().copied().filter(|w| world.actors.weapons.get(w).is_none_or(|x| x.addons.is_empty())).collect();
+    // A held weapon's own addons (WEAP BIPL, `equipped`) are worn by the first-person
+    // arms only when the weapon has no model of its own for that view: the Bladed
+    // Gauntlet's or the knuckles' hand model is all there is of them (#3226). The power
+    // fist's metal hand stays the third-person body's: its rigid model is drawn over the
+    // arms' bare hand (`first_person::wears_weapon_addons`).
+    let first_worn = first_person::first_person_worn(&world.actors, worn);
     let first_a = if first_worn.len() == worn.len() { None } else { Some(world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(&first_worn), look)?) };
     let (fa, shows) = first_person::appearance(&world.actors, first_a.as_ref().unwrap_or(&a), |p| vfs.exists(p));
     let first = match build_rig(commands, parent, world, ctx, &fa, View::First, Some(&shows)) {
@@ -1956,7 +2085,15 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
             None
         }
     };
-    Ok(Body { worn: worn.to_vec(), look: look.cloned(), change: world.change(FormId::PLAYER_REF.0), female: a.female, scale, third, first })
+    // Of those, the ones the built rig drew a shape of (none without a rig).
+    let first_addons = first.as_ref().map_or_else(Vec::new, |r| {
+        first_person::worn_addons(&world.actors, &first_worn, &fa)
+            .into_iter()
+            .filter(|x| r.spawned_forms.contains(x))
+            .map(|x| world.actors.armors.get(&x).and_then(|x| x.edid.clone()).unwrap_or_else(|| x.to_string()))
+            .collect()
+    });
+    Ok(Body { worn: worn.to_vec(), look: look.cloned(), change: world.change(FormId::PLAYER_REF.0), female: a.female, scale, third, first, first_addons })
 }
 
 /// Spawn one rig of appearance `a` under `parent` (its transform set each frame).
@@ -2015,6 +2152,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     let hide: Vec<bool> = uses.iter().map(|(i, _)| head_part(*i)).collect();
     // Third person: per part, how the first-person rig shows it.
     let arms: Vec<Option<Show>> = uses.iter().map(|(i, _)| (view == View::Third).then(|| first_person::show(&world.actors, &a.parts[*i])).flatten()).collect();
+    let part_index: Vec<usize> = uses.iter().map(|(i, _)| *i).collect();
     let mut uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
     if view == View::First {
         // The arms take no shadow from the unseen body they are in the middle of.
@@ -2035,6 +2173,13 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     let drawn = (spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of))
         .map(|((&entity, &p), &s)| Drawn { entity, head: hide[p], arm: shape_shows(arms[p], uses[p].part.shapes[s].name.as_deref()) })
         .collect();
+    let mut spawned_forms: Vec<FormId> = Vec::new();
+    for &p in &spawned.part_of {
+        let form = a.parts[part_index[p]].form;
+        if !spawned_forms.contains(&form) {
+            spawned_forms.push(form);
+        }
+    }
     if view == View::First {
         // The arms rig casts no shadow on the world: the third-person body casts the
         // player's.
@@ -2076,6 +2221,9 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         eye_local,
         looking,
         camera,
+        script_turn: None,
+        posed_root: None,
+        script_used: None,
         translate,
         weapon_node,
         weapon_parent,
@@ -2095,6 +2243,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         use_lens: false,
         sight_relief: None,
         drawn,
+        spawned_forms,
         shown: None,
         seen: None,
         furniture: None,
@@ -2229,7 +2378,7 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// the rig's other clips are not played: a special idle takes the place of what the body
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
-fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
+fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, (transforms, parents): (&mut Query<&mut Transform>, &Query<&ChildOf>)) -> Option<(Vec3, Option<Quat>)> {
     let Posed { root, look_pitch, special, sequences, sequence_dt, pipboy, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
@@ -2539,6 +2688,20 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         // A draw's or a holster's clip keeps a straight fade: the hand-over sets it (below).
         if (first_inertia && l.tag != TAG_EQUIP) || (f.aim_fade.is_some() && is_aim(l.tag)) || crouch_fade(l.tag).is_some() {
             l.smooth = true;
+        } else if !first_inertia && l.tag < TAG_SPECIAL {
+            // None of the rules above holds now (Animation Smoothing, Weapon Handling's aim or
+            // the eased crouch switched off, or the crouch done): the rig's own layers take
+            // the clips' own straight fade again. Kept, a layer that stays (the idle, a drawn
+            // weapon's hold) faded the switched-off way for the rest of the session: the hold
+            // crossed over to the sights along the settling curve over the aim's 0.6 s. A layer
+            // already leaving keeps its way out, but one left to the draw's hand-over (which
+            // no longer runs) goes at the clips' pace instead of never.
+            if !l.is_leaving() {
+                l.straighten();
+                l.fade_out = DEFAULT_FADE;
+            } else if !l.fade_out.is_finite() {
+                l.fade_out = DEFAULT_FADE;
+            }
         }
         // A draw's or a holster's clip lets go slowly: its last pose is not the pose that
         // follows (the arms down after a holster), and over its own short time the
@@ -2601,6 +2764,12 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             let length = l.clip.length().max(1e-3);
             let u = nvf_play::inertia::land_curve_inv((l.time / length).clamp(0.0, 1.0), stretch) + f.dt.max(0.0) / (length * stretch.max(1.0));
             (l.time, l.rate) = (nvf_play::inertia::land_curve(u, stretch) * length, 0.0);
+        }
+    } else {
+        // Played by its clock again (Movement Inertia switched off part-way through a
+        // landing): held at the place it was put at, the view stayed dipped.
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_LAND && l.rate == 0.0) {
+            l.rate = 1.0;
         }
     }
     // The idles: each at the time its playback is at. One that has ended holds its last
@@ -2766,7 +2935,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         a.locals[l].rotation = Quat::from_rotation_x(look_pitch) * bind.rotation;
     }
     if let (Some((share, view)), Some(t)) = (sights.filter(|(s, _)| *s > 0.0), rig.translate) {
-        rig.line_up_sights(t, share, view);
+        rig.line_up_sights(t, share, view, (parents, &*transforms));
     }
     let a = &mut rig.animator;
     if let Some(t) = rig.translate.filter(|_| sway != SwayPose::NONE) {
@@ -2781,12 +2950,18 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     if let Ok(mut t) = transforms.get_mut(rig.root) {
         *t = root;
     }
+    rig.posed_root = Some(root);
     let root_m = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation);
     match rig.view {
-        View::First => rig.camera.map(|c| {
-            let m = root_m * a.model_space(c);
-            (m.translation.into(), view_driven.then(|| m.to_scale_rotation_translation().1))
-        }),
+        View::First => {
+            let c = rig.camera?;
+            // With the nodes a script put above the camera: their move and turn too.
+            let offset = script_offset(a, c, parents, transforms);
+            let m = root_m * offset.unwrap_or(Affine3A::IDENTITY) * a.model_space(c);
+            rig.script_turn = offset.map(|o| root.rotation * o.to_scale_rotation_translation().1 * root.rotation.inverse());
+            rig.script_used = offset.map(|o| (o, root_m, a.model_space(c)));
+            Some((m.translation.into(), view_driven.then(|| m.to_scale_rotation_translation().1)))
+        }
         View::Third => rig.head.map(|h| ((root_m * a.model_space(h)).transform_point3(rig.eye_local), None)),
     }
 }
@@ -3156,7 +3331,7 @@ fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate:
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
-    (time, turbo, sim, mut told_scale, sequences, mut trace): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Res<crate::script_sequences::PlayerSequences>, Local<MotionTrace>),
+    (time, turbo, sim, mut told_scale, sequences, mut trace, stance_motion): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Res<crate::script_sequences::PlayerSequences>, Local<MotionTrace>, Option<Res<nvf_play::stance::StanceMotion>>),
     d: Res<PlayWorld>,
     intent: Res<MoveIntent>,
     control: Res<PlayerControl>,
@@ -3181,7 +3356,7 @@ fn drive_body(
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
         (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::vats_mode::VatsMode>>, Option<Res<nvf_play::inertia::MovementInertia>>, Option<ResMut<PlayerBlows>>),
     ),
-    mut driven: ResMut<nvf_play::player::ViewDriven>,
+    (mut driven, parents): (ResMut<nvf_play::player::ViewDriven>, Query<&ChildOf>),
 ) {
     let state = &mut *state;
     player.body_view = None;
@@ -3241,7 +3416,10 @@ fn drive_body(
         (1.0, 0.0, true)
     } else {
         let (f, r, walk) = inertia.as_deref().map_or((intent.forward, intent.right, intent.walk), |i| i.clip_intent(intent.forward, intent.right, intent.walk, player.heading));
-        (f, r, !walk)
+        // A sprint from a walk (Always Run off) runs: the run clips from half a sprint on
+        // (`nvf_play::sprint`).
+        let sprint_runs = stance_motion.as_deref().is_some_and(|s| s.sprint_share >= nvf_play::sprint::RUN_GAIT_FROM);
+        (f, r, !walk || sprint_runs)
     };
     let feet = player.feet;
     if dt > 0.0 {
@@ -3578,9 +3756,13 @@ fn drive_body(
         }
         *told_scale = Some(script_scale);
     }
-    let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
+    // Sprint (`sprint_view.rs`): its share, how out of breath it left the player, and in
+    // third person the body's lean about its feet.
+    let (sprint_share, winded) = stance_motion.as_deref().map_or((0.0, 0.0), |s| (s.sprint_share, s.winded));
+    let lean = if third_view { crate::sprint_view::lean(sprint_share) } else { Quat::IDENTITY };
+    let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading) * lean, scale: Vec3::splat(body.scale * script_scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences:&sequences.third, sequence_dt: dt, pipboy: None, sway: SwayPose::NONE, sights: None };
-    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
+    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, (&mut transforms, &parents)).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
@@ -3650,9 +3832,11 @@ fn drive_body(
             exertion: if advanced && state.head_bob { m.head.exertion() } else { 0.0 },
             reloading: f32::from(u8::from(f.animator.layers.iter().any(|l| l.tag == TAG_RELOAD && !l.finished() && !l.is_leaving()))),
             on: advanced && state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
+            sprint: sprint_share,
         })
     });
     let sway = crate::view_sway::rescale(sway, sway_share);
+    let mut moved = [sway != SwayPose::NONE, false];
     // The head bob in first person moves the whole arms rig, camera node, arms and
     // weapon together (`head_bob.rs`).
     if let Some(f) = body.first.as_ref() {
@@ -3675,8 +3859,17 @@ fn drive_body(
             kick: if soft_recoil { kick } else { 0.0 },
             punch,
             on: advanced && state.head_bob && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
+            // Sprint's bob and its out of breath, Camera Motion's (`sprint_view.rs`).
+            sprint: sprint_share,
+            winded: if advanced && state.head_bob { winded } else { 0.0 },
         });
         at = [at[0] + o.x, at[1] + o.y, at[2] + o.z];
+        moved[1] = o != Vec3::ZERO;
+    }
+    for (at, moved) in m.moved_at.iter_mut().zip(moved) {
+        if moved {
+            *at = Some(time.elapsed_secs());
+        }
     }
     // Lowered against a wall or a friend ahead (`weapon_lower.rs`): a drawn weapon, not
     // fists; aiming, the trigger, an attack or a reload bring it up.
@@ -3700,6 +3893,11 @@ fn drive_body(
         info!("weapon lowering: {}", if m.lower.down { if control.lowered { "lowered by hand" } else if ahead.friendly { "lowered for a friendly actor ahead" } else { "lowered against a surface ahead" } } else { "raised" });
     }
     let sway = crate::weapon_lower::then(sway, crate::weapon_lower::pose(lowered, crate::weapon_lower::weight(prefix)));
+    // Sprinting lowers the gun further (`sprint_view.rs`), faded where the arms are not the
+    // player's.
+    let sprint_pose = m.sprint.pose_share(sprint_share, idles.held.is_none() && !idles.first.covers() && pipboy.is_none(), dt);
+    let sprint_weight = if prefix == UNARMED { crate::sprint_view::FISTS } else { crate::weapon_lower::weight(prefix) };
+    let sway = crate::weapon_lower::then(sway, crate::sprint_view::pose(sprint_pose, sprint_weight));
     // True iron sights: brought up at their own pace while the view zooms in, for the
     // guns whose model has a sighting node, while the player looks through the arms rig
     // by themself.
@@ -3767,7 +3965,7 @@ fn drive_body(
     if let Some(f) = body.first.as_mut() {
         f.animator.smooth_seams(smooth.then_some(SEAM_SECONDS));
     }
-    let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
+    let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, (&mut transforms, &parents)));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than
     // the world's, and narrower still while the Pip-Boy shows.
@@ -3805,6 +4003,22 @@ fn drive_body(
             }
         }
     }
+    // Sprint's side sway (`sprint_view.rs`, Camera Motion): a small roll of the first-person
+    // view about its own line, so the crosshair's point and the aim stay.
+    let stride = body.first.as_ref().map_or(0.0, |f| f.animator.phase);
+    let roll_on = advanced && state.head_bob && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none();
+    let roll = m.sprint.roll(stride, sprint_share, roll_on, dt);
+    if roll != 0.0 && player.body_view.is_none() && !third_view {
+        player.body_view = Some(crate::sprint_view::rolled_view(player.heading, player.pitch, roll));
+    }
+    // A script's nodes above the camera node turn the first-person view with them (a
+    // lean's roll, `script_offset`); an idle's view has them already.
+    let script_turn = body.first.as_ref().and_then(|f| f.script_turn).filter(|_| !third_view && first.and_then(|(_, v)| v).is_none());
+    if let Some(turn) = script_turn {
+        let view = player.body_view.unwrap_or_else(|| crate::sprint_view::rolled_view(player.heading, player.pitch, 0.0));
+        player.body_view = Some(turn * view);
+    }
+    state.script_view = script_turn.is_some();
     m.events = events;
 
     // The eye: the first-person camera node; without that rig, the head's eye, swung
@@ -3833,7 +4047,15 @@ fn drive_body(
             let turn = rot(c).inverse() * rot(h);
             Some((Vec3::from(h.translation) - Vec3::from(c.translation), turn.to_scaled_axis()))
         });
-        trace.write(time.elapsed_secs_f64(), dt, &player, eye, hand, sway, (m.sights_share, control.aiming, m.falling, stance == Stance::Sneak, m.speed, m.hands.phase == WeaponPhase::Drawn), m.airborne, left, lens_k);
+        // Each hand in the weapon's frame (the `Weapon` node, model space): where it holds
+        // the gun, to see a hand leave its grip; the right hand with its turn there.
+        let grips = body.first.as_ref().filter(|_| m.hands.in_hand).and_then(|f| {
+            let gun = f.weapon_node_at(Transform::IDENTITY, &[])?.inverse();
+            let bone = |n: &str| f.animator.skel.by_name.get(n).map(|&b| gun * f.animator.model_space(b));
+            let (r, l) = (bone("Bip01 R Hand")?, bone("Bip01 L Hand")?);
+            Some((Vec3::from(r.translation), r.to_scale_rotation_translation().1.to_scaled_axis().length().to_degrees(), Vec3::from(l.translation)))
+        });
+        trace.write(time.elapsed_secs_f64(), dt, &player, eye, hand, sway, (m.sights_share, control.aiming, m.falling, stance == Stance::Sneak, m.speed, m.hands.phase == WeaponPhase::Drawn), m.airborne, left, lens_k, grips);
         trace.write_layers(time.elapsed_secs_f64(), &m.hands, body.first.as_ref().map(|f| &f.animator));
     }
     state.head_eye = third_eye.filter(|_| third_view).map(|e| e.to_array());

@@ -1753,6 +1753,26 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   the tower's legs as a lattice and trees on the hill, where drawing the block opaque gave
   a solid tower base and black boxes]; its cutoff is not known, the renderers use alpha
   above 128 (`engine/nvf-assets/src/nif_spawn.rs`, `shape_alpha_mode`).
+- **What goes into the object blocks** (#3014): the editor's Generate Objects makes LOD
+  "for all refs in the world that are marked visible when distant", from LOD meshes that
+  sit in the full mesh's folder and end in `_lod.nif`; a base's "Visible When Distant"
+  flag adds its references "if a corresponding LOD model exists" [documented: GECK wiki
+  "World LOD", LOD Object Generation; "Static", Flags]. The flag is header bit 15 (32768)
+  on the base record and on the reference (§2) [documented: GECK wiki "SetFlagsLow",
+  "GetReferenceFlag"]. Measured from the data in a read-only study, 2026-11-18, to be
+  measured again [observed]: all 692 base-game `*_lod.nif` sit beside their full models,
+  with low-resolution textures of their own, a median 219 triangles against 4,968 for the
+  full model; community LOD packs add about 650 more in the same naming, and one pack
+  names them `_lod_0.nif` / `_lod_1.nif` with no `_lod` sibling. In WastelandNV 15,333
+  references carry the reference flag, every one with a `_lod` model for its base; 1,716
+  more have a flagged base without the reference flag. A widely used LOD plugin flags 835
+  more base records, which puts about 74,600 unflagged references under a flagged base,
+  and the blocks it regenerates hold them. So whether a block may hold a reference
+  depends on the reference's flag and its base's, in any plugin's version of either, and
+  on the load order the blocks were made for. Unflagged STAT, SCOL and MSTT references
+  whose bound radius is at least 0.01 of their distance: about 1,200-2,000 (130-260
+  distinct models) in the cells 3 to 8 steps around Goodsprings, Primm and Novac,
+  1,900-2,700 out to 12 steps; at 0.004 about 2.5 to 3 times as many.
 - **Settings**: `lodsettings\<world>.dlodsettings`, 24 bytes. For WastelandNV:
   u32 4, u32 32, u32 128, i16 −64, i16 −64, i16 63, i16 63, u32 4 [observed], read as
   smallest and largest level, grid size in cells, south-west and north-east cells, and
@@ -1797,8 +1817,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   | `[LOD] fLODMultObjects`, `fLODMultTrees`, `fLODFadeOutPercent` | 5, 0.5, 0.6 | — |
   | `[Grass] fGrassStartFadeDistance` | 7,000 | 0 / 3,000 / 5,000 / 7,000 |
 
-  Readings [hypothesis]: fBlockLoadDistance is how far terrain chunks and object
-  blocks are drawn, fBlockLoadDistanceLow how far the finest (level 4) chunks reach,
+  Readings [hypothesis]: fBlockLoadDistance is how far object blocks are drawn (first
+  read as the terrain chunks' reach too; the original draws terrain farther, "Terrain
+  reach" below), fBlockLoadDistanceLow how far the finest (level 4) chunks reach,
   fSplitDistanceMult scales the distances at which coarser chunks give way to finer
   ones (at Very High and Low, fSplitDistanceMult × 8 cells × 4,096 = 49,152 and 24,576
   lands within 2% of fBlockLoadDistanceLow; at Medium and High it does not), and
@@ -1806,6 +1827,21 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   and uGridDistantTreeRange look like the older distant-land settings (cell counts) that
   the new terrain system replaces. Which INI file wins when both set a value is not
   known. What NVForever does with each: layer3.md "Distant LOD".
+- **Terrain reach**: at one pose, the hill above Goodsprings (-65347, 5770, z 13970,
+  heading 27°, night), the original shows a jagged mountain range along the whole
+  horizon toward Vegas; with terrain chunks cut off at 125,000 ours shows a flat, low
+  horizon there. Of the `--lod-distance` values tried (that sweep, before terrain got its
+  own reach, also moved the object blocks and the distant water), 150,000, 175,000 and
+  200,000 did not match the original's skyline and 250,000, the first one that did,
+  matched it along its whole width [observed: capture of the original over xNVSE and our
+  runs at the same pose, 2026-11-19, #3055]. So 250,000 is a default calibrated at that
+  pose, not a measured distance: how far the original actually draws terrain (whole
+  chunks reach past any cut-off, so a smaller reach of its own could give the same
+  skyline), and whether it is one fixed distance for every place and preset, is
+  [hypothesis]. No key in `[TerrainManager]` of `Fallout_default.ini` or the four
+  presets gives 250,000 [observed: the files]. NVForever takes one fixed terrain reach
+  independent of fBlockLoadDistance, which then bounds only the object blocks
+  [hypothesis]; nothing showed the object blocks' reach to be wrong.
 - How the game hides LOD under loaded cells, and exactly when it switches levels, is not
   known; the renderer's rules are [hypothesis] (layer3.md, `engine/nvforever/src/lod.rs`).
 
@@ -2083,3 +2119,55 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
    21 and the REPCONN basement are still to capture (section 8).
 6. The engine's handling of SCOL references: whether it draws the combined mesh (assumed)
    or the parts.
+
+## Water surface ownership during streaming
+
+[design] Loaded exterior cells own their local water planes. Distant water fills
+eligible cells outside that loaded set, inside the configured LOD range. A cell
+must not retain both owners after stream reconciliation. Cell count alone does
+not identify that set: replacing one loaded cell with another can leave its size
+unchanged.
+
+[design] Distant-water invalidation includes camera cell, effective LOD radius
+(including off/interior) and the exact loaded-cell keys. Compare stable keys
+without allocating each frame; retain a copy only when coverage changes. Then
+remove no-longer-eligible planes, create newly eligible planes and retain the
+same entities/materials for unaffected cells. Existing water type, depth,
+reflection, alpha, material and mesh policy is unchanged.
+
+[hypothesis] Coplanar retained distant/local planes are a causal renderer boundary
+to test for reported water flicker, not yet proof of every observed flicker.
+Controls must invoke the actual renderer producer with same-count replacements,
+steady coverage, LOD off/range changes and cell/world lifecycle; inspecting only
+an invalidation-key getter is insufficient. No original assets or GPU outcome is
+claimed by authored CPU fixtures.
+
+
+#### Current-camera underwater fog handoff
+
+[design: engine render scheduling] The water fog override is composed after the current
+camera transform propagates, before the reflection camera copies that fog. The
+weather/interior composition is shared with the ordinary sky updater. Leaving water
+restores its current values in the same frame, including weather, lighting, HDR emissive
+and interior-fog preferences changed while submerged; it does not replay a pre-entry
+snapshot [hypothesis: that the original's fog returns in the frame the camera leaves the
+water; not observed in the original game]. The WATR under-water fog colour rule (§6
+"Under-water colour") is unchanged by this handoff. No HUD alpha, breath recovery,
+radiation, image modifier, or water shader policy is changed by this handoff.
+
+The prior Update override read the previous propagated camera and requested a
+later sky refresh on exit. This is a source-predicted temporal mismatch, not proof
+that it explains the entire reported persistent cyan tint. Controls must move the
+real camera Transform through enter/exit/re-entry, assert the extracted current
+fog, and cover current exterior/interior restoration. GPU/original-profile
+acceptance remains separate from CPU producer results.
+
+
+### CPU validation scope
+
+The water producer/camera-fog and live-IMAD grade controls exercise CPU consumers;
+revision-specific CI and failure history are recorded in PR #2861. The
+identical-fixture baseline comparisons, nonfinite/overflow guard, auxiliary-camera
+and reflection scheduling, worldspace clearing, HDR restoration, native behavior,
+original mod initialization and installed-profile/persistent-cyan/GPU/FPS outcomes
+are not established by those controls.

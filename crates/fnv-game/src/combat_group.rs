@@ -598,7 +598,7 @@ impl Game<'_> {
                 if receiver == c.actor || receiver == about || receiver == FormId::PLAYER_REF || (where_[0] - from[0]).hypot(where_[1] - from[1]) > ALARM_RADIUS {
                     continue;
                 }
-                if self.is_dead(receiver) || !self.present(receiver) || self.awareness.state(receiver) == State::Combat {
+                if self.is_dead(receiver) || !self.present(receiver) || self.awareness.state(receiver) == State::Combat || self.combat_disabled(receiver) {
                     continue;
                 }
                 // A package that skips Fallout behaviour without Observe Combat Behavior

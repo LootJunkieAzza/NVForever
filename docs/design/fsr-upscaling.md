@@ -320,6 +320,11 @@ keeps the history at 15 frames a second and up (unit test
 
 ## Ambient occlusion
 
+**Since #2897 stage b it goes into the lighting by default** (graphics-enhanced.md §3.1.2):
+worked out at FSR's render size between the depth prepass and the main pass, which draws at
+that size and reads it, so FSR accumulates it with the lit scene. What follows is the picture
+placement, now the fallback (`NVF_PLAY_DEBUG_AO=post`); `NVF_AO_BEFORE_FSR` applies to it only.
+
 **Since 2026-11-08 it runs before FSR** (`ssao.rs` `ao_before_fsr`): at FSR's render size,
 from the depth prepass as drawn (before `expand_depth`), at half that size, and multiplied
 into the render rectangle of the HDR picture FSR reads, through a blend (`ssao.wesl`

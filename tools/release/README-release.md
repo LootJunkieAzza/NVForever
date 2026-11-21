@@ -38,6 +38,9 @@ nvf-viewer.cmd --mesh meshes\clutter\...
 The explorer used to be what `nvforever` opened without `--play`; it now needs `--explore`
 (or `--cell` / `--pos` without `--play`).
 
+The Linux programs need glibc 2.39 or newer (Ubuntu 24.04, Fedora 40 and later); on an
+older system they stop at once, before any window or log.
+
 On Linux use the `.sh` launchers and pass `--data` (or set `Path=` under `[Game]` in the
 home's `NVForever.ini`). Settings, saves, logs and crash reports go to
 `Documents\My Games\NVForever` (or `NVFOREVER_HOME`); caches to `%LOCALAPPDATA%\NVForever\cache`.
@@ -52,7 +55,7 @@ The first start asks once whether NVForever may send a report after each session
 build, your PC's hardware and settings, your mod list, how it ran, the game's log and any
 crash). Nothing is sent unless you choose **Send reports**. Each report is written first to
 `Documents\My Games\NVForever\reports` and sent at the next start; no personal details and
-no saves are sent. Settings → Gameplay → Reports turns it off or deletes what was sent;
+no saves are sent. Settings → Gameplay → Bug Reports turns it off or deletes what was sent;
 `NVF_REPORTS=0` turns it off for one run. Details: `docs/design/player-reports.md` in the
 repository.
 

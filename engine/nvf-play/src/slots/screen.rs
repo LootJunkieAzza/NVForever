@@ -26,6 +26,7 @@ use bevy::prelude::*;
 use crate::ui_pointer::Button;
 use bevy::window::PrimaryWindow;
 use fnv_game::slots::{self as rules, REELS};
+use fnv_util::words::{tr, trf};
 use nvf_assets::GameData;
 
 const EDGE: f32 = 30.0;
@@ -138,7 +139,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f3
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, FADE - THICK, THICK, INFO.y - FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, INFO.y - THICK, INFO.x - FADE, THICK), bright);
                 c.image(b, "interface\\shared\\line\\fade_to_right.dds", at(INFO.x - FADE - THICK, INFO.y - THICK, FADE, THICK), bright);
-                let rows = [("Current Bet:".to_string(), s.bet.to_string()), ("Chips:".into(), s.chips.to_string()), (format!("{} Earnings:", s.casino_name), s.earnings.to_string())];
+                let rows = [(tr("Current Bet:").to_string(), s.bet.to_string()), (tr("Chips:").into(), s.chips.to_string()), (trf("{casino} Earnings:", &[("casino", &s.casino_name)]), s.earnings.to_string())];
                 for ((title, value), y) in rows.iter().zip(ROWS_Y) {
                     c.text_in(b, FontKind::Menu, title, ROW_X, y, false, bright);
                     c.text_in(b, FontKind::Menu, value, VALUE_X, y, true, bright);
@@ -148,12 +149,12 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f3
             let top = s.limits.top(s.chips);
             let h = |k: KeyCode| crate::pad::hint(&[k], crate::pad::at_menu(fnv_game::slots::MENU_CODE));
             let buttons = [
-                ("Spin", h(KeyCode::KeyW), SlotsInput::Spin, betting && s.chips >= s.bet && s.chips > 0),
-                ("Increase Bet", h(KeyCode::KeyE), SlotsInput::Increase, betting && s.bet < top),
-                ("Decrease Bet", h(KeyCode::KeyQ), SlotsInput::Decrease, betting && s.bet > s.limits.min_bet),
-                ("Payout List", h(KeyCode::KeyF), SlotsInput::Payouts, betting),
-                ("Bet Max", h(KeyCode::KeyS), SlotsInput::Max, betting && s.bet < top),
-                ("Exit", h(KeyCode::KeyR), SlotsInput::Exit, betting),
+                (tr("Spin"), h(KeyCode::KeyW), SlotsInput::Spin, betting && s.chips >= s.bet && s.chips > 0),
+                (tr("Increase Bet"), h(KeyCode::KeyE), SlotsInput::Increase, betting && s.bet < top),
+                (tr("Decrease Bet"), h(KeyCode::KeyQ), SlotsInput::Decrease, betting && s.bet > s.limits.min_bet),
+                (tr("Payout List"), h(KeyCode::KeyF), SlotsInput::Payouts, betting),
+                (tr("Bet Max"), h(KeyCode::KeyS), SlotsInput::Max, betting && s.bet < top),
+                (tr("Exit"), h(KeyCode::KeyR), SlotsInput::Exit, betting),
             ];
             let column = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(BUTTONS_TOP), width: u(0.0), height: u(6.0 * BUTTON_H), ..default() };
             m.spawn(column).with_children(|b| {
@@ -212,7 +213,7 @@ fn reels(r: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, now: f32, view_
     }
     // The bet under the reels while they stand.
     if s.phase == Phase::Betting {
-        let line = format!("Bet: {}", s.bet);
+        let line = trf("Bet: {bet}", &[("bet", &s.bet)]);
         c.text_in(r, FontKind::Menu, &line, left, REELS_TOP + 3.0 * SYMBOL.y + 20.0, false, b);
     }
 }
@@ -234,7 +235,7 @@ fn payouts(r: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, view_w: f32) 
             for (j, &sym) in symbols.iter().enumerate() {
                 c.image(p, picture(s, sym), at(30.0 + j as f32 * (PAY_SYMBOL.x + 6.0), y + (PAY_ROW - PAY_SYMBOL.y) / 2.0, PAY_SYMBOL.x, PAY_SYMBOL.y), Color::WHITE);
             }
-            c.text_in(p, FontKind::Menu, &format!("= BET x {pay}"), 340.0, y + 6.0, false, b);
+            c.text_in(p, FontKind::Menu, &trf("= BET x {pay}", &[("pay", &pay)]), 340.0, y + 6.0, false, b);
         }
     });
 }

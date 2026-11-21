@@ -2345,7 +2345,7 @@ pub(crate) mod tests {
                 radius: 1, loaded: [(grid, cell)].into(), fades: default(), fade_secs: 0.0, settled: true,
                 arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
                 hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
-                stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(),
+                stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
             });
             let eye = Vec3::new(grid.0 as f32 * 4096.0 + 2048.0, grid.1 as f32 * 4096.0 + 2048.0, 600.0);
             app.world_mut().spawn((Camera3d::default(), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }, GlobalTransform::from_translation(Vec3::new(eye.x, eye.z, -eye.y))));
@@ -2909,7 +2909,7 @@ pub(crate) mod tests {
             radius: 1, loaded: [((0, 0), cell)].into(), fades: default(), fade_secs: 0.0, settled: true,
             arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
             hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
-            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(),
+            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
         });
         app.world_mut().spawn((Camera3d::default(), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }, GlobalTransform::from_translation(Vec3::new(2048.0, 600.0, -2048.0))));
         for _ in 0..3 { app.world_mut().run_system_once(update_cache).unwrap(); }
@@ -2946,7 +2946,7 @@ pub(crate) mod tests {
             radius: 2, loaded: default(), fades: default(), fade_secs: 0.0, settled: true,
             arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
             hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
-            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(),
+            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
         });
         for y in -3..=3 { for x in -3..=3 {
             let diffuse = app.world_mut().resource_mut::<Assets<Image>>().add(Image::default());
@@ -3755,7 +3755,7 @@ pub(crate) mod tests {
             radius: 1, loaded: [((0, 0), fine), ((1, 0), stored)].into(), fades: default(), fade_secs: 0.0, settled: true,
             arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
             hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
-            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(),
+            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
         });
         app.world_mut().spawn((Camera3d::default(), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }, GlobalTransform::from_translation(Vec3::new(2048.0, 600.0, -2048.0))));
         app.world_mut().run_system_once(update_cache).unwrap();

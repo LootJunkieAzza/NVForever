@@ -62,6 +62,11 @@ const L_SAY_OWN: u32 = 0x932;
 const T_OWN: u32 = 0x933;
 const G_BEGIN: u32 = 0x940;
 const G_END: u32 = 0x941;
+const T_DAD: u32 = 0x950;
+const L_DAD_ASK: u32 = 0x951;
+const L_JONAS_REPLY: u32 = 0x952;
+const L_DAD_BYE: u32 = 0x953;
+const INTERCOM_PACKAGE: u32 = 0xB01;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_DEAD: u16 = 46;
@@ -82,12 +87,19 @@ fn u32b(v: u32) -> Vec<u8> {
 }
 
 fn ctda(cmp: u8, value: f32, function: u16, p1: u32) -> Subrecord {
+    ctda_on(cmp, value, function, p1, 0)
+}
+
+/// A condition run on `run_on` (0 the subject, 1 the target).
+fn ctda_on(cmp: u8, value: f32, function: u16, p1: u32, run_on: u32) -> Subrecord {
     let mut d = vec![cmp, 0, 0, 0];
     d.extend(value.to_le_bytes());
     d.extend(function.to_le_bytes());
     d.extend([0, 0]);
     d.extend(p1.to_le_bytes());
-    d.extend([0; 12]);
+    d.extend([0; 4]);
+    d.extend(run_on.to_le_bytes());
+    d.extend([0; 4]);
     sub(b"CTDA", d)
 }
 
@@ -222,6 +234,16 @@ fn plugin_bytes() -> Vec<u8> {
         conversation_line(L_OPEN, BENNY, BYE_ONCE, "Opening.", through(), &[]),
     ]
     .concat();
+    // Dad and Jonas over Vault 101's diner intercom (TTW CG02IntercomConv, issue #3020):
+    // the settler says the Say Once Goodbye lines that link on, Benny answers through the
+    // intercom; each line tests who says it on the subject and who hears it on the target.
+    let on_target = |id: u32| ctda_on(EQ, 1.0, GET_IS_ID, id, 1);
+    let dad_lines = [
+        conversation_line(L_DAD_ASK, NPC, BYE_ONCE, "Jonas?", vec![ctda(EQ, 1.0, GET_IS_ID, NPC), on_target(BENNY)], &[T_DAD]),
+        conversation_line(L_JONAS_REPLY, BENNY, BYE_ONCE, "Here.", vec![ctda(EQ, 1.0, GET_IS_ID, BENNY), on_target(NPC)], &[T_DAD]),
+        conversation_line(L_DAD_BYE, NPC, BYE_ONCE, "Come up.", vec![ctda(EQ, 1.0, GET_IS_ID, NPC), on_target(BENNY)], &[]),
+    ]
+    .concat();
     // A topic a script's Say or SayTo has the loudspeaker say (issue #2768): Benny's line,
     // to be said through an activator; and a topic of the loudspeaker's own line.
     // Benny's line records IsActorTalkingThroughActivator from its begin and end scripts.
@@ -242,6 +264,8 @@ fn plugin_bytes() -> Vec<u8> {
         group(T_OWN.to_le_bytes(), 7, &own_lines),
         record(b"DIAL", 0, T_INTERCOM, &[sub(b"EDID", z("IntercomExchange")), sub(b"FULL", z("IntercomExchange")), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![1, 0])]),
         group(T_INTERCOM.to_le_bytes(), 7, &intercom_lines),
+        record(b"DIAL", 0, T_DAD, &[sub(b"EDID", z("IntercomConv")), sub(b"FULL", z("IntercomConv")), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![1, 0])]),
+        group(T_DAD.to_le_bytes(), 7, &dad_lines),
         record(b"DIAL", 0, GREETING, &[sub(b"EDID", z("GREETING")), sub(b"FULL", z("GREETING")), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![0, 0])]),
         group(GREETING.to_le_bytes(), 7, &lines),
     ]
@@ -301,6 +325,23 @@ fn plugin_bytes() -> Vec<u8> {
             sub(b"PKDD", pkdd),
         ],
     );
+    // A Say To Dialogue package aimed at the intercom (CG02DadTalkToJonasOnIntercom's
+    // shape): PKDD dialogue type 1, topic IntercomConv; PTDT a placed reference.
+    let say_pkdd = [0f32.to_le_bytes().to_vec(), u32b(T_DAD), u32b(0), vec![0; 4], u32b(1), vec![0; 4]].concat();
+    let say_ptdt = [0i32.to_le_bytes(), INTERCOM_REF.to_le_bytes(), 0i32.to_le_bytes(), 0f32.to_le_bytes()].concat();
+    let say_pack = record(
+        b"PACK",
+        0,
+        INTERCOM_PACKAGE,
+        &[
+            sub(b"EDID", z("SettlerTalkToBennyOnIntercom")),
+            sub(b"PKDT", [&0u32.to_le_bytes()[..], &[15, 0], &0u16.to_le_bytes(), &0u16.to_le_bytes(), &[0, 0]].concat()),
+            sub(b"PSDT", [&[0xFFu8, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
+            sub(b"PTDT", say_ptdt),
+            sub(b"PKDD", say_pkdd),
+        ],
+    );
+    let pack = [pack, say_pack].concat();
     let trigger = record(b"ACTI", 0, TRIGGER, &[sub(b"EDID", z("IntercomTrigger")), sub(b"SCRI", u32b(TRIGGER_SCRIPT))]);
     let trigger_ref = record(b"REFR", 0, TRIGGER_REF, &[sub(b"EDID", z("IntercomTriggerREF")), sub(b"NAME", u32b(TRIGGER)), sub(b"DATA", vec![0; 24])]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
@@ -543,6 +584,67 @@ fn an_actor_talks_with_a_talking_activator_through_goodbye_lines_that_link_on() 
     );
     assert!(g.events[from..].iter().any(|e| matches!(e.kind, EventKind::ActorConversationEnded { reason: "goodbye", lines: 4, .. })), "{:?}", &g.events[from..]);
     no_errors(&g);
+}
+
+/// An actor's Say To Dialogue package aimed at a talking activator with a talking actor
+/// (Dad's CG02DadTalkToJonasOnIntercom at Vault 101's diner intercom, TTW, issue #3020):
+/// the talking actor is the other party, so the lines' GetIsID on the target tests it,
+/// and the activator's replies are said as it. Without a talking actor the first line's
+/// target test fails on the activator and nothing is said.
+#[test]
+fn a_dialogue_package_aimed_at_a_talking_activator_talks_to_its_talking_actor() {
+    let f = fixture();
+    let intercom = FormId(INTERCOM_REF);
+    let (npc, benny) = (FormId(VICTIM_REF), FormId(BENNY_REF));
+    let said = |g: &Game, from: usize| -> Vec<(FormId, Option<FormId>, FormId)> {
+        g.events[from..]
+            .iter()
+            .filter_map(|e| match e.kind {
+                EventKind::LineStarted { speaker, target, info, .. } => Some((speaker, target, info)),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut g = game(&f);
+    assert_eq!(g.conditions_target(intercom), intercom, "no talking actor: the activator itself");
+    assert_eq!(g.say_package_line(npc, intercom, FormId(T_DAD)), None, "GetIsID Benny on the target fails on the intercom");
+    call(&mut g, intercom, OP_SET_TALKING_ACTOR, &[ArgValue::Value(Value::Ref(BENNY_REF))]);
+    assert_eq!(g.conditions_target(intercom), benny);
+    assert_eq!(g.conditions_target(npc), npc, "an actor is itself");
+    let from = g.events.len();
+    assert_eq!(g.say_package_line(npc, intercom, FormId(T_DAD)), Some(FormId(L_DAD_ASK)));
+    for _ in 0..4000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    assert!(g.speech.is_empty(), "the exchange ends");
+    assert_eq!(said(&g, from), vec![(npc, Some(intercom), FormId(L_DAD_ASK)), (benny, Some(npc), FormId(L_JONAS_REPLY)), (npc, Some(intercom), FormId(L_DAD_BYE))]);
+    assert!(g.events[from..].iter().any(|e| matches!(e.kind, EventKind::ActorConversationEnded { reason: "goodbye", lines: 3, .. })), "{:?}", &g.events[from..]);
+    no_errors(&g);
+
+    // The headless runner's dialogue_package says it as the AI does.
+    let (npc_s, intercom_s, benny_s) = (format!("0x{VICTIM_REF:08X}"), format!("0x{INTERCOM_REF:08X}"), format!("0x{BENNY_REF:08X}"));
+    let input: fnv_game::runner::Input = serde_json::from_value(serde_json::json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "call", "line": format!("{intercom_s}.SetTalkingActivatorActor {benny_s}")},
+            {"op": "dialogue_package", "actor": npc_s, "package": format!("0x{INTERCOM_PACKAGE:08X}"), "label": "intercom"},
+            {"op": "wait_frames", "frames": 3000}
+        ]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = t["steps"].as_array().unwrap();
+    assert!(steps.iter().all(|s| s.get("error").is_none()), "{steps:?}");
+    let obs = t["observations"].as_array().unwrap().iter().find(|o| o["label"] == "intercom").cloned().unwrap();
+    assert_eq!(obs["info"], FormId(L_DAD_ASK).to_string());
+    let events = t["events"].as_array().unwrap();
+    for line in [L_JONAS_REPLY, L_DAD_BYE] {
+        let id = FormId(line).to_string();
+        assert!(events.iter().any(|e| e.to_string().contains(&id)), "line {id} is said: {events:?}");
+    }
 }
 
 /// A script's Say or SayTo on a talking activator with a talking actor says that actor's

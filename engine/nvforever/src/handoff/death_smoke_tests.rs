@@ -137,7 +137,7 @@ fn unaided_successor_child() {
     assert_eq!(Path::new(parsed.load.as_ref().unwrap()).canonicalize().unwrap(), selected);
     let before = std::fs::read(&selected).unwrap();
     let opened = crate::world::OpenedPlugins { plugins: Vec::new(), dropped: Vec::new() };
-    let pending = crate::start_from_save(&parsed.load.clone().unwrap(), &opened, &mut parsed).unwrap();
+    let pending = crate::start_from_save(&parsed.load.clone().unwrap(), &opened, &mut parsed, None).unwrap();
     assert_eq!(pending.path.canonicalize().unwrap(), selected);
     assert_eq!(parsed.heading, 81.0);
     assert_eq!(parsed.hour, 13.0);

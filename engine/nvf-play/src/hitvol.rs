@@ -99,13 +99,32 @@ pub struct ScanCounts {
 #[component(storage = "SparseSet")]
 pub struct ActorBoundsCandidate;
 
+/// A creature skeleton's BBX half-width before base/reference scale [documented:
+/// schemas/nif/scene.json; design: attached only to creature roots in actors.rs, #2535].
+#[derive(Component)]
+pub struct CreatureBbx {
+    pub reference: u32,
+    pub half_width: f32,
+}
+
+impl CreatureBbx {
+    /// A circle fitted to the spacing [hypothesis: capture run15b_b2, 2026-11-15;
+    /// the original's shape was not seen]. Root scale includes base and reference
+    /// scale (`nvforever::actors::spawn_creature`) [design, #2535].
+    fn radius(&self, root: &GlobalTransform) -> Option<f32> {
+        let radius = self.half_width * root.affine().matrix3.x_axis.length();
+        (radius.is_finite() && radius > 0.0).then_some(radius)
+    }
+}
+
 /// Whether `entity` should have the mark now. Only with the simulation: [`crate::PlayPlugin`]
 /// brings it together with [`HitVolumePlugin`], so a run that is not `--play` keeps no
 /// volumes and spends nothing on marks. One that gets it late is marked by
 /// [`reclassify_candidates`] at the next `First`: if it arrives after `First`, that frame's
 /// walk does not find the meshes that were there before it.
+/// A draw-only copy (`crate::DrawOnly`, nvforever's full-detail ring) is never one.
 fn wants_candidate(world: &World, entity: Entity) -> bool {
-    world.get_resource::<SimState>().is_some_and(|sim| world.get::<RefVisual>(entity).is_some_and(|r| sim.may_be_actor(r.0)))
+    !world.entity(entity).contains::<crate::DrawOnly>() && world.get_resource::<SimState>().is_some_and(|sim| world.get::<RefVisual>(entity).is_some_and(|r| sim.may_be_actor(r.0)))
 }
 
 /// Set the mark from the entity's reference as it is when this runs (not as it was when
@@ -354,12 +373,18 @@ fn gather<'a>(parts: impl Iterator<Item = (&'a RefVisual, &'a Aabb, &'a GlobalTr
     (bounds, scan)
 }
 
+/// The marked meshes whose bounds make actors' hit volumes and blocking: never a
+/// draw-only copy (`crate::DrawOnly`), even one marked before its `DrawOnly` came (the
+/// hooks settle a mark before the next command, which may be the one adding it).
+type CandidateParts<'w, 's> = Query<'w, 's, BoundsPart, (With<ActorBoundsCandidate>, Without<crate::DrawOnly>)>;
+
 #[allow(clippy::too_many_arguments)]
 fn sync_volumes(
     sim: Res<SimState>,
     script: Option<Res<crate::script::ScriptState>>,
     posed: Res<ActorParts>,
-    parts: Query<BoundsPart, With<ActorBoundsCandidate>>,
+    parts: CandidateParts,
+    creatures: Query<(&CreatureBbx, &GlobalTransform, &InheritedVisibility)>,
     mut compare: Option<ResMut<ScanCompare>>,
     mut phys: ResMut<PhysState>,
     mut vols: ResMut<HitVolumes>,
@@ -382,6 +407,16 @@ fn sync_volumes(
     blocks.list.clear();
     vols.living.clear();
     phys.actor_heights.clear();
+    phys.actor_block_radii.clear();
+    let mut creature_feet = HashMap::new();
+    for (bbx, root, vis) in &creatures {
+        if vis.get() && bounds.contains_key(&bbx.reference) && !crate::combat::is_dead(script.as_deref(), bbx.reference) {
+            if let Some(radius) = bbx.radius(root) {
+                phys.actor_block_radii.insert(bbx.reference, radius);
+                creature_feet.insert(bbx.reference, space::to_game(root.translation()));
+            }
+        }
+    }
     for (&id, &(lo, hi)) in &bounds {
         let dead = crate::combat::is_dead(script.as_deref(), id);
         let v = volume_for(lo, hi, dead);
@@ -394,11 +429,16 @@ fn sync_volumes(
         // In the player's way where its body is now, unless the character controller
         // walks it (its block is where its character is, `crate::player`).
         if !dead && id != FormId::PLAYER_REF.0 && !phys.npcs.contains_key(&id) && !blocks.in_nobodys_way.contains(&id) {
-            let block = blocking::block_for(id, lo, hi, posed.and_then(|p| blocking::torso(&p.segments)));
+            let mut block = blocking::block_for(id, lo, hi, posed.and_then(|p| blocking::torso(&p.segments)));
+            // Stopping removes the character (nvforever::residents::think), but must
+            // keep the widened creature circle at its feet [design, #2535].
+            if let Some(&radius) = phys.actor_block_radii.get(&id).filter(|&&r| r > block.radius) {
+                block = blocking::Block::character(id, creature_feet[&id], radius, hi[2] - lo[2], false);
+            }
             // One that stands where it may be pushed is where its owner has it, with
             // the pushes still to come.
             // ACBS "Not Pushable": never pushed aside (actor-fields.md §1).
-            let not_pushable = sim.base_of(id).zip(script.as_deref().and_then(|s| s.rt.as_ref())).is_some_and(|(b, rt)| { let (seed, at) = sim.pick(&rt.game, FormId(id)); rt.game.data.minor_flags(b, seed, at) }.not_pushable);
+            let not_pushable = sim.base_of(id).zip(script.as_deref().and_then(|s| s.rt.as_ref())).is_some_and(|(b, rt)| { let (seed, at) = sim.pick(&rt.game, FormId(id)); rt.game.runtime_minor_flags(b, seed, at) }.not_pushable);
             let block = if not_pushable { block } else { blocks.standing_now(id).map_or(block, |at| block.standing_at(at)) };
             blocks.list.push(held.get(&id).copied().unwrap_or(block));
         }
@@ -428,7 +468,7 @@ fn sync_volumes(
 
 /// `NVF_PLAY_TEST_HITVOL_COMPARE`: piped onto [`sync_volumes`], which changes no mesh, so
 /// it sees the meshes that walk saw.
-fn compare_walks(mut compare: ResMut<ScanCompare>, every_mesh: Query<EveryMesh>, sim: Res<SimState>, phys: Res<PhysState>) {
+fn compare_walks(mut compare: ResMut<ScanCompare>, every_mesh: EveryMeshes, sim: Res<SimState>, phys: Res<PhysState>) {
     compare.check_bounds(&every_mesh, &sim);
     compare.check_volumes(phys.world.actor_volumes());
 }
@@ -462,6 +502,9 @@ const COMPARE_TOLD: u64 = 20;
 
 /// What the comparison reads of each mesh: the walk the mark replaced.
 type EveryMesh = (Entity, BoundsPart, Has<ActorBoundsCandidate>);
+/// Every mesh of a reference the comparison walks: not the draw-only copies
+/// (`crate::DrawOnly`), which never make hit volumes ([`CandidateParts`]).
+type EveryMeshes<'w, 's> = Query<'w, 's, EveryMesh, Without<crate::DrawOnly>>;
 
 /// An actor's meshes in one frame's walk over every `RefVisual`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -525,7 +568,7 @@ impl ScanCompare {
     }
 
     /// [`Self::used`] against the walk over every mesh.
-    fn check_bounds(&mut self, every_mesh: &Query<EveryMesh>, sim: &SimState) {
+    fn check_bounds(&mut self, every_mesh: &EveryMeshes, sim: &SimState) {
         let (full, full_scan) = gather(every_mesh.iter().map(|(_, part, _)| part), sim);
         let marked = every_mesh.iter().filter(|(_, _, has)| *has).count();
         self.meshes.clear();
@@ -670,6 +713,29 @@ fn report(mut exit: MessageReader<AppExit>, vols: Res<HitVolumes>, blocks: Res<A
 
 #[cfg(test)]
 mod tests {
+    /// #2701 round 3: an actor's draw-only copy (a full-detail ring copy drawn by a model
+    /// swap) never feeds hit volumes or blocking, even when it carries the mark.
+    #[test]
+    fn draw_only_parts_make_no_hit_volume() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        // A dynamic reference (a placed actor's): a candidate by `SimState::may_be_actor`.
+        world.insert_resource(crate::sim::SimState::over_placed(std::iter::empty()));
+        let part = || (super::RefVisual(0xFF00_0009), super::Aabb::default(), GlobalTransform::IDENTITY, InheritedVisibility::VISIBLE);
+        let actor = world.spawn(part()).id();
+        // Marked before its DrawOnly came (another command): the consumer leaves it out.
+        let late = world.spawn(part()).id();
+        world.flush();
+        world.entity_mut(late).insert(crate::DrawOnly);
+        // Spawned with DrawOnly: never marked.
+        let copy = world.spawn((part(), crate::DrawOnly)).id();
+        world.flush();
+        assert!(world.entity(actor).contains::<super::ActorBoundsCandidate>() && world.entity(late).contains::<super::ActorBoundsCandidate>());
+        assert!(!world.entity(copy).contains::<super::ActorBoundsCandidate>());
+        let n = world.run_system_once(|q: super::CandidateParts| q.iter().count()).unwrap();
+        assert_eq!(n, 1, "only the actor's own mesh");
+    }
+
     use super::*;
 
     #[test]
@@ -883,6 +949,7 @@ mod tests {
         let world = app.world();
         assert!(world.resource::<PhysState>().world.actor_volumes().next().is_none());
         assert!(world.resource::<PhysState>().actor_heights.is_empty());
+        assert!(world.resource::<PhysState>().actor_block_radii.is_empty());
         assert!(world.resource::<ActorBlocks>().list.is_empty());
         let vols = world.resource::<HitVolumes>();
         assert!(vols.living.is_empty());
@@ -895,6 +962,127 @@ mod tests {
         assert!(world.resource::<PhysState>().actor_heights.contains_key(&id));
         assert!(world.resource::<ActorBlocks>().list.iter().any(|b| b.actor == id));
         assert!(world.resource::<HitVolumes>().living.iter().any(|l| l.0 == id));
+    }
+
+    #[test]
+    fn creature_bbx_tracks_scale_visibility_and_removal_beside_heights() {
+        let mut app = app(sim());
+        let e = mesh(&mut app, ACRE_REF, [0.0; 3]);
+        let person = mesh(&mut app, ACHR_REF, [200.0, 0.0, 0.0]);
+        // Synthetic width and two independently composed scales [design, #2535].
+        app.world_mut().entity_mut(e).insert(CreatureBbx { reference: ACRE_REF, half_width: 80.0 });
+        for (base, reference) in [(0.6, 1.0), (1.0, 1.25), (0.5, 0.5)] {
+            let root = GlobalTransform::from(Transform::from_scale(Vec3::splat(base))) * Transform::from_scale(Vec3::splat(reference));
+            app.world_mut().entity_mut(e).insert(root);
+            app.update();
+            let phys = app.world().resource::<PhysState>();
+            assert!((phys.actor_block_radii[&ACRE_REF] - 80.0 * base * reference).abs() < 1e-4);
+            assert!(!phys.actor_block_radii.contains_key(&ACHR_REF));
+            assert!(phys.actor_heights.contains_key(&ACRE_REF));
+        }
+        app.world_mut().entity_mut(e).insert(InheritedVisibility::HIDDEN);
+        app.update();
+        assert!(app.world().resource::<PhysState>().actor_block_radii.is_empty());
+        app.world_mut().entity_mut(e).insert(InheritedVisibility::VISIBLE);
+        app.update();
+        assert!(app.world().resource::<PhysState>().actor_block_radii.contains_key(&ACRE_REF));
+        app.world_mut().entity_mut(e).despawn();
+        app.world_mut().entity_mut(person).despawn();
+        app.update();
+        assert_all_cleared(&app);
+    }
+
+    #[test]
+    fn differently_scaled_creatures_keep_both_widths_when_their_characters_stop() {
+        use crate::blocking::Block;
+        use crate::phys::NpcBody;
+        // Synthetic pair, offset render bounds and independent reference scales
+        // [design, #2535]. Skeleton width/base scales supplied by the main session
+        // [observed: FalloutNV.esm and Fallout - Meshes.bsa, fnvtool decode, 2026-11-15].
+        let ids = [ACRE_REF, ACHR_REF];
+        let feet = [[0.0; 3], [400.0, 0.0, 0.0]];
+        for reference_scales in [[1.0, 1.0], [1.25, 0.9]] {
+            let mut app = app(sim_of(&[(ids[0], *b"ACRE"), (ids[1], *b"ACRE")]));
+            let radii = [70.56 * 0.6 * reference_scales[0], 70.56 * reference_scales[1]];
+            for (i, base) in [0.6, 1.0].into_iter().enumerate() {
+                let e = mesh(&mut app, ids[i], feet[i]);
+                let root = GlobalTransform::from(Transform::from_translation(space::to_bevy(feet[i])).with_scale(Vec3::splat(base)))
+                    * Transform::from_scale(Vec3::splat(reference_scales[i]));
+                app.world_mut().entity_mut(e).insert((
+                    CreatureBbx { reference: ids[i], half_width: 70.56 },
+                    Aabb { center: Vec3::new(15.0, 25.0, 64.0).into(), half_extents: Vec3::new(20.0, 20.0, 64.0).into() },
+                    root,
+                ));
+            }
+            // Residents drops each stopped character independently; a carried attack
+            // can make it walking again [design: residents::think/carry, #2535].
+            for walking in [[true, true], [false, true], [true, false], [false, false], [true, true]] {
+                {
+                    let mut phys = app.world_mut().resource_mut::<PhysState>();
+                    for i in 0..2 {
+                        phys.remove_npc(ids[i]);
+                        if walking[i] {
+                            let ch = phys.world.add_character(ids[i], fnv_phys::CharacterParams::default(), feet[i]);
+                            phys.npcs.insert(ids[i], NpcBody { ch, prev_feet: feet[i], velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+                        }
+                    }
+                }
+                app.update();
+                let phys = app.world().resource::<PhysState>();
+                let drawn = app.world().resource::<ActorBlocks>();
+                let mut pair = drawn.list.clone();
+                for n in phys.npcs.values() {
+                    assert_eq!(n.ch.params.radius, 22.0);
+                    pair.push(Block::character(n.ch.id, n.ch.feet, blocking::walking_radius(n.ch.params.radius, phys.actor_block_radii.get(&n.ch.id).copied()), n.ch.params.height, false));
+                }
+                assert_eq!(pair.len(), 2);
+                for i in 0..2 {
+                    let block = pair.iter().find(|b| b.actor == ids[i]).unwrap();
+                    assert!((block.radius - radii[i]).abs() < 1e-4, "walking={walking:?}: {pair:?}");
+                    assert_eq!((block.a, block.b), ([feet[i][0], feet[i][1]], [feet[i][0], feet[i][1]]));
+                    let direction = if i == 0 { 1.0 } else { -1.0 };
+                    for carried in [false, true] {
+                        let mut blocks = pair.clone();
+                        let mut pushes = Vec::new();
+                        let v = if carried {
+                            // Even a pushable standing target stops a carried lunge
+                            // [design: blocking::clip_pushing_nobody].
+                            for b in &mut blocks { b.pushable = true; }
+                            blocking::clip_pushing_nobody(ids[i], [400.0 * direction, 0.0], feet[i], block.radius, 128.0, 1.0, &mut blocks)
+                        } else {
+                            blocking::clip(ids[i], [400.0 * direction, 0.0], feet[i], block.radius, 128.0, 1.0, &mut blocks, &mut pushes)
+                        };
+                        assert!((400.0 - v[0].abs() - radii.iter().sum::<f32>()).abs() < 1e-4, "walking={walking:?}, carried={carried}: {v:?}");
+                        assert!(pushes.is_empty());
+                    }
+                }
+                // An attack holds the standing block across frames [design:
+                // sync_volumes/ActorBlocks::attacking]; it must hold the wide circle.
+                let before = drawn.list.clone();
+                app.world_mut().resource_mut::<ActorBlocks>().attacking.extend(ids);
+                app.update();
+                assert_eq!(app.world().resource::<ActorBlocks>().list, before);
+            }
+        }
+    }
+
+    #[test]
+    fn standing_blocks_keep_their_shape_without_a_wider_creature_bbx() {
+        // Synthetic ordinary NPC, missing BBX and narrow creature BBX [design, #2535].
+        for width in [None, Some(3.0)] {
+            let mut app = app(sim());
+            let e = mesh(&mut app, ACRE_REF, [100.0, 0.0, 0.0]);
+            mesh(&mut app, ACHR_REF, [200.0, 0.0, 0.0]);
+            if let Some(half_width) = width {
+                app.world_mut().entity_mut(e).insert(CreatureBbx { reference: ACRE_REF, half_width });
+            }
+            app.update();
+            for (id, x) in [(ACRE_REF, 100.0), (ACHR_REF, 200.0)] {
+                let expected = blocking::block_for(id, [x - 20.0, -20.0, -20.0], [x + 20.0, 20.0, 20.0], None);
+                let blocks = app.world().resource::<ActorBlocks>();
+                assert_eq!(blocks.list.iter().find(|b| b.actor == id), Some(&expected));
+            }
+        }
     }
 
     #[test]

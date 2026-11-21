@@ -86,6 +86,12 @@ impl FromWorld for GrassBurn {
     }
 }
 
+/// Whether grass takes the ambient occlusion in the lighting (ssao_lighting.rs) where
+/// bevy_pbr's rule gives it the def (it writes depth, in the prepass with its coverage). On by
+/// default; the switch to leave the swaying blades out if their shimmer in shade outweighs
+/// the darker roots in pictures [engineering choice, #2897 stage two plan §4].
+const GRASS_READS_AMBIENT_OCCLUSION: bool = true;
+
 impl MaterialExtension for GrassSway {
     fn vertex_shader() -> ShaderRef {
         SHADER.into()
@@ -104,6 +110,9 @@ impl MaterialExtension for GrassSway {
     ) -> Result<(), SpecializedMeshPipelineError> {
         // Grass fades in and out with its cell (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        if !GRASS_READS_AMBIENT_OCCLUSION {
+            nvf_assets::ambient_occlusion_opt_out(descriptor);
+        }
         // A multisampled view with a depth-only prepass: the prepass writes the share of
         // the pixel's samples each blade covers, and the main pass tests depth for
         // equality (nvf_assets `grass_edges`).

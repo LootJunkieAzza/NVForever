@@ -38,7 +38,10 @@
 //! the CPU sets the frame: 7.6 ms with it, 7.1 without [observed 2026-11-02, #1380]. Its
 //! own set of the sun's cascades stays: Bevy's renderer needs cascades for every view the
 //! sun lights, and emptying their caster lists saved 0.12 ms of shadow-pass GPU time and
-//! nothing of the frame there, so the reflected world keeps its shadows.
+//! nothing of the frame there, so the reflected world keeps its shadows. While the sun's
+//! cascades are drawn on a schedule the camera is given the main camera's cascades
+//! (shadow_rate.rs `hold_cascades`): both views share the shadow-map layers, so it draws
+//! and reads the same maps and held cascades stay right for it (#2674).
 
 use crate::water::{DistantWater, WaterCache, WaterMaterial};
 use crate::world::{bevy_to_game, Streamer, WorldData};
@@ -92,6 +95,7 @@ impl Plugin for ReflectionPlugin {
             (resize_reflection, read_water_pixels, update_reflection)
                 .chain()
                 .after(TransformSystems::Propagate)
+                .after(crate::underwater::underwater_fog)
                 .before(VisibilitySystems::UpdateFrusta)
                 // Cascades are built only for active cameras: switch on before that, or
                 // the renderer finds an active view without sun shadow cascades.
@@ -431,7 +435,8 @@ fn update_reflection(
     let water_drawn = !hidden.is_some_and(|h| h.water);
     // The shader counts the water at the reflected height (#1060).
     cache.set_seen_plane(&mut materials, near_water.map_or(Vec4::ZERO, |h| Vec4::new(h, 1.0, 0.0, 0.0)));
-    let seen = near_water.filter(|_| water_drawn && pixels.may_be_drawn(time.elapsed_secs())).and_then(|h| {
+    let gpu_drawn = pixels.may_be_drawn(time.elapsed_secs());
+    let seen = near_water.filter(|_| water_drawn && gpu_drawn).and_then(|h| {
         let clip_from_world = main_proj.get_clip_from_view() * main_gt.to_matrix().inverse();
         water_on_screen(&world, &streamer, &mut dw, &placed, clip_from_world, h, cam)
     });
@@ -456,7 +461,11 @@ fn update_reflection(
             (Some(_), Some(SeenWater::Placed(r))) => info!("water reflection: on (placed water {r:08X} on screen)"),
             (Some(_), None) => {}
             (None, _) if !mirror => info!("water reflection: off (mirrored water switched off)"),
-            (None, _) if near_water.is_some() => info!("water reflection: off (no water on screen for {KEEP_UNSEEN} s)"),
+            // Which check failed last, to tell the GPU pixel count from the view test.
+            (None, _) if near_water.is_some() => info!(
+                "water reflection: off (no water on screen for {KEEP_UNSEEN} s; {})",
+                if !water_drawn { "water hidden" } else if gpu_drawn { "out of view" } else { "no water pixels drawn" }
+            ),
             (None, _) => info!("water reflection: off (no water near)"),
         }
     }

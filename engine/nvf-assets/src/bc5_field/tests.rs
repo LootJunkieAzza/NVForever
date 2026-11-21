@@ -249,7 +249,7 @@ fn registered_launcher_child_initializes_actual_field() {
     assert_eq!(home, PathBuf::from("bc5-field-home"));
     fs::create_dir_all(&home).unwrap();
     let mut world = World::new();
-    world.insert_resource(GameData { schema: schema(), vfs: Arc::new(fnv_vfs::Vfs::open(&home, &[]).unwrap()) });
+    world.insert_resource(GameData::new(Arc::new(fnv_vfs::Vfs::open(&home, &[]).unwrap()), schema()));
     world.init_resource::<Assets<Image>>();
     world.init_resource::<Assets<Mesh>>();
     world.init_resource::<Assets<NifMaterial>>();

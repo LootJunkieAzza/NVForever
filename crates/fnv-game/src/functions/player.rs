@@ -150,12 +150,16 @@ fn controls(a: &Args, default: [bool; 7], missing: bool) -> [bool; 7] {
     out
 }
 
-pub fn disable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn disable_player_controls(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     // A left-out parameter is 0: the group is left as it is [hypothesis; §5.2 has a
     // capture that does not fit any simple rule].
     let which = controls(a, [true, true, true, true, false, false, false], false);
     for (d, w) in g.player.controls_disabled.iter_mut().zip(which) {
         *d |= w;
+    }
+    // Who holds the controls, for the players' reports (#3044).
+    if which.iter().any(|w| *w) {
+        g.player.controls_disabled_by = Some(crate::game::ControlsCaller { unit: ctx.unit.to_string(), quest: ctx.quest, reference: ctx.on.or(ctx.self_ref) });
     }
     none()
 }
@@ -172,6 +176,9 @@ pub fn enable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Valu
         if w {
             *d = false;
         }
+    }
+    if !g.player.controls_disabled.iter().any(|d| *d) {
+        g.player.controls_disabled_by = None;
     }
     none()
 }
@@ -406,9 +413,10 @@ pub fn get_in_chargen(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 
 /// The player's winnings level (0–4) at a casino (CSNO) [documented: catalogue
 /// summaries of GetCasinoWinningsLevel and GetCasinoWinningStage]: set by the casino
-/// games (Layer 6) or a runner input; 0 until then.
+/// games (Layer 6) or a runner input; 0 until then. The shared No Casino Bans read
+/// view preserves the saved standing (blackjack.md §4).
 pub fn get_casino_winnings_level(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    Ok(Value::Num(g.player.casino_levels.get(&a.form(0)?).copied().unwrap_or(0) as f64))
+    Ok(Value::Num(f64::from(crate::casino::script_winnings_level(g, a.form(0)?))))
 }
 
 /// `SetPCCanUsePowerArmor flag`: whether the player may wear power armour (ARMO BMDT

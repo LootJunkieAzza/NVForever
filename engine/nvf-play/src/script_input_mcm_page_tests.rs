@@ -211,9 +211,15 @@ fn mcm_page_warp_reaches_window_then_menu_input_and_source_list_routing() {
         let _units = crate::interface::units_at(scale);
         let (mut app, window) = app();
         app.init_resource::<crate::script_switches::ScriptSwitches>();
+        #[cfg(target_os = "windows")]
+        app.init_resource::<crate::script_cursor::CursorRequests>();
         let mut actual = Window::default();
         actual.resolution.set(1280.0, 720.0);
+        #[cfg(target_os = "windows")]
+        actual.set_cursor_position(Some(Vec2::new(700.0, 500.0)));
         app.world_mut().entity_mut(window).insert(actual);
+        #[cfg(target_os = "windows")]
+        let mut native = crate::script_cursor::tests::backend(&app, window);
         {
             let mut state = app.world_mut().resource_mut::<ScriptState>();
             let game = &mut state.rt.as_mut().unwrap().game;
@@ -244,6 +250,25 @@ fn mcm_page_warp_reaches_window_then_menu_input_and_source_list_routing() {
         // Execute this same production consumer on the scope's thread, so the
         // menu scale is isolated from other tests without mutating global settings.
         app.world_mut().run_system_once(crate::script_switches::sync).unwrap();
+        #[cfg(target_os = "windows")]
+        {
+            use crate::script_cursor::tests::native_result;
+            assert_eq!(native_result(&mut app, window, &mut native, true, Err("owned native rejection")), 1);
+            let w = app.world().get::<Window>(window).unwrap();
+            assert_eq!(w.cursor_position(), Some(Vec2::new(700.0, 500.0)), "a rejected warp cannot publish a false menu hit");
+            let old_at = crate::tiles::input::to_menu_units(w.cursor_position().unwrap(), Vec2::new(w.width(), w.height()), crate::interface::MIDDLE);
+            {
+                let mut state = app.world_mut().resource_mut::<ScriptState>();
+                let game = &mut state.rt.as_mut().unwrap().game;
+                let menu = game.ui_tree.menu("StartMenu").unwrap();
+                fnv_game::ui_input::step(game, &[menu], &fnv_ui::input::Input { at: Some(old_at), ..Default::default() }, &fnv_ui::input::no_measure);
+                assert_eq!(game.ui_pointer.at, Some(old_at));
+            }
+            app.world_mut().run_system_once(crate::script_switches::sync).unwrap();
+            assert_eq!(native_result(&mut app, window, &mut native, true, Ok(())), 1);
+            assert_eq!(native.cached_position(), Some(expected), "native success updates the cache without a second Window warp");
+            app.world_mut().run_system_once(crate::script_switches::sync).unwrap();
+        }
         let w = app.world().get::<Window>(window).unwrap();
         let at = w.cursor_position().expect("actual window cursor warp consumed");
         assert!((at - expected).length() < 0.01, "scale {scale}: {at:?}");
@@ -267,6 +292,11 @@ fn mcm_page_warp_reaches_window_then_menu_input_and_source_list_routing() {
             game.run_query("Begin Function {}\nSetCursorPos 300 200 0\nEnd", RunCtx::default()).unwrap();
         }
         app.world_mut().run_system_once(crate::script_switches::sync).unwrap();
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(crate::script_cursor::tests::native_result(&mut app, window, &mut native, true, Ok(())), 1);
+            app.world_mut().run_system_once(crate::script_switches::sync).unwrap();
+        }
         assert_eq!(app.world().get::<Window>(window).unwrap().cursor_position(), Some(Vec2::new(300.0, 200.0)));
         // The HUD cursor has no menu frame, including under a smaller menu scale.
         {
@@ -277,6 +307,11 @@ fn mcm_page_warp_reaches_window_then_menu_input_and_source_list_routing() {
             game.run_query("Begin Function {}\nSetCursorPos 100 80 1\nEnd", RunCtx::default()).unwrap();
         }
         app.world_mut().run_system_once(crate::script_switches::sync).unwrap();
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(crate::script_cursor::tests::native_result(&mut app, window, &mut native, true, Ok(())), 1);
+            app.world_mut().run_system_once(crate::script_switches::sync).unwrap();
+        }
         assert_eq!(app.world().get::<Window>(window).unwrap().cursor_position(), Some(Vec2::new(75.0, 60.0)));
     }
 }

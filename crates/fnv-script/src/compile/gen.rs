@@ -314,7 +314,10 @@ impl<'a> Gen<'a> {
                 let i = self.lambdas.len();
                 self.lambdas.push((names, body));
                 let rest = &l.text[l.text.find(')').map_or(l.text.len(), |p| p + 1)..];
-                let text = format!("{before}__lambda{i}{rest}");
+                // The opening `(` separated a joined command name from its lambda.
+                // Keep that boundary without changing whitespace next to operators.
+                let sep = if before.ends_with(lex::word_char) { " " } else { "" };
+                let text = format!("{before}{sep}__lambda{i}{rest}");
                 let merged = lex::Line { no: first.no, toks: lex::tokens(&text), text };
                 match open.last_mut() {
                     Some(o) => o.3.push(merged),
@@ -1016,7 +1019,7 @@ impl<'a> Gen<'a> {
 
     /// Parse a whole extended expression, reporting what is left over.
     fn xwhole(&mut self, toks: &[lex::XTok]) -> Option<crate::ir::XExpr> {
-        let mut p = x::P::new(toks);
+        let mut p = x::P::expression(toks);
         let e = self.xexpr(&mut p, 0)?;
         if !p.done() {
             let rest = p.rest();
@@ -1024,6 +1027,16 @@ impl<'a> Gen<'a> {
             return None;
         }
         Some(e)
+    }
+
+    /// A discarded operand must leave no reference, local, lambda or diagnostic behind.
+    /// Both whole call lines and inline surplus use this same transaction.
+    fn discard_parsed<T>(&mut self, parse: impl FnOnce(&mut Self) -> T) -> T {
+        let saved = (self.refs.clone(), self.claims.clone(), self.vars.clone(), self.ref_vars.clone(), self.lambda_seq, self.diags.len());
+        let result = parse(self);
+        (self.refs, self.claims, self.vars, self.ref_vars, self.lambda_seq) = (saved.0, saved.1, saved.2, saved.3, saved.4);
+        self.diags.truncate(saved.5);
+        result
     }
 
     /// A call line as one extended expression. Arguments past those the function takes
@@ -1045,10 +1058,7 @@ impl<'a> Gen<'a> {
             // cannot be read at all (`Mistyped.Fn`) still fails the line: an argument is
             // dropped only when it is one [hypothesis, observer-checks.md "Surplus
             // arguments on an extender call line"].
-            let saved = (self.refs.clone(), self.claims.clone(), self.vars.clone(), self.ref_vars.clone(), self.lambda_seq, self.diags.len());
-            let n = self.surplus_args(&mut p);
-            (self.refs, self.claims, self.vars, self.ref_vars, self.lambda_seq) = (saved.0, saved.1, saved.2, saved.3, saved.4);
-            self.diags.truncate(saved.5);
+            let n = self.discard_parsed(|g| g.surplus_args(&mut p));
             if let Some(n) = n {
                 self.diag("surplus_arguments", false, format!("{n} dropped: {rest}"));
                 return Some(e);

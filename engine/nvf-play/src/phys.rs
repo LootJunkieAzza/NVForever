@@ -142,6 +142,9 @@ pub struct PhysState {
     /// The height of each living actor's drawn bounds, game units, as `crate::hitvol`
     /// last measured them: an actor's character is made this tall ([`PhysState::add_npc`]).
     pub actor_heights: HashMap<u32, f32>,
+    /// Scaled creature BBX radii for actor blocking only (`hitvol::sync_volumes`)
+    /// [hypothesis: fits capture run15b_b2 spacing; original shape unseen, #2535].
+    pub actor_block_radii: HashMap<u32, f32>,
     /// Actors drawn standing without a character: their feet, whether they may follow the
     /// landscape, and how far below them the body is drawn
     /// ([`PhysState::standing_drawn_feet`]).
@@ -237,6 +240,7 @@ impl Default for PhysState {
             player_sink: 0.0,
             player_lift: step_lift::StepLift::default(),
             actor_heights: HashMap::new(),
+            actor_block_radii: HashMap::new(),
             standing: HashMap::new(),
             left: HashMap::new(),
             stats: PhysStats::default(),

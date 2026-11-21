@@ -892,7 +892,12 @@ below cover them all.
 - On the page: Enter or a click: bind a new key or mouse button to the control (a control
   that had it gets the old one). Delete clears its key.
 - In full: a key replaces the control's key, a mouse button its mouse button. Kept under the
-  control's name in [Controls] of NVForever.ini.
+  control's name in [Controls] of NVForever.ini. Sprint (NVForever's own, at the end of
+  Movement) is greyed and cannot be rebound while its NVF Features › Advanced Movement switch
+  is off; its note says so. It has no key until the player binds one, and Run keeps Left
+  Shift whether Sprint is on or off; a key bound to Sprint that another control has is
+  swapped as for any two controls (`sprint` under NVF Features › Gameplay below; #3000, the
+  maintainer's decision on #3002).
 
 ### A control (controller)
 
@@ -999,13 +1004,37 @@ below cover them all.
 - More: docs/design/sun-visibility.md
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `terrain-shadows`: Terrain shadows (experimental)
+
+- On the page: On: at a low sun, hills and mountains shade the land beyond the reach of the
+  sun's shadows. Still being tuned. Not in the original.
+- In full: A height map of the land around you (32 by 32 cells, 256 units a texel) is
+  marched towards the sun on the GPU into a shadow-height map, which darkens the sun's (and
+  at night the moon's) direct light on everything below a ridge's shadow, softened with the
+  ridge's distance. Near you the sun shadows already show the land's own shadows, and the
+  darker of the two counts; beyond their reach the terrain's shade alone, and object
+  shadows end where the sun shadows end, as with the row off. Ambient light,
+  lamps, fog and reflections are left alone. Experimental: off by default and in every
+  preset; its softness and its bias against speckle on slopes are not tuned yet. Switching
+  it rebuilds the world's material pipelines (Continue waits for them). Works with Sun
+  shadows off too.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
+- Registered in `engine/nvforever/src/settings.rs`
+
 ## Graphics › Lighting and Effects
 
 ### `ambient-occlusion`: Ambient occlusion
 
-- On the page: On: creases, corners and the ground under things are darkened by how enclosed
-  they are (screen-space, from the depth). Not in the original.
-- Command-line switches: `--graphics`
+- On the page: Creases, corners and the ground under things darken by how enclosed they are:
+  Off, Performance (cheaper, a little grainier) or Quality. Not in the original.
+- In full: Screen-space ambient occlusion from the depth, on the ambient light and the lamps
+  that cast no shadow: Off; Performance (one slice direction a pixel instead of two: half the
+  horizon march, the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4
+  steps a side at half resolution, depth-aware denoise). Quality in the enhanced look.
+- Shown as a list since 2026-11-19; an INI written while it was an on/off switch (`1`/`0`,
+  true/false, on/off, yes/no) still loads as Quality or Off.
+- Command-line switches: `--graphics`, `--ambient-occlusion`
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
 
@@ -1015,6 +1044,31 @@ below cover them all.
   hazier the weather's fog. Not in the original.
 - Command-line switches: `--graphics`
 - More: docs/design/graphics-enhanced.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `heat-haze`: Heat haze (experimental)
+
+- On the page: On: the far ground near the horizon shimmers slightly on hot, clear days, by
+  the sun and the weather. A prototype. Not in the original.
+- In full: On: beyond about 6,000 units, close to the horizon, the picture is moved a pixel
+  or two up and down by a slowly rising pattern that drifts with the wind; as strong as the
+  sun is high (a little stronger in the afternoon) and the weather's sunlight bright, its
+  air calm and free of haze; none at night, indoors or in rain or snow. The base game's
+  overcast is not told from clear yet. Near things, the weapon and the HUD stay sharp. Off
+  in both presets; not in the original.
+- Command-line switches: `--graphics-only`
+
+### `desert-haze`: Desert haze (experimental)
+
+- On the page: On: a thin dust haze thickens with distance and toward the ground, warmer
+  toward the sun, as far as the weather's fog allows. Not in the original.
+- In full: On: a dust haze is added to the weather's own distance fog, worked out per
+  pixel in the fog itself: thicker with distance and toward the ground under the camera,
+  warmer looking into the sun by day. A clear weather gets all of it, a short or dense fog
+  (a hazy weather, a dust storm) none; a weather with a very far fog a thinner one. Off in
+  every preset; not in the original. Outdoors only.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.16
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `bloom`: Bloom
@@ -1082,6 +1136,16 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `water-effects`: Water caustics and river flow
+
+Sunlight shifts across shallow beds. Deeper water looks murkier from shore and
+underwater, using each water type's own colours and fog distances. Selected river
+stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
+
+- Command-line switches: `--graphics`, `--graphics-only water-effects`
+- More: docs/design/graphics-enhanced.md
+- Registered in `engine/nvforever/src/settings.rs`
+
 ## Graphics › Detail and Distance
 
 ### `distant-lod`: Distant terrain and objects
@@ -1089,6 +1153,41 @@ below cover them all.
 - On the page: On: distant land, buildings and trees are drawn beyond the loaded cells
   (outdoors). Off: the world ends at the loaded cells.
 - Command-line switches: `--no-lod`
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `full-detail`: Full-detail scenery
+
+- On the page: Draws buildings, rocks and cliffs out to 7 x 7 or 9 x 9 cells as full models,
+  not distant forms. Costs GPU time. Not in the original.
+- In full: [design, #2701] A list: Off, 7 x 7, 9 x 9; Off by default and in the vanilla
+  preset, 7 x 7 in the enhanced preset (maintainer decision 2026-11-21, #3048).
+  Outdoors, the full models of statics, static collections, moveable statics and trees,
+  and of every other reference flagged visible when distant, are drawn in the cells 3
+  (7 x 7) or 4 (9 x 9) grid steps from yours, with their landscape at full resolution,
+  where the distant LOD blocks stood. Draw-only: the game still loads the 5 x 5 cells it
+  always does, so scripts, AI, physics, triggers and saves see no difference. Switches in
+  play: cells out of the new reach fade out to the LOD, new ones stream in. Kept in the
+  INI as `Off`, `7 x 7` or `9 x 9`.
+- Command-line switches: `--graphics-only` (`--graphics-only full-detail-7x7`,
+  `full-detail-9x9`)
+- More: docs/design/graphics-enhanced.md §3.20
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `distant-objects`: Distant objects
+
+- On the page: Draws the rocks, shacks, pylons and signs the distant LOD leaves out, up to
+  8 or 12 cells away. Costs GPU time. Not in the original.
+- In full: [design, #3014] A list: Off, 8 cells, 12 cells; Off by default and in both
+  presets. Outdoors, beyond the loaded cells and the full-detail scenery, statics and
+  static collections the distant LOD blocks do not hold are drawn out to 8 or 12 grid
+  steps from yours: from their own `_lod` model when the load order has one beside the
+  full model (as LOD resource packs supply), else from the full model when it is large
+  for its distance. References a block may hold (flagged visible when distant) are left
+  to it. Draw-only: no collision, scripts or AI. Greyed while Distant terrain and objects
+  is off. Switches in play. Kept in the INI as `Off`, `8 cells` or `12 cells`.
+- Command-line switches: `--graphics-only` (`--graphics-only distant-objects-8`,
+  `distant-objects-12`)
+- More: docs/design/graphics-enhanced.md §3.21
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `grass`: Grass
@@ -1104,6 +1203,29 @@ below cover them all.
   textures loaded from now on (the cells loaded next).
 - Command-line switches: `--graphics`
 - More: docs/design/graphics-enhanced.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `authored-materials`: Authored materials
+
+- On the page: On: surfaces whose textures a texture pack gives material maps for
+  (textures\pbr\) are shaded from them. Off: every surface uses the game's own values.
+  Takes effect at the next start.
+- In full: [design, #2981] A texture pack may give a game texture a set of material maps
+  under `textures\pbr\` (occlusion, roughness and metallic in `_orm`, a normal map in `_n`,
+  scalars in a `.toml`); the shapes drawn with that texture then take their roughness,
+  highlight strength, occlusion and normal from the set (docs/spec-notes/pbr-materials.md).
+  Lit NIF shapes with texture coordinates take a set; unlit, additive, multiplied and
+  refracting shapes, particles, hair, skin and FaceGen heads, landscape LOD and the Pip-Boy's
+  and interface textures never do. A set without `_n` (or a shape whose drawn mesh has no
+  tangents) keeps the game's own normal map, its alpha no longer a highlight mask. On the
+  experimental height branch (#2981 stage 4) a set's height map (`_p`, also alone: a
+  height-only set) is drawn as parallax on opaque, single-sided, non-decal shapes, never on
+  cut-outs, blended or double-sided shapes. On in both looks: without a pack nothing
+  changes. Off: the material path reads no file under
+  `textures\pbr\` and every material is the game's own. Read once at the start, so a change
+  applies at the next start. Not in the original.
+- Command-line switches: `--graphics-only` (`--graphics-only no-authored-materials`)
+- More: docs/spec-notes/pbr-materials.md
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `terrain-height-blend`: Terrain height blending
@@ -1204,6 +1326,19 @@ below cover them all.
   its fade range.
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `tree-distance`: Tree distance
+
+- On the page: How far from you trees beyond the loaded cells are drawn as flat pictures, at
+  most as far as distant objects are drawn. Farther runs slower.
+- In full: Shown as a distance in game units, in steps of 2,500 up to how far distant object
+  blocks are drawn (125,000 units by default), so the billboards stop where the buildings and
+  rocks around them stop; distant land reaches farther (250,000 units). It starts at 40,000
+  units, as before the row.
+- Command line: `--tree-distance` sets where the slider starts (40,000 units by default, at
+  most `--lod-distance`; 0 draws no distant trees whatever the slider); `--lod-distance` sets
+  the slider's end
+- Registered in `engine/nvforever/src/settings.rs`
+
 ## Graphics › World and Animation
 
 ### `head-tracking`: Head tracking
@@ -1269,6 +1404,24 @@ below cover them all.
 - On by default, the one Advanced Movement part that is.
 - Registered in `engine/nvf-play/src/player.rs`
 
+### `sprint`: Sprint
+
+- On the page: On: hold the Sprint key (set it in Controls) to run faster, spending AP every second; stopping low on AP leaves you out of breath. Off: as in the original.
+- In full: the Sprint control (Controls › Movement) has no key until the player binds one,
+  and is greyed and does nothing while this is off or the Global Toggle is; Run keeps Left
+  Shift whatever this is (#3000, the maintainer's decision on #3002). A full sprint is
+  1.45 times the run speed, walking (Always Run off) too, and costs 10 AP a second (none
+  come back meanwhile; it ends at 0 AP); forward only, half a sprint diagonally; aiming,
+  attacking, reloading, sneaking, lying down,
+  over-encumbered or in water stop it, eased out. Stopping under 20 % AP leaves you out of
+  breath, and sprinting the view sways a little to the sides (both shown by Camera Motion).
+  While sprinting and while the AP comes back after it, a quiet heartbeat beats: slower under
+  40 % AP, faster under 20 % (the low-health heartbeat wins). The speed and AP perks apply to the sprint
+  (docs/design/player-body.md §1.4a.4).
+- Command-line switches: `--sprint`, `--no-sprint`
+- Off by default.
+- Registered in `engine/nvf-play/src/player.rs`
+
 ## NVF Features › Visual Only
 
 ### `weapon-inertia`: Weapon Inertia
@@ -1302,6 +1455,49 @@ below cover them all.
   a short way, burns anyone standing in it and goes out, and the grass grows back once you
   leave the area. Off: fire stays where it hits, as in the original.
 - Registered in `engine/nvf-play/src/grass_fire.rs`
+
+## NVF Features › Quick Loot
+
+### `quick-loot`: Enabled
+
+- On the page: On: a container, body or (sneaking) pocket under the crosshair lists its items
+  without pausing. Activate takes, Ready Item takes all, Wait opens the menu.
+- In full: a Fallout 4 style list beside the crosshair for whatever the crosshair is on that
+  holds items. Activate (E by default) takes the selected stack, Ready Item (R) takes everything
+  (not from a pocket), Wait (T) opens the usual container or pickpocket menu, the mouse wheel
+  moves the selection; the game goes on meanwhile. A pocket lists each item's chance to steal it. Drawn in the HUD colour, at its own
+  scale (Scale), in the Menu Font row's font. Off by default [design, #2933].
+- Registered in `engine/nvf-play/src/quick_loot.rs`
+
+### `quick-loot-scale`: Scale
+
+- On the page: Size of the Quick Loot list, independent of HUD scale.
+- A list: 50% to 100% in steps of 10%; 100% by default. Greyed while Quick Loot is off.
+- Registered in `engine/nvf-play/src/quick_loot.rs`
+
+### `quick-loot-background`: Background opacity
+
+- On the page: How dark the box behind the Quick Loot list's words is.
+- A slider: 0% to 100% in steps of 5%; 70% by default. Greyed while Quick Loot is off.
+- Registered in `engine/nvf-play/src/quick_loot.rs`
+
+### `quick-loot-weight`: Show weight
+
+- On the page: Quick Loot lists each item's weight.
+- Greyed while Quick Loot is off. Off by default.
+- Registered in `engine/nvf-play/src/quick_loot.rs`
+
+### `quick-loot-value`: Show value
+
+- On the page: Quick Loot lists each item's value.
+- Greyed while Quick Loot is off. Off by default.
+- Registered in `engine/nvf-play/src/quick_loot.rs`
+
+### `quick-loot-value-per-weight`: Show value per weight
+
+- On the page: Quick Loot lists each item's value divided by its weight.
+- Greyed while Quick Loot is off. Off by default.
+- Registered in `engine/nvf-play/src/quick_loot.rs`
 
 ## Debug
 

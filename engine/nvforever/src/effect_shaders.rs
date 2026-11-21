@@ -282,6 +282,52 @@ pub(crate) struct Faded {
     made_from: AssetId<NifMaterial>,
 }
 
+impl Faded {
+    /// Make `material` the one the fade gives back when the actor's alpha is released (a
+    /// texture swap's copy, texture_swap.rs), so the release cannot bring back the material
+    /// worn before the swap (#2981: its authored set, mark, metallic or gloss); the faded copy
+    /// is made again from it at the next sync (`made_from` no longer matches). Whether it
+    /// changed.
+    pub(crate) fn retarget(&mut self, material: &Handle<NifMaterial>) -> bool {
+        if self.original.id() == material.id() {
+            return false;
+        }
+        self.original = material.clone();
+        true
+    }
+}
+
+/// The mesh's own material under the see-through copies it may wear (#2981): the material
+/// both SetActorAlpha's [`Faded`] and a fade's `nvf_play::fade::Fading` give back in the end,
+/// never one of their blended copies. Whichever of the two started second copied what the
+/// mesh wore then, so its stored original may be the other's copy:
+/// - actor alpha first: the fade's original is the alpha's copy; `Faded::original` is the
+///   mesh's own;
+/// - fade first: the alpha's original is the fade's copy, and the fade's original is the
+///   mesh's own; once that fade has ended it removed its copy, and the alpha's original
+///   names a material that is gone (`live` says which exist).
+///
+/// A texture swap (`crate::texture_swap`) matches and copies this material, so it does not
+/// bake a fade's alpha into a material that stays [design]. How the two see-through copies
+/// hand the mesh back when both run is not changed here, and two sequences still give the
+/// swap a wrong source (neither system keeps the mesh's own handle apart from its copies):
+/// the alpha outliving a fade with no second fade running (a removed copy: no swap), and
+/// the alpha released while a fade that started second still runs (the fade's original is
+/// the alpha's copy).
+pub(crate) fn persistent_material(drawn: &Handle<NifMaterial>, drawing: Option<&nvf_assets::nif_material::MaterialOverride>, faded: Option<&Faded>, fading: Option<&nvf_play::fade::Fading>, live: impl Fn(AssetId<NifMaterial>) -> bool) -> Handle<NifMaterial> {
+    match (faded, fading) {
+        // The alpha copied this fade's copy, or the copy of an earlier fade that removed it
+        // at its end while the alpha stayed on: the fade under way holds the mesh's own.
+        (Some(a), Some(f)) if a.original.id() == f.copy().id() || !live(a.original.id()) => f.original().clone(),
+        // The alpha's stored original, also when no fade runs and a fade that ended removed
+        // it: the swap then finds nothing to copy and is not made, as before #2981. What the
+        // mesh wears then may be the alpha's cached copy, which must not become the source.
+        (Some(a), _) => a.original.clone(),
+        (None, Some(f)) => f.original().clone(),
+        (None, None) => nvf_assets::nif_material::plain_material(drawn, drawing).clone(),
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct Shaders {
     records: HashMap<u32, Option<Box<EffectShader>>>,
@@ -337,6 +383,16 @@ fn overlay_material(s: &EffectShader, color: [u8; 3], texture: Option<Handle<Ima
     m
 }
 
+/// A reference's drawn meshes an effect shader covers: not the overlays themselves, nor
+/// the full-detail ring's draw-only copies (`nvf_play::DrawOnly`, full_detail.rs, #2701):
+/// a scripted effect, its add-on models and its particles go on the loaded reference only.
+type Coverable<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static RefVisual, &'static Mesh3d, Option<&'static SkinnedMesh>, Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>),
+    (Without<Overlay>, Without<nvf_play::DrawOnly>),
+>;
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn play(
     mut commands: Commands,
@@ -345,7 +401,7 @@ fn play(
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut st: ResMut<Shaders>,
-    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, Option<&MeshMaterial3d<NifMaterial>>, Option<&crate::mesh_terrain_blend::BlendShape>), Without<Overlay>>,
+    drawn: Coverable,
     drawings: Query<&nvf_assets::nif_material::MaterialOverride>,
     (body, children, body_meshes): (
         Option<Res<crate::player_body::PlayerBody>>,
@@ -521,6 +577,8 @@ fn play(
                     m.base.alpha_mode = AlphaMode::Mask(0.0);
                     m.extension.hard_edges = true;
                 }
+                // #2981: a holed copy is alpha-tested, so an authored height map comes off.
+                nvf_assets::authored::recheck_height(&mut m);
                 let copy = models.materials.add(m);
                 commands.entity(e).try_insert(MeshMaterial3d(copy.clone()));
                 if let Some((_, old)) = a.holed.insert(e, (current.clone(), copy)) {
@@ -650,7 +708,7 @@ pub(crate) fn cover(
     mut st: ResMut<Shaders>,
     mut materials: ResMut<Assets<NifMaterial>>,
     script: Option<Res<ScriptState>>,
-    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, Option<&MeshMaterial3d<NifMaterial>>, Option<&crate::mesh_terrain_blend::BlendShape>), Without<Overlay>>,
+    drawn: Coverable,
     body: Option<Res<crate::player_body::PlayerBody>>,
     children: Query<&Children>,
     body_meshes: Query<(&Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), (Without<Overlay>, Without<RefVisual>)>,
@@ -879,13 +937,22 @@ pub(crate) struct AlphaDrawing<'w, 's> {
     materials: ResMut<'w, Assets<NifMaterial>>,
     #[allow(clippy::type_complexity)]
     drawn: Query<'w, 's, (Entity, &'static RefVisual, Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>, Option<&'static Faded>, Option<&'static nvf_assets::nif_material::MaterialOverride>), Without<Overlay>>,
+    /// The meshes of `drawn` still wearing a see-through copy.
+    #[allow(clippy::type_complexity)]
+    still_faded: Query<'w, 's, (), (With<Faded>, With<RefVisual>, Without<Overlay>)>,
 }
 
 impl AlphaDrawing<'_, '_> {
     pub(crate) fn sync(&mut self, alpha: &std::collections::BTreeMap<FormId, f32>) -> HashMap<u32, (f32, u32)> {
-        let Self { commands, st, materials, drawn } = self;
-        let st = &mut **st;
+        let Self { commands, st, materials, drawn, still_faded } = self;
         let mut changed: HashMap<u32, (f32, u32)> = HashMap::new();
+        // No actor see-through and no mesh left to give its material back: the walk over
+        // every drawn mesh would change nothing. A mesh still `Faded` keeps the walk going
+        // until it has its material back (the frame after its actor's alpha went).
+        if alpha.is_empty() && still_faded.is_empty() {
+            return changed;
+        }
+        let st = &mut **st;
         for (e, rv, mat, blend, faded, drawing) in &*drawn {
             let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { continue };
             let want = alpha.get(&FormId(rv.0)).copied();
@@ -912,6 +979,8 @@ impl AlphaDrawing<'_, '_> {
                             if matches!(m.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
                                 m.base.alpha_mode = AlphaMode::Blend;
                             }
+                            // #2981: a blended copy draws no authored height map.
+                            nvf_assets::authored::recheck_height(&mut m);
                             let c = m.base.base_color.alpha();
                             m.base.base_color.set_alpha(c * a);
                             let h = materials.add(m);
@@ -963,12 +1032,37 @@ fn report(mut exit: MessageReader<AppExit>, st: Res<Shaders>) {
 
 #[cfg(test)]
 mod tests {
+    /// #2981: a swap retargets the alpha fade's stored original, so its release gives back the
+    /// swapped material, and the next sync makes the faded copy again from it.
+    #[test]
+    fn a_swap_retargets_the_alpha_fades_original() {
+        let mut materials = bevy::prelude::Assets::<nvf_assets::NifMaterial>::default();
+        let (old, new) = (materials.add(nvf_assets::nif_material(Default::default())), materials.add(nvf_assets::nif_material(Default::default())));
+        let mut f = super::Faded { made_from: old.id(), original: old.clone(), alpha: 0.5 };
+        assert!(f.retarget(&new));
+        assert_eq!(f.original, new);
+        assert_ne!(f.made_from, f.original.id(), "the faded copy is made again from the swapped material");
+        assert!(!f.retarget(&new));
+    }
     use super::*;
     use crate::sky::{BODY_LAYER, SHADOW_LAYER};
     use bevy::asset::{AssetApp, AssetPlugin};
     use bevy::ecs::message::Messages;
     use bevy::math::Affine2;
     use nvf_assets::nif_material::{Falloff, NO_HOLES};
+
+    /// #2701: a scripted effect never covers the full-detail ring's draw-only copy of a
+    /// reference, only the loaded reference's meshes.
+    #[test]
+    fn effects_cover_no_draw_only_meshes() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.spawn((RefVisual(5), Mesh3d(Handle::default())));
+        world.spawn((RefVisual(5), Mesh3d(Handle::default()), nvf_play::DrawOnly));
+        world.spawn((RefVisual(5), Mesh3d(Handle::default()), Overlay));
+        let n = world.run_system_once(|q: Coverable| q.iter().count()).unwrap();
+        assert_eq!(n, 1);
+    }
 
     #[test]
     fn overlays_take_the_mesh_layer_or_the_default_world_layer() {
@@ -1011,6 +1105,55 @@ mod tests {
         assert_eq!(world.get::<Visibility>(holder), Some(&Visibility::Hidden));
         assert_eq!(world.get::<PlayerEffectEmitter>(emitter).map(|p| p.0), Some(crate::player_body::EffectPart::Head));
         assert!(world.get::<PlayerEffectEmitter>(other).is_none());
+    }
+
+    #[derive(Resource, Default)]
+    struct Alphas(std::collections::BTreeMap<FormId, f32>);
+
+    #[derive(Resource, Default)]
+    struct Writes(usize);
+
+    #[test]
+    fn actor_alpha_restores_the_frame_after_it_clears_and_writes_nothing_when_idle() {
+        let mut app = App::new();
+        app.init_resource::<Assets<NifMaterial>>()
+            .init_resource::<Shaders>()
+            .init_resource::<Alphas>()
+            .init_resource::<Writes>()
+            .add_systems(Update, (
+                |alpha: Res<Alphas>, mut drawing: AlphaDrawing| {
+                    drawing.sync(&alpha.0);
+                },
+                |changed: Query<Entity, Changed<MeshMaterial3d<NifMaterial>>>, mut writes: ResMut<Writes>| writes.0 = changed.iter().count(),
+            ).chain());
+        let original = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(nif_material(StandardMaterial::default()));
+        let reference = 0xFF00_0001;
+        let mesh = app.world_mut().spawn((RefVisual(reference), MeshMaterial3d(original.clone()))).id();
+        let worn = |app: &App| app.world().get::<MeshMaterial3d<NifMaterial>>(mesh).unwrap().0.clone();
+        app.update();
+        // Nothing see-through: no write, no copy.
+        for _ in 0..2 {
+            app.update();
+            assert_eq!(app.world().resource::<Writes>().0, 0);
+            assert_eq!(worn(&app), original);
+            assert!(app.world().get::<Faded>(mesh).is_none());
+        }
+        app.world_mut().resource_mut::<Alphas>().0.insert(FormId(reference), 0.5);
+        app.update();
+        assert_eq!(app.world().resource::<Writes>().0, 1);
+        assert_ne!(worn(&app), original);
+        assert!(app.world().get::<Faded>(mesh).is_some());
+        // The alpha goes: the next frame gives the material back, then nothing more.
+        app.world_mut().resource_mut::<Alphas>().0.clear();
+        app.update();
+        assert_eq!(app.world().resource::<Writes>().0, 1);
+        assert_eq!(worn(&app), original);
+        assert!(app.world().get::<Faded>(mesh).is_none());
+        for _ in 0..2 {
+            app.update();
+            assert_eq!(app.world().resource::<Writes>().0, 0);
+            assert_eq!(worn(&app), original);
+        }
     }
 
     fn material_app() -> (App, Handle<NifMaterial>) {

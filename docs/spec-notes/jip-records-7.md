@@ -69,7 +69,7 @@ transitions take their own time (follow-up: the sky through these changes).
 |---|---|
 | SetArmorClass `armor class` | 1 light, 2 medium, 3 heavy [documented]: BMDT's general flags Medium (bit 3) and Heavy (bit 7), read by `Game::armor_class` |
 | SetArmorRCT `armor path` | BMCT, the ragdoll constraint template |
-| SetArmorConditionPenalty `[multiplier]` | kept; returns the value before the call; left out, unchanged; 1.0 until set [documented; observed: jip7 armor.condpenalty]; any number is taken (3, -1) [observed: jip7b armor.condpenalty.neg] |
+| SetArmorConditionPenalty `[multiplier]` | kept; returns the value before the call; left out, unchanged; defaults to Stewie's `Tweaks::armor_condition_penalty` (1.0 by default) until a script sets it [documented; observed: jip7 armor.condpenalty; design: docs/design/tweaks.md]; any number is taken (3, -1) [observed: jip7b armor.condpenalty.neg] |
 | SetDamageToArmorMaxPercent `[share]` | kept, 0-1 only (2 and -1 set nothing); returns the value before the call; left out, unchanged; 1 until set [observed: jip7 armor.maxpercent, jip7b armor.maxpercent.range] |
 
 Combat still uses the fixed multiplier 1.0 and no cap (`fnv_combat::condition`), and the

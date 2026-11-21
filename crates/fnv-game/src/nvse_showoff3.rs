@@ -284,12 +284,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let n = items.iter().filter(|(i, e)| g.data.sig(*i).is_some_and(|s| &s == b"WEAP" || &s == b"ARMO") && f64::from(e.condition.unwrap_or(1.0)) * 100.0 <= threshold).count();
             XVal::Num(n as f64)
         }
-        // `[minWeight] [mask]`: the base weights, or the weights the carrier's perks and
-        // the weapon's Decrease Weight mods leave [documented: GetBaseEquippedWeight,
-        // "ignores weight modification effects"; GetCalculatedEquippedWeight: Modify Light
-        // Items, Decrease Weight, Adjust Heavy Weapon Weight]. An item counts when that
-        // weight is at least minWeight [hypothesis: the page does not say which weight
-        // the minimum is held against in the calculated case].
+        // `[minWeight] [mask]`: the base weights, or the weights the carrier's perks,
+        // weightless tweaks, and the weapon's Decrease Weight mods leave [documented:
+        // GetBaseEquippedWeight, "ignores weight modification effects";
+        // GetCalculatedEquippedWeight: Modify Light Items, Decrease Weight, Adjust Heavy
+        // Weapon Weight; design: docs/design/tweaks.md for WeightRules weightless tweaks].
+        // An item counts when that weight is at least minWeight [hypothesis: the page
+        // does not say which weight the minimum is held against in the calculated case].
         "getbaseequippedweight" | "getcalculatedequippedweight" => {
             let Some(a) = subject else { return Some(Ok(zero)) };
             let min = num(args, 0, 0.0);
@@ -300,7 +301,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 .iter()
                 .filter_map(|(i, e)| {
                     let it = forms.item(*i)?;
-                    let w = if name == "getbaseequippedweight" { it.weight? } else { rules.unit(it.weight_with_mods(e.mods)?, it.kind) };
+                    let w = if name == "getbaseequippedweight" {
+                        it.weight?
+                    } else {
+                        rules.effective_unit(it.weight_with_mods(e.mods)?, it.kind, true, it.power_armor)
+                    };
                     (f64::from(w) >= min).then_some(f64::from(w))
                 })
                 // From 0.0: a float `sum` of nothing is -0.0, which prints "-0.000"

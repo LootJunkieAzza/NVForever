@@ -322,8 +322,11 @@ expression parser), `vm.rs` (`xeval`).
   variable. Lambdas: `(begin function {params} … end)`, which may span lines, and
   `{params} => expr` [documented: Lambda], both an `XExpr::Lambda` whose parameters and
   variables are the enclosing script's; the block form's statements are compiled with the
-  unit's own lists. Running them (calls, the 30-call nesting limit, SetFunctionValue) is
-  B7/B8.
+  unit's own lists. [design, #2985] The block lambda's `(` may directly follow the command
+  name: `Call(begin function {params} … end) args` in NVForever has the same argument
+  structure as `Call (begin function {params} … end) args`.
+  [hypothesis] The original extender parses the joined form the same way; this has not been observed.
+  Running them (calls, the 30-call nesting limit, SetFunctionValue) is B7/B8.
 - **Compiler-override blocks** (A12): `Begin _GameMode` (any block name after `_`) is that
   block, and inside it `if`, `elseif` and `set` take extended expressions too, with the
   argument rule above [documented: Script Compiler Override].
@@ -734,6 +737,56 @@ rules; what NVForever decides where they are open is tagged here.
   GetNumItems]; the entry here is the item's base form, where the original gives a
   temporary reference to the stack that stops being valid the next frame [hypothesis
   until B5 builds inventory references].
+
+### Inline surplus operands in mod expressions
+
+[documented: [IsAnimPlayingEx](https://geckwiki.com/index.php/IsAnimPlayingEx)]
+The command has one required category and two optional integer parameters. The
+catalogue keeps that signature. [observed: an installed B42 Optics Script Runner
+source file, read locally on 2026-11-17; no mod text is copied here] It supplies a
+fourth operand inside a negated boolean condition. The original runtime behavior
+and any fourth native parameter or byte encoding remain unverified.
+
+[implementation evidence: public source 98fb59a9] Standalone extender calls
+already discard surplus operands with a diagnostic, but an unparenthesized
+condition leaves the operand behind and fails syntax checking. A lambda body's
+expression has its own token stream even while the containing handler call is
+parsing an argument.
+
+[design] Engine design choice, not a claim about the original runtime (see the
+`[hypothesis]` below). In mod-source mode only, a bounded-arity call at the current whole
+expression's root applies the existing surplus policy: parse and discard extra
+operands, emit `surplus_arguments`, then leave enclosing operators in place.
+Parsing a discarded operand retains no references, locals, lambda identities or
+incidental diagnostics. An unreadable operand remains a syntax error. The next
+argument of an enclosing call and existing parenthesized/braced/indexed expression
+boundaries retain their previous consumers. Strict runtime/editor compilation,
+catalogue signatures, native encodings and API implementations are unchanged.
+
+[implementation evidence: Linux CI on source eb9bfef2, 2026-11-17] The nine
+shared-target controls compiled: three passed and six stopped at diagnostic
+assertions that incorrectly treated legacy non-error `variable_added` and
+`reference_added` information as semantic warnings. The fixture correction
+retains those informational entries explicitly and checks all other diagnostics;
+VM values, reference/local rollback, strict refusal and byte oracles are retained.
+Assertions after the failed checks were not reached in that run. All nine
+corrected controls passed in Linux CI for `ae6c1110` at checkout `50231146`.
+The Main integration at `abb5f67f` (hosted merge `22dc2e5` with Main `5fbad071`,
+run 44298689511) passed all seven hosted checks, with all nine controls passing once.
+
+The shared `compile` test target's `inline_surplus_operands::` cases compile an
+independent handler-shaped condition
+through `compile_mod_runtime`, decode its bytes, and exercise call arguments and
+boolean behavior through the VM. Controls cover optional arguments, enclosing
+calls/operators, short circuiting, strict admission, explicit parentheses,
+discarded references/lambdas and unreadable operands. The actual installed file,
+controlled baseline/candidate comparison and game-load acceptance remain UNRUN
+for this source candidate. No installed mod text is included in the tests.
+
+[hypothesis] Whether the original extender runtime drops these inline operands,
+or the caller intended another behavior, remains open. Extend the owning surplus
+argument observer check with a query-only condition before claiming original-game
+parity; parsing this caller does not establish B42 Optics compatibility.
 
 ## 10. Open
 

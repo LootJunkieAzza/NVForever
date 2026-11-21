@@ -75,14 +75,21 @@ uGridsToLoad=5).
   (`nav::show_actor`) wait so; so do the placed actors of a cell loaded after the start
   (`world::load_cell` puts them in `Streamer::waiting`, `world::draw_waiting_actors`
   draws them); before the start's cells are in, behind the loading screen, they are drawn
-  at once. Preparing a part (meshes, materials, GPU textures) needs the asset stores and
-  stays on the main thread.
+  at once. A part is prepared whole on that worker thread too (#3072): meshes, tangents,
+  textures decoded, materials and skins, under handles reserved from the asset stores, as
+  a cell's models are (below, "Cells"); the main thread only puts its assets in
+  (`ActorParts::take_fetched`). A part asked for before its worker is done is prepared
+  on the main thread, and the worker's copy dropped. The skeleton makes no assets: it is
+  read and parsed there and prepared on the main thread. On the fast tour (Goodsprings to
+  Primm, `--step 2048`, mesh blend off) the read-ahead's main-thread time went from 342
+  ms in 101 frames (slowest 19.8 ms, one part's preparation past the budget) to 44 ms in
+  92 frames (slowest 4.3 ms) [observed 2026-11-19, 7700X + RTX 3070].
 - **Read-ahead** (`nvforever/src/readahead.rs`). When the cell the loaded grid is around
   changes (outdoors, after the start), the actors of the band just outside the grid (the
   ring between the loaded 5 × 5 cells and 7 × 7: placed NPCs and creatures enabled there,
   and residents not drawn whose walkers stand there) are listed. Within 4 ms a frame
-  (`PREPARE_BUDGET`) they are resolved, the reads above started for them, and what has
-  been read prepared on the main thread (`ActorCtx::part`, `ActorCtx::skeleton`). An
+  (`PREPARE_BUDGET`) they are resolved, the reads and part preparations above started for
+  them, and the skeletons read prepared on the main thread (`ActorCtx::skeleton`). An
   NPC's FaceGen files (the `.egm` beside each part, the head's `.egt`, the race's body
   and hand `.egt`) are read on a worker thread and offered to `FaceGenCache`
   (`facegen::read_file`, `FaceGenCache::offer`). Once an actor's skeleton is
@@ -91,9 +98,19 @@ uGridsToLoad=5).
   KF files on a worker thread through `ClipReader` (`nvf_assets::actor::ClipSource`: the
   loaders in `locomotion.rs` and `weapons.rs` read clips through it). `Anims` does not
   hold its lock while loading, so drawing an actor never waits for a worker; both may
-  load a set once and the first kept wins [engineering choice]. A weapon's `UPB` node
-  strings are cached (`ModelCtx::node_strings`) instead of reading the model again for
-  every NPC holding it.
+  load a set once and the first kept wins [engineering choice]. A held weapon's `UPB`
+  node strings and the place of its `ProjectileNode` (the muzzle) are read with its part
+  on the worker thread (`PreparedPart::upb`, `PreparedPart::muzzle`, #3057), as a
+  creature's projectile nodes already were (#1429). Before, the muzzle was found by
+  preparing the weapon's whole file again as a static model on the main thread
+  (`ModelCtx::model`): 28-30 ms of the frame an armed NPC was drawn in, and again for
+  the next NPC holding that weapon once the release sweep had dropped the unused model
+  [observed 2026-11-20, `profile hitch` spans, `actor::arm`, South Vegas ruins tour].
+  Once an NPC's `.egt` files are read, its FaceGen offset images (the face's, the
+  body's and the hands', §3) are made on a worker thread too (`Job::Offset`,
+  `facegen::make_offset`) and held for it for 30 s (`FaceGenCache::offer_offset`); in
+  play the NPC waits for them as for its parts. Made when it was drawn, they cost 6.5-7
+  ms of that frame (`actor::face_tint`) [observed, same runs].
 - **Idle clips** (`idles.rs`, #1429). An idle asked for whose KF file is not loaded yet
   waits for it to be read on a worker thread (`ActorCtx::clip_ready`), for at most
   `CLIP_WAIT` (0.5 s), after which it is read in the frame it starts; a collection's next
@@ -103,9 +120,28 @@ uGridsToLoad=5).
   the longest wait, those read late).
 
   An actor walking into the loaded cells, or a cell of them loading, then finds its
-  parts, skeleton and clips ready: what is left on the frame it is drawn is resolving it,
-  the per-NPC FaceGen shape (`FaceGenCache::morph`) and tint offsets (§3), retextured
-  materials (`ActorCtx::material_with_texture`) and the entities. Parts prepared ahead and
+  parts, skeleton, clips and FaceGen offsets ready: what is left on the frame it is drawn
+  is resolving it, the per-NPC FaceGen shape (`FaceGenCache::morph`), retextured
+  materials (`ActorCtx::material_with_texture`) and the entities.
+
+  South Vegas ruins tour (#3057: Poseidon gas station, both ruins entrances, New Vegas
+  Steel, the Camp McCarran gate and back, `--step 512`, two laps, the owner's
+  NVForever.ini, i7-7700HQ and GTX 1050), main at 36d97f158 against this change
+  [observed 2026-11-20, target/stress/tour/svruins-*, private]:
+
+  | | main | this change |
+  |---|---|---|
+  | actors drawn, their time (`stress actors:`) | 131 in 728 ms | 130 in 115 ms |
+  | most drawing actors in one frame | 43.8 ms | 6.0 ms |
+  | frames that drew actors: mean, worst | 45.8 ms, 436 ms | 29.9 ms, 63 ms |
+  | profile build, seen frames over 45 ms | 125 | 93 |
+  | `ai::spawn_actor` in them: total, most in one | 548 ms, 39.3 ms | 37 ms, 4.6 ms |
+
+  The frames over 45 ms left are physics with 25-30 actors loaded (`player::step`, up to
+  29 ms), Bevy's mesh allocator (`allocate_and_free_meshes`, up to 40 ms) and
+  `world::stream`. Every run of that day on that machine, main's too, also had frames of
+  about 500 ms waiting on the present (`present_frames`, `window::prepare_windows`) with
+  nothing loading in them; they are left out of the counts above. Parts prepared ahead and
   not used go after the caches' minute (`nvf_assets::release`): a player standing still at
   the edge of a ring has its actors read again when they come.
 
@@ -138,19 +174,25 @@ uGridsToLoad=5).
 
 - **Cells** (`nvforever/src/world.rs`, `nvf-assets/src/model.rs`, `texture.rs`;
   `CellSpawn`, `ReadAhead`). Before the start square is in, and behind a loading screen,
-  cells load whole in the frame they are reached, as before. After it:
+  cells load whole in the frame they are reached, as before; under the start's screen they
+  are read ahead from its picture hold on and wait for that read-ahead first
+  (docs/design/loading-screen.md §1a, `NVF_START_POOL_PREP`). After it:
   - *Read-ahead.* The cells up to one step beyond the loaded ones (the 7 × 7 square
     around the camera's cell with `--radius 2`) are read on a worker thread: the
     distinct models their references draw (`cell_models`) and their landscape (LAND
     read, quadrant meshes built: `terrain::prepare_terrain`). Each model not prepared yet
     is then prepared on a worker thread (`ModelCtx::models_ready`): read, inflated,
-    parsed, meshes built (tangents included), textures decoded. The worker puts its
+    parsed, meshes built (tangents included: below), textures decoded. The worker puts its
     meshes, materials and skins under handles reserved from the asset stores; the main
     thread puts them in (`ModelCtx::take_fetched`, PreUpdate, at most 2 ms a frame) and
     the model joins the cache. Textures a worker decodes go into a list shared with the
     other workers and the main thread (`texture::WorkerTextures`), so each is decoded
     once and keeps one handle; a texture the cache already holds is found in a copy of
     the cache's list sent with the work.
+    What a cell was read ahead for is dropped on a worker thread once the cell is more
+    than two steps beyond the loaded square (#3082): the outer ring's cells the player
+    passes beside, a row a crossing, were freed on the main thread for 9-16 ms of the
+    frame [observed 2026-11-19, `profile hitch` spans, #3082].
   - *Spawning over frames.* A cell is started once its models are all prepared (or after
     1.5 s, preparing what is missing on the main thread). Its references are spawned
     within 3 ms of main-thread time a frame, nearest cell first; the cell's entity is
@@ -164,6 +206,34 @@ uGridsToLoad=5).
   - *Caches.* Unused models, actor parts and textures stay 300 s (was 60 s), at most 2,048
     of each (was 256): models read ahead wait unused until their cell loads, and turning
     back finds the cells left behind still prepared.
+  - *Tangents from the files* (`nvf_assets::tangents`, 2026-11-19). A static model's
+    normal-mapped shapes take the tangents their files store instead of generating them
+    (Bevy's `generate_tangents`, mikktspace), which was about 80 % of a model's
+    preparation [observed: `NVF_LOADING_PROBE`, Novac start: 2.6-3.8 s of the read pool's
+    time and 0.33-0.46 s on the main thread under the screen]. The mapping and its checks:
+    docs/spec-notes/nif.md §6 "Stored tangents". A shape that stores none, or unusable ones
+    (wrong length, not finite, a zero vector or a bitangent along the normal at a vertex a
+    triangle uses), generates them as before; so do actor parts (`nvf_assets::actor`), which
+    #3072 rewrites. Test aid `NVF_STORED_TANGENTS=0`: all generated. A run ends with
+    `models: normal-map tangents of <n> shapes read from their files (…), <n> generated
+    (…)`. Bench (a local probe, not in the repo: the 230 static models of the Novac start
+    prepared without the game, on the calling thread and on the read pool, the time
+    `generate_tangents` took counted apart; 7 alternating runs each, medians, a busy
+    machine) [observed 2026-11-19]:
+
+    | preparing the 230 models | generated | read from the files |
+    |---|---|---|
+    | on one thread (wall) | 560 ms (tangents 344 ms) | 215 ms (tangents 7 ms) |
+    | on the 4-thread read pool (wall) | 165 ms | 66 ms |
+    | on the read pool (its threads' time) | 648 ms (tangents 403 ms) | 260 ms (tangents 8 ms) |
+
+    To measure it again with what is in the repo: start at Novac (`--cell Novac --play
+    --hour 22`) as is and with `NVF_STORED_TANGENTS=0`, a few runs each, and compare the
+    main thread's cell loading in `streaming summary: <n> cells loaded (<ms> ms on the main
+    thread)` and the start's cells in `world: the start's cells drawn: …` (the smoke
+    scenarios `start-pool-prep` and `start-pool-prep-off` run that start, the second with
+    `NVF_START_POOL_PREP=0` too). That measures the start in the game, not the models'
+    preparation alone as the bench did.
 
 - **The reads' own pool** (#1732, `nvf_assets::read_pool`). Everything above that runs "on
   a worker thread" for cells, models, textures, actor parts, clips and `.egt` files runs
@@ -179,7 +249,8 @@ uGridsToLoad=5).
 
 - Done: the FaceGen tint is added in the face and skin shader (`nvf-assets`
   `nif_material.rs`, "FaceGen tint"; `nvforever/src/facegen.rs`). Per NPC only the
-  `.egt` offset image is made, on the main thread when the NPC's parts are put together:
+  `.egt` offset image is made (on a worker thread by the read-ahead since #3057, §2; on
+  the main thread when the NPC's parts are put together for one not read ahead):
   the face's 256 × 256 and the body's and hands' 32 × 32, as 16-bit floats (512 KB and
   8 KB), in place of a 1024² face and a 512² body copy with mipmaps (about 5.6 MB and
   1.4 MB). The shader adds the offset, upsampled bilinearly and flipped vertically, to the
@@ -552,3 +623,38 @@ builds, i9-14900K, RTX 4070, 48 GB, game files in the OS cache [observed, 2026-1
   gave a 28 ms mean and 227 frames over 100 ms): a 6-core laptop running something beside
   the game may be the reports' many 0.5-1.5 s frames [hypothesis]; what the 3.4-3.9 s
   frames are stays open. The next build's reports will say whether the house's count falls.
+
+## 7. Each model file is read and decoded twice: what the second time costs (#3149, 2026-11-21)
+
+A placed object with collision has its NIF read from the archive, parsed and fully decoded
+once to be drawn (`nvf-assets/src/model.rs`, read pool) and once more for its collision
+(`nvf-play/src/phys/prepare.rs`, the physics loader thread); nothing shares the decode.
+The exit's log now has a line for it, `model load times (thread time): drawn: …;
+collision: …` (`nvf-assets/src/load_times.rs`): files, and milliseconds of thread time for
+the read, `NifFile::parse`, `Decoded::new` and the rest of each side's preparing.
+
+[observed: three smoke launches of a release build at a3e540633 plus this line, the bench
+machine, other sessions' work running beside it, one run each]
+
+| Launch | Drawn: files, whole | Collision: files, read / parse / decode / rest | Second read+parse+decode, of both sides |
+|---|---|---|---|
+| `save-write` (Goodsprings start, `--play`) | 713, 3,926 ms (decode 168) | 346, 76 / 1 / 45 / 63 ms | 3.0 % |
+| `console-cow-coe` (Goodsprings, then two travels) | 921, 4,417 ms (decode 170) | 380, 157 / 2 / 66 / 116 ms | 4.7 % |
+| `cell-streaming` (a flight, no `--play`, so no collision) | 1,119, 6,107 ms (decode 189) | none | - |
+
+- The second decode is 45-66 ms of thread time a launch, 1.1-1.4 % of all model loading;
+  with its read and parse, 3.0-4.7 %. Most of that is the archive read, which the operating
+  system's file cache already makes cheap the second time.
+- On the physics loader thread itself the read, parse and decode are 66 % of its work on
+  model files (122 of 185 ms, 225 of 340 ms) and 18-21 % of all it does for the cells: the
+  same launches' `physics streaming` lines give 587 and 1,264 ms, of which building the
+  rapier shapes is 362 and 823 ms (62-65 %).
+- On the drawn side the decode is 3-4 % of a model's preparing; the rest (meshes, tangents,
+  textures) is 83-85 % in the two launches with physics, 67 % in the flight, where the
+  archive reads took 29 %.
+
+So neither a block filter on `Decoded` for the collision reader nor one decode shared by
+both readers is built [design]: the most either could save is about 1 % of the model
+loading's thread time, on a thread that does not hold the frame, and the collision reader
+does need the drawn shapes of a model that can be stood on (`DrawnFloors`). The physics
+side's cost to look at, if any, is the shapes.

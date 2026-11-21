@@ -20,6 +20,7 @@ const GUN: u32 = 0x800;
 const VEST: u32 = 0x801;
 const HAT: u32 = 0x802;
 const PIP: u32 = 0x803;
+const POWER_SUIT: u32 = 0x804;
 const FLST: u32 = 0x810;
 const FACT_A: u32 = 0x820;
 const FACT_B: u32 = 0x821;
@@ -49,6 +50,7 @@ fn fixture() -> Fixture {
         armo(VEST, "TestVest", 1 << 2, 0, 4.0),
         armo(HAT, "TestHat", 1 | 1 << 10, 0, 1.0),
         armo(PIP, "TestPip", 1 << 6, 0x40, 0.5),
+        armo(POWER_SUIT, "TestPowerSuit", 1 << 2, 0x20, 20.0),
     ]
     .concat();
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("TestList")), sub(b"LNAM", u32s(&[HAT])), sub(b"LNAM", u32s(&[VEST]))]);
@@ -308,4 +310,55 @@ fn is_anim_playing_ex_tells_movement_sub_types_apart() {
     g.set_anim_state(p, AnimState { moving: MoveDir::None, group: Some("JumpLoop"), ..Default::default() });
     assert_eq!(n(&mut g, "player.IsAnimPlayingEx 2 5"), 1.0, "in a jump");
     assert_eq!(n(&mut g, "player.IsAnimPlayingEx 2"), 1.0);
+}
+
+#[test]
+fn calculated_equipped_weight_honors_weightless_tweaks_and_perks() {
+    use fnv_sim::inventory::{WeightRules, WEIGHTLESS_ARMOR, WEIGHTLESS_WEAPONS};
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+
+    // Equip gun (6.0), power armor (20.0), and hat (1.0).
+    let inv = g.world.inventory_mut(FormId::PLAYER_REF).unwrap();
+    for id in [GUN, POWER_SUIT, HAT] {
+        inv.add(FormId(id), 1);
+        assert!(inv.set_equipped(FormId(id)));
+    }
+    assert_eq!(n(&mut g, "player.GetBaseEquippedWeight"), 27.0);
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 27.0);
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 27.0);
+
+    // bWeightlessWornPowerArmor zeroes worn power armor while keeping regular armor and weapon.
+    g.tweaks.weightless_worn_power_armor = true;
+    g.sync_perk_weights();
+    assert_eq!(n(&mut g, "player.GetBaseEquippedWeight"), 27.0);
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 7.0);
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 7.0);
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight 2"), 6.0, "minWeight filters weightless power armor out");
+
+    // bWeightlessWornArmor zeroes all worn armor (both power armor and hat), leaving only the gun.
+    g.tweaks.weightless_worn_power_armor = false;
+    g.tweaks.weightless_worn_armor = true;
+    g.sync_perk_weights();
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 6.0);
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 6.0);
+
+    // bWeightlessItems (weapons + armor) zeroes everything and keeps +0.0 (not -0.0).
+    g.tweaks.weightless_worn_armor = false;
+    g.tweaks.weightless_kinds = WEIGHTLESS_ARMOR | WEIGHTLESS_WEAPONS;
+    g.sync_perk_weights();
+    let zero_w = n(&mut g, "player.GetCalculatedEquippedWeight");
+    assert!(zero_w == 0.0 && zero_w.is_sign_positive(), "expected +0.0, got {zero_w}");
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 0.0);
+
+    // Perk rules still apply to non-weightless equipped items alongside weightless worn power armor.
+    g.tweaks.weightless_kinds = 0;
+    g.world.set_weight_rules(
+        FormId::PLAYER_REF,
+        WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((6.0, 0.5)), weightless_worn_power_armor: true, ..Default::default() },
+    );
+    // Gun: 6 * 0.5 = 3.0; Hat: 1 * 0.5 = 0.5; Power Suit: 0.0.
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 3.5);
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 3.5);
 }

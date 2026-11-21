@@ -28,6 +28,7 @@ use crate::nav::NavState;
 use crate::perf_overlay::{FpsCounter, Low};
 use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
+use crate::ssao::{AoLevel, AO_CHOICES};
 use crate::upscaler::{DlssModel, UpscaleQuality, Upscaler, UpscalerChoice};
 use crate::window_mode;
 use crate::world::Streamer;
@@ -477,6 +478,9 @@ pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread, t
 /// The frame split row's command-line switches: none, so the INI's state always applies.
 pub(crate) const FPS_SPLIT_SWITCHES: &str = "";
 
+/// The Tree distance row's note [design: our own words, #3016].
+const TREE_DISTANCE_NOTE: &str = "How far from you trees beyond the loaded cells are drawn as flat pictures, at most as far as distant objects are drawn. Farther runs slower.";
+
 /// The field of view's least and greatest degrees on the settings page, in steps of 5.
 const FOV_MIN: f32 = 50.0;
 const FOV_MAX: f32 = 110.0;
@@ -823,7 +827,8 @@ pub fn script_fov(args: Res<Args>, script: Option<ResMut<nvf_play::script::Scrip
 }
 
 /// The draw-distance sliders (`draw_distance.rs`): each a part of its full distance, the
-/// full one drawing as without them.
+/// full one drawing as without them; the Tree distance's full one is the distant LOD's far
+/// limit and it starts at `--tree-distance`'s part of that (#3016).
 fn register_distances(app: &mut App) {
     if !app.world().contains_resource::<DrawDistances>() {
         return;
@@ -858,6 +863,22 @@ fn register_distances(app: &mut App) {
             "How far from you grass is drawn, as a part of the farthest grass distance and its fade range.",
             slider(|w| w.resource::<DrawDistances>().grass, draw_distance::set_grass),
         ),
+        // A part of the distant LOD's far limit, shown as the distance it gives (#3016).
+        Setting::slider(
+            "tree-distance",
+            GROUP_PICTURE,
+            "Tree distance",
+            TREE_DISTANCE_NOTE,
+            Slider {
+                get: |w| w.resource::<DrawDistances>().trees,
+                set: draw_distance::set_trees,
+                min: draw_distance::TREE_STEP,
+                step: draw_distance::TREE_STEP,
+                shown: Some(draw_distance::tree_distance_text),
+            },
+        )
+        // Its start is the flag's distance, so a given flag wins over the INI in a test run.
+        .with_switches("--tree-distance"),
     ];
     for s in sliders {
         add_setting(app, s);
@@ -1041,6 +1062,38 @@ fn register_graphics(app: &mut App) {
         },
         ChoiceList { names: |_| graphics::SHADOW_FILTERS.iter().map(|f| f.0.to_string()).collect(), chosen: shadow_filter_chosen, pick: take_shadow_filter, save: shadow_filter_chosen, load: take_shadow_filter, ask_keep: false },
     );
+    // The full-detail scenery ring (#2701, full_detail.rs): Off, 7 x 7 or 9 x 9, switched
+    // in play (the ring is cleared and streamed again).
+    add_choice_list(
+        app,
+        Setting {
+            key: FULL_DETAIL_KEY,
+            group: GROUP_GRAPHICS,
+            label: "Full-detail scenery",
+            note: "Draws buildings, rocks and cliffs out to 7 x 7 or 9 x 9 cells as full models, not distant forms. Costs GPU time. Not in the original.",
+            switches: "--graphics-only",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList { names: |_| full_detail_names(), chosen: full_detail_chosen, pick: take_full_detail, save: full_detail_chosen, load: take_full_detail, ask_keep: false },
+    );
+    // Distant objects (#3014, distant_objects.rs): Off, 8 cells or 12 cells, switched in
+    // play (cells out of a smaller reach fade out, new ones stream in).
+    add_choice_list(
+        app,
+        Setting {
+            key: DISTANT_OBJECTS_KEY,
+            group: GROUP_GRAPHICS,
+            label: "Distant objects",
+            note: "Draws the rocks, shacks, pylons and signs the distant LOD leaves out, up to 8 or 12 cells away. Costs GPU time. Not in the original.",
+            switches: "--graphics-only",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList { names: |_| distant_objects_names(), chosen: distant_objects_chosen, pick: take_distant_objects, save: distant_objects_chosen, load: take_distant_objects, ask_keep: false },
+    );
     // The sun's shadow maps' side, 2048 (the default) or 4096, changed in play (#2843); saved
     // as its name, the branch's older slider part (0 or 1) still loads.
     add_choice_list(
@@ -1104,15 +1157,15 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 15] = [
-        (
-            "ambient-occlusion",
-            "Ambient occlusion",
-            "On: creases, corners and the ground under things are darkened by how enclosed they are (screen-space, from the depth). Not in the original.",
-            "--graphics",
-            |w| w.resource::<Graphics>().ambient_occlusion,
-            |w, on| w.resource_mut::<Graphics>().ambient_occlusion = on,
-        ),
+    // Ambient occlusion: a list of its three choices like Sun shadows' [design, #3075:
+    // \"AO's row to match ALC shadows' Off/Performance/Quality"]; the INI's older
+    // on/off (1/0, true/false, on/off, yes/no) still loads, as Quality and Off.
+    add_choice_list(
+        app,
+        Setting { key: AO_KEY, group: GROUP_GRAPHICS, label: "Ambient occlusion", note: AO_NOTE, switches: "--graphics, --ambient-occlusion", get: |_| false, set: |_, _| {}, slider: None },
+        ChoiceList { names: |_| AO_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: ao_chosen, pick: take_ao, save: ao_chosen, load: take_ao, ask_keep: false },
+    );
+    let switches: [Switch; 19] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1128,6 +1181,14 @@ fn register_graphics(app: &mut App) {
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().cloud_shadows,
             |w, on| w.resource_mut::<Graphics>().cloud_shadows = on,
+        ),
+        (
+            "terrain-shadows",
+            "Terrain shadows (experimental)",
+            TERRAIN_SHADOWS_NOTE,
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().terrain_shadows,
+            |w, on| w.resource_mut::<Graphics>().terrain_shadows = on,
         ),
         (
             "bloom",
@@ -1180,6 +1241,16 @@ fn register_graphics(app: &mut App) {
                 nvf_assets::texture::set_anisotropy(if on { 16 } else { 8 });
             },
         ),
+        // #2981: read once at the start (main.rs, nvf_assets `authored::set_enabled`); the
+        // row keeps the next start's choice, so no pipeline waits for it.
+        (
+            crate::graphics::AUTHORED_MATERIALS_KEY,
+            "Authored materials",
+            AUTHORED_MATERIALS_NOTE,
+            AUTHORED_MATERIALS_SWITCHES,
+            |w| w.resource::<Graphics>().authored_materials,
+            |w, on| w.resource_mut::<Graphics>().authored_materials = on,
+        ),
         (
             "terrain-height-blend",
             "Terrain height blending",
@@ -1205,12 +1276,36 @@ fn register_graphics(app: &mut App) {
             |w, on| w.resource_mut::<Graphics>().light_shafts = on,
         ),
         (
+            "heat-haze",
+            "Heat haze (experimental)",
+            "On: the far ground near the horizon shimmers slightly on hot, clear days, by the sun and the weather. A prototype. Not in the original.",
+            "--graphics-only",
+            |w| w.resource::<Graphics>().heat_haze,
+            |w, on| w.resource_mut::<Graphics>().heat_haze = on,
+        ),
+        (
+            "desert-haze",
+            "Desert haze (experimental)",
+            "On: a thin dust haze thickens with distance and toward the ground, warmer toward the sun, as far as the weather's fog allows. Not in the original.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().desert_haze,
+            |w, on| w.resource_mut::<Graphics>().desert_haze = on,
+        ),
+        (
             "water-reflections",
             "Screen-space reflections",
             "On: water the mirrored reflection does not reach (another height, interiors) reflects what is on the screen instead of only the sky.",
             "--graphics",
             |w| w.resource::<Graphics>().water_reflections,
             |w, on| w.resource_mut::<Graphics>().water_reflections = on,
+        ),
+        (
+            "water-effects",
+            "Water caustics and river flow",
+            "Sunlight shifts across shallow beds. Deeper water looks murkier from shore and underwater. Selected rivers drift downstream.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().water_effects,
+            |w, on| w.resource_mut::<Graphics>().water_effects = on,
         ),
         (
             "water-mirror",
@@ -1237,19 +1332,76 @@ fn register_graphics(app: &mut App) {
     }
 }
 
+/// The Authored materials row's note (#2981): it takes effect at the next start, as the run's
+/// state is fixed before the first material (main.rs).
+pub(crate) const AUTHORED_MATERIALS_NOTE: &str = "On: surfaces whose textures a texture pack gives material maps for (textures\\pbr\\) are shaded from them. Off: every surface uses the game's own values. Takes effect at the next start.";
+
+/// The command-line switches the Authored materials row weighs against the INI at the start
+/// (`authored_after_ini`).
+pub(crate) const AUTHORED_MATERIALS_SWITCHES: &str = "--graphics-only";
+
+/// The run's Authored materials state (#2981), decided before the first material: the
+/// command line's (`--graphics-only no-authored-materials`, else on), then the INI's stored
+/// row by the settings' own precedence (`nvf_play::settings::switch_after_ini`, as
+/// `apply_stored` decides at PostStartup), so the saved choice of the last run applies from
+/// the start. `given`: the switches a `--play` run was given (`None`: no settings page, the
+/// INI is not read).
+pub(crate) fn authored_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
+    let Some(given) = given else { return command_line };
+    let stored = stored_at_start(crate::graphics::AUTHORED_MATERIALS_KEY).and_then(|v| nvf_play::settings::parse_switch(&v));
+    nvf_play::settings::switch_after_ini(command_line, stored, given, AUTHORED_MATERIALS_SWITCHES)
+}
+
+/// The Ambient occlusion row's key and note (ssao.rs `AoLevel`).
+const AO_KEY: &str = "ambient-occlusion";
+const AO_NOTE: &str = "Creases, corners and the ground under things darken by how enclosed they are: Off, Performance (cheaper, a little grainier) or Quality. Not in the original.";
+
+/// The Ambient occlusion row's choice now: Off, or the level it runs at.
+fn ao_chosen(world: &World) -> String {
+    let g = world.resource::<Graphics>();
+    if g.ambient_occlusion { g.ambient_occlusion_level.name() } else { AO_CHOICES[0] }.to_string()
+}
+
+/// The page's, the INI's and the test aids' Ambient occlusion: one of [`AO_CHOICES`] (any
+/// case), the row's older on/off as Quality and Off, or an older slider's number (0 Off, 1
+/// Quality); false otherwise.
+fn take_ao(world: &mut World, text: &str) -> bool {
+    let names: Vec<String> = AO_CHOICES.iter().map(|c| (*c).to_string()).collect();
+    let choice = nvf_play::settings::choice_of(text, &names, |v| choice_index(v, AO_CHOICES.len()))
+        .or_else(|| nvf_play::settings::parse_switch(text).map(|on| if on { AO_CHOICES.len() - 1 } else { 0 }));
+    let Some(choice) = choice else { return false };
+    let mut g = world.resource_mut::<Graphics>();
+    let level = if choice == 1 { AoLevel::Performance } else { AoLevel::Quality };
+    // Off keeps the level for the next On, as Sun shadows keeps its mode.
+    if choice == 0 {
+        if g.ambient_occlusion {
+            g.ambient_occlusion = false;
+        }
+    } else if !g.ambient_occlusion || g.ambient_occlusion_level != level {
+        g.ambient_occlusion = true;
+        g.ambient_occlusion_level = level;
+    }
+    true
+}
+
 /// The Cloud shadows row's note (#2670; docs/design/sun-visibility.md): the label says the
 /// feature is experimental (as 3D scopes' says "(test)"), the note that its look is still
 /// being tuned (the relative rule, §7a, and the calibration, §8).
 const CLOUD_SHADOWS_NOTE: &str = "On: the weather's clouds cast soft shadows that drift over the land, only where the cover is heavier than around it. Still being tuned. Not in the original.";
 
+/// The Terrain shadows row's note (#2671; docs/design/terrain-shadows.md): experimental
+/// like Cloud shadows, its softness and bias still being tuned.
+const TERRAIN_SHADOWS_NOTE: &str = "On: at a low sun, hills and mountains shade the land beyond the reach of the sun's shadows. Still being tuned. Not in the original.";
+
 fn register_pipeline_waits(app: &mut App) {
-    // Cloud shadows switches the world views' material pipelines (the sun visibility's
-    // view key bits, sun_visibility.rs), so Continue waits for them like the others.
+    // Cloud shadows and Terrain shadows switch the world views' material pipelines (the sun
+    // visibility's view key bits, sun_visibility.rs), so Continue waits for them like the
+    // others.
     for key in [
         "anti-aliasing", "shadow-filter", "upscaler", "upscaler-quality", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
-        "light-shafts", "water-reflections", "water-mirror", "sun-shadows", "grade",
-        "terrain-height-blend", "terrain-anti-tiling", "cloud-shadows", MESH_BLEND_KEY,
+        "light-shafts", "water-reflections", "water-effects", "water-mirror", "sun-shadows", "grade",
+        "terrain-height-blend", "terrain-anti-tiling", "cloud-shadows", "terrain-shadows", "heat-haze", MESH_BLEND_KEY,
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
     }
@@ -1422,6 +1574,52 @@ fn take_aa(w: &mut World, text: &str) -> bool {
     match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::AA_CHOICES.len())) {
         Some(i) => {
             graphics::set_aa_choice(w, i);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The Full-detail scenery row's key (#2701).
+pub(crate) const FULL_DETAIL_KEY: &str = "full-detail";
+
+fn full_detail_names() -> Vec<String> {
+    crate::full_detail::FullDetail::CHOICES.iter().map(|c| c.0.to_string()).collect()
+}
+
+fn full_detail_chosen(w: &World) -> String {
+    w.resource::<Graphics>().full_detail.name().to_string()
+}
+
+/// The full-detail ring `text` names (or a slider's part stands for).
+fn take_full_detail(w: &mut World, text: &str) -> bool {
+    use crate::full_detail::FullDetail;
+    match nvf_play::settings::choice_of(text, &full_detail_names(), |v| choice_index(v, FullDetail::CHOICES.len())) {
+        Some(i) => {
+            w.resource_mut::<Graphics>().full_detail = FullDetail::CHOICES[i].1;
+            true
+        }
+        None => false,
+    }
+}
+
+/// The Distant objects row's key (#3014).
+pub(crate) const DISTANT_OBJECTS_KEY: &str = "distant-objects";
+
+fn distant_objects_names() -> Vec<String> {
+    crate::distant_objects::DistantObjects::CHOICES.iter().map(|c| c.0.to_string()).collect()
+}
+
+fn distant_objects_chosen(w: &World) -> String {
+    w.resource::<Graphics>().distant_objects.name().to_string()
+}
+
+/// The distant objects' reach `text` names (or a slider's part stands for).
+fn take_distant_objects(w: &mut World, text: &str) -> bool {
+    use crate::distant_objects::DistantObjects;
+    match nvf_play::settings::choice_of(text, &distant_objects_names(), |v| choice_index(v, DistantObjects::CHOICES.len())) {
+        Some(i) => {
+            w.resource_mut::<Graphics>().distant_objects = DistantObjects::CHOICES[i].1;
             true
         }
         None => false,
@@ -1863,7 +2061,7 @@ mod fsr_settings_tests {
         let world = app.world_mut();
         // Anti-Aliasing is a list since the menu overhaul.
         settings::pick(world, aa, "Off");
-        settings::restore(world, ao, 0.0);
+        settings::pick(world, ao, "Off");
         assert!(!settings::pick(world, fsr, "Off"));
         assert!(world.resource_mut::<GraphicsResume>().request(0.0));
         settings::pick(world, aa, "TAA");
@@ -1872,7 +2070,7 @@ mod fsr_settings_tests {
         settings::restore(world, aa, 0.0);
         assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
         world.resource_mut::<GraphicsResume>().reset();
-        settings::flip(world, ao);
+        settings::pick(world, ao, "Performance");
         assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
         world.resource_mut::<GraphicsResume>().reset();
         settings::pick(world, fsr, "FSR 3.1");
@@ -1880,6 +2078,52 @@ mod fsr_settings_tests {
         world.resource_mut::<GraphicsResume>().reset();
         settings::restore(world, fsr, 0.0);
         assert!(!world.resource_mut::<GraphicsResume>().request(0.0), "Defaults also restores named choices");
+    }
+
+    /// The Ambient occlusion row is a list of Off, Performance and Quality like Sun shadows:
+    /// the choice sets the switch and the level, Off keeps the level for the next On, and the
+    /// INI's older on/off (and a slider's 0 or 1) still loads as Quality or Off.
+    #[test]
+    fn ambient_occlusion_is_a_list_of_off_performance_and_quality() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla)).insert_resource(graphics::MsaaSetting(Msaa::Off));
+        register_graphics(&mut app);
+        let row = app.world().resource::<nvf_play::settings::Settings>().index(AO_KEY).unwrap();
+        let chosen = |app: &App| (app.world().resource::<nvf_play::settings::Settings>().choices(row).unwrap().chosen)(app.world());
+        let state = |app: &App| {
+            let g = app.world().resource::<Graphics>();
+            (g.ambient_occlusion, g.ambient_occlusion_level)
+        };
+        let names = (app.world().resource::<nvf_play::settings::Settings>().choices(row).unwrap().names)(app.world());
+        assert_eq!(names, ["Off", "Performance", "Quality"]);
+        assert_eq!(chosen(&app), "Off", "vanilla starts without it");
+        assert!(nvf_play::settings::pick(app.world_mut(), row, "Performance"));
+        assert_eq!(state(&app), (true, AoLevel::Performance));
+        assert_eq!(chosen(&app), "Performance");
+        assert!(nvf_play::settings::pick(app.world_mut(), row, "Off"));
+        assert_eq!(state(&app), (false, AoLevel::Performance), "Off keeps the level");
+        assert!(nvf_play::settings::pick(app.world_mut(), row, "Quality"));
+        assert_eq!(state(&app), (true, AoLevel::Quality));
+        // The INI: the names in any case, the switch's older values, a slider's numbers.
+        for (text, want) in [
+            ("performance", (true, AoLevel::Performance)),
+            ("0", (false, AoLevel::Performance)),
+            ("1", (true, AoLevel::Quality)),
+            ("off", (false, AoLevel::Quality)),
+            ("true", (true, AoLevel::Quality)),
+            ("false", (false, AoLevel::Quality)),
+            ("on", (true, AoLevel::Quality)),
+            ("no", (false, AoLevel::Quality)),
+            ("yes", (true, AoLevel::Quality)),
+            ("0.5", (true, AoLevel::Performance)),
+        ] {
+            assert!(take_ao(app.world_mut(), text), "{text}");
+            assert_eq!(state(&app), want, "{text}");
+        }
+        assert!(!take_ao(app.world_mut(), "ultra"));
+        assert_eq!(state(&app), (true, AoLevel::Performance), "a value not taken changes nothing");
+        assert!(AO_NOTE.contains("Off, Performance") && AO_NOTE.ends_with("Not in the original."));
     }
 
     #[test]
@@ -2569,6 +2813,46 @@ dlss-model=Preset K
         }
     }
 
+    /// #2701: the Full-detail scenery row is off by default (the vanilla look) and takes each
+    /// size by its name, in any case; another name is refused.
+    #[test]
+    fn the_full_detail_row_is_off_by_default_and_takes_each_size() {
+        use crate::full_detail::FullDetail;
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let mut app = rows_app();
+        let _ = row(&app, FULL_DETAIL_KEY);
+        assert_eq!(full_detail_chosen(app.world()), "Off");
+        for (name, f) in FullDetail::CHOICES {
+            assert!(take_full_detail(app.world_mut(), name), "{name}");
+            assert_eq!(app.world().resource::<Graphics>().full_detail, f);
+            assert_eq!(full_detail_chosen(app.world()), name);
+        }
+        assert!(take_full_detail(app.world_mut(), "7 X 7"));
+        assert_eq!(app.world().resource::<Graphics>().full_detail, FullDetail::Seven);
+        assert!(!take_full_detail(app.world_mut(), "11 x 11"));
+        assert_eq!(app.world().resource::<Graphics>().full_detail, FullDetail::Seven, "unchanged");
+    }
+
+    /// #3014: the Distant objects row is off by default (both presets) and takes each reach
+    /// by its name, in any case; another name is refused.
+    #[test]
+    fn the_distant_objects_row_is_off_by_default_and_takes_each_reach() {
+        use crate::distant_objects::DistantObjects;
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let mut app = rows_app();
+        let _ = row(&app, DISTANT_OBJECTS_KEY);
+        assert_eq!(distant_objects_chosen(app.world()), "Off");
+        for (name, d) in DistantObjects::CHOICES {
+            assert!(take_distant_objects(app.world_mut(), name), "{name}");
+            assert_eq!(app.world().resource::<Graphics>().distant_objects, d);
+            assert_eq!(distant_objects_chosen(app.world()), name);
+        }
+        assert!(take_distant_objects(app.world_mut(), "8 CELLS"));
+        assert_eq!(app.world().resource::<Graphics>().distant_objects, DistantObjects::Eight);
+        assert!(!take_distant_objects(app.world_mut(), "16 cells"));
+        assert_eq!(app.world().resource::<Graphics>().distant_objects, DistantObjects::Eight, "unchanged");
+    }
+
     /// #2377: the command-line switches moved out of the notes into `Setting::switches`; each
     /// row of the Graphics tab still names the switches its note named, in the note's order
     /// (`--shadow-distance` of Longer sun shadows too: it was not "a part of" there), and no
@@ -2589,21 +2873,28 @@ dlss-model=Preset K
             (FRAME_GENERATION_KEY, &["--frame-generation"]),
             (FRAMES_KEY, &[]),
             ("latency-reduction", &["--latency-reduction"]),
-            ("ambient-occlusion", &["--graphics"]),
+            ("ambient-occlusion", &["--graphics", "--ambient-occlusion"]),
             ("fine-shadows", &["--shadow-distance", "--graphics"]),
             ("cloud-shadows", &["--graphics", "--graphics-only"]),
+            ("terrain-shadows", &["--graphics", "--graphics-only"]),
             ("bloom", &["--graphics"]),
             ("glow", &["--graphics-only"]),
             ("eye-adaptation", &["--graphics-only"]),
             ("neon-glow", &["--graphics-only"]),
             ("sharpen", &["--graphics"]),
             ("anisotropic", &["--graphics"]),
+            (crate::graphics::AUTHORED_MATERIALS_KEY, &["--graphics-only"]),
             ("terrain-height-blend", &["--graphics", "--graphics-only"]),
             ("terrain-anti-tiling", &["--graphics", "--graphics-only"]),
             ("light-shafts", &["--graphics"]),
+            ("heat-haze", &["--graphics-only"]),
+            ("desert-haze", &["--graphics", "--graphics-only"]),
             ("water-reflections", &["--graphics"]),
+            ("water-effects", &["--graphics", "--graphics-only"]),
             ("water-mirror", &["--graphics-only"]),
             (MESH_BLEND_KEY, &["--graphics-only"]),
+            (FULL_DETAIL_KEY, &["--graphics-only"]),
+            (DISTANT_OBJECTS_KEY, &["--graphics-only"]),
         ];
         for (key, switches) in want {
             let s = settings.list()[row(&app, key)];
@@ -2806,6 +3097,42 @@ mod viewmodel_fov_tests {
         // Out of range stays at the ends.
         assert_eq!(viewmodel_fov_part(10.0), 0.0);
         assert_eq!(viewmodel_fov_part(120.0), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tree_distance_tests {
+    use super::*;
+    use clap::Parser;
+    use nvf_play::settings::Settings;
+
+    /// #3016: the Tree distance row is a slider of the distant LOD's far limit in steps of
+    /// 0.02 (2,500 units at the defaults), starting at `--tree-distance`'s 40,000 on a step,
+    /// shown in units; its note keeps to the budget.
+    #[test]
+    fn the_row_reaches_the_far_limit_and_starts_at_the_flag() {
+        let args = Args::try_parse_from(crate::with_default_mode(vec!["nvforever".to_string()])).unwrap();
+        let mut app = App::new();
+        app.insert_resource(DrawDistances::new(&args));
+        register_distances(&mut app);
+        let settings = app.world().resource::<Settings>();
+        let s = settings.list()[settings.index("tree-distance").unwrap()];
+        let slider = s.slider.expect("a slider");
+        assert_eq!(nvf_play::settings::note_over_budget(s.note), None);
+        assert_eq!(s.switches, "--tree-distance");
+        assert_eq!(nvf_play::settings::slider_values(&slider), 50);
+        assert!(!nvf_play::settings::few_step_slider(&s));
+        let start = (slider.get)(app.world());
+        assert_eq!(start, 0.32);
+        assert_eq!(slider.fit(start), start, "the default is on a step");
+        // No test builds DrawDistancePlugin: shown against the default far limit, 125,000.
+        assert_eq!(slider.text(start), "40,000 units");
+        assert_eq!(slider.text(slider.fit(start + slider.step)), "42,500 units");
+        assert_eq!(slider.text(slider.fit(start - slider.step)), "37,500 units");
+        assert_eq!(slider.text(slider.fit(0.08)), "10,000 units");
+        assert_eq!(slider.text(slider.fit(1.0)), "125,000 units");
+        assert_eq!(slider.fit(0.0), 0.02, "the least is one step");
+        assert_eq!(slider.text(slider.fit(0.0)), "2,500 units");
     }
 }
 

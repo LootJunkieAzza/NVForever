@@ -102,11 +102,14 @@ impl Fixture {
         let (mut app, files) = asset_fixture();
         let old = app.world().resource::<nvf_assets::GameData>().clone();
         let dir = old.vfs.data_dir(); // task-owned TEMP directory from asset_fixture
-        let skeleton = nif(&[("NiNode", node(0, &[1, 2], 0.0)), ("NiNode", node(1, &[], 0.0)), ("NiNode", node(2, &[], 70.0))], &["Root", "Weapon", "Camera1st"]);
+        // `Bip01 Translate`: the arms' node the weapon's sway turns and moves.
+        let skeleton = nif(&[("NiNode", node(0, &[1, 2, 3], 0.0)), ("NiNode", node(1, &[], 0.0)), ("NiNode", node(2, &[], 70.0)), ("NiNode", node(3, &[], 60.0))], &["Root", "Weapon", "Camera1st", "Bip01 Translate"]);
         std::fs::write(dir.join("meshes/skeleton.nif"), skeleton).unwrap();
         std::fs::write(dir.join("meshes/OwnedCamera.kf"), clip("Camera1st")).unwrap();
         std::fs::write(dir.join("meshes/OwnedThird.kf"), clip("Root")).unwrap();
-        app.insert_resource(nvf_assets::GameData { vfs: Arc::new(fnv_vfs::Vfs::open(dir, &[]).unwrap()), schema: old.schema.clone() });
+        // The standing idle both rigs play by themselves (on the weapon's node only).
+        std::fs::write(dir.join("meshes/mtidle.kf"), clip("Weapon")).unwrap();
+        app.insert_resource(nvf_assets::GameData::new(Arc::new(fnv_vfs::Vfs::open(dir, &[]).unwrap()), old.schema.clone()));
 
         let plugins = Box::leak(vec![fnv_esm::Plugin::parse(&plugin(), "OwnedCamera.esm".into()).unwrap()].into_boxed_slice());
         let mut data = empty_world_data();
@@ -154,6 +157,7 @@ impl Fixture {
                 worn: Vec::new(), look: None, change: Default::default(), female: false, scale: 1.0,
                 third: build_rig(&mut commands, parent, &world, &mut ctx, &a, View::Third, None).unwrap(),
                 first: Some(build_rig(&mut commands, parent, &world, &mut ctx, &a, View::First, None).unwrap()),
+                first_addons: Vec::new(),
             }
         }).unwrap();
         app.world_mut().resource_mut::<PlayerBody>().body = Some(body);
@@ -266,4 +270,76 @@ fn activation_camera_ecs_keeps_a_cinematic_section_free_to_step() {
     assert!(f.moves() > 0, "the real player character-controller path ran");
     assert!(f.feet()[1] - before[1] > 40.0, "Activation leaves physical movement free: {:?} -> {:?}", before, f.feet());
     assert!(f.app.world().resource::<PhysState>().player.as_ref().unwrap().grounded);
+}
+
+/// Advanced Movement's parts switched on and off (`PlayerBody`'s Weapon Inertia and Camera
+/// Motion, `MovementInertia`'s parts), the rest as shipped.
+fn advanced_movement(f: &mut Fixture, on: bool) {
+    let w = f.app.world_mut();
+    {
+        let mut body = w.resource_mut::<PlayerBody>();
+        (body.weapon_sway, body.head_bob) = (on, on);
+    }
+    let mut i = w.resource_mut::<nvf_play::inertia::MovementInertia>();
+    (i.on, i.smooth, i.weapon_handling) = (on, on, on);
+}
+
+/// The first-person rig's own layers (not idles or script sequences): (tag, settling curve,
+/// fade-out seconds).
+fn arms_layers(f: &Fixture) -> Vec<(u32, bool, f32)> {
+    let rig = f.app.world().resource::<PlayerBody>().body.as_ref().unwrap().first.as_ref().unwrap();
+    rig.animator.layers.iter().filter(|l| l.tag < TAG_SPECIAL).map(|l| (l.tag, l.smooth, l.fade_out)).collect()
+}
+
+/// The arms' node as posed this frame and the eye over the feet.
+fn arms_and_eye(f: &Fixture) -> (Transform, Vec3) {
+    let w = f.app.world();
+    let rig = w.resource::<PlayerBody>().body.as_ref().unwrap().first.as_ref().unwrap();
+    let player = w.resource::<Player>();
+    (rig.animator.locals[rig.translate.expect("the fixture's arms rig has Bip01 Translate")], Vec3::from(player.body_eye.unwrap()) - Vec3::from(player.feet))
+}
+
+#[test]
+fn advanced_movement_switched_off_leaves_the_arms_and_the_view_to_the_clips() {
+    // Standing and turning to and fro: with Weapon Inertia the arms lag the turns and
+    // breathe, with Camera Motion the view breathes. One game has every part on and then
+    // switches them off (the settings page); the other has them off from the start. Once
+    // the fades are over, both show the arms and the view exactly as the clips put them.
+    let (mut was_on, mut off) = (Fixture::new(), Fixture::new());
+    advanced_movement(&mut was_on, true);
+    advanced_movement(&mut off, false);
+    let frame = |k: usize, a: &mut Fixture, b: &mut Fixture| {
+        for f in [a, b] {
+            f.app.world_mut().resource_mut::<Player>().heading = 1.5 * (k as f32 * 0.05).sin();
+            f.frame(1.0 / 60.0);
+        }
+    };
+    let mut moved = 0.0f32;
+    for k in 0..300 {
+        frame(k, &mut was_on, &mut off);
+        let ((arms_on, eye_on), (arms_off, eye_off)) = (arms_and_eye(&was_on), arms_and_eye(&off));
+        assert_eq!(arms_off, Transform::from_xyz(0.0, 0.0, 60.0), "off from the start, frame {k}: the clips' pose (here the bind pose)");
+        moved = moved.max(arms_on.translation.distance(arms_off.translation)).max(eye_on.distance(eye_off));
+    }
+    assert!(moved > 0.1, "the parts moved the arms or the view while on: {moved}");
+    // Animation Smoothing had the standing idle cross over along the settling curve.
+    assert!(arms_layers(&was_on).contains(&(TAG_IDLE, true, nvf_play::inertia::MOVE_FADE_SECONDS)), "{:?}", arms_layers(&was_on));
+    let straight = arms_layers(&off);
+    assert!(straight.contains(&(TAG_IDLE, false, DEFAULT_FADE)) && straight.iter().all(|&(_, smooth, fade)| !smooth && fade == DEFAULT_FADE), "{straight:?}");
+    advanced_movement(&mut was_on, false);
+    frame(300, &mut was_on, &mut off);
+    // Switched off, the idle that stays fades the clips' own way again, as off from the start.
+    assert_eq!(arms_layers(&was_on), arms_layers(&off));
+    let mut exact_from = None;
+    for k in 301..1000 {
+        frame(k, &mut was_on, &mut off);
+        let same = arms_and_eye(&was_on) == arms_and_eye(&off);
+        match (same, exact_from) {
+            (true, None) => exact_from = Some(k),
+            (false, Some(from)) => panic!("exactly the clips' from frame {from}, off again at {k}: {:?} against {:?}", arms_and_eye(&was_on), arms_and_eye(&off)),
+            _ => {}
+        }
+    }
+    let from = exact_from.expect("switched off, the arms and the view end exactly as the clips put them");
+    assert!(from < 300 + 600, "within ten seconds of the switch: frame {from}");
 }

@@ -78,6 +78,19 @@ pub enum EventKind {
     /// kind its accessor does not take, `functions::Unread`): it went on with a default.
     /// Traced once per opcode, unit and parameter.
     ArgUnread { opcode: String, name: String, unit: String, param: usize, got: String, wanted: String },
+    /// `SendAssaultAlarm` with a faction parameter (`crate::crime::send_assault_alarm`,
+    /// #2926): the member picked as the victim (none: nobody turns) and how many members
+    /// of the faction were present and alive, disabled or deleted, dead. `faction` is none
+    /// when the parameter reads as no form.
+    AssaultAlarm {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        caller: Option<FormId>,
+        faction: Option<FormId>,
+        victim: Option<FormId>,
+        alive: usize,
+        absent: usize,
+        dead: usize,
+    },
     /// A script stopped early (budget, malformed expression, nesting depth).
     ScriptError { unit: String, error: String },
     /// Something the VM skipped (an unknown opcode in a lenient run, an extended

@@ -40,6 +40,11 @@ impl Game<'_> {
         }
         f
     }
+
+    /// Read-only view of active `TempCloneForm` alias -> parent mappings.
+    pub fn clones(&self) -> &std::collections::HashMap<FormId, FormId> {
+        &self.clones
+    }
 }
 
 /// The functions of this file; `None` for any other name.
@@ -62,7 +67,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // [documented: GetUserTime; observed: a string map of the 8 keys] the computer's
         // local time.
         "getusertime" => {
-            let now = jiff::ZonedDateTime::now();
+            let now = jiff::Timestamp::now().to_zoned_datetime(crate::local_time::system_zone());
             let pairs: [(&str, u32); 8] = [
                 ("Year", now.year().max(0) as u32),
                 ("Month", now.month() as u32),
@@ -109,6 +114,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 Err(error) => return Some(Err(error)),
             };
             g.snapshot_combat_style(f, id);
+            g.snapshot_sound_traits(f, id);
             g.clones.insert(id, f);
             // A clone of an item goes into containers (MCM's list of mods, `World`).
             g.world.add_clone_item(id, f);

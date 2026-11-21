@@ -69,10 +69,7 @@ impl OwnedFiles {
         let schema_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif");
         let schema = fnv_nif::Schema::load_dir(&schema_root).unwrap();
-        GameData {
-            vfs: Arc::new(vfs),
-            schema: Arc::new(schema),
-        }
+        GameData::new(Arc::new(vfs), Arc::new(schema))
     }
 }
 

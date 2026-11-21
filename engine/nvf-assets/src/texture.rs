@@ -1,5 +1,8 @@
-//! DDS → GPU textures. BC1/BC2/BC3 retain their mip chains; BC5 data and
-//! explicitly requested normal maps have separate interpretations (dds-bc5.md).
+//! DDS → GPU textures. BC1/BC2/BC3 and BC7 retain their mip chains; BC5 data and
+//! explicitly requested normal maps have separate interpretations (dds-bc5.md); BC4 is
+//! linear data only (dds.md §6).
+
+mod filtering;
 
 use crate::data::GameData;
 use bevy::asset::RenderAssetUsages;
@@ -8,7 +11,7 @@ use bevy::image::{
     ImageSamplerDescriptor,
 };
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureViewDescriptor, TextureViewDimension};
 use bevy::asset::AssetHandleProvider;
 use fnv_dds::{to_rgba8, Dds, Format};
 use std::collections::HashMap;
@@ -22,7 +25,17 @@ pub enum TextureUsage {
     Color,
     #[default]
     Linear,
+    /// The game's normal maps: BC5 is expanded to RGBA on the CPU (dds-bc5.md), so every
+    /// result is a three-channel map whose alpha may be a specular mask.
     Normal,
+    /// An authored set's `_n` (#2981, docs/spec-notes/pbr-materials.md): unsigned BC5 on the
+    /// block grid goes to the GPU as it is (`Bc5RgUnorm`), so Bevy rebuilds Z from the two
+    /// channels (`TWO_COMPONENT_NORMAL_MAP`, with the vendored clamp, engine/vendor/README.md);
+    /// off the grid or without BC support the two channels are stored as they are in
+    /// `Rg8Unorm`, and signed BC5 is moved to 0..1 (`x * 0.5 + 0.5`) in `Rg8Unorm`, the range
+    /// Bevy's two-channel path expects. Three-channel files (BC7, BC1-3) load as for
+    /// [`TextureUsage::Normal`].
+    NormalTwoChannel,
 }
 
 impl TextureUsage {
@@ -31,19 +44,24 @@ impl TextureUsage {
     }
 }
 
-const TEXTURE_USAGES: [TextureUsage; 3] = [TextureUsage::Color, TextureUsage::Linear, TextureUsage::Normal];
+const TEXTURE_USAGES: [TextureUsage; 4] = [TextureUsage::Color, TextureUsage::Linear, TextureUsage::Normal, TextureUsage::NormalTwoChannel];
 
 /// An image and whether its source lacked a specular alpha channel. BC5 normal
 /// expansion has a synthesized storage alpha which is not a source mask.
 struct DecodedTexture {
     image: Image,
     lacks_alpha: bool,
+    /// The file's DX10 header names an `_SRGB` format (a hint only; the role decides).
+    srgb_code: bool,
+    /// The file's own format, before any decode on the CPU (`None`: not decoded from a DDS
+    /// file here). An authored `_p` is judged by it (`crate::authored::note_source`).
+    source: Option<Format>,
 }
 
 impl From<Image> for DecodedTexture {
     fn from(image: Image) -> Self {
         let lacks_alpha = crate::nif_spawn::format_lacks_alpha(image.texture_descriptor.format);
-        Self { image, lacks_alpha }
+        Self { image, lacks_alpha, srgb_code: false, source: None }
     }
 }
 
@@ -90,6 +108,9 @@ pub struct WorkerTextures {
     /// Whether a texture's alpha is a cut-out mask, by resolved path
     /// ([`Self::alpha_is_mask`]).
     masks: Mutex<HashMap<String, bool>>,
+    /// Authored material sets' scalar files and warnings (`crate::authored::find`), shared
+    /// by the main thread and the workers.
+    pub(crate) authored: crate::authored::Memo,
 }
 
 struct WorkerTexture {
@@ -119,14 +140,45 @@ pub(crate) fn worker_texture(
     images: &AssetHandleProvider,
     bc_supported: bool,
 ) -> Option<(Handle<Image>, TextureFormat, bool)> {
-    let key = (resolved_path(raw_path, |p| data.vfs.exists(p)), usage);
+    let (raw, cube) = split_cube(raw_path);
+    let key = (cube_key(resolved_path(raw, |p| data.vfs.exists(p)), cube), usage);
+    worker_texture_key(key, data, cached, workers, images, bc_supported)
+}
+
+/// [`worker_texture`] for a file at exactly `path` (normalised only, never turned to another
+/// file by [`resolved_path`]): an authored set's member, as the index names it (#2981).
+pub(crate) fn worker_texture_exact(
+    path: &str,
+    usage: TextureUsage,
+    data: &GameData,
+    cached: &TextureSnapshot,
+    workers: &WorkerTextures,
+    images: &AssetHandleProvider,
+    bc_supported: bool,
+) -> Option<(Handle<Image>, TextureFormat, bool)> {
+    worker_texture_key((fnv_vfs::normalize(path), usage), data, cached, workers, images, bc_supported)
+}
+
+fn worker_texture_key(
+    key: (String, TextureUsage),
+    data: &GameData,
+    cached: &TextureSnapshot,
+    workers: &WorkerTextures,
+    images: &AssetHandleProvider,
+    bc_supported: bool,
+) -> Option<(Handle<Image>, TextureFormat, bool)> {
     if let Some(found) = cached.get(&key) {
         return Some(found.clone());
     }
-    workers.load_once(key, images, |path| {
+    let usage = key.1;
+    workers.load_once(key, images, |key_path| {
+        let (path, cube) = split_cube(key_path);
         let bytes = data.read(path).ok_or_else(|| "not in any archive".to_string())?;
-        let mut decoded = dds_texture(&bytes, usage, bc_supported, false)?;
+        let mut decoded = decode(&bytes, cube, usage, bc_supported)?;
         decoded.image.texture_descriptor.label = Some(folder_label(path));
+        crate::authored::srgb_warning(&workers.authored, path, usage, decoded.srgb_code);
+        let size = decoded.image.texture_descriptor.size;
+        crate::authored::note_source(&workers.authored, path, decoded.source, (size.width, size.height));
         Ok(decoded)
     })
 }
@@ -145,6 +197,12 @@ impl WorkerTextures {
         let gate = Arc::new(Mutex::new(()));
         loading.insert(key.clone(), Arc::downgrade(&gate));
         gate
+    }
+
+    /// Entries decoded by workers (tests).
+    #[cfg(test)]
+    pub(crate) fn entries_len(&self) -> usize {
+        self.entries.lock().expect("worker textures").len()
     }
 
     /// Reserve one handle and decode once for concurrent requests for this key. The
@@ -240,40 +298,89 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
     }
     let (w, h) = (dds.header.width, dds.header.height);
     let levels = if top_only { &dds.levels[0][..1] } else { &dds.levels[0][..] };
+    // The GPU takes block formats only when the top level's sides are multiples of 4.
+    let aligned = w % 4 == 0 && h % 4 == 0;
+    // The colour space follows the role, never a DX10 header's `_SRGB` code (#2981,
+    // dds.md §6): legacy files state none, and the hint is only reported.
     let (format, data) = match dds.format {
         Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
-            if w % 4 != 0 || h % 4 != 0 {
-                // The GPU takes block formats only at multiples of 4: such a texture
-                // (a mod's 179×196 DXT5, dds.md §3) is decoded here instead [#2164].
+            if !aligned {
+                // Such a texture (a mod's 179×196 DXT5, dds.md §3) is decoded here
+                // instead [#2164].
                 let mut out = Vec::new();
                 for (m, l) in levels.iter().enumerate() {
                     let (lw, lh) = dds.header.level_dims(m as u32);
                     out.extend(fnv_dds::decode_blocks(dds.format, lw, lh, l).ok_or("block data too short")?);
                 }
-                let format = if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm };
-                let mut img = checked_image(w, h, levels.len() as u32, format, out)?;
-                img.sampler = sampler();
-                return Ok(img.into());
+                (if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm }, out)
+            } else if !bc_supported {
+                return Err("GPU lacks BC texture support".into());
+            } else {
+                let f = match (dds.format, srgb) {
+                    (Format::Dxt1, true) => TextureFormat::Bc1RgbaUnormSrgb,
+                    (Format::Dxt1, false) => TextureFormat::Bc1RgbaUnorm,
+                    (Format::Dxt3, true) => TextureFormat::Bc2RgbaUnormSrgb,
+                    (Format::Dxt3, false) => TextureFormat::Bc2RgbaUnorm,
+                    (_, true) => TextureFormat::Bc3RgbaUnormSrgb,
+                    (_, false) => TextureFormat::Bc3RgbaUnorm,
+                };
+                (f, levels.concat())
+            }
+        }
+        // BC7 has no CPU decoder in the tree: it goes to the GPU as it is or not at all.
+        Format::Bc7 => {
+            if !aligned {
+                return Err(format!("BC7 needs sides that are multiples of 4 ({w}x{h}); it is not decoded on the CPU"));
             }
             if !bc_supported {
-                return Err("GPU lacks BC texture support".into());
+                return Err("GPU lacks BC texture support (BC7 is not decoded on the CPU)".into());
             }
-            let f = match (dds.format, srgb) {
-                (Format::Dxt1, true) => TextureFormat::Bc1RgbaUnormSrgb,
-                (Format::Dxt1, false) => TextureFormat::Bc1RgbaUnorm,
-                (Format::Dxt3, true) => TextureFormat::Bc2RgbaUnormSrgb,
-                (Format::Dxt3, false) => TextureFormat::Bc2RgbaUnorm,
-                (_, true) => TextureFormat::Bc3RgbaUnormSrgb,
-                (_, false) => TextureFormat::Bc3RgbaUnorm,
-            };
-            (f, levels.concat())
+            (if srgb { TextureFormat::Bc7RgbaUnormSrgb } else { TextureFormat::Bc7RgbaUnorm }, levels.concat())
+        }
+        // One channel: linear data only (a height or a mask), never a colour or a normal.
+        Format::Bc4U | Format::Bc4S => {
+            if usage != TextureUsage::Linear {
+                return Err(format!("BC4 has one channel and no {} layout; request linear data", if srgb { "sRGB color" } else { "normal-map" }));
+            }
+            let signed = dds.format == Format::Bc4S;
+            if bc_supported && aligned {
+                (if signed { TextureFormat::Bc4RSnorm } else { TextureFormat::Bc4RUnorm }, levels.concat())
+            } else {
+                let mut out = Vec::new();
+                for (m, level) in levels.iter().enumerate() {
+                    let (lw, lh) = dds.header.level_dims(m as u32);
+                    let values = fnv_dds::decode_bc4(dds.format, lw, lh, level).ok_or("invalid BC4 block data")?;
+                    if signed {
+                        out.extend(values.into_iter().map(|v| (v * 127.0).round() as i8 as u8));
+                    } else {
+                        out.extend(values.into_iter().map(|v| (v * 255.0).round() as u8));
+                    }
+                }
+                (if signed { TextureFormat::R8Snorm } else { TextureFormat::R8Unorm }, out)
+            }
         }
         Format::Bc5U | Format::Bc5S => {
             if srgb {
                 return Err("BC5 has no sRGB color layout; request linear data or a normal map".into());
             }
             let signed = dds.format == Format::Bc5S;
-            if usage != TextureUsage::Normal && bc_supported && w % 4 == 0 && h % 4 == 0 {
+            if usage == TextureUsage::NormalTwoChannel {
+                if !signed && bc_supported && aligned {
+                    (TextureFormat::Bc5RgUnorm, levels.concat())
+                } else {
+                    let mut out = Vec::new();
+                    for (m, level) in levels.iter().enumerate() {
+                        let (lw, lh) = dds.header.level_dims(m as u32);
+                        let pixels = fnv_dds::decode_bc5(dds.format, lw, lh, level).ok_or("invalid BC5 block data")?;
+                        for [r, g] in pixels {
+                            // Unsigned: the channels as stored; signed (-1..1): moved to 0..1.
+                            let (r, g) = if signed { (r * 0.5 + 0.5, g * 0.5 + 0.5) } else { (r, g) };
+                            out.extend([(r.clamp(0.0, 1.0) * 255.0).round() as u8, (g.clamp(0.0, 1.0) * 255.0).round() as u8]);
+                        }
+                    }
+                    (TextureFormat::Rg8Unorm, out)
+                }
+            } else if usage != TextureUsage::Normal && bc_supported && aligned {
                 (if signed { TextureFormat::Bc5RgSnorm } else { TextureFormat::Bc5RgUnorm }, levels.concat())
             } else {
                 let mut out = Vec::new();
@@ -283,8 +390,9 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
                     for [r, g] in pixels {
                         if usage == TextureUsage::Normal {
                             let [x, y] = if signed { [r, g] } else { [r * 2.0 - 1.0, g * 2.0 - 1.0] };
-                            // Expand here to use Bevy's three-component path; its
-                            // vendored two-component reconstruction has no clamp.
+                            // Expand here to use Bevy's three-component path, as every
+                            // other game normal map does (the authored `_n` role keeps two
+                            // channels: `NormalTwoChannel`).
                             let z = (1.0 - x * x - y * y).max(0.0).sqrt();
                             out.extend([normal_byte(x), normal_byte(y), normal_byte(z), 255]);
                         } else if signed {
@@ -309,12 +417,111 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
     };
     let mut img = checked_image(w, h, levels.len() as u32, format, data)?;
     img.sampler = sampler();
-    let lacks_alpha = matches!(dds.format, Format::Bc5U | Format::Bc5S) || crate::nif_spawn::format_lacks_alpha(format);
-    Ok(DecodedTexture { image: img, lacks_alpha })
+    // No specular mask in the alpha: a format without alpha (BC4 and BC5 also when
+    // expanded or decoded on the CPU) or a DX10 header stating every alpha opaque. Every
+    // successful path, the CPU-decoded DXT one included, ends here. A DX10 BC1 keeps its
+    // source's classification when decoded to RGBA8 off the block grid, as it has when
+    // uploaded as blocks; a legacy odd-sized DXT1 keeps main's classification (alpha
+    // read as a mask) unchanged.
+    let lacks_alpha = dds.alpha_opaque()
+        || matches!(dds.format, Format::Bc5U | Format::Bc5S | Format::Bc4U | Format::Bc4S)
+        || (dds.format == Format::Dxt1 && dds.header.dx10.is_some())
+        || crate::nif_spawn::format_lacks_alpha(format);
+    Ok(DecodedTexture { image: img, lacks_alpha, srgb_code: dds.srgb_hint() == Some(true), source: Some(dds.format) })
 }
 
 fn normal_byte(value: f32) -> u8 {
     ((value + 1.0) * 0.5 * 255.0).round() as u8
+}
+
+/// The end of a texture path that asks for the file as a cube map ([`cube_path`]): the
+/// texture caches key a cube map by its path with this added, so a file loaded as a cube
+/// map is never handed out for a flat texture slot, nor the other way round.
+const CUBE_KEY: &str = "#cube";
+
+/// The path to pass to a texture source (`TextureSource::texture`, [`TextureCache::get`])
+/// to have the file at a NIF texture path loaded as a cube map ([`dds_cube_image`]): the
+/// environment cube of texture-set slot 4 (docs/spec-notes/nif.md §6 "Window glass and
+/// environment maps").
+pub fn cube_path(raw_path: &str) -> String {
+    format!("{raw_path}{CUBE_KEY}")
+}
+
+/// A requested path and whether it asks for a cube map ([`cube_path`]).
+fn split_cube(raw_path: &str) -> (&str, bool) {
+    raw_path.strip_suffix(CUBE_KEY).map_or((raw_path, false), |p| (p, true))
+}
+
+/// The cache key of a resolved path, loaded as a cube map or not.
+fn cube_key(path: String, cube: bool) -> String {
+    if cube {
+        path + CUBE_KEY
+    } else {
+        path
+    }
+}
+
+/// The file's image for a cache key: a cube map ([`dds_cube_image`]) for a key that asks
+/// for one, else [`dds_texture`] for the usage.
+fn decode(bytes: &[u8], cube: bool, usage: TextureUsage, bc_supported: bool) -> Result<DecodedTexture, String> {
+    if cube {
+        dds_cube_image(bytes, usage == TextureUsage::Color, bc_supported).map(DecodedTexture::from)
+    } else {
+        dds_texture(bytes, usage, bc_supported, false)
+    }
+}
+
+/// Build a cube-map GPU image from DDS bytes: the six faces in the file's order (+X, -X,
+/// +Y, -Y, +Z, -Z [documented: Microsoft's DDS documentation, "Cubic Environment Maps"]),
+/// each with its mip chain, as the six layers of a texture viewed as a cube. An error for a
+/// file that is not a cube map with all six faces. Block-compressed faces are decoded when
+/// the device cannot sample them or their side is not a multiple of 4, as in [`dds_image`].
+pub fn dds_cube_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
+    crate::guard::guarded(|| dds_cube_image_unguarded(bytes, srgb, bc_supported))
+}
+
+fn dds_cube_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
+    let dds = Dds::parse(bytes).map_err(|e| e.to_string())?;
+    if !dds.header.is_cubemap() || dds.levels.len() != 6 {
+        return Err("not a cube map with six faces".into());
+    }
+    let (w, h) = (dds.header.width, dds.header.height);
+    if w != h {
+        return Err(format!("cube faces of {w}x{h} are not square"));
+    }
+    let mips = dds.levels[0].len() as u32;
+    let block = matches!(dds.format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5);
+    let compressed = block && bc_supported && w % 4 == 0;
+    let mut data = Vec::new();
+    for face in &dds.levels {
+        if face.len() as u32 != mips {
+            return Err("cube faces with different mip counts".into());
+        }
+        for (m, l) in face.iter().enumerate() {
+            if compressed {
+                data.extend_from_slice(l);
+            } else if block {
+                let (lw, lh) = dds.header.level_dims(m as u32);
+                data.extend(fnv_dds::decode_blocks(dds.format, lw, lh, l).ok_or("block data too short")?);
+            } else {
+                data.extend(to_rgba8(dds.format, l).ok_or("unsupported layout")?);
+            }
+        }
+    }
+    let format = match (compressed, dds.format, srgb) {
+        (true, Format::Dxt1, true) => TextureFormat::Bc1RgbaUnormSrgb,
+        (true, Format::Dxt1, false) => TextureFormat::Bc1RgbaUnorm,
+        (true, Format::Dxt3, true) => TextureFormat::Bc2RgbaUnormSrgb,
+        (true, Format::Dxt3, false) => TextureFormat::Bc2RgbaUnorm,
+        (true, _, true) => TextureFormat::Bc3RgbaUnormSrgb,
+        (true, _, false) => TextureFormat::Bc3RgbaUnorm,
+        (false, _, true) => TextureFormat::Rgba8UnormSrgb,
+        (false, _, false) => TextureFormat::Rgba8Unorm,
+    };
+    let mut img = checked_image_layers(w, h, mips, 6, format, data)?;
+    img.texture_view_descriptor = Some(TextureViewDescriptor { dimension: Some(TextureViewDimension::Cube), ..default() });
+    img.sampler = sampler();
+    Ok(img)
 }
 
 /// The largest side of a texture taken from a file. Above every texture the game ships
@@ -328,6 +535,11 @@ pub const MAX_TEXTURE_SIDE: u32 = 16384;
 /// is shorter than the size says; so every image made from a file's numbers is built
 /// here (docs/design/broken-files.md).
 pub fn checked_image(w: u32, h: u32, mips: u32, format: TextureFormat, data: Vec<u8>) -> Result<Image, String> {
+    checked_image_layers(w, h, mips, 1, format, data)
+}
+
+/// [`checked_image`] with `layers` layers, each with its whole mip chain in turn.
+fn checked_image_layers(w: u32, h: u32, mips: u32, layers: u32, format: TextureFormat, data: Vec<u8>) -> Result<Image, String> {
     if w == 0 || h == 0 || w > MAX_TEXTURE_SIDE || h > MAX_TEXTURE_SIDE {
         return Err(format!("size {w}x{h} out of range (1 to {MAX_TEXTURE_SIDE})"));
     }
@@ -337,11 +549,11 @@ pub fn checked_image(w: u32, h: u32, mips: u32, format: TextureFormat, data: Vec
     }
     let (bw, bh) = format.block_dimensions();
     let block = format.block_copy_size(None).ok_or("format has no single block size")? as usize;
-    let expected: usize = (0..mips).map(|m| ((w >> m).max(1).div_ceil(bw) * (h >> m).max(1).div_ceil(bh)) as usize * block).sum();
+    let expected: usize = (0..mips).map(|m| ((w >> m).max(1).div_ceil(bw) * (h >> m).max(1).div_ceil(bh)) as usize * block).sum::<usize>() * layers as usize;
     if data.len() != expected {
         return Err(format!("{} bytes of data for a {w}x{h} texture of {mips} levels ({expected} expected)", data.len()));
     }
-    let mut img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, data, format, RenderAssetUsages::RENDER_WORLD);
+    let mut img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: layers }, TextureDimension::D2, data, format, RenderAssetUsages::RENDER_WORLD);
     img.texture_descriptor.mip_level_count = mips;
     img.texture_descriptor.label = Some("dds texture");
     Ok(img)
@@ -430,7 +642,14 @@ impl TextureCache {
             })
             .collect();
         self.ahead.retain(|_, (_, at)| now - *at < AHEAD_KEEP_SECS);
-        self.workers.entries.lock().expect("worker textures").retain(|_, w| w.stored_at.is_none_or(|t| now - t < WORKER_KEEP_SECS));
+        // A worker may lose the canonical-key race while its distinct handle is
+        // still sampled by a material. Keep that handle discoverable only while
+        // an external owner holds it; canonical copies retain their usual grace.
+        let canonical: std::collections::HashSet<_> = ids.values().copied().collect();
+        self.workers.entries.lock().expect("worker textures").retain(|_, w| {
+            w.stored_at.is_none_or(|t| now - t < WORKER_KEEP_SECS)
+                || (!canonical.contains(&w.handle.id()) && held_beyond(&w.handle, 1))
+        });
         let drop = idle.sweep_timed(now, entries, keep.secs, keep.max, |k| ids.get(k).and_then(|&id| hints.since(id)));
         for ((p, usage, clamp), _) in &drop {
             (if *clamp { &mut self.clamped } else { &mut self.map }).remove(&(p.clone(), *usage));
@@ -446,7 +665,8 @@ impl TextureCache {
         let mut n = 0;
         let mut entries = self.workers.entries.lock().expect("worker textures");
         for (key, w) in entries.iter_mut() {
-            let Some(image) = w.image.take() else { continue };
+            let Some(mut image) = w.image.take() else { continue };
+            filtering::publish(&mut image);
             if images.insert(w.handle.id(), image).is_ok() {
                 self.map.entry(key.clone()).or_insert_with(|| Some((w.handle.clone(), w.lacks_alpha)));
                 n += 1;
@@ -545,6 +765,20 @@ impl TextureCache {
         self.load(raw_path, TextureUsage::Normal, false, data, images, formats)
     }
 
+    /// Load (once) the file at exactly `path` in role `usage`: normalised only, never turned
+    /// to another file by [`resolved_path`]. For an authored set's members, by the path the
+    /// index names (#2981).
+    pub(crate) fn exact(
+        &mut self,
+        path: &str,
+        usage: TextureUsage,
+        data: &GameData,
+        images: &mut Assets<Image>,
+        formats: Option<&CompressedImageFormatSupport>,
+    ) -> Option<(Handle<Image>, bool)> {
+        self.load_key(fnv_vfs::normalize(path), usage, false, data, images, formats)
+    }
+
     fn load(
         &mut self,
         raw_path: &str,
@@ -554,7 +788,20 @@ impl TextureCache {
         images: &mut Assets<Image>,
         formats: Option<&CompressedImageFormatSupport>,
     ) -> Option<(Handle<Image>, bool)> {
-        let path = resolved_path(raw_path, |p| data.vfs.exists(p));
+        let (raw, cube) = split_cube(raw_path);
+        let path = cube_key(resolved_path(raw, |p| data.vfs.exists(p)), cube);
+        self.load_key(path, usage, clamp, data, images, formats)
+    }
+
+    fn load_key(
+        &mut self,
+        path: String,
+        usage: TextureUsage,
+        clamp: bool,
+        data: &GameData,
+        images: &mut Assets<Image>,
+        formats: Option<&CompressedImageFormatSupport>,
+    ) -> Option<(Handle<Image>, bool)> {
         if let Some(h) = (if clamp { &self.clamped } else { &self.map }).get(&(path.clone(), usage)) {
             return h.clone();
         }
@@ -562,7 +809,8 @@ impl TextureCache {
         if !clamp {
             let mut entries = self.workers.entries.lock().expect("worker textures");
             if let Some(w) = entries.get_mut(&(path.clone(), usage)) {
-                if let Some(image) = w.image.take() {
+                if let Some(mut image) = w.image.take() {
+                    filtering::publish(&mut image);
                     let _ = images.insert(w.handle.id(), image);
                     w.stored_at = Some(0.0);
                 }
@@ -575,17 +823,22 @@ impl TextureCache {
         }
         let bc = formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
         let read_span = bevy::log::info_span!("texture::read").entered();
-        let read = self.ahead.remove(&path).map(|(bytes, _)| bytes).or_else(|| data.read(&path));
+        // The file behind the key: a cube map's key is its path with [`CUBE_KEY`] added.
+        let (file, cube) = split_cube(&path);
+        let read = self.ahead.remove(file).map(|(bytes, _)| bytes).or_else(|| data.read(file));
         drop(read_span);
         let decode_span = bevy::log::info_span!("texture::decode").entered();
         let result = match read {
             None => Err("not in any archive".to_string()),
-            Some(bytes) => dds_texture(&bytes, usage, bc, false),
+            Some(bytes) => decode(&bytes, cube, usage, bc),
         };
         drop(decode_span);
         let handle = match result {
-            Ok(DecodedTexture { mut image, lacks_alpha }) => {
-                image.texture_descriptor.label = Some(folder_label(&path));
+            Ok(DecodedTexture { mut image, lacks_alpha, srgb_code, source }) => {
+                image.texture_descriptor.label = Some(folder_label(file));
+                crate::authored::srgb_warning(&self.workers.authored, file, usage, srgb_code);
+                let size = image.texture_descriptor.size;
+                crate::authored::note_source(&self.workers.authored, file, source, (size.width, size.height));
                 if clamp {
                     if let ImageSampler::Descriptor(d) = &mut image.sampler {
                         d.address_mode_u = ImageAddressMode::ClampToEdge;
@@ -661,7 +914,9 @@ pub fn alpha_shares(bytes: &[u8]) -> Option<AlphaShares> {
                 add(p[3]);
             }
         }
-        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 | Format::Bc5U | Format::Bc5S => return None,
+        // No alpha, or (BC7) no CPU decoder: no alpha information.
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8
+        | Format::Bc5U | Format::Bc5S | Format::Bc4U | Format::Bc4S | Format::Bc7 => return None,
     }
     let n = counts.iter().sum::<usize>().max(1) as f32;
     Some(AlphaShares { clear: counts[0] as f32 / n, opaque: counts[1] as f32 / n, partial: counts[2] as f32 / n })
@@ -683,6 +938,14 @@ pub fn alpha_map(bytes: &[u8]) -> Option<AlphaMap> {
     let (width, height) = (dds.header.width as usize, dds.header.height as usize);
     if width == 0 || height == 0 {
         return None;
+    }
+    // Formats without alpha information are refused before the map is allocated.
+    match dds.format {
+        Format::Dxt1 | Format::Dxt3 | Format::Dxt5
+        | Format::A8R8G8B8 | Format::A4R4G4B4 | Format::A8B8G8R8 | Format::A1R5G5B5 | Format::A8L8 => {}
+        // No alpha, or (BC7) no CPU decoder.
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8
+        | Format::Bc5U | Format::Bc5S | Format::Bc4U | Format::Bc4S | Format::Bc7 => return None,
     }
     let mut alpha = vec![0u8; width * height];
     match dds.format {
@@ -706,7 +969,7 @@ pub fn alpha_map(bytes: &[u8]) -> Option<AlphaMap> {
                 *a = p[3];
             }
         }
-        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 | Format::Bc5U | Format::Bc5S => return None,
+        _ => return None,
     }
     Some(AlphaMap { width, height, alpha })
 }
@@ -994,6 +1257,28 @@ mod tests {
         blk
     }
 
+    /// A cube map (DDS caps2 0xFE00, six faces: `textures\effects\shinybright_e.dds`)
+    /// loads only as a cube: six layers viewed as a cube, the faces' blocks as they are or
+    /// decoded for a GPU without BC formats; a flat texture is no cube, and a cube map is
+    /// still refused as a flat texture (nif.md §6 "Window glass and environment maps").
+    #[test]
+    fn cube_maps_load_as_cubes_only() {
+        let mut cube = dds(b"DXT1", 4, 4, &[0x55; 6 * 8]);
+        cube[112..116].copy_from_slice(&0xFE00u32.to_le_bytes());
+        let img = super::dds_cube_image(&cube, true, true).unwrap();
+        assert_eq!(img.texture_descriptor.format, TextureFormat::Bc1RgbaUnormSrgb);
+        assert_eq!(img.texture_descriptor.size.depth_or_array_layers, 6);
+        assert_eq!(img.texture_view_descriptor.as_ref().and_then(|v| v.dimension), Some(super::TextureViewDimension::Cube));
+        assert_eq!(img.data.as_ref().unwrap().len(), 6 * 8);
+        let rgba = super::dds_cube_image(&cube, false, false).unwrap();
+        assert_eq!(rgba.texture_descriptor.format, TextureFormat::Rgba8Unorm);
+        assert_eq!(rgba.data.as_ref().unwrap().len(), 6 * 4 * 4 * 4);
+        assert!(dds_image(&cube, true, true).is_err());
+        assert!(super::dds_cube_image(&dds(b"DXT1", 4, 4, &[0; 8]), true, true).is_err());
+        assert_eq!(super::split_cube(&super::cube_path("textures\\a_e.dds")), ("textures\\a_e.dds", true));
+        assert_eq!(super::split_cube("textures\\a.dds"), ("textures\\a.dds", false));
+    }
+
     /// A block texture whose sides are not multiples of 4 becomes an RGBA image of its
     /// own size; one with bytes after its last level loads as if they were not there [#2164].
     #[test]
@@ -1101,10 +1386,7 @@ pub(crate) mod bc5_tests {
             std::fs::write(root.join("textures/signed.dds"), dds(b"BC5S", 4, 4, 1, &signed)).unwrap();
             std::fs::write(root.join("textures/unsigned.dds"), dds(b"ATI2", 4, 4, 1, &signed)).unwrap();
             std::fs::write(root.join("textures/old.dds"), dds(b"DXT5", 4, 4, 1, &[255; 16])).unwrap();
-            let data = GameData {
-                vfs: Arc::new(fnv_vfs::Vfs::open(&root, &[]).unwrap()),
-                schema: Arc::new(fnv_nif::Schema::default()),
-            };
+            let data = GameData::new(Arc::new(fnv_vfs::Vfs::open(&root, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
             Self { root, data }
         }
     }
@@ -1267,6 +1549,64 @@ pub(crate) mod bc5_tests {
         assert_eq!(cache.normal("signed.dds", &owned.data, &mut images, None).unwrap(), normal);
     }
 
+    /// The authored `_n` role (#2981): unsigned BC5 on the block grid goes up natively,
+    /// otherwise its channels are stored as they are; signed BC5 is moved to 0..1. Both
+    /// fall back to `Rg8Unorm`, which Bevy reads as a two-channel normal map too.
+    #[test]
+    fn two_channel_normals_keep_unsigned_bytes_and_bias_signed_ones() {
+        let usage = TextureUsage::NormalTwoChannel;
+        // Red endpoint 129, green 127, every index 0: each texel is the first endpoint.
+        let mut block = [0; 16]; block[0] = 129; block[8] = 127;
+        let unsigned = dds(b"ATI2", 4, 4, 1, &block);
+        let native = dds_texture(&unsigned, usage, true, false).unwrap();
+        assert_eq!(native.image.texture_descriptor.format, TextureFormat::Bc5RgUnorm);
+        assert_eq!(native.image.data.as_deref(), Some(block.as_slice()));
+        assert!(native.lacks_alpha, "two channels hold no specular mask");
+        let fallback = dds_texture(&unsigned, usage, false, false).unwrap();
+        assert_eq!(fallback.image.texture_descriptor.format, TextureFormat::Rg8Unorm);
+        assert_eq!(fallback.image.data.as_deref(), Some([129, 127].repeat(16).as_slice()), "unsigned bytes unchanged");
+        assert!(fallback.lacks_alpha);
+        // Signed: -127 reads as -1 (byte 0), 127 as 1 (byte 255), 0 as 0 (byte 128); never native.
+        for (x, y, want) in [(129u8, 127u8, [0u8, 255]), (0, 0, [128, 128]), (64, 192, [192, 63])] {
+            let mut block = [0; 16]; block[0] = x; block[8] = y;
+            let signed = dds(b"BC5S", 4, 4, 1, &block);
+            for bc in [true, false] {
+                let t = dds_texture(&signed, usage, bc, false).unwrap();
+                assert_eq!(t.image.texture_descriptor.format, TextureFormat::Rg8Unorm, "signed BC5, bc {bc}");
+                assert_eq!(t.image.data.as_deref(), Some(want.repeat(16).as_slice()), "signed ({x}, {y}), bc {bc}");
+                assert!(t.lacks_alpha);
+            }
+        }
+        // Off the block grid with BC support: decoded, exact length for two levels.
+        let odd = dds(b"ATI2", 5, 3, 2, &[0; 48]);
+        let t = dds_texture(&odd, usage, true, false).unwrap();
+        assert_eq!(t.image.texture_descriptor.format, TextureFormat::Rg8Unorm);
+        assert_eq!(t.image.data.as_ref().unwrap().len(), (15 + 2) * 2);
+        // Three-channel files load as the game's normal maps do.
+        assert_eq!(dds_texture(&dds(b"DXT5", 4, 4, 1, &[0; 16]), usage, true, false).unwrap().image.texture_descriptor.format, TextureFormat::Bc3RgbaUnorm);
+        assert!(dds_texture(&dds(b"BC4U", 4, 4, 1, &[0; 8]), usage, true, false).err().unwrap().contains("BC4"));
+    }
+
+    /// The two-channel role has handles of its own beside the Normal and Linear roles of the
+    /// same file, and is among the roles a read-ahead offer and `has_or_ahead` look at.
+    #[test]
+    fn two_channel_role_is_cached_apart_from_normal_and_linear() {
+        let owned = OwnedData::new();
+        let cache = TextureCache::default();
+        let images = Assets::<Image>::default();
+        let provider = images.get_handle_provider();
+        let empty = TextureSnapshot::new();
+        let two = worker_texture("unsigned.dds", TextureUsage::NormalTwoChannel, &owned.data, &empty, &cache.workers, &provider, true).unwrap();
+        let normal = worker_texture("unsigned.dds", TextureUsage::Normal, &owned.data, &empty, &cache.workers, &provider, true).unwrap();
+        let linear = worker_texture("unsigned.dds", TextureUsage::Linear, &owned.data, &empty, &cache.workers, &provider, true).unwrap();
+        assert!(two.0 != normal.0 && two.0 != linear.0);
+        assert_eq!((two.1, normal.1, linear.1), (TextureFormat::Bc5RgUnorm, TextureFormat::Rgba8Unorm, TextureFormat::Bc5RgUnorm));
+        assert!(TEXTURE_USAGES.contains(&TextureUsage::NormalTwoChannel));
+        let only_two = TextureCache::default();
+        let _ = worker_texture("unsigned.dds", TextureUsage::NormalTwoChannel, &owned.data, &empty, &only_two.workers, &provider, true).unwrap();
+        assert!(only_two.has_or_ahead("textures\\unsigned.dds"), "a two-channel load counts as loaded");
+    }
+
     #[test]
     fn release_tracks_each_usage_and_clamped_copy_independently() {
         let owned = OwnedData::new();
@@ -1288,5 +1628,211 @@ pub(crate) mod bc5_tests {
         assert_eq!(cache.release(&mut idle, &hints, 2.0, keep), 1);
         assert!(cache.is_empty());
         assert!(cache.snapshot(&images).is_empty());
+    }
+}
+
+/// DX10 files, BC7 and BC4 per role (#2981 stage 1). Every file is generated here.
+#[cfg(test)]
+mod dx10_tests {
+    use super::*;
+
+    /// A DX10 DDS file: the header with FourCC `DX10`, the extension (DXGI code, 2D, an
+    /// array of one, `misc` and `flags2` as given), then `payload`.
+    fn dx10(dxgi: u32, misc: u32, flags2: u32, w: u32, h: u32, mips: u32, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0; 128];
+        bytes[..4].copy_from_slice(b"DDS ");
+        for (offset, value) in [(4, 124), (8, 0x21007), (12, h), (16, w), (28, mips), (76, 32), (80, 4), (108, 0x1000)] {
+            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes[84..88].copy_from_slice(b"DX10");
+        for value in [dxgi, 3, misc, 1, flags2] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    const OPAQUE: u32 = 3;
+    const ROLES: [TextureUsage; 3] = [TextureUsage::Color, TextureUsage::Linear, TextureUsage::Normal];
+
+    #[test]
+    fn bc7_takes_its_colour_space_from_the_role_not_the_code() {
+        let block: Vec<u8> = (0..16).collect();
+        for code in [98, 99] {
+            let bytes = dx10(code, 0, 0, 4, 4, 1, &block);
+            for (usage, format) in ROLES.into_iter().zip([TextureFormat::Bc7RgbaUnormSrgb, TextureFormat::Bc7RgbaUnorm, TextureFormat::Bc7RgbaUnorm]) {
+                let t = dds_texture(&bytes, usage, true, false).unwrap();
+                assert_eq!(t.image.texture_descriptor.format, format, "dxgi {code} {usage:?}");
+                assert_eq!(t.image.data.as_deref(), Some(block.as_slice()));
+                assert!(!t.lacks_alpha, "no alpha mode stated: the alpha may be a mask");
+            }
+            // An OPAQUE alpha mode says the alpha holds no mask, whatever the role.
+            let opaque = dx10(code, 0, OPAQUE, 4, 4, 1, &block);
+            for usage in ROLES {
+                assert!(dds_texture(&opaque, usage, true, false).unwrap().lacks_alpha);
+            }
+        }
+        assert_eq!(dds_image(&dx10(99, 0, 0, 4, 4, 1, &block), false, true).unwrap().texture_descriptor.format, TextureFormat::Bc7RgbaUnorm);
+    }
+
+    #[test]
+    fn bc7_off_the_block_grid_or_without_bc_support_is_refused() {
+        // 6×5: 2×2 blocks.
+        let odd = dx10(98, 0, 0, 6, 5, 1, &[0; 64]);
+        for usage in ROLES {
+            let e = dds_texture(&odd, usage, true, false).err().unwrap();
+            assert!(e.contains("multiples of 4") && e.contains("6x5"), "{e}");
+        }
+        assert!(dds_image_top(&odd, true, true).unwrap_err().contains("multiples of 4"));
+        let even = dx10(99, 0, 0, 8, 8, 1, &[0; 64]);
+        for usage in ROLES {
+            assert!(dds_texture(&even, usage, false, false).err().unwrap().contains("BC texture support"));
+        }
+    }
+
+    /// Full chains down to 1×1 upload with whole blocks per level; a chain longer than the
+    /// size allows parses (fnv-dds takes up to 32 levels) and is refused at upload.
+    #[test]
+    fn bc7_and_bc4_full_chains_upload_with_exact_lengths() {
+        let total: usize = (0..13).map(|i| (4096usize >> i).max(1).div_ceil(4).pow(2) * 16).sum();
+        let big = dx10(99, 0, 0, 4096, 4096, 13, &vec![0; total]);
+        let img = dds_image(&big, true, true).unwrap();
+        assert_eq!((img.width(), img.texture_descriptor.mip_level_count, img.data.as_ref().unwrap().len()), (4096, 13, total));
+        let too_long = dx10(99, 0, 0, 4096, 4096, 14, &vec![0; total + 16]);
+        assert!(Dds::parse(&too_long).is_ok());
+        assert!(dds_image(&too_long, true, true).unwrap_err().contains("14 mip levels"));
+        let small = dx10(98, 0, 0, 8, 4, 4, &[0; 80]);
+        let img = dds_image(&small, false, true).unwrap();
+        assert_eq!((img.texture_descriptor.mip_level_count, img.data.as_ref().unwrap().len()), (4, 80));
+        assert_eq!(dds_image_top(&small, false, true).unwrap().data.as_ref().unwrap().len(), 32);
+        // 5×3 BC4, 3 levels (5×3, 2×1, 1×1), off the grid: decoded to R8, one byte a texel.
+        let bc4 = dx10(80, 0, 0, 5, 3, 3, &[0; 32]);
+        let img = dds_image(&bc4, false, true).unwrap();
+        assert_eq!(img.texture_descriptor.format, TextureFormat::R8Unorm);
+        assert_eq!((img.texture_descriptor.mip_level_count, img.data.as_ref().unwrap().len()), (3, 15 + 2 + 1));
+    }
+
+    #[test]
+    fn bc4_is_linear_data_native_or_decoded_to_r8() {
+        // Unsigned: endpoints 255/0, indices 0..7 twice; signed: 127/-127.
+        let unsigned = [255u8, 0, 0x88, 0xc6, 0xfa, 0x88, 0xc6, 0xfa];
+        let signed = [127u8, 129, 0x88, 0xc6, 0xfa, 0x88, 0xc6, 0xfa];
+        for (code, block, native, fallback) in [
+            (80, unsigned, TextureFormat::Bc4RUnorm, TextureFormat::R8Unorm),
+            (81, signed, TextureFormat::Bc4RSnorm, TextureFormat::R8Snorm),
+        ] {
+            let bytes = dx10(code, 0, 0, 4, 4, 1, &block);
+            let t = dds_texture(&bytes, TextureUsage::Linear, true, false).unwrap();
+            assert_eq!(t.image.texture_descriptor.format, native);
+            assert_eq!(t.image.data.as_deref(), Some(block.as_slice()));
+            assert!(t.lacks_alpha);
+            let t = dds_texture(&bytes, TextureUsage::Linear, false, false).unwrap();
+            assert_eq!(t.image.texture_descriptor.format, fallback);
+            assert_eq!(t.image.data.as_ref().unwrap().len(), 16);
+            assert!(t.lacks_alpha);
+            for usage in [TextureUsage::Color, TextureUsage::Normal] {
+                for bc in [true, false] {
+                    assert!(dds_texture(&bytes, usage, bc, false).err().unwrap().contains("BC4"), "{usage:?}");
+                }
+            }
+            assert!(alpha_shares(&bytes).is_none());
+            assert!(alpha_map(&bytes).is_none());
+        }
+        // The R8 bytes: 255, 0, then 6/7 … 1/7 of 255, rounded.
+        let decoded = dds_image(&dx10(80, 0, 0, 4, 4, 1, &unsigned), false, false).unwrap();
+        assert_eq!(&decoded.data.as_ref().unwrap()[..8], &[255, 0, 219, 182, 146, 109, 73, 36]);
+        let decoded = dds_image(&dx10(81, 0, 0, 4, 4, 1, &signed), false, false).unwrap();
+        assert_eq!(&decoded.data.as_ref().unwrap()[..8], &[127, 129, 91, 54, 18, 238, 202, 165]);
+        // The legacy BC4U FourCC reads the same.
+        let legacy = bc5_tests::dds(b"BC4U", 4, 4, 1, &unsigned);
+        assert_eq!(dds_image(&legacy, false, true).unwrap().texture_descriptor.format, TextureFormat::Bc4RUnorm);
+        for format in [TextureFormat::Bc4RUnorm, TextureFormat::Bc4RSnorm, TextureFormat::R8Unorm, TextureFormat::R8Snorm] {
+            assert!(crate::nif_spawn::format_lacks_alpha(format));
+        }
+        for format in [TextureFormat::Bc7RgbaUnorm, TextureFormat::Bc7RgbaUnormSrgb] {
+            assert!(!crate::nif_spawn::format_lacks_alpha(format));
+        }
+    }
+
+    /// The OPAQUE alpha mode survives every path, the early CPU decode of a DXT texture
+    /// off the block grid included.
+    #[test]
+    fn opaque_alpha_mode_holds_on_every_path() {
+        let odd_payload: Vec<u8> = (0..4).flat_map(|_| { let mut b = [0u8; 16]; b[0] = 255; b[1] = 255; b }).collect();
+        for (flags2, opaque) in [(0, false), (1, false), (OPAQUE, true)] {
+            // 6×5 BC3 through DX10: decoded to RGBA8 here.
+            let odd = dx10(77, 0, flags2, 6, 5, 1, &odd_payload);
+            for usage in ROLES {
+                let t = dds_texture(&odd, usage, true, false).unwrap();
+                assert!(matches!(t.image.texture_descriptor.format, TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb));
+                assert_eq!(t.lacks_alpha, opaque, "{usage:?} miscFlags2 {flags2}");
+            }
+            // 4×4 BC3 uploaded as blocks, and 1×1 B8G8R8A8 converted to RGBA8.
+            let aligned = dx10(78, 0, flags2, 4, 4, 1, &odd_payload[..16]);
+            assert_eq!(dds_texture(&aligned, TextureUsage::Normal, true, false).unwrap().lacks_alpha, opaque);
+            let bgra = dx10(87, 0, flags2, 1, 1, 1, &[1, 2, 3, 4]);
+            let t = dds_texture(&bgra, TextureUsage::Color, true, false).unwrap();
+            assert_eq!(t.image.data.as_deref(), Some([3u8, 2, 1, 4].as_slice()));
+            assert_eq!(t.lacks_alpha, opaque);
+        }
+        // DX10 BC1 lacks alpha by its format, as legacy DXT1 does.
+        assert!(dds_texture(&dx10(71, 0, 0, 4, 4, 1, &[0; 8]), TextureUsage::Normal, true, false).unwrap().lacks_alpha);
+    }
+
+    /// An odd-sized BC1 normal map decoded to RGBA8: through a DX10 header it keeps BC1's
+    /// "no alpha mask", as the same file on the block grid has. The legacy DXT1 beside it
+    /// keeps main's classification (its alpha read as a mask) on purpose; the difference
+    /// is pinned here.
+    #[test]
+    fn odd_sized_dx10_bc1_normal_keeps_no_mask_unlike_its_legacy_counterpart() {
+        // 6×5 = 2×2 blocks of 8 bytes, colour 0 white above colour 1: opaque texels.
+        let blocks: Vec<u8> = (0..4).flat_map(|_| [0xFF, 0xFF, 0, 0, 0, 0, 0, 0]).collect();
+        let dx10_odd = dds_texture(&dx10(71, 0, 0, 6, 5, 1, &blocks), TextureUsage::Normal, true, false).unwrap();
+        let legacy_odd = dds_texture(&bc5_tests::dds(b"DXT1", 6, 5, 1, &blocks), TextureUsage::Normal, true, false).unwrap();
+        assert_eq!(dx10_odd.image.texture_descriptor.format, TextureFormat::Rgba8Unorm);
+        assert_eq!(legacy_odd.image.texture_descriptor.format, TextureFormat::Rgba8Unorm);
+        assert_eq!(dx10_odd.image.data, legacy_odd.image.data);
+        assert!(dx10_odd.lacks_alpha, "DX10 BC1 carries its source classification through the expansion");
+        assert!(!legacy_odd.lacks_alpha, "legacy odd-sized DXT1: unchanged from main");
+        // On the block grid both are BC1 blocks without a mask.
+        let dx10_even = dds_texture(&dx10(71, 0, 0, 8, 8, 1, &blocks), TextureUsage::Normal, true, false).unwrap();
+        let legacy_even = dds_texture(&bc5_tests::dds(b"DXT1", 8, 8, 1, &blocks), TextureUsage::Normal, true, false).unwrap();
+        assert!(dx10_even.lacks_alpha && legacy_even.lacks_alpha);
+    }
+
+    #[test]
+    fn dx10_cube_maps_and_unknown_codes_are_refused() {
+        assert!(dds_image(&dx10(98, 0x4, 0, 4, 4, 1, &[0; 96]), true, true).unwrap_err().contains("cube"));
+        assert!(dds_image(&dx10(95, 0, 0, 4, 4, 1, &[0; 16]), true, true).unwrap_err().contains("dxgi=95"));
+        // The alpha readers report no alpha information for BC7 (no CPU decoder).
+        let bc7 = dx10(98, 0, 0, 8, 8, 1, &[0; 64]);
+        assert!(alpha_shares(&bc7).is_none());
+        assert!(alpha_map(&bc7).is_none());
+        // A DX10 BC3 is read by both like a legacy DXT5.
+        let mut blocks = Vec::new();
+        for a in [0u8, 255, 255, 255] {
+            let mut b = [0u8; 16]; b[0] = a; b[1] = a;
+            blocks.extend_from_slice(&b);
+        }
+        let bc3 = dx10(77, 0, 0, 8, 8, 1, &blocks);
+        assert_eq!(alpha_shares(&bc3).unwrap(), AlphaShares { clear: 0.25, opaque: 0.75, partial: 0.0 });
+        assert_eq!(alpha_map(&bc3).unwrap().alpha[0], 0);
+    }
+
+    #[test]
+    fn roles_of_one_dx10_file_keep_their_own_handles_and_a_refusal_poisons_none() {
+        let workers = WorkerTextures::default();
+        let images = Assets::<Image>::default().get_handle_provider();
+        let bc7 = dx10(99, 0, 0, 4, 4, 1, &[0; 16]);
+        let load = |usage| workers.load_once(("textures\\pbr\\a.dds".into(), usage), &images, |_| dds_texture(&bc7, usage, true, false));
+        let (color, linear, normal) = (load(TextureUsage::Color).unwrap(), load(TextureUsage::Linear).unwrap(), load(TextureUsage::Normal).unwrap());
+        assert_eq!((color.1, linear.1, normal.1), (TextureFormat::Bc7RgbaUnormSrgb, TextureFormat::Bc7RgbaUnorm, TextureFormat::Bc7RgbaUnorm));
+        assert!(color.0 != linear.0 && linear.0 != normal.0 && color.0 != normal.0);
+        let bc4 = dx10(80, 0, 0, 4, 4, 1, &[0; 8]);
+        let load4 = |usage| workers.load_once(("textures\\pbr\\a_p.dds".into(), usage), &images, |_| dds_texture(&bc4, usage, true, false));
+        assert!(load4(TextureUsage::Color).is_none());
+        let height = load4(TextureUsage::Linear).unwrap();
+        assert_eq!(height.1, TextureFormat::Bc4RUnorm);
+        assert!(height.2);
     }
 }

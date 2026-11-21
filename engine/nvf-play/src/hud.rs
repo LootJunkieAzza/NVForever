@@ -111,6 +111,10 @@ const LINE_Y: f32 = 66.0;
 const LEFT_UPRIGHT: f32 = 17.0;
 const RIGHT_UPRIGHT: f32 = 369.0;
 const DIVIDER: f32 = 207.0;
+/// How far in from the view's right edge the right bracket's end upright stands, its outer
+/// side (the upright about 2 units wide): the line other pieces keep inside on the right
+/// (`crate::quick_loot`) [design, #2933: step 10].
+pub(crate) const RIGHT_EDGE_IN: f32 = MARGIN_X + AP_PANEL.x - RIGHT_UPRIGHT - 2.0;
 /// The small corner marks on the long line: where a full bar ends on the left piece and
 /// starts on the right one.
 const LEFT_MARK: f32 = 320.0;

@@ -104,7 +104,8 @@ open and close the runtime's menu), plus `--new-game` in `engine/nvforever/src/m
   `GetButtonPressed` once (the Goodsprings chemistry set's does; `Game::press_button`
   closes the box at once, before MenuMode could run) [hypothesis: the original runs the
   frame's MenuMode with the button pressed]. A box that waits for a button and is
-  closed with OK gets button 0.
+  closed with OK gets button 0; so does the OK of a message box without buttons, whose
+  `message_box` has `buttons: 0` (#2925, docs/spec-notes/scripts.md §7.2).
 - The **placeholder** for a character-creation menu names it and says nothing is chosen
   (Layer 7 builds the real menus); the player's name, race and picks stay as they are.
 - **Holding the player** (`script::hold_player`): while a script's menu or box is open

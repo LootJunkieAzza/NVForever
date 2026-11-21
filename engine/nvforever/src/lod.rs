@@ -17,20 +17,30 @@
 //!
 //! Which chunks are drawn [hypothesis; names and values from the owner's
 //! `FalloutPrefs.ini`, meanings not documented, layer3.md "Distant LOD"]: a quadtree over
-//! the level-32 grid. Nothing farther than [`LodSettings::far`] (fBlockLoadDistance) is
-//! drawn; a chunk coarser than level 4 is replaced by its four quarters while the camera
-//! is nearer (horizontally, to the chunk's closest point) than
-//! max([`LodSettings::near`] (fBlockLoadDistanceLow), [`LodSettings::split`]
-//! (fSplitDistanceMult) × the chunk's side). Every level has 256 texels per chunk side,
-//! so each level takes over where its texels look about as large as the finer level's
-//! did at its own limit. At the owner's values level 4 reaches 50,000 units, level 8
-//! 98,304 and level 16 the rest of the 125,000; level 32 only shows with a larger `far`
-//! (from 196,608). The two INI values agree on where level 4 ends at the "Very High"
-//! (8 cells × 1.5 = 49,152 against 50,000) and "Low" presets (24,576 against 25,000),
-//! not at "Medium" and "High" (32,768 against 50,000) [observed: `low.ini` …
-//! `VeryHigh.ini` in the game folder]. The choice is redone when the camera enters another cell; levels switch at once. Object
-//! blocks are drawn over every 4 × 4-cell square nearer than `far`, whatever the terrain
-//! level there.
+//! the level-32 grid. No terrain chunk farther than the terrain reach
+//! ([`LodSettings::terrain_reach`]: [`LodSettings::terrain_far`], 250,000, or
+//! [`LodSettings::far`] when that is larger) is drawn; a chunk coarser than level 4 is
+//! replaced by its four quarters while the camera is nearer (horizontally, to the
+//! chunk's closest point) than max([`LodSettings::near`] (fBlockLoadDistanceLow),
+//! [`LodSettings::split`] (fSplitDistanceMult) × the chunk's side). Every level has 256
+//! texels per chunk side, so each level takes over where its texels look about as large
+//! as the finer level's did at its own limit. At the owner's values level 4 reaches
+//! 50,000 units, level 8 98,304, level 16 196,608 and level 32 the rest of the 250,000.
+//! The two INI values agree on where level 4 ends at the "Very High" (8 cells × 1.5 =
+//! 49,152 against 50,000) and "Low" presets (24,576 against 25,000), not at "Medium" and
+//! "High" (32,768 against 50,000) [observed: `low.ini` … `VeryHigh.ini` in the game
+//! folder]. The choice is redone when the camera enters another cell; levels switch at
+//! once. Object blocks are drawn over every 4 × 4-cell square nearer than `far`
+//! (fBlockLoadDistance, 125,000), whatever the terrain level there. The terrain's reach
+//! of 250,000 is a calibrated default: at one pose, the hill above Goodsprings (-65347,
+//! 5770, z 13970, heading 27°), our render's skyline matched the original's from the
+//! first tested `--lod-distance` of 250,000, and 150,000, 175,000 and 200,000 did not
+//! (that sweep, before the two reaches were split, also moved the object blocks and the
+//! distant water) [observed: capture of the original and our runs, 2026-11-19, #3055].
+//! How far the original actually draws terrain, and whether it is one reach for every
+//! place and preset, is [hypothesis]; no INI key gives 250,000 [observed: the game's INI
+//! files]. Distant water (water.rs) covers the cells under the chosen chunks
+//! ([`LodState::chosen_chunks`]).
 //!
 //! Neighbouring chunks do not share their edge vertices, at the same level or across
 //! levels [observed: level4.x8.y8 / x12.y8 share 14 of 16 + 52 edge positions], so every
@@ -71,7 +81,7 @@
 
 use crate::fade;
 use crate::lodgen::{self, Baker, GenJob};
-use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
+use crate::world::{bevy_to_game, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::VisibilityRange;
 use bevy::image::{CompressedImageFormats, ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
@@ -105,21 +115,43 @@ type Pieces = Vec<Vec<(Handle<Mesh>, Handle<NifMaterial>, Transform)>>;
 /// [hypothesis] (module docs, layer3.md).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LodSettings {
-    /// `[TerrainManager] fBlockLoadDistance`: no terrain chunk or object block beyond.
+    /// `[TerrainManager] fBlockLoadDistance`: no object block beyond (and the terrain
+    /// reaches at least this far, [`LodSettings::terrain_reach`]).
     pub far: f32,
+    /// No terrain chunk beyond this (or beyond `far`, when that is larger). The default,
+    /// 250,000, is calibrated at one pose, the hill above Goodsprings (-65347, 5770,
+    /// z 13970, heading 27°): our render's skyline matched the original's from the first
+    /// tested `--lod-distance` of 250,000; 150,000, 175,000 and 200,000 did not (that
+    /// sweep also moved the object blocks and the distant water) [observed: capture of
+    /// the original and our runs, 2026-11-19, #3055]. How far the original draws terrain
+    /// is [hypothesis], as is one fixed number for every place and preset; the game's INI
+    /// files hold no `[TerrainManager]` key that gives it [observed: `Fallout_default.ini`
+    /// and the four presets].
+    pub terrain_far: f32,
     /// `[TerrainManager] fBlockLoadDistanceLow`: level-4 terrain chunks within.
     pub near: f32,
     /// `[TerrainManager] fSplitDistanceMult`: coarser chunks split while the camera is
     /// nearer than this × their side.
     pub split: f32,
-    /// `[TerrainManager] fTreeLoadDistance`: distant tree billboards within (treelod.rs);
-    /// 0 draws none.
+    /// `[TerrainManager] fTreeLoadDistance`: distant tree billboards within at the start
+    /// (treelod.rs; the Tree distance slider then sets a part of `far`, #3016); 0 draws none.
     pub trees: f32,
 }
 
+/// [`LodSettings::far`]'s default (`--lod-distance`).
+pub const DEFAULT_FAR: f32 = 125_000.0;
+
 impl Default for LodSettings {
     fn default() -> LodSettings {
-        LodSettings { far: 125_000.0, near: 50_000.0, split: 1.5, trees: 40_000.0 }
+        LodSettings { far: DEFAULT_FAR, terrain_far: 250_000.0, near: 50_000.0, split: 1.5, trees: 40_000.0 }
+    }
+}
+
+impl LodSettings {
+    /// How far terrain chunks are drawn: `terrain_far`, or `far` when that is larger
+    /// (the terrain never stops short of the object blocks standing on it).
+    pub fn terrain_reach(&self) -> f32 {
+        self.terrain_far.max(self.far)
     }
 }
 
@@ -132,37 +164,58 @@ pub fn square_distance(p: Vec2, (x, y): Grid, n: i32) -> f32 {
     (dx * dx + dy * dy).sqrt()
 }
 
+/// Level-4 squares (of 4 × 4 cells) it takes to reach `d` game units (0 for none).
+pub fn squares_within(d: f32) -> i32 {
+    (d / (LEVEL as f32 * CELL_SIZE)).ceil().max(0.0) as i32
+}
+
 /// The terrain chunks to draw for a camera at `p` (module docs): leaves of a quadtree
 /// over the coarsest level, none of them overlapping, nearest level 4.
 pub fn select_chunks(p: Vec2, s: &LodSettings, origin: Grid) -> Vec<Chunk> {
     let top = LEVELS[LEVELS.len() - 1];
     let mut out = Vec::new();
-    if s.far <= 0.0 {
+    let reach = s.terrain_reach();
+    if reach <= 0.0 {
         return out;
     }
-    let r = (s.far / CELL_SIZE).ceil() as i32 + top;
+    let r = (reach / CELL_SIZE).ceil() as i32 + top;
     let (cx, cy) = cell_of(p.x, p.y);
     for x in (align(cx - r, origin.0, top)..=cx + r).step_by(top as usize) {
         for y in (align(cy - r, origin.1, top)..=cy + r).step_by(top as usize) {
-            visit(p, s, (top, x, y), &mut out);
+            visit(p, s, reach, (top, x, y), &mut out);
         }
     }
     out
 }
 
-fn visit(p: Vec2, s: &LodSettings, (l, x, y): Chunk, out: &mut Vec<Chunk>) {
+fn visit(p: Vec2, s: &LodSettings, reach: f32, (l, x, y): Chunk, out: &mut Vec<Chunk>) {
     let d = square_distance(p, (x, y), l);
-    if d >= s.far {
+    if d >= reach {
         return;
     }
     if l > LEVEL && d < s.near.max(s.split * l as f32 * CELL_SIZE) {
         let h = l / 2;
         for (dx, dy) in [(0, 0), (h, 0), (0, h), (h, h)] {
-            visit(p, s, (h, x + dx, y + dy), out);
+            visit(p, s, reach, (h, x + dx, y + dy), out);
         }
     } else {
         out.push((l, x, y));
     }
+}
+
+/// The level-4 squares (south-west cells, on the grid from `origin`) whose object blocks
+/// are drawn for a camera at `p`: those nearer than `far` (not the terrain's reach,
+/// module docs), nearest first, so squares put off by the rebuild budget are the far ones.
+pub fn block_squares(p: Vec2, s: &LodSettings, origin: Grid) -> Vec<Grid> {
+    let (cx, cy) = cell_of(p.x, p.y);
+    let centre = ((cx - origin.0).div_euclid(LEVEL), (cy - origin.1).div_euclid(LEVEL));
+    let r = squares_within(s.far) + 1;
+    let mut out: Vec<Grid> = (-r..=r)
+        .flat_map(|dx| (-r..=r).map(move |dy| (origin.0 + (centre.0 + dx) * LEVEL, origin.1 + (centre.1 + dy) * LEVEL)))
+        .filter(|&sq| square_distance(p, sq, LEVEL) < s.far)
+        .collect();
+    out.sort_by(|&a, &b| square_distance(p, a, LEVEL).total_cmp(&square_distance(p, b, LEVEL)));
+    out
 }
 
 /// The first cell of the level-`l` chunk holding cell `c`, on a grid starting at `o`.
@@ -238,9 +291,6 @@ fn despawn_all(commands: &mut Commands, entities: impl IntoIterator<Item = Entit
 #[derive(Resource)]
 pub struct LodState {
     pub settings: LodSettings,
-    /// Level-4 squares around the camera's square that reach `settings.far` (water.rs
-    /// draws distant water that far).
-    pub radius: i32,
     pub enabled: bool,
     world_name: String,
     /// The south-west cell of the world's LOD grid ([`grid_origin`]).
@@ -250,6 +300,8 @@ pub struct LodState {
     /// Terrain chunks and object-block squares chosen for `centre`.
     chosen: Vec<Chunk>,
     squares: Vec<Grid>,
+    /// Counts the times `chosen` was replaced (water.rs redoes its cells when it moves).
+    choice: u64,
     terrain: HashMap<Chunk, TerrainEntities>,
     /// Chunks no longer chosen, kept drawn until every chosen chunk over their area is
     /// spawned: those wait for their models on worker threads, and dropping the old ones
@@ -328,6 +380,104 @@ impl LodState {
     pub fn terrain_entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.terrain.values().chain(self.outgoing.values()).flat_map(|t| t.entities.iter().copied())
     }
+
+    /// The terrain chunks chosen for the camera's cell ([`select_chunks`]; none while
+    /// distant LOD is off or before the first update). Distant water (water.rs) covers
+    /// the cells under them, so it ends where the terrain does.
+    pub fn chosen_chunks(&self) -> &[Chunk] {
+        &self.chosen
+    }
+
+    /// Changes whenever [`LodState::chosen_chunks`] is replaced.
+    pub fn choice(&self) -> u64 {
+        self.choice
+    }
+
+    /// Tests: the chunks `update_lod` would have chosen (counts as a new choice).
+    #[cfg(test)]
+    pub fn choose_for_test(&mut self, chunks: Vec<Chunk>) {
+        self.chosen = chunks;
+        self.choice += 1;
+    }
+}
+
+/// What each level-4 square's object block holds, by cell: bit `y * 4 + x` of its mask
+/// ([`chunk_bit`]) is set when the block's segment for that cell is not empty (#3014; read
+/// by `crate::distant_objects`, which leaves a reference to the block when the block may
+/// hold it). A square is known once its block has been prepared for drawing
+/// ([`update_lod`]): a square without a block file, or whose file did not load, holds
+/// nothing (mask 0); a block shape without usable segments counts as holding every cell
+/// ([`segment_mask`]). Unknown until then [design].
+#[derive(Resource, Default)]
+pub struct BlockContents {
+    /// The LOD files' worldspace name and grid origin the masks are of.
+    world: String,
+    origin: Grid,
+    squares: HashMap<Grid, u16>,
+    /// Counts the changes (a settled distant frame compares it).
+    rev: u64,
+}
+
+impl BlockContents {
+    /// Whether the object block of cell `c`'s square has a non-empty segment for `c`;
+    /// `None` while that block is not known yet.
+    pub fn segment(&self, c: Grid) -> Option<bool> {
+        let (sq, bit) = chunk_bit(c, self.origin);
+        self.squares.get(&sq).map(|m| m & bit != 0)
+    }
+
+    /// Square `sq` holds the cells of `mask`, for other modules' tests.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, sq: Grid, mask: u16) {
+        self.set(sq, mask);
+    }
+
+    /// Counts the changes of the masks.
+    pub fn rev(&self) -> u64 {
+        self.rev
+    }
+
+    /// The masks known (squares).
+    #[cfg(test)]
+    pub fn known(&self) -> usize {
+        self.squares.len()
+    }
+
+    /// Forget everything when the LOD files change (another worldspace's).
+    fn follow(&mut self, world: &str, origin: Grid) {
+        if self.world != world || self.origin != origin {
+            self.world = world.to_string();
+            self.origin = origin;
+            self.squares.clear();
+            self.rev += 1;
+        }
+    }
+
+    /// Square `sq` (its south-west cell) holds the cells of `mask`.
+    fn set(&mut self, sq: Grid, mask: u16) {
+        if self.squares.insert(sq, mask) != Some(mask) {
+            self.rev += 1;
+        }
+    }
+}
+
+/// The cells of a level-4 square an object block holds anything for ([`BlockContents`]),
+/// from its shapes' segments (triangle ranges, one per cell in [`segment_cell`] order): a
+/// non-empty segment sets its cell's bit; a shape with no segments or more than the
+/// square has cells sets every bit (its objects cannot be told apart by cell).
+pub fn segment_mask<'a>(shapes: impl IntoIterator<Item = &'a [std::ops::Range<usize>]>) -> u16 {
+    let mut mask = 0u16;
+    for segments in shapes {
+        if segments.is_empty() || segments.len() > CELLS {
+            return u16::MAX;
+        }
+        for (i, r) in segments.iter().enumerate() {
+            if !r.is_empty() {
+                mask |= 1 << segment_cell(i);
+            }
+        }
+    }
+    mask
 }
 
 /// Threads baking generated terrain (lodgen::Baker, at the lowest priority).
@@ -388,13 +538,13 @@ impl LodState {
         let name = world.index.worldspaces[&world.index.lod_world(world.world)].edid.clone().unwrap_or_default().to_ascii_lowercase();
         LodState {
             settings,
-            radius: (settings.far / (LEVEL as f32 * CELL_SIZE)).ceil().max(0.0) as i32,
             enabled,
             world_name: name,
             origin: (0, 0),
             centre: None,
             chosen: Vec::new(),
             squares: Vec::new(),
+            choice: 0,
             terrain: HashMap::new(),
             outgoing: HashMap::new(),
             block_entities: HashMap::new(),
@@ -427,6 +577,8 @@ impl LodState {
     pub fn set_enabled(&mut self, commands: &mut Commands, enabled: bool) {
         self.enabled = enabled;
         self.centre = None;
+        self.chosen.clear();
+        self.choice += 1;
         for (_, t) in self.terrain.drain().chain(self.outgoing.drain()) {
             despawn_all(commands, t.entities);
         }
@@ -580,17 +732,37 @@ fn open_edges(idx: &[u32]) -> Vec<(u32, u32)> {
     out
 }
 
+/// The masks of the level-4 squares holding `cells` (cell, fully drawn; on the grid from
+/// `o`): cells fully drawn, cells drawn at all (bit `y * 4 + x`, [`chunk_bit`]).
+pub(crate) fn block_masks(cells: &[(Grid, bool)], o: Grid) -> HashMap<Grid, (u16, u16)> {
+    let mut masks: HashMap<Grid, (u16, u16)> = HashMap::new();
+    for &(c, full) in cells {
+        let (ch, bit) = chunk_bit(c, o);
+        let m = masks.entry(ch).or_default();
+        m.1 |= bit;
+        if full {
+            m.0 |= bit;
+        }
+    }
+    masks
+}
+
+/// Distant LOD each frame. The cells it gives way to are the loaded ones and, with the
+/// full-detail ring on, the ring's (`crate::full_detail::DrawnCells`): both cut the LOD
+/// terrain out and hide their object-block segments alike.
 pub fn update_lod(
     mut commands: Commands,
-    streamer: Res<Streamer>,
+    drawn: crate::full_detail::DrawnCells,
     mut lod: ResMut<LodState>,
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
+    mut contents: ResMut<BlockContents>,
 ) {
     if !lod.enabled {
         return;
     }
+    contents.follow(&lod.world_name, lod.origin);
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let update_started = std::time::Instant::now();
     let g = bevy_to_game(cam.translation());
@@ -606,13 +778,8 @@ pub fn update_lod(
         let p = g.truncate();
         let s = lod.settings;
         lod.chosen = select_chunks(p, &s, o);
-        let r = lod.radius + 1;
-        lod.squares = (-r..=r)
-            .flat_map(|dx| (-r..=r).map(move |dy| (o.0 + (centre_chunk.0 + dx) * LEVEL, o.1 + (centre_chunk.1 + dy) * LEVEL)))
-            .filter(|&sq| square_distance(p, sq, LEVEL) < s.far)
-            .collect();
-        // Nearest first, so squares put off by the rebuild budget are the far ones.
-        lod.squares.sort_by(|&a, &b| square_distance(p, a, LEVEL).total_cmp(&square_distance(p, b, LEVEL)));
+        lod.choice += 1;
+        lod.squares = block_squares(p, &s, o);
         let finest: Vec<Grid> = lod.chosen.iter().filter(|ch| ch.0 == LEVEL).map(|ch| (ch.1, ch.2)).filter(near_gen).collect();
         schedule_generated(&mut lod, centre_chunk, &finest);
         let chosen: HashSet<Chunk> = lod.chosen.iter().copied().collect();
@@ -640,17 +807,10 @@ pub fn update_lod(
             }
         }
     }
-    // Which cells are loaded, and which are fully drawn, per level-4 square.
-    let full: HashSet<Grid> = streamer.loaded.keys().filter(|c| !streamer.fades.contains_key(c)).copied().collect();
-    let mut masks: HashMap<Grid, (u16, u16)> = HashMap::new();
-    for c in streamer.loaded.keys() {
-        let (ch, bit) = chunk_bit(*c, o);
-        let m = masks.entry(ch).or_default();
-        m.1 |= bit;
-        if full.contains(c) {
-            m.0 |= bit;
-        }
-    }
+    // Which cells are drawn (loaded, or the full-detail ring's), and which are fully
+    // drawn, per level-4 square.
+    let full: HashSet<Grid> = drawn.full();
+    let masks = block_masks(&drawn.cells(true), o);
     let mut changed = false;
     let started = std::time::Instant::now();
     let mut rebuilt = 0usize;
@@ -712,7 +872,7 @@ pub fn update_lod(
         let key = BlockKey { full: full_mask, present };
         let steps: [u8; CELLS] = match present {
             0 => [0; CELLS],
-            _ => std::array::from_fn(|i| fade::step(streamer.cell_level(chunk_cell(sq, i)))),
+            _ => std::array::from_fn(|i| fade::step(drawn.block_level(chunk_cell(sq, i)))),
         };
         match lod.block_entities.get_mut(&sq) {
             Some(b) if b.key == key => {
@@ -763,6 +923,8 @@ pub fn update_lod(
                     }
                 };
                 lod.put_off_runs.remove(&sq);
+                // What the block holds by cell, for the distant objects (#3014).
+                contents.set(sq, model.as_ref().map_or(0, |m| segment_mask(m.shapes.iter().map(|s| s.segments.as_slice()))));
                 if had {
                     lod.block_stats.rebuilt += 1;
                 } else {
@@ -1158,9 +1320,6 @@ mod tests {
         assert!((d - ((CELL_SIZE - 100.0).powi(2) + (CELL_SIZE - 200.0).powi(2)).sqrt()).abs() < 1e-2);
     }
 
-    /// The chosen chunks tile the ground without overlaps, use level 4 within `near` and
-    /// reach no farther than `far`; at the owner's settings levels 4 to 16 appear
-    /// (16 only where a level-16 chunk lies beyond 98,304 units).
     #[test]
     fn chunks_overlap_by_cells() {
         // A level-8 chunk holds the four level-4 chunks of its area, and touches no other.
@@ -1171,9 +1330,16 @@ mod tests {
         assert!(chunks_overlap((32, -32, -32), (4, -4, -4)));
     }
 
+    /// The chosen chunks tile the ground without overlaps, use level 4 within `near` and
+    /// reach no farther than the terrain's reach (250,000 at the defaults, past the object
+    /// blocks' 125,000). Levels 4, 8 and 16 appear everywhere: each level's band of
+    /// distances (50,000..98,304 for 8, 98,304..196,608 for 16) is wider than its chunk
+    /// side (32,768, 65,536), so the chunks in the camera's own row hit it.
     #[test]
     fn chunk_choice() {
         let s = LodSettings::default();
+        let reach = s.terrain_reach();
+        assert_eq!(reach, 250_000.0);
         for p in [Vec2::new(-69_500.0, 2_500.0), Vec2::new(0.0, 0.0), Vec2::new(55_500.0, 37_536.0), Vec2::new(-1.0, -1.0)] {
             let chosen = select_chunks(p, &s, (0, 0));
             let mut cells: HashMap<Grid, Chunk> = HashMap::new();
@@ -1181,15 +1347,15 @@ mod tests {
                 let (l, x, y) = ch;
                 assert!(LEVELS.contains(&l));
                 assert_eq!((x.rem_euclid(l), y.rem_euclid(l)), (0, 0), "{ch:?} aligned");
-                assert!(square_distance(p, (x, y), l) < s.far);
+                assert!(square_distance(p, (x, y), l) < reach);
                 for cx in x..x + l {
                     for cy in y..y + l {
                         assert!(cells.insert((cx, cy), ch).is_none(), "cell ({cx}, {cy}) twice");
                     }
                 }
             }
-            // Every cell nearer than `far` is covered; those nearer than `near` at level 4.
-            let r = (s.far / CELL_SIZE) as i32 + 2;
+            // Every cell nearer than the reach is covered; those nearer than `near` at level 4.
+            let r = (reach / CELL_SIZE) as i32 + 2;
             let (cx, cy) = cell_of(p.x, p.y);
             for x in cx - r..=cx + r {
                 for y in cy - r..=cy + r {
@@ -1197,29 +1363,93 @@ mod tests {
                     if d < s.near {
                         assert_eq!(cells.get(&(x, y)).map(|c| c.0), Some(4), "cell ({x}, {y}) at {d}");
                     }
-                    // Up to rounding at the chunk scale: a cell inside `far` lies in a chunk
-                    // whose nearest point is no farther.
-                    if d < s.far {
+                    // Up to rounding at the chunk scale: a cell inside the reach lies in a
+                    // chunk whose nearest point is no farther.
+                    if d < reach {
                         assert!(cells.contains_key(&(x, y)), "cell ({x}, {y}) at {d} not covered");
                     }
                 }
             }
-            for l in [4, 8] {
+            for l in [4, 8, 16] {
                 assert!(chosen.iter().any(|c| c.0 == l), "level {l} at {p}");
             }
-            assert!(!chosen.iter().any(|c| c.0 == 32), "level 32 at {p}");
-            // Level 32 beyond its split distance when `far` reaches it.
+            // Terrain is drawn past the object blocks' `far`.
+            assert!(chosen.iter().any(|&(l, x, y)| square_distance(p, (x, y), l) >= s.far), "nothing beyond far at {p}");
+            // Level 32 beyond its split distance when the reach goes far enough past it.
             assert!(select_chunks(p, &LodSettings { far: 400_000.0, ..s }, (0, 0)).iter().any(|c| c.0 == 32));
         }
-        // Level 16 where a level-16 chunk lies between its split distance and `far`.
-        assert!(select_chunks(Vec2::new(20_000.0, 20_000.0), &s, (0, 0)).iter().any(|c| c.0 == 16));
         // Coarser chunks stay outside their split distance.
         let p = Vec2::new(0.0, 0.0);
         for (l, x, y) in select_chunks(p, &s, (0, 0)) {
             let d = square_distance(p, (x, y), l);
             assert!(l == 4 || d >= s.near.max(s.split * l as f32 * CELL_SIZE), "({l}, {x}, {y}) at {d}");
         }
-        assert!(select_chunks(p, &LodSettings { far: 0.0, ..s }, (0, 0)).is_empty());
+        assert!(select_chunks(p, &LodSettings { far: 0.0, terrain_far: 0.0, ..s }, (0, 0)).is_empty());
+    }
+
+    /// From the hill above Goodsprings where the original was captured (#3055), on
+    /// WastelandNV's grid (origin -64, -64): level-32 chunks appear. The level-32 columns
+    /// lie at x distances 0, 65,725 and 196,797 to the west and 65,347 and 196,419 to the
+    /// east, the rows at 0 (its own), 5,770 south and 125,302 north. So (32, -96, 0) is
+    /// 196,797 away (past level 32's split distance 1.5 × 32 × 4,096 = 196,608, inside
+    /// 250,000) and (32, 32, 32) √(196,419² + 125,302²) ≈ 232,983.
+    #[test]
+    fn level_32_from_the_goodsprings_hill() {
+        let s = LodSettings::default();
+        let p = Vec2::new(-65_347.0, 5_770.0);
+        let chosen = select_chunks(p, &s, (-64, -64));
+        assert!(chosen.contains(&(32, -96, 0)), "{chosen:?}");
+        assert!(chosen.contains(&(32, 32, 32)), "{chosen:?}");
+        let d = square_distance(p, (32, 32), 32);
+        assert!((d - 232_983.0).abs() < 10.0, "{d}");
+        // With the old single reach (the terrain stopping at `far`) neither is drawn.
+        let old = select_chunks(p, &LodSettings { terrain_far: 0.0, ..s }, (-64, -64));
+        assert!(!old.iter().any(|c| c.0 == 32));
+        assert!(old.iter().all(|&(l, x, y)| square_distance(p, (x, y), l) < s.far));
+    }
+
+    /// The terrain's reach is `terrain_far`, or `far` when that is larger; a larger `far`
+    /// draws terrain past 250,000.
+    #[test]
+    fn terrain_reach_follows_a_larger_far() {
+        let s = LodSettings::default();
+        assert_eq!(LodSettings { far: 300_000.0, ..s }.terrain_reach(), 300_000.0);
+        assert_eq!(LodSettings { terrain_far: 100_000.0, ..s }.terrain_reach(), 125_000.0);
+        assert_eq!(LodSettings { far: 0.0, ..s }.terrain_reach(), 250_000.0);
+        // From (0, 0) the level-32 chunk two columns east is 262,144 away: beyond the
+        // default reach, inside a `far` of 300,000.
+        let p = Vec2::new(0.0, 0.0);
+        assert_eq!(square_distance(p, (64, 0), 32), 262_144.0);
+        assert!(!select_chunks(p, &s, (0, 0)).iter().any(|&(_, x, y)| x >= 64 || y >= 64));
+        assert!(select_chunks(p, &LodSettings { far: 300_000.0, ..s }, (0, 0)).contains(&(32, 64, 0)));
+        // Object blocks gone (`far` 0), the terrain stays.
+        assert!(!select_chunks(p, &LodSettings { far: 0.0, ..s }, (0, 0)).is_empty());
+        assert!(block_squares(p, &LodSettings { far: 0.0, ..s }, (0, 0)).is_empty());
+    }
+
+    /// Object blocks stop at `far` (125,000) though the terrain reaches 250,000: exactly
+    /// the level-4 squares nearer than `far` are listed, nearest first.
+    #[test]
+    fn block_squares_stop_at_far() {
+        let s = LodSettings::default();
+        let o = (-64, -64);
+        for p in [Vec2::new(-65_347.0, 5_770.0), Vec2::new(0.0, 0.0), Vec2::new(-1.0, -1.0)] {
+            let squares = block_squares(p, &s, o);
+            assert!(!squares.is_empty());
+            let ds: Vec<f32> = squares.iter().map(|&sq| square_distance(p, sq, LEVEL)).collect();
+            assert!(ds.windows(2).all(|w| w[0] <= w[1]), "nearest first at {p}");
+            let set: HashSet<Grid> = squares.iter().copied().collect();
+            assert_eq!(set.len(), squares.len());
+            let (cx, cy) = cell_of(p.x, p.y);
+            // 40 cells = 163,840 units: past `far` plus a square's side.
+            for x in (align(cx - 40, o.0, LEVEL)..=cx + 40).step_by(LEVEL as usize) {
+                for y in (align(cy - 40, o.1, LEVEL)..=cy + 40).step_by(LEVEL as usize) {
+                    let d = square_distance(p, (x, y), LEVEL);
+                    assert_eq!(set.contains(&(x, y)), d < s.far, "square ({x}, {y}) at {d}");
+                }
+            }
+        }
+        assert_eq!((squares_within(250_000.0), squares_within(125_000.0), squares_within(0.0), squares_within(-1.0)), (16, 8, 0, 0));
     }
 
     #[test]
@@ -1268,6 +1498,34 @@ mod tests {
         assert_eq!(b.count_vertices(), 3);
         let Some(VertexAttributeValues::Float32x2(uv)) = b.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
         assert_eq!(uv, &vec![[4.0, 0.0], [5.0, 0.0], [6.0, 0.0]]);
+    }
+
+    /// #3014: a block's mask sets the cells of its non-empty segments (segment i is cell
+    /// (i / 4, i mod 4), x-major); a shape without segments, or with too many, holds every
+    /// cell; no shape holds nothing; shapes add up. The contents answer per cell.
+    #[test]
+    fn block_contents_from_segments() {
+        let segments = [0..0, 0..2, 2..2, 2..2, 2..2, 2..2, 2..3];
+        assert_eq!(segment_mask([&segments[..]]), (1 << segment_cell(1)) | (1 << segment_cell(6)));
+        assert_eq!(segment_mask([&segments[..]]), (1 << 4) | (1 << 9), "cells (0, 1) and (1, 2)");
+        assert_eq!(segment_mask(std::iter::empty::<&[std::ops::Range<usize>]>()), 0, "a block with no shape");
+        assert_eq!(segment_mask([&[][..]]), u16::MAX, "a shape without segments: every cell");
+        assert_eq!(segment_mask([&vec![0..1; CELLS + 1][..]]), u16::MAX, "too many segments");
+        let other = 0..1;
+        assert_eq!(segment_mask([&segments[..], std::slice::from_ref(&other)]), (1 << 4) | (1 << 9) | 1, "two shapes");
+        let mut c = BlockContents::default();
+        c.follow("wastelandnv", (-64, -64));
+        assert_eq!(c.segment((-20, 1)), None, "unknown until its block is prepared");
+        // Square (-20, 0) on the grid from (-64, -64); cell (-20, 1) is its bit 4.
+        c.set((-20, 0), 1 << 4);
+        assert_eq!(c.segment((-20, 1)), Some(true));
+        assert_eq!(c.segment((-19, 1)), Some(false), "an empty segment");
+        assert_eq!(c.segment((-17, 3)), Some(false), "same square");
+        assert_eq!(c.segment((-16, 0)), None, "the next square");
+        c.follow("wastelandnv", (-64, -64));
+        assert_eq!(c.known(), 1, "the same files: kept");
+        c.follow("freeside", (-10, -8));
+        assert_eq!((c.known(), c.segment((-20, 1))), (0, None), "another worldspace's files: forgotten");
     }
 
     #[test]

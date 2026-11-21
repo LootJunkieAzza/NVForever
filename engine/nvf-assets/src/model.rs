@@ -15,7 +15,7 @@ use crate::material_anim::{MaterialSlot, RigMaterials};
 use crate::data::GameData;
 use crate::nif_material::NifMaterial;
 use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shaded_model, shape_material_with, shape_props, shape_skin, to_bevy, StoreTextures, TextureSource};
-use crate::texture::{worker_texture, TextureCache, TextureSnapshot, TextureUsage, WorkerTextures};
+use crate::texture::{worker_texture, worker_texture_exact, TextureCache, TextureSnapshot, TextureUsage, WorkerTextures};
 use bevy::asset::AssetHandleProvider;
 use bevy::image::CompressedImageFormats;
 use bevy::tasks::{futures::check_ready, Task};
@@ -1040,7 +1040,7 @@ fn model_in_use(m: &Arc<PreparedModel>) -> bool {
 }
 
 /// The asset stores [`prepare_into`] puts a model's meshes, materials and skins into.
-trait ModelSink: TextureSource {
+pub(crate) trait ModelSink: TextureSource {
     fn data(&self) -> &GameData;
     fn mesh(&mut self, mesh: Mesh) -> Handle<Mesh>;
     fn material(&mut self, material: NifMaterial) -> Handle<NifMaterial>;
@@ -1050,7 +1050,7 @@ trait ModelSink: TextureSource {
 }
 
 /// The main thread's asset stores.
-struct Stores<'a> {
+pub(crate) struct Stores<'a> {
     textures: StoreTextures<'a>,
     meshes: &'a mut Assets<Mesh>,
     materials: &'a mut Assets<NifMaterial>,
@@ -1070,6 +1070,15 @@ impl TextureSource for Stores<'_> {
     }
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         self.textures.alpha_is_mask(raw_path)
+    }
+    fn resolve(&self, raw_path: &str) -> String {
+        self.textures.resolve(raw_path)
+    }
+    fn pbr_set(&mut self, resolved_diffuse: &str) -> Option<crate::authored::PbrSet> {
+        self.textures.pbr_set(resolved_diffuse)
+    }
+    fn authored_on(&self) -> bool {
+        self.textures.authored_on()
     }
 }
 
@@ -1095,7 +1104,7 @@ impl ModelSink for Stores<'_> {
 /// kept until the main thread puts them in ([`ModelCtx::take_fetched`]). Textures come
 /// from the cache's list as it was when the work was sent, or are decoded here
 /// (`texture::worker_texture`).
-struct Deferred {
+pub(crate) struct Deferred {
     data: GameData,
     providers: Providers,
     cached: Arc<TextureSnapshot>,
@@ -1114,9 +1123,16 @@ struct Providers {
     images: AssetHandleProvider,
 }
 
+impl Deferred {
+    /// What it made, for [`ModelCtx::put_in`].
+    pub(crate) fn into_assets(self) -> DeferredAssets {
+        self.out
+    }
+}
+
 /// What a worker made for one model, by the handles it reserved.
 #[derive(Default)]
-struct DeferredAssets {
+pub(crate) struct DeferredAssets {
     meshes: Vec<(Handle<Mesh>, Mesh)>,
     materials: Vec<(Handle<NifMaterial>, NifMaterial)>,
     bindposes: Vec<(Handle<SkinnedMeshInverseBindposes>, SkinnedMeshInverseBindposes)>,
@@ -1140,6 +1156,20 @@ impl TextureSource for Deferred {
     }
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         self.workers.alpha_is_mask(raw_path, &self.data)
+    }
+    fn resolve(&self, raw_path: &str) -> String {
+        crate::texture::resolved_path(raw_path, |p| self.data.vfs.exists(p))
+    }
+    fn authored_on(&self) -> bool {
+        crate::authored::enabled()
+    }
+    fn pbr_set(&mut self, resolved_diffuse: &str) -> Option<crate::authored::PbrSet> {
+        let (data, cached, workers, images, bc, unmasked) = (&self.data, &self.cached, &self.workers, &self.providers.images, self.bc_supported, &mut self.unmasked);
+        crate::authored::find(data, crate::authored::enabled(), resolved_diffuse, &workers.authored, |path, usage| {
+            let (h, format, no_alpha) = worker_texture_exact(path, usage, data, cached, workers, images, bc)?;
+            unmasked.insert(h.id(), no_alpha);
+            Some((h, Some(format)))
+        })
     }
 }
 
@@ -1165,6 +1195,12 @@ impl ModelSink for Deferred {
     fn morph(&mut self, mesh: AssetId<Mesh>, morph: Arc<crate::morph::ShapeMorph>) {
         self.out.morphs.push((mesh, morph));
     }
+}
+
+/// Whether a model is landscape LOD (`meshes\landscape\lod\`: the LOD chunks and object
+/// blocks nvforever's lod.rs draws), which takes no authored set (#2981).
+pub(crate) fn is_lod_model(path: &str) -> bool {
+    fnv_vfs::normalize(path).starts_with("meshes\\landscape\\lod\\")
 }
 
 /// A model prepared on a worker thread, waiting for the main thread.
@@ -1377,20 +1413,71 @@ impl ModelCtx<'_> {
             *shared = Some((self.texture_snapshot(), providers));
         }
         let (cached, providers) = shared.clone().expect("made above");
-        let mut sink = Deferred {
-            data: (*self.data).clone(),
-            providers,
-            cached,
-            workers: self.textures.workers.clone(),
-            bc_supported: self.formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC)),
-            unmasked: HashMap::new(),
-            out: DeferredAssets::default(),
-        };
+        let mut sink = self.deferred_with(cached, providers);
         let task = crate::read_pool::read_pool().spawn(async move {
             let m = prepare_into(&mut sink, &path, keep_cpu, false, &swaps);
             (m, sink.out)
         });
         self.cache.fetching.insert(key, task);
+    }
+
+    fn deferred_with(&self, cached: Arc<TextureSnapshot>, providers: Providers) -> Deferred {
+        Deferred {
+            data: (*self.data).clone(),
+            providers,
+            cached,
+            // The producer cache also owns this pool's authored DDS source metadata.
+            // A snapshot hit reuses it without decoding or re-reading the DDS.
+            workers: self.textures.workers.clone(),
+            bc_supported: self.formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC)),
+            unmasked: HashMap::new(),
+            out: DeferredAssets::default(),
+        }
+    }
+
+    /// A sink for preparing on a worker thread (an actor part, `actor::ActorCtx::parts_ready`):
+    /// handles reserved from these stores, textures from the cache's list or decoded there.
+    /// Its assets go in with [`Self::put_in`].
+    pub(crate) fn deferred(&mut self) -> Deferred {
+        let providers = Providers {
+            meshes: self.meshes.get_handle_provider(),
+            materials: self.materials.get_handle_provider(),
+            bindposes: self.bindposes.get_handle_provider(),
+            images: self.images.get_handle_provider(),
+        };
+        let cached = self.texture_snapshot();
+        self.deferred_with(cached, providers)
+    }
+
+    /// The main thread's stores as a sink (an actor part prepared here).
+    pub(crate) fn stores(&mut self) -> Stores<'_> {
+        Stores {
+            textures: StoreTextures { textures: &mut self.textures, data: &self.data, images: &mut self.images, formats: self.formats.as_deref() },
+            meshes: &mut self.meshes, materials: &mut self.materials,
+            bindposes: &mut self.bindposes, morphs: &mut self.cache.morphs,
+        }
+    }
+
+    /// Put what a worker's sink made into the stores: the textures every worker decoded so
+    /// far, then the sink's meshes, materials, skins and morphs under their reserved handles.
+    pub(crate) fn put_in(&mut self, out: DeferredAssets, now: f64) {
+        self.textures.take_workers(&mut self.images, now);
+        self.insert_deferred(out);
+    }
+
+    fn insert_deferred(&mut self, out: DeferredAssets) {
+        for (h, mesh) in out.meshes {
+            let _ = self.meshes.insert(h.id(), mesh);
+        }
+        for (h, material) in out.materials {
+            let _ = self.materials.insert(h.id(), material);
+        }
+        for (h, binds) in out.bindposes {
+            let _ = self.bindposes.insert(h.id(), binds);
+        }
+        for (id, morph) in out.morphs {
+            self.cache.morphs.add(id, morph);
+        }
     }
 
     /// The texture cache's list for workers: the last copy while it is unchanged and a
@@ -1440,18 +1527,7 @@ impl ModelCtx<'_> {
         if let Some(m) = self.cache.map.get(&key) {
             return m.clone();
         }
-        for (h, mesh) in out.meshes {
-            let _ = self.meshes.insert(h.id(), mesh);
-        }
-        for (h, material) in out.materials {
-            let _ = self.materials.insert(h.id(), material);
-        }
-        for (h, binds) in out.bindposes {
-            let _ = self.bindposes.insert(h.id(), binds);
-        }
-        for (id, morph) in out.morphs {
-            self.cache.morphs.add(id, morph);
-        }
+        self.insert_deferred(out);
         let m = match m {
             Ok(m) => Some(Arc::new(m)),
             Err(e) => {
@@ -1503,10 +1579,19 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
 
 fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_person: bool, swaps: &[AltTexture], attachments: bool, external: Option<&Clip>) -> Result<PreparedModel, String> {
     let game = sink.data().clone();
+    // Where this file's time goes, for the exit's summary (#3149).
+    let mut timed = crate::load_times::Timed::start(&crate::load_times::DRAWN);
     let bytes = game.read(path).ok_or("not in any archive")?;
+    timed.read();
     let schema = game.schema.clone();
     let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
+    timed.parsed();
+    if file.size_table_ignored {
+        // Its size table is wrong; the blocks were split by decoding them (#3198).
+        bevy::log::info!("model: {path}: its block-size table does not fit its blocks; read block by block");
+    }
     let dec = Decoded::new(&file, &bytes, &schema);
+    timed.decoded();
     let objects = scene_objects(&file, &dec);
     let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
     let hidden_self = |b: usize| {
@@ -1729,6 +1814,10 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     // Shapes without any property beside shaded ones: editor geometry (`Props::is_helper`).
     let shaded = shaded_model(&file, &dec);
     let mut editor_shapes: Vec<String> = Vec::new();
+    // Shapes drawn with a window environment map, and how (nif.md §6 "Window glass and
+    // environment maps").
+    let mut env_shapes: Vec<String> = Vec::new();
+    let mut env_how = String::new();
     for o in objects.iter().filter(|o| !o.is_node) {
         // Walk to the root: accumulate the transform below the root's own and look
         // for hidden ancestors.
@@ -1762,6 +1851,9 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
         let Some(data) = shape.block_ref("data").and_then(|r| dec.get(r)) else { continue };
         let mut props = shape_props(&file, &dec, o, &by_block);
         let shape_name = o.name.clone().unwrap_or_default();
+        // Object LOD (the landscape's LOD chunks and blocks, nvforever lod.rs) takes no
+        // authored set (#2981): its atlases are not the textures a pack's sets name.
+        props.no_authored = is_lod_model(path);
         props.animated_emissive = emissive_shapes.contains(&shape_name);
         props.animated_alpha = alpha_shapes.contains(&shape_name);
         if props.is_helper(shaded) {
@@ -1779,7 +1871,7 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
             first_textures += props.use_first_person_textures(|p| game.vfs.exists(p));
             first_worn += props.first_person_texture_count();
         }
-        let Some((mut mesh, tris)) = build_mesh(data) else { continue };
+        let Some((mut mesh, tris, stored)) = build_mesh(data) else { continue };
         let managed_morph = managed_morphs.get(&o.block).filter(|m| m.num_vertices() == mesh.count_vertices()).cloned();
         if managed_morph.is_some() {
             // [design, #2685] Keep the source available for private rig mesh copies.
@@ -1798,7 +1890,13 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
                 cycle: OwnCycle { start: g.start_time, stop: g.stop_time, frequency: g.frequency.max(1e-6), phase: g.phase, cycle_type: (g.flags >> 1) & 3 },
             })
         });
-        let (material, _missing) = shape_material_with(&props, &mut mesh, sink);
+        // The normal map's tangents: those the file stores (crate::tangents).
+        let (material, _missing) = shape_material_with(&props, &mut mesh, sink, crate::tangents::Tangents::Stored(&stored));
+        if material.extension.env.x > 0.0 {
+            let over = if matches!(material.base.alpha_mode, AlphaMode::Premultiplied) { "over the blend" } else { "added" };
+            env_how = format!("{}, scale {:.2}, {over}", props.textures.get(4).map_or("-", String::as_str), material.extension.env.x);
+            env_shapes.push(shape_name.clone());
+        }
         if let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
             for v in p {
                 let q = (out.root * t).transform_point3(Vec3::from_array(*v));
@@ -1880,6 +1978,9 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     }
     if !editor_shapes.is_empty() {
         info!("{path}: {} editor shape(s) without any property left out: {}", editor_shapes.len(), editor_shapes.join(", "));
+    }
+    if !env_shapes.is_empty() {
+        info!("{path}: {} shape(s) with a window environment map ({env_how}): {}", env_shapes.len(), env_shapes.join(", "));
     }
     if !swaps.is_empty() {
         info!("{path}: texture swap: {} entr(ies), {} shape(s) retextured: {}", swaps.len(), swapped.len(), swapped.join(", "));
@@ -2056,6 +2157,8 @@ mod tests {
 #[cfg(test)]
 mod bc5_model_tests {
     use super::*;
+    use crate::nif_spawn::shape_material_with;
+    use crate::tangents::Tangents;
     use crate::texture::bc5_tests::{OwnedData, triangle};
     use bevy::render::render_resource::TextureFormat;
 
@@ -2079,7 +2182,7 @@ mod bc5_model_tests {
         };
         let mut props = crate::nif_spawn::Props::default();
         props.textures = vec!["old.dds".into(), "signed.dds".into()];
-        let worker_material = shape_material_with(&props, &mut triangle(), &mut deferred).0;
+        let worker_material = shape_material_with(&props, &mut triangle(), &mut deferred, Tangents::Generate).0;
         let worker_normal = worker_material.base.normal_map_texture.as_ref().unwrap().clone();
         assert!(deferred.lacks_alpha(&worker_normal));
         let worker_linear = deferred.texture("signed.dds", false).unwrap();
@@ -2092,7 +2195,7 @@ mod bc5_model_tests {
                 textures: StoreTextures { textures: &mut cache, data: &owned.data, images: &mut images, formats: None },
                 meshes: &mut meshes, materials: &mut materials, bindposes: &mut bindposes, morphs: &mut morphs,
             };
-            shape_material_with(&props, &mut triangle(), &mut stores).0
+            shape_material_with(&props, &mut triangle(), &mut stores, Tangents::Generate).0
         };
         assert_eq!(main_material.base.normal_map_texture.as_ref(), Some(&worker_normal));
         assert_eq!(main_material.base.base_color_texture, worker_material.base.base_color_texture);
@@ -2102,5 +2205,93 @@ mod bc5_model_tests {
         deferred.workers = Arc::new(WorkerTextures::default());
         assert_eq!(deferred.normal("signed.dds"), Some((worker_normal, true)));
         assert_eq!(cache.take_workers(&mut images, 2.0), 0);
+    }
+
+    /// The worker source finds an authored set (#2981) as the main thread does: the members
+    /// by their exact paths in their roles, decoded once, the main thread adopting the
+    /// worker's handles, a later snapshot answering without a decode.
+    #[test]
+    fn deferred_and_store_sources_find_the_same_authored_set() {
+        let pack = crate::authored::tests::Pack::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::<Image>::default();
+        let (meshes, materials, bindposes) = (Assets::<Mesh>::default(), Assets::<NifMaterial>::default(), Assets::<SkinnedMeshInverseBindposes>::default());
+        let mut deferred = Deferred {
+            data: pack.data.clone(),
+            providers: Providers {
+                meshes: meshes.get_handle_provider(), materials: materials.get_handle_provider(),
+                bindposes: bindposes.get_handle_provider(), images: images.get_handle_provider(),
+            },
+            cached: Arc::new(TextureSnapshot::new()), workers: cache.workers.clone(), bc_supported: true,
+            unmasked: HashMap::new(), out: DeferredAssets::default(),
+        };
+        use crate::authored::PbrSet;
+        let key = deferred.resolve("walls/brick.dds");
+        let found = deferred.pbr_set(&key).expect("authored set on the worker");
+        let set = found.authored().cloned().expect("authored");
+        let normal = set.normal.clone().expect("_n");
+        assert!(deferred.lacks_alpha(&normal), "two channels hold no mask");
+        assert_eq!(set.scalars.roughness_scale, Some(0.5));
+        // A height-only set: its `_p` by its exact path, in the linear role, on the worker.
+        let stone_key = deferred.resolve("walls/stone.dds");
+        let stone = deferred.pbr_set(&stone_key).expect("height-only set on the worker");
+        assert!(matches!(stone, PbrSet::HeightOnly(_)));
+        let depth_map = stone.height().and_then(|h| h.depth_map.clone()).expect("_p");
+        assert_eq!(cache.take_workers(&mut images, 1.0), 3, "_orm, _n and _p, once each");
+        assert_eq!(images.get(&set.orm).unwrap().texture_descriptor.format, TextureFormat::Bc7RgbaUnorm);
+        assert_eq!(images.get(&normal).unwrap().texture_descriptor.format, TextureFormat::Bc5RgUnorm);
+        assert_eq!(images.get(&depth_map).unwrap().texture_descriptor.format, TextureFormat::Bc4RUnorm);
+        assert!(deferred.pbr_set(&deferred.resolve("walls/signed.dds")).is_none(), "the worker refuses a signed _p as the main thread does");
+        let mut main = StoreTextures { textures: &mut cache, data: &pack.data, images: &mut images, formats: None };
+        assert_eq!(main.pbr_set(&key).as_ref(), Some(&found), "the main thread adopts the worker's handles");
+        assert_eq!(main.pbr_set(&stone_key).as_ref(), Some(&stone), "the worker's _p too");
+        deferred.cached = Arc::new(cache.snapshot(&images));
+        deferred.workers = Arc::new(WorkerTextures::default());
+        assert_eq!(deferred.pbr_set(&key), Some(found));
+        assert_eq!(deferred.pbr_set(&stone_key), Some(stone));
+        assert!(deferred.workers.entries_len() == 0, "a snapshot hit decodes nothing");
+    }
+
+    #[test]
+    fn shared_texture_snapshot_preserves_cpu_decoded_height_validation() {
+        use crate::release::{ImageHints, KeepLimits, Unused};
+
+        let pack = crate::authored::tests::Pack::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::<Image>::default();
+        let mut deferred = Deferred {
+            data: pack.data.clone(),
+            providers: Providers {
+                meshes: Assets::<Mesh>::default().get_handle_provider(),
+                materials: Assets::<NifMaterial>::default().get_handle_provider(),
+                bindposes: Assets::<SkinnedMeshInverseBindposes>::default().get_handle_provider(),
+                images: images.get_handle_provider(),
+            },
+            cached: Arc::new(TextureSnapshot::new()),
+            workers: cache.workers.clone(),
+            bc_supported: false,
+            unmasked: HashMap::new(),
+            out: DeferredAssets::default(),
+        };
+        let aligned = deferred.resolve("walls/stone.dds");
+        let off_grid = deferred.resolve("walls/oddbc4.dds");
+        let expected = deferred.pbr_set(&aligned).expect("aligned unsigned BC4 is valid on the CPU path");
+        assert!(deferred.pbr_set(&off_grid).is_none(), "off-grid unsigned BC4 is refused");
+        assert_eq!(cache.take_workers(&mut images, 1.0), 2);
+
+        let snapshot = cache.snapshot(&images);
+        for path in [r"textures\pbr\walls\stone_p.dds", r"textures\pbr\walls\oddbc4_p.dds"] {
+            let (_, format, _) = &snapshot[&(path.to_string(), TextureUsage::Linear)];
+            assert_eq!(*format, TextureFormat::R8Unorm, "both files take the CPU fallback");
+        }
+        deferred.cached = Arc::new(snapshot);
+
+        // Retire the published worker entries, leaving only the snapshot and the shared
+        // source metadata. The decoded format alone cannot distinguish the two files.
+        cache.release(&mut Unused::default(), &ImageHints::default(), 32.0, KeepLimits::default());
+        assert_eq!(deferred.workers.entries_len(), 0);
+        assert_eq!(deferred.pbr_set(&aligned), Some(expected));
+        assert!(deferred.pbr_set(&off_grid).is_none(), "the cached size still rejects off-grid BC4");
+        assert_eq!(deferred.workers.entries_len(), 0, "snapshot hits decode nothing");
     }
 }

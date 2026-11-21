@@ -2965,6 +2965,30 @@ already talking takes over at once, same topic or another; nothing is queued or 
      whether the subtitle shows at each distance.
 
 
+## Added 2026-11-15 (Use Weapon at objects and markers, #2652)
+
+207. **How does UseWeapon aim at objects and markers?** (P1; #2652, #2715 shooter
+     half; `docs/spec-notes/use-weapon.md` section 6.) [documented: #2652 supplied record
+     facts] The Hopeville silo mainframe's ACTI OnHit ED-E block sets NVDLC04MQ01a
+     55 after its package requests one Always Hit / Do No Damage arc-welder shot;
+     the commissary terminals also wait on ED-E's hit. Capture activation and button
+     1 at the mainframe, then a commissary unlock: does OnHit receive ED-E, and where
+     does the beam land? Capture a finite script use at an XMarker: do its shots fire
+     and does ED-E resume the next package without ResetAI? In G.I. Blues, do the
+     barkers keep firing at VFSPacerBusShelterREF while their Repeat Fire package
+     holds, including during combat? [hypothesis] NVForever aims at placed position
+     plus OBND centre (marker: position alone), counts misses toward finite uses, and
+     dispatches harmless object hits with the shooter. Check that placement on an
+     asymmetric or rotated object as well. [documented: #2652 w4 supplied world refs]
+     The barkers and Pacer stand in FreesideNorthWorld, while the shelter belongs
+     to FreesideWorld; both have parent WastelandNV and share coordinates.
+     [hypothesis, #2652] NVForever treats a non-actor placed Use Weapon / UseWeapon
+     target in a sibling worldspace (same nonempty immediate parent) as coordinates
+     in the shooter's worldspace, with its OBND centre added. Capture whether the
+     barkers turn and shoot at this shelter from the fight markers, and compare an
+     unrelated-worldspace object and a sibling-worldspace actor target (neither
+     receives this projection). Pacer's cover pose is outside this check.
+
 ## Added 2026-11-15 (old-head hair outside the race list, #2714)
 
 210. **Which hair does the original use when an NPC's HAIR is outside its race's
@@ -3281,3 +3305,164 @@ already talking takes over at once, same topic or another; nothing is queued or 
      again on SetStage and on SetObjectiveDisplayed (layer5-captures.md §5.8). Not
      separated: whether CompleteAllObjectives or the stage's Complete Quest flag completed
      the objective; FailAllObjectives; what the Pip-Boy lists for such a quest.
+
+
+## Added 2026-11-17 (OK on a message box without buttons, #2925)
+
+240. **What does GetButtonPressed give after OK on a message box that has no buttons?**
+     (P2; #2925, scripts.md §7.2 engine API.) The GECK wiki says a message box with no
+     buttons shows a default OK button and that GetButtonPressed gives the pressed
+     button's index from zero once, then -1 [documented: GECK wiki ShowMessage,
+     GetButtonPressed]; it does not say what the default OK gives. Ours: 0, once, then -1,
+     to the script that showed the box; a corner message (no Message Box flag) gives -1
+     [hypothesis: inferred from SCPT 0x000E9483, the Broken Mr. Handy in
+     BlackMountainTreasure, whose GameMode block waits for button 0 after BMRhondaFixMsg,
+     0x000E9551, a box without buttons]. In the Black Mountain treasure room with Science
+     60, activate REFR 0x000E84A4, pick "[Science] Check the robot's circuitry.", press OK
+     on the second box: if the robot gets up (`000E84A4.GetDead` 0, its new name, the
+     prompt no longer "Search"), the original gives 0. For a direct reading, a test
+     plugin's script that shows a buttonless message box and prints GetButtonPressed every
+     frame for a second after the OK (PrintC) gives the value and how many times it comes.
+
+## Added 2026-11-17 (SendAssaultAlarm on a faction with no member present, #2926)
+
+241. **What does `SendAssaultAlarm Player <faction>` do when no member of the faction is
+     present and alive?** (P3; #2926, crime-karma.md §3.5.) The wiki says only that it picks
+     "an NPC in the … faction" in place of the player [documented: GECK wiki
+     SendAssaultAlarm]. Ours: nobody turns and no crime is counted; the calling actor is
+     never the stand-in [hypothesis]. In Techatticup Mine, kill every raider of
+     `CaesarsLegionTechMineFaction` (0x001400F9) with the console, then free an NCR
+     hostage (`TechMineNCRHostage2REF`, button "Untie him."): log
+     `TechMineNCRHostage2REF.GetAlarmed`, `player.IsInCombat` and the hostage's combat
+     target for 10 s, and whether the second hostage's message box still opens. Then once
+     with the raiders alive: which raider turns (the nearest, the first in some order, or
+     all of them) and whether the guards at the entrance join. Ours picks the first member
+     in FormID order: TecLegionaryRaider5REF (0x0011F654) of 17 present and alive
+     [observed: our headless walkthrough techatticup-hostages-2926, #2926 probe].
+
+
+## Added 2026-11-15 (radscorpion spacing and melee cadence, #2535)
+
+244. **How close do two large creatures come, and how often does a creature attack?**
+     (P2; physics.md §6.8, combat-rules.md §10.) **Answered in part
+     [observed: capture run15b_b2, 2026-11-15; xNVSE 6.4.9, JIP LN 57.30]:**
+     VCrTier2RadscorpionMed and VCrTier3GiantRadscorpionMed on Searchlight Airport's
+     runway against a standing god-mode player, GetDistance between the pair and
+     GetAnimAction of each at 30 samples/s for 17 s. While both were within 300 units
+     of the player (452 samples), centre spacing was median 131, tenth percentile 93,
+     ninetieth 283, minimum 32 briefly. Each entered action 2 seven times in about
+     13 s. Successive attack-start gaps: 2.82, 1.47, 1.39, 2.20, 2.67, 1.28 and
+     2.05, 3.74, 1.93, 2.15, 1.37, 2.00 s (median 2.0, least 1.28). Action 2 lasted
+     0.77–1.18 s, then action 4 for 0.44–1.10 s. No attack began during action 2.
+     The shortest gaps (1.28, 1.37, 1.39, 1.47) are just past the ordinary clips'
+     `a:` keys (1.267/1.300) and the sting's end (1.267).
+
+     [design, #2535] Ours now holds a creature's next melee decision until the playing
+     clip's `a:` key, or its end without one; earlier keys still shorten the base timer.
+     Creatures only (the maintainer's decision of 2026-11-18 on #2971): people and NPCs
+     keep the 1.2 s base timer (÷ attack speed), brought forward to an earlier key,
+     until their pace is measured here. Walking creatures use a BBX
+     half-width × actor scale circle when larger than their previous block radius
+     [hypothesis: fits the observed spacing; the original's shape was not seen].
+     The world capsule is unchanged [design: `phys::npc_params`].
+     [design: `hitvol::sync_volumes`, #2535] The wider circle also stays when a
+     fighter stops and its walking character is removed; standing attack blocks
+     therefore retain both creatures' widths.
+
+     **Still open:** the original's extra pause after action 4 (3/14 attacks at once,
+     others after 0.1–2.1 s) is not built; what chooses its duration? Against a player
+     backing away for 10 s, one creature attacked three times (3.5 s apart), the
+     other never [observed: capture run15b_b2, 2026-11-15]. Backing-away cadence
+     parity and the unseen collision shape remain open [design]. **People's pace:** does
+     a person's next melee swing (one-handed, two-handed, fists; with late `a:` keys or
+     none) also wait for its clip's key or end, or come on a fixed base? Measure the
+     attack-start gaps of NPCs as above; until then people keep the base timer (#2971).
+     **A creature in a lunge's way:** does a dog or other creature standing in front
+     of the player stop a Legion Assault lunge (a forward power attack's clip carrying
+     the player), or does the player pass or push it? Ours: the creature's BBX circle
+     stops the lunge after about 25 of its 332 units [observed: the main session's
+     runs of NVForever, 2026-11-18, smoke `perk-legion-lunge` with fiend dogs rushing
+     the player, 4 runs of 6; on main, with the narrower block, 0 of 6].
+     [observed: the main session's runs of NVForever, 2026-11-15, reproduction on
+     Searchlight Airport's runway: the Radscorpion + Giant Radscorpion pair against
+     a god-mode player who backs away from 16 s to 28 s; pair distance read once
+     a second; three runs of upstream main 99faa23b7 and six of this branch]
+     Standing and fighting, the pair stays 66–84 units apart on upstream main and
+     113 on this branch (the designed sum). Chasing, both builds stay mostly
+     62–64 units apart. On this branch, in four of six runs one reading late in
+     the chase, as the pair comes back to a stop, fell to 7–39 units for about a
+     second. Upstream main showed no such dip in its runs.
+     [design, #2535] The widened block keeps standing creatures apart but not
+     moving ones, and the change from walking to standing can let one creature
+     pass briefly into the other. Both are left for the follow-up on the character
+     controller's movement path.
+
+## Added 2026-11-21 (script effects shown by name, #3119)
+
+245. **How do the ITEMS card and STATS > EFF write a Script effect flagged Display Name
+     Only?** (P3; #3119, pipboy.md §5.) The GECK wiki says such an effect shows its name
+     and that the names of several are put together [documented: GECK wiki Base Effect];
+     it does not say where or how. Ours: after the value changes, comma-separated
+     ("STR +2, Damage +25%"), the EFF line titled with the item's name [hypothesis]. With a
+     Psycho, a Cateye and a Steady carried, read the ITEMS > Aid card of each; use the
+     Psycho and read STATS > Status > EFF while it lasts; a screenshot of each answers it.
+
+## Added 2026-11-21 (Ammo Use 0 on a ranged weapon, #3023)
+
+246. **Does a ranged weapon with Ammo Use 0 fire without spending or carrying its ammo,
+     and does it ever reload?** (P2; #3023.) The GECK wiki calls Ammo Use "the amount of
+     ammo used per shot" [documented: GECK wiki Weapons] and says nothing of 0. Of the
+     base game's and the add-ons' 502 WEAP records, 25 have Ammo Use 0; all but one are
+     melee weapons or detonators without a projectile; the one ranged weapon is Lonesome
+     Road's Laser Detonator (NVDLC04WeapSonicDetonator, automatic, clip 1, Fire Rate 10,
+     Microfusion Breeder ammo) [observed: `fnvtool combat form` over the six masters].
+     Ours: no round is spent, so it fires at its rate with no reload and needs none carried
+     [hypothesis]. In the Divide, hold the trigger on one of the laser targets for 5 s with
+     and without Microfusion Breeder rounds carried: count the beams (a video at 30 fps
+     does it), watch for a reload, and read the ammo count before and after.
+
+## Added 2026-11-21 (what GetDestructionStage counts, #3053)
+
+247. **Does GetDestructionStage give the stage counted from 1 (DSTD index + 1) or the
+     stage's DSTD damage-stage field?** (P2; #3053, scripts.md.) The wiki says it returns
+     "the current Damage Stage" [documented: GECK wiki GetDestructionStage]. Counting from
+     0 cannot be it: Zeta's generator core tests 8 with eight stages, the Brain waits for 7
+     with seven [observed: their scripts and DEST]. Ours: index + 1 [hypothesis]; the
+     damage-stage field fits every case found too. They differ on Point Lookout's
+     DLC04DarMuckBubble (0x0A012C5E: index 1, damage stage 3, at 40 %): damage one to under
+     40 % with the console (`DamageObject`) and print `GetDestructionStage` (2 or 3).
+
+## Added 2026-11-21 (greetings of two quests at equal priority, #3199, #3061)
+
+248. **Which greeting does an actor say when two quests of the same priority both have
+     one it can say?** (P1: All or Nothing cannot be finished on House's path without the
+     answer; #3199, #3061, dialogue.md §7 item A.) The runtime takes the one stored first
+     (rule 2, an owner statement of 2026-10-10). Two cases where the shipped quest needs
+     the later one [observed: records]:
+     - On House's path, install the override chip in the Hoover Dam control room
+       (VHDControlOverrideBoxSCRIPT runs `VHDMainControlPanel1REF.StartConversation
+       Player, Greeting`). Does the panel say 0x001554D8 ("I knew you'd make it.
+       Resourceful, as always."; VHDHouseBattle, Say Once) or House's generic Lucky 38
+       greeting 0x00125EBD ("The Legion's assault could begin at any moment.";
+       VDialogueMrHouse)? Both quests are priority 55; the generic line is stored first.
+     - In Fallout 3 (or TTW), talk to Doctor Zimmer in Rivet City before The Replicated
+       Man starts: the hire line 0x0002026A (MS08, Say Once) or MS08Fin's goodbye
+       0x000C84FF ("Our dealings are done...")? Both priority 50; the goodbye is stored first.
+     Our [hypothesis]: at equal priority a Say Once line of one quest wins over another
+     quest's plain line. If both come out as the quests need, any further pair that tells
+     "Say Once first" from "later quest first" (the second case has the earlier quest win)
+     is worth a frame.
+
+## Added 2026-11-15 (the Camp McCarran observation window, #2462)
+
+249. **How does the observation window at Camp McCarran look from each side?** (P3;
+     #2462, nif.md §6 "Window glass and environment maps".) Ours since #2462: the pane
+     (VWindow01 0x000FB2F4 in CampMCTermInt02, `vwindow01.nif`) draws its environment
+     cube `ShinyBright_e.dds` added over its blend, not weighted by its texture alpha
+     (about 0.05 in the middle), so grey reflection streaks show from both sides
+     [hypothesis]. In CampMCTermInt02 take one frame from the observation side
+     (`player.setpos x 112`, `y 1200`, `z 18672`, facing north) and one from inside the
+     interrogation room (`x 112`, `y 1700`, `z 18672`, facing south), then a third from
+     the room side while strafing past, to see whether the streaks move with the view.
+     Streaks moving with the view as bright as the frame agree with ours; a pane that is
+     only a faint grey film, or nothing, says the reflection is weighted by alpha.

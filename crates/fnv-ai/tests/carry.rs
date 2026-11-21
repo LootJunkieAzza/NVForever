@@ -1291,6 +1291,83 @@ fn a_door_disabled_and_enabled_in_the_game_reaches_the_paths() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// #2405 (Point Lookout's mansion, Desmond): a locked door that opens in place across the
+/// way names itself in the unreachable report, and the search's count is not 0; once the
+/// game disables it (not in the world), it bars nothing and the package set aside is
+/// chosen again, so the actor gets through without stopping at a door that is not there.
+/// Enabled again, it closes the way of an actor whose walk crosses it.
+#[test]
+fn a_door_that_opens_in_place_bars_the_way_only_while_it_is_in_the_world() {
+    let mut f = fixture();
+    let actor = FormId(R_TRAVEL);
+    let door = FormId(M1);
+    f.refs.refs.get_mut(&door).unwrap().lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav.set_in_place_doors(vec![fnv_nav::InPlaceDoor {
+        door: M1, space: A, position: [200.0, 200.0, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0,
+        bounds: ([-4.0, -200.0, 0.0], [4.0, 200.0, 200.0]),
+    }], |_| Some(DoorLock { level: 255, key: None }));
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), None, "all there as placed");
+    s.run(1.0);
+    let why = s.events(R_TRAVEL).iter().find_map(|e| match e {
+        AiEvent::Unreachable { package, why } if package.0 == P_TRAVEL_B => Some(why.clone()),
+        _ => None,
+    });
+    let why = why.unwrap_or_else(|| panic!("{:?}", s.events(R_TRAVEL)));
+    assert!(why.contains(&format!("the way is closed by door {door} (locked, level 255)")), "{why}");
+    assert!(!why.contains("(0 triangles searched)"), "the failed search is counted: {why}");
+    assert_eq!(s.feet(R_TRAVEL), START);
+    // Disabled: it bars nothing; the package comes back at once.
+    s.game.world.set_enabled(door, false).unwrap();
+    let again = s.ai.apply_door_presence(&mut s.game, &mut s.nav);
+    assert!(s.nav.disabled_doors.contains(&M1));
+    assert!(again.is_some(), "the presence change is seen");
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    s.run(1.0);
+    let a = &s.ai.agents[&actor];
+    assert_eq!(a.activity, Activity::Travelling, "{:?}", s.events(R_TRAVEL));
+    assert_eq!(a.walker.follower.as_ref().unwrap().door_ahead(a.walker.feet, f32::INFINITY), Some(DOOR_A), "no stop at the door that is not there");
+    // Enabled again (locked as placed) before it gets there: its walk crosses the door,
+    // so it plans again and finds the way closed.
+    s.game.world.set_enabled(door, true).unwrap();
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), Some(vec![actor]));
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    s.run(40.0);
+    assert!(s.feet(R_TRAVEL)[0] < 196.0, "{:?}", s.feet(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].walker.space, A);
+}
+
+/// #2405 (Sally on Mothership Zeta): a closed door that opens in place named by an
+/// unreachable report brings the package back the moment it opens (a script's
+/// SetOpenState here), not an hour later; an open door is no barrier even locked (#2716).
+#[test]
+fn a_door_that_closed_the_way_opening_brings_the_package_back() {
+    let mut f = fixture();
+    let actor = FormId(R_TRAVEL);
+    let door = FormId(M1);
+    f.refs.refs.get_mut(&door).unwrap().lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav.set_in_place_doors(vec![fnv_nav::InPlaceDoor {
+        door: M1, space: A, position: [200.0, 200.0, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0,
+        bounds: ([-4.0, -200.0, 0.0], [4.0, 200.0, 200.0]),
+    }], |_| Some(DoorLock { level: 255, key: None }));
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    s.run(1.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)));
+    assert_eq!(s.ai.apply_doors_opened(&mut s.game), None, "still closed");
+    s.run(5.0);
+    assert_eq!(s.feet(R_TRAVEL), START, "set aside, it stays");
+    s.game.set_ref_open(door, true).unwrap();
+    assert_eq!(s.ai.apply_doors_opened(&mut s.game), Some(vec![actor]));
+    assert_eq!(s.ai.apply_doors_opened(&mut s.game), None, "once");
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "{:?} {:?}", s.feet(R_TRAVEL), s.events(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
 /// A scripted door that does not let the actor through (its OnActivate block called no
 /// `Activate` for it, `fnv_game::npc_doors`) shuts the way as a lock does: asked as the
 /// actor comes near, it plans again without the door and, with no other way, sets the
@@ -4067,6 +4144,111 @@ fn a_use_weapon_package_stands_at_its_place_and_meets_its_goal_when_its_shots_ar
     assert!(s.game.extra[&actor].package_goal_met);
     assert!(s.game.weapon_use(actor).is_some_and(|w| w.done));
     assert!(s.game.active_weapon_use(actor).is_none());
+}
+
+/// [design, #2652] Authored fixture cells represent two exterior worldspaces; the
+/// engine shooter tests separately exercise WNAM decoding into world_parents.
+fn weapon_worlds(f: &mut Fixture, sibling: bool) -> Space {
+    let (a, b, parent) = (FormId(0xA00), FormId(0xA01), FormId(0xA02));
+    f.refs.cell_world.insert(FormId(CELL_A), a);
+    f.refs.cell_world.insert(FormId(CELL_B), b);
+    f.refs.world_parents.insert(a, parent);
+    f.refs.world_parents.insert(b, if sibling { parent } else { FormId(0xA03) });
+    Space::World(a.0)
+}
+
+/// [hypothesis, #2652] Only non-actor targets with a shared immediate parent project;
+/// [design] ordinary place_of_ref and actor/interior space checks stay unchanged.
+#[test]
+fn weapon_target_place_projects_only_sibling_objects() {
+    let mut f = fixture();
+    let space = weapon_worlds(&mut f, true);
+    let mut s = sim(&f, &[]);
+    let target = FormId(MARK_B);
+    let actual = fnv_ai::goal::place_of_ref(&s.game, target).unwrap();
+    assert_ne!(actual.space, space);
+    assert_eq!(fnv_ai::goal::weapon_target_place(&s.game, target, space), Some(Place { space, pos: actual.pos }));
+    assert_eq!(fnv_ai::goal::place_of_ref(&s.game, target), Some(actual));
+    assert!(fnv_ai::goal::weapon_target_place(&s.game, target, A).is_none(), "interior shooter");
+    assert!(fnv_ai::goal::weapon_target_place(&s.game, FormId(MARK_C), space).is_none(), "interior target");
+    s.game.world.get(FormId(R_LONER)).unwrap().cell = Some(FormId(CELL_B));
+    assert!(fnv_ai::goal::weapon_target_place(&s.game, FormId(R_LONER), space).is_none(), "actors do not project");
+    assert!(fnv_ai::goal::weapon_target_place(&s.game, FormId(R_SHOOTER), space).is_some(), "same-space actor");
+}
+
+/// [design, #2652] Standing and rooted UseWeapon users turn to sibling objects, and
+/// keep their heading for unrelated-world objects and sibling-world actors.
+#[test]
+fn weapon_users_face_sibling_objects_but_not_unrelated_objects_or_actors() {
+    use fnv_game::use_weapon::WeaponUse;
+    for rooted in [false, true] {
+        for (sibling, actor_target) in [(true, false), (false, false), (true, true)] {
+            let mut f = fixture();
+            weapon_worlds(&mut f, sibling);
+            let mut s = sim(&f, &[R_LONER]);
+            let actor = FormId(R_LONER);
+            let target = if actor_target {
+                let state = s.game.world.get(FormId(R_SHOOTER)).unwrap();
+                state.cell = Some(FormId(CELL_B));
+                state.pos = [5250.0, 5250.0, 50.0];
+                FormId(R_SHOOTER)
+            } else {
+                FormId(MARK_B)
+            };
+            if rooted {
+                s.ai.root(&s.game, actor);
+            }
+            let feet = s.feet(R_LONER);
+            let want = fnv_nav::follow::heading_of([5250.0 - feet[0], 5250.0 - feet[1]]);
+            let initial = want + 2.5;
+            s.ai.agents.get_mut(&actor).unwrap().walker.heading = initial;
+            s.game.give_weapon_use(actor, WeaponUse::of_script(None, None, target, 1, false, false, true, true, None));
+            s.run(5.0);
+            assert!(s.game.weapon_use(actor).unwrap().in_place);
+            let expected = if sibling && !actor_target { want } else { initial };
+            let heading = s.ai.agents[&actor].walker.heading;
+            let off = fnv_nav::follow::heading_delta(heading, expected);
+            assert!(off.abs() < 0.05, "rooted {rooted}, sibling {sibling}, actor target {actor_target}: {heading} vs {expected}");
+            assert_eq!(s.feet(R_LONER), feet);
+        }
+    }
+}
+
+/// [design, #2652] EvaluatePackage selects immediately after its conditions change;
+/// the next high-process AI step starts the use already at its stand, then faces it.
+#[test]
+fn evaluate_package_starts_sibling_object_weapon_use_when_conditions_pass() {
+    use fnv_game::cond::{Cmp, Condition, Operand, RunOn};
+    use fnv_game::package::TargetKind;
+    use fnv_game::use_weapon::Source;
+    use fnv_script::vm::{ArgValue, Value};
+    let mut f = fixture();
+    weapon_worlds(&mut f, true);
+    let global = f.data.table.by_name("GetGlobalValue").unwrap() - 0x1000;
+    let dead = f.data.table.by_name("GetDead").unwrap() - 0x1000;
+    let def = f.data.package_defs.get_mut(&FormId(P_SHOOT)).unwrap();
+    def.conditions = vec![
+        Condition { cmp: Cmp::Eq, or: false, run_on: RunOn::Subject, function: global, params: vec![ArgValue::Value(Value::Ref(0x807))], rhs: Operand::Value(1.0) },
+        Condition { cmp: Cmp::Eq, or: false, run_on: RunOn::Reference(Some(R_LONER)), function: dead, params: vec![], rhs: Operand::Value(0.0) },
+    ];
+    def.target2.as_mut().unwrap().kind = TargetKind::Reference(Some(FormId(MARK_B)));
+    let mut s = sim(&f, &[R_SHOOTER]);
+    let actor = FormId(R_SHOOTER);
+    s.game.world.get(FormId(MARK_A)).unwrap().pos = START;
+    assert_eq!(s.game.evaluate_package(actor), None, "the authored global starts at zero");
+    s.game.world.set_global(FormId(0x807), 1.0).unwrap();
+    assert_eq!(s.game.evaluate_package(actor), Some(FormId(P_SHOOT)));
+    assert_eq!(s.game.package_def(&FormId(P_SHOOT)).unwrap().ty.runtime_code(), Some(33));
+    s.run(5.0);
+    let w = s.game.active_weapon_use(actor).expect("high-process AI starts the selected use");
+    assert_eq!(w.source, Source::Package(FormId(P_SHOOT)));
+    assert_eq!(w.target, FormId(MARK_B));
+    assert!(w.in_place);
+    let feet = s.feet(R_SHOOTER);
+    let want = fnv_nav::follow::heading_of([5250.0 - feet[0], 5250.0 - feet[1]]);
+    assert!(fnv_nav::follow::heading_delta(s.ai.agents[&actor].walker.heading, want).abs() < 0.05);
+    s.game.extra.entry(FormId(R_LONER)).or_default().dead = true;
+    assert_eq!(s.game.evaluate_package(actor), None, "the not-dead condition still applies");
 }
 
 /// #2120: a Use Weapon package's fire waits while the actor is in a combat state (Alert,
@@ -6928,4 +7110,47 @@ fn load_door_lock_reaches_both_nav_directions_and_resyncs() {
     }
     s.run(40.0);
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].walker.space, B);
+}
+
+#[test]
+fn set_package_flag_location_and_travel_to_ref_reach_ai_carry() {
+    let f = fixture();
+    let trip_running = |s: &Sim| -> Option<bool> {
+        s.events(R_TRAVEL).iter().find_map(|e| match e {
+            AiEvent::Trip { running, .. } => Some(*running),
+            _ => None,
+        })
+    };
+
+    // Baseline: TravelToB does not have ALWAYS_RUN, so R_TRAVEL walks (running == false).
+    let mut baseline = sim(&f, &[R_TRAVEL]);
+    baseline.run(1.0);
+    assert_eq!(trip_running(&baseline), Some(false));
+
+    // SetPackageFlag bit 13 (ALWAYS_RUN) + SetPackageLocationReference to MarkA reach Ai::begin and Ai::plan.
+    let mut edited = sim(&f, &[R_TRAVEL]);
+    edited
+        .game
+        .run_query("Begin Function { }\nSetPackageFlag TravelToB 13 1\nSetPackageLocationReference TravelToB MarkA\nEnd\n", Default::default())
+        .unwrap();
+    edited.run(10.0);
+    assert_eq!(trip_running(&edited), Some(true));
+    assert_eq!(edited.ai.agents[&FormId(R_TRAVEL)].walker.space, A);
+    assert!(dist(edited.feet(R_TRAVEL), [350.0, 350.0, 0.0]) < 20.0, "moved to MarkA: {:?}", edited.feet(R_TRAVEL));
+
+    // Synthetic TravelToRef package lives only in Game::package_overrides (not GameData::package_defs)
+    // and now reaches Ai::begin and Ai::plan with ALWAYS_RUN (flag 1).
+    let mut travel = sim(&f, &[R_LONER]);
+    let ctx = fnv_game::game::RunCtx { self_ref: Some(FormId(R_LONER)), ..Default::default() };
+    travel
+        .game
+        .run_query("Begin Function { }\nTravelToRef MarkA 1\nEnd\n", ctx)
+        .unwrap();
+    travel.run(10.0);
+    let loner_running = travel.events(R_LONER).iter().find_map(|e| match e {
+        AiEvent::Trip { running, .. } => Some(*running),
+        _ => None,
+    });
+    assert_eq!(loner_running, Some(true));
+    assert!(dist(travel.feet(R_LONER), [350.0, 350.0, 0.0]) < 80.0, "TravelToRef moved R_LONER to MarkA: {:?}", travel.feet(R_LONER));
 }

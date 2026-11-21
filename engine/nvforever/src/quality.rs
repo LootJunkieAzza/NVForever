@@ -503,7 +503,7 @@ mod tests {
         all.dedup();
         assert_eq!((n, all.len()), (41, 41));
         let effects = enhanced_keys();
-        assert_eq!(effects, ["ambient-occlusion", "fine-shadows", "bloom", "sharpen", "anisotropic", "light-shafts", "water-reflections"]);
+        assert_eq!(effects, ["ambient-occlusion", "fine-shadows", "bloom", "sharpen", "anisotropic", "light-shafts", "water-reflections", "water-effects"]);
         for m in MAPPED {
             assert!(!effects.contains(&m.row), "{} is an enhanced effect", m.row);
             let (mut a, mut b) = (Graphics::preset(Look::Enhanced), Graphics::preset(Look::Vanilla));

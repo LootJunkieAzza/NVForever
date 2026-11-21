@@ -1422,7 +1422,7 @@ fn update(
     mut script: Option<ResMut<ScriptState>>,
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
-    control: Res<PlayerControl>,
+    (control, stance): (Res<PlayerControl>, Option<Res<crate::stance::StanceMotion>>),
     locks: Res<ControlLocks>,
     mut hud: ResMut<HudMessage>,
     mut sounds: Sounds,
@@ -1486,7 +1486,9 @@ fn update(
     };
     match (v.phase, stop) {
         (Phase::Off, _) => {
-            if let Some(m) = regenerate(script.as_deref_mut(), &mut sim, combat.rules.ap_restore_rate, time.delta_secs()) {
+            // Not while sprinting: a sprint's AP do not come back during it (`crate::sprint`).
+            let sprinting = stance.as_deref().is_some_and(|s| s.sprinting);
+            if let Some(m) = regenerate(script.as_deref_mut(), &mut sim, combat.rules.ap_restore_rate, if sprinting { 0.0 } else { time.delta_secs() }) {
                 if v.regen_mult != Some(m) && (v.regen_mult.is_some() || m != 1.0) {
                     info!("vats mode: AP regenerates at {m:.2} x (the Action Point Regen perks)");
                 }
@@ -2223,7 +2225,7 @@ fn barred(v: &VatsMode, mut script: Option<&mut ScriptState>, sim: &mut SimState
     let melee = v.weapon.as_ref().is_some_and(|w| w.style == AttackStyle::Melee);
     // The base from the simulation: the game's world is not attached outside its turn.
     let flagged = melee
-        && sim.base_of(actor).is_some_and(|b| script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| { let (seed, at) = sim.pick(&rt.game, FormId(actor)); rt.game.data.no_vats_melee(b, seed, at) }));
+        && sim.base_of(actor).is_some_and(|b| script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| { let (seed, at) = sim.pick(&rt.game, FormId(actor)); rt.game.runtime_template_source(b, seed, at, |_| false).is_some_and(|(_, d)| d.no_vats_melee) }));
     if flagged {
         return Err(Bar::NoVatsMelee);
     }

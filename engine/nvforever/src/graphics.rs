@@ -42,6 +42,17 @@
 //!   the weather's cloud layers darken the sun's direct light where their shadow falls
 //!   (cloud_shadows.rs, sun_visibility.rs, docs/design/sun-visibility.md). Switching it
 //!   rebuilds the world views' material pipelines.
+//! - **Terrain shadows** (`terrain-shadows`, off in both presets: #2671 asked for it "in
+//!   `enhanced`", likewise, and its softness and bias are not tuned yet): at a low sun the
+//!   landscape shades itself beyond the sun shadows' range (sun_heightfield.rs,
+//!   terrain_shadows.rs, sun_visibility.rs, docs/design/terrain-shadows.md). Switching it
+//!   rebuilds the world views' material pipelines.
+//! - **Heat haze** (`heat-haze`, a prototype, off in both presets): the far ground near the
+//!   horizon shimmers slightly on hot clear days, by the sun and the live weather
+//!   (`heat_haze.rs`).
+//! - **Desert haze** (`desert-haze`, off in every preset): a thin dust haze added to the
+//!   weather's own distance fog, thicker with distance and toward the ground, warmer toward
+//!   the sun, as far as the weather's fog leaves room for it (haze.rs, #2675).
 //!
 //! Another switch is off in both looks and not part of `enhanced`: **Blend meshes into
 //! ground** (`mesh-terrain-blend`, `mesh_terrain_blend.rs`), outdoor roads, rocks and
@@ -53,7 +64,7 @@
 
 use crate::fly::FlyCam;
 use crate::sky::{SkyState, Sun};
-use crate::ssao::AmbientOcclusion;
+use crate::ssao::{AmbientOcclusion, AoLevel};
 use bevy::light::{CascadeShadowConfig, DirectionalLightShadowMap, ShadowFilteringMethod};
 use crate::post::PostEffects;
 use crate::shafts::LightShafts;
@@ -149,6 +160,9 @@ pub enum ScreenAa {
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Graphics {
     pub ambient_occlusion: bool,
+    /// Its level while it is on (the Ambient occlusion row's Performance or Quality,
+    /// `--ambient-occlusion`; ssao.rs `AoLevel`): Quality in every preset.
+    pub ambient_occlusion_level: AoLevel,
     pub fine_shadows: bool,
     pub bloom: bool,
     /// Light glow from the image space's HDR values (on in vanilla; see the module notes).
@@ -171,6 +185,7 @@ pub struct Graphics {
     pub dlss_model: DlssModel,
     pub light_shafts: bool,
     pub water_reflections: bool,
+    pub water_effects: bool,
     /// Water mirrors the world through the reflection camera (`reflection.rs`; on in
     /// vanilla, as the original's water reflects the world). Off, water reflects the sky,
     /// and what is on the screen where `water_reflections` is on.
@@ -190,11 +205,36 @@ pub struct Graphics {
     /// The weather's clouds shade the sun (cloud_shadows.rs; off in both presets)
     /// [design, #2670].
     pub cloud_shadows: bool,
+    /// The landscape shades the sun beyond the cascades (terrain_shadows.rs; off in both
+    /// presets) [design, #2671].
+    pub terrain_shadows: bool,
+    /// Heat haze at distance (heat_haze.rs; a prototype, off in both presets) [design].
+    pub heat_haze: bool,
+    /// A dust haze in the weather's fog (haze.rs; off in every preset) [design, #2675].
+    pub desert_haze: bool,
+    /// Surfaces whose diffuse has an authored PBR set under `textures\pbr\` are shaded from
+    /// it (#2981, docs/spec-notes/pbr-materials.md; on in both looks: a texture pack's maps
+    /// are assets, as a diffuse replacer is). Read once at the start (nvf_assets
+    /// `authored::set_enabled`, main.rs); this field is the settings row's value for the
+    /// next start.
+    pub authored_materials: bool,
+    /// Full models of static scenery in the cells beyond the loaded ones, draw-only
+    /// (full_detail.rs; 7 x 7 in `enhanced`, off in vanilla) [design, #2701; maintainer
+    /// decision 2026-11-21 on #3048].
+    pub full_detail: crate::full_detail::FullDetail,
+    /// Static scenery the distant LOD blocks do not hold, from its own LOD models or full
+    /// models by size, beyond the loaded cells and the ring, draw-only (distant_objects.rs;
+    /// off in both presets) [design, #3014].
+    pub distant_objects: crate::distant_objects::DistantObjects,
 }
 
-/// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
-/// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 16] = [
+/// The settings key of the Authored materials row (#2981).
+pub const AUTHORED_MATERIALS_KEY: &str = "authored-materials";
+
+/// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
+/// shadow-filter, full-detail and distant-object choices that are not vanilla's, in the
+/// order of [`Graphics::describe`].
+pub const KEYS: [&str; 24] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -205,12 +245,20 @@ pub const KEYS: [&str; 16] = [
     "taa",
     "light-shafts",
     "water-reflections",
+    "water-effects",
     "mesh-terrain-blend",
     "shadow-filter-hardware",
     "shadow-filter-temporal",
     "terrain-height-blend",
     "terrain-anti-tiling",
     "cloud-shadows",
+    "terrain-shadows",
+    "heat-haze",
+    "desert-haze",
+    "full-detail-7x7",
+    "full-detail-9x9",
+    "distant-objects-8",
+    "distant-objects-12",
 ];
 
 impl Graphics {
@@ -231,6 +279,7 @@ impl Graphics {
         let on = p == Preset::Enhanced;
         Graphics {
             ambient_occlusion: on,
+            ambient_occlusion_level: AoLevel::Quality,
             fine_shadows: on,
             bloom: on,
             glow: true,
@@ -247,6 +296,7 @@ impl Graphics {
             dlss_model: DlssModel::Default,
             light_shafts: on,
             water_reflections: on,
+            water_effects: on,
             water_mirror: true,
             shadow_filter: ShadowFilteringMethod::Gaussian,
             // Off in both looks, so `enhanced` (quality.rs `enhanced_keys`) leaves it out.
@@ -259,6 +309,22 @@ impl Graphics {
             // The same for cloud shadows, whose strength is still to calibrate [design,
             // #2670; the issue's "in enhanced" names a row the overhaul removed].
             cloud_shadows: false,
+            // The same for terrain shadows, whose softness and bias are still to tune
+            // [design, #2671; the issue's "in enhanced" names a row the overhaul removed].
+            terrain_shadows: false,
+            // Off in both looks: a prototype of our own [design].
+            heat_haze: false,
+            // Off in every preset: an addition of our own [design, #2675].
+            desert_haze: false,
+            // On in both looks [design, #2981]: without a pack nothing changes.
+            authored_materials: true,
+            // An addition of our own for machines with GPU headroom: the 7 x 7 ring in
+            // `enhanced`, off in vanilla [design, #2701; maintainer decision 2026-11-21 on
+            // #3048].
+            full_detail: if on { crate::full_detail::FullDetail::Seven } else { crate::full_detail::FullDetail::Off },
+            // Off in both looks: an addition of our own; whether `enhanced` turns it on is
+            // the maintainer's call [design, #3014].
+            distant_objects: crate::distant_objects::DistantObjects::Off,
         }
     }
 
@@ -276,16 +342,22 @@ impl Graphics {
             "anisotropic" => &mut self.anisotropic,
             "light-shafts" => &mut self.light_shafts,
             "water-reflections" => &mut self.water_reflections,
+            "water-effects" => &mut self.water_effects,
             "mesh-terrain-blend" => &mut self.mesh_terrain_blend,
             "terrain-height-blend" => &mut self.terrain_height_blend,
             "terrain-anti-tiling" => &mut self.terrain_anti_tiling,
             "cloud-shadows" => &mut self.cloud_shadows,
+            "terrain-shadows" => &mut self.terrain_shadows,
+            "heat-haze" => &mut self.heat_haze,
+            "desert-haze" => &mut self.desert_haze,
+            AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
             _ => return None,
         })
     }
 
     /// Exactly the improvements named ([`KEYS`]) on (`--graphics-only`); of the
-    /// anti-aliasings and of the shadow filters the last named wins.
+    /// anti-aliasings, of the shadow filters, of the full-detail sizes and of the
+    /// distant-object reaches the last named wins.
     pub fn only(keys: &[String]) -> Result<Self, String> {
         let mut g = Graphics::preset(Preset::Vanilla);
         for k in keys.iter().map(|k| k.trim()).filter(|k| !k.is_empty()) {
@@ -295,13 +367,18 @@ impl Graphics {
                 "taa" => g.screen_aa = ScreenAa::Taa,
                 "shadow-filter-hardware" => g.shadow_filter = ShadowFilteringMethod::Hardware2x2,
                 "shadow-filter-temporal" => g.shadow_filter = ShadowFilteringMethod::Temporal,
+                "full-detail-7x7" => g.full_detail = crate::full_detail::FullDetail::Seven,
+                "full-detail-9x9" => g.full_detail = crate::full_detail::FullDetail::Nine,
+                "distant-objects-8" => g.distant_objects = crate::distant_objects::DistantObjects::Eight,
+                "distant-objects-12" => g.distant_objects = crate::distant_objects::DistantObjects::Twelve,
                 "no-glow" => g.glow = false,
                 "no-eye-adaptation" => g.eye_adaptation = false,
                 "no-neon-glow" => g.neon_glow = false,
                 "no-water-mirror" => g.water_mirror = false,
+                "no-authored-materials" => g.authored_materials = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-authored-materials", KEYS.join(", "))),
                 },
             }
         }
@@ -324,6 +401,7 @@ impl Graphics {
             (self.screen_aa == ScreenAa::Taa, "temporal anti-aliasing"),
             (self.light_shafts, "sun shafts"),
             (self.water_reflections, "screen-space water reflections"),
+            (self.water_effects, "water caustics and river flow"),
             (!self.water_mirror, "no mirrored water"),
             (self.mesh_terrain_blend, "meshes blended into the ground"),
             (self.shadow_filter == ShadowFilteringMethod::Hardware2x2, "hardware 2x2 shadow filtering"),
@@ -331,6 +409,12 @@ impl Graphics {
             (self.terrain_height_blend, "terrain height blending"),
             (self.terrain_anti_tiling, "terrain anti-tiling"),
             (self.cloud_shadows, "cloud shadows"),
+            (self.terrain_shadows, "terrain shadows"),
+            (self.heat_haze, "heat haze"),
+            (self.desert_haze, "desert haze"),
+            (!self.authored_materials, "no authored materials"),
+            (self.full_detail != crate::full_detail::FullDetail::Off, self.full_detail.describe()),
+            (self.distant_objects != crate::distant_objects::DistantObjects::Off, self.distant_objects.describe()),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -559,7 +643,7 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(g)
             .insert_resource(MsaaSetting(self.1))
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
-            .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
+            .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::heat_haze::HeatHazePlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
             .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain())
             .add_systems(PostUpdate, log_shadow_map.before(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades));
@@ -883,7 +967,7 @@ fn apply(
     for (cam, cam_msaa, ..) in &cams {
         let mut e = commands.entity(cam);
         if g.ambient_occlusion {
-            e.insert(AmbientOcclusion::default());
+            e.insert(AmbientOcclusion::at(g.ambient_occlusion_level));
         } else {
             e.remove::<AmbientOcclusion>();
         }
@@ -972,6 +1056,11 @@ fn apply(
             e.insert(LightShafts::default());
         } else {
             e.remove::<LightShafts>();
+        }
+        if g.heat_haze {
+            e.insert(crate::heat_haze::HeatHaze::default());
+        } else {
+            e.remove::<crate::heat_haze::HeatHaze>();
         }
     }
     let reach = if g.fine_shadows { FINE_SHADOW_REACH } else { 1.0 };
@@ -1416,11 +1505,14 @@ mod tests {
     #[test]
     fn every_key_is_a_switch_and_enhanced_leaves_taa_off() {
         let all = Graphics::only(&KEYS.map(String::from)).expect("keys");
-        // Of the three anti-aliasings and the two shadow filters the last named is on.
-        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1 - 3);
+        // Of the three anti-aliasings, the two shadow filters, the two full-detail sizes and
+        // the two distant-object reaches the last named is on.
+        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1 - 5);
+        assert_eq!(all.full_detail, crate::full_detail::FullDetail::Nine);
+        assert_eq!(all.distant_objects, crate::distant_objects::DistantObjects::Twelve);
         assert_eq!((all.screen_aa, all.shadow_filter), (ScreenAa::Taa, ShadowFilteringMethod::Temporal));
         let enhanced = Graphics::preset(Preset::Enhanced);
-        assert!(enhanced.screen_aa == ScreenAa::Off && enhanced.light_shafts && enhanced.water_reflections);
+        assert!(enhanced.screen_aa == ScreenAa::Off && enhanced.light_shafts && enhanced.water_reflections && enhanced.water_effects);
         assert_eq!(enhanced.shadow_filter, ShadowFilteringMethod::Gaussian);
         assert!(Graphics::only(&["nonsense".into()]).is_err());
         let cycle = FrameTimes::parse_cycle("vanilla; taa,light-shafts ;enhanced;vanilla,no-sun-shadows;shadow-distance=8000,cascades=3").expect("cycle");
@@ -1429,6 +1521,18 @@ mod tests {
         assert_eq!(graphics, vec![vanilla, Graphics::only(&["taa".into(), "light-shafts".into()]).unwrap(), enhanced, vanilla, vanilla]);
         assert_eq!(cycle.iter().map(|c| c.no_sun_shadows).collect::<Vec<_>>(), vec![false, false, false, true, false]);
         assert_eq!((cycle[4].shadow_distance, cycle[4].cascades), (Some(8000.0), Some(3)));
+    }
+
+    #[test]
+    fn authored_materials_are_on_in_both_looks_and_can_be_switched_off() {
+        assert!(Graphics::preset(Preset::Vanilla).authored_materials && Graphics::preset(Preset::Enhanced).authored_materials);
+        let off = Graphics::only(&["no-authored-materials".into()]).expect("no-authored-materials");
+        assert!(!off.authored_materials);
+        assert_eq!(off.describe(), "light glow, no authored materials");
+        assert!(Graphics::only(&[]).unwrap().authored_materials, "--graphics-only leaves it on unless told");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch(AUTHORED_MATERIALS_KEY).unwrap() = false;
+        assert!(!g.authored_materials);
     }
 
     #[test]
@@ -1495,6 +1599,19 @@ mod tests {
     }
 
     #[test]
+    fn terrain_shadows_are_off_in_both_looks_and_have_their_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).terrain_shadows && !Graphics::preset(Preset::Enhanced).terrain_shadows);
+        let on = Graphics::only(&["terrain-shadows".into()]).expect("terrain-shadows");
+        assert!(on.terrain_shadows && !on.cloud_shadows);
+        assert_eq!(on.describe(), "light glow, terrain shadows");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("terrain-shadows").expect("settings key") = true;
+        assert_eq!(g, on);
+        let cycle = FrameTimes::parse_cycle("vanilla;terrain-shadows").expect("cycle");
+        assert!(!cycle[0].graphics.terrain_shadows && cycle[1].graphics.terrain_shadows);
+    }
+
+    #[test]
     fn terrain_anti_tiling_is_off_in_both_looks_and_has_its_own_key() {
         assert!(!Graphics::preset(Preset::Vanilla).terrain_anti_tiling && !Graphics::preset(Preset::Enhanced).terrain_anti_tiling);
         let on = Graphics::only(&["terrain-anti-tiling".into()]).expect("terrain-anti-tiling");
@@ -1505,6 +1622,30 @@ mod tests {
         let mut g = Graphics::preset(Preset::Vanilla);
         *g.switch("terrain-anti-tiling").expect("settings key") = true;
         assert_eq!(g, on);
+    }
+
+    #[test]
+    fn heat_haze_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).heat_haze && !Graphics::preset(Preset::Enhanced).heat_haze);
+        let on = Graphics::only(&["heat-haze".into()]).expect("heat-haze");
+        assert!(on.heat_haze);
+        assert_eq!(on.describe(), "light glow, heat haze");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("heat-haze").expect("settings key") = true;
+        assert_eq!(g, on);
+        assert!(!Graphics::preset(Preset::Enhanced).describe().contains("heat haze"));
+    }
+
+    #[test]
+    fn desert_haze_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).desert_haze && !Graphics::preset(Preset::Enhanced).desert_haze);
+        let on = Graphics::only(&["desert-haze".into()]).expect("desert-haze");
+        assert!(on.desert_haze);
+        assert_eq!(on.describe(), "light glow, desert haze");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("desert-haze").expect("settings key") = true;
+        assert_eq!(g, on);
+        assert!(!Graphics::preset(Preset::Enhanced).describe().contains("haze"));
     }
 
     // The guard alone: repeated requests and an earlier registration. Both callers

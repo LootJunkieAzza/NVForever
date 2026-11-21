@@ -4,6 +4,48 @@ Crates copied from crates.io with a small change, used through `[patch.crates-io
 `engine/Cargo.toml`. Each keeps its own licence files. When the crate is upgraded, copy
 the new version here and apply the change again (or drop the patch if upstream fixed it).
 
+## bevy_winit 0.20.1 (MIT OR Apache-2.0, Bevy)
+
+Adds an explicit cursor request/receipt consumer before ordinary Window
+synchronization. Only acknowledged requests update both Window and its private
+cache; ordinary setters retain their existing path. The cache remains private.
+The `cursor-test-support` feature exposes an offscreen fixture for that same
+consumer with an injected native result, without creating an OS window.
+See `docs/spec-notes/windows-cursor-ack.md` for ownership, bounds and validation
+limits. Both upstream license files are retained.
+
+In `bevy_winit/src/lib.rs`, the crate-level `unsafe_code` lint changes from
+`forbid` to `deny` so Windows-only `native_cursor_owner` in
+`bevy_winit/src/cursor_position.rs` can opt in locally. It uses the live winit-owned
+window handle and a stack `POINT` to check foreground ownership and whether the
+cursor is inside the client area before a warp, even without a motion event. The
+query itself changes neither focus nor cursor position. Every pre-existing
+module retains `forbid`; the rest of the new cursor consumer inherits `deny`.
+
+Source: crates.io `bevy_winit` 0.20.1, archive SHA-256
+`397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6`.
+
+## gilrs 0.11.2 (Apache-2.0 OR MIT, gilrs authors)
+
+Gamepad input under bevy_gilrs. One change (#3097), marked `NVForever patch` in
+`src/gamepad.rs` `Gilrs::next_event_priv`: a raw event for a pad id gilrs holds no data
+for (anything but the `Connected` that adds the next pad) is dropped, with one warning
+per pad id, and the next event is read instead.
+
+Why: gilrs looks every button and axis event's pad up with `Gilrs::gamepad`, which
+indexes `gamepads_data[id]`, and bevy_gilrs runs the `axis_dpad_to_button` filter on every
+event, which does the same. A second controller's input arriving before its `Connected`
+(or a `Connected` with an id past the next one, which upstream only logs as a platform
+error) panicked the game: crash signature `panic-f2bce0a1986452c8`, "index out of bounds:
+the len is 1 but the index is 1" at `gamepad.rs:474`. 0.11.2 is still the latest release.
+
+The crate ships no licence files of its own; its `Cargo.toml` names Apache-2.0/MIT. The
+bundled `SDL_GameControllerDB` keeps its LICENSE. `Cargo.lock` and `Cargo.toml.orig` from
+the archive are left out.
+
+Source: crates.io `gilrs` 0.11.2, archive SHA-256
+`902fb00d3f6398e635be22e5c837b303c501835cca7ac11a47bba138f7aafdd8`.
+
 ## gpu-allocator 0.28.0 (MIT OR Apache-2.0, Traverse-Research/gpu-allocator)
 
 Used by wgpu for Vulkan memory. Change, in `src/vulkan/mod.rs` `MemoryType::free`: an
@@ -60,6 +102,22 @@ by a comment starting `NVForever FSR integration`:
 
 Without the override both do what upstream does. This is a new patch for Bevy 0.20.1, not
 the dropped 0.19.1 one below.
+
+No directional shadows for one lighting call (the NIF shader's shade light,
+nvf_assets `nif_material.wesl` `with_shade_light`), each part marked `NVForever (no
+directional shadows)`:
+
+- `src/render/mesh_types.wesl`: `NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT` (bit 26 of a
+  `PbrInput`'s flags, which bevy_pbr leaves unused; set by shaders only, never by the CPU).
+- `src/render/pbr_functions.wesl` `apply_pbr_lighting`: the directional loop's shadow-map,
+  transmitted-lobe and contact-shadow conditions skip the light's shadow while the bit is
+  set; point and spot lights keep theirs. `with_shade_light` relit with the receiver bit
+  cleared before, which also dropped the lamps' shadows and changed the ambient occlusion's
+  factor on lamps; its extrapolation (by up to 1/share) turned that difference into a glow
+  on the first-person arms, weapon and Pip-Boy [observed 2026-11-19, Prospector Saloon at
+  22:00, lamp shadows Quality with ambient occlusion; gone after the change].
+
+Without the bit set the lighting is upstream's.
 
 Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/transmission/`,
 each part marked `NVForever one resolve`, with `ViewTarget::set_resolve_deferred` in
@@ -165,9 +223,15 @@ marked `NVForever sun visibility`, for nvforever's `sun_visibility.rs`:
   whose render entity has it, so a shader can tell the outdoor sun from other directional
   lights without assuming an index.
 - `src/render/mesh_view_bindings.rs`: the render-world view component
-  `NvfSunVisibilityBindings` (a uniform buffer, two filterable float 2D textures and a
+  `NvfSunVisibilityBindings` (a uniform buffer, a filterable float 2D texture for the
+  clouds, an unfilterable float 2D texture for the terrain shadow-height map and a
   filtering sampler), the layout key bit `MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY`
   and bindings 39-42 of the mesh view bind group, present only for a view with it.
+  Binding 41 is declared `Float { filterable: false }` (2026-11-17, #2671 stage T2): the
+  terrain map is `Rgba32Float`, which is filterable only with the optional
+  `FLOAT32_FILTERABLE` feature, so nvforever reads it with `textureLoad` and never with
+  the sampler; its stand-in while no map is uploaded is nvforever's own one-texel
+  `Rgba32Float` texture, not Bevy's fallback image.
 - `src/render/mesh.rs`: `MeshPipelineKey::NVF_SUN_VISIBILITY`, `NVF_CLOUD_VISIBILITY` and
   `NVF_TERRAIN_VISIBILITY` (bits 25-27; the key's bit fields above them move up by three,
   well below the base mesh key's bits from 58), set by `check_views_need_specialization`
@@ -183,6 +247,52 @@ the game's switches are off; the pipeline keys are the same keys numbered differ
 packed fields above the new bits moved up by three). The meshlet path (feature off here) builds its
 view key without the bits, so a meshlet view must not get the component. Upstream has no
 way for an application to add bindings to the mesh view bind group.
+
+Another change (ambient occlusion on the ambient light, #2897 stage two,
+docs/design/graphics-enhanced.md §3.1), each part marked `NVForever ambient occlusion`, for
+nvforever's `ssao_lighting.rs`, built the same way as the sun visibility's:
+
+- `src/render/mesh_view_bindings.rs`: the render-world view component
+  `NvfAmbientOcclusionBindings` (a uniform buffer and an unfilterable float 2D texture, the
+  half-resolution occlusion read with `textureLoad`), the layout key bit
+  `MeshPipelineViewLayoutKey::NVF_AMBIENT_OCCLUSION` and bindings 43-44 of the mesh view
+  bind group, present only for a view with it.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_AMBIENT_OCCLUSION` (bit 28; the key's bit
+  fields above it move up by one more, their top, the colour target format, ending at bit
+  49, still below the base mesh key's bits from 58, which the file's `const_assert_eq!`
+  checks), set by `check_views_need_specialization` from the same component, and the shader
+  def of the same name, pushed only for a pipeline that writes depth (opaque, alpha mask,
+  alpha to coverage), the rule Bevy's own `SCREEN_SPACE_AMBIENT_OCCLUSION` def follows: a
+  blended draw is not in the depth prepass the occlusion is worked out from. A blended
+  pipeline of such a view keeps the bindings in its layout and leaves them unread.
+
+The shader that reads the bindings is nvforever's (`ssao_lighting.wesl`, patched into
+`apply_pbr_lighting` at run time after the sun visibility's hook). Bevy inserts no such
+component; without it the layouts and shader defs are upstream's, and the pipeline keys are
+the same keys numbered differently (the packed fields above the new bit moved up by one).
+As for the sun visibility, a meshlet view must not get the component.
+
+Another change (two-channel normal maps, #2981, docs/spec-notes/pbr-materials.md), in
+`src/render/pbr_functions.wesl` `apply_normal_mapping`, marked `NVForever two-channel normal
+clamp`: Z is rebuilt as `sqrt(max(1 - x² - y², 0))` instead of `sqrt(1 - x² - y²)`, so X and Y
+outside the unit disk (BC5 endpoints, filtering between texels) give Z 0 instead of a NaN.
+Only materials whose normal map is a two-channel format (`Bc5RgUnorm`, `Rg8Unorm`: Bevy's
+`TWO_COMPONENT_NORMAL_MAP` flag) reach the line; in NVForever those are the authored `_n`
+maps (nvf-assets `TextureUsage::NormalTwoChannel`), while the game's own normal maps are
+expanded to three channels on the CPU (docs/spec-notes/dds-bc5.md). Inside the disk the
+result is upstream's. Drop it when upstream clamps there.
+
+Another change (height maps, #2981 stage 4, docs/spec-notes/pbr-materials.md), in
+`src/render/parallax_mapping.wesl` `sample_depth_map`, marked `NVForever height maps`: the
+sample (bindless and ordinary binding alike) is returned as `1.0 - r` instead of `r`. The
+authored `_p` stores height (white = high); Bevy's march reads depth (white = deepest). The
+inversion sits after the two bindings' samples, so they cannot diverge; the march and both
+refinements read only through this function. It changes the convention for every
+`StandardMaterial::depth_map` in the engine: none was set in production before (terrain
+asserts landscape materials have none; the one positive assignment is a Pip-Boy test
+fixture), and the only maps set now are the authored `_p` (nvf-assets `authored.rs`). Keep it
+while NVForever's height maps are heights; drop it if they are ever converted to depth on the
+CPU instead.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
@@ -395,6 +505,89 @@ folder, or with `NVF_DLSS_PRELOAD=1`; `NVF_DLSS_PRELOAD=0` leaves out the files 
 (`engine/nvforever/src/upscaler.rs` `UpscalerStartup`, docs/design/dlss-upscaling.md, "Loaded
 whenever the files are there"). Every other run takes upstream's path. Drop it if wgpu-hal gains a way to pass the entry in.
 
+Pipeline compiling (perf/pipeline-cache, 2026-11-19; nvforever
+`src/pipeline_disk_cache.rs` has the measurements), in `src/render_resource/pipeline_cache.rs`,
+each part marked by a comment starting `NVForever`:
+
+- `NVForever pipeline timing`: with `NVF_PLAY_TEST_PIPELINE_LOG` set, each pipeline logs
+  `pipeline timing: queued .. ms, lock .. ms, compose .. ms, naga .. ms (<n> modules), create
+  .. ms: <label>`: the wait for a thread, for the shader cache's lock, the Wesl composition,
+  the part of it in `create_shader_module`, and the pipeline's creation (the driver's compile).
+- `NVForever persistent pipeline cache`: `PipelineCache::set_wgpu_pipeline_cache` gives every
+  pipeline created from then on a `wgpu::PipelineCache` (`cache:` in the descriptors, `None`
+  upstream); nvforever loads it from the home and saves it.
+- `NVForever composed shaders`: `PipelineCache::set_composed_store` hands bevy_shader's store
+  (below) to the shader cache.
+- `NVForever compile pool`: pipelines compile on a pool of their own (a quarter of the logical
+  cores, 2 to 8 threads; `NVF_PIPELINE_THREADS=<n>`, 0 for upstream's async compute pool
+  and no list pool),
+  not on the async compute pool (at most 4 threads, shared with the game's loading). On a
+  driver cache that has none of the pipelines (each 0.6-0.8 s), a Novac start's screen waited
+  6.1 s for them on the async compute pool and 5.3 s on this pool.
+- `NVForever modules off the lock`: the pipeline tasks take their shader modules from
+  bevy_shader's `ShaderCache::prepare` (below) under the lock, then make the ones left to them
+  without it (`nvf_modules`: naga's parse, validation and SPIR-V, and `vkCreateShaderModule`)
+  and hand them back with `finish`; a module another thread is making is waited for, after
+  this thread's own are made. Upstream made every module under the one lock: a Novac start's
+  245 modules took 751 ms one at a time while the compile threads waited 3.9 s in all for
+  the lock [observed 2026-11-19]. This needs wgpu's error scopes per thread, so the
+  dependency on `wgpu` adds its `std` feature (without it the scopes are one stack for all
+  threads, and two threads making modules at once panic with a mismatched
+  `pop_error_scope`).
+- `NVForever pipeline list`: a new module `src/render_resource/nvf_manifest.rs`
+  (`PipelineManifest`, its module notes say how it works) and `PipelineCache::
+  set_pipeline_manifest`. The render and compute tasks turn their descriptor into a recipe
+  (shaders by `Shader::path`) and ask the list: a pipeline the list built from the same
+  modules is handed over, else the task builds it and the list keeps the recipe.
+  `process_queue` feeds the list's recipes whose shaders have loaded (only those asked in
+  the last `REBUILD_RUNS` runs, at most `MAX_REBUILT`) to a pool of its own
+  (`nvf_list_pool`, half the compile pool's default threads), which builds each inside a
+  validation error scope. For the JSON of the recipes the crate depends on `serde` and
+  `serde_json` and on `wgpu-types` with `serde` (all already in the build).
+
+Without the setters and with `NVF_PIPELINE_THREADS=0`, upstream's path runs (no list pool
+either), except that the modules are made outside the lock.
+
+## bevy_shader 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+The shader cache, for composed shaders kept between runs (perf/pipeline-cache, 2026-11-19).
+A new module `src/nvf_composed.rs` (`ComposedStore`: keyed compositions with the source
+hash of each module the composer read, a file format with a producer line, pruning of
+entries unused for 30 runs, at most 96 MB, up to 4 variants a key) and, in
+`src/shader_cache.rs`, each part marked by a comment starting `NVForever composed shaders`:
+`ShaderCache::set_composed_store`, each shader's source hash and each module path's shader
+(kept up to date in `set_shader` and `remove`), and in `get`'s Wesl branch a lookup before
+`wesl::compile` and a `put` after it. The key is the module path, the composer's options
+with its sorted definitions, and the `constants` module's source; an entry is used only
+while every module it read still has the same source. Without a store `get` composes as
+upstream does.
+
+Why: once the driver has a pipeline in its own cache, composing its shaders is most of what
+it costs (15-90 ms a module, one at a time under the cache's lock, against about 2 ms to
+make the module), and the composer orders a module's declarations differently from run to
+run, which hands the driver new SPIR-V. At a Novac start, with NVIDIA's cache warm, the
+screen's wait for pipelines went from 3.8 to 2.3 s and the 45 pipelines asked in the first
+seconds after it from 6.3 s to 1.2 s (asked to ready, all together) [observed, nvforever
+`pipeline_disk_cache.rs`]. Composing on several threads instead was tried and is slower
+(wesl 0.6's identifiers share reference counts). The test `composed_store_skips_compositions_of_unchanged_sources`
+checks a second cache composes nothing the first kept and composes again after a change.
+Drop it when Bevy caches compositions itself.
+
+`NVForever modules off the lock` (`src/shader_cache.rs`): `get` is split into `prepare`
+(compose under the lock; returns `ModuleStep::Ready`, `Build` with the composed source, or
+`Wait` on the `ModuleSlot` of the thread making the same module) and `finish` (keep the
+module made, unless the shader was replaced meanwhile: each shader's data has a
+`generation` that `clear` bumps, and `clear` drops the slots being made). A `ModuleBuild`
+dropped unfinished (its maker panicked or stopped early) fills its slot with
+`ShaderImportNotYetAvailable`, an error the pipeline cache retries, so a waiter's pipeline
+is queued again rather than failed for the run. `get` is
+`prepare`, the module made holding the lock, and `finish`, as before. `ShaderCacheError` is
+`Clone` for the waiters. For the pipeline list (bevy_render above): `shader_path`,
+`shader_by_path` (a path two shaders share is neither) and `shaders_set`, and `prepare`
+takes the pipeline as an `Option` (`None` for the list's builds, which are not compiled
+again when a shader changes). Tests: `a_module_asked_twice_at_once_is_made_once_and_a_stale_one_is_not_kept`,
+`a_build_dropped_unfinished_wakes_its_waiters`, `shaders_are_found_by_a_path_only_they_have`.
+
 ## wgpu-hal 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 
 wgpu's Vulkan backend, for NVIDIA low latency (`VK_NV_low_latency2`,
@@ -428,6 +621,12 @@ Not run on a GPU yet (2026-11-12): built, and the engine's tests and clippy pass
 is the crates.io package as published (its `examples` are kept: the manifest names them).
 Drop it when wgpu lets a caller extend swapchain creation, or creates the swapchain with
 the structure itself.
+
+Test aid (marked `NVForever (2026-11-19)`, `src/vulkan/mod.rs` `spirv_salt` and
+`src/vulkan/device.rs` `create_shader_module_impl`): `NVF_PLAY_TEST_SPIRV_SALT=<n>` XORs `n`
+into each shader module's SPIR-V generator word, which names only the tool that wrote it, so
+a driver's own shader cache sees new code: a first launch after a driver update, on demand,
+for measuring (perf/pipeline-cache). Without it nothing changes.
 
 ## naga 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 

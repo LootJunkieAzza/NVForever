@@ -21,7 +21,7 @@ fn validating_cache() -> ShaderCache<String, ()> {
     })
 }
 
-fn sources(directory: &std::path::Path, package: &str, root: &std::path::Path, out: &mut Vec<(String, String)>) {
+pub(crate) fn sources(directory: &std::path::Path, package: &str, root: &std::path::Path, out: &mut Vec<(String, String)>) {
     for entry in std::fs::read_dir(directory).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() { sources(&path, package, root, out); }
@@ -34,7 +34,7 @@ fn sources(directory: &std::path::Path, package: &str, root: &std::path::Path, o
 
 /// The vendored Bevy PBR/render modules, plus the fullscreen vertex IO type imported by
 /// Bevy's SSR library (bevy_core_pipeline is not vendored; no tested entry point uses it).
-fn vendored_modules() -> Vec<(String, String)> {
+pub(crate) fn vendored_modules() -> Vec<(String, String)> {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut modules = Vec::new();
     for package in ["bevy_pbr", "bevy_render"] {
@@ -47,7 +47,7 @@ fn vendored_modules() -> Vec<(String, String)> {
 }
 
 /// Composes `entry` from `modules` with `defs` (naga-validated), and returns its source.
-fn compose(modules: &[(String, String)], entry: &str, defs: &[ShaderDefVal]) -> String {
+pub(crate) fn compose(modules: &[(String, String)], entry: &str, defs: &[ShaderDefVal]) -> String {
     let mut cache = validating_cache();
     let mut assets = Assets::<Shader>::default();
     let mut root = None;
@@ -64,7 +64,7 @@ fn compose(modules: &[(String, String)], entry: &str, defs: &[ShaderDefVal]) -> 
 /// The (group, binding) of every sampled texture (plain or binding array) the composed
 /// module declares. Composition keeps only what the entry point reaches, so this is what
 /// the shader uses, a subset of its pipeline layout (which Rust's AsBindGroup makes).
-fn texture_bindings(source: &str) -> std::collections::BTreeSet<(u32, u32)> {
+pub(crate) fn texture_bindings(source: &str) -> std::collections::BTreeSet<(u32, u32)> {
     let module = naga::front::wgsl::parse_str(source).unwrap();
     let mut bindings = std::collections::BTreeSet::new();
     for (_, variable) in module.global_variables.iter() {
@@ -168,10 +168,10 @@ fn composed_production_blend_module_validates_with_key_on_and_off() {
             }
             // Round 9 reuses origin.z; round 6's enabled width and ordinary layouts stay fixed.
             // #2551 added the ordinary `terrain` row (144 bytes); the blend's three rows follow.
-            assert_eq!(surface_sizes, vec![if blend { 192 } else { 144 }]);
+            assert_eq!(surface_sizes, vec![if blend { 192 } else { 160 }], "the ordinary type alone has #2462's env row after the 144 bytes");
             // The blend type reuses the ordinary table and slots (nif_surface_blend.rs notes);
             // round 10a's bindless blend row is longer by the palette's 400 entries.
-            if bindless { assert_eq!(index_sizes, vec![if blend { 16 + 4 * nvf_assets::nif_surface_blend::PALETTE_ENTRIES as u32 } else { 16 }]); }
+            if bindless { assert_eq!(index_sizes, vec![if blend { 16 + 4 * nvf_assets::nif_surface_blend::PALETTE_ENTRIES as u32 } else { 28 }], "the ordinary row: four entries, then the window environment map's three (#2462)"); }
             assert_eq!(nvf_assets::nif_surface_blend::PALETTE_ENTRIES, 400, "nif_surface_bindings.wesl spells out array<u32, 400>");
             if !bindless {
                 let bound = |binding| module.global_variables.iter().any(|(_, v)| v.binding.as_ref().is_some_and(|b| b.group == 3 && b.binding == binding));
@@ -514,6 +514,184 @@ fn complete_nif_forward_and_prepass_compose_with_both_interfaces() {
     }}}
 }
 
+/// `nif_material.wesl` without the authored materials' debug code (#2981, nvf-assets
+/// authored.rs `PbrView`, `metallic_debug`): every line (or block) under a positive
+/// `@if(NVF_PBR_...)` condition removed, and the `@if(!NVF_PBR_METALLIC)` guard taken off
+/// the line it guards. That is the shader as it was before those switches.
+fn without_pbr_debug(source: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0i32;
+    let braces = |l: &str| l.matches('{').count() as i32 - l.matches('}').count() as i32;
+    for line in source.lines() {
+        let t = line.trim_start();
+        if depth > 0 {
+            depth += braces(line);
+            continue;
+        }
+        if t.starts_with("@if(NVF_PBR_") {
+            depth = braces(line).max(0);
+            continue;
+        }
+        match t.strip_prefix("@if(!NVF_PBR_METALLIC) ") {
+            Some(rest) => out.push_str(&format!("{}{rest}", &line[..line.len() - t.len()])),
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// A composed module's module-scope declarations, each kept whole and verbatim (its
+/// attribute lines, its body with every statement in place), then sorted: equal for two
+/// modules that declare the same things in any order. A declaration runs from its first line
+/// at brace depth 0 (attribute lines included) to the line that brings the depth back to 0
+/// ending in `}` or `;`; blank lines at depth 0 separate nothing and are dropped, blank lines
+/// inside a body stay in it. The composed WGSL has no comments or strings.
+fn declarations(source: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current: Vec<&str> = Vec::new();
+    let mut depth = 0i32;
+    for line in source.lines() {
+        let t = line.trim();
+        if depth == 0 && current.is_empty() && t.is_empty() {
+            continue;
+        }
+        current.push(line);
+        depth += line.matches('{').count() as i32 - line.matches('}').count() as i32;
+        assert!(depth >= 0, "unbalanced braces at {line:?}");
+        if depth == 0 && (t.ends_with('}') || t.ends_with(';')) {
+            out.push(current.join("\n"));
+            current.clear();
+        }
+    }
+    assert!(current.iter().all(|l| l.trim().is_empty()), "an unterminated declaration: {current:?}");
+    out.sort_unstable();
+    out
+}
+
+/// The first of two sorted declaration lists' differences, as a message (`None`: equal).
+fn declaration_difference(ours: &[String], theirs: &[String]) -> Option<String> {
+    let i = (0..ours.len().max(theirs.len())).find(|&i| ours.get(i) != theirs.get(i))?;
+    let (a, b) = (ours.get(i).map_or("", String::as_str), theirs.get(i).map_or("", String::as_str));
+    let at = first_difference(a, b).unwrap_or(0);
+    Some(format!("sorted declaration {i} of {}/{} differs at byte {at}:\nours:   {:?}\ntheirs: {:?}", ours.len(), theirs.len(), window(a, at), window(b, at)))
+}
+
+/// The byte where two texts first differ (`None`: equal).
+fn first_difference(a: &str, b: &str) -> Option<usize> {
+    if a == b {
+        return None;
+    }
+    Some(a.bytes().zip(b.bytes()).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len())))
+}
+
+/// About 200 bytes of `s` around byte `at`, on character boundaries.
+fn window(s: &str, at: usize) -> &str {
+    let mut start = at.saturating_sub(120).min(s.len());
+    while !s.is_char_boundary(start) {
+        start -= 1;
+    }
+    let mut end = (at + 120).min(s.len());
+    while !s.is_char_boundary(end) {
+        end += 1;
+    }
+    &s[start..end]
+}
+
+/// #2981: the NIF forward shader with the authored materials' debug defs.
+///
+/// What it proves: the authored debug views and parallax variants compose and validate,
+/// bindless or not, ordinary or blend, without UVs and with UVs and tangents (with or
+/// without a normal map). The mask switch changes the shader only when UVs are present.
+/// With none of the debug defs, the composed shader declares exactly what the same
+/// source declares with its debug lines stripped (`without_pbr_debug`), declaration by
+/// declaration, each verbatim, in any order.
+///
+/// What it does not prove: that the off shader equals the shader before stage 3. The stripped
+/// reference is made from the same file, so an unconditional edit to nif_material.wesl (or to
+/// a module it imports, such as the vendored two-channel clamp) is in both and passes. It
+/// executes no fragment.
+#[test]
+fn nif_forward_composes_with_the_authored_debug_defs_and_is_unchanged_without_them() {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut modules = vendored_modules();
+    let root = manifest.join("../nvf-assets/src");
+    sources(&root, "nvf_assets", &root, &mut modules);
+    modules.push(("embedded://nvforever/terrain_weights.wesl".into(), include_str!("terrain_weights.wesl").into()));
+    let entry = "embedded://nvf_assets/nif_material.wesl";
+    let original = modules.iter().find(|(p, _)| p == entry).map(|(_, s)| s.clone()).expect("nif_material.wesl");
+    let stripped = without_pbr_debug(&original);
+    assert_ne!(stripped, original, "the debug code is there to strip");
+    assert!(!stripped.lines().any(|l| l.trim_start().starts_with("@if(NVF_PBR_") || l.contains("@if(!NVF_PBR_")), "every debug line stripped");
+    let mut before = modules.clone();
+    before.iter_mut().find(|(p, _)| p == entry).unwrap().1 = stripped;
+    use nvf_assets::nif_surface_blend::HeightLayout;
+    for bindless in [false, true] {
+        for blend in [false, true] {
+            for (uvs, normal_map) in [(false, false), (true, false), (true, true)] {
+                let mut base = nif_defs(bindless, blend, false, false, HeightLayout::STORED);
+                if uvs {
+                    base.push("VERTEX_UVS".into());
+                } else {
+                    base.retain(|d| *d != ShaderDefVal::from("VERTEX_UVS_A"));
+                }
+                if normal_map {
+                    base.push("STANDARD_MATERIAL_NORMAL_MAP".into());
+                }
+                let key = format!("bindless={bindless} blend={blend} uvs={uvs} normal_map={normal_map}");
+                let composed = compose(&modules, entry, &base);
+                let off = declarations(&composed);
+                if let Some(d) = declaration_difference(&off, &declarations(&compose(&before, entry, &base))) {
+                    panic!("{key}: off is not the shader without the debug code; {d}");
+                }
+                let mut sets: Vec<&[&str]> = nvf_assets::authored::PbrView::ALL.iter().map(|v| v.shader_defs()).collect();
+                sets.push(&["NVF_PBR_METALLIC"]);
+                sets.push(&["NVF_PBR_VIEW", "NVF_PBR_VIEW_OCCLUSION", "NVF_PBR_METALLIC"]);
+                for set in sets {
+                    let mut defs = base.clone();
+                    defs.extend(set.iter().map(|d| ShaderDefVal::from(*d)));
+                    assert!(declaration_difference(&declarations(&compose(&modules, entry, &defs)), &off).is_some(), "{key} {set:?}: the defs change no declaration");
+                }
+                // The march needs coordinates and tangents, independently of a normal map.
+                assert_eq!(composed.contains("1.0 - height"), uvs, "{key}: the march inverts the stored height");
+                if !bindless {
+                    assert_eq!(texture_bindings(&composed).contains(&(3, 11)), uvs, "{key}: the march reads the depth map");
+                }
+                for extra in [&[][..], &["NVF_PBR_VIEW", "NVF_PBR_VIEW_HEIGHT"], &["RELIEF_MAPPING"], &["RELIEF_MAPPING", "NVF_PBR_VIEW", "NVF_PBR_VIEW_HEIGHT"]] {
+                    let mut defs = base.clone();
+                    defs.extend(extra.iter().map(|d| ShaderDefVal::from(*d)));
+                    let without_mask = declarations(&compose(&modules, entry, &defs));
+                    if extra.len() == 1 && extra.contains(&"RELIEF_MAPPING") {
+                        assert_eq!(declaration_difference(&without_mask, &off).is_some(), uvs, "{key}: the relief key changes the march");
+                    }
+                    // Isolate the mask's contribution from the height view or relief key.
+                    defs.push(nvf_assets::nif_material::PARALLAX_MASK_DEF.into());
+                    let masked = compose(&modules, entry, &defs);
+                    assert_eq!(masked.contains("unshifted_alpha"), uvs, "{key} {extra:?}: the mask reads unshifted alpha where UVs exist");
+                    assert_eq!(declaration_difference(&declarations(&masked), &without_mask).is_some(), uvs, "{key} {extra:?}: the mask changes the shader only with UVs");
+                }
+            }
+        }
+    }
+}
+
+/// The splitter keeps a function body whole (its blank lines and statement order included)
+/// and attribute lines with what they qualify.
+#[test]
+fn declarations_are_split_whole_and_compared_in_any_order() {
+    let a = "@group(0) @binding(0)\nvar<uniform> v: f32;\n\nfn f() -> f32 {\n    let x = 1.0;\n\n    let y = 2.0;\n    return x + y;\n}\n\nstruct S {\n    a: f32,\n}\n";
+    let b = "struct S {\n    a: f32,\n}\n\nfn f() -> f32 {\n    let x = 1.0;\n\n    let y = 2.0;\n    return x + y;\n}\n@group(0) @binding(0)\nvar<uniform> v: f32;\n";
+    let (da, db) = (declarations(a), declarations(b));
+    assert_eq!(da.len(), 3);
+    assert!(declaration_difference(&da, &db).is_none(), "the same declarations in another order");
+    assert!(da.iter().any(|d| d.starts_with("@group(0) @binding(0)") && d.ends_with("v: f32;")));
+    // Two statements of one body swapped: a different declaration.
+    let swapped = a.replace("    let x = 1.0;\n\n    let y = 2.0;", "    let y = 2.0;\n\n    let x = 1.0;");
+    assert!(declaration_difference(&declarations(&swapped), &da).is_some());
+    // Another binding: different.
+    assert!(declaration_difference(&declarations(&a.replace("@binding(0)", "@binding(1)")), &da).is_some());
+}
+
 #[test]
 fn terrain_surface_bake_composes_for_the_folded_base() {
     // [design] terrain.wesl with the ordinary and folded-bake variants (terrain.rs
@@ -667,7 +845,7 @@ fn shader_detail_composes_height_blending_and_anti_tiling_as_the_near_draw() {
 /// material groups the aid creates (from the production types' resource tables, where
 /// every texture becomes a binding without bindless, and the composed capture shader).
 /// The view and mesh groups are the mesh pipeline's, as for every ordinary material:
-/// the blend type equals the ordinary NIF type's count (also per composed group in
+/// the blend type has the ordinary NIF type's count less #2462's two (also per composed group in
 /// `complete_nif_forward_and_prepass_compose_with_both_interfaces`); the capture binds
 /// one texture; the folded TerrainMaterial's group alone exceeds the limit, so it is used
 /// only where TerrainMaterials::folds found bindless textures, and every other draw is
@@ -683,7 +861,7 @@ fn material_groups_fit_a_16_texture_stage_without_bindless() {
     // (nif_surface_blend.rs: round 10a's palette exists only in the bindless table).
     let blend = standard + textures(nvf_assets::nif_surface_blend::NifSurfaceBlendColour::bindless_descriptor());
     let folded = standard + textures(crate::terrain::TerrainLayers::bindless_descriptor());
-    assert_eq!(blend, ordinary, "the blend adds no texture to the ordinary NIF material group");
+    assert_eq!(blend + 2, ordinary, "the blend adds no texture to the ordinary NIF material group; it lacks the two of the window environment map (#2462: the cube and the mask)");
     assert!(ordinary <= STAGE_LIMIT);
     assert!(folded > STAGE_LIMIT, "{folded}: the folded material needs bindless textures");
     let capture = texture_bindings(&capture_source(true, true)).len();

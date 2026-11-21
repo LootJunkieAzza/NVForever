@@ -137,9 +137,12 @@ fn read_model(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult
 
 fn read_model_unguarded(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult {
     let schema = &*data.schema;
+    // Beside `times`: the same parts for the exit's summary of both readers (#3149).
+    let mut timed = nvf_assets::load_times::Timed::start(&nvf_assets::load_times::COLLISION);
     let t = Instant::now();
     let read = data.vfs.read(path);
     times.read += ms_since(t);
+    timed.read();
     let bytes = match read {
         None => return Err("not found".to_string()),
         Some(Err(e)) => return Err(e.to_string()),
@@ -147,7 +150,9 @@ fn read_model_unguarded(data: &GameData, path: &str, times: &mut LoadTimes) -> M
     };
     let t = Instant::now();
     let file = NifFile::parse(&bytes, Some(schema)).map_err(|e| e.to_string());
+    timed.parsed();
     let dec = file.as_ref().ok().map(|file| Decoded::new(file, &bytes, schema));
+    timed.decoded();
     times.parse += ms_since(t);
     let file = file?;
     let t = Instant::now();

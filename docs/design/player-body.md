@@ -343,13 +343,23 @@ itself turns exactly as the mouse says.
   inertia the climb is 60 % of the original's. The fire clip starts again
   at once at each shot and the arms ease across the step back to its start
   (`Animator::smooth_jump`, the loop seams' inertialization below): its kick shows whole,
-  with no snap between shots. At such a jump the offset keeps only the part of its rate
-  that takes it back towards nothing, never past it (`anim_blend::toward_rest`, the
-  overshoot clamp of David Bollo's inertialization, GDC 2018): handed the new clip's
-  whole speed, an offset of almost nothing was flung out and back, and the lever-action
-  Trail Carbine fired as fast as it cycles down its sights took the left hand 9.5 units
-  off the gun for a quarter of a second at each shot (the clip's own 4.6; a tester's
-  video and the trace `movement-inertia-trace-lever-sights`, 2026-11-17).
+  with no snap between shots. At such a jump the offsets take no rate: every node's dies
+  away on one curve (`anim_blend::jump_share`), so the eased pose is one blend of the old
+  pose and the new clip, as a cross-fade is, and the hands keep their places on the gun.
+  Handed the new clip's whole speed, an offset of almost nothing was flung out and back:
+  the lever-action Trail Carbine fired as fast as it cycles down its sights took the left
+  hand 9.5 units off the gun for a quarter of a second at each shot (the clip's own 4.6; a
+  tester's video and the trace `movement-inertia-trace-lever-sights`, 2026-11-17). Keeping
+  only the part of the rate that took each offset back towards nothing (Bollo's overshoot
+  clamp, GDC 2018) still gave each node its own curve, and the arms and the `Weapon` node
+  eased apart: a bolt or lever worked between quick shots took the right hand 16.7 units
+  off the Cowboy Repeater's grip (the clip's own 10.5) and the left hands of the Varmint
+  Rifle and the BB Gun 5.0 and 7.5 units off the gun (0.1 and 2.2) [observed: the owner's
+  video, 2026-11-19, "Right hand flies off the handle while firing"; the smoke traces
+  `sights-fire-hands-rapid` against `sights-fire-hands-rapid-original`, which measure
+  each hand in the gun's frame for one gun of every first-person sights fire clip; after
+  the change 11.8 and 0.2 / 2.2]. What is left of the right hand's 11.8 comes from the
+  loop seams (below) and later restarts during the action's own motion.
 - Reloads (eighth playtest: "try improving reloads with springs"): with movement inertia
   a reload's, a jam's and each round's clip starts at once and the arms ease across the
   step to it as across a loop seam (the clip's own motion untouched); at its end the arms
@@ -453,7 +463,8 @@ settings-page.md) [design]:
 | *(an empty line)* | | | |
 | Gameplay | `movement-inertia` | Movement Inertia | The ground speed's springs (starting, gliding to a stop, braking before turning back; the movement clips following a glide); the first-person stance cross-over (1.0 s / 1.1 s) and crouched jumps staying crouched; the view's take-off and landing dip, deeper for a higher fall (`hard_landing`), the longer landing clip (`land_stretch`) and the speed a hard landing takes (`MovementInertia::land`) (`--no-movement-inertia`) |
 | | `weapon-handling` | Weapon Handling | The slower draw and holster (`draw_weight`: 1.5 to 2.4 times the original's) and aim (0.6 s / 0.55 s for a pistol, `aim_weight`), heavier weapons slower still, Agility and Strength by the weapon's class (`attribute_rate`, `aim_rate`); off, the game's own timing with its Agility rate (`--no-weapon-handling`, `MovementInertia::handles`, `equip_rate`, `aim_seconds`) |
-| | `advanced-recoil` | Advanced Recoil | The view's kick eased in and 40 % settling back (`nvf_play::combat`), the view's nudge back from a shot (head bob's springs) |
+| | `advanced-recoil` | Advanced Recoil | The view's kick eased in and 40 % settling back (`nvf_play::combat`), the view's nudge back from a shot (head bob's springs, so shown only with Camera Motion on too) |
+| | `sprint` | Sprint | Off by default (`--sprint`, `MovementInertia::sprint_on`): the Sprint control held runs faster for AP, a stop low on AP leaves the player winded; it has no key until the player binds one (Controls › Movement) and Run keeps Left Shift [design, #3000: the maintainer's decision on #3002]; the shared state and input are `nvf_play::stance`'s (#3000) |
 | *(an empty line)* | | | |
 | Visual Only | `weapon-inertia` | Weapon Inertia | The arms' lag, steps, bob, jump and landing dip, the muzzle tip in the air, the breathing drift, the gun's recoil springs, the weapon's weight in all of it (§1.4a); `--no-weapon-sway`, a saved `weapon-sway` read as it |
 | | `animation-smoothing` | Animation Smoothing | Every first-person clip fade on the settling curve, the draw and holster played by their motion along it, eased starts and slow returns of attacks, reloads and jams, the aim's cross-over, the true iron sights' and the zoom's curve, the loop seams, the Pip-Boy's ease; at Weapon Handling's pace, else at the game's own (the aim at the true iron sights' 0.35 s / 0.3 s), so it changes the look only |
@@ -542,6 +553,59 @@ Switching a part off or on while it acts leaves nothing stuck (smoke
 from where it is, and a placement by the game starts the ground velocity from rest
 however near (`MovementInertia::check_game_placed`).
 
+Off means the original's exactly, not "less" (the reporter of #3001, 2026-11-18: with
+Weapon Inertia off, the Global Toggle off and the defaults the held weapon "still shows
+inertia"; when a part is off "the game must fall back to the original's behaviour
+exactly"). Every first-person
+motion beyond the clips' own pose has one owner, and off it is nothing at all once its
+fade (at most about a second) is over [design]:
+
+| What moves | Where | Owner |
+|---|---|---|
+| The arms and the weapon against the view (`Bip01 Translate`): turn lag, bob, steps, jump and landing dip, muzzle tips, breathing drift, the gun's recoil springs, the trail of a draw or an aim | `view_sway.rs` | Weapon Inertia (a blow's jolt of the gun and its breath out of breath: Camera Motion's, shown only with Weapon Inertia on too) |
+| The whole arms rig with the camera node (the view): bob, head lag, breathing camera, a blow's jolt | `head_bob.rs` | Camera Motion |
+| The view's nudge back from a shot | `head_bob.rs`, on the head's springs | Advanced Recoil, shown only with Camera Motion on (it rides the head's springs) |
+| The view's take-off and landing dip | `head_bob.rs` | Movement Inertia |
+| The view's kick eased in and partly settling back | `nvf_play::combat` | Advanced Recoil (the view and the arms together: the arms rig follows the view) |
+| Clip fades on the settling curve, eased jumps and loop seams (`Animator::smooth_jump`, `Seams`), the draw played by its motion, the hand-over, the stretched landing clip's curve, the Pip-Boy's ease | `player_body.rs` `pose_rig`, `nvf_assets::anim_blend` | Animation Smoothing (the landing clip's stretch: Movement Inertia) |
+| The aim's cross-over time | `pose_rig`, `iron_sights.rs`, `nvf_play::aim_zoom` | Animation Smoothing or Weapon Handling |
+| The stance cross-over | `pose_rig` | Movement Inertia |
+
+Not Advanced Movement, each on its own row: the weapon lowered at a wall or a friend
+(`weapon_lower.rs`, "Lower weapon near walls"), true iron sights and a 3D scope
+(`iron_sights.rs`, `scope_view.rs`), the viewmodel field of view. `Layer::aligned` (the
+blend keeping a rotation on its side of the sphere) is a fix of the shared blend, not an
+effect, and the turn clips (`_1stperson\mtturnleft.kf`, `Blend: 9`) are the original's:
+they key `Bip01 Translate` and `Bip01 Rotate` where the hold clips do (0, 0, −118 and
+the rest pose) [observed: `fnvtool nif decode`, 2026-11-18], so they do not move the gun.
+
+What was left behind when a part was switched off while the game ran (fixed 2026-11-18;
+test `advanced_movement_switched_off_leaves_the_arms_and_the_view_to_the_clips`, which
+runs `drive_body` with every part on, then off, against a game with them off from the
+start):
+
+- The sway's and the head's fades were exponential and never reached nothing; the bob's
+  springs and the breath went on decaying likewise. Below `view_sway::GAIN_FLOOR` they are
+  now nothing, so the arms and the view are the clips' exactly (`SwayPose::NONE`, no
+  offset), as with the part off from the start.
+- A layer that stays (the idle, a drawn weapon's hold, a walk) kept the settling curve and
+  the switched-off part's fade-out time (the aim's 0.6 s, the movement clips' 0.45 s, the
+  crouch's 1.0 s) for the rest of the session: aiming down the sights crossed the hold over
+  along the settling curve. With none of the rules that smooth it holding, a layer is now
+  straightened where it is shown (`Layer::straighten`) and fades over the clips' 0.2 s
+  (`DEFAULT_FADE`); this also ends the eased crouch's hold on the idle and the hold after
+  the crouch. A draw clip left to the hand-over (fade-out "never") goes at the clips' pace.
+- A landing clip played by its place (Movement Inertia) and switched off part-way held
+  still, the view dipped; it plays by its clock again, as a draw clip already did.
+
+The exit summary says when the sway last moved the arms and the head's springs the view
+off the clips' pose (`player body summary: off the clips' pose, the arms last moved by
+Weapon Inertia at <s> s, the view by the head's springs ... at <s> s`, or `never`). Smoke
+`advanced-movement-off-exact-weapon-inertia`, `-global` and `-defaults` reach the owner's
+three states on the settings page from every part on, then walk, aim, fire, jump and
+crouch: the last times must be within the fades after the switch (about 6 s), not during
+the motion after it.
+
 The Global Toggle and Advanced Recoil are on by default; Movement Inertia, Weapon Handling,
 Animation Smoothing, Weapon Inertia and Camera Motion are off (each turned on by its own
 switch, `--movement-inertia`, `--weapon-handling`, `--animation-smoothing`, `--weapon-sway`,
@@ -550,6 +614,95 @@ features are off by default except the improved/advanced recoil"]. A saved choic
 stays. At the start and at each change the log says which of the switches kept in
 `MovementInertia` are on (`advanced movement: Global Toggle on, ...`; smoke
 `advanced-movement-defaults`). Until 2026-11-16 all were on by default.
+
+### 1.4a.4 Advanced Movement: Sprint (#3000)
+
+NVF Features › Advanced Movement › Gameplay › Sprint (`sprint`, off by default; the shared
+state and input: `nvf_play::stance`). Holding Sprint (a key the player sets in Controls › Movement; none by default, and Run
+keeps Left Shift [design, #3000: the maintainer's decision on #3002]) runs faster for Action Points. Off, the player moves exactly as in the original. Code:
+`engine/nvf-play/src/sprint.rs` (the rules, the speed and the AP) and
+`engine/nvforever/src/sprint_view.rs` (the look); every constant named there [design, tuned
+by eye; the speed and the AP rate the request's in #3000].
+
+- **Speed**: a full sprint is 1.45 × (`sprint::SPRINT_SPEED`) the speed the player would run
+  at, applied in `player::step` after every pace there (crippled legs, `RunPace`, `PerkSpeed`,
+  `ReloadPace`, `StatSpeed`, the tweaks' wading and strafe paces), so whatever changes a run
+  changes a sprint alike. Always from the run: walking (Always Run off) a sprint is the
+  run's 1.45 too (#3000). The velocity goes from the gait's (walk or run) to the
+  sprint's by `StanceMotion::sprint_share` (`sprint::sprint_velocity`), one critically damped
+  spring of 0.5 s both ways (`sprint::SHARE_SECONDS`; no change of constant, so a change of
+  mind part way never hitches), so the speed, and a walk's change of gait, come and go
+  smoothly with Movement Inertia off; with it on the ground inertia's spring carries it too.
+  From half a sprint (`sprint::RUN_GAIT_FROM`) a sprint begun walking plays the run clips
+  and glides as a run.
+- **Direction**: straight ahead a full sprint; ahead and aside (W+D) about half
+  (`sprint::direction_share`, none under a share ahead of 0.4, `LEAST_AHEAD`); straight
+  aside or back none.
+- **Action Points**: 10 AP a second (`sprint::SPRINT_AP_PER_SECOND`), a fixed amount, so more
+  AP sprints longer (100 AP ten seconds, 60 six). Spent as the game's other AP costs (damage
+  on the Action Points actor value, as VATS and the tweaks' run cost), never below 0 (issue
+  #2601). AP does not come back while sprinting (`vats_mode`'s regeneration waits). At 0 the
+  sprint ends and starts again only after Sprint is let go and AP came back. God mode spends
+  none.
+- **What stops it**: Sprint let go, aiming or blocking, the trigger, a reload (#3000;
+  `Combat::player_reloading`, logged `sprint: ended (reloading)`), sneaking or
+  crouching (the press stops it at once, eased out), over-encumbered, swimming or more than 30 units deep in water, a script's
+  movement lock, no AP. A jump does not: its speed carries into the air. Held on, the sprint
+  comes back once the stop is gone. The log: `sprint: started, …`, `sprint: ended (<why>)
+  after <s> s, <n> AP spent, …`.
+- **Out of breath**: stopping with AP under 20 % of the most (`WINDED_BELOW`) winds the player,
+  0.35 just under it to 1 at none (`winded_strength`; the log `sprint: out of breath,
+  strength <n>`). `StanceMotion::winded` comes on through a 0.6 s spring and fades over 6 s
+  along the settling curve, slow at the end (`sprint::Winded`). Camera Motion shows it through
+  the existing out-of-breath breathing (§1.4a.1; `head_bob::HeadBob::exertion` is the larger of
+  running's and the sprint's): the view rises and falls faster and deeper, at full about 2.9
+  units every 1.3 s (`sprint_view::WINDED_PACE` 1.6 and `WINDED_SIZE` 1.1 on top of the
+  existing 2.2 and 2.2), clearly more than a walk's bob (1.5 units), less than a run's (5.25).
+  The camera's place only, as the existing breath: its rotation never moves. The gun breathes
+  the same way under Weapon Inertia.
+- **First person**: the gun goes into a sprint pose by the share (`sprint_view::pose`: the
+  Lower Weapon pose's kind, further: 14° down, 16° in, 14° of cant, 1.5 units lower; rifles
+  0.8 of it, heavy weapons and launchers 0.35, fists 0.5), faded through its own 0.3 s spring
+  under the Pip-Boy or an idle. The head bob grows to 1.4 × the run's (Camera Motion) and the
+  gun's bob to 1.6 × (Weapon Inertia).
+- **Side sway** (the request in #3000: "make the camera shake/rotate to the sides also but only
+  a little"; Camera Motion): the first-person view rolls up to 0.6° each way once a stride,
+  in step with the movement clip (the head bob's phase), by the sprint's share
+  (`sprint_view::SprintView::roll`, `ROLL`; a 0.12 s spring on the stride curve, a 0.5 s one
+  on Camera Motion's gate), set as the view's rotation for the frame (`Player::body_view`,
+  `sprint_view::rolled_view`). A roll about the view's own line only: the middle of the
+  screen, where the crosshair is, stays on the same point, and the heading and pitch the
+  shots and the aim use are untouched; the mouse's turn is never smoothed or delayed. No yaw:
+  any turn but a roll would move the crosshair's point off the shots' line (the head bob's
+  sideways swing is the side's motion).
+- **Heartbeat** (the request in #3000: "slower heartbeat from 40-20%, the faster one from the last
+  20%"; `sprint::Sprint::heart`, played by `heartbeat.rs`): while sprinting, and after a sprint
+  until the AP is back over 40 %, the game's low-health heartbeat loops: `UIHealthHeartbeatALP`
+  (four beats in 2.86 s, about 84 a minute: the slower) with AP under 40 % of the most
+  (`HEARTBEAT_SLOW_BELOW`), `UIHealthHeartbeatBLP` (four in 1.93 s, about 124) under 20 %
+  (`HEARTBEAT_FAST_BELOW`). AP spent by VATS alone plays none. At 0.45 of the loop's volume
+  (`heartbeat::SPRINT_VOLUME`), under the game; each comes, goes and cross-fades on a spring
+  settling in 1.5 s (`SPRINT_FADE_SECONDS`), and a loop starts at its share (`sfx`'s
+  `LoopScale` read at the start), so none clicks. The low-health heartbeat wins: while it
+  beats the faster loop stops and the slower is the health's (a sprint's slower beat rises to
+  it on the spring; from silence it starts at once, as before); never two at once. Log
+  `sprint: heartbeat slow|fast|off`. Sprint's switch (and the Global Toggle) turns it off: it is
+  a sound, not the camera, so not Camera Motion's.
+- **Third person**: the run clip plays faster by itself (the movement clips play at the body's
+  speed over theirs, up to 2.5 ×; no sprint clip exists: upstream closed #2176, the data has
+  none) and the body leans 4° forward about its feet (`sprint_view::lean`).
+- **Perks and effects**: the Modify Run Speed perks (`PerkSpeed`, `combat::perk_speed`), Speed
+  Mult and the armour (`StatSpeed`), the two-handed weapon's run (`RunPace`), crippled legs
+  and the reload pace all scale the sprint as the run. The most AP (Agility, Action Boy/Girl,
+  chems such as Jet, the armour's AP effects: base, modifiers and temporary changes of the
+  actor value) sets how long a sprint lasts; the Action Point Regen perks (Nerves of Steel and
+  the rest, `Game::ap_regen_mult`) speed the AP's return after it.
+- **Switches**: Sprint (and the Global Toggle) for the speed, the AP, the pose, the lean and
+  the heartbeat; Camera Motion for the bigger head bob, the side sway and out of breath;
+  Weapon Inertia for the gun's bigger
+  bob and breath. Test aids `NVF_SPRINT_SPEED` and `NVF_SPRINT_AP_PER_SECOND` replace the two
+  values for a run. Smoke: `sprint-on`, `sprint-greyed-binding`, `sprint-run`,
+  `sprint-off-original`, `sprint-trace` (not yet run).
 
 ### 1.4a.1 The camera's bob: first person yes, third person no (owner, 2026-11-07)
 

@@ -58,10 +58,11 @@
 
 use crate::lod::LodState;
 use crate::reflection::{Reflection, WATER_LAYER};
+use crate::river_flow::{surface_flow, FlowDirection};
 use crate::ripples::Ripples;
 use crate::sky::SkyState;
-use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
-use bevy::asset::embedded_asset;
+use crate::world::{Streamer, WorldData, WorldRoot};
+use bevy::asset::{embedded_asset, load_internal_asset, uuid_handle};
 use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -69,12 +70,12 @@ use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, BufferUsages, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
 use bevy::render::storage::ShaderBuffer;
-use bevy::shader::ShaderRef;
+use bevy::shader::{Shader, ShaderRef};
 use fnv_world::land::{load_land, LandParts, SIDE};
 use fnv_world::sky::{srgb_to_linear, ColorType, Water};
-use fnv_world::{cell_of, CELL_SIZE};
+use fnv_world::CELL_SIZE;
 use nvf_assets::model::ModelCtx;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Height of the noise texture's full range in game units: the record's "noise normals
 /// scale" [hypothesis] times this factor [tuned by eye against in-game screenshots].
@@ -84,6 +85,8 @@ pub struct WaterPlugin;
 
 impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
+        const CAUSTICS: Handle<Shader> = uuid_handle!("dcc81bbe-64d4-40df-a75d-ce8d410c5e16");
+        load_internal_asset!(app, CAUSTICS, "caustics.wesl", |s, _| Shader::from_wesl(s, "embedded://nvforever/caustics.wesl"));
         embedded_asset!(app, "water.wesl");
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
             .init_resource::<WaterCache>()
@@ -94,10 +97,11 @@ impl Plugin for WaterPlugin {
                 (
                     sync_remaps.before(crate::world::stream),
                     update_water_sky.after(crate::sky::update_sky),
-                    crate::underwater::underwater_fog.after(crate::sky::update_sky),
-                    distant_water.after(crate::world::stream),
+                    // After the LOD chose its chunks this frame (the water covers them).
+                    distant_water.after(crate::world::stream).after(crate::lod::update_lod),
                 ),
-            );
+            )
+            .add_plugins(crate::underwater::UnderwaterFogPlugin);
     }
 }
 
@@ -122,12 +126,17 @@ pub struct WaterParams {
     /// Bevy y of the water whose drawn pixels are counted ([`WaterMaterial::seen`]), and 1
     /// while counting (`crate::reflection`, #1060).
     pub seen_plane: Vec4,
+    /// Direction toward the outdoor sun (Bevy axes) and daylight strength.
+    pub water_sun: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct WaterMaterial {
     #[uniform(0)]
     pub params: WaterParams,
+    /// Original WATR layers and their CPU-baked river counterparts.
+    pub wind_layers: [Vec4; 3],
+    pub current_layers: [Vec4; 3],
     #[texture(1)]
     #[sampler(2)]
     pub noise: Option<Handle<Image>>,
@@ -177,6 +186,10 @@ impl Material for WaterMaterial {
     ) -> Result<(), SpecializedMeshPipelineError> {
         // Visible from below as well.
         descriptor.primitive.cull_mode = None;
+        // Not in the depth prepass: the ambient occlusion's texels under the water are the
+        // bed's (and within the lighting's distance tolerance of shallow water), so it does
+        // not read them (ssao_lighting.rs).
+        nvf_assets::ambient_occlusion_opt_out(descriptor);
         Ok(())
     }
 }
@@ -186,7 +199,7 @@ impl Material for WaterMaterial {
 /// the above fog's amount), and the shared cell-sized plane.
 #[derive(Resource, Default)]
 pub struct WaterCache {
-    materials: HashMap<(u32, bool, bool), Handle<WaterMaterial>>,
+    materials: HashMap<(u32, bool, bool, FlowDirection), Handle<WaterMaterial>>,
     plane: Option<Handle<Mesh>>,
     /// The water-pixel counter ([`WaterMaterial::seen`]), made with the first material.
     seen: Option<Handle<ShaderBuffer>>,
@@ -241,6 +254,12 @@ impl WaterCache {
 #[derive(Resource, Default, PartialEq)]
 pub struct WaterRemaps(HashMap<u32, u32>);
 
+impl WaterRemaps {
+    pub fn resolve(&self, wid: u32) -> u32 {
+        self.0.get(&wid).copied().unwrap_or(wid)
+    }
+}
+
 fn sync_remaps(script: Option<Res<nvf_play::script::ScriptState>>, mut remaps: ResMut<WaterRemaps>) {
     let Some(g) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let now = WaterRemaps(g.forms.water_remaps.iter().map(|(a, b)| (a.0, b.0)).collect());
@@ -279,9 +298,13 @@ impl WaterCtx<'_> {
 /// amount (`above_fog.w` = 1); cell and distant water stay opaque beyond the far plane,
 /// as the cap left the lake bed showing far out in Lake Mead [design, until a far-out
 /// Lake Mead comparison is made, world.md §6].
-pub fn water_material(world: &WorldData, wid: u32, reflects: bool, placed: bool, models: &mut ModelCtx, water: &mut WaterCtx) -> Option<Handle<WaterMaterial>> {
-    let wid = water.remaps.as_ref().and_then(|r| r.0.get(&wid).copied()).unwrap_or(wid);
-    if let Some(m) = water.cache.materials.get(&(wid, reflects, placed)) {
+pub fn water_material(world: &WorldData, wid: u32, reflects: bool, placed: bool, exterior_position: Option<Vec3>, models: &mut ModelCtx, water: &mut WaterCtx) -> Option<Handle<WaterMaterial>> {
+    let wid = water.remaps.as_ref().map_or(wid, |r| r.resolve(wid));
+    let direction = exterior_position.map_or(FlowDirection::STILL, |pos| {
+        surface_flow(world.index.worldspaces[&world.world].edid.as_deref(), pos.truncate(), pos.z)
+    });
+    let key = (wid, reflects, placed, direction);
+    if let Some(m) = water.cache.materials.get(&key) {
         return Some(m.clone());
     }
     let w = fnv_world::sky::water(world.lo, world.schema, wid)?;
@@ -309,14 +332,18 @@ pub fn water_material(world: &WorldData, wid: u32, reflects: bool, placed: bool,
     if placed {
         params.above_fog.w = 1.0;
     }
-    let m = water.materials.add(WaterMaterial { params, noise, reflection, ripples, seen });
-    water.cache.materials.insert((wid, reflects, placed), m.clone());
+    let wind_layers = params.layers;
+    let current_layers = current_layers(wind_layers, direction.velocity());
+    let m = water.materials.add(WaterMaterial { params, wind_layers, current_layers, noise, reflection, ripples, seen });
+    water.cache.materials.insert(key, m.clone());
     Some(m)
 }
 
-/// Water planes beyond the loaded cells, out to the distant LOD's range: one per cell
-/// whose water surface lies above the lowest point of its landscape (or that has no
-/// landscape). Not for a cell or worldspace flagged No LOD Water. Without them a lake ends at the loaded cells and its LOD bed shows.
+/// Water planes beyond the loaded cells, over the cells of the distant terrain chunks
+/// chosen now ([`LodState::chosen_chunks`]), so the water ends where the terrain does:
+/// one per cell whose water surface lies above the lowest point of its landscape (or that
+/// has no landscape). Not for a cell or worldspace flagged No LOD Water. Without them a
+/// lake ends at the loaded cells and its LOD bed shows.
 #[derive(Resource, Default)]
 pub struct DistantWater {
     /// Per cell: its visible water surface (height, water type), or `None`.
@@ -325,12 +352,31 @@ pub struct DistantWater {
     /// land, `[x0, y0, x1, y1]` in game units ([`DistantWater::wet_area`]).
     wet: HashMap<(i32, i32), [f32; 4]>,
     planes: HashMap<(i32, i32), Entity>,
-    /// Camera cell and loaded-cell count the planes were placed for.
-    built_for: Option<((i32, i32), usize)>,
+    /// The worldspace's cells that can have distant water ([`water_candidates`]), found
+    /// once per worldspace (its FormID).
+    candidates: Option<(u32, BTreeSet<(i32, i32)>)>,
+    /// The candidates under the chosen terrain chunks, loaded or not.
+    want: Vec<(i32, i32)>,
+    /// Worldspace, LOD choice ([`LodState::choice`]) and whether distant water is on, that
+    /// `want` was found for.
+    want_for: Option<WantKey>,
+    /// `want_for` the planes were placed for.
+    built_for: Option<WantKey>,
+    /// The loaded cells the planes were placed for, sorted ([`loaded_changed`]), and a
+    /// buffer for this frame's.
+    loaded_seen: Vec<(i32, i32)>,
+    loaded_now: Vec<(i32, i32)>,
 }
+
+type WantKey = (u32, u64, bool);
 
 impl DistantWater {
     /// The visible water surface of cell `g` (height, water type), computed on first use.
+    /// Whether [`DistantWater::surface`] of cell `g` is already known (no landscape read).
+    pub fn surface_known(&self, g: (i32, i32)) -> bool {
+        self.surfaces.contains_key(&g)
+    }
+
     pub fn surface(&mut self, world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
         if let Some(s) = self.surfaces.get(&g) {
             return *s;
@@ -365,23 +411,76 @@ impl DistantWater {
         }
         self.surfaces.clear();
         self.wet.clear();
+        self.candidates = None;
+        self.want.clear();
+        self.want_for = None;
         self.built_for = None;
     }
+
+    /// The drawn worldspace's [`water_candidates`], found on first use.
+    fn candidates(&mut self, world: &WorldData) -> &BTreeSet<(i32, i32)> {
+        if self.candidates.as_ref().is_none_or(|(w, _)| *w != world.world) {
+            let set = world.index.worldspaces.get(&world.world).map_or_else(BTreeSet::new, |ws| water_candidates(ws, &world.index.cells));
+            self.candidates = Some((world.world, set));
+        }
+        &self.candidates.as_ref().expect("set above").1
+    }
+}
+
+/// Cell `c`'s water surface (height, water type) as distant water would draw it in
+/// worldspace `ws`, before the landscape is looked at. "No LOD Water" on the cell (CELL
+/// DATA bit 3) or the worldspace (WRLD DATA bit 4): no distant water for it [documented:
+/// xEdit flag names]. Zion Canyon sets it on its cells (7 of them had a plane at the 5000
+/// default over a dip), and five worldspaces (Big MT, the Higgs Village and Lucky 38
+/// worlds among them) on the whole world [observed].
+fn lod_water(c: &fnv_world::Cell, ws: &fnv_world::Worldspace) -> Option<(f32, u32)> {
+    if !c.has_water() || c.no_lod_water() || ws.data_flags & 0x10 != 0 {
+        return None;
+    }
+    Some((c.water_surface(ws.default_water_height)?, c.water_type.or(ws.water)?))
+}
+
+/// The grid cells of worldspace `ws` that can have a distant water plane ([`lod_water`]
+/// gives them a surface); whether the water stands above the land is found later, only
+/// for the cells under the chosen terrain chunks ([`DistantWater::surface`]).
+pub fn water_candidates(ws: &fnv_world::Worldspace, cells: &HashMap<u32, fnv_world::Cell>) -> BTreeSet<(i32, i32)> {
+    ws.grid.iter().filter(|(_, id)| cells.get(id).is_some_and(|c| lod_water(c, ws).is_some())).map(|(&g, _)| g).collect()
+}
+
+/// The cells of `candidates` under the terrain chunks `chunks` (a level-`l` chunk at
+/// `(x, y)` covers cells `x..x + l` by `y..y + l`). The chunks do not overlap
+/// ([`crate::lod::select_chunks`]), so no cell comes twice; one range of the set per chunk
+/// column, so cells without water cost nothing.
+pub fn cells_under(chunks: &[crate::lod::Chunk], candidates: &BTreeSet<(i32, i32)>) -> Vec<(i32, i32)> {
+    let mut out = Vec::new();
+    for &(l, x, y) in chunks {
+        for cx in x..x + l {
+            out.extend(candidates.range((cx, y)..(cx, y + l)).copied());
+        }
+    }
+    out
+}
+
+/// Whether the loaded cells differ from `seen` (the set the planes were last placed for,
+/// sorted): `now` is refilled from `loaded` and sorted; when they differ it becomes `seen`.
+/// An exact comparison, so a cell unloading in the same frame another finishes loading is
+/// seen too (the count alone stays the same) [design, #3055 review]; at most the loaded
+/// grid's 25 to 81 cells, in buffers kept between frames.
+pub fn loaded_changed(seen: &mut Vec<(i32, i32)>, now: &mut Vec<(i32, i32)>, loaded: impl Iterator<Item = (i32, i32)>) -> bool {
+    now.clear();
+    now.extend(loaded);
+    now.sort_unstable();
+    if now == seen {
+        return false;
+    }
+    std::mem::swap(seen, now);
+    true
 }
 
 fn visible_surface(world: &WorldData, g: (i32, i32)) -> Option<(f32, u32, [f32; 4])> {
     let c = world.grid_cell(g)?;
     let ws = &world.index.worldspaces[&world.world];
-    // "No LOD Water" on the cell (CELL DATA bit 3) or the worldspace (WRLD DATA bit 4):
-    // no distant water for it [documented: xEdit flag names]. Zion Canyon sets it on its
-    // cells (7 of them had a plane at the 5000 default over a dip), and five worldspaces
-    // (Big MT, the Higgs Village and Lucky 38 worlds among them) on the whole world
-    // [observed].
-    if !c.has_water() || c.no_lod_water() || ws.data_flags & 0x10 != 0 {
-        return None;
-    }
-    let height = c.water_surface(ws.default_water_height)?;
-    let wid = c.water_type.or(ws.water)?;
+    let (height, wid) = lod_water(c, ws)?;
     let (x0, y0) = (g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE);
     let mut wet = [x0, y0, x0 + CELL_SIZE, y0 + CELL_SIZE];
     if let Some(land) = c.land {
@@ -414,6 +513,9 @@ fn wet_vertices(heights: &[f32], surface: f32) -> Option<[usize; 4]> {
     b.map(|[c0, r0, c1, r1]| [c0.saturating_sub(1), r0.saturating_sub(1), (c1 + 1).min(SIDE - 1), (r1 + 1).min(SIDE - 1)])
 }
 
+/// The distant water's landscape reads in one frame ([`distant_water`]).
+const SURFACE_READS_PER_FRAME: usize = 12;
+
 #[allow(clippy::too_many_arguments)]
 pub fn distant_water(
     mut commands: Commands,
@@ -421,38 +523,59 @@ pub fn distant_water(
     streamer: Res<Streamer>,
     lod: Res<LodState>,
     root: Query<Entity, With<WorldRoot>>,
-    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut dw: ResMut<DistantWater>,
     mut models: ModelCtx,
     mut water: WaterCtx,
 ) {
-    let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
-    let g = bevy_to_game(cam.translation());
-    let centre = cell_of(g.x, g.y);
-    let key = (centre, streamer.loaded.len());
-    if dw.built_for == Some(key) {
+    let Ok(root) = root.single() else { return };
+    let on = lod.enabled && streamer.interior.is_none();
+    let want_key = (world.world, lod.choice(), on);
+    let dwm = &mut *dw;
+    let loaded = loaded_changed(&mut dwm.loaded_seen, &mut dwm.loaded_now, streamer.loaded.keys().copied());
+    if dw.built_for == Some(want_key) && !loaded {
         return;
     }
-    dw.built_for = Some(key);
-    // The cells the LOD covers around the camera (its chunks are 4 cells), minus the
-    // loaded ones (they have their own water).
-    let r = if lod.enabled && streamer.interior.is_none() { lod.radius * 4 + 3 } else { -1 };
-    let want: HashSet<(i32, i32)> = (-r..=r)
-        .flat_map(|dx| (-r..=r).map(move |dy| (centre.0 + dx, centre.1 + dy)))
-        .filter(|c| !streamer.loaded.contains_key(c))
-        .collect();
-    let gone: Vec<(i32, i32)> = dw.planes.keys().filter(|c| !want.contains(c)).copied().collect();
-    for c in gone {
-        if let Some(e) = dw.planes.remove(&c) {
-            commands.entity(e).despawn();
+    dw.built_for = Some(want_key);
+    // The cells with water under the terrain chunks chosen now (none while the LOD is off
+    // or nothing is chosen), redone only when the choice changes.
+    if dw.want_for != Some(want_key) {
+        dw.want_for = Some(want_key);
+        // No chosen chunk (both reaches 0): no water index is built either.
+        dw.want = if on && !lod.chosen_chunks().is_empty() { cells_under(lod.chosen_chunks(), dw.candidates(&world)) } else { Vec::new() };
+        let want: HashSet<(i32, i32)> = dw.want.iter().copied().collect();
+        let gone: Vec<(i32, i32)> = dw.planes.keys().filter(|c| !want.contains(c)).copied().collect();
+        for c in gone {
+            if let Some(e) = dw.planes.remove(&c) {
+                commands.entity(e).despawn();
+            }
         }
     }
-    for c in want {
+    // Loaded cells have their own water: their planes go, and come back when they unload.
+    let want = std::mem::take(&mut dw.want);
+    let mut reads = 0;
+    for &c in &want {
+        if streamer.loaded.contains_key(&c) {
+            if let Some(e) = dw.planes.remove(&c) {
+                commands.entity(e).despawn();
+            }
+            continue;
+        }
         if dw.planes.contains_key(&c) {
             continue;
         }
+        // [design] #2956 follow-up (#3070): a cell's surface not known yet reads and
+        // inflates its landscape record; a new chunk choice can uncover many at once (5-11 ms
+        // of one frame [observed 2026-11-19, `profile hitch`]). At most
+        // `SURFACE_READS_PER_FRAME` are read a frame, the rest the frames after.
+        if !dw.surface_known(c) {
+            if reads >= SURFACE_READS_PER_FRAME {
+                dw.built_for = None;
+                continue;
+            }
+            reads += 1;
+        }
         let Some((height, wid)) = dw.surface(&world, c) else { continue };
-        let Some(mat) = water_material(&world, wid, true, false, &mut models, &mut water) else { continue };
+        let Some(mat) = water_material(&world, wid, true, false, Some(cell_water_center(c, height)), &mut models, &mut water) else { continue };
         let mesh = water.plane(&mut models.meshes);
         let s = CELL_SIZE;
         let e = commands
@@ -467,6 +590,7 @@ pub fn distant_water(
         commands.entity(root).add_child(e);
         dw.planes.insert(c, e);
     }
+    dw.want = want;
 }
 
 fn linear(c: [u8; 3]) -> Vec3 {
@@ -498,12 +622,62 @@ pub fn water_params(w: &Water) -> WaterParams {
         ripple: Vec4::ZERO,
         edge: w.edge_falloff().map_or(Vec4::ZERO, |(a, b)| Vec4::new(a, b, 1.0, 0.0)),
         seen_plane: Vec4::ZERO,
+        water_sun: Vec4::ZERO,
     }
 }
 
+/// The share of the current each noise layer travels at [design, by eye].
+const LAYER_PACE: [f32; 3] = [1.0, 0.75, 1.3];
+
+/// Bake advection once per material [design]. UVs add velocity over time, so
+/// moving a crest downstream requires subtracting the physical current. Bound
+/// each layer's wind to 40% of its current in UV units; opposing wind therefore
+/// cannot reverse any layer. Scale and amplitude remain exactly as authored.
+fn current_layers(wind_layers: [Vec4; 3], current: Vec2) -> [Vec4; 3] {
+    let speed = current.length();
+    if speed == 0.0 {
+        return wind_layers;
+    }
+    let mut i = 0;
+    wind_layers.map(|layer| {
+        // Each layer rides the current at its own pace, so the surface changes shape
+        // as it travels instead of sliding past as one rigid sheet.
+        let current = current * LAYER_PACE[i];
+        i += 1;
+        let speed = current.length();
+        let wind = layer.xy();
+        let share = (0.4 * speed * layer.z / wind.length().max(1e-6)).min(1.0);
+        let velocity = wind * share - current * layer.z;
+        Vec4::new(velocity.x, velocity.y, layer.z, layer.w)
+    })
+}
+
+pub fn cell_water_center((x, y): (i32, i32), height: f32) -> Vec3 {
+    Vec3::new((x as f32 + 0.5) * CELL_SIZE, (y as f32 + 0.5) * CELL_SIZE, height)
+}
+
+/// The sky uses a directional light for the moon too. Only the sun can concentrate
+/// daylight on a submerged receiver, and dark weather supplies less direct light.
+pub fn caustic_sun(sky: &SkyState) -> Vec4 {
+    if sky.interior.is_some() {
+        return Vec4::ZERO;
+    }
+    let sun = sky.sun_dir();
+    if sun.y <= 0.0 {
+        return Vec4::ZERO;
+    }
+    let light = Vec3::from_array(sky.color(ColorType::Sunlight)).max_element().clamp(0.0, 1.0);
+    sun.extend(light)
+}
+
+/// How far the caustics' sun must move (direction components, daylight) before the water
+/// materials are written again: an explorer's running clock moved it every frame, and
+/// each write prepares every water material anew.
+const SUN_STEP: f32 = 2.0e-3;
+
 /// Keep the reflected sky in step with the sky dome (weather colours at the current hour;
 /// the fog colour indoors).
-pub fn update_water_sky(sky: Res<SkyState>, cache: Res<WaterCache>, mut materials: ResMut<Assets<WaterMaterial>>) {
+pub fn update_water_sky(sky: Res<SkyState>, graphics: Option<Res<crate::graphics::Graphics>>, cache: Res<WaterCache>, mut materials: ResMut<Assets<WaterMaterial>>) {
     let (upper, horizon) = match sky.interior {
         Some(l) => {
             let f = linear(l.fog_color);
@@ -513,12 +687,21 @@ pub fn update_water_sky(sky: Res<SkyState>, cache: Res<WaterCache>, mut material
         None => (Vec3::from_array(sky.color(ColorType::SkyUpper)), Vec3::from_array(sky.color(ColorType::Horizon))),
     };
     let (upper, horizon) = (upper.extend(1.0), horizon.extend(1.0));
+    let effects = graphics.is_some_and(|g| g.water_effects);
+    let sun = if effects { caustic_sun(&sky) } else { Vec4::ZERO };
     for h in cache.materials.values() {
-        let stale = materials.get(h).is_some_and(|m| m.params.sky_upper != upper || m.params.sky_horizon != horizon);
+        let stale = materials.get(h).is_some_and(|m| {
+            let layers = if effects { m.current_layers } else { m.wind_layers };
+            m.params.sky_upper != upper || m.params.sky_horizon != horizon || !m.params.water_sun.abs_diff_eq(sun, SUN_STEP) || (m.params.water_sun == Vec4::ZERO) != (sun == Vec4::ZERO)
+                || m.params.layers != layers || m.params.under_fog.w != f32::from(effects)
+        });
         if stale {
             if let Some(mut m) = materials.get_mut(h) {
                 m.params.sky_upper = upper;
                 m.params.sky_horizon = horizon;
+                m.params.water_sun = sun;
+                m.params.under_fog.w = f32::from(effects);
+                m.params.layers = if effects { m.current_layers } else { m.wind_layers };
             }
         }
     }
@@ -527,6 +710,35 @@ pub fn update_water_sky(sky: Res<SkyState>, cache: Res<WaterCache>, mut material
 #[cfg(test)]
 mod wet_tests {
     use super::*;
+
+    #[test]
+    fn baked_current_keeps_each_layer_downstream_against_strong_wind() {
+        let wind = [
+            Vec4::new(0.0, 900.0, 0.01, 0.7),
+            Vec4::new(500.0, 500.0, 0.002, 1.2),
+            Vec4::new(-300.0, -900.0, 0.0005, 0.3),
+        ];
+        let current = Vec2::new(0.0, 40.0);
+        for ((original, baked), pace) in wind.into_iter().zip(current_layers(wind, current)).zip(LAYER_PACE) {
+            assert_eq!(baked.z, original.z);
+            assert_eq!(baked.w, original.w);
+            let current = current * pace;
+            let physical_velocity = -baked.xy() / baked.z;
+            assert!(physical_velocity.dot(current.normalize()) >= 0.6 * current.length() - 0.001);
+            let wind_contribution = baked.xy() + current * baked.z;
+            assert!(wind_contribution.length() <= 0.4 * current.length() * baked.z + 1e-6);
+        }
+    }
+
+    #[test]
+    fn still_current_preserves_original_watr_layers_exactly() {
+        let wind = [Vec4::new(1.5, -2.5, 0.001, 0.7), Vec4::ZERO, Vec4::ONE];
+        assert_eq!(current_layers(wind, Vec2::ZERO), wind);
+        let calm = [Vec4::new(0.0, 0.0, 0.01, 0.7); 3];
+        for (layer, pace) in current_layers(calm, Vec2::new(0.0, 40.0)).into_iter().zip(LAYER_PACE) {
+            assert!(layer.abs_diff_eq(Vec4::new(0.0, -0.4 * pace, 0.01, 0.7), 1e-6));
+        }
+    }
 
     #[test]
     fn wet_box_is_the_dip_one_vertex_wider() {
@@ -544,3 +756,96 @@ mod wet_tests {
         assert_eq!(wet_vertices(&h, 50.0), Some([0, 0, 13, 22]));
     }
 }
+
+#[cfg(test)]
+mod distant_tests {
+    use super::*;
+    use crate::lod::{select_chunks, LodSettings};
+
+    /// A swapped loaded cell is a change though the count stays; the order does not matter;
+    /// the same set again is no change.
+    #[test]
+    fn a_swapped_loaded_cell_is_a_change() {
+        let (mut seen, mut now) = (Vec::new(), Vec::new());
+        assert!(!loaded_changed(&mut seen, &mut now, std::iter::empty()), "nothing loaded, nothing seen");
+        assert!(loaded_changed(&mut seen, &mut now, [(1, 0), (0, 0), (0, 1)].into_iter()));
+        assert_eq!(seen, vec![(0, 0), (0, 1), (1, 0)]);
+        assert!(!loaded_changed(&mut seen, &mut now, [(0, 1), (1, 0), (0, 0)].into_iter()), "same cells, another order");
+        assert!(loaded_changed(&mut seen, &mut now, [(0, 0), (1, 0), (-1, 1)].into_iter()), "one swapped, same count");
+        assert!(loaded_changed(&mut seen, &mut now, [(-49, 3), (-49, 7)].into_iter()));
+        assert!(loaded_changed(&mut seen, &mut now, [(-47, 3), (-47, 7)].into_iter()), "two swapped for two");
+    }
+
+    /// A chunk's cells are `x..x + l` by `y..y + l`: the range per column takes no
+    /// neighbour.
+    #[test]
+    fn cells_under_a_chunk_are_its_footprint() {
+        let candidates: BTreeSet<(i32, i32)> = [(0, 0), (3, 3), (4, 0), (0, 4), (-1, 2), (2, -1)].into_iter().collect();
+        assert_eq!(cells_under(&[(4, 0, 0)], &candidates), vec![(0, 0), (3, 3)]);
+        assert!(cells_under(&[], &candidates).is_empty());
+    }
+
+    /// From the hill above Goodsprings (#3055, WastelandNV's grid from (-64, -64)) the
+    /// camera's cell is (-16, 1) (-65,347 / 4,096 = -15.95, 5,770 / 4,096 = 1.41); the old
+    /// square of 16 × 4 + 3 = 67 cells round it ended at x = 51, while the chosen level-32
+    /// chunk (32, 32, 32) (232,983 away, lod.rs `level_32_from_the_goodsprings_hill`)
+    /// covers x and y 32..=63, so lakes at (60, 40) and (63, 63) get their planes. From
+    /// (0, 0) the old square held (63, 63), but (32, 32, 32) is nearer than its split
+    /// distance (√2 × 131,072 ≈ 185,364 < 196,608) and its quarter (16, 48, 48) starts
+    /// √2 × 196,608 ≈ 278,046 away, past the 250,000 reach: no chunk covers (63, 63), so
+    /// no plane. (60, 40) lies in (16, 48, 32), √(196,608² + 131,072²) ≈ 236,294 away:
+    /// chosen.
+    #[test]
+    fn water_cells_follow_the_chosen_chunks() {
+        let s = LodSettings::default();
+        let candidates: BTreeSet<(i32, i32)> = [(60, 40), (63, 63), (-16, 1), (2000, 2000)].into_iter().collect();
+        let sorted = |mut v: Vec<(i32, i32)>| {
+            v.sort_unstable();
+            v
+        };
+        let hill = select_chunks(Vec2::new(-65_347.0, 5_770.0), &s, (-64, -64));
+        assert_eq!(sorted(cells_under(&hill, &candidates)), vec![(-16, 1), (60, 40), (63, 63)]);
+        let p = Vec2::ZERO;
+        let centre = select_chunks(p, &s, (0, 0));
+        assert!(centre.contains(&(16, 48, 32)), "{centre:?}");
+        assert!(!centre.iter().any(|&(l, x, y)| (x..x + l).contains(&63) && (y..y + l).contains(&63)), "{centre:?}");
+        assert_eq!(sorted(cells_under(&centre, &candidates)), vec![(-16, 1), (60, 40)]);
+        // Nothing chosen (both distances 0, or the LOD off): no water cell at all.
+        let none = select_chunks(p, &LodSettings { far: 0.0, terrain_far: 0.0, ..s }, (0, 0));
+        assert!(none.is_empty());
+        assert!(cells_under(&none, &candidates).is_empty());
+    }
+
+    fn cell(id: u32, g: (i32, i32), data_flags: u8, water_height: Option<f32>, water_type: Option<u32>) -> fnv_world::Cell {
+        fnv_world::Cell { form_id: id, grid: Some(g), data_flags, water_height, water_type, ..Default::default() }
+    }
+
+    /// Only cells with the "has water" flag, a surface height (their own or the world's
+    /// default), a water type (theirs or the world's) and no No LOD Water flag are
+    /// candidates; none in a world flagged No LOD Water.
+    #[test]
+    fn candidates_are_the_cells_with_lod_water() {
+        let cells: HashMap<u32, fnv_world::Cell> = [
+            cell(1, (0, 0), 2, Some(100.0), Some(0x18)),
+            cell(2, (1, 0), 0, Some(100.0), Some(0x18)),
+            cell(3, (2, 0), 2 | 8, Some(100.0), Some(0x18)),
+            cell(4, (3, 0), 2, Some(3.4e38), None),
+        ]
+        .into_iter()
+        .map(|c| (c.form_id, c))
+        .collect();
+        // Grid square (4, 0) names a cell that is not in the index.
+        let grid = [((0, 0), 1), ((1, 0), 2), ((2, 0), 3), ((3, 0), 4), ((4, 0), 5)].into_iter().collect();
+        let ws = fnv_world::Worldspace { default_water_height: Some(0.0), water: Some(0x18), grid, ..Default::default() };
+        assert_eq!(water_candidates(&ws, &cells).into_iter().collect::<Vec<_>>(), vec![(0, 0), (3, 0)]);
+        // Without the world's default height and water type, cell 4 has neither.
+        let bare = fnv_world::Worldspace { default_water_height: None, water: None, ..ws.clone() };
+        assert_eq!(water_candidates(&bare, &cells).into_iter().collect::<Vec<_>>(), vec![(0, 0)]);
+        let no_lod_water = fnv_world::Worldspace { data_flags: 0x10, ..ws };
+        assert!(water_candidates(&no_lod_water, &cells).is_empty());
+    }
+}
+
+#[cfg(test)]
+#[path = "water_lifecycle_tests.rs"]
+mod lifecycle_tests;

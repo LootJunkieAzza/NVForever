@@ -165,6 +165,7 @@ fn show_notes(
     mut stats: ResMut<CrimeStats>,
     corner: Option<ResMut<CornerMessages>>,
     mut sounds: MessageWriter<PlaySound>,
+    sfx: Option<Res<crate::sfx::Sfx>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -200,8 +201,15 @@ fn show_notes(
                 if let Some(c) = corner.as_deref_mut() {
                     c.push(Corner { text: line, icon: setting(image).map(|i| i.to_ascii_lowercase()), seconds: None });
                 }
-                if let Some(s) = sim.forms.by_edid(sound) {
-                    sounds.write(PlaySound { sound: s, at: None });
+                // A SOUN record: among the sound records, not the form store's Editor IDs
+                // (which index no SOUN, so the karma sound never played, #3095).
+                match sfx.as_deref().map(|x| x.sound_by_edid(sound)) {
+                    Some(Some(s)) => {
+                        info!("crime: karma sound {sound}");
+                        sounds.write(PlaySound { sound: s, at: None });
+                    }
+                    Some(None) => warn!("crime: karma sound {sound} not found"),
+                    None => {}
                 }
             }
             Note::Crime { kind, victim, seen_by, hostile } => {

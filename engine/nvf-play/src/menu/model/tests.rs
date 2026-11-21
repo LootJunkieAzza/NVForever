@@ -2,6 +2,9 @@
 //! repository schemas (no game data). The builders follow
 //! crates/fnv-sim/tests/synthetic.rs.
 
+#[path = "search_tests.rs"]
+mod search_tests;
+
 use super::*;
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};

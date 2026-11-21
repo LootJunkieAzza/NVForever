@@ -32,11 +32,17 @@ use crate::table::ParamEnc;
 pub(in crate::compile) struct P<'t> {
     t: &'t [XTok],
     i: usize,
+    // Only the current expression's root owns otherwise surplus operands.
+    // Arguments and explicit groups retain their existing boundary rules.
+    inline_surplus: bool,
 }
 
 impl<'t> P<'t> {
     pub(in crate::compile) fn new(t: &'t [XTok]) -> P<'t> {
-        P { t, i: 0 }
+        P { t, i: 0, inline_surplus: false }
+    }
+    pub(in crate::compile) fn expression(t: &'t [XTok]) -> P<'t> {
+        P { t, i: 0, inline_surplus: true }
     }
     fn peek(&self) -> Option<&'t XTok> {
         self.t.get(self.i)
@@ -180,7 +186,9 @@ impl Gen<'_> {
             if t.kind == XKind::LBracket && POSTFIX >= min {
                 p.next();
                 let was = std::mem::replace(&mut self.in_args, false);
+                let surplus = std::mem::replace(&mut p.inline_surplus, false);
                 let inner = self.xexpr(p, 0);
+                p.inline_surplus = surplus;
                 self.in_args = was;
                 let inner = inner?;
                 if p.next().map(|t| t.kind) != Some(XKind::RBracket) {
@@ -272,7 +280,9 @@ impl Gen<'_> {
                 }
                 let was = std::mem::replace(&mut self.in_args, false);
                 let was_paren = std::mem::replace(&mut self.in_paren, true);
+                let surplus = std::mem::replace(&mut p.inline_surplus, false);
                 let e = self.xexpr(p, 0);
+                p.inline_surplus = surplus;
                 self.in_args = was;
                 self.in_paren = was_paren;
                 let e = e?;
@@ -638,6 +648,9 @@ impl Gen<'_> {
         let mut args = Vec::new();
         loop {
             if f.params.is_some_and(|n| args.len() >= n) {
+                if self.unknown_calls && p.inline_surplus {
+                    self.drop_inline_surplus(p)?;
+                }
                 break;
             }
             let mut comma = false;
@@ -674,7 +687,9 @@ impl Gen<'_> {
                 p.next();
                 let was = std::mem::replace(&mut self.in_args, false);
                 let was_paren = std::mem::replace(&mut self.in_paren, true);
+                let surplus = std::mem::replace(&mut p.inline_surplus, false);
                 let e = self.xexpr(p, 0);
+                p.inline_surplus = surplus;
                 self.in_args = was;
                 self.in_paren = was_paren;
                 let e = e?;
@@ -739,7 +754,7 @@ impl Gen<'_> {
                 // do not compile; Armor Damage Fix's gr_CondDamFix.txt ships `… 0 f`].
                 if let Some(t) = p.peek().filter(|t| matches!(t.kind, XKind::Word | XKind::Num) && !t.text.contains('.')).cloned() {
                     let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
-                    let named = self.var(&t.text).is_some() || self.form(&t.text).is_some();
+                    let named = t.kind == XKind::Word && (self.var(&t.text).is_some() || self.form(&t.text).is_some());
                     if let (true, false, Some(fi)) = (alone, named, self.hex_form_id(&t.text)) {
                         p.next();
                         args.push(val_expr(self.form_val(fi, &t.text)));
@@ -770,6 +785,7 @@ impl Gen<'_> {
             };
             let was = std::mem::replace(&mut self.in_args, true);
             let was_any = std::mem::replace(&mut self.in_arg_any, true);
+            let surplus = std::mem::replace(&mut p.inline_surplus, false);
             let mut a = self.xarg(p, &enc, min);
             while nested_aware && a.is_some() {
                 let op = match p.peek() {
@@ -786,6 +802,7 @@ impl Gen<'_> {
             }
             self.in_args = was;
             self.in_arg_any = was_any;
+            p.inline_surplus = surplus;
             let a = a?;
             if self.runtime {
                 self.runtime_refusal(f, args.len(), &a);
@@ -793,6 +810,40 @@ impl Gen<'_> {
             args.push(a);
         }
         Some(args)
+    }
+
+    /// Apply the existing mod-source surplus policy at an expression's own call
+    /// boundary. The enclosing operator and an outer call's arguments stay owned
+    /// by their original consumers (script-compiler.md, inline surplus operands).
+    fn drop_inline_surplus(&mut self, p: &mut P<'_>) -> Option<()> {
+        let starts = |p: &P<'_>| {
+            let postfix_call = p.peek().is_some_and(|t| t.kind == XKind::Word && t.text.starts_with('.'));
+            // A minus after a complete call already belongs to the enclosing
+            // expression, even when the lexer marks an adjacent signed number.
+            !postfix_call && starts_operand(p.peek())
+        };
+        if !starts(p) { return Some(()); }
+        let from = p.i;
+        let permission = std::mem::replace(&mut p.inline_surplus, false);
+        let count = self.discard_parsed(|g| {
+            let mut count = 0;
+            while starts(p) {
+                let was = std::mem::replace(&mut g.in_args, true);
+                let was_any = std::mem::replace(&mut g.in_arg_any, true);
+                let operand = g.xexpr(p, ARG);
+                g.in_args = was;
+                g.in_arg_any = was_any;
+                operand?;
+                count += 1;
+            }
+            Some(count)
+        });
+        p.inline_surplus = permission;
+        let text = p.t[from..p.i.min(p.t.len())].iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join(" ");
+        match count {
+            Some(count) => { self.diag("surplus_arguments", false, format!("{count} dropped: {text}")); Some(()) }
+            None => { self.diag("syntax", true, format!("invalid surplus argument: {text}")); None }
+        }
     }
 
     /// What the extender's runtime compiler refuses in argument `k` of `f`

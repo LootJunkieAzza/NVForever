@@ -5,6 +5,7 @@
 //! parser. docs/design/layer5-play.md has the rules and their evidence tags.
 
 use crate::activate::outcome::{Destination, Effect};
+use crate::menu::model::CAPS;
 use crate::Travel;
 use fnv_game::trace::{Event, EventKind};
 use fnv_sim::inventory::Inventory;
@@ -33,6 +34,10 @@ pub enum ScriptEffect {
     /// A short line on screen (a message without the message-box flag, items a script
     /// gave the player, a default activation's message).
     Notify(Note),
+    /// Caps a script gave the player with the message shown (not picked up by an
+    /// activation, whose pick-up `crate::world_sounds` sounds already): the caps'
+    /// pick-up sound at the listener (#3095).
+    ItemAddedSound(FormId),
     /// A quest added, completed or failed, or objectives shown or completed: drawn at
     /// the left of the view (`crate::quest_messages`).
     Quest(QuestNotice),
@@ -271,6 +276,19 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
         };
         events.iter().filter_map(on).collect()
     };
+    // Items the player picked up by an activation in this batch (by hand or by a
+    // script's Activate): `crate::world_sounds` sounds those pick-ups itself.
+    let picked_up: BTreeSet<FormId> = events
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match activation_from_json(o)?.outcome {
+                Outcome::PickedUp { item, .. } => Some(item),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    let mut caps_sound = false;
     let mut announced = BTreeSet::new();
     let changed = |out: &mut Vec<ScriptEffect>, r: FormId| {
         out.push(ScriptEffect::RefChanged(r.0));
@@ -386,12 +404,20 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             }
             EventKind::QuestCompleted { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Completed(n)))),
             EventKind::QuestFailed { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Failed(n)))),
-            // The player's tweak: no line for caps [design: docs/design/tweaks.md].
-            EventKind::ItemAdded { to, item: FormId(0xF), silent: false, .. } if *to == player && ctx.tweaks().is_some_and(|t| t.no_caps_added_message) => {}
-            EventKind::ItemAdded { to, item, count, silent: false } if *to == player => match added.iter_mut().find(|(i, _)| i == item) {
-                Some((_, n)) => *n += count,
-                None => added.push((*item, *count)),
-            },
+            // The player's tweak: no line for caps [design: docs/design/tweaks.md]; the
+            // sound still plays.
+            EventKind::ItemAdded { to, item: CAPS, silent: false, .. } if *to == player && ctx.tweaks().is_some_and(|t| t.no_caps_added_message) => {
+                caps_sound |= !picked_up.contains(&CAPS);
+            }
+            EventKind::ItemAdded { to, item, count, silent: false } if *to == player => {
+                // Caps a script gave: their pick-up sound, as caps taken by hand
+                // [hypothesis: the original plays it; player report R-BR8PUBD2, #3095].
+                caps_sound |= *item == CAPS && !picked_up.contains(&CAPS);
+                match added.iter_mut().find(|(i, _)| i == item) {
+                    Some((_, n)) => *n += count,
+                    None => added.push((*item, *count)),
+                }
+            }
             // A skill book read: "<Skill> increased to <value>" with the skill's icon
             // [hypothesis: wording and icon NVForever's, the original's line is not in
             // the plugins; docs/spec-notes/skill-books.md §5].
@@ -407,6 +433,9 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             }
             _ => {}
         }
+    }
+    if caps_sound {
+        out.push(ScriptEffect::ItemAddedSound(CAPS));
     }
     // Items a script gave the player, one line each, or one line for many (the add-on
     // packs give dozens at once).
@@ -1079,6 +1108,20 @@ mod tests {
         ];
         let lines = effects(&events, &BTreeSet::new(), &Fake).into_iter().filter(|e| matches!(e, ScriptEffect::Notify(_))).count();
         assert_eq!(lines, 1);
+    }
+
+    /// #3095: caps a script gives the player sound once per batch; caps picked up by an
+    /// activation (sounded by `world_sounds`) and silent adds do not.
+    #[test]
+    fn caps_a_script_gives_sound_once() {
+        let caps = |count, silent| ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: CAPS, count, silent });
+        let sounds = |events: &[Event]| effects(events, &BTreeSet::new(), &Fake).into_iter().filter(|e| matches!(e, ScriptEffect::ItemAddedSound(_))).collect::<Vec<_>>();
+        assert_eq!(sounds(&[caps(100, false), caps(25, false)]), vec![ScriptEffect::ItemAddedSound(CAPS)]);
+        assert_eq!(sounds(&[caps(100, true)]), vec![]);
+        assert_eq!(sounds(&[ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 1, silent: false })]), vec![]);
+        let pick = Activation { outcome: Outcome::PickedUp { item: CAPS, count: 5, owner: None }, unlocked_with: None, script: None };
+        let picked = [ev(EventKind::Activated { reference: FormId(0x55), by: FormId::PLAYER_REF, outcome: Some(serde_json::to_value(&pick).unwrap()) }), caps(5, false)];
+        assert_eq!(sounds(&picked), vec![]);
     }
 
     #[test]

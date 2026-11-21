@@ -16,3 +16,7 @@ naga = { version = "=30.0.1", features = ["wgsl-in", "spv-out"] }
 [[test]]
 name = "depth_invariance"
 path = "tests/depth_invariance.rs"
+
+[[test]]
+name = "ambient_occlusion_lighting"
+path = "tests/ambient_occlusion_lighting.rs"

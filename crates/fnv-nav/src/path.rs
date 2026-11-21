@@ -457,6 +457,45 @@ impl NavGraph {
         }
     }
 
+    /// For a way `p` finds none of: the doors that close it. A path is looked for with
+    /// every door open (locked ones, those that open in place, those whose script refused
+    /// the actor; not doors that are not in the world), and the doors on it that `p`
+    /// keeps closed are returned, in the order met. `None` when there is no way even so
+    /// (no navmesh, no chain of doors, ...): no door is to blame. For telling an
+    /// unreachable place apart in the logs (#2405: "0 triangles searched" read as no
+    /// door at all, while a locked door in the same room closed the way).
+    pub fn doors_closing(&self, from: Place, to: Place, p: &PathParams) -> Option<Vec<u32>> {
+        let all = PathParams {
+            open_locked: true,
+            opens_doors: true,
+            refused_doors: Vec::new(),
+            open_doors: self.in_place.keys().copied().collect(),
+            ..p.clone()
+        };
+        let path = self.find_path(from, to, &all).ok()?;
+        let mut out: Vec<u32> = Vec::new();
+        for l in &path.legs {
+            for s in &l.door_stops {
+                if !self.in_place_door_open(s.door, p) && !out.contains(&s.door) {
+                    out.push(s.door);
+                }
+            }
+            if let Some(d) = l.door.filter(|d| !self.door_open(d, p) && !out.contains(&d.door)) {
+                out.push(d.door);
+            }
+        }
+        // None with a stop: one the corridor crosses beside the polyline (no stop) closed
+        // it, refusing the triangles it stands on.
+        if out.is_empty() {
+            for d in path.legs.iter().flat_map(|l| &l.corridor).filter_map(|t| self.door_tris.get(t)).flatten() {
+                if !self.in_place_door_open(*d, p) && !out.contains(d) {
+                    out.push(*d);
+                }
+            }
+        }
+        Some(out)
+    }
+
     /// Doors (triangle, index) from the area of `start` to the area of `goal`, leaving
     /// out `excluded`; `Some(vec![])` within one area.
     fn route_between(&self, start: u32, s_at: [f32; 3], goal: u32, g_at: [f32; 3], p: &PathParams, excluded: &[(u32, usize)]) -> Option<Vec<(u32, usize)>> {
@@ -597,7 +636,13 @@ impl NavGraph {
                             chain.extend(c);
                         }
                         Err(PathError::TooFar { expanded: n }) => return Err(PathError::TooFar { expanded: expanded + n }),
-                        Err(_) => {
+                        Err(e) => {
+                            // A leg searched and not found counts too (#2405): the count
+                            // said 0 for every way a closed door in one area shut off,
+                            // as if the door search had found nothing.
+                            if let PathError::Unreachable { expanded: n } = e {
+                                expanded += n;
+                            }
                             failed = Some((f, i));
                             break;
                         }
@@ -791,7 +836,8 @@ impl NavGraph {
     /// merchant through the open Novac motel gate walked back to the stop at each
     /// replan and never got through). Engine choices (docs/design/navmesh.md §6.1).
     pub fn door_stops(&self, space: Space, corridor: &[u32], mut points: Vec<[f32; 3]>, p: &PathParams) -> (Vec<[f32; 3]>, Vec<DoorStop>) {
-        let mut doors: Vec<u32> = corridor.iter().filter_map(|t| self.door_tris.get(t)).flatten().copied().collect();
+        // A door not in the world gets no stop (`NavGraph::disabled_doors`).
+        let mut doors: Vec<u32> = corridor.iter().filter_map(|t| self.door_tris.get(t)).flatten().copied().filter(|d| !self.disabled_doors.contains(d)).collect();
         if doors.is_empty() {
             return (points, Vec::new());
         }

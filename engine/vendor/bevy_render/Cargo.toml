@@ -253,12 +253,24 @@ features = [
     "metal",
     "vulkan",
     "fragile-send-sync-non-atomic-wasm",
+    # NVForever modules off the lock (pipeline_cache.rs `nvf_modules`): error scopes per
+    # thread, not one stack for all, so compile threads make shader modules at once.
+    "std",
 ]
 default-features = false
 
 [dependencies.wgpu-types]
 version = "30"
+# NVForever pipeline list (nvf_manifest.rs): descriptors kept on disk as JSON.
+features = ["serde"]
 default-features = false
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+
+[dependencies.serde_json]
+version = "1"
 
 [dev-dependencies.proptest]
 version = "1"

@@ -3147,11 +3147,15 @@ impl Vm<'_, '_> {
             n if n.starts_with("ar_") || n == "typeof" => self.array_function(n, c),
             // `[ref.]Call udf args…` [documented: Call; User Defined Function].
             "call" => {
-                let f = arg(self, 0)?;
                 let on = match &c.on {
                     Some(e) => Some(self.xeval(e)?.value()?),
                     None => None,
                 };
+                if on.is_some_and(|v| v.as_form().is_none()) {
+                    self.host.no_reference_call("call", on, c);
+                    return Err(VmError::NoReference("call".to_string()));
+                }
+                let f = arg(self, 0)?;
                 let mut args = Vec::with_capacity(c.args.len().saturating_sub(1));
                 for k in 1..c.args.len() {
                     args.push(arg(self, k)?);

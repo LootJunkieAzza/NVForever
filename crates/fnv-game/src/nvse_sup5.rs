@@ -157,7 +157,7 @@ fn file_time(g: &Game, path: &str, request: f64) -> Option<jiff::ZonedDateTime> 
         _ => return None,
     }
     .ok()?;
-    Some(jiff::Timestamp::try_from(t).ok()?.to_zoned_datetime(jiff::tz::TimeZone::system()))
+    Some(jiff::Timestamp::try_from(t).ok()?.to_zoned_datetime(crate::local_time::system_zone()))
 }
 
 pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {

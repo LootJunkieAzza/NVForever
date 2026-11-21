@@ -35,7 +35,6 @@ use crate::player::Player;
 use crate::sim::SimState;
 use crate::loading::TravelRequest;
 use crate::{space, OpenContainer, PlaySet, PlayState, PlayWorld, RefChanged, RefVisual, Travel};
-use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use fnv_phys::{layers, Filter, Owner};
 use fnv_sim::forms::{BaseData, ItemKind};
@@ -53,7 +52,7 @@ impl Plugin for ActivatePlugin {
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
             .insert_resource(AutoActivate::from_env())
-            .add_systems(Update, (shift_talks, find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
+            .add_systems(Update, (shift_talks, find_target, crate::quick_loot::follow, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
     }
 }
@@ -219,11 +218,12 @@ pub(crate) fn find_target(
     phys: Option<ResMut<PhysState>>,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
-    visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
+    visuals: crate::PickVisuals,
     mut target: ResMut<Target>,
     mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
+    parts: Option<Res<crate::hitvol::ActorParts>>,
 ) {
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
@@ -285,6 +285,8 @@ pub(crate) fn find_target(
         }
         Some((r.0, pick::ray_box(o, d, &t, c, h)?))
     });
+    // An actor's box is rough (`pick::choose_precise_first`, #3125).
+    let bounds: Vec<(u32, f32, bool)> = bounds.map(|(id, d)| (id, d, sim.is_actor(id))).collect();
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
         if rt.game.other.jip13.reticle_node != far_node {
@@ -292,13 +294,24 @@ pub(crate) fn find_target(
         }
         // GetCrosshairRef: what is in activation reach; GetCrosshairRefEx: at any range.
         let now = hit.as_ref().and_then(|h| h.form_id).map(FormId);
-        // JohnnyGuitar's crosshair handlers hear each reference the prompt comes onto.
-        if let Some(r) = now.filter(|_| now != rt.game.senses.crosshair_ref) {
-            rt.game.jg8_crosshair(r);
-        }
-        rt.game.senses.crosshair_ref = now;
+        rt.game.set_crosshair_ref(now);
         rt.game.senses.crosshair_far = far_ref.map(FormId);
     }
+    // Beds an actor lies on among the candidates, and who (`pick::to_occupant`, #3231):
+    // the bed markers are IDs 1 to 9 (`fnv_game::functions::furniture`). Looked up only
+    // when furniture is under the crosshair.
+    let is_furniture = |id: u32| sim.base_of(id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Furniture));
+    let furniture_seen = hit.and_then(|h| h.form_id).into_iter().chain(bounds.iter().map(|b| b.0)).any(is_furniture);
+    let sleepers: HashMap<u32, u32> = match script.as_deref().and_then(|s| s.rt.as_ref()) {
+        Some(rt) if furniture_seen => rt
+            .game
+            .extra
+            .iter()
+            .filter(|(a, _)| **a != FormId::PLAYER_REF)
+            .filter_map(|(a, e)| e.furniture.filter(|u| (1..=9).contains(&u.marker_id)).map(|u| (u.reference.0, a.0)))
+            .collect(),
+        _ => HashMap::new(),
+    };
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
     // A dead actor is searched rather than talked to (combat C5); a living one is talked
     // to only when it may be ([`actor_action`]). Actors are named by their template's
@@ -355,7 +368,22 @@ pub(crate) fn find_target(
             .clone()
     };
     let hit = pick::door_behind(hit, behind, |id| describe_once(id).is_some());
-    let picked = pick::choose(hit, bounds, REACH, |id| describe_once(id).is_some());
+    let picked = pick::choose_precise_first(hit, bounds, REACH, |id| describe_once(id).is_some());
+    // How far the sleeper's body is from the eye: its posed bones (`crate::hitvol::ActorParts`,
+    // which follow the lying body), else its render boxes (rough: the bind pose).
+    let body_distance = |actor: u32| {
+        let posed = parts.as_deref().and_then(|p| p.by_ref.get(&actor)).filter(|p| !p.segments.is_empty());
+        if let Some(posed) = posed {
+            let e = Vec3::from_array(eye);
+            return posed.segments.iter().map(|s| pick::segment_distance(e, Vec3::from_array(s.a), Vec3::from_array(s.b))).reduce(f32::min);
+        }
+        visuals
+            .iter()
+            .filter(|(r, _, _, v)| r.0 == actor && v.get())
+            .filter_map(|(_, aabb, gt, _)| pick::box_distance(o, &gt.affine(), Vec3::from(aabb.center), Vec3::from(aabb.half_extents)))
+            .reduce(f32::min)
+    };
+    let picked = pick::to_occupant(picked, |id| sleepers.get(&id).and_then(|&a| Some((a, body_distance(a)?))), REACH, |id| describe_once(id).is_some());
     let chosen = picked.and_then(|p| describe_once(p.form_id).map(|d| (p, d)));
     let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let new = chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
@@ -404,7 +432,8 @@ const REVIVE_NEEDS_STIMPAK: &str = "You need a Stimpak to revive them.";
 /// prompt and says nothing, as before]. Without the scripts: Talk.
 fn actor_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let Some(rt) = rt else { return Action::Talk };
-    let creature = sim.refs.get(FormId(id)).is_some_and(|p| &p.sig == b"ACRE");
+    // By the base for a reference made at run time, which has no placement (#3124).
+    let creature = sim.is_creature(id);
     crate::script::with_world(rt, sim, |rt| actor_action_in(&mut rt.game, creature, id, talkers))
 }
 
@@ -662,6 +691,14 @@ pub(crate) fn activate(
     } else {
         *hold = None;
     }
+    // Quick Loot has Activate while its list shows (it takes); its Wait asks for the
+    // full menu, activated here as Activate would (`crate::quick_loot`) [design,
+    // #2933].
+    let full = crate::quick_loot::take_full_request();
+    if full || crate::quick_loot::holds_input() {
+        pressed_now = full;
+        *hold = None;
+    }
     if !pressed_now && !fired && queued.is_none() {
         return;
     }
@@ -691,7 +728,7 @@ pub(crate) fn activate(
     };
     // E pressed on something the player can hold: a tap activates it when E comes up,
     // a hold picks it up (`crate::grab`, docs/spec-notes/grab.md §2).
-    if queued.is_none() && !fired {
+    if queued.is_none() && !fired && !full {
         if let Some(g) = grab.as_mut().filter(|g| g.holdable(t.form_id) && g.tap.is_none()) {
             let candidate = g.candidate.expect("holdable has a candidate");
             g.tap = Some(crate::grab::Tap { target: Some(t.clone()), candidate, held: 0.0 });

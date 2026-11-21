@@ -744,7 +744,12 @@ state and one call per frame:
   script) receives it from GetButtonPressed; every other script reads −1 and the box
   stays [hypothesis, from the GECK wiki's ShowMessage and GetButtonPressed pages; with a
   global button the `--play` integration saw Doc Mitchell's chemistry set take every
-  box's button].
+  box's button]. A message box without buttons shows a default OK [documented: GECK
+  wiki ShowMessage notes] and has a `message_box` too (`buttons: 0`): its OK is button 0,
+  read once by the script that showed it [hypothesis: inferred from SCPT 0x000E9483,
+  Black Mountain's Broken Mr. Handy, which waits for button 0 after such a box, #2925;
+  observer check 240]. It does not replace a box with buttons still waiting for the
+  player [design, #2925]. A corner message (no Message Box flag) has none: −1.
 - Round 4 (§7.7): scripts now open menus themselves (`Game::open_menu`: a message box
   is 1001, the name, race, tag-skill, trait and S.P.E.C.I.A.L. menus have their codes),
   and boxes wait in `Game::boxes`. The engine should show `game.menu` and call
@@ -1096,11 +1101,20 @@ then, in a loaded cell) [hypothesis]; trace event `placed`. DropMe and Drop use 
 drop rule; DropMe acts as a return and neither runs OnDrop [documented: catalogue notes].
 Ownership lives in the reference's Layer 4 extra data; SetOwnership with no owner gives
 the player's base (0x7) [documented]. Destruction: the stage is the highest DSTD index
-whose health percent the remaining health (DEST health − damage) has fallen to, 0 when
-damaged above every stage, −1 without data or damage [documented −1: GECK wiki
-GetDestructionStage; the rest hypothesis]; a stage with the Destroy flag sets the
+whose health percent the remaining health (DEST health − damage) has fallen to, and
+GetDestructionStage gives it counted from 1 (index + 1), 0 when damaged above every stage,
+−1 without data or damage [documented −1: GECK wiki GetDestructionStage; the rest
+hypothesis; the count from 1 fits the masters' scripts, which compare it with values only
+it reaches: Zeta's generator core (eight stages) disables itself at 7, its Destroy stage,
+and tests 8; Point Lookout's Brain (seven stages) bursts at 7; DLC04DarMuckBubble (two
+stages) tests `>= 2` (#3053, observer check 247)]; a stage with the Destroy flag sets the
 destroyed state, one with Disable disables the reference, a stage change runs
-OnDestructionStageChange [hypothesis from the flag names]. Regions: the player is in a
+OnDestructionStageChange [hypothesis from the flag names]; a block with a parameter
+(`Begin OnDestructionStageChange 3`) runs only for the stage reached counted from 1 (DSTD
+index + 1), one without a parameter for any change [hypothesis: fit to the only such
+block in a TTW load order, SCPT 0x0A096CC8 on MQ11vertibirdPartyBus, whose 3 is index 2
+in both Fallout3.esm's four-stage and TTW's three-stage DEST, DSTD damage stage 3 too;
+observed, #3112: without it Liberty Prime's march never passed the first wreck]. Regions: the player is in a
 region when in an exterior cell of the region's worldspace and inside one of its area
 polygons (even-odd rule; the RPLI edge fall-off is ignored) [documented: never in an
 interior, nested regions both true; hypothesis: the polygon test]. GetHeadingAngle
@@ -1395,7 +1409,9 @@ buttons, `moved`, `activated`, `block_run`, `result_script`, `stub` (each distin
 once per unit), `unhandled`, `call_failed`, `script_error`, `skipped`,
 `undeclared_variable`, and from round 4 `menu_opened`, `menu_closed`, `line_started`,
 `line_ended`, `no_line`, and from the dialogue work `dialogue_started`, `response_said`,
-`choices_offered`, `choice_made`, `topic_added`, `dialogue_ended`); `final` (frames,
+`choices_offered`, `choice_made`, `topic_added`, `dialogue_ended`, and `assault_alarm`
+for SendAssaultAlarm with a faction: its victim and the members alive, absent and dead,
+#2926); `final` (frames,
 the running conversation `dialogue`, every touched quest with stages, objectives and
 named variables, the player state, reported references, unhandled and stubbed call
 counts).

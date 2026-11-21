@@ -48,6 +48,7 @@ pub fn set_merchant_container(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
         return Err(format!("{} is not a persistent reference: SetMerchantContainer refused", g.data.name(c)));
     }
     g.extra.entry(me).or_default().merchant_container = Some(c);
+    g.extra.entry(me).or_default().merchant_container_cleared = false;
     none()
 }
 
@@ -184,8 +185,8 @@ pub fn is_waiting(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// `value` [documented: GECK wiki SetFactionReaction], the disposition modifier between
 /// the two [documented: GECK wiki GetFactionReaction, "the disposition modifier between
 /// two factions"; xEdit FACT XNAM "Modifier"]. Kept (`FormChanges::faction_modifiers`,
-/// saved); the modifiers are not part of a disposition yet (docs/spec-notes/factions.md),
-/// so nothing reads it. The group combat reaction (SetEnemy, SetAlly) is not changed.
+/// saved); source queries and integer changes read it (`nvse_faction_modifiers`). NPC
+/// disposition aggregation remains open (factions.md §8). Combat reactions are unchanged.
 pub fn set_faction_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let (f, target) = (a.form(0)?, a.form(1)?);
     let v = a.num(2)?;
@@ -235,6 +236,10 @@ pub fn reset_interior(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 pub fn set_zone_respawns(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let zone = a.form(0)?;
     g.world.set_zone_respawns(zone, a.num(1)? != 0.0);
+    // A new SetZoneRespawns supersedes an earlier session SetZoneFlag bit-1 override.
+    if let Some(c) = g.other.zone_changes.get_mut(&zone) {
+        c.never_resets = None;
+    }
     none()
 }
 
@@ -340,6 +345,9 @@ impl Game<'_> {
     /// The container that holds `actor`'s goods: SetMerchantContainer's, else its
     /// reference's (XMRC).
     pub fn merchant_container(&self, actor: FormId) -> Option<FormId> {
+        if self.extra.get(&actor).is_some_and(|e| e.merchant_container_cleared) {
+            return None;
+        }
         self.extra.get(&actor).and_then(|e| e.merchant_container).or_else(|| self.world.placed.get(actor).and_then(|p| p.merchant_container))
     }
 

@@ -26,6 +26,11 @@
 //!
 //! Test aid `NVF_PLAY_TEST_PIPELINE_LOG=1`: one log line for each pipeline when it is asked
 //! for and when it is ready or has failed for good, with its label and the time between.
+//! The vendored bevy_render adds a `pipeline timing:` line for each, with where its time went
+//! (vendor/README.md; `pipeline_disk_cache.rs` has what they showed).
+//! `NVF_PLAY_TEST_PIPELINE_DEFS=1` adds a few fragment definitions to the `asked` line's
+//! pipeline, and `=all` every definition of both stages, the colour targets, the depth state
+//! and the sample count, to tell apart variants of one label.
 //! The sun's shadow pipelines ([`sun_shadow`]) say so in their `asked` line. A pipeline
 //! whose fragment stage has terrain height blending on (`TERRAIN_HEIGHT_BLEND`, terrain.rs
 //! "Height blending") also logs `terrain height blending pipeline <n> ready` (or `failed`)
@@ -264,6 +269,20 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
                     };
                     let fragment: Vec<_> = d.fragment.iter().flat_map(|f| f.shader_defs.iter()).filter(interesting).collect();
                     info!("pipeline {i} shader-defs: {fragment:?}: {}", label(&p.descriptor));
+                    if std::env::var_os("NVF_PLAY_TEST_PIPELINE_DEFS").is_some_and(|v| v == "all") {
+                        let vertex: Vec<_> = d.vertex.shader_defs.iter().map(|s| format!("{s:?}")).collect();
+                        let fragment: Vec<_> = d.fragment.iter().flat_map(|f| f.shader_defs.iter()).map(|s| format!("{s:?}")).collect();
+                        info!(
+                            "pipeline {i} all: vertex {} fragment {} targets {:?} depth {:?} samples {} buffers {}: {}",
+                            vertex.join(","),
+                            fragment.join(","),
+                            d.fragment.as_ref().map(|f| &f.targets),
+                            d.depth_stencil,
+                            d.multisample.count,
+                            d.vertex.buffers.len(),
+                            label(&p.descriptor)
+                        );
+                    }
                 }
             }
         }

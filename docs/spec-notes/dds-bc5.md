@@ -3,8 +3,14 @@
 [documented] Microsoft's DDS Programming Guide maps legacy FourCC `BC5S` to
 DXGI_FORMAT_BC5_SNORM and `ATI2` to BC5_UNORM. A `DX10` FourCC instead introduces
 an additional 20-byte header. This leaf supports the two documented legacy
-codes, not DX10 or an unverified `BC5U` FourCC alias. Source (2026-11-14):
+codes and, since #2981 stage 1, DX10 files naming BC5_UNORM (83) or BC5_SNORM (84)
+as a single 2D texture (dds.md §6), which take the same paths below. An
+unverified `BC5U` FourCC alias is still not read: the guide's table does not list
+it (rechecked 2026-11-19). Source (2026-11-14):
 https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dx-graphics-dds-pguide
+
+[observed: dds.md §1] The surveyed game files have no DX10 header; DX10 BC5
+files come from other tools (mods, texture packs).
 
 [documented] BC5 has two independent 8-byte channels, red then green, over the
 same 4x4 texels. Each channel has two 8-bit endpoints and sixteen three-bit

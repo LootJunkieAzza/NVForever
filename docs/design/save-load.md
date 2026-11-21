@@ -32,10 +32,13 @@ apply the snapshot.
 
 ## 2. What exists today
 
-- `fnv_game::GameSnapshot` (`crates/fnv-game/src/game.rs`, format `fnv.game.state/1`) and
-  `Game::snapshot` / `Game::restore`; it contains `fnv_sim::world::Snapshot`
-  (`crates/fnv-sim/src/world.rs`, format `fnv.sim.state/1`) with `World::snapshot` /
-  `restore`. Both derive serde and are written as JSON in tests.
+- `fnv_game::GameSnapshot` (`crates/fnv-game/src/game.rs`) and `Game::snapshot` /
+  `Game::restore`. The reader accepts the baseline `fnv.game.state/1`, the retired-scene
+  format, and a separate lambda-handle format for each. See
+  [Callable identity](../spec-notes/callable-identity.md) for tags and compatibility rules.
+  The game snapshot contains `fnv_sim::world::Snapshot` (`crates/fnv-sim/src/world.rs`,
+  format `fnv.sim.state/1`) with `World::snapshot` / `restore`. Both derive serde and are
+  written as JSON in tests.
 - Round-trip tests: `crates/fnv-game/tests/dialogue.rs`, `functions.rs`, `synthetic.rs`,
   `engine/nvf-play/src/dropped/tests.rs`.
 - serde and serde_json are already dependencies of fnv-game, fnv-sim, fnv-ai, fnv-combat,
@@ -155,6 +158,13 @@ body    u32 length + zstd(JSON or postcard) of SaveBody
   both snapshots); a change that cannot default bumps N and adds a migration function
   from N−1, so old saves stay loadable. `RefExtra::killing_hit` is one: the dead of an
   older save have no killing hit, as nothing in the save tells it [design].
+  `RefState::made_at` (where a created reference was made, its editor location, #2278;
+  saved since 0.8.0) is another, with a fill-in on the load: a created actor of an older
+  save, which has none, takes the place it was saved at (`World::made_at_from_saved_place`,
+  #3042) [decision: the nearest fact the save holds, an approximation of where it was
+  made, since combat, following or a scripted MoveTo may have moved it before the save].
+  N stays: every actor `World::place` makes has one, so a missing one marks the
+  older save; dropped items have none by design and get none.
 - Encoding: JSON keeps saves inspectable and is what the tests already use; size is the
   question. Measure a long session's snapshot first: if compressed JSON stays in the low
   megabytes (the original's 61-hour save is 8 MB uncompressed), keep JSON; otherwise
@@ -284,8 +294,8 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   `fnv_install::guard_write`, the save list newest first, the plugin-list check. The body
   is JSON: a short session's save is about 140 KB; measure a long game before choosing a
   binary encoding.
-- **Game layer** (`fnv_game::GameSnapshot`, same format `fnv.game.state/1`, new fields with
-  `#[serde(default)]`): terminals hacked or locked out, the Pip-Boy radio (on, station),
+- **Game layer** (fields added to the baseline `fnv.game.state/1` with `#[serde(default)]`):
+  terminals hacked or locked out, the Pip-Boy radio (on, station),
   NPC radios, the weather shown and rain, grudges and forgiveness. `Autosave` is no longer
   a stub: it asks the engine for an autosave (`UiRequests::autosaves`); nor are SystemSave
   (the one `systemsave` slot) and ForceSave (a new save as by hand)

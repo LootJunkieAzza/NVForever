@@ -28,6 +28,12 @@
 //! written again. Esc and the console's key (`` ` ``) cannot be bound [design: they
 //! open the pause menu and the console].
 //!
+//! **Sprint** (NVForever's own, NVF Features › Advanced Movement; `crate::stance`) has no key
+//! until the player binds one, and acts only while its switch is on: off, its Controls row is
+//! greyed and cannot be rebound. Run keeps Left Shift whatever Sprint's state; a Sprint key
+//! the player sets is handled as any other binding (a swap with the control that had it)
+//! [design, #3000: the maintainer's decision on #3002].
+//!
 //! **The controller** (`crate::pad`, docs/design/controller.md): `Input Device` in
 //! `[Controls]` (`Keyboard and Mouse` or `Controller`, [`InputDevice`]) says which works
 //! the controls; the controller's buttons are kept in `[Controller]`, one line per
@@ -89,6 +95,9 @@ pub enum Control {
     Grab,
     /// Lower or raise the drawn weapon by hand (NVForever's own; not in the game's INI).
     LowerWeapon,
+    /// Run faster for AP while held (NVForever's own; acts only with NVF Features ›
+    /// Advanced Movement › Sprint on, `crate::stance`).
+    Sprint,
     // The Tweaks tab's keys (`crate::tweaks`, docs/design/tweaks.md): none bound unless
     // the player binds them.
     /// Holster the weapon at once (Stewie's Tweaks iHolsterWeaponKey).
@@ -149,8 +158,10 @@ pub enum Control {
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
-/// Item tapped twice so a reload is not held back waiting for a second tap].
-pub const GAME_CONTROLS: [(Control, &str, u32); 57] = [
+/// Item tapped twice so a reload is not held back waiting for a second tap]; Sprint unbound,
+/// with no controller button either, until the player binds it [design, #3000: the
+/// maintainer's decision on #3002].
+pub const GAME_CONTROLS: [(Control, &str, u32); 58] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -180,6 +191,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 57] = [
     (Control::QuickLoad, "QuickLoad", 0x0043FFFF),
     (Control::Grab, "Grab", 0x002CFF09),
     (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
+    (Control::Sprint, "Sprint", 0xFFFFFFFF),
     (Control::HolsterWeapon, "Holster Weapon", 0xFFFFFFFF),
     (Control::ToggleLight, "Toggle Light", 0xFFFFFFFF),
     (Control::ToggleCrosshair, "Toggle Crosshair", 0xFFFFFFFF),
@@ -214,7 +226,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 57] = [
 /// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
 /// player binds it (`crate::tweaks`), but the console's and the screenshot's at the end
 /// ([`BOUND_EXTRA_CONTROLS`]), bound by default.
-pub const TWEAK_CONTROLS: usize = 29;
+pub const TWEAK_CONTROLS: usize = 30;
 
 /// The controls after the Tweaks tab's that are bound by default: the console and the
 /// screenshot ([`Control::Console`], [`Control::Screenshot`]).
@@ -618,6 +630,7 @@ pub fn label(c: Control) -> &'static str {
         QuickLoad => "Quick Load",
         Grab => "Grab",
         LowerWeapon => "Lower Weapon",
+        Sprint => "Sprint",
         HolsterWeapon => "Holster Weapon",
         ToggleLight => "Pip-Boy Light",
         ToggleCrosshair => "Show/Hide Crosshair",
@@ -984,8 +997,23 @@ pub fn apply_stored(world: &mut World) {
     }
 }
 
+/// Whether `c`'s row is greyed now (`crate::stance::binding_greyed`): it is not rebound or
+/// cleared, and the log says why.
+fn greyed(world: &World, c: Control) -> bool {
+    match crate::stance::binding_greyed(world, c) {
+        Some(why) => {
+            info!("controls: {} not changed: greyed ({why})", Bindings::name(c));
+            true
+        }
+        None => false,
+    }
+}
+
 /// Bind `input` to `c` (the Controls page), log it and keep it in the INI.
 pub fn rebind(world: &mut World, c: Control, input: Input) {
+    if greyed(world, c) {
+        return;
+    }
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
     let before = b.get(c).text();
     let swapped = b.rebind(c, input);
@@ -998,6 +1026,9 @@ pub fn rebind(world: &mut World, c: Control, input: Input) {
 
 /// Bind controller input `p` to `c` (the Controls page with Controller chosen).
 pub fn rebind_pad(world: &mut World, c: Control, p: PadInput) {
+    if greyed(world, c) {
+        return;
+    }
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
     let before = pad_text(b.pad(c));
     let swapped = b.rebind_pad(c, p);
@@ -1166,6 +1197,9 @@ pub fn set_aim_sensitivity(world: &mut World, m: f32) {
 
 /// Take the key off `c` (the Controls page's Delete), keeping its mouse button.
 pub fn clear_key(world: &mut World, c: Control) {
+    if greyed(world, c) {
+        return;
+    }
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
     if b.device == InputDevice::Controller {
         b.set_pad(c, None);
@@ -1662,16 +1696,38 @@ mod tests {
         assert_eq!(Bindings::name(Control::Rest), "Rest");
         // Every control has a key or a button, but the Tweaks tab's, which start unbound;
         // the console and the screenshot at the end on their old keys.
-        for (c, _, _) in &GAME_CONTROLS[..TWEAK_CONTROLS] {
+        // (Sprint, NVForever's own, has none until the player binds it: #3000.)
+        for (c, _, _) in GAME_CONTROLS[..TWEAK_CONTROLS].iter().filter(|(c, _, _)| *c != Control::Sprint) {
             let x = b.get(*c);
             assert!(x.key.is_some() || x.mouse.is_some(), "{c:?}");
         }
+        assert_eq!(b.get(Control::Sprint), Binding::default());
         let extra = GAME_CONTROLS.len() - BOUND_EXTRA_CONTROLS;
         for (c, _, _) in &GAME_CONTROLS[TWEAK_CONTROLS..extra] {
             assert_eq!(b.get(*c), Binding { key: None, mouse: None }, "{c:?}");
         }
         assert_eq!(b.get(Control::Console), Binding { key: Some(KeyCode::Backquote), mouse: None });
         assert_eq!(b.get(Control::Screenshot), Binding { key: Some(KeyCode::F12), mouse: None });
+    }
+
+    /// Sprint (#3000, the maintainer's decision on #3002): no key and no button by default, and
+    /// Run keeps Left Shift whatever Sprint's state; a Sprint key the player sets is any
+    /// binding (a swap with the control that had it).
+    #[test]
+    fn sprint_is_unbound_by_default_and_run_keeps_shift() {
+        let mut b = Bindings::game_defaults();
+        assert_eq!(b.get(Control::Sprint), Binding::default(), "no key by default");
+        assert_eq!(b.pad(Control::Sprint), None, "no button by default");
+        assert_eq!(b.get(Control::Run).key, Some(KeyCode::ShiftLeft));
+        assert_eq!(b.text_on(Control::Sprint), "None");
+        assert!(with_controls("", &b).contains("Sprint="), "kept in the INI as the others are");
+        // Bound to a free key: Run is untouched.
+        assert!(b.rebind(Control::Sprint, Input::Key(KeyCode::KeyG)).is_empty());
+        assert_eq!((b.get(Control::Sprint).key, b.get(Control::Run).key), (Some(KeyCode::KeyG), Some(KeyCode::ShiftLeft)));
+        // Bound to Run's key: the Controls tab's usual swap, no special case.
+        let mut b = Bindings::game_defaults();
+        assert_eq!(b.rebind(Control::Sprint, Input::Key(KeyCode::ShiftLeft)), [Control::Run]);
+        assert_eq!((b.get(Control::Sprint).key, b.get(Control::Run).key), (Some(KeyCode::ShiftLeft), None));
     }
 
     #[test]

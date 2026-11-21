@@ -94,11 +94,14 @@ impl Game<'_> {
     }
 
     /// The voice type (VTYP) actor `r` speaks with: the player's by sex
-    /// ([`Game::voice_override`]), else that of the record supplying its traits (VTCK).
-    /// `GetIsVoiceType` and "Allow Default Dialog" read it.
+    /// ([`Game::voice_override`]), else that of the record supplying its traits (VTCK);
+    /// a talking activator's is its base's VNAM (#3060) [hypothesis: as its voice folder
+    /// is]. `GetIsVoiceType` and "Allow Default Dialog" read it.
     pub fn voice_type_of(&self, r: FormId) -> Option<FormId> {
         let player = (r == FormId::PLAYER_REF).then(|| self.player_voice_type()).flatten();
-        player.or_else(|| self.traits_def(r).and_then(|d| d.voice))
+        player
+            .or_else(|| self.traits_def(r).and_then(|d| d.voice))
+            .or_else(|| crate::functions::base_of(self, r).and_then(|b| self.data.talking_voices.get(&b).copied()))
     }
 
     /// The player's voice type: the DefaultObjectManager's Player Voice (Female) while the

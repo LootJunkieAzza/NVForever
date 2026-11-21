@@ -24,6 +24,47 @@ pub struct ConsoleCtx {
     pub active_quest: Option<FormId>,
 }
 
+/// A bounded first-level preview. Nested arrays are labeled rather than traversed.
+pub(crate) fn expression_result(g: &Game, value: &fnv_script::vm::XVal) -> String {
+    use fnv_script::vm::{number_text, XKey, XVal};
+    use std::fmt::Write as _;
+
+    fn atom(g: &Game, line: &mut String, value: &XVal) {
+        match value {
+            XVal::Num(n) => line.push_str(&number_text(*n)),
+            XVal::Ref(0) => line.push_str("none"),
+            XVal::Ref(r) => { let _ = write!(line, "{} {}", FormId(*r), g.data.name(FormId(*r))); }
+            XVal::Str(s) => { let _ = write!(line, "{s:?}"); }
+            XVal::Array(id) => { let _ = write!(line, "array #{id}"); }
+        }
+    }
+
+    let mut line = String::new();
+    if let XVal::Array(id) = value {
+        let Some(array) = g.ext.array(*id) else { return "(no array)".into() };
+        const PREVIEW: usize = 16;
+        line.push('[');
+        for (i, (key, value)) in array.entries.iter().take(PREVIEW).enumerate() {
+            if i > 0 {
+                line.push_str(", ");
+            }
+            match key {
+                XKey::Num(n) => line.push_str(&number_text(*n)),
+                XKey::Str(s) => { let _ = write!(line, "{s:?}"); }
+            }
+            line.push_str(": ");
+            atom(g, &mut line, value);
+        }
+        if array.entries.len() > PREVIEW {
+            let _ = write!(line, ", … ({} more)", array.entries.len() - PREVIEW);
+        }
+        line.push(']');
+    } else {
+        atom(g, &mut line, value);
+    }
+    line
+}
+
 /// Something only the engine can do, asked by a console command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleRequest {
@@ -110,7 +151,7 @@ pub fn unhandled_unused(table_json: &serde_json::Value) -> (Vec<String>, Vec<Str
         if f["family"] != "vanilla" || f["script_calls"].as_u64().unwrap_or(0) > 0 {
             continue;
         }
-        if super::lookup_name(name).is_some() || lookup(name).is_some() || super::player_source::handles(name) || ENGINE_WORDS.iter().any(|w| w.eq_ignore_ascii_case(name)) {
+        if super::lookup_name(name).is_some() || lookup(name).is_some() || super::player_source::handles(name) || crate::vats::handles_area_query(name) || ENGINE_WORDS.iter().any(|w| w.eq_ignore_ascii_case(name)) {
             continue;
         }
         let in_console = f["categories"].as_array().into_iter().flatten().any(|c| c == "Console Functions");
@@ -628,8 +669,9 @@ fn set_mfg(m: &mut std::collections::BTreeMap<u8, f32>, id: u8, v: f32) {
 /// actor in the loaded area", "Essential actors are put into their usual temporary
 /// unconscious state rather than being killed"; hypothesis: the dead and the disabled are
 /// left alone]. Each death is `Game::kill`'s, as KillActor's.
-pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
-    let killer = a.first().map(|w| form(g, w)).transpose()?;
+/// Shared loaded-area kill pass used by both console `killall` and source-compiled
+/// `KillAllActors` / `KillAll` calls [documented: GECK wiki KillAllActors].
+pub(crate) fn kill_all_actors_in_loaded(g: &mut Game, killer: Option<FormId>) -> (usize, usize) {
     let placed = g.world.placed;
     let is_actor = |r: &FormId| placed.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
     let mut actors: std::collections::BTreeSet<FormId> = std::collections::BTreeSet::new();
@@ -650,6 +692,12 @@ pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<
             killed += 1;
         }
     }
+    (killed, knocked)
+}
+
+pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
+    let killer = a.first().map(|w| form(g, w)).transpose()?;
+    let (killed, knocked) = kill_all_actors_in_loaded(g, killer);
     Ok(vec![format!("KillAllActors >> {killed} killed, {knocked} essential knocked out")])
 }
 
@@ -1018,7 +1066,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (33, 90), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (33, 89), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));
@@ -1027,5 +1075,14 @@ unhandled other vanilla functions: {other:?}");
             let f = t.by_name(alias).and_then(|op| t.get(op)).unwrap_or_else(|| panic!("{alias}"));
             assert!(lookup(&f.name).is_some(), "{alias}");
         }
+    }
+
+    #[test]
+    fn named_area_source_queries_are_handled_but_unknown_vanilla_names_are_not() {
+        let rows = ["GetVATSLeftAreaFree", "getvatsrightareafree", "OwnedUnknownVanillaQuery"]
+            .map(|name| serde_json::json!({"name": name, "family": "vanilla", "script_calls": 0}));
+        let (console, other) = unhandled_unused(&serde_json::json!({"functions": rows}));
+        assert!(console.is_empty());
+        assert_eq!(other, ["OwnedUnknownVanillaQuery"]);
     }
 }

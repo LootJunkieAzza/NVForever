@@ -77,7 +77,7 @@ pub fn is_number(s: &str) -> bool {
     digit
 }
 
-fn word_char(c: char) -> bool {
+pub(super) fn word_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '.'
 }
 

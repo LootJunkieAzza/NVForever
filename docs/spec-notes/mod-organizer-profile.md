@@ -32,9 +32,12 @@ Keys [documented: `PathSettings`]:
 - `[Settings] overwrite_directory` — default `%BASE_DIR%/overwrite`.
 
 Values are QSettings strings: `%BASE_DIR%` is substituted, and `\\`, `\"`, `\xHH` and the
-other Qt escapes are read (the engine already had `mo2::ini_value` for this). A relative
-value is joined onto the instance folder [hypothesis: MO2 resolves relative to the same
-folder; no instance on this host sets one].
+other Qt escapes are read (the engine already had `mo2::ini_value` for this). MO2's
+substitution is all `PathSettings::resolve` does — it replaces `%BASE_DIR%` and leaves any
+other value as written [documented: `PathSettings::resolve`, `getConfigurablePath`], so a
+relative value would be relative to MO2's own working directory. NVForever instead joins a
+relative value onto the instance folder, the reading that makes a hand-written INI work
+[hypothesis: no instance on this host sets one].
 
 The profile's files are `<profiles_directory>/<name>/modlist.txt`, `plugins.txt` and
 `loadorder.txt`.
@@ -74,12 +77,71 @@ Nominal New Vegas load order still applies on top: the first master first, maste
 their dependants; the engine's `fnv_esm::loadorder` refuses a list that breaks it and says
 why.
 
+## The profile's archive list
+
+[documented: `MainWindow::saveArchiveList`, `FalloutNVDataArchives::archives`/`writeArchiveList`]
+
+- `archives.txt` in the profile: one **ticked** archive name per line (CRLF), from MO2's
+  Archives tab, in the tab's display order; nothing else. MO2 writes it whenever the
+  archive list or mod priorities change, so it is the profile's live archive choice.
+- The same ticks are also written into `[Archive] SArchiveList` of the applicable
+  `fallout.ini`: the profile's own file when local settings are on, else the one under
+  `Documents\My Games\FalloutNV`. MO2 joins the names with `, `.
+- An empty `archives.txt` (a profile made by hand, or one MO2 has not opened) means the
+  game's list comes from the INI; with neither, MO2 falls back to the six vanilla archives.
+- A `.bsa` in a mod folder is only loaded when its name is in this list; usvfs makes the
+  file visible in `Data`, but the game loads archives by name. NVForever mounts exactly the
+  listed names, taking each from the highest layer that has the file.
+
+## The profile's `settings.ini`
+
+[documented: `Profile::Profile`, `Profile::findProfileSettings`, `IPluginGame::ProfileSettings`;
+observed: MO2 2.5 profiles]
+
+- The profile's own QSettings INI. A key outside any group is stored under `[General]`.
+- `LocalSaves` (bool) — the profile's saves live in `<profile>/saves`, which MO2 maps over
+  the game's save folder; off means the player's own folder. NVForever reads this folder for
+  `--load` only and never writes into it (maintainer decision 2026-11-18). When MO2 creates the profile it
+  sets the key from its global `profile_local_saves`; an older profile without the key is
+  decided by `findProfileSettings`: a `saves` folder means on, a `_saves` folder means off
+  (MO2 renames between the two), else the global setting. MO2 also writes
+  `sLocalSavePath=__MO_Saves\` and `bUseMyGamesDirectory=1` into the game's `fallout.ini`
+  `[General]` and maps `<profile>/saves` to `<myGames>/__MO_Saves` [documented:
+  `GamebryoLocalSavegames::prepareProfile`, `mappings`] — the INI keys exist because the game
+  itself decides where to save; a program that owns its save folder does not need them.
+- `LocalSettings` (bool) — the profile keeps copies of the game's INI files. On creation MO2
+  copies them (`initializeProfile(..., CONFIGURATION)`); an absent key is decided by
+  `findProfileSettings`: a `<first ini>_` backup file means on, else the global
+  `profile_local_inis`.
+- `AutomaticArchiveInvalidation` is read by MO2 only (its BSA invalidation), not by NVForever.
+
+## The profile's INI files and `initweaks.ini`
+
+[documented: `Profile::absoluteIniFilePath`, `Profile::createTweakedIniFile`,
+`GameGamebryo::prepareIni`; observed: the owner's profiles]
+
+- The game's INI names come from the game plugin (`iniFiles()`): for the Gamebryo games
+  `Fallout.ini` then `FalloutPrefs.ini`. With local settings the game's copies are the
+  profile's; without, the files in `Documents\My Games\FalloutNV` are the game's and the
+  profile has none.
+- `initweaks.ini` is MO2's merged INI tweaks for the profile: written in the profile folder
+  each time MO2 saves the profile, from every **enabled** mod's INI tweaks in priority order
+  (a later mod's key replaces an earlier one), then the profile's own, then MO2's
+  `[Archive] bInvalidateOlderFiles=1`. MO1's launcher applied the result to the game's INI
+  files; MO2 keeps it in the profile [documented: issue #663 describes the same intent].
+- Reading order for the effective value of a key: `Fallout.ini` < `FalloutPrefs.ini` <
+  `initweaks.ini`, later winning. NVForever reads the three files, matched without case, as
+  text (lossy UTF-8: the originals are in the system code page) and lets the extender's INI
+  functions layer them, which is how `GameData::ini_texts` already treats several files.
+- NVForever does not write any of these files, and MO2 does not know it started the game, so
+  a hand edit of a profile INI while NVForever runs is not seen (the text is read at start).
+
 ## What usvfs merges, in order
 
 [documented: `OrganizerCore::fileMapping`, usvfs' mapping priorities]
 
 The program sees `Data` as: the game folder's own files, then each enabled mod's folder by
 priority (higher priority replacing lower), then the overwrite folder. NVForever implements
-the same precedence for loose files and for looking a plugin up. Archives inside mods are a
-separate mechanism (the game loads `.bsa`s by name from `Data`), not covered here; see
-docs/design/mod-folders.md for what is still missing.
+the same precedence for loose files, for looking a plugin up, and for finding the file an
+archive name stands for (a mod's copy of a base archive replaces the game's). Which archives
+are mounted at all is the profile's archive list, above.

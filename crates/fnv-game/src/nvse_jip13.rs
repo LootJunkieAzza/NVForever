@@ -12,7 +12,7 @@
 //! ([`Game::take_phys_requests`]).
 
 use crate::game::{Game, RunCtx};
-use crate::nif_blocks::{apply, extrinsic_angles, mul, node_place, rotation, Mat};
+use crate::nif_blocks::{apply, extrinsic_angles, mul, node_place, rotation, transpose, Mat};
 use crate::package::{Location, LocationKind, PackageDef, PackageType};
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
@@ -194,10 +194,6 @@ fn mat9(m: &[f32; 9]) -> Mat {
     [[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]]
 }
 
-fn transpose(m: &Mat) -> Mat {
-    [[m[0][0], m[1][0], m[2][0]], [m[0][1], m[1][1], m[2][1]], [m[0][2], m[1][2], m[2][2]]]
-}
-
 /// The rotation of angles (radians) taken about the turning axes X, then Y, then Z
 /// (Rx·Ry·Rz).
 fn intrinsic(a: [f32; 3]) -> Mat {
@@ -305,9 +301,14 @@ impl Game<'_> {
         }
     }
 
+    fn travel_handle(&self) -> Result<FormId, String> {
+        let start = MADE_PACKAGE_BASE.checked_add(self.other.jip13.made_packages).ok_or("runtime travel package handles exhausted")?;
+        self.free_callable_handle(start, FormId::FIRST_DYNAMIC.0).map(FormId).ok_or_else(|| "runtime travel package handles exhausted".into())
+    }
+
     /// A Travel package to near `target`, made for a script, run on `actor` as its script
     /// package (AddScriptPackage's place).
-    fn force_travel(&mut self, actor: FormId, target: FormId, flags: f64) {
+    fn force_travel(&mut self, actor: FormId, target: FormId, flags: f64) -> Result<(), String> {
         let flags = flags as u32;
         let mut f = 0;
         if flags & 1 != 0 {
@@ -317,16 +318,26 @@ impl Game<'_> {
             f |= crate::package::flags::ALWAYS_SNEAK;
         }
         let def = PackageDef { ty: PackageType::Travel, flags: f, location: Some(Location { kind: LocationKind::NearReference(Some(target)), radius: TRAVEL_RADIUS }), ..PackageDef::default() };
-        let id = FormId(MADE_PACKAGE_BASE + self.other.jip13.made_packages);
-        self.other.jip13.made_packages += 1;
-        let leaked: &PackageDef = Box::leak(Box::new(def));
-        self.package_overrides.insert(id, leaked);
+        // The same journey asked again (a script calling every frame) keeps the package it
+        // already made for the actor: each one made lives for the session (#3150).
+        let had = self.extra.get(&actor).and_then(|x| x.script_package).filter(|id| id.0 >= MADE_PACKAGE_BASE && self.package_overrides.get(id).is_some_and(|d| **d == def));
+        let id = match had {
+            Some(id) => id,
+            None => {
+                let id = self.travel_handle()?;
+                self.other.jip13.made_packages = id.0 - MADE_PACKAGE_BASE + 1;
+                let leaked: &PackageDef = Box::leak(Box::new(def));
+                self.package_overrides.insert(id, leaked);
+                id
+            }
+        };
         self.extra.entry(actor).or_default().script_package = Some(id);
         if self.runs_packages() {
             self.set_package(actor, Some(id));
         } else {
             self.extra.entry(actor).or_default().current_package = Some(id);
         }
+        Ok(())
     }
 }
 
@@ -585,7 +596,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // run (1), sneak (2) [documented].
         "traveltoref" => {
             let (Some(r), Some(t)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
-            g.force_travel(r, t, num(args, 1).unwrap_or(0.0));
+            if let Err(e) = g.force_travel(r, t, num(args, 1).unwrap_or(0.0)) { return Some(Err(e)); }
             zero
         }
         // To a place within the distance, directly away from the reference [documented;
@@ -598,9 +609,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let len = (dx * dx + dy * dy).sqrt().max(1e-3);
             let to = [p[0] + dx / len * d as f32, p[1] + dy / len * d as f32, p[2]];
             let Some(marker) = g.data.by_edid("XMarker") else { return Some(Ok(zero)) };
+            if let Err(e) = g.travel_handle() { return Some(Err(e)); }
             let cell = g.cell_of(r);
             let Ok(m) = g.create_at(marker, cell, to, [0.0; 3]) else { return Some(Ok(zero)) };
-            g.force_travel(r, m, num(args, 2).unwrap_or(0.0));
+            if let Err(e) = g.force_travel(r, m, num(args, 2).unwrap_or(0.0)) { return Some(Err(e)); }
             zero
         }
         // ---- moves ----

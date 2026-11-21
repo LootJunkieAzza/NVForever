@@ -66,9 +66,23 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
   gunmen: automatic weapons hold the trigger, others wait their semi-auto delay; aimed
   from the eyes at the chest, drawn from the muzzle. Each shot is counted on the use
   (`WeaponUse::shot`): more, a pause, or done.
-- **Always Hit**: a cone of 0 (straight at the chest; cover between can still stop it).
+- **Targets** [design, #2652; `use_weapon::target_place`]: drawn actors keep their posed
+  chest aim point. Any other present reference uses its current position
+  (`fnv_ai::goal::place_of_ref`) plus the base OBND centre, or the position itself
+  without OBND. This aim placement is provisional [hypothesis: observer check 207].
+  [hypothesis, #2652; spec note section 6] A non-actor placed target in a sibling
+  exterior worldspace with the same nonempty immediate parent uses these coordinates
+  in the shooter's worldspace. Different or absent parents and interiors do not
+  qualify; actor targeting stays unchanged. [design: `fnv_ai::goal::weapon_target_place`]
+  Use Weapon facing (standing and rooted), resident use-owned combat aim, object
+  aiming and combat handover use this rule. General GetDistance and place_of_ref
+  retain their existing space handling.
+  Shots at a marker count even without a collision; finite script uses end when spent,
+  and Repeat Fire continues while its package holds.
+- **Always Hit**: a cone of 0 (straight at the aim point; cover between can still stop it).
 - **Do No Damage**: `ActorFire::harmless` → `By::harmless`: the projectile flies, strikes,
-  shows its impact and plays its sound, but no damage, no hit events and no explosion.
+  shows its impact and plays its sound. It runs the hit reference's OnHit/OnHitWith
+  through `Game::harmless_hit`, without damage or an explosion [design: `nvf-play/src/combat.rs`].
 - **Crouch To Reload**: `WeaponUse::crouched` while the cycle reloads; `Game::sneaks` reads it.
 - **The end**: all shots fired, or the target dead or gone: `Game::end_weapon_use` removes a
   script's use (the AI sends the actor back to its package) or meets a package's goal (its
@@ -77,17 +91,16 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
   scripts call StartCombat with UseWeapon (spec note §2). ResetAI drops the use.
 - A package's use with Continue During Combat, in a combat state, keeps the combat AI
   off only while the shooter acts on it this frame (`use_weapon::acts_on`: the actor in
-  place, the use's target standing among the drawn people the shooter aims at, the player
-  included), and through a melee use's last blow until it lands
+  place, the use's target having a drawn or placed aim point, the player included), and
+  through a melee use's last blow until it lands
   (`npc_combat::weapon_use_holds_fight`, `use_weapon::Shooters::landing`): the actor
   fires the package's pattern at the package's target instead of the ordinary attacks.
   The shooter and the fight read the same test, so one of them always has the actor
   (#2145 review). That is not a promise of shots: either may still hold its fire (not
   facing, not drawn, Hold Fire When Blocked, restrained, a target out of reach for a
   package's melee use, §4). Not in place (still on its way to its stand, or never there),
-  or with a target the shooter does not fire at (a marker, as the Ultra-Luxe kitchen's
-  torchers have; an actor not drawn), the ordinary attacks take over and it turns to its
-  enemy (`WeaponUse::taken`, below). Its movement stays its package's: the walk to its
+  or without a drawn or placed target position, the ordinary attacks take over and it
+  turns to its enemy (`WeaponUse::taken`, below). Its movement stays its package's: the walk to its
   stand goes on in combat (`fnv_ai::alert` hands a Continue During Combat actor back to
   its package), not the ordinary combat movement (closing in, cover). Once the shooter
   can act, the use takes over again; meanwhile the actor's fight keeps its state (its
@@ -143,12 +156,21 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
   within reach [design: the package's own walking is not interrupted].
 - **Swings**: facing the target (`USE_FACING`), its weapon drawn, within reach and within
   128 units of height, every `STRIKE_SECONDS` over the weapon's attack speed (Attack Mult),
-  sooner at the last clip's `a:` key, which picks the next swing's group (a combo, as
-  #353); no block or attack-chance roll, the script asks for the blows [hypothesis]. A blow
-  lands at its clip's `Hit` key (`attack_anims` times) as an `ActorStrike` (damage, the
-  target's block, impacts and sounds as any NPC blow).
+  with volley pauses holding the next blow as on upstream main 63db0209c [design:
+  `use_weapon::Swinger::advance`, #2535]. Scripted swings play no attack clip yet:
+  `npc_combat::fight` clears fighter poses and skips actors controlled by the use,
+  while `attack_anims::start` requires a fighter pitch or an existing attack pose.
+  Clip-bound scripted cadence therefore remains open [design, #2535]. The shared
+  `SwingClip::ready_in` calculation remains available to a creature's swings if timing
+  is published (a person's keep upstream's base timer, brought forward to an earlier
+  `a:` key: creatures only, the maintainer's decision of 2026-11-18 on #2971), but
+  in play the no-clip path uses the base timer and existing Hit delay (fallback
+  `DEFAULT_HIT`), without a combo
+  [design: `use_weapon::swing`, `Swinger::advance`]. No block or attack-chance roll:
+  the script asks for the blows [hypothesis]. A blow lands as an `ActorStrike`
+  (damage, the target's block, impacts and sounds as any NPC blow) [design].
 - **Always Hit**: a blow lands even when the target stepped out of reach by its `Hit` key
-  [hypothesis]. **Do No Damage**: the swing plays and the blow is counted, but nothing is
+  [hypothesis]. **Do No Damage**: the blow is counted, but nothing is
   struck: no damage, no sound, no impact [design: `ActorStrike` has no harmless form yet;
   left out to keep clear of the open combat PRs]. **Hold Fire When Blocked** and **target
   should be here** hold the swings as they hold shots; **Crouch To Reload** has nothing to
@@ -157,7 +179,8 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
 
 ## 4. Not built
 
-- Melee: harmless blows' sound and impact; power attacks; a package's melee use walking
+- Melee: scripted attack clip playback and clip-bound cadence [design, #2535: open];
+  harmless blows' sound and impact; power attacks; a package's melee use walking
   up to its target (with Continue During Combat and its target standing beyond reach, the
   shooter holds the fight and lands no blow, §3).
 - Swapping the drawn model: a use naming a weapon other than the one drawn fires that
@@ -169,8 +192,9 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
 ## 5. Checks
 
 - Unit tests (#2145 review): `use_weapon::acts_on` and `npc_combat::weapon_use_holds_fight`
-  (a package's use in combat holds the fight only in place with a standing target; a marker,
-  an undrawn target or an actor on its way fights), `npc_combat::use_hold` (a
+  (a package's use in combat holds the fight only in place with a drawn or placed aim
+  point; a missing position or an actor on its way leaves ordinary attacks in charge),
+  `npc_combat::use_hold` (a
   classification test: a target coming and going sorts each frame as kept or taken over,
   never dropped; it does not itself show the state is kept),
   `a_gun_handed_to_the_shooter_is_left_neither_reloading_nor_about_to_fire`
@@ -191,3 +215,30 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
 - Smoke scenario `use-weapon-melee`: Violet uses a knife three times on the player 400 units
   away, no damage: she runs up, swings three blows and goes back to her package; the
   player is not hurt.
+
+- [design, #2652] Engine tests `use_weapon::object_tests` run the real shooter against
+  authored ACTI/STAT references and a marker without bounds: finite shots end, Repeat
+  Fire stays active, moved positions and bounds determine aim. The ACTI test dispatches
+  emitted harmless shots through `Game::harmless_hit` and checks its shooter-filtered
+  OnHit local; it does not exercise physical collision.
+- [design, #2652] Smoke `use-weapon-silo-mainframe` prepares quest 50/launch codes and
+  ED-E, then activates the mainframe and chooses button 1, expecting the actual zap,
+  harmless hit and stage 55. [design: smoke scenario] It requires LonesomeRoad.esm;
+  the main session removed automatic DLC gating in cca71f907. Smoke
+  `use-weapon-gi-blues-shelter` runs the King's effect and expects the barker's Repeat
+  Fire at the shelter and nonzero shots; it does not check Pacer's cover pose.
+- [design, #2652] Shooter tests `sibling_worldspace_static_gets_shots_at_its_bounds_centre`
+  and `unrelated_worldspace_static_does_not_get_shots` cover shared, different and
+  absent WRLD parents. `fnv-ai/tests/carry.rs` tests sibling-object facing for
+  standing/rooted users, actor/interior rejection, and EvaluatePackage selecting
+  and starting a use after authored conditions change (runtime package type 33).
+- [design: `residents::process_levels`, `residents::drawn`, `world::stream`]
+  High process requires a loaded cell in the current worldspace; the default radius
+  is two cells (`main.rs`), each 4096 units (`fnv_world::CELL_SIZE`). The supplied
+  w4 player coordinates (-3961,4646) fall in (-1,1), and the barker's (-6848,6512)
+  in (-2,1), within that radius. Smoke anchors MoveTo on Pacer's FreesideNorthWorld
+  cower marker rather than the other world's shelter, preserving those player
+  coordinates. [design: `Game::evaluate_package`, `Ai::step_actor_inner`, `Ai::begin`]
+  EvaluatePackage selects immediately; high-process AI starts the new use on its
+  next step. Actors outside high process wait for their scheduled low-process step
+  (`fnv-ai/src/process.rs`, `carry.rs::step`); no processing-distance rule changes.

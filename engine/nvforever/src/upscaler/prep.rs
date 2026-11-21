@@ -349,11 +349,11 @@ pub(crate) fn prepare(
     mut views: Query<(
         Entity, &ExtractedView, &UpscaleCamera, &Msaa, &mut CameraMainTextureUsages,
         &mut TemporalJitter, &mut MipBias, Option<&mut PreparedUpscale>, Option<&mut crate::ssao::AmbientOcclusion>,
-        Has<UnsuitableViewWarned>,
+        Has<UnsuitableViewWarned>, Has<bevy::pbr::NvfAmbientOcclusionBindings>,
     )>,
 ) {
     let mut first: Option<DrawnUpscale> = None;
-    for (entity, view, camera, msaa, mut usages, mut jitter, mut bias, old, ao, warned) in &mut views {
+    for (entity, view, camera, msaa, mut usages, mut jitter, mut bias, old, ao, warned, ao_lighting) in &mut views {
         let choice = camera.settings.choice();
         if *msaa != Msaa::Off || view.target_format != wgpu::TextureFormat::Rgba16Float || view.viewport.xy() != UVec2::ZERO {
             first.get_or_insert(drawn(choice, None, view.viewport.zw(), false));
@@ -397,10 +397,13 @@ pub(crate) fn prepare(
         // `ao_before_fsr`), or with `NVF_AO_BEFORE_FSR=0` after tonemapping, from the depth
         // prepass drawn at the render size and expanded by nearest texels
         // ([`Pipelines::expand_depth`]), its normals taken from neighbouring texels as drawn
-        // (ssao.wesl `normal_at`). Before the uniforms are written
-        // (RenderSystems::PrepareResources); the extraction resets it every frame.
+        // (ssao.wesl `normal_at`). In the lighting (the view has the bindings, ssao.rs
+        // `extract_lighting`) always at the render size, whatever `NVF_AO_BEFORE_FSR` says: the
+        // main pass draws at that size, from the top left, before the depth is expanded, so its
+        // fragments index the half-render-size texels directly. Before the uniforms are
+        // written (RenderSystems::PrepareResources); the extraction resets it every frame.
         if let Some(mut ao) = ao {
-            if *crate::ssao::AO_BEFORE_FSR {
+            if *crate::ssao::AO_BEFORE_FSR || ao_lighting {
                 ao.before_fsr(render_size, output_size);
             } else if render_size != output_size {
                 ao.render_scale = Vec4::new(render_size.x as f32, render_size.y as f32, output_size.x as f32, output_size.y as f32);

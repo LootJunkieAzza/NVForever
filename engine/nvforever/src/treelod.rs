@@ -1,5 +1,6 @@
 //! Distant trees: beyond the loaded cells, TREE references are drawn as their billboards
-//! out to [`LodSettings::trees`](crate::lod::LodSettings) (fTreeLoadDistance).
+//! out to the Tree distance reach, at the start [`LodSettings::trees`](crate::lod::LodSettings)
+//! (fTreeLoadDistance; below).
 //!
 //! The game ships no pre-built tree LOD [observed: no tree LOD meshes or lists in the
 //! archives; every `.spt` has a billboard texture, `textures\trees\billboards\<stem>.dds`,
@@ -14,11 +15,21 @@
 //! shader (tree.wesl `TREE_BILLBOARD`), so the meshes never change. A loaded cell draws
 //! its own trees; its billboards crossfade with it (fade.rs, the complementary pattern,
 //! culled once the cell is fully drawn). Billboards cast and receive no shadows.
+//!
+//! The reach is the settings page's Tree distance part
+//! ([`DrawDistances::trees`](crate::draw_distance::DrawDistances), #3016) of the distant
+//! LOD's far limit ([`LodSettings::far`](crate::lod::LodSettings), `--lod-distance`), read
+//! each frame ([`reach`]); the part starts at `--tree-distance`'s share of that limit
+//! ([`start_part`]), so an untouched game reaches as the flag says, and `--tree-distance 0`
+//! draws none whatever the part. When the reach changes the wanted cells are chosen again at
+//! once, so billboards beyond a shortened reach go and those within a lengthened one are
+//! built over the next frames, not at the next cell crossing.
 
+use crate::draw_distance::DrawDistances;
 use crate::fade;
 use crate::lod::{square_distance, LodState};
 use crate::tree::{BillboardMaterial, TreeBillboards};
-use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
+use crate::world::{bevy_to_game, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::NoAutoAabb;
@@ -52,6 +63,8 @@ type Board = Option<(Handle<BillboardMaterial>, [f32; 2])>;
 pub struct DistantTrees {
     /// The camera's cell the cells were chosen for.
     centre: Option<Grid>,
+    /// The reach the cells were chosen for.
+    dist: f32,
     /// Cells wanted, nearest first.
     want: Vec<Grid>,
     /// TREE references per cell (enabled at the start), read once.
@@ -81,6 +94,47 @@ impl DistantTrees {
         self.want.clear();
         self.count = 0;
     }
+
+    /// Take the reach now wanted: when it differs from the one the cells were chosen for,
+    /// the choice is made again at the next update (even in the same camera cell). Returns
+    /// the earlier reach when it changed.
+    fn follow_reach(&mut self, dist: f32) -> Option<f32> {
+        if self.dist == dist {
+            return None;
+        }
+        let was = std::mem::replace(&mut self.dist, dist);
+        self.centre = None;
+        Some(was)
+    }
+}
+
+/// The Tree distance slider's part of the distant LOD's far limit `far` in whole game
+/// units. The slider ends at `far`, where the object blocks stop, so billboards never
+/// stand beyond the buildings and rocks around them (the terrain reaches farther,
+/// `LodSettings::terrain_reach`) [design, #3016, #3055].
+pub fn part_reach(far: f32, part: f32) -> f32 {
+    (far.max(0.0) * part.clamp(0.0, 1.0)).round()
+}
+
+/// The billboards' reach in game units: `part` of `far` ([`part_reach`]), none while
+/// `--tree-distance` (`flag`) is 0 whatever the part.
+pub fn reach(flag: f32, far: f32, part: f32) -> f32 {
+    if flag <= 0.0 {
+        0.0
+    } else {
+        part_reach(far, part)
+    }
+}
+
+/// The slider's part at the start: `--tree-distance`'s share of `far`, a flag beyond `far`
+/// taken as `far` (the part 1), so an untouched slider reaches as the flag says. 0 when
+/// either is 0 (no billboards, or no distant LOD to stand on).
+pub fn start_part(flag: f32, far: f32) -> f32 {
+    if far <= 0.0 {
+        0.0
+    } else {
+        flag.clamp(0.0, far) / far
+    }
 }
 
 /// The cells within `dist` of `p` (closest point), nearest first.
@@ -99,6 +153,26 @@ pub fn cells_within(p: Vec2, dist: f32) -> Vec<Grid> {
     out.into_iter().map(|(_, g)| g).collect()
 }
 
+/// Whether base `b` is a tree the distant billboards draw (a TREE with a SpeedTree), for a
+/// reference `enabled` at the start ([`distant_tree_enabled`]); the full-detail ring draws
+/// exactly these trees in full (full_detail.rs).
+pub fn distant_tree(b: &fnv_world::placed::BaseObject, enabled: bool) -> bool {
+    &b.sig == b"TREE" && b.is_speedtree() && distant_tree_enabled(enabled)
+}
+
+/// The billboards' enable rule: the state at the start, not the game's now.
+pub fn distant_tree_enabled(enabled_at_start: bool) -> bool {
+    enabled_at_start
+}
+
+/// Whether placed reference `p` of base `b` is a tree the distant billboards draw, and so
+/// the one the full-detail ring draws in full (full_detail.rs): a [`distant_tree`] that is
+/// no imposter (drawn by region, imposters.rs) and no primitive (editor-only), enabled at
+/// the start. The one rule both use, so they cannot drift apart.
+pub fn distant_tree_ref(p: &fnv_world::placed::Placement, b: &fnv_world::placed::BaseObject, enabled_at_start: bool) -> bool {
+    !p.imposter && p.draws_base_model() && distant_tree(b, enabled_at_start)
+}
+
 /// The TREE references of an exterior cell (its own and the persistent ones standing
 /// in it) that are enabled at the start.
 fn cell_trees(world: &WorldData, g: Grid) -> Vec<Placed> {
@@ -107,12 +181,12 @@ fn cell_trees(world: &WorldData, g: Grid) -> Vec<Placed> {
         refs.extend(p);
     }
     let mut out = Vec::new();
-    let mut is_tree: HashMap<u32, bool> = HashMap::new();
+    let mut bases: HashMap<u32, Option<fnv_world::placed::BaseObject>> = HashMap::new();
     for r in refs {
         let Some(p) = placement(world.lo, world.schema, r) else { continue };
         let Some(base) = p.base else { continue };
-        let tree = *is_tree.entry(base).or_insert_with(|| base_object(world.lo, world.schema, base).is_some_and(|b| &b.sig == b"TREE" && b.is_speedtree()));
-        if tree && world.enabled(&p, 0) {
+        let b = bases.entry(base).or_insert_with(|| base_object(world.lo, world.schema, base).filter(|b| distant_tree(b, true)));
+        if b.as_ref().is_some_and(|b| distant_tree_ref(&p, b, world.enabled(&p, 0))) {
             out.push(Placed { base, pos: p.position, scale: p.scale });
         }
     }
@@ -175,18 +249,20 @@ fn board(world: &WorldData, base: u32, models: &mut ModelCtx, materials: &mut As
 #[allow(clippy::too_many_arguments)]
 pub fn update_distant_trees(
     mut commands: Commands,
-    streamer: Res<Streamer>,
+    drawn: crate::full_detail::DrawnCells,
     world: Res<WorldData>,
     mut lod: ResMut<LodState>,
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
     mut materials: ResMut<Assets<BillboardMaterial>>,
+    distances: Option<Res<DrawDistances>>,
 ) {
-    let dist = lod.settings.trees;
+    let (flag, far) = (lod.settings.trees, lod.settings.far);
+    let dist = reach(flag, far, distances.map_or_else(|| start_part(flag, far), |d| d.trees));
     let lod = &mut *lod;
     let trees = &mut lod.trees;
-    if !lod.enabled || dist <= 0.0 || streamer.interior.is_some() {
+    if !lod.enabled || dist <= 0.0 || drawn.streamer.interior.is_some() {
         if !trees.drawn.is_empty() {
             trees.clear(&mut commands);
         }
@@ -195,6 +271,9 @@ pub fn update_distant_trees(
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let g = bevy_to_game(cam.translation());
     let c = cell_of(g.x, g.y);
+    if let Some(was) = trees.follow_reach(dist).filter(|was| *was > 0.0) {
+        info!("distant trees: reach {was:.0} -> {dist:.0} units");
+    }
     if trees.centre != Some(c) {
         trees.centre = Some(c);
         trees.want = cells_within(g.truncate(), dist);
@@ -214,7 +293,7 @@ pub fn update_distant_trees(
     }
     // Fade steps of the drawn cells follow their cells (culled when fully drawn).
     for (g, d) in trees.drawn.iter_mut() {
-        let k = fade::step(streamer.cell_level(*g));
+        let k = fade::step(drawn.tree_level(*g));
         if k != d.step {
             d.step = k;
             for &e in &d.entities {
@@ -232,7 +311,7 @@ pub fn update_distant_trees(
         let mut bases: Vec<u32> = by_base.keys().copied().collect();
         bases.sort_unstable();
         let origin = Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0);
-        let step = fade::step(streamer.cell_level(g));
+        let step = fade::step(drawn.tree_level(g));
         let mut d = DrawnCell { entities: Vec::new(), trees: 0, step };
         for b in bases {
             let board = trees.bases.entry(b).or_insert_with(|| board(&world, b, &mut models, &mut materials)).clone();
@@ -277,6 +356,46 @@ mod tests {
         let d: Vec<f32> = cells.iter().map(|&g| square_distance(p, g, 1)).collect();
         assert!(d.windows(2).all(|w| w[0] <= w[1]));
         assert!(cells_within(p, 0.0).is_empty());
+    }
+
+    #[test]
+    fn the_reach_is_the_part_of_the_far_limit_and_starts_at_the_flag() {
+        let (flag, far) = (40_000.0, 125_000.0);
+        assert_eq!(start_part(flag, far), 0.32, "the defaults: 40,000 of 125,000");
+        assert_eq!(reach(flag, far, start_part(flag, far)), 40_000.0, "untouched: exactly the flag's value");
+        assert_eq!(reach(flag, far, 1.0), 125_000.0, "the full part: the distant LOD's far limit");
+        assert_eq!(reach(flag, far, 0.08), 10_000.0);
+        assert_eq!(reach(flag, far, 0.34) - reach(flag, far, 0.32), 2_500.0, "a step of 0.02");
+        assert_eq!(reach(flag, far, 1.5), 125_000.0, "never beyond the far limit");
+        assert_eq!(reach(flag, far, 0.0), 0.0);
+        assert_eq!(reach(0.0, far, 0.5), 0.0, "--tree-distance 0 stays off whatever the part");
+        assert_eq!(reach(0.0, far, 1.0), 0.0);
+        assert_eq!(start_part(200_000.0, far), 1.0, "a flag beyond the far limit is taken as it");
+        assert_eq!(reach(200_000.0, far, start_part(200_000.0, far)), 125_000.0);
+        assert_eq!(start_part(0.0, far), 0.0);
+        assert_eq!(start_part(flag, 0.0), 0.0, "no distant LOD: no part");
+        assert_eq!(reach(flag, 0.0, 0.5), 0.0);
+    }
+
+    #[test]
+    fn a_changed_reach_chooses_the_cells_again_in_the_same_cell() {
+        let mut t = DistantTrees::default();
+        // The first update's choice: the reach before it was none.
+        assert_eq!(t.follow_reach(40_000.0), Some(0.0));
+        t.centre = Some((3, 4));
+        assert_eq!(t.follow_reach(40_000.0), None, "unchanged: the choice stands");
+        assert_eq!(t.centre, Some((3, 4)));
+        // Shortened: chosen again at once, and the cells beyond are no longer wanted.
+        assert_eq!(t.follow_reach(10_000.0), Some(40_000.0));
+        assert_eq!(t.centre, None);
+        let p = Vec2::new(100.0, 100.0);
+        let (long, short) = (cells_within(p, 40_000.0), cells_within(p, 10_000.0));
+        assert!(short.len() < long.len() && short.iter().all(|g| long.contains(g)));
+        assert!(long.iter().any(|g| !short.contains(g)), "billboards of those cells go");
+        // Lengthened again: the nearer cells stay, the farther come back.
+        t.centre = Some((3, 4));
+        assert_eq!(t.follow_reach(40_000.0), Some(10_000.0));
+        assert_eq!(t.centre, None);
     }
 
     #[test]

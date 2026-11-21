@@ -1,18 +1,21 @@
 //! Sun visibility (#2670 cloud shadows, #2671 terrain shadows; docs/design/sun-visibility.md):
 //! one factor V in [0, 1] on the outdoor sun's direct light, through which other modules
 //! darken it. V = K * Vsolid: K the clouds' transmittance, Vsolid the solid occluders'
-//! visibility, min(C, T) of the cascade shadow C and the terrain's T, fading to T over the
-//! last cascade's end band (sun_visibility.wesl).
+//! visibility, min(C, T) of the cascade shadow C and the terrain's T, the darker of the two
+//! at every distance (sun_visibility.wesl).
 //!
 //! Producers write [`SunVisibility`] (cloud shadows: `cloud_enabled` and `cloud`; terrain
-//! shadows: `terrain`). Two things are kept apart there: whether a feature is switched on
-//! (`cloud_enabled`, which alone decides the views' markers, the layout key bit, the
-//! pipeline key bits and the shader defs) and whether its producer has a valid image to
-//! show (`cloud`, which only fills the uniform and the texture). While Cloud shadows is on
-//! and no image is published (indoors, a texture still being read, a weather without
-//! cover, a worldspace just changed) the cloud input is neutral (strength 0 and the white
-//! fallback texture: K = 1), so the pipelines stay as they are: only the switch changes
-//! them.
+//! shadows: `terrain_enabled` and `terrain`). Two things are kept apart there: whether a
+//! feature is switched on (`cloud_enabled`, `terrain_enabled`, which alone decide the views'
+//! markers, the layout key bit, the pipeline key bits and the shader defs) and whether its
+//! producer has a valid image to show (`cloud`, `terrain`, which only fill the uniform and
+//! the texture). While Cloud shadows is on and no image is published (indoors, a texture
+//! still being read, a weather without cover, a worldspace just changed) the cloud input is
+//! neutral (strength 0 and the white fallback texture: K = 1); while Terrain shadows is on
+//! and no map is published (indoors, no heightfield yet, the light at the horizon, the
+//! first map still computing) the terrain input is neutral (mask bit clear: T = 1 and
+//! Vsolid = C, and a stand-in texture that casts nothing). So the pipelines stay as they
+//! are: only the switches change them.
 //!
 //! While nothing is switched on (and no debug view asked for) the plumbing is off: no view
 //! has [`NvfSunVisibilityBindings`], so the mesh view layout and the shader defs are
@@ -27,7 +30,8 @@
 //!   entity indoors, unmarked there);
 //! - the world camera, the water reflection camera and a scope's lens camera get
 //!   [`SunVisibilityView`], extracted as bevy_pbr's `NvfSunVisibilityBindings` (a uniform,
-//!   the cloud and terrain textures, a sampler at view bindings 39-42), which gives their
+//!   the cloud texture (filterable), the terrain map (unfilterable, read with loads), a
+//!   sampler at view bindings 39-42), which gives their
 //!   pipelines the shader defs `NVF_SUN_VISIBILITY` (+ `NVF_CLOUD_VISIBILITY`,
 //!   `NVF_TERRAIN_VISIBILITY`) and their bind group the bindings (engine/vendor/README.md);
 //! - [`HOOK_EDITS`], patched into `apply_pbr_lighting` after lights.rs's display-value
@@ -35,9 +39,11 @@
 //!   the shadow-receiver condition, so `direct_light`, the display-value `nvf_direct` and
 //!   the transmitted lobe all take it, receivers or not (leaves, tree cards, water).
 //!
-//! The player's switch is cloud_shadows.rs's (the settings row Cloud shadows). Test aids:
+//! The player's switches are cloud_shadows.rs's (the settings row Cloud shadows) and
+//! terrain_shadows.rs's (the row Terrain shadows). Test aids:
 //! `NVF_PLAY_DEBUG_SUN_VISIBILITY=cloud|terrain|combined`
-//! draws K, T or V alone in place of the lit colour (before ambient and fog; the image
+//! draws K, T or V alone in place of the lit colour (T is 1 everywhere unless Terrain
+//! shadows is on; before ambient and fog; the image
 //! space grade still follows, `--no-grade` leaves it out), and
 //! `NVF_PLAY_DEBUG_SUN_VISIBILITY_TEST=checker` fills `cloud` with a generated
 //! checkerboard ([`checker_image`]).
@@ -46,7 +52,10 @@ use bevy::asset::{load_internal_asset, uuid_handle, RenderAssetUsages};
 use bevy::pbr::{NvfOutdoorSun, NvfSunVisibilityBindings};
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssets;
-use bevy::render::render_resource::{AddressMode, Extent3d, FilterMode, Sampler, SamplerDescriptor, ShaderType, TextureDimension, TextureFormat, UniformBuffer};
+use bevy::render::render_resource::{
+    AddressMode, Extent3d, FilterMode, Sampler, SamplerDescriptor, ShaderType, TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
+    TextureViewDescriptor, UniformBuffer,
+};
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::sync_world::RenderEntity;
 use bevy::render::texture::{FallbackImage, GpuImage};
@@ -71,7 +80,11 @@ pub struct SunVisibility {
     /// Cloud shadows (#2670): K, while the producer has a valid image; `None` with
     /// `cloud_enabled` packs a neutral cloud (K = 1).
     pub cloud: Option<CloudVisibility>,
-    /// Terrain shadows (#2671): T.
+    /// Terrain shadows (#2671) are switched on: the views take the terrain variant and keep
+    /// it whether or not `terrain` is set (terrain_shadows.rs `feed_sun_visibility`).
+    pub terrain_enabled: bool,
+    /// Terrain shadows (#2671): T, while the producer has a published map; `None` with
+    /// `terrain_enabled` packs a neutral terrain (T = 1, Vsolid = C).
     pub terrain: Option<TerrainVisibility>,
     /// The debug view (`NVF_PLAY_DEBUG_SUN_VISIBILITY`).
     pub debug: DebugMode,
@@ -81,7 +94,7 @@ impl SunVisibility {
     /// Whether the plumbing is on: a feature is switched on or set, or a debug view is
     /// asked for (a debug view alone shows V = C, the cascade shadow).
     pub fn active(&self) -> bool {
-        self.cloud_on() || self.terrain.is_some() || self.debug != DebugMode::Off
+        self.cloud_on() || self.terrain_on() || self.debug != DebugMode::Off
     }
 
     /// Whether the views take the cloud variant (`NVF_CLOUD_VISIBILITY`): Cloud shadows is
@@ -90,9 +103,15 @@ impl SunVisibility {
         self.cloud_enabled || self.cloud.is_some()
     }
 
+    /// Whether the views take the terrain variant (`NVF_TERRAIN_VISIBILITY`): Terrain
+    /// shadows is switched on, or a map is set.
+    pub fn terrain_on(&self) -> bool {
+        self.terrain_enabled || self.terrain.is_some()
+    }
+
     /// The switches the log line names.
     fn mask(&self) -> (bool, bool, DebugMode) {
-        (self.cloud_on(), self.terrain.is_some(), self.debug)
+        (self.cloud_on(), self.terrain_on(), self.debug)
     }
 }
 
@@ -114,21 +133,95 @@ pub struct CloudVisibility {
     pub strength: f32,
 }
 
-/// The terrain's shadow-height map (#2671; its producer and its sampling come with stage
-/// T1/T2, this is the binding's contract): a receiver below the map's height at its xz is
-/// in the terrain's shadow.
+/// The terrain's shadow-height map (#2671; terrain_shadows.rs produces it): a receiver
+/// below the map's height S at its xz is in the terrain's shadow
+/// (sun_visibility.wesl `nvf_terrain_visibility`, mirrored by [`terrain_visibility`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TerrainVisibility {
+    /// `Rgba32Float`, `side` × `side`, row 0 the southernmost: R the shadow height S, G the
+    /// caster's horizontal distance, B the ground's relief (world units). Read with loads
+    /// only (binding 41 is unfilterable); the image's own sampler is not used.
     pub image: Handle<Image>,
     /// World xz to map uv (uv = xz * scale + offset); outside 0..1 the map says nothing.
     pub uv_scale: Vec2,
     pub uv_offset: Vec2,
-    /// View distances over which Vsolid goes from min(C, T) to T: the last cascade's end.
-    pub fade_band: Vec2,
-    /// The width (uv) over which T fades to 1 at the map's edge.
-    pub edge_fade: f32,
-    /// The height (game units) over which a receiver goes from shadowed to lit.
-    pub height_softness: f32,
+    /// World units per texel.
+    pub texel: f32,
+    /// Texels per side.
+    pub side: u32,
+}
+
+/// The terrain receiver's constants (sun_visibility.wesl `NVF_TERRAIN_*`, word for word;
+/// docs/design/terrain-shadows.md "T2: the receivers") [engineering choices]: the penumbra's
+/// height per unit of caster distance (about the sun's apparent diameter, 0.53°, 0.0093 rad,
+/// rounded) ...
+pub const TERRAIN_PENUMBRA: f32 = 0.01;
+/// ... its least height in texels of the map ...
+pub const TERRAIN_SOFT_MIN: f32 = 0.25;
+/// ... the texels of S's fall along the light added to it (no stair steps of the grid) ...
+pub const TERRAIN_SOFT_TEXELS: f32 = 0.5;
+/// ... the most tan(elevation) that term takes ...
+pub const TERRAIN_TAN_MAX: f32 = 1.0;
+/// ... the receiver's bias: this many times the ground's relief, plus a constant in world
+/// units ...
+pub const TERRAIN_BIAS_RELIEF: f32 = 2.0;
+pub const TERRAIN_BIAS_MIN: f32 = 16.0;
+/// ... and the texels over which T fades to 1 at the map's edge.
+pub const TERRAIN_EDGE_TEXELS: f32 = 4.0;
+
+/// `smoothstep(0, 1, t)` of an already clamped `t`.
+fn smooth(t: f32) -> f32 {
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// CPU mirror of sun_visibility.wesl `nvf_terrain_lit`: how lit a receiver at height `y`
+/// (bias included) is against one texel `s` (R S, G caster distance) with `extra` added to
+/// the penumbra.
+#[cfg_attr(not(test), allow(dead_code))] // the receivers' formulas, which the tests hold
+pub fn terrain_lit(s: Vec4, y: f32, extra: f32, texel: f32) -> f32 {
+    let band = (s.y * TERRAIN_PENUMBRA).max(TERRAIN_SOFT_MIN * texel) + extra;
+    smooth(((y - s.x) / band + 1.0).clamp(0.0, 1.0))
+}
+
+/// CPU mirror of sun_visibility.wesl `nvf_terrain_visibility`, line for line: T at `p` (Bevy
+/// world), the light from `l` (unit, towards the light), with the packed uniform `u` and
+/// `load` giving the map's texel at (column, row) (only called with indices inside the map).
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn terrain_visibility(u: &SunVisibilityUniform, load: impl Fn(IVec2) -> Vec4, p: Vec3, l: Vec3) -> f32 {
+    if u.mode.x & MASK_TERRAIN == 0 {
+        return 1.0;
+    }
+    let (texel, side) = (u.terrain.z, u.terrain.w);
+    let x = (Vec2::new(p.x, p.z) * Vec2::new(u.terrain_uv.x, u.terrain_uv.y) + Vec2::new(u.terrain_uv.z, u.terrain_uv.w)) * side;
+    let inside = x.x.min(side - x.x).min(x.y.min(side - x.y));
+    let edge = smooth((inside / TERRAIN_EDGE_TEXELS).clamp(0.0, 1.0));
+    if edge <= 0.0 {
+        return 1.0;
+    }
+    let c = x - Vec2::splat(0.5);
+    let base = c.floor();
+    let f = c - base;
+    let last = IVec2::splat(side as i32 - 1);
+    let i0 = base.as_ivec2().clamp(IVec2::ZERO, last);
+    let i1 = (base.as_ivec2() + IVec2::ONE).clamp(IVec2::ZERO, last);
+    let (t00, t10, t01, t11) = (load(i0), load(IVec2::new(i1.x, i0.y)), load(IVec2::new(i0.x, i1.y)), load(i1));
+    let (w00, w10, w01, w11) = ((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+    let relief = w00 * t00.z + w10 * t10.z + w01 * t01.z + w11 * t11.z;
+    let y = p.y + TERRAIN_BIAS_MIN + TERRAIN_BIAS_RELIEF * relief;
+    let tan_e = (l.y / Vec2::new(l.x, l.z).length().max(1.0e-4)).clamp(0.0, TERRAIN_TAN_MAX);
+    let extra = TERRAIN_SOFT_TEXELS * texel * tan_e;
+    let lit = w00 * terrain_lit(t00, y, extra, texel) + w10 * terrain_lit(t10, y, extra, texel) + w01 * terrain_lit(t01, y, extra, texel) + w11 * terrain_lit(t11, y, extra, texel);
+    1.0 + (lit - 1.0) * edge
+}
+
+/// CPU mirror of sun_visibility.wesl `nvf_solid_visibility` (terrain variant): Vsolid from
+/// the cascade shadow `cascade`, T `terrain` and the view depth `view_z`.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn solid_visibility(u: &SunVisibilityUniform, cascade: f32, terrain: f32) -> f32 {
+    if u.mode.x & MASK_TERRAIN == 0 {
+        return cascade;
+    }
+    cascade.min(terrain)
 }
 
 /// What the debug view draws in place of the lit colour.
@@ -203,9 +296,11 @@ impl SunVisibilityUniform {
         } else if v.cloud_enabled {
             u.cloud = NEUTRAL_CLOUD;
         }
-        if let Some(t) = &v.terrain {
+        // Switched on with no map: the terrain fields stay 0 and the mask bit clear, which
+        // sun_visibility.wesl reads as T = 1 and Vsolid = C before touching the texture.
+        if let Some(t) = v.terrain.as_ref().filter(|t| t.side > 0 && t.texel > 0.0) {
             u.terrain_uv = Vec4::new(t.uv_scale.x, t.uv_scale.y, t.uv_offset.x, t.uv_offset.y);
-            u.terrain = Vec4::new(t.fade_band.x, t.fade_band.y, t.edge_fade.max(0.0), t.height_softness.max(0.0));
+            u.terrain = Vec4::new(0.0, 0.0, t.texel, t.side as f32);
             mask |= MASK_TERRAIN;
         }
         u.mode = UVec4::new(mask, v.debug as u32, 0, 0);
@@ -357,7 +452,39 @@ struct SunVisibilityGpu {
 struct GpuParts {
     buffer: UniformBuffer<SunVisibilityUniform>,
     sampler: Sampler,
+    /// The terrain binding's stand-in ([`terrain_fallback`]).
+    terrain_fallback: TextureView,
     written: Option<SunVisibilityUniform>,
+}
+
+/// The terrain map's format (terrain_shadows.rs `OUTPUT_FORMAT`): binding 41 is declared
+/// unfilterable float for it (engine/vendor/README.md).
+pub const TERRAIN_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
+
+/// The terrain binding's stand-in while no map is uploaded: one texel of [`TERRAIN_FORMAT`]
+/// that casts nothing (S = -1e30, the producer's `NO_SHADOW`; bevy's white fallback would
+/// read S = 1 and shade every receiver below y = 1). Whenever it is bound in place of a
+/// requested map, [`usable_uniform`] clears the uniform's terrain bit, so the shader returns
+/// T = 1 before any load; the texel only matters if something reads it anyway.
+fn terrain_fallback(device: &RenderDevice, queue: &RenderQueue) -> TextureView {
+    let texel = [crate::terrain_shadows::NO_SHADOW, 0.0, 0.0, 0.0];
+    let bytes: Vec<u8> = texel.iter().flat_map(|v| v.to_le_bytes()).collect();
+    let texture = device.create_texture_with_data(
+        queue,
+        &TextureDescriptor {
+            label: Some("nvf_terrain_visibility_fallback"),
+            size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TERRAIN_FORMAT,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        TextureDataOrder::LayerMajor,
+        &bytes,
+    );
+    texture.create_view(&TextureViewDescriptor::default())
 }
 
 /// Mirror the markers into the render world: `NvfOutdoorSun` on the sun light's render
@@ -400,7 +527,7 @@ fn extract_sun_visibility(
     gpu.cloud = vis.cloud.as_ref().map(|c| c.image.id());
     gpu.terrain = vis.terrain.as_ref().map(|t| t.image.id());
     // The key bits follow the switches, not the publication (module notes).
-    let (cloud, terrain) = (vis.cloud_on(), vis.terrain.is_some());
+    let (cloud, terrain) = (vis.cloud_on(), vis.terrain_on());
     let uniform = gpu.uniform;
     let parts = gpu.parts.get_or_insert_with(|| {
         let mut buffer = UniformBuffer::from(uniform);
@@ -415,7 +542,7 @@ fn extract_sun_visibility(
             min_filter: FilterMode::Linear,
             ..default()
         });
-        GpuParts { buffer, sampler, written: Some(uniform) }
+        GpuParts { buffer, sampler, terrain_fallback: terrain_fallback(&device, &queue), written: Some(uniform) }
     });
     let Some(buffer) = parts.buffer.buffer() else { return };
     for e in &views {
@@ -428,7 +555,7 @@ fn extract_sun_visibility(
             commands.entity(e).try_insert(NvfSunVisibilityBindings {
                 uniform: buffer.clone(),
                 cloud_texture: fallback.d2.texture_view.clone(),
-                terrain_texture: fallback.d2.texture_view.clone(),
+                terrain_texture: parts.terrain_fallback.clone(),
                 sampler: parts.sampler.clone(),
                 cloud,
                 terrain,
@@ -437,8 +564,29 @@ fn extract_sun_visibility(
     }
 }
 
+/// The uniform as written for a frame: the packed one, with the terrain bit cleared when the
+/// map it names is not an uploaded GPU image this frame (review of f8d532cca, finding 5).
+/// The packed uniform advertises the map's side (512); with the one-texel stand-in bound
+/// instead, the shader would clamp its loads to texel 511 of a 1 × 1 texture, whose result
+/// is not defined to be the stand-in's texel. Cleared, T = 1 before any load and Vsolid = C
+/// (no end-band blend without a usable map), as with nothing published.
+pub fn usable_uniform(packed: SunVisibilityUniform, terrain_uploaded: bool) -> SunVisibilityUniform {
+    let mut u = packed;
+    if !terrain_uploaded {
+        u.mode.x &= !MASK_TERRAIN;
+    }
+    u
+}
+
 /// Write the uniform when it changed and point the views at this frame's textures (a
-/// texture not uploaded yet: the white fallback, which lets the light through).
+/// texture not uploaded yet: the white fallback for the cloud, which lets the light
+/// through, and [`terrain_fallback`] for the terrain, which casts nothing, with the
+/// uniform's terrain bit cleared, [`usable_uniform`]). The texture views are compared every
+/// frame, so the producer's other target, or a new texture of the same image, is bound from
+/// the frame it is prepared on. A view kept from one version to the next (Bevy's `GpuImage`
+/// preparation writes a new version of the same size and usage into the existing texture
+/// and keeps its view; engine/vendor bevy_render `texture/gpu_image.rs`) needs nothing
+/// rebuilt: the bind group holds the view, and the view reads the texture's new contents.
 fn prepare_sun_visibility(
     mut gpu: ResMut<SunVisibilityGpu>,
     mut bound: Query<&mut NvfSunVisibilityBindings>,
@@ -451,13 +599,16 @@ fn prepare_sun_visibility(
     }
     let gpu = &mut *gpu;
     let Some(parts) = gpu.parts.as_mut() else { return };
-    if parts.written != Some(gpu.uniform) {
-        parts.buffer.set(gpu.uniform);
+    let uploaded = |id: Option<AssetId<Image>>| id.and_then(|id| images.get(id)).map(|g| &g.texture_view);
+    let terrain_map = uploaded(gpu.terrain);
+    let uniform = usable_uniform(gpu.uniform, terrain_map.is_some());
+    if parts.written != Some(uniform) {
+        parts.buffer.set(uniform);
         parts.buffer.write_buffer(&device, &queue);
-        parts.written = Some(gpu.uniform);
+        parts.written = Some(uniform);
     }
-    let view = |id: Option<AssetId<Image>>| id.and_then(|id| images.get(id)).map_or(&fallback.d2.texture_view, |g| &g.texture_view);
-    let (cloud, terrain) = (view(gpu.cloud), view(gpu.terrain));
+    let cloud = uploaded(gpu.cloud).unwrap_or(&fallback.d2.texture_view);
+    let terrain = terrain_map.unwrap_or(&parts.terrain_fallback);
     for mut b in &mut bound {
         if b.cloud_texture.id() != cloud.id() {
             b.cloud_texture = cloud.clone();
@@ -604,7 +755,7 @@ pub fn hook_patched(source: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::lights::unix_lines;
 
@@ -737,7 +888,7 @@ mod tests {
         let image = Handle::<Image>::default();
         let v = SunVisibility {
             cloud: Some(CloudVisibility { image: image.clone(), uv_scale: Vec2::new(0.5, 0.25), uv_offset: Vec2::new(3.0, 4.0), plane_height: 9_000.0, strength: 1.5 }),
-            terrain: Some(TerrainVisibility { image, uv_scale: Vec2::splat(2.0), uv_offset: Vec2::new(-1.0, 1.0), fade_band: Vec2::new(7_000.0, 8_000.0), edge_fade: 0.05, height_softness: 64.0 }),
+            terrain: Some(TerrainVisibility { image, uv_scale: Vec2::splat(2.0), uv_offset: Vec2::new(-1.0, 1.0), texel: 256.0, side: 512 }),
             debug: DebugMode::Terrain,
             ..default()
         };
@@ -745,7 +896,7 @@ mod tests {
         assert_eq!(u.cloud_uv, Vec4::new(0.5, 0.25, 3.0, 4.0));
         assert_eq!(u.cloud, Vec4::new(9_000.0, 1.0, CLOUD_FADE_FROM, CLOUD_FADE_TO), "strength held to 1");
         assert_eq!(u.terrain_uv, Vec4::new(2.0, 2.0, -1.0, 1.0));
-        assert_eq!(u.terrain, Vec4::new(7_000.0, 8_000.0, 0.05, 64.0));
+        assert_eq!(u.terrain, Vec4::new(0.0, 0.0, 256.0, 512.0), "xy unused");
         assert_eq!(u.mode, UVec4::new(MASK_CLOUD | MASK_TERRAIN, 2, 0, 0));
         // The WGSL struct names the same fields in the same order.
         let wesl = include_str!("sun_visibility.wesl");
@@ -755,6 +906,22 @@ mod tests {
         for b in ["@group(0) @binding(39) var<uniform> nvf_sun", "@group(0) @binding(40) var nvf_cloud_texture: texture_2d<f32>", "@group(0) @binding(41) var nvf_terrain_texture: texture_2d<f32>", "@group(0) @binding(42) var nvf_sun_visibility_sampler: sampler"] {
             assert!(wesl.contains(b), "{b}");
         }
+        // Binding 41 is declared unfilterable in the vendored layout (Rgba32Float is not
+        // filterable without an optional feature), 40 filterable, 42 a filtering sampler;
+        // the terrain map is only ever loaded, never sampled.
+        let bindings = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/bevy_pbr/src/render/mesh_view_bindings.rs")).expect("mesh_view_bindings.rs").replace("\r\n", "\n");
+        let layout = &bindings[bindings.find("(39, uniform_buffer_sized(false, None)),").expect("the sun visibility's layout")..];
+        let entry = |n: &str| {
+            let at = layout.find(&format!("{n},")).unwrap_or_else(|| panic!("binding {n}"));
+            layout[at..at + layout[at..].find("),").expect("entry end")].split_whitespace().collect::<String>()
+        };
+        assert!(entry("40").contains("filterable:true"), "{}", entry("40"));
+        assert!(entry("41").contains("filterable:false"), "{}", entry("41"));
+        assert!(layout.contains("(42, sampler(SamplerBindingType::Filtering))"));
+        assert!(!wesl.contains("textureSampleLevel(nvf_terrain_texture") && !wesl.contains("textureSample(nvf_terrain_texture"));
+        assert_eq!(TERRAIN_FORMAT, crate::terrain_shadows::OUTPUT_FORMAT, "the stand-in has the producer's format");
+        // The struct is the same size it was: five vec4s.
+        assert_eq!(std::mem::size_of::<SunVisibilityUniform>(), 80);
     }
 
     /// Switched on with nothing published: the plumbing is on and the views take the cloud
@@ -814,7 +981,7 @@ mod tests {
     /// its attribute keeping the other names. The statement is what follows the attribute
     /// (on its line or from the next) up to its `;` outside parentheses or its closing
     /// brace. Comments stay. Conditions naming none of `known` are left as they are.
-    fn resolve_known(source: &str, known: &[(&str, bool)]) -> String {
+    pub(crate) fn resolve_known(source: &str, known: &[(&str, bool)]) -> String {
         let lines: Vec<&str> = source.lines().collect();
         let mut out: Vec<String> = Vec::new();
         let mut i = 0;
@@ -900,7 +1067,7 @@ mod tests {
     }
 
     /// Brackets, braces and parentheses close in order (comments left out).
-    fn balanced(text: &str) -> bool {
+    pub(crate) fn balanced(text: &str) -> bool {
         let mut stack = Vec::new();
         for c in text.lines().flat_map(|l| l.split("//").next().unwrap_or("").chars()) {
             match c {
@@ -915,7 +1082,7 @@ mod tests {
     }
 
     /// The block (braces included) of the first `{` after `start` in `text`.
-    fn block_after<'a>(text: &'a str, start: &str) -> &'a str {
+    pub(crate) fn block_after<'a>(text: &'a str, start: &str) -> &'a str {
         let at = text.find(start).unwrap_or_else(|| panic!("{start} missing"));
         let open = at + text[at..].find('{').expect("a block");
         let mut depth = 0;
@@ -939,12 +1106,12 @@ mod tests {
     }
 
     /// The text without its comments.
-    fn code(text: &str) -> String {
+    pub(crate) fn code(text: &str) -> String {
         text.lines().map(|l| l.split("//").next().unwrap_or("")).collect::<Vec<_>>().join("\n")
     }
 
     /// Code lines only (no blank or comment-only line), trimmed at the end.
-    fn code_lines(text: &str) -> Vec<&str> {
+    pub(crate) fn code_lines(text: &str) -> Vec<&str> {
         text.lines().map(str::trim_end).filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with("//")).collect()
     }
 
@@ -1091,6 +1258,267 @@ mod tests {
             assert_eq!(out.matches("fn nvf_cloud_transmittance(").count(), 1);
             assert_eq!(out.matches("fn nvf_terrain_visibility(").count(), 1);
             assert_eq!(out.matches("fn nvf_solid_visibility(").count(), 1);
+            // The terrain variant reads the map with loads (four), the others never touch it;
+            // the cloud side is untouched by it.
+            assert_eq!(out.matches("textureLoad(nvf_terrain_texture").count(), if terrain { 4 } else { 0 }, "{cloud} {terrain}");
+            assert_eq!(out.matches("textureSampleLevel(nvf_cloud_texture").count(), usize::from(cloud), "{cloud} {terrain}");
         }
+        // The receiver's constants are the CPU mirror's, word for word.
+        for (name, value) in [
+            ("PENUMBRA", TERRAIN_PENUMBRA),
+            ("SOFT_MIN", TERRAIN_SOFT_MIN),
+            ("SOFT_TEXELS", TERRAIN_SOFT_TEXELS),
+            ("TAN_MAX", TERRAIN_TAN_MAX),
+            ("BIAS_RELIEF", TERRAIN_BIAS_RELIEF),
+            ("BIAS_MIN", TERRAIN_BIAS_MIN),
+            ("EDGE_TEXELS", TERRAIN_EDGE_TEXELS),
+        ] {
+            let line = format!("const NVF_TERRAIN_{name}: f32 = {value:?};");
+            assert!(source.contains(&line), "{line}");
+        }
+    }
+
+    use crate::sun_heightfield::TEXEL;
+
+    /// Game axes (x east, y north, z up) to Bevy's (x, y up, z south).
+    fn bevy_axes(g: Vec3) -> Vec3 {
+        Vec3::new(g.x, g.z, -g.y)
+    }
+
+    /// Towards the light at `elevation` and `azimuth` (radians, clockwise from north), game axes.
+    fn toward_game(elevation: f32, azimuth: f32) -> Vec3 {
+        Vec3::new(azimuth.sin() * elevation.cos(), azimuth.cos() * elevation.cos(), elevation.sin())
+    }
+
+    /// A terrain map as the GPU pass writes it (terrain_shadows.rs `produce_output`, its CPU
+    /// mirror), `side` texels with its south-west corner at game (0, 0), and the uniform the
+    /// plumbing packs for it.
+    struct TestMap {
+        out: Vec<Vec4>,
+        side: usize,
+        u: SunVisibilityUniform,
+    }
+
+    impl TestMap {
+        /// From heights (row-major, row 0 the southernmost; texel maxima as T0 keeps them).
+        fn produce(heights: &[f32], valid: &[u8], side: usize, light: Vec3) -> Self {
+            let (lo, hi) = heights.iter().zip(valid).filter(|(_, &v)| v != 0).fold((f32::MAX, f32::MIN), |(lo, hi), (&h, _)| (lo.min(h), hi.max(h)));
+            let p = crate::terrain_shadows::march_params(light, TEXEL, side as u32, lo, hi).expect("a light above the horizon");
+            Self::from_output(crate::terrain_shadows::produce_output(heights, valid, &p), side)
+        }
+
+        fn from_output(out: Vec<Vec4>, side: usize) -> Self {
+            let (uv_scale, uv_offset) = crate::terrain_shadows::TerrainShadows::uv_transform(Vec2::ZERO, TEXEL, side as u32);
+            let terrain = TerrainVisibility { image: Handle::default(), uv_scale, uv_offset, texel: TEXEL, side: side as u32 };
+            let u = SunVisibilityUniform::pack(&SunVisibility { terrain_enabled: true, terrain: Some(terrain), ..default() });
+            Self { out, side, u }
+        }
+
+        /// T at game (`x`, `y`) and height `z`, the light towards `light` (game axes).
+        fn t(&self, x: f32, y: f32, z: f32, light: Vec3) -> f32 {
+            let load = |c: IVec2| {
+                assert!(c.x >= 0 && c.y >= 0 && (c.x as usize) < self.side && (c.y as usize) < self.side, "a load outside the map: {c}");
+                self.out[c.y as usize * self.side + c.x as usize]
+            };
+            terrain_visibility(&self.u, load, bevy_axes(Vec3::new(x, y, z)), bevy_axes(light.normalize()))
+        }
+    }
+
+    /// Planes facing the light at slopes up to 45 degrees, from many directions, under a
+    /// sun at 5, 13 (about 07:00) and 30 degrees: never shaded in truth. The map alone
+    /// (each texel its highest corner) puts S above the ground on many of them, so without
+    /// the bias they would speckle; with it every receiver on the ground is fully lit.
+    #[test]
+    fn lit_slope_has_no_acne() {
+        let side = 32;
+        let (mut cases, mut raw_over) = (0, 0);
+        for elevation in [5.0f32, 13.0, 30.0] {
+            for azimuth in [0.0f32, 30.0, 90.0, 135.0, 200.0, 270.0] {
+                let light = toward_game(elevation.to_radians(), azimuth.to_radians());
+                for g in [0.05f32, 0.2, 0.5, 1.0] {
+                    for dir in (0..360).step_by(45) {
+                        let (a, b) = (g * (dir as f32).to_radians().sin(), g * (dir as f32).to_radians().cos());
+                        // Facing the light, with a margin: lit in truth.
+                        if Vec3::new(-a, -b, 1.0).normalize().dot(light) < 0.05 {
+                            continue;
+                        }
+                        cases += 1;
+                        let plane = |x: f32, y: f32| a * x + b * y;
+                        let heights: Vec<f32> = (0..side * side)
+                            .map(|i| {
+                                let (c, r) = ((i % side) as f32, (i / side) as f32);
+                                [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)].iter().map(|(dx, dy)| plane((c + dx) * TEXEL, (r + dy) * TEXEL)).fold(f32::MIN, f32::max)
+                            })
+                            .collect();
+                        let map = TestMap::produce(&heights, &vec![1; side * side], side, light);
+                        let mut x = 8.0f32;
+                        while x < 24.0 {
+                            let mut y = 8.0f32;
+                            while y < 24.0 {
+                                let (gx, gy) = (x * TEXEL, y * TEXEL);
+                                let ground = plane(gx, gy);
+                                let t = map.t(gx, gy, ground, light);
+                                assert!(t > 0.9999, "acne: T {t} at texel ({x}, {y}) of a plane rising {g} towards {dir} degrees, sun {elevation} degrees at {azimuth}");
+                                let own = map.out[y as usize * side + x as usize].x;
+                                raw_over += usize::from(ground < own);
+                                y += 0.41;
+                            }
+                            x += 0.37;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(cases > 300, "{cases}");
+        assert!(raw_over > 10_000, "the map alone would shade the ground on the slopes ({raw_over} samples): the bias is what lights them");
+    }
+
+    /// A flat-topped ridge 1,000 units high, the sun low in the west (tan 0.2): the valley
+    /// east of it is shaded from the ridge's foot (the cliff's foot gets no bias) to about
+    /// its shadow's length (1,000 / 0.2 = 5,000 units, 19.5 texels), lit beyond and west of it.
+    #[test]
+    fn valley_behind_ridge_is_shaded() {
+        let side = 64;
+        let heights: Vec<f32> = (0..side * side).map(|i| if (20..=23).contains(&(i % side)) { 1_000.0 } else { 0.0 }).collect();
+        let light = toward_game(0.2f32.atan(), -std::f32::consts::FRAC_PI_2);
+        let map = TestMap::produce(&heights, &vec![1; side * side], side, light);
+        let row = 32.3 * TEXEL;
+        let t = |x: f32| map.t(x * TEXEL, row, 0.0, light);
+        for x in [10.0, 19.0] {
+            assert_eq!(t(x), 1.0, "west of the ridge, x {x}");
+        }
+        for x in [24.2, 24.8, 26.0, 30.0, 35.0, 40.0] {
+            assert!(t(x) < 0.01, "behind the ridge, x {x}: {}", t(x));
+        }
+        for x in [44.0, 46.0, 50.0, 55.0] {
+            assert!(t(x) > 0.99, "past the shadow's end, x {x}: {}", t(x));
+        }
+        // The end is soft and monotone: no stair step from the 256-unit grid.
+        let mut last = t(40.0);
+        let mut x = 40.0;
+        while x < 44.0 {
+            x += 0.05;
+            let now = t(x);
+            assert!(now >= last - 1e-5, "x {x}: {now} after {last}");
+            assert!(now - last < 0.1, "x {x}: a step of {} over 0.05 texel", now - last);
+            last = now;
+        }
+        // A receiver up on the ridge top is lit.
+        assert_eq!(map.t(21.5 * TEXEL, row, 1_000.0, light), 1.0);
+    }
+
+    /// The map's last texels fade T to 1, and outside it T is 1 (no load outside the map).
+    #[test]
+    fn map_edge_fades_out() {
+        let side = 32;
+        let map = TestMap::from_output(vec![Vec4::new(10_000.0, 1_000.0, 0.0, 0.0); side * side], side);
+        let light = toward_game(0.3, 1.0);
+        let mid = 16.0 * TEXEL;
+        let t = |x: f32, y: f32| map.t(x * TEXEL, y, 0.0, light);
+        assert_eq!(t(16.0, mid), 0.0, "inside, under S everywhere");
+        assert_eq!(t(TERRAIN_EDGE_TEXELS, mid), 0.0, "whole from the fade's width on");
+        assert!((t(0.5 * TERRAIN_EDGE_TEXELS, mid) - 0.5).abs() < 1e-4, "half way: {}", t(0.5 * TERRAIN_EDGE_TEXELS, mid));
+        for x in [0.0, -0.5, -100.0, 32.0, 40.0, 1.0e6] {
+            assert_eq!(t(x, mid), 1.0, "x {x}: on or outside the edge");
+        }
+        assert_eq!(map.t(mid, -3.0 * TEXEL, 0.0, light), 1.0, "south of the map");
+        assert_eq!(map.t(mid, 33.0 * TEXEL, 0.0, light), 1.0, "north of the map");
+        let mut last = 1.0;
+        for k in 0..=40 {
+            let now = t(k as f32 * 0.1, mid);
+            assert!(now <= last + 1e-6, "{k}: {now} after {last}");
+            last = now;
+        }
+    }
+
+    /// Texels with no terrain (no LAND, not loaded) hold S = -1e30 from the producer: a
+    /// receiver over them is lit, in a ridge's shadow too, and the hole casts nothing.
+    #[test]
+    fn invalid_texels_shade_nothing() {
+        let side = 64;
+        let mut heights: Vec<f32> = (0..side * side).map(|i| if (10..=13).contains(&(i % side)) { 1_000.0 } else { 0.0 }).collect();
+        let mut valid = vec![1u8; side * side];
+        for row in 20..=30 {
+            for col in 20..=30 {
+                heights[row * side + col] = crate::sun_heightfield::INVALID_HEIGHT;
+                valid[row * side + col] = 0;
+            }
+        }
+        let light = toward_game(0.2f32.atan(), -std::f32::consts::FRAC_PI_2);
+        let map = TestMap::produce(&heights, &valid, side, light);
+        for (x, y) in [(22.0, 22.0), (25.5, 25.5), (29.4, 29.4)] {
+            assert_eq!(map.t(x * TEXEL, y * TEXEL, 0.0, light), 1.0, "over the hole ({x}, {y})");
+        }
+        for (x, y) in [(25.0, 10.0), (25.0, 40.0)] {
+            assert!(map.t(x * TEXEL, y * TEXEL, 0.0, light) < 0.01, "the ridge's shadow beside the hole ({x}, {y})");
+        }
+        // Switched on with nothing published: T = 1 before any load.
+        let neutral = SunVisibilityUniform::pack(&SunVisibility { terrain_enabled: true, ..default() });
+        let never = |c: IVec2| -> Vec4 { panic!("a load with no map published: {c}") };
+        assert_eq!(terrain_visibility(&neutral, never, Vec3::new(25.0 * TEXEL, 0.0, -25.0 * TEXEL), bevy_axes(light.normalize())), 1.0);
+    }
+
+    /// Vsolid with terrain on: min(C, T), the darker of the two, with no blend by distance
+    /// (the maintainer's decision on #2920): an object's cascade shadow stays whole up to the
+    /// cascades' end, where Bevy's C is 1 and T alone counts; with sun shadows off (C = 1) T
+    /// alone; switched on with nothing published, C exactly. The uniform's band words are 0.
+    #[test]
+    fn terrain_combine_is_the_darker_of_the_two() {
+        let map = TestMap::from_output(vec![Vec4::ZERO; 4], 2);
+        let u = map.u;
+        assert_eq!(u.mode.x & MASK_TERRAIN, MASK_TERRAIN);
+        assert_eq!((u.terrain.x, u.terrain.y), (0.0, 0.0));
+        // The darker once, never the product.
+        assert_eq!(solid_visibility(&u, 0.5, 0.2), 0.2);
+        assert_eq!(solid_visibility(&u, 0.1, 0.2), 0.1);
+        // An object's cascade shadow (C 0) on lit terrain stays whole: no fade-out.
+        assert_eq!(solid_visibility(&u, 0.0, 1.0), 0.0);
+        // Past the cascades (C 1) or with sun shadows off: T.
+        assert_eq!(solid_visibility(&u, 1.0, 0.3), 0.3);
+        // Switched on, nothing published: the cascades as they were.
+        let neutral = SunVisibilityUniform::pack(&SunVisibility { terrain_enabled: true, ..default() });
+        assert_eq!(solid_visibility(&neutral, 0.4, 0.0), 0.4);
+    }
+
+    /// Switched on with nothing published: the plumbing is on and the views take the
+    /// terrain variant (the key bits follow the switch), the terrain fields are 0 and the
+    /// mask bit clear (T = 1, Vsolid = C); a publication fills them.
+    #[test]
+    fn switched_on_without_a_map_is_neutral() {
+        let on = SunVisibility { terrain_enabled: true, ..default() };
+        assert!(on.active() && on.terrain_on() && !on.cloud_on());
+        assert_eq!(on.mask(), (false, true, DebugMode::Off), "the log names the switch");
+        let u = SunVisibilityUniform::pack(&on);
+        assert_eq!((u.terrain_uv, u.terrain, u.mode.x & MASK_TERRAIN), (Vec4::ZERO, Vec4::ZERO, 0));
+        let map = TestMap::from_output(vec![Vec4::ZERO; 4], 2);
+        assert_eq!(map.u.mode.x & MASK_TERRAIN, MASK_TERRAIN);
+        assert_eq!(map.u.terrain.z, TEXEL);
+        assert!(!SunVisibility::default().terrain_on());
+    }
+
+    /// Review of f8d532cca, finding 5: a published map whose GPU image is not uploaded this
+    /// frame (the one-texel stand-in bound) must not be read as a 512-texel map. The written
+    /// uniform's terrain bit is cleared: T = 1 before any load and Vsolid = C at every
+    /// distance (no terrain without a usable map); the cloud's part is untouched.
+    #[test]
+    fn terrain_bit_needs_an_uploaded_map() {
+        let (uv_scale, uv_offset) = crate::terrain_shadows::TerrainShadows::uv_transform(Vec2::ZERO, TEXEL, 512);
+        let terrain = TerrainVisibility { image: Handle::default(), uv_scale, uv_offset, texel: TEXEL, side: 512 };
+        let cloud = checker_cloud(Handle::default());
+        let packed = SunVisibilityUniform::pack(&SunVisibility { terrain_enabled: true, terrain: Some(terrain), cloud_enabled: true, cloud: Some(cloud), ..default() });
+        assert_eq!(packed.mode.x, MASK_TERRAIN | MASK_CLOUD);
+        // Uploaded: as packed.
+        assert_eq!(usable_uniform(packed, true), packed);
+        // Not uploaded: the terrain bit alone goes.
+        let u = usable_uniform(packed, false);
+        assert_eq!(u.mode.x, MASK_CLOUD);
+        assert_eq!((u.cloud_uv, u.cloud, u.mode.y), (packed.cloud_uv, packed.cloud, packed.mode.y));
+        let never = |c: IVec2| -> Vec4 { panic!("a load without an uploaded map: {c}") };
+        let light = bevy_axes(toward_game(0.3, 1.0));
+        assert_eq!(terrain_visibility(&u, never, Vec3::new(100.0 * TEXEL, 0.0, -100.0 * TEXEL), light), 1.0);
+        assert_eq!(solid_visibility(&u, 0.0, 1.0), 0.0, "C kept");
+        // Nothing published at all: nothing to clear.
+        let neutral = SunVisibilityUniform::pack(&SunVisibility { terrain_enabled: true, ..default() });
+        assert_eq!(usable_uniform(neutral, false), neutral);
     }
 }

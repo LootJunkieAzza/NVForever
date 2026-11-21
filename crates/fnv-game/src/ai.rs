@@ -84,7 +84,7 @@ impl<'a> Game<'a> {
         match functions::base_of(self, actor) {
             // AddPackageAt's, RemovePackageAt's and RemoveAllPackages' list first.
             Some(base) if self.other.package_lists.contains_key(&base) => self.other.package_lists[&base].clone(),
-            Some(base) => self.data.base_package_list_at(base, self.pick_seed(actor), self.leveled_at(actor)),
+            Some(base) => self.template_source(base, actor, |d| d.template_packages).map(|(_, d)| d.packages.clone()).unwrap_or_default(),
             None => Vec::new(),
         }
     }

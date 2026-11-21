@@ -56,6 +56,9 @@ own rules are not known]:
 - what is still open at the end of a file is closed there (each included file is read
   on its own, so this stays inside the include);
 - a start tag cut short by `<` ends there, open (its own end tag follows);
+- an element opened inside 256 open ones is left out with everything in it, up to its own
+  end tag [design: `xml::MAX_DEPTH`, NVForever's own guard against running out of stack on
+  a broken or crafted file, #3156; no vanilla file comes near it];
 - an unquoted attribute value runs to a space or `>`, stray quotes dropped;
 - `<!-- -->` comments, `<?…?>` and `<!…>` are skipped; `&amp;` `&lt;` `&gt;` `&quot;`
   `&apos;` `&#N;` are decoded; any other `&name;` is kept by name;
@@ -1350,3 +1353,32 @@ Blue Moon list showed: `*:N` counted from the last child, `_Has360Controller` ne
 written (MCM took the pointer for a controller), bracket-less sources read as names
 (Vanilla UI Plus's option titles all at y 0), and JIP CCC's sub-menu lines with no mod
 chosen.
+
+## 11. Modern Minimap's map picture (ModernMinimap.dll)
+
+[observed: menus\prefabs\stentorious\modernminimap\main.xml, its "ModernMinimap.dll
+Traits"; NVSE\CompileScript\ModernMinimap\OnRender.gek; nvse.log "ModernMinimap; version
+1"] The mod's HUD window `HUDMainMenu/ModernMinimap` leaves the map picture to its plugin.
+The file computes `_Render` (true when `_ForceUpdate`, or when `MapRender`'s offset from
+the window's centre passes `_UpdateWidth`; the mod's scripts force it by setting
+`_MapOriginX` to -999999 on load, cell change, fast travel and key presses), and reads the
+render's centre back from `_MapOriginX`/`_MapOriginY` to place the picture
+(`_PosXOffset = (_MapOriginX - _PlrX) * _WorldScale`, `_WorldScale = _MapScaleLocal /
+_Frustum`) and every icon. The picture spans `_FrustumSize` (`_Frustum` 2048 /
+`_MapScaleLocal`) game units each way, from a camera `_CameraOffset` (10,000) over the
+player. The mod's render-update handler writes `_PlrX`/`_PlrY`/`_PlrZ` and `_PlrDeg`.
+
+NVForever [design] (`nvf_play::tiles::modern_minimap`, `nvforever::minimap_render`): while
+`_Render` reads true, a camera straight down over `_PlrX`/`_PlrY` renders the picture,
+given to `MapRender` as the runtime picture `nvf:modern_minimap`, and the render's
+centre is written to `_MapOriginX`/`_MapOriginY`. The file's own tint (`systemcolor`,
+`brightness`) colours it. Engine design choices: the camera draws the world layer only
+(not the player's body or the water's own layer), without fog, clearing to black, with
+no MSAA; it draws to 20,000 units below its height over the player; when `_CameraOffset`
+does not read, it uses the file's 10,000.
+
+[hypothesis] The plugin's camera is orthographic with north up, and its picture is 1024
+texels square (`textureSize=1024`, taken to be the plugin INI's default). Neither has
+been observed in the original game. Open: the plugin's
+exact look (classic mode's shading, interiors under a ceiling 10,000 over the player)
+and the INI's other settings are not read; the picture is the lit scene from above.

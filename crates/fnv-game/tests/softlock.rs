@@ -114,3 +114,19 @@ fn combat_and_detection_topics_and_hello_are_chatter() {
     assert!(g.chatter_topic(FormId(0x912)), "HELLO");
     assert!(!g.chatter_topic(FormId(0x913)), "a Topic");
 }
+
+/// #3044: DisablePlayerControls keeps who called it (the unit's label) for the players'
+/// reports; enabling every group again forgets it, enabling some does not.
+#[test]
+fn the_caller_of_disable_player_controls_is_kept_until_all_groups_are_back() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(g.player.controls_disabled_by.is_none());
+    run(&mut g, "DisablePlayerControls");
+    let caller = g.player.controls_disabled_by.clone().expect("the caller is kept");
+    assert!(!caller.unit.is_empty(), "{caller:?}");
+    run(&mut g, "EnablePlayerControls 1 0 0 0 0 0 0");
+    assert!(g.player.controls_disabled_by.is_some(), "some groups still held");
+    run(&mut g, "EnablePlayerControls");
+    assert!(g.player.controls_disabled_by.is_none(), "all back: forgotten");
+}

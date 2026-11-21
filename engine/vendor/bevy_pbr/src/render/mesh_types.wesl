@@ -72,6 +72,10 @@ struct MorphAttributes {
 
 // [2^0, 2^16)
 const MESH_FLAGS_VISIBILITY_RANGE_INDEX_BITS: u32     = (1u << 16u) - 1u;
+// NVForever (no directional shadows): set only by shaders on a `PbrInput`'s flags, never by
+// the CPU (bevy_pbr leaves bits 16-26 unused): `apply_pbr_lighting` looks up no shadow of a
+// directional light (the sun's, the moon's) for it, while point and spot lights keep theirs.
+const NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT: u32 = 1u << 26u;
 const MESH_FLAGS_AABB_BASED_VISIBILITY_RANGE_BIT: u32 = 1u << 27u;
 const MESH_FLAGS_NO_FRUSTUM_CULLING_BIT: u32          = 1u << 28u;
 const MESH_FLAGS_SHADOW_RECEIVER_BIT: u32             = 1u << 29u;

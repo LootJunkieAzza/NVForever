@@ -513,7 +513,7 @@ fn read(
     // mouse wheel steps to the next hotkey (up) or the one before holding a carried
     // weapon not in hand [design: docs/design/tweaks.md].
     let notches = scroll.as_ref().map_or(0.0, |s| s.delta.y);
-    let wheel_steps = tweaks.as_ref().is_some_and(|t| t.wheel_cycles_hotkeys) && notches != 0.0 && !control.third_person_view() && !scope.is_some_and(|s| s.on);
+    let wheel_steps = tweaks.as_ref().is_some_and(|t| t.wheel_cycles_hotkeys) && notches != 0.0 && !crate::quick_loot::holds_input() && !control.third_person_view() && !scope.is_some_and(|s| s.on);
     // Up the list: the wheel rolled up, or the D-pad's right (the tweak above).
     let up = if wheel_steps { Some(notches > 0.0) } else { pad_step };
     if let (Some(up), false, false, false, false, false) = (up, f.blocked, was_open, wheel.is_open(), hotkeys_off, reloading_blocks) {

@@ -277,6 +277,11 @@ fn read_words(sim: Res<SimState>, mut commands: Commands) {
 }
 
 fn rest_opens(input: ControlInput, mut out: MessageWriter<OpenWait>, time: Res<Time<Real>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, mut held: Local<Option<f32>>) {
+    // Quick Loot has the key while its list shows: Take All (`crate::quick_loot`).
+    if crate::quick_loot::holds_input() {
+        *held = None;
+        return;
+    }
     // The player's tweak: the key is held a while, not tapped [design: docs/design/tweaks.md].
     if tweaks.is_some_and(|t| t.hold_to_wait) {
         if input.pressed(Control::Rest) {

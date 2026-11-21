@@ -905,7 +905,16 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
     if w.waits(tab, device, tree, changed) {
         return Some(Err(w.reason.clone()));
     }
-    let due = stale || changed;
+    // The heading's HP and DT changed with nothing else (an aid item's heal a frame after
+    // the list changed, a heal over time, a wear change): written again (#3120).
+    let refigured = !stale && !changed && model.is_some() && {
+        let (hp, dt) = match p.sim.as_mut() {
+            Some(sim) => items::heading(sim.bypass_change_detection(), Some(&mut *script), p.sources.combat.as_deref()),
+            None => ("--".into(), "--".into()),
+        };
+        p.tiles.written.shown.as_ref().is_some_and(|s| s.figures[1] != hp || s.figures[2] != dt)
+    };
+    let due = stale || changed || refigured;
     // With the model gone (the Pip-Boy going down) the page stays as it was last written.
     let new = model.filter(|_| due).and_then(|m| {
         if p.forms.is_none() {
@@ -917,12 +926,11 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
         let selected = m.selected_row(Side::Player);
         // No DPS on this page, as the hand-built one (`items::draw`).
         let card = selected.map(|r| Info { dps: None, ..items::info_of(r, combat, sim, forms.as_mut(), Some(&mut *script)) });
-        let hp = crate::pipboy::stats::read::player_hp(sim, Some(&mut *script));
-        let dt = combat.map(|c| crate::combat::target_armor(c, Some(&mut *script), sim, FormId::PLAYER_REF).0);
+        let (hp, dt) = items::heading(sim, Some(&mut *script), combat);
         let caps = sim.world.item_count(FormId::PLAYER_REF, crate::menu::model::CAPS).unwrap_or(0);
         // Whole units cut off, not rounded [observed: private job run07_repair_menu, 1280x720, one case; as the container's].
         let wg = m.encumbrance.as_ref().map_or_else(|_| "--".to_string(), |e| format!("{:.0}/{:.0}", e.weight.floor(), e.capacity));
-        let figures = [wg, items::hp_text(hp), items::dt_text(dt), caps.to_string()];
+        let figures = [wg, hp, dt, caps.to_string()];
         let offer = repair::current(active, sim, Some(&*script));
         let last = p.tiles.written.shown.as_ref().and_then(|s| s.repair.word);
         let upkeep = crate::pipboy::labels::label(MAINTAIN_SETTING, REPAIR_UPKEEP);
@@ -1973,5 +1981,30 @@ mod tests {
         assert!(!eligible(on, &pip, true));
         // The two lists read as closed without their resources.
         assert!(lists_closed(None, None));
+    }
+
+    #[test]
+    fn a_clipped_inventory_row_with_vertical_text_offset_stays_clipped_by_the_list_window() {
+        let with_offset = |x: String| {
+            x.replace(
+                r#"<hotrect name="IM_InventoryListTemplateRect"><target>&true;</target>"#,
+                r#"<hotrect name="IM_InventoryListTemplateRect"><target>&true;</target><clips>&true;</clips>"#,
+            )
+            .replace(
+                r#"<text name="ListItemText"></text>"#,
+                r#"<text name="ListItemText"><y>16</y></text>"#,
+            )
+        };
+        let (mut ui, mut t) = (tree_changed(with_offset), InventoryTiles::default());
+        run(&mut ui, Some(shown(4, 0)), &mut t).expect("clipped inventory row with vertical text offset should stay inside list clipwindow");
+        let row0_text = list::child(&ui, rows(&t)[0].tile, ROW_TEXT).unwrap();
+        let piece = t.pieces.iter().find(|p| p.tile == row0_text).expect("row 0 text piece");
+        let clip = piece.clip.expect("list clipwindow clip");
+        assert_eq!(clip.height, 200.0, "clip must be the 200-unit IM_InventoryList window, not the row box");
+        // Narrowing the list window itself still rejects the page.
+        let list_id = ui.find_tile(LIST).unwrap();
+        ui.set_trait(list_id, "width", Value::Num(15.0));
+        ui.update();
+        assert_eq!(run(&mut ui, Some(shown(4, 0)), &mut t), Err("no row shows whole".to_string()));
     }
 }

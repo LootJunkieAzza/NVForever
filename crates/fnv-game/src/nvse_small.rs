@@ -70,6 +70,9 @@ pub struct FrameLoop {
 /// The session state of the plugins of this file.
 #[derive(Debug, Default)]
 pub struct SmallState {
+    /// Loaded application settings are authoritative after engine handoff.
+    /// Session-only: a restored Game must be rebound before startup scripts.
+    pub(crate) stewie_stat_settings_loaded: bool,
     /// Seconds of play, menus included: each frame's own length added up (the engine
     /// changes `frame_seconds` every frame, so the frame count times it is no clock).
     pub real_seconds: f64,
@@ -581,13 +584,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- Stewie's Tweaks ----
-        // `"key:section"` (StewVal): the value in the plugin's INI, a number when it reads
-        // as one [documented: StewieGetValue; hypothesis: the INI is
-        // Data\NVSE\Plugins\nvse_stewie_tweaks.ini]; 0 when there is none (the plugin is
-        // not installed).
+        // Recognized loaded settings follow their actual engine consumers;
+        // unbound games and other keys retain their existing layered-file query.
         "stewiegetvalue" | "stewval" => {
             let ks = text(args, 0);
             let Some((key, section)) = ks.split_once(':') else { return Some(Ok(zero)) };
+            if let Some(value) = g.loaded_stewie_stat_value(key, section) {
+                return Some(Ok(XVal::Num(value)));
+            }
+            if let Some(value) = g.loaded_stewie_inventory_value(key, section) {
+                return Some(Ok(XVal::Num(value)));
+            }
             let ini = g.mod_files.read_text("NVSE\\Plugins\\nvse_stewie_tweaks.ini");
             match ini.and_then(|t| crate::mod_files::ini_get(&t, &section.trim().to_ascii_lowercase(), key.trim())) {
                 Some(v) => v.parse::<f64>().map(XVal::Num).unwrap_or(XVal::Str(v.trim_matches('"').to_string())),

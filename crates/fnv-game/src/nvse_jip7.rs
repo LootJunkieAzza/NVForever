@@ -277,10 +277,18 @@ impl Game<'_> {
         }
     }
 
-    /// SetArmorConditionPenalty's multiplier, 1.0 until a script sets it [documented:
-    /// "1.0, by default"].
+    /// SetArmorConditionPenalty's multiplier, else Stewie's Custom Armor Condition Penalty
+    /// tweak (`Tweaks::armor_condition_penalty`, default 1.0) [documented: "1.0, by default";
+    /// design: docs/design/tweaks.md].
     pub fn armor_condition_penalty(&self) -> f64 {
-        self.other.jip7.armor_condition_penalty.unwrap_or(1.0)
+        self.other.jip7.armor_condition_penalty.unwrap_or(self.tweaks.armor_condition_penalty)
+    }
+
+    /// Effective armour DR/DT condition share: full at or above 50 %, falling by
+    /// `1 - (0.5 - condition) * penalty.max(0.0)` clamped at 0.0 (matching
+    /// `fnv_combat::condition::armor_mult_with`), reading [`Self::armor_condition_penalty`].
+    pub fn armor_condition_mult(&self, condition: f32) -> f64 {
+        (1.0 - (0.5 - f64::from(condition).clamp(0.0, 1.0)).max(0.0) * self.armor_condition_penalty().max(0.0)).max(0.0)
     }
 
     /// SetWeatherTransitionTimeOverride's seconds, `None` without one [documented: "no

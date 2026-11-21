@@ -22,3 +22,26 @@ normal Pip-Boy failures needs another live replay. Full native lifetime and
 explicit view-selection parity remain unqualified.
 
 [observed: current port] Initial candidate on main `19c0f08a`. Two owned regressions are authored but current-port compilation, listing, execution, strict lint, required broader checks and smoke remain pending. Earlier private results are not this head's qualification. No renderer/native probe has been run for this port. Temporary clone admission and scene placement are separate changes.
+
+## Temporary-cloned IDLE admission (`TempCloneForm`)
+
+- [documented] [TempCloneForm](https://geckwiki.com/index.php/TempCloneForm) returns a
+  session-scoped clone FormID inheriting the original record's type and data, while
+  keeping its own FormID for per-clone overrides (`SetIdleAnimPath` /
+  `GetIdleAnimPath`) and playback queries (`ForcePlayIdle`, `PlayIdleEx`,
+  `IsIdlePlayingEx`, `GetPlayedIdle`).
+- [design] `Game::idle_def` resolves `TempCloneForm` aliases back to their authored
+  `IdleDef` via `Game::unclone`. `Game::idle_animation_path` walks the clone chain for
+  `MODL/` overrides before falling back to the authored model, and `Game::idle_has_file`
+  checks the resolved path (ending in `.kf`) so `ask_idle` admits cloned IDLEs while
+  still refusing non-IDLE clones (`"not an idle animation"`) and empty/folder paths
+  (`"names no animation file"`).
+- [design] `IdleRequest`, `Game::set_idle_playing`, `IsIdlePlayingEx`, and
+  `GetPlayedIdle` keep the exact cloned FormID so playback queries distinguish a clone
+  from its original. Engine consumers (`engine/nvforever/src/idles.rs` `load`/`drive`
+  section holds and `engine/nvforever/src/npc_combat.rs` `no_attacking`) resolve
+  metadata through `Game::idle_def`.
+- [hypothesis] Clone-of-clone `MODL/` override inheritance and original-vs-clone
+  independence for `SetIdleAnimPath` are implemented from the documented clone model
+  and remain unqualified against original-game captures. Full save/load lifetime of
+  cloned IDLEs remains session-only (`ext-save.md`).

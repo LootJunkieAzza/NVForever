@@ -102,14 +102,17 @@ bitflags::bitflags! {
         const VIEW_TRANSMISSION_TEXTURE        = 1 << 16;
         // NVForever sun visibility: bindings 39-42 ([`NvfSunVisibilityBindings`]).
         const NVF_SUN_VISIBILITY               = 1 << 17;
+        // NVForever ambient occlusion: bindings 43-44 ([`NvfAmbientOcclusionBindings`]).
+        const NVF_AMBIENT_OCCLUSION            = 1 << 18;
     }
 }
 
 /// NVForever sun visibility (2026-11-17, engine/vendor/README.md): what a view's mesh
 /// view bind group holds for the game's sun visibility factor (nvforever
 /// `sun_visibility.rs`), at bindings 39 (uniform), 40 (cloud transmittance, a filterable
-/// float 2D texture), 41 (terrain shadow-height map, the same kind) and 42 (a filtering
-/// sampler). A view with it gets [`MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY`] and
+/// float 2D texture), 41 (terrain shadow-height map, an unfilterable float 2D texture,
+/// `Rgba32Float`, read with `textureLoad` only) and 42 (a filtering sampler, used with 40
+/// only). A view with it gets [`MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY`] and
 /// those bindings, and its pipelines `MeshPipelineKey::NVF_SUN_VISIBILITY` with the
 /// shader def of the same name (`cloud` and `terrain` add `NVF_CLOUD_VISIBILITY` and
 /// `NVF_TERRAIN_VISIBILITY`). Both sides read this one component in the same frame, so
@@ -125,6 +128,24 @@ pub struct NvfSunVisibilityBindings {
     pub sampler: Sampler,
     pub cloud: bool,
     pub terrain: bool,
+}
+
+/// NVForever ambient occlusion (2026-11-18, engine/vendor/README.md): what a view's mesh
+/// view bind group holds for the game's ambient occlusion on the ambient light (nvforever
+/// `ssao_lighting.rs`), at bindings 43 (uniform) and 44 (the half-resolution occlusion, an
+/// unfilterable float 2D texture read with `textureLoad`). A view with it gets
+/// [`MeshPipelineViewLayoutKey::NVF_AMBIENT_OCCLUSION`] and those bindings, and its
+/// pipelines `MeshPipelineKey::NVF_AMBIENT_OCCLUSION`, with the shader def of the same name
+/// for the pipelines that write depth (Bevy's own rule for its SSAO: what is not in the
+/// depth prepass has no occlusion there). Both sides read this one component in the same
+/// frame, so it may be inserted or removed only during extraction; the texture view and
+/// the buffer's contents may change in any render set before
+/// `RenderSystems::PrepareBindGroups`. Bevy inserts none; without it views are as
+/// upstream's.
+#[derive(Component, Clone)]
+pub struct NvfAmbientOcclusionBindings {
+    pub uniform: Buffer,
+    pub texture: TextureView,
 }
 
 impl MeshPipelineViewLayoutKey {
@@ -210,6 +231,10 @@ impl From<MeshPipelineKey> for MeshPipelineViewLayoutKey {
         // NVForever sun visibility.
         if value.contains(MeshPipelineKey::NVF_SUN_VISIBILITY) {
             result |= MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY;
+        }
+        // NVForever ambient occlusion.
+        if value.contains(MeshPipelineKey::NVF_AMBIENT_OCCLUSION) {
+            result |= MeshPipelineViewLayoutKey::NVF_AMBIENT_OCCLUSION;
         }
 
         result
@@ -528,11 +553,23 @@ fn layout_entries(
                 40,
                 texture_2d(TextureSampleType::Float { filterable: true }),
             ),
+            // The terrain shadow-height map is Rgba32Float, which is not filterable
+            // without an optional feature: unfilterable, read with loads only.
             (
                 41,
-                texture_2d(TextureSampleType::Float { filterable: true }),
+                texture_2d(TextureSampleType::Float { filterable: false }),
             ),
             (42, sampler(SamplerBindingType::Filtering)),
+        ));
+    }
+    // NVForever ambient occlusion ([`NvfAmbientOcclusionBindings`]).
+    if layout_key.contains(MeshPipelineViewLayoutKey::NVF_AMBIENT_OCCLUSION) {
+        entries = entries.extend_with_indices((
+            (43, uniform_buffer_sized(false, None)),
+            (
+                44,
+                texture_2d(TextureSampleType::Float { filterable: false }),
+            ),
         ));
     }
 
@@ -704,6 +741,8 @@ pub fn prepare_mesh_view_bind_groups(
             Option<&RenderViewLightProbes<IrradianceVolume>>,
             // NVForever sun visibility.
             Option<&NvfSunVisibilityBindings>,
+            // NVForever ambient occlusion.
+            Option<&NvfAmbientOcclusionBindings>,
         ),
         Has<ExtractedAtmosphere>,
         (
@@ -774,7 +813,12 @@ pub fn prepare_mesh_view_bind_groups(
             atmosphere_textures,
             atmosphere_buffer,
             tonemapping,
-            (render_view_environment_maps, render_view_irradiance_volumes, nvf_sun_visibility),
+            (
+                render_view_environment_maps,
+                render_view_irradiance_volumes,
+                nvf_sun_visibility,
+                nvf_ambient_occlusion,
+            ),
             has_atmosphere,
             (
                 view_uniform_offset,
@@ -969,6 +1013,15 @@ pub fn prepare_mesh_view_bind_groups(
                     (41, &sun.terrain_texture),
                     (42, &sun.sampler),
                 ));
+            }
+
+            // NVForever ambient occlusion: present exactly when
+            // `check_views_need_specialization` gave the view's pipelines
+            // `MeshPipelineKey::NVF_AMBIENT_OCCLUSION`.
+            if let Some(ao) = nvf_ambient_occlusion {
+                layout_key |= MeshPipelineViewLayoutKey::NVF_AMBIENT_OCCLUSION;
+                entries = entries
+                    .extend_with_indices(((43, ao.uniform.as_entire_binding()), (44, &ao.texture)));
             }
 
             let environment_map_bind_group_entries =

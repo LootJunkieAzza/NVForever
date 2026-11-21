@@ -653,7 +653,7 @@ pub fn get_dead_count(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// The factions and ranks the records give an actor: its base's `SNAM` list, or its
 /// template's with the template flag "Factions" (docs/spec-notes/factions.md §2).
 pub(crate) fn base_factions<'d>(g: &'d Game, r: FormId) -> &'d [(FormId, i8)] {
-    base_of(g, r).map_or(&[], |b| g.data.base_factions_at(b, g.pick_seed(r), g.leveled_at(r)))
+    base_of(g, r).and_then(|b| g.template_source(b, r, |d| d.template_factions)).map_or(&[], |(_, d)| &d.factions)
 }
 
 /// Faction rank of an actor: a run-time change, else the records' ([`base_factions`]);

@@ -60,6 +60,28 @@ impl Game<'_> {
     pub fn take_clamp_requests(&mut self) -> Vec<FormId> {
         std::mem::take(&mut self.jippp.clamp)
     }
+
+    /// A reference's InsertNode entries in each of its drawn models that lacks them: a
+    /// model drawn after the call (the player's before its 3D is built, as a Script Runner
+    /// file at a load) or drawn anew (the player's body rebuilt) [documented: the
+    /// addOrRemove table as ext-jippp.md §1 gives it, mode 3 also at once on a drawn
+    /// reference; hypothesis: the list's nodes are built into the 3D whenever it is
+    /// built]. Each frame (`Game::tick`); base forms' lists are not replayed
+    /// (ext-jippp.md §1).
+    pub(crate) fn insert_runtime_nodes(&mut self) {
+        if self.jippp.nodes.is_empty() {
+            return;
+        }
+        let wanted: Vec<(FormId, String)> = self.jippp.nodes.iter().flat_map(|(f, l)| l.iter().filter(|n| !n.attached).map(|n| (*f, n.spec.clone()))).collect();
+        for (f, spec) in wanted {
+            let Some((target, what)) = spec.split_once('|') else { continue };
+            let (as_parent, name) = match what.strip_prefix('^') {
+                Some(n) => (true, n),
+                None => (false, what),
+            };
+            self.scene.insert_node(f, target, name, as_parent);
+        }
+    }
 }
 
 /// An InsertNode or AttachModel call into the form's runtime node list: modes 1 and 3

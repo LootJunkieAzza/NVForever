@@ -35,8 +35,8 @@
 //!   designated position, even during Combat" [documented: GECK wiki Use Weapon
 //!   Package, Flags]; that the target stays the package's, not whoever attacks it, is
 //!   our reading [design]). While the engine's shooter acts on such a use (in place, its
-//!   target a drawn actor or the player) the combat AI's own attacks wait and the actor
-//!   is drawn facing the use's target, not its enemy (#2120). Otherwise the ordinary
+//!   target having a drawn or placed aim point [design, #2652]) the combat AI's own
+//!   attacks wait and the actor is drawn facing the use's target, not its enemy (#2120). Otherwise the ordinary
 //!   attacks take over and it turns to its enemy ([`WeaponUse::taken`]); its package's
 //!   walk to its stand goes on in combat all the same, so this is not the ordinary combat
 //!   movement (docs/design/use-weapon.md §3).
@@ -105,7 +105,7 @@ pub struct WeaponUse {
     /// for a gun (module notes).
     pub reach: Option<[f32; 2]>,
     /// The fight has the actor this frame: in Combat, a package's use the engine's
-    /// shooter has nothing to act on (a marker target, one not drawn, not yet in place),
+    /// shooter has nothing to act on (no drawn or placed aim point, not yet in place),
     /// so the ordinary attacks take over and the actor turns to its enemy, not the use's
     /// target. Set each frame by the engine's fight (`Game::weapon_use_taken`), cleared
     /// at the start of each of its frames, on a new use and at its end; read only while

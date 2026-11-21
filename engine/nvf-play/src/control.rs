@@ -19,6 +19,9 @@
 //! - Always Run (Caps Lock) toggles running as the default (on by default:
 //!   `bAlwaysRunByDefault=1`); Run (Left Shift) held does the other; Auto Move (Q) walks
 //!   forward until Forward or Back is pressed (player.rs).
+//! - Sprint (no key until the player binds one; Run keeps Left Shift), NVForever's own, only with its NVF Features switch
+//!   on: read here into [`PlayerControl::sprint_held`] for the feature (`crate::stance`, the
+//!   contract).
 //! - Toggle POV (F, middle mouse): a tap switches first and third person; held while the
 //!   mouse moves, it circles the camera around the player without turning them
 //!   ([`Orbit`]; from first person the view goes to third person meanwhile), and when it
@@ -164,6 +167,9 @@ pub struct PlayerControl {
     pub ammo_swap: bool,
     /// The weapon wheel has the mouse and the attack keys (`crate::weapon_wheel`).
     pub wheel: bool,
+    /// The Sprint control is held with Sprint on (`crate::stance`; the Sprint feature reads
+    /// it). Struck by the movement lock.
+    pub sprint_held: bool,
     /// The third-person camera's line through the crosshair, set by [`place_camera`]
     /// each frame; `None` in first person and while the camera circles. Activation and
     /// the player's shots aim along it ([`Crosshair::ray`]).
@@ -197,6 +203,7 @@ impl Default for PlayerControl {
             lowered: false,
             ammo_swap: false,
             wheel: false,
+            sprint_held: false,
             crosshair: None,
             portrait: None,
             cinematic: false,
@@ -214,6 +221,7 @@ impl PlayerControl {
         self.ready_held = None;
         self.aiming = false;
         self.trigger = false;
+        self.sprint_held = false;
     }
 
     /// Whether the player's own view is from outside (third person, or circling), whatever a
@@ -386,6 +394,7 @@ impl ControlLocks {
             let before = (*intent, *control);
             (intent.forward, intent.right, intent.jump) = (0.0, 0.0, false);
             control.auto_move = false;
+            control.sprint_held = false;
             struck[group::MOVEMENT] = (*intent, *control) != before;
         }
         if self.fighting {
@@ -588,6 +597,12 @@ const NOT_BUILT: [Control; 0] = [];
 /// The real clock and the tweaks, for the holster hold (`crate::tweaks`).
 type HoldClock<'w> = (Option<Res<'w, Time<Real>>>, Option<Res<'w, crate::tweaks::TweakSettings>>);
 
+/// Sprint's input (`crate::stance`, the contract): [`PlayerControl::sprint_held`] while the
+/// Sprint control is held with Sprint on (on the key the player bound it to: none by default).
+fn read_stance(input: &ControlInput, stance: Option<&crate::inertia::MovementInertia>, c: &mut PlayerControl) {
+    c.sprint_held = stance.is_some_and(crate::inertia::MovementInertia::sprint_on) && input.pressed(Control::Sprint);
+}
+
 /// Toggles, holds, the third-person zoom; see the module notes.
 #[allow(clippy::too_many_arguments)]
 pub fn read_controls(
@@ -599,14 +614,17 @@ pub fn read_controls(
     mut control: ResMut<PlayerControl>,
     hud: Option<ResMut<HudMessage>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
+    stance: Option<Res<crate::inertia::MovementInertia>>,
 ) {
     if *state.get() != PlayState::Playing {
         control.aiming = false;
         control.trigger = false;
         control.ready_held = None;
         control.orbit.held = false;
+        control.sprint_held = false;
         return;
     }
+    read_stance(&input, stance.as_deref(), &mut control);
     let mut message: Option<String> = None;
     let c = &mut *control;
     let was_out = c.weapon_out;
@@ -628,7 +646,8 @@ pub fn read_controls(
         c.auto_move = !c.auto_move;
     }
     // Ready Item: draw at once; with the weapon out, tap to reload, hold to holster.
-    if input.just_pressed(Control::ReadyItem) {
+    // Not while Quick Loot has the key (its full menu, `crate::quick_loot`).
+    if input.just_pressed(Control::ReadyItem) && !crate::quick_loot::holds_input() {
         if c.weapon_out {
             c.ready_held = Some(0.0);
         } else if tweaks.as_ref().is_some_and(|t| t.ready_does_not_draw) {
@@ -731,7 +750,7 @@ pub fn read_controls(
     let wheel = switches.is_none_or(|s| s.vanity_wheel);
     // The player's tweak: the wheel moves the camera only with Toggle View held [design: docs/design/tweaks.md].
     let wheel = wheel && !(tweaks.as_ref().is_some_and(|t| t.camera_wheel_needs_pov) && !input.pressed(Control::TogglePov));
-    if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
+    if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() && !crate::quick_loot::holds_input() {
         c.distance = zoom(c.distance, scroll.delta.y);
     }
     // The player's tweak: drawing goes to first person, holstering to third [design: docs/design/tweaks.md].
@@ -1182,6 +1201,57 @@ mod tests {
         // Toggle POV tapped without moving the mouse switches the view.
         tap(&mut app, KeyCode::KeyF);
         assert_eq!(control(&app).pov, Pov::Third);
+    }
+
+    /// Sprint's input (`crate::stance`): no key by default, so Shift (Run's) holds none; a key
+    /// the player binds holds it while Sprint is on, nothing with it off; the movement lock
+    /// strikes it.
+    #[test]
+    fn sprint_input_follows_its_switch_and_key() {
+        let mut app = app();
+        app.init_resource::<crate::inertia::MovementInertia>();
+        let step = |app: &mut App, secs: f32| {
+            app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(secs));
+            app.update();
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
+        };
+        fn keys(app: &mut App) -> Mut<'_, ButtonInput<KeyCode>> {
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>()
+        }
+        // Unbound by default (#3000): Shift, Run's key, holds no sprint, on or off.
+        keys(&mut app).press(KeyCode::ShiftLeft);
+        for _ in 0..4 {
+            step(&mut app, 0.4);
+        }
+        assert!(!control(&app).sprint_held, "off and unbound: nothing");
+        app.world_mut().resource_mut::<crate::inertia::MovementInertia>().sprint = true;
+        step(&mut app, 0.1);
+        assert!(!control(&app).sprint_held, "on but unbound: Shift is Run's, no sprint");
+        keys(&mut app).release_all();
+        step(&mut app, 0.1);
+        // A key the player binds holds it while Sprint is on, and Run keeps Shift.
+        app.world_mut().resource_mut::<Bindings>().rebind(Control::Sprint, crate::bindings::Input::Key(KeyCode::KeyG));
+        assert_eq!(app.world().resource::<Bindings>().get(Control::Run).key, Some(KeyCode::ShiftLeft));
+        keys(&mut app).press(KeyCode::KeyG);
+        step(&mut app, 0.1);
+        assert!(control(&app).sprint_held, "the bound key sprints");
+        keys(&mut app).release(KeyCode::KeyG);
+        step(&mut app, 0.1);
+        assert!(!control(&app).sprint_held);
+        // Off again: the bound key holds nothing.
+        app.world_mut().resource_mut::<crate::inertia::MovementInertia>().sprint = false;
+        keys(&mut app).press(KeyCode::KeyG);
+        step(&mut app, 0.1);
+        assert!(!control(&app).sprint_held, "off: nothing");
+        keys(&mut app).release_all();
+        step(&mut app, 0.1);
+        // The sneaking lock leaves it; the movement lock strikes it.
+        let mut i = MoveIntent::default();
+        let mut c = PlayerControl { sprint_held: true, ..control(&app) };
+        ControlLocks { sneaking: true, ..Default::default() }.apply(&mut i, &mut c);
+        assert!(c.sprint_held);
+        ControlLocks { movement: true, ..Default::default() }.apply(&mut i, &mut c);
+        assert!(!c.sprint_held);
     }
 
     #[test]

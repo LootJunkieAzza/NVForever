@@ -66,6 +66,9 @@ use fnv_sim::world::{Encumbrance, SimError};
 use fnv_sim::{FormId, Pick, RefTable, World};
 use std::collections::BTreeMap;
 
+mod search;
+pub use search::{SearchError, MAX_SEARCH_CHARS};
+
 /// Rows the inventory (the Pip-Boy's ITEMS list) shows at once; the list scrolls to keep
 /// the selection visible. Its list is 468 high and a row 51 (`pipboy::items`).
 pub const VISIBLE_ROWS: usize = 9;
@@ -780,6 +783,7 @@ impl Trade {
 #[derive(Debug, Clone)]
 pub struct MenuModel {
     pub mode: Mode,
+    search: search::Search,
     /// The column that has the keyboard (always `Player` in the inventory menu).
     pub focus: Side,
     /// Selected row per column, indexed by `Side as usize`.
@@ -1058,6 +1062,7 @@ impl MenuModel {
     fn empty(mode: Mode, title: String) -> MenuModel {
         MenuModel {
             mode,
+            search: Default::default(),
             focus: Side::Player,
             selected: [0; 2],
             scroll: [0; 2],
@@ -1139,6 +1144,7 @@ impl MenuModel {
     /// the same row when it is still there (else on the same position).
     pub fn refresh(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
         let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.units(), r.bartered, r.folder, r.live)));
+        let search_keep = [Side::Container, Side::Player].map(|s| self.search.capture(self, s));
         if self.trade.is_some() {
             self.refresh_trade(world)?;
         } else {
@@ -1195,10 +1201,15 @@ impl MenuModel {
                 self.lists[side as usize] = l;
             }
         }
-        for &side in self.columns() {
+        let columns = self.columns();
+        self.search.filter(&mut self.lists, columns);
+        for &side in columns {
             let i = side as usize;
             let rows = &self.lists[i].rows;
-            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k));
+            let at = match search_keep[i] {
+                Some(key) => key.find(rows),
+                None => keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k)),
+            };
             self.selected[i] = at.unwrap_or(self.selected[i]).min(rows.len().saturating_sub(1));
             self.ensure_visible(side);
         }

@@ -94,6 +94,12 @@ impl MaterialExtension for TreeBillboards {
     }
 }
 
+/// Whether leaf cards take the ambient occlusion in the lighting (ssao_lighting.rs) where
+/// bevy_pbr's rule gives it the def (alpha-masked, in the prepass). On by default; the
+/// switch to leave them out if their shimmer in shade outweighs the darker crowns in
+/// pictures [engineering choice, #2897 stage two plan §4].
+const LEAVES_READ_AMBIENT_OCCLUSION: bool = true;
+
 impl MaterialExtension for LeafCards {
     fn vertex_shader() -> ShaderRef {
         SHADER.into()
@@ -114,6 +120,9 @@ impl MaterialExtension for LeafCards {
         // Trees fade in and out with their cells (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
         nvf_assets::soft_edges(descriptor, key.mesh_key);
+        if !LEAVES_READ_AMBIENT_OCCLUSION {
+            nvf_assets::ambient_occlusion_opt_out(descriptor);
+        }
         Ok(())
     }
 }
@@ -334,6 +343,12 @@ pub struct TreeCtx<'w> {
 }
 
 impl TreeCtx<'_> {
+    /// Whether TREE `tree`'s geometry was built (or found missing) already, so
+    /// [`Self::visual`] reads nothing.
+    pub fn built(&self, tree: u32) -> bool {
+        self.cache.0.contains_key(&tree)
+    }
+
     pub fn visual(&mut self, world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<Arc<TreeVisual>> {
         if let Some(v) = self.cache.0.get(&tree) {
             return v.clone();

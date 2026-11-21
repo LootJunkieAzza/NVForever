@@ -249,6 +249,9 @@ const SNEAK_BOB: f32 = 0.6;
 const SNEAK_BREATH: f32 = 0.35;
 /// Seconds to fade the whole effect in or out (Pip-Boy, idles, the switch).
 const FADE_SECONDS: f32 = 0.15;
+/// Fading out, below this share the effect is gone (about 1 s after it was let go): the
+/// last of an exponential fade, at most a few thousandths of a degree or a unit.
+pub const GAIN_FLOOR: f32 = 1e-3;
 /// Seconds the shares down the sights and sneaking take to come and go (times the weight):
 /// switched at once they stepped the hand the frame the stance changed [observed: the
 /// motion trace of 2026-11-14, 0.37 units at an aim's end].
@@ -327,11 +330,13 @@ pub struct SwayInput {
     pub reloading: f32,
     /// Whether the arms may sway at all this frame.
     pub on: bool,
+    /// The sprint's share (0–1): a larger bob (`crate::sprint_view`).
+    pub sprint: f32,
 }
 
 impl Default for SwayInput {
     fn default() -> Self {
-        SwayInput { dt: 0.0, heading: 0.0, pitch: 0.0, velocity: Vec2::ZERO, vertical: 0.0, phase: 0.0, sights: false, sneaking: false, airborne: false, heft: 1.0, breathing: true, hard_landings: true, raised: 0.0, drawn: 0.0, kick: 0.0, punch: Vec3::ZERO, exertion: 0.0, reloading: 0.0, on: false }
+        SwayInput { dt: 0.0, heading: 0.0, pitch: 0.0, velocity: Vec2::ZERO, vertical: 0.0, phase: 0.0, sights: false, sneaking: false, airborne: false, heft: 1.0, breathing: true, hard_landings: true, raised: 0.0, drawn: 0.0, kick: 0.0, punch: Vec3::ZERO, exertion: 0.0, reloading: 0.0, on: false, sprint: 0.0 }
     }
 }
 
@@ -430,6 +435,11 @@ impl ViewSway {
         // The springs' times and the sizes grow with the weapon's weight.
         let slow = heft;
         self.gain += (f32::from(u8::from(i.on)) - self.gain) * follow(FADE_SECONDS);
+        // Switched off, the fade ends at nothing, not a hair over it: the arms are then the
+        // clips' own exactly, as in the original (`SwayPose::NONE`).
+        if !i.on && self.gain < GAIN_FLOOR {
+            self.gain = 0.0;
+        }
 
         // Turn lag: from how fast the view turns this frame. A jump of the view (a
         // teleport, an idle letting go) is not a turn: the arms go with it.
@@ -523,7 +533,7 @@ impl ViewSway {
         // In the air the stride's bob fades and its middle stays (`head_bob.rs`, the same
         // for the view): the gun lands where it was carried.
         let running = (speed / FULL_BOB_SPEED).min(1.0);
-        let bob_target = if i.airborne { 0.0 } else { running };
+        let bob_target = if i.airborne { 0.0 } else { running * crate::sprint_view::weapon_bob_gain(i.sprint) };
         self.bob.step(bob_target, omega_for(BOB_SETTLE_SECONDS * slow), dt);
         self.bob_carry.step(running, omega_for(BOB_SETTLE_SECONDS * slow), dt);
         let exertion = i.exertion.clamp(0.0, 1.0);
@@ -550,7 +560,7 @@ impl ViewSway {
         let back = -soft_clamp(-self.recoil[0].value, MAX_RECOIL_BACK) * recoil_share;
         let kick_up = soft_clamp(self.recoil[1].value, MAX_RECOIL_UP) * recoil_share;
         let kick_side = soft_clamp(self.recoil[2].value, MAX_RECOIL_UP) * recoil_share;
-        self.peak_recoil = self.peak_recoil.max(-back);
+        self.peak_recoil = self.peak_recoil.max(-back) + 0.0; // -0.0 to 0.0 for the summary
         let lag = self.lag * sway_share;
         let lift = soft_clamp(self.lift.out.value, MAX_LIFT * heft) * sway_share;
         // The raise's lag is the act of aiming itself: not calmed down the sights.
@@ -600,7 +610,7 @@ impl ViewSway {
         let breath = Vec2::new(b.sin(), 0.5 * (2.0 * b).sin()) * BREATH_WIDTH * breath_share;
         let offset = Vec3::new(BOB_SWAY * swing * bob_share + hand.x + breath.x, hand.y + back, dip + lift + aim + breath.y + hand.y.min(0.0) * AHEAD_DROP) + pitch_offset + Vec3::new(-RELOAD_IN * reload, 0.0, -AHEAD_WALK_DROP * walk - RELOAD_DROP * reload);
         self.peak_lag = self.peak_lag.max(lag.abs());
-        self.peak_dip = self.peak_dip.max(-dip);
+        self.peak_dip = self.peak_dip.max(-dip) + 0.0; // -0.0 to 0.0 for the summary
         self.peak_lift_dip = self.peak_lift_dip.max(-lift);
         // The jump's tip turns about the grip: the turn about the eye and a move that puts
         // the grip back.
@@ -1102,5 +1112,55 @@ mod tests {
         settle(&mut s, input(0.0, v, FOOTFALL_PHASE), 120);
         let p = settle(&mut s, SwayInput { on: false, ..input(0.0, v, FOOTFALL_PHASE) }, 120);
         assert!(p.offset.length() < 1e-3, "{p:?}");
+    }
+
+    /// Everything that moves the gun at once, frame `f` of a loop: turning and pitching,
+    /// running with a stride and strafing, breathing out of breath, shots, a blow, a reload,
+    /// raising to aim, drawing, and a jump with its landing.
+    fn busy(f: usize, on: bool) -> SwayInput {
+        let t = f as f32 / 60.0;
+        let jumping = f % 240 >= 200;
+        SwayInput {
+            dt: 1.0 / 60.0,
+            heading: 2.0 * (t * 1.3).sin(),
+            pitch: 0.6 * (t * 0.9).sin(),
+            velocity: Vec2::new(150.0 * (t * 0.7).sin(), 300.0),
+            vertical: if jumping { 290.0 - 980.0 * (f % 240 - 200) as f32 / 60.0 } else { 0.0 },
+            phase: (t / 0.72).fract(),
+            airborne: jumping,
+            sights: f % 300 > 250,
+            raised: f32::from(u8::from(f % 300 > 250)),
+            drawn: f32::from(u8::from(f % 500 > 40)),
+            reloading: f32::from(u8::from(f % 400 > 350)),
+            kick: if f.is_multiple_of(9) { 1.2 } else { 0.0 },
+            punch: if f.is_multiple_of(170) { Vec3::new(0.3, -0.2, -1.0) } else { Vec3::ZERO },
+            exertion: 0.8,
+            heft: heft(12.0),
+            on,
+            ..SwayInput::default()
+        }
+    }
+
+    #[test]
+    fn switched_off_the_arms_are_exactly_the_clips() {
+        // Weapon Inertia (or the Global Toggle) off from the start: no pose at all, whatever
+        // the player does, so `player_body` leaves `Bip01 Translate` as the clips put it, as
+        // in the original. Rescaled for another viewmodel field of view, still none.
+        let mut s = ViewSway::default();
+        for f in 0..1200 {
+            let p = s.update(busy(f, false));
+            assert_eq!(p, SwayPose::NONE, "frame {f}");
+            assert_eq!(rescale(p, 0.8), SwayPose::NONE, "frame {f}, rescaled");
+        }
+        assert_eq!((s.peak_lag, s.peak_dip, s.peak_lift_dip, s.peak_recoil), (Vec2::ZERO, 0.0, 0.0, 0.0), "the exit summary shows none");
+        // On for a while, then off (the settings page part-way through a game): after the
+        // fade, exactly none again.
+        let mut s = ViewSway::default();
+        let most = (0..1200).map(|f| s.update(busy(f, true)).offset.length()).fold(0.0f32, f32::max);
+        assert!(most > 1.0, "it moved while on: {most}");
+        let off: Vec<SwayPose> = (1200..2400).map(|f| s.update(busy(f, false))).collect();
+        let first_exact = off.iter().position(|p| *p == SwayPose::NONE).expect("it ends at none");
+        assert!(first_exact < 90, "it took {first_exact} frames");
+        assert!(off[first_exact..].iter().all(|p| *p == SwayPose::NONE), "exactly none from then on");
     }
 }

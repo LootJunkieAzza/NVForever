@@ -38,6 +38,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::window::PrimaryWindow;
 use nvf_assets::model::ModelCtx;
+use nvf_assets::NifMaterial;
 use nvf_play::terminal::screen::{CANVAS, TEXTURE_UNITS};
 use nvf_play::terminal::{MonitorView, PowerAid, TerminalImage, TerminalInput, TerminalPointer, TerminalScreen, TARGET};
 
@@ -164,18 +165,14 @@ fn show(
             m.base.unlit = true;
             m.base.alpha_mode = AlphaMode::Opaque;
             m.base.uv_transform = bevy::math::Affine2::from_scale(TEXTURE_UNITS / TARGET.as_vec2());
+            // An unlit copy carries nothing of an authored set (#2981), as the Pip-Boy's.
+            nvf_assets::authored::clear_for_unlit_copy(&mut m);
             material = models.materials.add(m);
             drawn.glass = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
         } else if name.eq_ignore_ascii_case("glare:0") {
             // [design] The model's texture on Bevy's own additive material: its colour,
             // texel × GLARE_LINEAR_SCALE, is added in linear light (GLARE_LINEAR_SCALE).
-            let mut m = models.materials.get(&s.material).map(|m| m.base.clone()).unwrap_or_default();
-            m.base_color = Color::linear_rgb(GLARE_LINEAR_SCALE.x, GLARE_LINEAR_SCALE.y, GLARE_LINEAR_SCALE.z);
-            m.emissive = LinearRgba::BLACK;
-            m.emissive_texture = None;
-            m.normal_map_texture = None;
-            m.unlit = true;
-            m.alpha_mode = AlphaMode::Add;
+            let m = models.materials.get(&s.material).map(glare_material).unwrap_or_else(|| glare_material(&NifMaterial::default()));
             glare = Some(plain.add(m));
         } else if is_button(name) {
             drawn.button = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
@@ -274,9 +271,48 @@ fn follow_pointer(
     }
 }
 
+/// The glare's material on Bevy's own additive material, from the model's: its colour,
+/// texel x GLARE_LINEAR_SCALE, added in linear light. The source's authored set comes off
+/// first (#2981, `clear_for_unlit_copy`, as for the glass): no ORM, no depth map, and a height
+/// overlay's depth, method and layers back to the legacy look's.
+fn glare_material(source: &NifMaterial) -> StandardMaterial {
+    let mut own = source.clone();
+    nvf_assets::authored::clear_for_unlit_copy(&mut own);
+    let mut m = own.base;
+    m.base_color = Color::linear_rgb(GLARE_LINEAR_SCALE.x, GLARE_LINEAR_SCALE.y, GLARE_LINEAR_SCALE.z);
+    m.emissive = LinearRgba::BLACK;
+    m.emissive_texture = None;
+    m.normal_map_texture = None;
+    m.metallic_roughness_texture = None;
+    m.occlusion_texture = None;
+    m.depth_map = None;
+    m.unlit = true;
+    m.alpha_mode = AlphaMode::Add;
+    m
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2981 review H3: the glare copy of a material wearing a height overlay keeps nothing of
+    /// it: no depth map, and the legacy look's depth, method and layer count.
+    #[test]
+    fn the_glare_copy_drops_a_height_overlay_whole() {
+        use nvf_assets::authored::{LegacyLook, Parallax};
+        let mut images = Assets::<Image>::default();
+        let mut source = nvf_assets::nif_material(StandardMaterial::default());
+        let baseline = Parallax::default();
+        source.extension.legacy = Some(LegacyLook { normal: None, specular: None, roughness: 0.7, reflectance: 0.3, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, parallax: baseline.clone(), scripted_tint: None });
+        let mut overlay = Parallax::height(images.add(Image::default()), 0.07);
+        overlay.method = bevy::pbr::ParallaxMappingMethod::DEFAULT_RELIEF_MAPPING;
+        overlay.put(&mut source.base);
+        source.extension.height_overlay = true;
+        let glare = glare_material(&source);
+        assert_eq!(Parallax::of(&glare), baseline, "depth map, depth, method and layers as without the overlay");
+        assert!(glare.unlit && matches!(glare.alpha_mode, AlphaMode::Add));
+        assert!(source.base.depth_map.is_some(), "the source left alone");
+    }
 
     #[test]
     fn the_canvas_starts_at_the_glass_corner() {

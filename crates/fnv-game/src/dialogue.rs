@@ -29,6 +29,10 @@ use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+/// The Editor ID of the speech challenge's failure topic (DIAL 0x000000FD in both masters)
+/// [documented: GECK wiki Topics Tab; observed: FalloutNV.esm, Fallout3.esm].
+pub const SPEECH_CHALLENGE_FAILURE: &str = "SpeechChallengeFailure";
+
 /// How far from the player a StartConversation speaker may be and still talk at once,
 /// game units ([`Game::walk_up_greet`]) [design: twice the AI's standard talk distance].
 pub const WALK_UP_REACH: f32 = 300.0;
@@ -323,7 +327,8 @@ impl<'a> Game<'a> {
     ///   the line's, with the speaker as subject and the listener as target
     ///   [hypothesis: the page does not say on whom];
     /// - the line's conditions pass with the speaker as subject and the listener as
-    ///   target [documented: Category:Conditions, Run On].
+    ///   target [documented: Category:Conditions, Run On]. A talking activator as the
+    ///   listener is its talking actor here ([`Game::conditions_target`]).
     pub fn can_say(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId) -> bool {
         self.can_say_as(speaker, listener, info, Says::Actor)
     }
@@ -365,6 +370,7 @@ impl<'a> Game<'a> {
         let data = self.data;
         let dv = self.dialogue_view();
         let Some(def) = dv.info(&info) else { return Err(Blocked::NotALine) };
+        let listener = listener.map(|l| self.conditions_target(l));
         if def.say_once && self.said_once(info) {
             return Err(Blocked::SaidOnce);
         }
@@ -510,6 +516,9 @@ impl<'a> Game<'a> {
     #[allow(clippy::too_many_arguments)]
     fn select_among_but(&mut self, speaker: FormId, listener: Option<FormId>, lines: &[FormId], keep: &impl Fn(&InfoDef) -> bool, lead_only: bool, says: Says, stale: &BTreeSet<FormId>) -> Option<FormId> {
         let dv = self.dialogue_view();
+        // Once for all the lines: a talking activator listens as its talking actor
+        // ([`Game::line_verdict`], [`Game::conditions_target`]).
+        let listener = listener.map(|l| self.conditions_target(l));
         let kept = |i: &FormId| !(lead_only && dv.is_follow_up(i)) && dv.info(i).is_some_and(keep);
         let mut at = 0;
         while at < lines.len() {
@@ -753,6 +762,7 @@ impl<'a> Game<'a> {
         if def.has(info_flag::RUN_IMMEDIATELY) {
             self.run_line_result(actor, def, true);
         }
+        self.jip_dialog_topic(actor, topic, info);
     }
 
     fn emit_response(&mut self, actor: FormId, def: &InfoDef, info: FormId, position: usize) {
@@ -1059,6 +1069,11 @@ impl<'a> Game<'a> {
         let dv = self.dialogue_view();
         let priority = |t: &FormId| dv.topic(t).map_or(50.0, |d| d.priority);
         let mut links = self.links_after(topic, def);
+        // The speech challenge's failure topic is what the actor says when a challenge
+        // fails [documented: GECK wiki Topics Tab, SpeechChallengeFailure], not a choice
+        // for the player: its lines' Link From names the challenge it answers, and offered
+        // through it the list showed its Editor ID (Megaton's Lucas Simms in TTW, #3024).
+        links.retain(|l| l.from.is_none() || !dv.topic(&l.topic).and_then(|d| d.edid.as_deref()).is_some_and(|e| e.eq_ignore_ascii_case(SPEECH_CHALLENGE_FAILURE)));
         if !def.choices.is_empty() {
             links.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)));
             let out = self.offer(actor, &links);
