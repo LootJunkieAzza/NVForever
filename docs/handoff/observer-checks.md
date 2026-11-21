@@ -3431,3 +3431,18 @@ already talking takes over at once, same topic or another; nothing is queued or 
      damage-stage field fits every case found too. They differ on Point Lookout's
      DLC04DarMuckBubble (0x0A012C5E: index 1, damage stage 3, at 40 %): damage one to under
      40 % with the console (`DamageObject`) and print `GetDestructionStage` (2 or 3).
+
+## Added 2026-11-21 (talking through cell bars, #3233)
+
+249. **Does the crosshair pass collision on the Transparent layer (3), and on Transparent
+     Small (26/28): can the player talk to, take, open or search what stands behind it?**
+     (P2; #3233, simulation.md §5 "Talking through bars".) The wiki says nothing but
+     projectiles passes Transparent and that actors see through it [documented: GECK wiki
+     "Collision layer"]; it says the player activates and loots through Invisible Wall
+     (27) only. Ours: Talk alone passes the see-through layers, when nothing else is
+     offered [design]. In Vault 3 (Vault3b), stand at the cell bars (JailCellDoorway01,
+     0x000EF3FA, layer 3) with Rick Lancer (V3Prisoner01Ref 0x000F47B0) behind them: does
+     the prompt show Talk and does E open the conversation? With an item dropped behind
+     the bars (`player.drop` then nudge it in, or one placed there with `PlaceAtMe`), is it
+     offered? A screenshot of each prompt answers it; `GetCrosshairRef` printed at the
+     bars says which reference the crosshair holds.

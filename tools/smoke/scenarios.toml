@@ -9926,6 +9926,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "captive-through-bars"
+source = "#3233 (docs/spec-notes/simulation.md §5 \"Talking through bars\"): the Vault 3 captives stand behind JailCellDoorway01 (0x000EF3FA), one collision object on layer 3 Transparent, which took the crosshair, so they could not be talked to; when nothing else is offered, a living actor to talk to behind a see-through layer is the target, and E only opens the conversation"
+note = "the player at the report's spot in Vault3b (feet -2723,4553,5889; V3Prisoner01Ref 0x000F47B0, Rick Lancer, placed at -2773,4664,5888 behind the bars), looking at him (heading 336, pitch -10: the view ray of `fnvtool phys cell --cell Vault3b --ray -2723,4553,6005,-50,110.7,-25`, which hits the bars 25 units out); no face aid, which would move the player; god mode against the Fiends nearby; E at 8 s. If Rick has walked from his placed spot the target line is missing: look at where he stands before calling it a regression"
+areas = ["activation", "dialogue"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/see_through.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_ACTIVATE = "8" }
+args = ["--cell", "Vault3b", "--pos=-2723,4553,5889", "--heading", "336", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'target 0x000F47B0 .*\(Talk\) by Collision through 0x000EF3FA', label = "Rick Lancer is targeted with Talk through the cell bars (the bars the first collision hit)" },
+  { re = 'activate 0x000F47B0 .*\(Talk through 0x000EF3FA\): a conversation started', label = "E through the bars only opens the conversation" },
+  { re = 'dialogue: conversation with V3Prisoner01Ref started', label = "the conversation opens" },
+]
+
+[[scenario]]
 name = "door-behind-wall-face"
 source = "#1339 (docs/spec-notes/cells-refs.md §5): the Nipton town hall's collision mesh has a face 8.5 units in front of its door's slab, so the crosshair stopped on the building and the door could not be used; a door within 16 units behind a face that cannot be activated is the target"
 note = "the town hall's outside door (0x00130CFF, a teleport into NiptonTownHallInterior), the player put 100 units south of it facing it; E at 8 s takes the player inside"

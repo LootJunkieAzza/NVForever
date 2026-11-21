@@ -100,8 +100,12 @@ layer 27, Invisible Wall, as it passes trigger volumes; what stands behind such 
 the target. The Gun Runners' kiosk (`nv_gunrun_kiosk.nif`, one static body on layer 27,
 306 vertices) stood between the crosshair and the Vendortron inside it (GunRunnerProtectron,
 VendortronRef 0x000F2EAA), so it could not be talked to [observed: fnvtool collide objects,
-#1602]. [hypothesis: by the layer's name; sight and blast cover pass the layer too.] Shots
-and the player still stop at it, and PlaceAtReticle's far ray stops at it.
+#1602]. "The player can activate / loot objects through this layer" [documented: GECK
+wiki "Collision layer", INVISIBLE WALL]. Shots and the player still stop at it, and
+PlaceAtReticle's far ray stops at it. Collision on the see-through layers (Transparent,
+Transparent Small, Transparent Small Anim) still takes the crosshair, but a living actor
+to talk to just behind it is the target when nothing else is offered (#3233,
+docs/spec-notes/simulation.md §5 "Talking through bars").
 
 **Helipad ladder targeting diagnostics (#2528).** [design:
 `engine/nvf-play/src/activate.rs::find_target`, `activate/pick.rs::choose`]

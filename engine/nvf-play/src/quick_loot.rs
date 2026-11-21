@@ -1228,7 +1228,7 @@ mod tests {
         let mut scripts = ScriptState::over_plugins(play.lo.plugins);
         let mut sim = SimState::new(play.lo, play.schema, play.index);
         let rt = scripts.rt.as_mut().unwrap();
-        let target = |form_id: u32| crate::activate::Targeted { form_id, name: "Guard".into(), action: Action::Steal, distance: 50.0, source: crate::activate::pick::Source::Collision, crime: true, empty: false };
+        let target = |form_id: u32| crate::activate::Targeted { form_id, name: "Guard".into(), action: Action::Steal, distance: 50.0, source: crate::activate::pick::Source::Collision, crime: true, empty: false, through: None };
         // Placed and judged with the world attached, as the frame does (`script::with_world`).
         let (guard, plain) = crate::script::with_world(rt, &mut sim, |rt| {
             let mut placed = |base: &str| {

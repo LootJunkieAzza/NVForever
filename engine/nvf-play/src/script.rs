@@ -1019,6 +1019,29 @@ impl Runtime {
         r
     }
 
+    /// The player talks to `actor` through bars or a fence (#3233,
+    /// `crate::activate::see_through`): only the conversation opens (`Game::start_dialogue`).
+    /// Not an activation: no OnActivate block, perks' choices, companion wheel or default
+    /// action; an actor asleep is not woken through the bars [design].
+    fn talk_only(&mut self, actor: FormId) -> Result<ByHand, String> {
+        if self.game.asleep(actor) {
+            info!("dialogue: {} is asleep behind the bars: not woken", self.game.data.name(actor));
+            return Ok(ByHand::Refused);
+        }
+        self.observe_inventory();
+        let g = &mut self.game;
+        let r = g.start_dialogue(actor, None).map(|info| {
+            if g.dialogue.is_some() {
+                info!("dialogue: the player talks to {} through the bars: its greeting is {}", g.data.name(actor), g.data.name(info));
+                ByHand::Talk
+            } else {
+                ByHand::Greeted
+            }
+        });
+        self.snapshot_inventory();
+        r
+    }
+
     /// The player's activations among the events from index `from` on whose default
     /// action is to talk (`Outcome::Talk`: a living actor): the conversation starts with
     /// the actor's greeting (`Game::start_dialogue`). An actor with nothing to say starts
@@ -1415,6 +1438,15 @@ pub enum ByHand {
 /// anyway, seconds of game time [our choice: the getting-off clips of beds last a few
 /// seconds].
 pub const WAKE_TALK_SECONDS: f64 = 8.0;
+
+/// The player talks to `target` through bars or a fence (`Runtime::talk_only`): only
+/// the conversation opens. Without the scripts there is none.
+pub fn talk_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
+    match script.and_then(|s| s.rt.as_mut()) {
+        Some(rt) => with_world(rt, sim, |rt| rt.talk_only(FormId(target))),
+        None => Err("the scripts are not running".into()),
+    }
+}
 
 /// The player activates `target` by hand (E): through the scripts when they run.
 pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
