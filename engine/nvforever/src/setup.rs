@@ -131,6 +131,11 @@ pub fn follow_text_language() {
 /// (docs/design/install-layout.md). A localized install pointing these at its own files is
 /// [hypothesis: no localized install looked at, observer check 77].
 pub fn install_fonts(game: &GameInstall) {
+    let cjk = EngineHome::user().and_then(|home| {
+        let cfg = Config::load(&home).ok()?;
+        cfg.cjk_font_path.map(|path| home.root.join(path))
+    });
+    nvf_play::interface::set_cjk_font_path(cjk);
     let Some(text) = fnv_install::child_ci(&game.root, "Fallout_default.ini").and_then(|p| std::fs::read(p).ok()) else {
         return;
     };

@@ -1758,7 +1758,13 @@ impl App {
     fn save_game_folder(&mut self) {
         let dir = PathBuf::from(self.game_edit.trim());
         let r = match GameInstall::open(&dir) {
-            Ok(_) => self.write_ini(|t| Config { game_dir: Some(dir.clone()), code_page: None }.to_ini(&t)),
+            Ok(_) => self.write_ini(|t| {
+                Config {
+                    game_dir: Some(dir.clone()),
+                    ..Config::default()
+                }
+                .to_ini(&t)
+            }),
             Err(e) => Err(e.to_string()),
         };
         self.after_write(r, Some("Game folder saved."));

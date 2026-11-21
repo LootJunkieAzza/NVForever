@@ -179,6 +179,8 @@ pub mod wait;
 pub mod world_sounds;
 pub mod xp_meter;
 
+mod cjk_font;
+
 use bevy::prelude::*;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_world::WorldIndex;

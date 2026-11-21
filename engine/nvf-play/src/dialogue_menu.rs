@@ -313,7 +313,7 @@ fn crop_x(width: f32) -> f32 {
 /// on: the greatest ascent, and the greatest of height less ascent (the glyph's own
 /// numbers, `fnv_font::Glyph`); [`STAND_IN_INK`] where none is drawn.
 fn glyph_ink(line: &Line, font: &Font) -> (f32, f32) {
-    let drawn: Vec<_> = line.glyphs.iter().map(|p| font.glyph(p.code)).filter(|g| g.drawn()).collect();
+    let drawn: Vec<_> = line.glyphs.iter().map(|p| font.bitmap_glyph(p)).filter(|g| g.drawn()).collect();
     if drawn.is_empty() {
         return STAND_IN_INK;
     }

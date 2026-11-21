@@ -424,6 +424,8 @@ pub struct Config {
     pub game_dir: Option<PathBuf>,
     /// `[Text] CodePage`, as written (checked where it is used); None: not set.
     pub code_page: Option<String>,
+    /// `[Interface] CjkFontPath`, absolute or relative to the INI.
+    pub cjk_font_path: Option<PathBuf>,
 }
 
 /// `nvforever.json` of earlier builds; unknown keys are ignored.
@@ -453,13 +455,20 @@ impl Config {
         };
         let c: LegacyConfig =
             serde_json::from_str(&text).map_err(|e| InstallError::Config(format!("{}: {e}", legacy.display())))?;
-        Ok(Config { game_dir: c.game_dir, code_page: None })
+        Ok(Config {
+            game_dir: c.game_dir,
+            ..Config::default()
+        })
     }
 
     pub fn from_ini(text: &str) -> Config {
         Config {
             game_dir: ini_get(text, "Game", "Path").filter(|s| !s.is_empty()).map(PathBuf::from),
             code_page: ini_get(text, "Text", "CodePage").filter(|s| !s.is_empty()),
+            cjk_font_path: ini_get(text, "Interface", "CjkFontPath")
+                .map(|path| path.trim_matches('"').trim().to_owned())
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from),
         }
     }
 
@@ -827,6 +836,23 @@ mod tests {
         // Saving the game folder keeps the hand-written code page.
         let again = Config { game_dir: Some(PathBuf::from("D:\\FNV")), ..Config::default() }.to_ini("[Text]\nCodePage=1251\n");
         assert_eq!(Config::from_ini(&again).code_page.as_deref(), Some("1251"));
+    }
+
+    #[test]
+    fn cjk_font_path_is_optional_and_kept_when_saving() {
+        let text = "[Interface]\nCjkFontPath = \"fonts/My CJK font.otf\"\n";
+        let path = Path::new("fonts/My CJK font.otf");
+        assert_eq!(Config::from_ini(text).cjk_font_path.as_deref(), Some(path));
+        assert_eq!(
+            Config::from_ini("[Interface]\nCjkFontPath=\n").cjk_font_path,
+            None
+        );
+        assert_eq!(
+            Config::from_ini(&Config::default().to_ini(text))
+                .cjk_font_path
+                .as_deref(),
+            Some(path)
+        );
     }
 
     #[test]

@@ -2498,6 +2498,32 @@ mod tests {
         assert_eq!(lines.iter().map(|(_, _, base)| *base).collect::<Vec<_>>(), [30.0, 30.0 + 52.0]);
     }
 
+    #[test]
+    fn measured_and_drawn_cjk_tile_lines_use_the_same_advances() {
+        let mut font = plain_font(31.0, 15.0);
+        let glyph = fnv_font::Glyph {
+            width: 20.0,
+            ..default()
+        };
+        for c in "甲乙丙丁".chars() {
+            font.extra.insert(c, glyph);
+        }
+        let text = "甲乙丙丁";
+        let wrap = Some(40.0);
+        assert_eq!(dimensions(&font, 1, text, wrap), (40.0, 62.0, 2.0));
+        let lines = text_lines(&font, 1, text, wrap, Alignment::Right, 50.0);
+        assert_eq!(
+            lines
+                .iter()
+                .map(|(line, x, base)| (line.text(), line.width, *x, *base))
+                .collect::<Vec<_>>(),
+            [
+                ("甲乙".to_string(), 40.0, 10.0, 20.0),
+                ("丙丁".to_string(), 40.0, 10.0, 51.0)
+            ]
+        );
+    }
+
     /// #979: a text with no `font` is font 1 ([`font_number`]), whose line stands 20 under
     /// its top (the level digits' ink, hud.md §14.10); font 9, which draws nothing in the
     /// original (no texture), takes font 7's 24 and its file's size as its pitch [design].

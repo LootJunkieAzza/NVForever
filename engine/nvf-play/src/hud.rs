@@ -143,7 +143,7 @@ const ENEMY_MIDDLE: f32 = ENEMY_BRACKET_AT.x + (ENEMY_MARKS.0 + ENEMY_MARKS.1) /
 /// picture to the end of the last one's, leaving out the empty room after the last letter
 /// that `Line::width` counts (and the room before the first) [design: #1826].
 fn centred_x(font: &Font, line: &fnv_font::Line, middle: f32) -> f32 {
-    let drawn = line.glyphs.iter().map(|p| (p, font.glyph(p.code))).filter(|(_, g)| g.drawn());
+    let drawn = line.glyphs.iter().map(|p| (p, font.bitmap_glyph(p))).filter(|(_, g)| g.drawn());
     let (left, right) = drawn.fold((f32::INFINITY, f32::NEG_INFINITY), |(l, r), (p, g)| (l.min(p.x + g.before), r.max(p.x + g.before + g.width)));
     if left > right {
         // Nothing drawn (stand-in font, spaces): its set width.

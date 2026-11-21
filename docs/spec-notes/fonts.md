@@ -155,6 +155,23 @@ release changed only it]. A font with a `.tex` alone (font 9) is left undrawn, a
 says the original does. A `.tex` that does not parse (wrong size for its header) is
 skipped with a warning, and the `.dds` is drawn.
 
+### 2.3 Missing CJK characters
+
+[documented] Swash reads OpenType fonts and collections and renders outline glyphs
+as masks ([Swash scaling documentation](https://docs.rs/swash/0.2.10/swash/scale/)).
+[documented] Microsoft lists Microsoft YaHei (`msyh.ttc`), SimHei (`simhei.ttf`) and
+SimSun (`simsun.ttc`) among its [Windows fonts](https://learn.microsoft.com/en-us/typography/fonts/windows_11_font_list).
+Apple lists PingFang and Hiragino in its [macOS font list](https://support.apple.com/en-us/127491).
+
+[design] NVForever looks for a fallback only for CJK characters the current face
+lacks, including fullwidth punctuation. `[Interface] CjkFontPath` in `NVForever.ini`
+can name a TrueType or OpenType font or collection. A relative path is resolved next
+to the INI. With the setting unset, NVForever tries the Windows fonts above, Noto Sans
+CJK or WenQuanYi on Linux, and PingFang or Hiragino on macOS. Fonts are read on demand,
+and `?` is used if none provides the character. No additional font is shipped.
+The same cached glyph gives the advance for layout and the mask for drawing. Its
+image is placed against the primary face's baseline without changing line spacing.
+
 ## 3. Setting text
 
 - A character takes its room before, its width and its room after; the next starts
@@ -166,6 +183,11 @@ skipped with a warning, and the `.dds` is drawn.
   a line exactly as wide as the wrap width is not broken [observed: the same line].
   The space at the break is not set [design]. What the game does with a word wider
   than the wrap width is not known; NVForever leaves it whole on its own line.
+- [design] NVForever also wraps at character boundaries in unspaced CJK text. It
+  keeps common opening punctuation with the following character and common closing
+  punctuation with the preceding character. Spaces and explicit line breaks retain
+  their existing behavior.
+  [Unicode Standard Annex #14, §6.1](https://www.unicode.org/reports/tr14/) [documented]
 - How far apart the lines are, and where a text's first line stands under its top, is
   with the menu that was measured (`message-menu.md` §3). The interface files' text
   tiles: menu-xml.md §3.1.2, hud.md §14.10 (a line per font, #979).

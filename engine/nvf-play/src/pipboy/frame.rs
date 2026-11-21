@@ -680,7 +680,7 @@ fn header(r: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page) {
         // 2026-10-31; the font's own baseline left the names high].
         let name = c.first_line(HEADER_FONT, p.title());
         let face = c.kit.face(HEADER_FONT);
-        let rise = name.glyphs.iter().map(|g| face.font.glyph(g.code).ascent).fold(0.0, f32::max);
+        let rise = name.glyphs.iter().map(|g| face.font.bitmap_glyph(g).ascent).fold(0.0, f32::max);
         let (x, base) = ((b.width() - name.width) / 2.0, (b.height() + rise) / 2.0);
         r.spawn((at(b.min.x, b.min.y, b.width(), b.height()), Clickable(PipBoyInput::Page(p)), Pickable::default()))
             .with_children(|n| {
