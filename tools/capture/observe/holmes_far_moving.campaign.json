@@ -1,0 +1,43 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "holmes_far_moving",
+ "title": "far_moving of holmes_far_travel without timed actions (plugin v7 lacks them): two sessions in one game load. part1 at Goodsprings Cemetery with the first star cap for 2.5 game hours; part2 moves the player to Primm (66k south) for 3.5 hours without a new cap: does Holmes re-aim at where the player is now?",
+ "save": "nvfstrip",
+ "defaults": {
+  "every": 60,
+  "depth": 1,
+  "settle_frames": 120,
+  "track": [
+   "SSHQMalcolmHolmesREF"
+  ]
+ },
+ "sessions": [
+  {
+   "name": "part1",
+   "go": {
+    "moveto": "GoodspringsCemeteryMapMarker"
+   },
+   "hours": 2.5,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do": [
+    [
+     "player.AddItem {0} 1",
+     "NVStarBottleCap"
+    ]
+   ]
+  },
+  {
+   "name": "part2",
+   "go": {
+    "moveto": "PrimmMapMarker"
+   },
+   "hours": 3.5,
+   "console_first": [
+    "CloseAllMenus"
+   ]
+  }
+ ]
+}

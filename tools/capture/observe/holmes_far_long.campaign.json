@@ -1,0 +1,43 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "holmes_far_long",
+ "title": "holmes_far_moving with part2 at 14 game hours (observer check 8): after the player moves to Primm, does Holmes re-aim when his first route (to Goodsprings Cemetery) runs out, or before?",
+ "save": "nvfstrip",
+ "defaults": {
+  "every": 60,
+  "depth": 1,
+  "settle_frames": 120,
+  "track": [
+   "SSHQMalcolmHolmesREF"
+  ]
+ },
+ "sessions": [
+  {
+   "name": "part1",
+   "go": {
+    "moveto": "GoodspringsCemeteryMapMarker"
+   },
+   "hours": 2.5,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do": [
+    [
+     "player.AddItem {0} 1",
+     "NVStarBottleCap"
+    ]
+   ]
+  },
+  {
+   "name": "part2",
+   "go": {
+    "moveto": "PrimmMapMarker"
+   },
+   "hours": 14,
+   "console_first": [
+    "CloseAllMenus"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,6 @@
+scn ExtCase02
+int iA
+int iB
+Begin GameMode
+    let iA := iB := 2
+End

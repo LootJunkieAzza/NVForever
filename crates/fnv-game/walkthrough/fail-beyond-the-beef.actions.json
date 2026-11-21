@@ -1,0 +1,13 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Beyond the Beef failed (VMS18 255): Ted Gunderson killed before anyone asks the player to look for him",
+ "given": [],
+ "actions": [
+  {"op": "note", "text": "Path: Ted Gunderson, held beneath the Gourmand, dies before the player has heard of his disappearance (objective 10 not shown, Mortimer's offer not taken); his OnDeath block (VMS18TedGundersonSCRIPT) sets VMS18 255 (Fail Quest). Stand-ins: travel by move_player (the Gourmand's locked rooms are not walked); the fight by kill."},
+  {"op": "move_player", "to": "VMS18TedGundersonREF"},
+  {"op": "kill", "actor": "VMS18TedGundersonREF", "killer": "player"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "get_ref", "ref": "VMS18TedGundersonREF", "fields": ["dead"], "label": "ted dead"},
+  {"op": "get_quest", "quest": "VMS18", "fields": ["stage", "done.255", "failed"], "label": "final: VMS18 255"}
+ ]
+}

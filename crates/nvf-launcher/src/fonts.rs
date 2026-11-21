@@ -49,14 +49,6 @@ pub fn install(ctx: &egui::Context) {
         let p = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
         fonts.families.insert(FontFamily::Name(TITLE.into()), p);
     }
-    if let Ok(bytes) = std::fs::read("/usr/share/fonts/TTF/SymbolsNerdFont-Regular.ttf") {
-        fonts.font_data.insert("icons".into(), Arc::new(FontData::from_owned(bytes)));
-        for family in fonts.families.values_mut() {
-            if !family.iter().any(|n| n == "icons") {
-                family.push("icons".into());
-            }
-        }
-    }
     ctx.set_fonts(fonts);
 }
 

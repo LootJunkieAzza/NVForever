@@ -1,0 +1,170 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "glta_order",
+ "title": "glta-order, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[0]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[1]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[2]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[3]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[4]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[5]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[6]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.6",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[7]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.7",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[8]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.8",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[9]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.9",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[(ar_Size aA) - 1]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.last",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[(ar_Size aA) - 2]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.w0.last2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (ar_Find rObj aA)\nEnd\n",
+   "label": "glta.w0.find.fists",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F6\"\nSetFunctionValue (ar_Find rObj aA)\nEnd\n",
+   "label": "glta.w0.find.gastrap",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_Find rObj aA)\nEnd\n",
+   "label": "glta.w0.find.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (ar_Find rObj aA)\nEnd\n",
+   "label": "glta.w0.find.knife",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (ar_Find rObj aA)\nEnd\n",
+   "label": "glta.w0.find.machete",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (ar_Find rObj aA)\nEnd\n",
+   "label": "glta.w0.find.sledge",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40\nlet rObj := aA[0]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.wall.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40\nlet rObj := aA[1]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.wall.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40\nlet rObj := aA[2]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.wall.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40\nlet rObj := aA[3]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.wall.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 40\nlet rObj := aA[(ar_Size aA) - 1]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.wall.last",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 47 0\nlet rObj := aA[0]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.a0.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 47 0\nlet rObj := aA[1]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.a0.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 47 0\nlet rObj := aA[2]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.a0.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 47 0\nlet rObj := aA[3]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.a0.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\nlet aA := GetLoadedTypeArray 47 0\nlet rObj := aA[4]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.a0.4",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

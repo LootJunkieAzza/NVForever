@@ -16,6 +16,9 @@ allow = [
     # libloading (via ash, the Vulkan loader) and inotify (gilrs on Linux): ISC, a
     # permissive licence equivalent to MIT.
     "ISC",
+    # clipboard-win and error-code: arboard's Windows clipboard (eframe's `clipboard`
+    # feature, crates/nvf-launcher, #3066), BSL-1.0, permissive and OSI/FSF-approved.
+    "BSL-1.0",
     "Zlib",
     "Unlicense",
     "Unicode-3.0",

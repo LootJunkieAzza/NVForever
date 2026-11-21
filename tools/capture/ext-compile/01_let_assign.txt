@@ -1,0 +1,5 @@
+scn ExtCase01
+int iA
+Begin GameMode
+    let iA := 5
+End

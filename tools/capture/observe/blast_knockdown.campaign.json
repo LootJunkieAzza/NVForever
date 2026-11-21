@@ -1,0 +1,131 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "blast_knockdown",
+ "title": "docs/outstanding.md row 1 'Left: an explosion's knockdown' and unconscious.md section 5.2 (plugin version 9, save nvftest, one run): an explosion placed on RingoRef in GSGasStation. 'force': WeaponKnockdownExplosion 0x001535F0 (no damage, Knock Down - Always, Push Explosion Source Ref Only) placed at Ringo by Ringo's own PlaceAtMe; 'force_player': the same placed by the player's PlaceAtMe at Ringo's feet is not possible, so it is placed on the player 120 units from Ringo (does it knock Ringo, the player or nobody?); 'frag': GrenadeFragExplosion 0x000179DA (Knock Down - By Formula) placed at Ringo with his Health raised so he lives. How long the actor lies (GetKnockedState, which the wiki says is 2 for knocked down), how far the body goes, the get-up (GetAnimAction 13). Every game loop, the fight field set plus the more part, every game event heard. The player is in god mode.",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "more": true,
+  "events": "all",
+  "every": 1,
+  "depth": 1,
+  "settle_frames": 120,
+  "close_menus_after": 300,
+  "hours": 0.12
+ },
+ "sessions": [
+  {
+   "name": "force",
+   "console_first": [
+    "tgm"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 300 0 0",
+     "RingoRef"
+    ]
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "do": [
+      "{0}.PlaceAtMe {1} 1",
+      "RingoRef",
+      "WeaponKnockdownExplosion"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "force_player",
+   "do": [
+    [
+     "player.MoveTo {0} 120 0 0",
+     "RingoRef"
+    ]
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "do": [
+      "player.PlaceAtMe {0} 1",
+      "WeaponKnockdownExplosion"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "frag",
+   "do": [
+    [
+     "player.MoveTo {0} 400 0 0",
+     "RingoRef"
+    ],
+    [
+     "{0}.SetAV Health 5000",
+     "RingoRef"
+    ]
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "do": [
+      "{0}.PlaceAtMe {1} 1",
+      "RingoRef",
+      "GrenadeFragExplosion"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "frag_standing",
+   "note": "second run: frag on a standing actor (the first run's Ringo sat, procedure 48, and was not knocked). Chet in his store, Health raised; three frags 300 samples apart (Knock Down - By Formula is a chance), each placed by Chet's own PlaceAtMe; run alone (--only frag_standing), so it turns tgm on itself",
+   "go": {
+    "moveto": "GSChetRef"
+   },
+   "hours": 0.3,
+   "track": [
+    "GSChetRef"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 400 0 0",
+     "GSChetRef"
+    ],
+    [
+     "{0}.SetAV Health 5000",
+     "GSChetRef"
+    ]
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "do": [
+      "{0}.PlaceAtMe {1} 1",
+      "GSChetRef",
+      "GrenadeFragExplosion"
+     ]
+    },
+    {
+     "after": 360,
+     "do": [
+      "{0}.PlaceAtMe {1} 1",
+      "GSChetRef",
+      "GrenadeFragExplosion"
+     ]
+    },
+    {
+     "after": 660,
+     "do": [
+      "{0}.PlaceAtMe {1} 1",
+      "GSChetRef",
+      "GrenadeFragExplosion"
+     ]
+    }
+   ],
+   "console_first": [
+    "tgm"
+   ]
+  }
+ ]
+}

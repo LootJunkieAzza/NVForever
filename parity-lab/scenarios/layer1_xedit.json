@@ -1,0 +1,335 @@
+{
+ "scenarios": [
+  {
+   "id": "L1.esm.inventory_xedit.FalloutNV",
+   "layer": 1,
+   "description": "Record inventory of FalloutNV.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/FalloutNV.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/FalloutNV.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory_xedit.DeadMoney",
+   "layer": 1,
+   "description": "Record inventory of DeadMoney.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/DeadMoney.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/DeadMoney.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory_xedit.HonestHearts",
+   "layer": 1,
+   "description": "Record inventory of HonestHearts.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/HonestHearts.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/HonestHearts.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory_xedit.OldWorldBlues",
+   "layer": 1,
+   "description": "Record inventory of OldWorldBlues.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/OldWorldBlues.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/OldWorldBlues.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory_xedit.LonesomeRoad",
+   "layer": 1,
+   "description": "Record inventory of LonesomeRoad.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/LonesomeRoad.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/LonesomeRoad.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L1.esm.inventory_xedit.GunRunnersArsenal",
+   "layer": 1,
+   "description": "Record inventory of GunRunnersArsenal.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/GunRunnersArsenal.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/GunRunnersArsenal.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory_xedit.CaravanPack",
+   "layer": 1,
+   "description": "Record inventory of CaravanPack.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/CaravanPack.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/CaravanPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory_xedit.ClassicPack",
+   "layer": 1,
+   "description": "Record inventory of ClassicPack.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/ClassicPack.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/ClassicPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory_xedit.MercenaryPack",
+   "layer": 1,
+   "description": "Record inventory of MercenaryPack.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/MercenaryPack.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/MercenaryPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory_xedit.TribalPack",
+   "layer": 1,
+   "description": "Record inventory of TribalPack.esm against an FNVEdit (xEdit) export: type, EditorID, FULL name.",
+   "oracle": {
+    "golden": "esm/TribalPack.xedit.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/TribalPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "xedit",
+    "M1",
+    "needs-local-capture"
+   ]
+  }
+ ]
+}

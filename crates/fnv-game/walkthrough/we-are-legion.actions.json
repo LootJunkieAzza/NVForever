@@ -1,0 +1,33 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless We Are Legion (VDeadSea): Dead Sea at Nelson sends the player against Camp Forlorn Hope; its four officers die; Dead Sea rewards the player (stage 100)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: at Nelson the Legion's Dead Sea asks the player to kill the NCR officers at Camp Forlorn Hope (stage 10); Major Polatli, Sergeant Reyes, Carl Mayes and Richards die (VDeadSeaScript, Dead Sea alive: VStoryEventNelson 2, stage 20); Dead Sea hands over his reward (100: Legion fame). Fail: Dead Sea dead (66). Six deaths of the Forlorn Hope troopers' script reach 100 too."},
+    {"op": "note", "text": "Stand-in for the trip to Nelson."},
+    {"op": "move_player", "to": "LegionaryDeadSeaREF"},
+    {"op": "talk", "actor": "LegionaryDeadSeaREF", "label": "dead sea greeting"},
+    {"op": "choose", "topic": "VDeadSeaLegionaryDeadSeaTopic001", "label": "dead sea 001"},
+    {"op": "choose", "topic": "VDeadSeaLegionaryDeadSeaTopic003", "label": "dead sea 003"},
+    {"op": "choose", "topic": "VDeadSeaLegionaryDeadSeaTopic014", "label": "job taken"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VDeadSea", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VDeadSea 10"},
+    {"op": "note", "text": "Stand-in for the attack on Camp Forlorn Hope: the four officers die by the player's hand."},
+    {"op": "kill", "actor": "CFHMajorPolatliREF", "killer": "player"},
+    {"op": "kill", "actor": "CFHSergeantReyesREF", "killer": "player"},
+    {"op": "kill", "actor": "CFHCarlMayesREF", "killer": "player"},
+    {"op": "kill", "actor": "CFHRichardsRef", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 6},
+    {"op": "get_quest", "quest": "VDeadSea", "fields": ["stage", "objective.20.displayed"], "label": "milestone: VDeadSea 20"},
+    {"op": "get_global", "name": "VStoryEventNelson", "label": "nelson story event"},
+    {"op": "note", "text": "Stand-in for the trip back to Nelson."},
+    {"op": "move_player", "to": "LegionaryDeadSeaREF"},
+    {"op": "talk", "actor": "LegionaryDeadSeaREF", "label": "dead sea again"},
+    {"op": "choose", "topic": "VDeadSeaLegionaryDeadSeaTopic024", "label": "officers dead (his Topic020 line, shared)"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VDeadSea", "fields": ["stage", "done.100", "completed"], "label": "final: VDeadSea 100"},
+    {"op": "get_reputation", "rep": "RepNVCaesarsLegion", "fields": ["fame"], "label": "legion fame"}
+  ]
+}

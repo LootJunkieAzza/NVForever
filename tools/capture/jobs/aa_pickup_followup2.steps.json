@@ -1,0 +1,60 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_pickup_followup2",
+ "title": "Pick-up follow-up 2 (instant, no input)",
+ "start": "Same Doc Mitchell save session (runs right after follow-up 1).",
+ "steps": [
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 15\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "b00 caps at start",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1073800\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "b01 cap ref 0x106288 disabled before",
+   "field": "disabled"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1073800\nrF.Disable\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1073800\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "b02 cap ref disabled after Disable",
+   "field": "disabled"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1073800\nrF.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 15\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "b03 caps after scripted Activate of the disabled, never-taken cap",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1073800\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "b04 cap ref disabled after that Activate",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1064553\nlet rC := rF.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "b05 exterior door 0x103E69 parent cell (persistent exterior ref)",
+   "field": "cell"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1064553\nlet fV := rF.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "b06 exterior door x",
+   "field": "x"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1064553\nlet fV := rF.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "b07 exterior door y",
+   "field": "y"
+  }
+ ]
+}

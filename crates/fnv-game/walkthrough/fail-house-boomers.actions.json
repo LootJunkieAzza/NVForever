@@ -1,0 +1,147 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless fail path: a Lucky 38 Securitron destroyed by the player during The House Always Wins III (the Boomers); VMQHouse3 fails at stage 200",
+  "given": [
+    {
+      "kind": "menu",
+      "menu": 1001,
+      "open": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQ01",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQTops",
+      "running": false,
+      "completed": true,
+      "stage": 80,
+      "done": [
+        10,
+        20,
+        30,
+        40,
+        42,
+        43,
+        80
+      ]
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventBennyKilledCasino",
+      "value": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryChipOwner",
+      "value": 1
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse1",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        25,
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse2",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventSecuritronsFort",
+      "value": 1
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse3",
+      "running": true,
+      "completed": false,
+      "stage": 0,
+      "objectives": [
+        {
+          "index": 40,
+          "displayed": true,
+          "completed": false
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "op": "note",
+      "text": "Starts during The House Always Wins III (the Boomers): The House Always Wins I and II done (given; house.actions.json walks them), VMQHouse3 running with objective 40 shown. The player turns on House's line by destroying one of his Securitrons on the Lucky 38's casino floor (a kill by the player as the stand-in for the fight). Lucky38SecuritronSCRIPT's OnDeath (SCPT 0x00168290) fails every House quest still running and makes the Lucky 38 hostile."
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQHouse3",
+      "fields": [
+        "running",
+        "failed",
+        "stage"
+      ],
+      "label": "VMQHouse3 before"
+    },
+    {
+      "op": "go_to_cell",
+      "cell": "Lucky38CasinoFloor01"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "kill",
+      "actor": "VL38CasinoSecuritronMkII01REF",
+      "killer": "player"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQHouse3",
+      "fields": [
+        "running",
+        "failed",
+        "stage",
+        "done.200"
+      ],
+      "label": "final: VMQHouse3 200 (failed)"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQHouse1",
+      "fields": [
+        "var.RefusedChip"
+      ],
+      "label": "House's line marked refused (VMQHouse1.RefusedChip)"
+    },
+    {
+      "op": "get_ref",
+      "ref": "Lucky38MrHouseREF",
+      "fields": [
+        "destroyed"
+      ],
+      "label": "House's screen switched off (SetDestroyed)"
+    }
+  ]
+}

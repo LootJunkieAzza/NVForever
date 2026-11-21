@@ -1,0 +1,18 @@
+{
+ "format": "fnv.capture.cameras/1",
+ "start": "Load the nvfdoc save (first person); the job travels to each interior with coc.",
+ "console_first": ["tgm", "tdetect"],
+ "cameras": [
+  {"id": "int_doc_entry", "cell": "GSDocMitchellHouse", "pos": [2300, 1600, 7370], "heading": 270, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_doc_living", "cell": "GSDocMitchellHouse", "pos": [1750, 1900, 7370], "heading": 270, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_doc_kitchen", "cell": "GSDocMitchellHouse", "pos": [1650, 1150, 7370], "heading": 250, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_doc_bedroom", "cell": "GSDocMitchellHouse", "pos": [1850, 1050, 7370], "heading": 90, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_saloon_south", "cell": "GSProspectorSaloonInterior", "pos": [300, -950, 3466], "heading": 330, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_saloon_north", "cell": "GSProspectorSaloonInterior", "pos": [250, 300, 3466], "heading": 200, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_saloon_bar", "cell": "GSProspectorSaloonInterior", "pos": [350, -300, 3466], "heading": 270, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_vault21_atrium", "cell": "2EOVault21", "pos": [-1500, 1400, 7434], "heading": 90, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_vault21_benches", "cell": "2EOVault21", "pos": [-640, 400, 7434], "heading": 0, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_repconn_arrival", "cell": "RocketLabBasement", "pos": [-2542, -669, 8634], "heading": 90, "pitch": 5, "hour": 12, "fov": 75},
+  {"id": "int_repconn_red", "cell": "RocketLabBasement", "pos": [-2900, -1700, 7626], "heading": 90, "pitch": 5, "hour": 12, "fov": 75}
+ ]
+}

@@ -1,0 +1,52 @@
+# The totals `fnvtool script sweep <Data> <the ten masters> --schema schemas/fnv` must
+# print (its "summary"): the smoke scenario script-sweep (tools/smoke/scenarios.toml)
+# expects each value below, by its JSON path, to equal the run's
+# (docs/handoff/mq-walkthrough-2026-10-27.md §7).
+#
+# Every quest stage, dialogue line, terminal and package result script runs once, by
+# itself. A branch that fixes a cause lowers the counts here; a rise fails the run (find
+# the new cause with --detail before raising anything). Most causes are context the sweep
+# cannot give (no calling reference, an empty reference variable, an item not carried);
+# docs/handoff/mq-walkthrough-2026-10-27.md §7 says which are not.
+
+[summary.scripts.info]
+run = 8639
+# 6 of them since #1299: the axis-2/3 AddReputation lines (Severus's tag trades, INFO
+# 0x001131DE, 0x001131E2 ...) fail and stop the script, as in the original (o11_00).
+# 3 of them since #1127: the axis-2 SetReputation lines (INFO 0x00119094, 0x00131F74,
+# 0x001543A9) fail and stop the script, as in the original (o5_00/o5_01).
+# 117 before #1113: `RemoveItem <item> 0` removes nothing and goes on (observer check 44).
+with_problems = 104
+
+[summary.scripts.package]
+run = 558
+with_problems = 95
+
+[summary.scripts.stage]
+run = 1040
+# 1 of them since #1299: VMS20 stage 100 entry 1 stops at `AddReputation RepNVGreatKhans
+# 2 5`, as in the original (o11_05); the stage's Complete Quest flag still completes it.
+with_problems = 6
+
+[summary.scripts.terminal]
+run = 384
+with_problems = 50
+
+[summary.problems.call_failed]
+# +1 cause, +31 scripts since #1687: a call on an empty reference gives 0 and the script
+# goes on, as in the original (observer check 14), so terminal scripts that stopped at
+# their first such call meet their next ones (Activate +11, IsAnimPlaying 11 new,
+# SetUnconscious +9); no more scripts have problems.
+# +1 cause, +7 scripts since #1299 (AddReputation with axis 2 or 3).
+causes = 55
+scripts = 390
+
+[summary.problems.script_error]
+causes = 1
+scripts = 3
+
+# The call probe (#1122): every script's calls, once per argument shape; a call that
+# read an argument wrong and went on with a default is a cause. None on main.
+[summary.call_probe]
+causes = 0
+calls = 0

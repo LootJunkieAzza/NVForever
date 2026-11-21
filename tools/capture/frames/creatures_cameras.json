@@ -1,0 +1,13 @@
+{
+ "format": "fnv.capture.cameras/1",
+ "start": "Load a test save (e.g. nvftest); the job travels to each camera. Creatures in view near Goodsprings (workstream 5 part D, docs/spec-notes/actors.md section 9).",
+ "console_first": ["tgm", "tdetect"],
+ "cameras": [
+  {"id": "creatures_bighorner_pen", "world": "WastelandNV", "pos": [-69900, -150], "heading": 180, "pitch": -10,
+   "hour": 12, "weather": "NVWastelandClear", "fov": 75},
+  {"id": "creatures_victor", "world": "WastelandNV", "pos": [-72314, -5550], "heading": 180, "pitch": -5,
+   "hour": 12, "weather": "NVWastelandClear", "fov": 75},
+  {"id": "creatures_coyotes", "world": "WastelandNV", "pos": [-59150, 5250], "heading": 0, "pitch": -10,
+   "hour": 12, "weather": "NVWastelandClear", "fov": 75}
+ ]
+}

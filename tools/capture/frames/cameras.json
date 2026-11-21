@@ -1,0 +1,15 @@
+{
+ "format": "fnv.capture.cameras/1",
+ "start": "Load a test save (e.g. nvftest); the job travels to each camera.",
+ "console_first": ["tgm", "tdetect"],
+ "cameras": [
+  {"id": "goodsprings_noon", "world": "WastelandNV", "pos": [-70500, 1200], "heading": 45, "pitch": 0,
+   "hour": 12, "weather": "NVWastelandClear", "fov": 75},
+  {"id": "goodsprings_dusk", "world": "WastelandNV", "pos": [-70500, 1200], "heading": 45, "pitch": 0,
+   "hour": 19, "weather": "NVWastelandClear", "fov": 75},
+  {"id": "goodsprings_hill_lod", "world": "WastelandNV", "pos": [-69500, 2500], "heading": 90, "pitch": 5,
+   "hour": 12, "weather": "NVWastelandClear", "fov": 75},
+  {"id": "lake_shore_noon", "world": "WastelandNV", "pos": [55500, 37536], "heading": 90, "pitch": 5,
+   "hour": 12, "weather": "NVWastelandClear", "fov": 75}
+ ]
+}

@@ -1,0 +1,59 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "jip_alert",
+ "title": "JIP tier, state only (docs/handoff/observer-jip-audit-2026-10-25.md Q8, Q9): owner_decisions alert_noise (the hidden player fires near Cook-Cook's Fiend camp) with GetPCDetectionState, the Fiends' detection values and who detects whom: is there a CAUTION state with nobody in combat, and when is the player lost",
+ "save": "nvftest",
+ "defaults": {
+  "every": 60,
+  "depth": 1,
+  "jip": true
+ },
+ "sessions": [
+  {
+   "name": "alert_noise",
+   "note": "Item 15. South of Cook-Cook's Fiend camp (the npc_battles spot), the player crouched, Sneak 100 and under a Stealth Boy, draws and fires three times: Fiends that hear it but do not see the player should go to the detection Alert (searching, weapon out, GetDetected 0). The sample fields in_combat, detects_player, procedure, weapon_out and alerted show what IsInCombat reads then. Needs the living Fiends of nvftest: in nvfstrip they are dead from the start [observed 2026-10-18]. Second run 2026-10-19 [observed]: with the shots fired before the observation began (`do`), the Fiends were already in combat with the player at the first sample, so the shots are now timed hooks at samples 40, 50 and 60, after 30 samples of the quiet camp.",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 0.5,
+   "every": 5,
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "events": "fight",
+   "timed": [
+    {
+     "after": 30,
+     "do": [
+      "TapControl 7"
+     ]
+    },
+    {
+     "after": 40,
+     "do": [
+      "TapControl 4"
+     ]
+    },
+    {
+     "after": 50,
+     "do": [
+      "TapControl 4"
+     ]
+    },
+    {
+     "after": 60,
+     "do": [
+      "TapControl 4"
+     ]
+    }
+   ]
+  }
+ ]
+}

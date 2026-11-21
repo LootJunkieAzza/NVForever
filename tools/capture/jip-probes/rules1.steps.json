@@ -1,0 +1,194 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "rules1",
+ "title": "rules1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan 1))\nEnd\n",
+   "label": "rules1.fatan.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan 0.5))\nEnd\n",
+   "label": "rules1.fatan.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan 2))\nEnd\n",
+   "label": "rules1.fatan.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan 0.25))\nEnd\n",
+   "label": "rules1.fatan.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan 4))\nEnd\n",
+   "label": "rules1.fatan.4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan 10))\nEnd\n",
+   "label": "rules1.fatan.5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan 0.1))\nEnd\n",
+   "label": "rules1.fatan.6",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan -1))\nEnd\n",
+   "label": "rules1.fatan.7",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan 0))\nEnd\n",
+   "label": "rules1.fatan.8",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan2 1 1))\nEnd\n",
+   "label": "rules1.fatan2.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan2 1 -1))\nEnd\n",
+   "label": "rules1.fatan2.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan2 -1 -1))\nEnd\n",
+   "label": "rules1.fatan2.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan2 -1 1))\nEnd\n",
+   "label": "rules1.fatan2.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan2 3 4))\nEnd\n",
+   "label": "rules1.fatan2.4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan2 4 3))\nEnd\n",
+   "label": "rules1.fatan2.5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan2 0 1))\nEnd\n",
+   "label": "rules1.fatan2.6",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan2 1 0))\nEnd\n",
+   "label": "rules1.fatan2.7",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.8f\" (fatan2 1 2))\nEnd\n",
+   "label": "rules1.fatan2.8",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.4f\" (rP.GetRunSpeed))\nEnd\n",
+   "label": "rules1.runspeed.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.4f\" (rDoc.GetRunSpeed))\nEnd\n",
+   "label": "rules1.runspeed.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.4f\" (rP.GetAV SpeedMult))\nEnd\n",
+   "label": "rules1.speedmult.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.4f\" (rDoc.GetAV SpeedMult))\nEnd\n",
+   "label": "rules1.speedmult.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.4f\" (rP.GetAV Agility))\nEnd\n",
+   "label": "rules1.agility.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.4f\" (rDoc.GetAV Agility))\nEnd\n",
+   "label": "rules1.agility.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (sv_Construct \"%.4f %.4f\" (rP.GetAV InventoryWeight) (rP.GetAV CarryWeight))\nEnd\n",
+   "label": "rules1.encumbrance.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nlet aA := GetRefsInCell rF 0 0 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nforeach aE <- aA\n  let rObj := aE[\"value\"]\n  let sText := sText + \" \" + (GetFormIDString rObj)\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rules1.refs.doc.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nlet aA := GetRefsInCell rF 0 0 1\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nforeach aE <- aA\n  let rObj := aE[\"value\"]\n  let sText := sText + \" \" + (GetFormIDString rObj)\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rules1.refs.doc.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rPkg := rDoc.GetNthPackage 1\nlet rObj := rDoc.GetNthPackage 0\nrDoc.SetNthPackage rPkg 0\nSetFunctionValue (sv_Construct \"%i %i %i\" rObj rPkg (rDoc.GetNthPackage 0))\nEnd\n",
+   "label": "rules1.setnthpackage.ref.pkg.index",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rPkg := rDoc.GetNthPackage 1\nlet rObj := rDoc.GetNthPackage 0\nrDoc.SetNthPackage 0 rPkg\nSetFunctionValue (sv_Construct \"%i %i %i\" rObj rPkg (rDoc.GetNthPackage 0))\nEnd\n",
+   "label": "rules1.setnthpackage.ref.index.pkg",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rPkg := rDoc.GetNthPackage 1\nlet rObj := rDoc.GetNthPackage 0\nSetNthPackage rPkg 0 (rDoc.GetBaseObject)\nSetFunctionValue (sv_Construct \"%i %i %i\" rObj rPkg (rDoc.GetNthPackage 0))\nEnd\n",
+   "label": "rules1.setnthpackage.pkg.index.base",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\nstring_var sText\narray_var aA\narray_var aE\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rPkg := rDoc.GetNthPackage 1\nlet rObj := rDoc.GetNthPackage 0\nlet fRes := rDoc.SetNthPackage rPkg 0\nSetFunctionValue (sv_Construct \"%g\" fRes)\nEnd\n",
+   "label": "rules1.setnthpackage.result",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

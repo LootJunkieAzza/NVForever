@@ -1,0 +1,23 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "example_read_only",
+ "title": "Example: read a few values (changes nothing)",
+ "start": "Any save.",
+ "steps": [
+  {"query": "GetNumLoadedMods"},
+  {"query": "GetNthModName 0", "text": true},
+  {"query": "player.GetPos X"},
+  {"query": "player.GetPos Y"},
+  {"query": "player.GetPos Z"},
+  {"query": "player.GetAngle Z", "field": "heading"},
+  {"query": "player.GetAV Strength", "label": "player", "field": "strength"},
+  {"query": "GameHour"},
+  {"query": "GameDaysPassed"},
+  {"query": ["ref rC",
+             "Begin Function { }",
+             "let rC := player.GetParentCell",
+             "SetFunctionValue (GetFormIDString rC)",
+             "End"],
+   "field": "cell"}
+ ]
+}

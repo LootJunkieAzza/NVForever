@@ -1,0 +1,7 @@
+scn ExtUdfSetStr
+; function script for tools/capture/ext-probes/udf/README.md
+string_var sS
+Begin Function {sS}
+    let sS += "!"
+    SetFunctionValue 1
+End

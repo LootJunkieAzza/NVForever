@@ -1,0 +1,249 @@
+//! Holotapes in the game (docs/spec-notes/holotapes.md): a Sound or Voice note picked in
+//! the Pip-Boy's Notes list (DATA page, Misc tab) plays.
+//!
+//! - **One at a time.** Picking a note that plays ([`Holotape::picks`], from the DATA
+//!   page's use of the row: a click, Enter, or the test aid's `key=use` / `note=`)
+//!   starts it from its beginning and stops the one playing; picking the one playing
+//!   pauses it, and again goes on [owner 2026-10-27: holotapes.md §3].
+//! - **Its progress**: the seconds played and the whole length (the responses' lengths
+//!   added up), for the Notes tab's meter ([`Holotape::progress`]); the clock stands
+//!   while it is paused or held.
+//! - **A Voice note** plays its line (`fnv_game::holotapes::tape`) in its speaker's voice:
+//!   each response's file in turn (`fnv_voice::VoiceBank::file` with the speaker's base,
+//!   the voice type's folder), one after another, at full volume and not placed, in the
+//!   Voice category. It goes on while the Pip-Boy is put away [owner 2026-10-27] and is
+//!   held by the pause menu. A response without a file is skipped (logged).
+//! - **A Sound note** plays its sound once at the listener (`crate::sfx::PlaySound`); it
+//!   cannot be stopped [hypothesis: no Sound note of the masters names a sound,
+//!   holotapes.md §2].
+//!
+//! Log lines: `holotape: <note> plays <line> said by <speaker>, <n> responses`, then
+//! `holotape: playing <path> (<seconds> s) response <k>/<n>` per response, `holotape:
+//! paused <note>` / `holotape: <note> goes on` and `holotape: <note> is over`.
+//!
+//! A response stopped before its end (the tape stopped by a script, or another note
+//! picked) fades out as every stopped sound does (`crate::audio_out::stop_sound`, #2217,
+//! counted as a holotape stop in `sfx declicks: …`); the tape no longer holds it, so its
+//! pause leaves it alone while the fade plays out.
+
+use crate::audio_out::{stop_sound, Retiring, SoundCategory, StopReason};
+use crate::script::ScriptState;
+use crate::sfx::PlaySound;
+use crate::voice::{VoiceSettings, VoiceState};
+use crate::PlaySet;
+use bevy::audio::Volume;
+use bevy::prelude::*;
+use fnv_game::holotapes::Tape;
+use fnv_sim::FormId;
+
+/// The holotape that plays, and the picks waiting to be taken.
+#[derive(Resource, Default)]
+pub struct Holotape {
+    /// Notes picked in the Notes list (Sound and Voice notes), taken next frame.
+    pub picks: Vec<FormId>,
+    /// The note playing (also while paused).
+    pub playing: Option<FormId>,
+    /// Paused by the player (picked again while it plays).
+    pub paused: bool,
+    /// Seconds played of the note, and its whole length.
+    elapsed: f64,
+    total: f64,
+    /// The responses still to play: path and seconds.
+    queue: Vec<(String, f64)>,
+    count: usize,
+    entity: Option<Entity>,
+    ends_at: f64,
+    held: bool,
+    /// Responses started so far.
+    pub started: u64,
+    /// The result scripts of Voice notes' lines due (note, 0 begin / 1 end), run by
+    /// [`run_scripts`] with the world at hand.
+    scripts: Vec<(FormId, usize)>,
+}
+
+/// Marks a holotape's audio entity.
+#[derive(Component)]
+pub struct HolotapeSound;
+
+impl Holotape {
+    fn stop(&mut self, commands: &mut Commands) {
+        if let Some(e) = self.entity.take() {
+            // Faded out, not cut (#2217); gone at once if it has made no sound yet.
+            stop_sound(commands, e, StopReason::Holotape);
+        }
+        self.playing = None;
+        self.queue.clear();
+        self.held = false;
+        self.paused = false;
+        (self.elapsed, self.total) = (0.0, 0.0);
+    }
+
+    /// The note playing (or paused): its seconds still to play and the share played.
+    pub fn progress(&self) -> Option<(FormId, f64, f32)> {
+        let note = self.playing?;
+        let share = if self.total > 0.0 { (self.elapsed / self.total).clamp(0.0, 1.0) as f32 } else { 0.0 };
+        Some((note, (self.total - self.elapsed).max(0.0), share))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn play(
+    mut commands: Commands,
+    time: Res<Time<Real>>,
+    settings: Res<VoiceSettings>,
+    voice: Res<VoiceState>,
+    mut tape_state: ResMut<Holotape>,
+    mut script: ResMut<ScriptState>,
+    paused: Res<crate::pause::Paused>,
+    mut sounds: Option<ResMut<Assets<AudioSource>>>,
+    sinks: Query<&AudioSink, (With<HolotapeSound>, Without<Retiring>)>,
+    mut effects: MessageWriter<PlaySound>,
+) {
+    let st = &mut *tape_state;
+    let Some(rt) = script.rt.as_mut() else { return };
+    // PlayHolotape and StopHolotape (`fnv_game::nvse_jg9`): a note is played as one
+    // picked, but picking the one playing goes on with it rather than pausing it; a stop
+    // ends the tape as its end does, without its end script [hypothesis: the page says
+    // only that it stops].
+    for r in rt.game.take_holotape_requests() {
+        match r {
+            fnv_game::nvse_jg9::HolotapeRequest::Play(note) if st.playing == Some(note) => {
+                if st.paused {
+                    st.paused = false;
+                    info!("holotape: a script goes on with {}", rt.game.data.name(note));
+                }
+            }
+            fnv_game::nvse_jg9::HolotapeRequest::Play(note) => {
+                info!("holotape: a script plays {}", rt.game.data.name(note));
+                st.picks.push(note);
+            }
+            fnv_game::nvse_jg9::HolotapeRequest::Stop => {
+                st.picks.clear();
+                if let Some(note) = st.playing {
+                    info!("holotape: a script stops {}", rt.game.data.name(note));
+                    st.stop(&mut commands);
+                }
+            }
+        }
+    }
+    let g = &rt.game;
+    let now = time.elapsed_secs_f64();
+    let picks = std::mem::take(&mut st.picks);
+    for (i, note) in picks.iter().enumerate() {
+        if st.playing == Some(*note) {
+            st.paused = !st.paused;
+            if st.paused {
+                info!("holotape: paused {}", g.data.name(*note));
+            } else {
+                info!("holotape: {} goes on", g.data.name(*note));
+            }
+            continue;
+        }
+        match g.note_tape(*note) {
+            Some(Tape::Sound(sound)) => {
+                if st.playing.is_some() {
+                    st.stop(&mut commands);
+                }
+                effects.write(PlaySound { sound, at: None });
+                info!("holotape: {} plays its sound {}", g.data.name(*note), g.data.name(sound));
+            }
+            Some(Tape::Voice { speaker, info }) => {
+                // The voice index is built on its own thread at the start: the pick waits.
+                let Some(bank) = voice.bank.as_ref() else {
+                    st.picks.extend_from_slice(&picks[i..]);
+                    break;
+                };
+                st.stop(&mut commands);
+                let n = g.data.infos.get(&info).map_or(0, |d| d.responses.len());
+                st.queue = (0..n)
+                    .filter_map(|k| match bank.file(info.0, k, speaker.0) {
+                        Some(path) => {
+                            // Without a length from the file (a broken header): the text's fitted length.
+                            let seconds = bank.seconds(&path).unwrap_or_else(|| g.response_seconds_as(Some(speaker), info, k));
+                            Some((path, seconds))
+                        }
+                        None => {
+                            info!("holotape: no file for {} line {} response {}", g.data.name(speaker), g.data.name(info), k + 1);
+                            None
+                        }
+                    })
+                    .collect();
+                st.queue.reverse();
+                st.count = st.queue.len();
+                st.total = st.queue.iter().map(|q| q.1).sum();
+                st.playing = Some(*note);
+                st.ends_at = now;
+                st.scripts.push((*note, 0));
+                info!("holotape: {} plays {} said by {}, {} responses", g.data.name(*note), g.data.name(info), g.data.name(speaker), n);
+            }
+            None => info!("holotape: {} has nothing to play", g.data.name(*note)),
+        }
+    }
+    let Some(note) = st.playing else { return };
+    // The pause menu or the player holds it: the sound's end moves on by the time held.
+    let hold = paused.0 || st.paused;
+    if hold {
+        st.ends_at += time.delta_secs_f64();
+    } else {
+        st.elapsed = (st.elapsed + time.delta_secs_f64()).min(st.total);
+    }
+    if hold != st.held {
+        st.held = hold;
+        if let Some(sink) = st.entity.and_then(|e| sinks.get(e).ok()) {
+            if st.held {
+                sink.pause();
+            } else {
+                sink.play();
+            }
+        }
+    }
+    if st.held || now < st.ends_at {
+        return;
+    }
+    st.entity = None;
+    let Some((path, seconds)) = st.queue.pop() else {
+        st.stop(&mut commands);
+        st.scripts.push((note, 1));
+        info!("holotape: {} is over", g.data.name(note));
+        return;
+    };
+    let k = st.count - st.queue.len();
+    let bytes = voice.bank.as_ref().and_then(|b| b.read(&path)).and_then(|b| crate::sfx::checked(&path, b));
+    st.entity = match (settings.play, sounds.as_mut(), bytes) {
+        (true, Some(assets), Some(bytes)) => {
+            let source = AudioSource { bytes: bytes.into() };
+            let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.volume.max(0.0)));
+            Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, HolotapeSound, SoundCategory::Voice)).id())
+        }
+        _ => None,
+    };
+    st.started += 1;
+    st.ends_at = now + seconds;
+    let silent = if st.entity.is_none() { " [silent: voice playback is off]" } else { "" };
+    info!("holotape: playing {path} ({seconds:.2} s) response {k}/{}{silent}", st.count);
+}
+
+/// A Voice note's line runs its begin script as the tape starts and its end script as it
+/// plays out (`Game::holotape_script`, docs/spec-notes/holotapes.md: Dead Money's Dog
+/// command tape is its quest's only way on) [hypothesis: a tape stopped before its end
+/// runs no end script].
+fn run_scripts(mut tape_state: ResMut<Holotape>, mut script: ResMut<ScriptState>, mut sim: ResMut<crate::sim::SimState>) {
+    if tape_state.scripts.is_empty() {
+        return;
+    }
+    let Some(rt) = script.rt.as_mut() else { return };
+    for (note, which) in std::mem::take(&mut tape_state.scripts) {
+        let info = crate::script::with_world(rt, &mut sim, |rt| rt.game.holotape_script(note, which));
+        if let Some(info) = info {
+            info!("holotape: {} ran the {} script of {}", rt.game.data.name(note), ["begin", "end"][which], rt.game.data.name(info));
+        }
+    }
+}
+
+pub struct HolotapePlugin;
+
+impl Plugin for HolotapePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Holotape>().add_systems(Update, (play, run_scripts).chain().in_set(PlaySet::Ui));
+    }
+}

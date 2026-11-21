@@ -1,0 +1,49 @@
+{
+ "schema": "fnv.phys.walk-script/1",
+ "description": "Swimming, held out (physics.md 6.6; replaces swim_lake_shore, retired by the owner 2026-10-09): fall into Lake Las Vegas (XCLW 3000) from its surface 270 above the bed, float, then swim south-east with forward held (Always Run, level view, `stroke` forward) to a 24-degree bank that no capture has used and walk out up it: the stroke cycle, the moment the swimmer reaches the bed and the walk up. The capture loads the cell with `cow` first (the retired scenario's bank rows were captured with the cell not loaded, physics.md 6.6).",
+ "start": [
+  29875.0,
+  56623.0,
+  3000.0
+ ],
+ "hz": 60,
+ "segments": [
+  {
+   "steps": 300
+  },
+  {
+   "steps": 150,
+   "velocity": [
+    254.43,
+    -231.52
+   ],
+   "swim_velocity": [
+    250.73,
+    -228.15,
+    0.0
+   ],
+   "stroke": "forward"
+  }
+ ],
+ "observe": {
+  "from_step": 300,
+  "every": 15,
+  "count": 10
+ },
+ "capture": {
+  "name": "swim_lake_exit",
+  "reset_at": [
+   30726.0,
+   55849.0,
+   3214.0
+  ],
+  "set_z": 3000.0,
+  "heading_deg": 132.3,
+  "keys": [
+   "forward"
+  ],
+  "jump": false,
+  "settle_frames": 300,
+  "samples": 200
+ }
+}

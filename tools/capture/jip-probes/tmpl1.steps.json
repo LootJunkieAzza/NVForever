@@ -1,0 +1,239 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "tmpl1",
+ "title": "tmpl1, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B58D\"\nSetFunctionValue (GetBaseNumFactions rObj)\nEnd\n",
+   "label": "tmpl1.legion.factions",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B58D\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rObj))\nEnd\n",
+   "label": "tmpl1.legion.faction0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B58D\"\nSetFunctionValue (GetBaseNthRank 0 rObj)\nEnd\n",
+   "label": "tmpl1.legion.rank0",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B58D\"\nSetFunctionValue (GetFormIDString (GetClass rObj))\nEnd\n",
+   "label": "tmpl1.legion.class",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B58D\"\nSetFunctionValue (ar_Size (GetBaseSpellListSpells rObj))\nEnd\n",
+   "label": "tmpl1.legion.spells",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B58D\"\nSetFunctionValue (GetFormIDString (GetRace rObj))\nEnd\n",
+   "label": "tmpl1.legion.race",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2EE\"\nSetFunctionValue (GetBaseNumFactions rObj)\nEnd\n",
+   "label": "tmpl1.ranger.factions",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2EE\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rObj))\nEnd\n",
+   "label": "tmpl1.ranger.faction0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2EE\"\nSetFunctionValue (GetBaseNthRank 0 rObj)\nEnd\n",
+   "label": "tmpl1.ranger.rank0",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2EE\"\nSetFunctionValue (GetFormIDString (GetClass rObj))\nEnd\n",
+   "label": "tmpl1.ranger.class",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2EE\"\nSetFunctionValue (ar_Size (GetBaseSpellListSpells rObj))\nEnd\n",
+   "label": "tmpl1.ranger.spells",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2EE\"\nSetFunctionValue (GetFormIDString (GetRace rObj))\nEnd\n",
+   "label": "tmpl1.ranger.race",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2DC\"\nSetFunctionValue (GetBaseNumFactions rObj)\nEnd\n",
+   "label": "tmpl1.trooper.factions",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2DC\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rObj))\nEnd\n",
+   "label": "tmpl1.trooper.faction0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2DC\"\nSetFunctionValue (GetBaseNthRank 0 rObj)\nEnd\n",
+   "label": "tmpl1.trooper.rank0",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2DC\"\nSetFunctionValue (GetFormIDString (GetClass rObj))\nEnd\n",
+   "label": "tmpl1.trooper.class",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2DC\"\nSetFunctionValue (ar_Size (GetBaseSpellListSpells rObj))\nEnd\n",
+   "label": "tmpl1.trooper.spells",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17A2DC\"\nSetFunctionValue (GetFormIDString (GetRace rObj))\nEnd\n",
+   "label": "tmpl1.trooper.race",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1689BD\"\nSetFunctionValue (GetBaseNumFactions rObj)\nEnd\n",
+   "label": "tmpl1.jackalprimm.factions",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1689BD\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rObj))\nEnd\n",
+   "label": "tmpl1.jackalprimm.faction0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1689BD\"\nSetFunctionValue (GetBaseNthRank 0 rObj)\nEnd\n",
+   "label": "tmpl1.jackalprimm.rank0",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1689BD\"\nSetFunctionValue (GetFormIDString (GetClass rObj))\nEnd\n",
+   "label": "tmpl1.jackalprimm.class",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1689BD\"\nSetFunctionValue (ar_Size (GetBaseSpellListSpells rObj))\nEnd\n",
+   "label": "tmpl1.jackalprimm.spells",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1689BD\"\nSetFunctionValue (GetFormIDString (GetRace rObj))\nEnd\n",
+   "label": "tmpl1.jackalprimm.race",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DFB\"\nSetFunctionValue (GetBaseNumFactions rObj)\nEnd\n",
+   "label": "tmpl1.viper.factions",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DFB\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rObj))\nEnd\n",
+   "label": "tmpl1.viper.faction0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DFB\"\nSetFunctionValue (GetBaseNthRank 0 rObj)\nEnd\n",
+   "label": "tmpl1.viper.rank0",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DFB\"\nSetFunctionValue (GetFormIDString (GetClass rObj))\nEnd\n",
+   "label": "tmpl1.viper.class",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DFB\"\nSetFunctionValue (ar_Size (GetBaseSpellListSpells rObj))\nEnd\n",
+   "label": "tmpl1.viper.spells",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DFB\"\nSetFunctionValue (GetFormIDString (GetRace rObj))\nEnd\n",
+   "label": "tmpl1.viper.race",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DDD\"\nSetFunctionValue (GetBaseNumFactions rObj)\nEnd\n",
+   "label": "tmpl1.jackal.factions",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DDD\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rObj))\nEnd\n",
+   "label": "tmpl1.jackal.faction0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DDD\"\nSetFunctionValue (GetBaseNthRank 0 rObj)\nEnd\n",
+   "label": "tmpl1.jackal.rank0",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DDD\"\nSetFunctionValue (GetFormIDString (GetClass rObj))\nEnd\n",
+   "label": "tmpl1.jackal.class",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DDD\"\nSetFunctionValue (ar_Size (GetBaseSpellListSpells rObj))\nEnd\n",
+   "label": "tmpl1.jackal.spells",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"167DDD\"\nSetFunctionValue (GetFormIDString (GetRace rObj))\nEnd\n",
+   "label": "tmpl1.jackal.race",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetBaseNumFactions rObj)\nEnd\n",
+   "label": "tmpl1.doc.factions",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rObj))\nEnd\n",
+   "label": "tmpl1.doc.faction0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetBaseNthRank 0 rObj)\nEnd\n",
+   "label": "tmpl1.doc.rank0",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetClass rObj))\nEnd\n",
+   "label": "tmpl1.doc.class",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (ar_Size (GetBaseSpellListSpells rObj))\nEnd\n",
+   "label": "tmpl1.doc.spells",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetRace rObj))\nEnd\n",
+   "label": "tmpl1.doc.race",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

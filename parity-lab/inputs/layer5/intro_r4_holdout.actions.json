@@ -1,0 +1,350 @@
+{
+ "format": "fnv.script.actions/1",
+ "seed": 0,
+ "frame_seconds": 0.016666666666666666,
+ "title": "Layer 5 round 4 held-out intro scenario",
+ "save": "nvfnew",
+ "given": [
+  {
+   "kind": "menu",
+   "menu": 1001,
+   "open": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG00",
+   "running": true,
+   "completed": false,
+   "stage": 90,
+   "done": [
+    0,
+    90
+   ],
+   "not_done": [
+    5,
+    85,
+    95,
+    100
+   ],
+   "vars": {
+    "bRunTimer": 1
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG01",
+   "running": true,
+   "completed": false,
+   "stage": 0,
+   "not_done": [
+    0,
+    1,
+    3,
+    5,
+    7,
+    8,
+    9,
+    10,
+    15,
+    17,
+    20,
+    25,
+    30,
+    35,
+    36,
+    37,
+    40,
+    45,
+    50,
+    55,
+    60,
+    65,
+    70,
+    75,
+    76,
+    78,
+    79,
+    80,
+    85,
+    90,
+    95,
+    98,
+    100,
+    102,
+    105,
+    110,
+    115,
+    200
+   ],
+   "objectives": [
+    {
+     "index": 10,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 30,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 40,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 50,
+     "displayed": false,
+     "completed": false
+    }
+   ],
+   "vars": {
+    "bChooseSex": 0,
+    "nButton": 0,
+    "bRunTimer": 0,
+    "bGiveTest": 0,
+    "fTimer": 0,
+    "bBeganTest": 0,
+    "nDocReaction": 0,
+    "nMostExtremeStat": 0,
+    "bLow": 0,
+    "fMaxDeviation": 0,
+    "fCurrentValue": 0,
+    "fAbsCurrentValue": 0
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG01Test",
+   "running": true,
+   "completed": false,
+   "vars": {
+    "nBarter": 0,
+    "nBigGuns": 0,
+    "nEnergyWeapons": 0,
+    "nExplosives": 0,
+    "nLockpick": 0,
+    "nMedicine": 0,
+    "nMelee": 0,
+    "nRepair": 0,
+    "nScience": 0,
+    "nSmallGuns": 0,
+    "nSneak": 0,
+    "nSpeech": 0,
+    "nSurvival": 0,
+    "nUnarmed": 0,
+    "bDoFinalCalculation": 0
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "CGTutorial",
+   "running": true,
+   "stage": 0,
+   "not_done": [
+    2
+   ]
+  },
+  {
+   "kind": "quest",
+   "quest": "VDLCPackQuest",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderTribal",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderCaravan",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderClassic",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderMercenary",
+   "running": true
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Strength",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Perception",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Endurance",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Charisma",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Intelligence",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Agility",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Luck",
+   "value": 5
+  }
+ ],
+ "actions": [
+  {
+   "op": "set_quest_var",
+   "quest": "VCG00",
+   "var": "fTimer",
+   "value": 1000
+  },
+  {
+   "op": "dismiss_message_boxes",
+   "max": 6,
+   "wait_frames": 600
+  },
+  {
+   "op": "get_tag_skills",
+   "skills": [
+    "Barter",
+    "EnergyWeapons",
+    "Explosives",
+    "Guns",
+    "Lockpick",
+    "Medicine",
+    "MeleeWeapons",
+    "Repair",
+    "Science",
+    "Sneak",
+    "Speech",
+    "Survival",
+    "Unarmed"
+   ],
+   "label": "tag skills before"
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nBarter",
+   "value": 3
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nLockpick",
+   "value": 2
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nExplosives",
+   "value": 2
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nEnergyWeapons",
+   "value": 2
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nUnarmed",
+   "value": 1
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nRepair",
+   "value": 1
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "bDoFinalCalculation",
+   "value": 1
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01Test",
+   "field": "var.bDoFinalCalculation",
+   "value": 2,
+   "max_frames": 600,
+   "label": "VCG01Test calculation done"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01Test",
+   "fields": [
+    "running",
+    "var.nBarter",
+    "var.nBigGuns",
+    "var.nEnergyWeapons",
+    "var.nExplosives",
+    "var.nLockpick",
+    "var.nMedicine",
+    "var.nMelee",
+    "var.nRepair",
+    "var.nScience",
+    "var.nSmallGuns",
+    "var.nSneak",
+    "var.nSpeech",
+    "var.nSurvival",
+    "var.nUnarmed",
+    "var.nMaxStatValue",
+    "var.nBestSpecialStat",
+    "var.nSpecialBias",
+    "var.nTopCombat",
+    "var.nTopGateOpener",
+    "var.nTopOverall",
+    "var.nSkillsLeftToBeat",
+    "var.nSneakBias",
+    "var.bApplySneakBias",
+    "var.nMaxValue",
+    "var.bDoFinalCalculation"
+   ],
+   "label": "VCG01Test after"
+  },
+  {
+   "op": "get_tag_skills",
+   "skills": [
+    "Barter",
+    "EnergyWeapons",
+    "Explosives",
+    "Guns",
+    "Lockpick",
+    "Medicine",
+    "MeleeWeapons",
+    "Repair",
+    "Science",
+    "Sneak",
+    "Speech",
+    "Survival",
+    "Unarmed"
+   ],
+   "label": "tag skills after the psych test"
+  }
+ ]
+}

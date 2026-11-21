@@ -1,6 +1,7 @@
 //! The Display rows the launcher shows as lists rather than text: Resolution, Monitor,
 //! Display sync and Frame rate limit. Each list's words and the text it writes are the game's
-//! (the game's window, frame pace and settings). The launcher keeps its own copy of those lists.
+//! (engine/nvforever/src/window_mode.rs, frame_pace.rs, settings.rs); the tests read those
+//! files so a change there shows here.
 
 /// One entry of a list: what the page shows and what the INI keeps.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -301,6 +302,102 @@ pub fn monitors() -> Vec<Monitor> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn engine(file: &str) -> String {
+        std::fs::read_to_string(format!("{}/../../engine/nvforever/src/{file}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+    }
+
+    #[test]
+    fn lists_match_the_games_words_and_values() {
+        let src = engine("frame_pace.rs");
+        for c in sync_choices() {
+            assert!(src.contains(&format!("=> \"{}\"", c.label)), "Display sync: {} is not a name in frame_pace.rs", c.label);
+            assert!(src.contains(&format!("=> \"{}\"", c.stored)), "Display sync: {} is not stored by frame_pace.rs", c.stored);
+        }
+        let caps = format!("pub const CAPS: [u32; {}] = {:?};", CAPS.len(), CAPS);
+        assert!(src.contains(&caps), "frame_pace.rs no longer has {caps}");
+        let wm = engine("window_mode.rs");
+        assert!(wm.contains("format!(\"Display {} ({}x{})\", i + 1, m.size.x, m.size.y)"), "monitor_label changed");
+        assert!(wm.contains("format!(\"{};{full}\""), "resolution_save changed");
+    }
+
+    fn play(file: &str) -> String {
+        std::fs::read_to_string(format!("{}/../../engine/nvf-play/src/{file}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+    }
+
+    #[test]
+    fn the_other_lists_match_the_game() {
+        let p = play("phys_rate.rs");
+        assert!(p.contains("pub const LISTED: [RateChoice; 5] = [RateChoice::Fixed(60), RateChoice::Fixed(120), RateChoice::Fixed(144), RateChoice::Fixed(160), RateChoice::Fps];"));
+        assert!(p.contains("RateChoice::Fixed(hz) => format!(\"{hz} Hz\")") && p.contains("RateChoice::Fps => \"Match FPS\"") && p.contains("RateChoice::Fps => \"fps\""));
+        let r = engine("perf_overlay/readings.rs");
+        for c in counter_low_choices() {
+            assert!(r.contains(&format!("=> \"{}\"", c.label)) && r.contains(&format!("=> \"{}\"", c.stored)), "{c:?}");
+        }
+        let x = play("reticle.rs");
+        for c in crosshair_choices() {
+            assert!(x.contains(&format!("=> \"{}\"", c.label)), "{c:?}");
+        }
+        assert!(x.contains("save: |w| w.resource::<CrosshairStyle>().name().to_string()"), "the crosshair style is kept by name");
+        let u = play("ui_colour.rs");
+        assert!(u.contains("pub const PRESETS: [(&str, [u8; 3]); 4] = [(\"Amber\", AMBER_RGB), (\"Green\", [26, 255, 128]), (\"Blue\", [46, 207, 255]), (\"White\", [230, 240, 255])];"));
+        assert!(u.contains("pub const CUSTOM: &str = \"Custom\";"));
+        let i = play("interface.rs");
+        assert!(i.contains("pub const AMBER_RGB: [u8; 3] = [255, 182, 66];"));
+        assert!(i.contains("pub const UI_SCALE_CHOICES: usize = 21;") && i.contains("pub const UI_SCALE_RANGE: (f32, f32) = (0.5, 1.5);"));
+        let m = play("menu_scale.rs");
+        assert!(m.contains("const CHOICES: usize = 11;") && m.contains("scale.clamp(0.5, 1.0)"));
+        let st = engine("settings.rs");
+        for c in ["const FOV_MIN: f32 = 50.0;", "const FOV_MAX: f32 = 110.0;", "const FOV_CHOICES: usize = 13;", "const VIEWMODEL_FOV_MIN: f32 = 30.0;", "const VIEWMODEL_FOV_MAX: f32 = 90.0;", "const VIEWMODEL_FOV_CHOICES: usize = 13;"] {
+            assert!(st.contains(c), "settings.rs no longer has {c}");
+        }
+        assert_eq!(steps("field-of-view").unwrap()[5], "75°");
+        assert_eq!(steps("viewmodel-field-of-view").unwrap()[5], "55°");
+        assert_eq!(steps("ui-scale").unwrap()[10], "100%");
+        assert_eq!(steps("menu-scale").unwrap().last().unwrap(), "100%");
+        assert_eq!(steps("pipboy-blue").unwrap().len(), 256);
+        assert_eq!(colour_of_part("hud-green"), Some("hud-colour"));
+        assert_eq!(preset_rgb("blue"), Some([46, 207, 255]));
+        assert_eq!(chosen("physics-rate", &physics_choices(), "Match FPS"), Some(4));
+        let langs = language_choices(&[std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../lang"))]);
+        assert_eq!(langs[0], choice("English", "en"));
+        assert!(langs.iter().any(|c| c.stored == "de" && c.label == "Deutsch"), "{langs:?}");
+    }
+
+    #[test]
+    fn graphics_and_controls_lists_match_the_game() {
+        let pad = play("pad.rs");
+        for c in named_choices("button-style").unwrap() {
+            assert!(pad.contains(&format!("ButtonStyle::{} => \"{}\"", c.label.replace(' ', ""), c.label)), "{c:?}");
+        }
+        assert!(pad.contains("save: |w| w.resource::<ButtonStyle>().name().to_string()"));
+        let st = engine("settings.rs");
+        assert!(st.contains("const UPSCALERS: [(&str, Upscaler); 3] = [(\"Off\", Upscaler::Off), (\"FSR 3.1\", Upscaler::Fsr), (\"DLSS\", Upscaler::Dlss)];"));
+        assert!(st.contains("save: upscaler_chosen,") && st.contains("save: quality_chosen,") && st.contains("save: model_chosen,"));
+        assert!(st.contains("const FSR_LIBRARY_BUILT_IN: &str = \"Built-in\";") && st.contains("const FSR_LIBRARY_FOLDER: &str = \"Game folder\";"));
+        assert!(st.contains("const FRAMES_CHOICES: [&str; 3] = [\"2x\", \"3x\", \"4x\"];"));
+        let up = engine("upscaler.rs");
+        for key in ["upscaler-quality", "dlss-model"] {
+            for c in named_choices(key).unwrap() {
+                assert!(up.contains(&format!("=> \"{}\"", c.label)), "{key}: {c:?}");
+            }
+        }
+        let fg = engine("frame_gen.rs");
+        for c in frame_gen_choices() {
+            assert!(fg.contains(&format!("=> \"{}\"", c.label)) && fg.contains(&format!("=> \"{}\"", c.stored)), "{c:?}");
+        }
+        let gr = engine("graphics.rs");
+        for w in steps("anti-aliasing").unwrap().iter().chain(steps("shadow-filter").unwrap().iter()).chain(steps("shadow-resolution").unwrap().iter()) {
+            assert!(gr.contains(&format!("(\"{w}\", ")), "graphics.rs: {w}");
+        }
+        assert!(engine("shadow_rate.rs").contains("pub const SUN_SHADOW_CHOICES: [&str; 3] = [\"Off\", \"Performance\", \"Quality\"];"));
+        assert!(gr.contains("pub const AA_CHOICES: [(&str, ScreenAa, Msaa); 7]") && gr.contains("pub const SHADOW_FILTERS: [(&str, ShadowFilteringMethod); 3]"));
+        assert!(gr.contains("pub const SHADOW_RESOLUTIONS: [(&str, usize); 2]"));
+        assert!(st.contains("pub(crate) const LEGACY_KEY: &str = \"fsr-upscaling\";") && st.contains("set_older_key(app, UPSCALER_KEY, LEGACY_KEY)"));
+        assert!(st.contains("if fnv_install::ini_get(&text, section, \"display-sync\").is_some() {") && st.contains("let Some(old) = fnv_install::ini_get(&text, section, \"vsync\")"), "the old vsync key is read only without display-sync");
+        let q = engine("quality.rs");
+        assert!(q.contains("fn load_quality(_world: &mut World, text: &str) -> bool") && !q.contains("fn load_enhanced("), "the preset's INI word is read only to check it; no Enhanced row (#2803)");
+    }
 
     #[test]
     fn frame_rate_limit_steps() {

@@ -1,0 +1,165 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "q5_trial",
+ "title": "Layer 5 trial: quest functions and quest variables in compiled job lines (a few seconds)",
+ "start": "Any save (read-only apart from two VMS22 variables; never saved).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetStage VCG01\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "GetStage VCG01"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nset fV to GetStage VCG01\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "set GetStage VCG01"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetStageDone VCG01 200\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "GetStageDone VCG01 200"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetQuestRunning VCG01\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "GetQuestRunning VCG01"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetQuestCompleted VCG01\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "GetQuestCompleted VCG01"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetObjectiveDisplayed VCG01 10\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "GetObjectiveDisplayed VCG01 10"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetObjectiveCompleted VCG01 10\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "GetObjectiveCompleted VCG01 10"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := VCG01.fTimer\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "VCG01.fTimer"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nset fV to VCG01.fTimer\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "set VCG01.fTimer"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := VCG01.bChooseSex\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "VCG01.bChooseSex"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068060\nlet fV := GetStage rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "ref",
+   "field": "GetStage rQ"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068060\nlet fV := GetQuestRunning rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "ref",
+   "field": "GetQuestRunning rQ"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068060\nlet fV := GetVariable \"fTimer\" rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "ref",
+   "field": "GetVariable fTimer rQ"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetStage VMS16\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "GetStage VMS16"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetQuestRunning VMQ03aTimer\nSetFunctionValue fV\nEnd\n",
+   "label": "edid",
+   "field": "GetQuestRunning VMQ03aTimer"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := ScroungerOdds\nSetFunctionValue fV\nEnd\n",
+   "label": "global",
+   "field": "ScroungerOdds"
+  },
+  {
+   "script": "Begin Function { }\nset VMS22.VMS22DinoPic to 3\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := VMS22.VMS22DinoPic\nSetFunctionValue fV\nEnd\n",
+   "label": "write",
+   "field": "script set VMS22.VMS22DinoPic to 3"
+  },
+  {
+   "console": "set VMS22.VMS22DinoPic to 5"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := VMS22.VMS22DinoPic\nSetFunctionValue fV\nEnd\n",
+   "label": "write",
+   "field": "console set VMS22.VMS22DinoPic to 5"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := 1 / 3\nSetFunctionValue ($ fV)\nEnd\n",
+   "label": "format",
+   "field": "$ of 1/3"
+  }
+ ]
+}

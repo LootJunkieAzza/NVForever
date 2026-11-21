@@ -1,0 +1,220 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_09a_disabled_ref_script",
+ "title": "Disabled reference: does its object script's GameMode run (owner-review: runtime differs, disabled references) (about 30 s)",
+ "start": "nvfdoc: Doc Mitchell's house; disables and enables the skull activator. Never saved; unattended (capture_run.py --save nvfdoc).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "coc GSDocMitchellHouse"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064441\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nrF1.SetVariable \"timer\" 1000\nrF1.SetVariable \"runtimer\" 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "enabled, counting",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enabled, counting",
+   "field": "disabled"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "enabled, 60 loops later",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enabled, 60 loops later",
+   "field": "disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nrF1.Disable\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled",
+   "field": "disabled"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 60 loops later",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 60 loops later",
+   "field": "disabled"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 120 loops later",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 120 loops later",
+   "field": "disabled"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 180 loops later",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 180 loops later",
+   "field": "disabled"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 240 loops later",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 240 loops later",
+   "field": "disabled"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 300 loops later",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disabled, 300 loops later",
+   "field": "disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nrF1.Enable\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "enabled again",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enabled again",
+   "field": "disabled"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetVariable \"timer\"\nSetFunctionValue fV\nEnd\n",
+   "label": "enabled again, 60 loops later",
+   "field": "timer"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enabled again, 60 loops later",
+   "field": "disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068048\nrF1.SetVariable \"timer\" 0\nSetFunctionValue 1\nEnd\n"
+  }
+ ]
+}

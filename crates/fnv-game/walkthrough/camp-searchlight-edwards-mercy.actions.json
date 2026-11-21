@@ -1,0 +1,122 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Arachnophobia (VMS43a): Private Edwards talked into ending his life (50)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: as camp-searchlight does up to Edwards's first talk (10); before the radscorpions are dealt with, the player tells Edwards they are gone (Topic008) and talks him into letting go (Topic078, Speech 60: 50, the fade to black). Copied from camp-searchlight.actions.json up to Edwards's first talk (VMS43a 10). Stand-ins: travel by move_player; Speech 60 by set_av."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel to Camp Searchlight and between its houses."
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor first words"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic023",
+   "label": "astor first words 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "move_player",
+   "to": "EdwardsREF"
+  },
+  {
+   "op": "talk",
+   "actor": "EdwardsREF",
+   "label": "edwards"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic042",
+   "label": "edwards 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic043",
+   "label": "edwards 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic063",
+   "label": "edwards 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS43a 10"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the player's own Speech: 60."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 60
+  },
+  {
+   "op": "move_player",
+   "to": "EdwardsREF"
+  },
+  {
+   "op": "talk",
+   "actor": "EdwardsREF",
+   "label": "edwards"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic008"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic078"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "stage",
+    "done.50"
+   ],
+   "label": "final: VMS43a 50"
+  }
+ ]
+}

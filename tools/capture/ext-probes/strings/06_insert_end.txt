@@ -1,0 +1,20 @@
+scn ExtProbeStrings06
+; one edge-case probe moved out of 02 (tools/capture/ext-probes/strings/README.md)
+string_var sS
+string_var sT
+array_var aA
+int iI
+float fF
+ref rRef
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|strings/ExtProbeStrings06|begin"
+    let sS := "Hel"
+    Sv_Insert "lo", sS, 3
+    Print "EXTPROBE|insert.end|[" + (sS) + "]"
+    Print "EXTPROBE|strings/ExtProbeStrings06|end"
+End

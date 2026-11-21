@@ -1,0 +1,260 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_flags",
+ "title": "nvse-flags, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C79\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.chet",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C68\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.joecobb",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E85\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.sunny",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6D\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.trudy",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C7D\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.ringo",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C80\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.easypete",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14DEE2\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.acre",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"16941D\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.hidden.16941d",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1690F1\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.hidden.1690f1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"E7514\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.hidden.e7514",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"101A47\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.hidden.101a47",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rF.IsPersistent)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "ref.doc.persistent",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rF.GetTalkedToPC)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "talked.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C79\"\nSetFunctionValue (rF.GetTalkedToPC)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "talked.chet",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C68\"\nSetFunctionValue (rF.GetTalkedToPC)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "talked.joecobb",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E85\"\nSetFunctionValue (rF.GetTalkedToPC)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "talked.sunny",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6D\"\nSetFunctionValue (rF.GetTalkedToPC)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "talked.trudy",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C7D\"\nSetFunctionValue (rF.GetTalkedToPC)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "talked.ringo",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C80\"\nSetFunctionValue (rF.GetTalkedToPC)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "talked.easypete",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14DEE2\"\nSetFunctionValue (rF.GetDead)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "acre.dead.before",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rItem := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rF := rPlayer.PlaceAtMe rItem 1\nrPlayer.AuxVarSetRef \"*nvfFL\" rF\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "placed.npc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := rPlayer.AuxVarGetRef \"*nvfFL\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "placed.npc.next",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := rPlayer.AuxVarGetRef \"*nvfFL\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "placed.npc.next2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := rPlayer.AuxVarGetRef \"*nvfFL\"\nrF.Kill\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "placed.npc.kill",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := rPlayer.AuxVarGetRef \"*nvfFL\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "placed.npc.dead",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := rPlayer.AuxVarGetRef \"*nvfFL\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "placed.npc.dead2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := rPlayer.AuxVarGetRef \"*nvfFL\"\nSetFunctionValue (rF.GetDead)\nEnd\n",
+   "label": "placed.npc.getdead",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rItem := GetFormFromMod \"FalloutNV.esm\" \"14DEE2\"\nlet rItem := rItem.GetBaseObject\nlet rF := rPlayer.PlaceAtMe rItem 1\nrPlayer.AuxVarSetRef \"*nvfFL\" rF\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "placed.creature",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := rPlayer.AuxVarGetRef \"*nvfFL\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "placed.creature.next",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := rPlayer.AuxVarGetRef \"*nvfFL\"\nrF.Disable\nrF.MarkForDelete\nrPlayer.AuxVarErase \"*nvfFL\"\nSetFunctionValue \"1\"\nEnd\n",
+   "label": "placed.cleanup",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14DEE2\"\nrF.Kill\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "acre.kill",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14DEE2\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "acre.dead",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14DEE2\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "acre.dead2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14DEE2\"\nSetFunctionValue (rF.GetDead)\nreturn\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "acre.getdead",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nrPlayer.MoveTo rF\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "doc.moveto",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "doc.loaded",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "doc.loaded2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nif IsFormValid rF\n  SetFunctionValue (sv_Construct \"%g %g\" (GetFlagsLow rF) (rF.GetDisabled))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
+   "label": "doc.loaded3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rPlayer.GetParentCell))\nEnd\n",
+   "label": "doc.loaded.player.cell",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rItem := GetFirstRef 0 0 0\nlet fRes := 0\nlet sText := \"\"\nwhile IsFormValid rItem && fRes < 40\n  let sText += (GetFormIDString rItem) + (sv_Construct \":%g \" (GetFlagsLow rItem))\n  let fRes += 1\n  let rItem := GetNextRef\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "doc.loaded.walk",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

@@ -1,0 +1,117 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Bye Bye Love failed: Carlitos killed after he hires the player (VMS21a 120, 125)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Carlitos hires the player (10), as bye-bye-love does; the player then kills him (VMS21aCarlitosSCRIPT, VMS21a between 5 and 100: 120, whose stage script sets 125). Copied from bye-bye-love.actions.json up to Carlitos's hiring. Stand-ins: travel by move_player; the fight by kill."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Speech 100 for every check on the path."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to the diner, where Carlitos's GetDistance V21DinerMarkerREF < 1024 lines are said."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21aCarlitosREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS21aCarlitosREF",
+   "label": "carlitos greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic001",
+   "label": "c0"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic006",
+   "label": "c1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic007",
+   "label": "c2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic017",
+   "label": "c3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic021",
+   "label": "c4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic029",
+   "label": "c5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic031",
+   "label": "c6"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic034",
+   "label": "c7"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "var.CarlitosHiresYou"
+   ],
+   "label": "milestone: VMS21a 10"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21aCarlitosREF"
+  },
+  {
+   "op": "kill",
+   "target": "VMS21aCarlitosREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VMS21aCarlitosREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VMS21aCarlitosREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "done.120",
+    "done.125",
+    "failed"
+   ],
+   "label": "fail: VMS21a 120/125"
+  }
+ ]
+}

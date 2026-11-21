@@ -1,0 +1,48 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "holmes_far_travel_jip",
+ "title": "JIP tier, state only (docs/handoff/observer-jip-audit-2026-10-25.md Q1): holmes_far_travel with Malcolm Holmes's processing level and stable package while the player is near, at mid distance and far from him",
+ "save": "nvfstrip",
+ "defaults": {
+  "every": 60,
+  "depth": 1,
+  "settle_frames": 120,
+  "track": [
+   "SSHQMalcolmHolmesREF"
+  ],
+  "console_first": [
+   "CloseAllMenus",
+   "tgm"
+  ],
+  "do": [
+   [
+    "player.AddItem {0} 1",
+    "NVStarBottleCap"
+   ]
+  ],
+  "jip": true
+ },
+ "sessions": [
+  {
+   "name": "near",
+   "go": {
+    "moveto": "NovacMapMarker"
+   },
+   "hours": 2
+  },
+  {
+   "name": "mid",
+   "go": {
+    "moveto": "188MapMarker"
+   },
+   "hours": 3
+  },
+  {
+   "name": "far",
+   "go": {
+    "moveto": "GoodspringsCemeteryMapMarker"
+   },
+   "hours": 6
+  }
+ ]
+}

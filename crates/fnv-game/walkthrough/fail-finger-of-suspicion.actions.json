@@ -1,0 +1,23 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless The Finger of Suspicion (VMS33), the fail: Vulpes's task (stage 10), Martina Groesbeck killed (40)",
+  "given": [
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 50},
+    {"kind": "quest", "quest": "VDialogueCaesar", "vars": {"FirstTalk": 1}}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path, the fail: Vulpes Inculta's task as in finger-of-suspicion (stage 10); Martina Groesbeck killed (kill stands in for the thugs' attack; the quest script sets 40 once she is dead). Travel is move_player."},
+    {"op": "note", "text": "Stand-in for the trip to the Fort and the walk to Vulpes Inculta."},
+    {"op": "move_player", "to": "FortVulpesIncultaRef"},
+    {"op": "talk", "actor": "FortVulpesIncultaRef", "label": "vulpes greeting"},
+    {"op": "choose", "topic": "VFreeformTheFortFortVulpeIncultaTopic009", "label": "a task for the legion"},
+    {"op": "choose", "topic": "VFreeformTheFortFortVulpesIncultaTopic007", "label": "task taken"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS33", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VMS33 10"},
+    {"op": "get_ref", "ref": "MartinaGroesbeckREF", "fields": ["disabled"], "label": "martina enabled"},
+    {"op": "move_player", "to": "MartinaGroesbeckREF"},
+    {"op": "kill", "actor": "MartinaGroesbeckREF", "killer": "VMS33OmertaThug01Ref"},
+    {"op": "advance_seconds", "seconds": 6},
+    {"op": "get_quest", "quest": "VMS33", "fields": ["stage", "done.40", "var.martinadead"], "label": "final: VMS33 40"}
+  ]
+}

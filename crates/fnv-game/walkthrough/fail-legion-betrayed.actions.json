@@ -1,0 +1,40 @@
+{
+  "format": "fnv.script.actions/1",
+  "plugins": ["FalloutNV.esm"],
+  "title": "Headless fail path: the player works for Caesar (Render Unto Caesar up to the House task), then reports two NCR tasks to Colonel Moore; the Legion's warning (VMQCaesarFail 1) and its fail (VMQCaesarFail 5, VMQ02 110) follow, and the NCR's and Yes Man's lines stay open",
+  "given": [
+    {"kind": "menu", "menu": 1001, "open": false},
+    {"kind": "quest", "quest": "VMQ01", "running": false, "completed": true, "stage": 100, "done": [100]},
+    {"kind": "quest", "quest": "VMQTops", "running": true, "completed": true, "stage": 80, "done": [80]},
+    {"kind": "global", "name": "VStoryEventBennyKilledCasino", "value": 1},
+    {"kind": "global", "name": "VStoryState", "value": 20},
+    {"kind": "item_count", "of": "player", "item": "VPlatinumChip", "count": 1},
+    {"kind": "quest", "quest": "VMQ02", "running": true, "completed": false, "stage": 10, "done": [1, 2, 3, 5, 7, 10], "objectives": [{"index": 10, "displayed": true, "completed": false}]},
+    {"kind": "quest", "quest": "VDialogueCaesar", "running": true, "vars": {"VaultQuest": 3, "HouseQuest": 2, "FirstTalk": 1}},
+    {"kind": "quest", "quest": "VMQ05", "running": true, "completed": false, "stage": 20, "done": [10, 20], "objectives": [{"index": 25, "displayed": true, "completed": false}, {"index": 35, "displayed": true, "completed": false}]}
+  ],
+  "actions": [
+    {"op": "note", "text": "Given: the player has worked for Caesar up to his House task (VMQ02 10, the vault destroyed) and has also taken For the Republic, Part 2 from Colonel Moore (VMQ05), enlisted the Great Khans and foiled the Omertas (side quests, given as VMQ05 objectives 25 and 35 shown). Nothing has failed yet."},
+    {"op": "get_quest", "quest": "VMQCaesarFail", "fields": ["running", "stage"], "label": "Legion fail quest before"},
+    {"op": "note", "text": "The player reports to Moore at Hoover Dam (travel stand-in) that the Khans will fight the Legion. VMQCaesarFail's script counts the NCR task done and gives the Legion's warning (stage 1, objective 5)."},
+    {"op": "move_player", "to": "VHDColonelMooreREF"},
+    {"op": "say_info", "info": "0x0015C413", "speaker": "VHDColonelMooreREF"},
+    {"op": "advance_seconds", "seconds": 3},
+    {"op": "get_quest", "quest": "VMQ05", "fields": ["objective.25.completed"], "label": "VMQ05 objective 25 (Khans reported)"},
+    {"op": "get_quest", "quest": "VMQCaesarFail", "fields": ["running", "stage", "done.1", "objective.5.displayed", "var.iObjTrack"], "label": "milestone: VMQCaesarFail 1 (the Legion's warning)"},
+    {"op": "get_quest", "quest": "VMQ02", "fields": ["running", "failed", "stage"], "label": "VMQ02 still running after the warning"},
+    {"op": "note", "text": "The player then reports the Omertas foiled. The second NCR task makes VMQCaesarFail fail (stage 5): the Legion turns hostile and VMQ02 110 fails Render Unto Caesar."},
+    {"op": "say_info", "info": "0x00136DC8", "speaker": "VHDColonelMooreREF"},
+    {"op": "advance_seconds", "seconds": 3},
+    {"op": "get_quest", "quest": "VMQ05", "fields": ["objective.35.completed"], "label": "VMQ05 objective 35 (Omertas reported)"},
+    {"op": "get_quest", "quest": "VMQCaesarFail", "fields": ["running", "failed", "stage", "done.5", "objective.10.completed"], "label": "fail: VMQCaesarFail 5 (in damnatio memoriae)"},
+    {"op": "get_quest", "quest": "VMQ02", "fields": ["running", "failed", "stage", "done.110"], "label": "fail: VMQ02 110 (Render Unto Caesar failed)"},
+    {"op": "get_quest", "quest": "VFreeformTheFort", "fields": ["running"], "label": "the Fort's freeform quest stopped"},
+    {"op": "get_quest", "quest": "VDialogueCaesar", "fields": ["running"], "label": "Caesar's dialogue quest stopped"},
+    {"op": "get_item_count", "of": "FortCaesarRef", "item": "VPlatinumChip", "label": "no chip left on Caesar"},
+    {"op": "get_reputation", "rep": "RepNVCaesarsLegion", "fields": ["infamy"], "label": "Legion infamy"},
+    {"op": "note", "text": "The ways on: VMQ05 keeps running with Moore's next tasks (the NCR's line), and the Wild Card failsafe (Benny dead) leads to Yes Man."},
+    {"op": "get_quest", "quest": "VMQYesManFailsafe", "fields": ["running", "stage", "done.1"], "label": "way on: Wild Card failsafe"},
+    {"op": "get_quest", "quest": "VMQ05", "fields": ["running", "failed", "stage"], "label": "final: VMQ05 still running (the NCR's line open)"}
+  ]
+}

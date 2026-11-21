@@ -1,0 +1,15 @@
+{
+  "format": "fnv.sim.actions/1",
+  "seed": 0,
+  "player_level": 1,
+  "actions": [
+    {"op": "get_item_count", "of": "player", "item": "0x0000433C", "label": "frag mines held at start"},
+    {"op": "get_disabled", "of": "0x0013A656", "label": "mine before activating"},
+    {"op": "get_pos", "of": "0x0013A656", "label": "mine position before activating"},
+    {"op": "activate", "actor": "player", "target": "0x0013A656", "label": "activating a placed frag mine by script"},
+    {"op": "get_item_count", "of": "player", "item": "0x0000433C", "label": "frag mines held after the scripted activation"},
+    {"op": "get_disabled", "of": "0x0013A656", "label": "mine after the scripted activation"},
+    {"op": "get_pos", "of": "0x0013A656", "label": "mine position after the scripted activation"}
+  ],
+  "report": ["player", "0x0013A656"]
+}

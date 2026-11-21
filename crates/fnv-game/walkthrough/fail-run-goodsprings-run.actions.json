@@ -1,0 +1,42 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Run Goodsprings Run (VMS16b), the fail: VMS16b 10 as in run-goodsprings-run, then Joe Cobb killed (VMS16b 110)",
+  "given": [
+    {"kind": "quest", "quest": "VCG01", "running": false, "completed": true, "stage": 200, "done": [115, 200]},
+    {"kind": "quest", "quest": "VCG02", "running": true, "completed": false},
+    {"kind": "actor_value", "of": "player", "av": "Medicine", "value": 25}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: as run-goodsprings-run to 'VMS16b 10'; then Joe Cobb killed (GoodspringsJoeCobbScript, before VMS16b 70 and VMS16 70: VMS16b 110). Kill stands in for each fight, by the player; travel is move_player."},
+    {"op": "note", "text": "Doc's opening (VCG01) is done; the tutorials quest is still running. Sunny's last tutorial line (the intro chain says it) unlocks the saloon and enables Trudy, Joe Cobb and his trigger there."},
+    {"op": "say_info", "info": "0x0015F8B6", "speaker": "SunnyRef"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "note", "text": "Stand-in for the walk into the saloon: the trigger by the door starts Joe Cobb's conversation with Trudy (two NPCs)."},
+    {"op": "move_player", "to": "TrudyRef"},
+    {"op": "trigger_enter", "trigger": "scripted:GSJoeCobbTriggerScript"},
+    {"op": "advance_seconds", "seconds": 60},
+    {"op": "get_quest", "quest": "VMS16", "fields": ["var.bMetJoeCobb"], "label": "joe cobb met"},
+    {"op": "talk", "actor": "TrudyRef", "label": "trudy greeting"},
+    {"op": "choose", "topic": "VFreeformGoodspringsGoodspringsRubyTopic000", "label": "trudy explains the row"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS16", "fields": ["running", "stage"], "label": "milestone: VMS16 5"},
+    {"op": "note", "text": "Stand-in for Joe Cobb's walk out of the saloon: the row over, the quest script gives him GSJoeCobbLeavePackage, a travel to the reference 0x0015EF64 outside; he is put there and the package is done (its end script)."},
+    {"op": "call", "line": "GSJoeCobbRef.MoveTo 0015EF64"},
+    {"op": "package", "actor": "GSJoeCobbRef", "package": "GSJoeCobbLeavePackage", "event": "done"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "move_player", "to": "GSJoeCobbRef"},
+    {"op": "talk", "actor": "GSJoeCobbRef", "label": "joe cobb first greeting"},
+    {"op": "choose", "topic": "VFreeformGoodspringsGoodspringsJoeCobbTopic001", "label": "joe cobb his territory"},
+    {"op": "choose", "topic": "VFreeformGoodspringsGSJoeCobbTopic000", "label": "joe cobb about ringo"},
+    {"op": "choose", "topic": "VFreeformGoodspringsGSJoeCobbTopic016", "label": "joe cobb the deal"},
+    {"op": "choose", "topic": "VFreeformGoodspringsGSJoeCobbTopic001", "label": "joe cobb kill ringo agreed"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS16b", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VMS16b 10"},
+    {"op": "move_player", "to": "GSJoeCobbRef"},
+    {"op": "kill", "actor": "GSJoeCobbRef", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS16b", "fields": ["stage", "done.110"], "label": "final: VMS16b 110"}
+  ]
+}

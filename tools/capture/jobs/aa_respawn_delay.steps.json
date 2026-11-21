@@ -1,0 +1,98 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_respawn_delay",
+ "title": "Respawn delay: 1 h, 6 h, 12 h away",
+ "start": "Go INSIDE the Goodsprings gas station (test save).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetGameSetting \"iHoursToRespawnCell\"\nSetFunctionValue fV\nEnd\n",
+   "label": "r00 iHoursToRespawnCell (quoted)",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetGameSetting iHoursToRespawnCell\nSetFunctionValue fV\nEnd\n",
+   "label": "r01 iHoursToRespawnCell (bare)",
+   "field": "value"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "r02 box at start",
+   "field": "count"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nrF.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "r01a box after emptying (1 h test)",
+   "field": "count"
+  },
+  {
+   "manual": "Leave the gas station through its door (go outside)."
+  },
+  {
+   "manual": "Wait 1 hour outside with the Wait menu."
+  },
+  {
+   "manual": "Go back into the gas station and wait until it has loaded."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "r01b box after 1 h away",
+   "field": "count"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nrF.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "r06a box after emptying (6 h test)",
+   "field": "count"
+  },
+  {
+   "manual": "Leave the gas station through its door (go outside)."
+  },
+  {
+   "manual": "Wait 6 hours outside with the Wait menu."
+  },
+  {
+   "manual": "Go back into the gas station and wait until it has loaded."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "r06b box after 6 h away",
+   "field": "count"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nrF.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "r12a box after emptying (12 h test)",
+   "field": "count"
+  },
+  {
+   "manual": "Leave the gas station through its door (go outside)."
+  },
+  {
+   "manual": "Wait 12 hours outside with the Wait menu."
+  },
+  {
+   "manual": "Go back into the gas station and wait until it has loaded."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "r12b box after 12 h away",
+   "field": "count"
+  }
+ ]
+}

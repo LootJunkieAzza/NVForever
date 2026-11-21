@@ -1,0 +1,6 @@
+scn ExtUdfAfterValue
+; function script for tools/capture/ext-probes/udf/README.md
+Begin Function { }
+    SetFunctionValue 1
+    Print "EXTPROBE|udf.runs_after_value|1"
+End

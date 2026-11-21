@@ -1,0 +1,248 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Wang Dang Atomic Tango (VFSAtomicPimp) ended with only Fisto: the other candidates dead first (10)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Santiago, Old Ben and Beatrix Russell are killed before the player meets James Garret; Garret's job line (Topic008, INFO 0x0011E4B5) then marks the suave talkers and the ghoul cowboy dead (objectives 24 and 34 completed, not shown); Fisto is switched on and recruited and Garret hears of him (Topic016, Topic017), then is talked into calling it a night (Topic041, then Topic042 with Speech 70: its begin script sets 10, Complete Quest). The candidates are killed first because, killed after the quest starts, VFSAtomicPimpSCRIPT completes objective 34 and then displays it, and a display clears the completion (layer5-captures.md 5.2), so Topic041 is never offered: see the walkthrough report. Copied from wang-dang-atomic-tango.actions.json up to Fisto's recruiting. Stand-ins: as that chain's; the fights by kill; Speech 70 by set_av."
+  },
+  {
+   "op": "move_player",
+   "to": "VFSAngeloREF"
+  },
+  {
+   "op": "kill",
+   "target": "VFSAngeloREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VFSAngeloREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VFSAngeloREF dead"
+  },
+  {
+   "op": "move_player",
+   "to": "VFSOldBenREF"
+  },
+  {
+   "op": "kill",
+   "target": "VFSOldBenREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VFSOldBenREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VFSOldBenREF dead"
+  },
+  {
+   "op": "move_player",
+   "to": "VFSBeatrixREF"
+  },
+  {
+   "op": "kill",
+   "target": "VFSBeatrixREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VFSBeatrixREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VFSBeatrixREF dead"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk into the Atomic Wrangler in Freeside."
+  },
+  {
+   "op": "move_player",
+   "to": "VFSJamesGarretREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VFSJamesGarretREF",
+   "label": "garret greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSJamesGarretTopic005",
+   "label": "garret 005"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSJamesGarretTopic006",
+   "label": "garret 006"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSJamesGarretTopic008",
+   "label": "garret 008"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VFSAtomicPimp",
+   "fields": [
+    "running",
+    "objective.10.displayed",
+    "objective.20.displayed",
+    "objective.30.displayed"
+   ],
+   "label": "milestone: VFSAtomicPimp started"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for a character with Science 60 (the terminal's sexbot routine)."
+  },
+  {
+   "op": "set_av",
+   "name": "Science",
+   "value": 60
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to Fisto's terminal."
+  },
+  {
+   "op": "move_player",
+   "to": "VFSFistoTerminalREF"
+  },
+  {
+   "op": "terminal",
+   "target": "VFSFistoTerminalREF",
+   "menu": "VFSFistoTerminalSubP",
+   "item": 0,
+   "label": "fisto programmed"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "get_ref",
+   "ref": "VFSFistoREF",
+   "fields": [
+    "var.iFisto"
+   ],
+   "label": "fisto switched on"
+  },
+  {
+   "op": "talk",
+   "actor": "VFSFistoREF",
+   "label": "fisto greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSFistoTopic000",
+   "label": "fisto 000"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSFistoTopic001",
+   "label": "fisto 001"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSFistoTopic002",
+   "label": "fisto 002"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSFistoTopic004",
+   "label": "fisto recruited"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 6
+  },
+  {
+   "op": "get_quest",
+   "quest": "VFSAtomicPimp",
+   "fields": [
+    "objective.24.completed",
+    "objective.34.completed",
+    "objective.15.displayed"
+   ],
+   "label": "milestone: VFSAtomicPimp candidates dead"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the player's own Speech: 70."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 70
+  },
+  {
+   "op": "move_player",
+   "to": "VFSJamesGarretREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VFSJamesGarretREF",
+   "label": "garret again"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSJamesGarretTopic016"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSJamesGarretTopic017"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSJamesGarretTopic041"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformFreesideVFSJamesGarretTopic042"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VFSAtomicPimp",
+   "fields": [
+    "stage",
+    "done.10",
+    "completed"
+   ],
+   "label": "final: VFSAtomicPimp 10"
+  }
+ ]
+}

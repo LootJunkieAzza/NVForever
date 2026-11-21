@@ -1,0 +1,9 @@
+[package]
+name = "fnv-spt"
+description = "SpeedTree .spt parameter files (TREE models) and NVForever's tree generator (Layer 3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true

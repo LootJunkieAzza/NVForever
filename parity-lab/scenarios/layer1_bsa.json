@@ -1,0 +1,1284 @@
+{
+ "scenarios": [
+  {
+   "id": "L1.bsa.listing.Update",
+   "layer": 1,
+   "description": "Listing of Update.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/Update.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Update.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.Update",
+   "layer": 1,
+   "description": "Header fields of Update.bsa.",
+   "oracle": {
+    "golden": "bsa/Update.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Update.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.Update",
+   "layer": 1,
+   "description": "Golden-file test: Update.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/Update.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.Fallout - Misc",
+   "layer": 1,
+   "description": "Listing of Fallout - Misc.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/Fallout - Misc.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Misc.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.Fallout - Misc",
+   "layer": 1,
+   "description": "Header fields of Fallout - Misc.bsa.",
+   "oracle": {
+    "golden": "bsa/Fallout - Misc.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Misc.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.Fallout - Misc",
+   "layer": 1,
+   "description": "Golden-file test: Fallout - Misc.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/Fallout - Misc.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.Fallout - Invalidation",
+   "layer": 1,
+   "description": "Listing of Fallout - Invalidation.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/Fallout - Invalidation.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Invalidation.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.Fallout - Invalidation",
+   "layer": 1,
+   "description": "Header fields of Fallout - Invalidation.bsa.",
+   "oracle": {
+    "golden": "bsa/Fallout - Invalidation.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Invalidation.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.DeadMoney - Main",
+   "layer": 1,
+   "description": "Listing of DeadMoney - Main.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/DeadMoney - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/DeadMoney - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.DeadMoney - Main",
+   "layer": 1,
+   "description": "Header fields of DeadMoney - Main.bsa.",
+   "oracle": {
+    "golden": "bsa/DeadMoney - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/DeadMoney - Main.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.DeadMoney - Main",
+   "layer": 1,
+   "description": "Golden-file test: DeadMoney - Main.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/DeadMoney - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.DeadMoney - Sounds",
+   "layer": 1,
+   "description": "Listing of DeadMoney - Sounds.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/DeadMoney - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/DeadMoney - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.DeadMoney - Sounds",
+   "layer": 1,
+   "description": "Header fields of DeadMoney - Sounds.bsa.",
+   "oracle": {
+    "golden": "bsa/DeadMoney - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/DeadMoney - Sounds.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.DeadMoney - Sounds",
+   "layer": 1,
+   "description": "Golden-file test: DeadMoney - Sounds.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/DeadMoney - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.HonestHearts - Main",
+   "layer": 1,
+   "description": "Listing of HonestHearts - Main.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/HonestHearts - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/HonestHearts - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.HonestHearts - Main",
+   "layer": 1,
+   "description": "Header fields of HonestHearts - Main.bsa.",
+   "oracle": {
+    "golden": "bsa/HonestHearts - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/HonestHearts - Main.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.HonestHearts - Main",
+   "layer": 1,
+   "description": "Golden-file test: HonestHearts - Main.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/HonestHearts - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.HonestHearts - Sounds",
+   "layer": 1,
+   "description": "Listing of HonestHearts - Sounds.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/HonestHearts - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/HonestHearts - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.HonestHearts - Sounds",
+   "layer": 1,
+   "description": "Header fields of HonestHearts - Sounds.bsa.",
+   "oracle": {
+    "golden": "bsa/HonestHearts - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/HonestHearts - Sounds.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.HonestHearts - Sounds",
+   "layer": 1,
+   "description": "Golden-file test: HonestHearts - Sounds.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/HonestHearts - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.OldWorldBlues - Sounds",
+   "layer": 1,
+   "description": "Listing of OldWorldBlues - Sounds.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/OldWorldBlues - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/OldWorldBlues - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L1.bsa.header.OldWorldBlues - Sounds",
+   "layer": 1,
+   "description": "Header fields of OldWorldBlues - Sounds.bsa.",
+   "oracle": {
+    "golden": "bsa/OldWorldBlues - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/OldWorldBlues - Sounds.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L1.bsa.roundtrip.OldWorldBlues - Sounds",
+   "layer": 1,
+   "description": "Golden-file test: OldWorldBlues - Sounds.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/OldWorldBlues - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L1.bsa.listing.LonesomeRoad - Sounds",
+   "layer": 1,
+   "description": "Listing of LonesomeRoad - Sounds.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/LonesomeRoad - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/LonesomeRoad - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.LonesomeRoad - Sounds",
+   "layer": 1,
+   "description": "Header fields of LonesomeRoad - Sounds.bsa.",
+   "oracle": {
+    "golden": "bsa/LonesomeRoad - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/LonesomeRoad - Sounds.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.LonesomeRoad - Sounds",
+   "layer": 1,
+   "description": "Golden-file test: LonesomeRoad - Sounds.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/LonesomeRoad - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.GunRunnersArsenal - Main",
+   "layer": 1,
+   "description": "Listing of GunRunnersArsenal - Main.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/GunRunnersArsenal - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/GunRunnersArsenal - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.GunRunnersArsenal - Main",
+   "layer": 1,
+   "description": "Header fields of GunRunnersArsenal - Main.bsa.",
+   "oracle": {
+    "golden": "bsa/GunRunnersArsenal - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/GunRunnersArsenal - Main.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.GunRunnersArsenal - Main",
+   "layer": 1,
+   "description": "Golden-file test: GunRunnersArsenal - Main.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/GunRunnersArsenal - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.GunRunnersArsenal - Sounds",
+   "layer": 1,
+   "description": "Listing of GunRunnersArsenal - Sounds.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/GunRunnersArsenal - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/GunRunnersArsenal - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.GunRunnersArsenal - Sounds",
+   "layer": 1,
+   "description": "Header fields of GunRunnersArsenal - Sounds.bsa.",
+   "oracle": {
+    "golden": "bsa/GunRunnersArsenal - Sounds.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/GunRunnersArsenal - Sounds.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.GunRunnersArsenal - Sounds",
+   "layer": 1,
+   "description": "Golden-file test: GunRunnersArsenal - Sounds.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/GunRunnersArsenal - Sounds.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.CaravanPack - Main",
+   "layer": 1,
+   "description": "Listing of CaravanPack - Main.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/CaravanPack - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/CaravanPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.CaravanPack - Main",
+   "layer": 1,
+   "description": "Header fields of CaravanPack - Main.bsa.",
+   "oracle": {
+    "golden": "bsa/CaravanPack - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/CaravanPack - Main.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.CaravanPack - Main",
+   "layer": 1,
+   "description": "Golden-file test: CaravanPack - Main.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/CaravanPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.ClassicPack - Main",
+   "layer": 1,
+   "description": "Listing of ClassicPack - Main.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/ClassicPack - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/ClassicPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.ClassicPack - Main",
+   "layer": 1,
+   "description": "Header fields of ClassicPack - Main.bsa.",
+   "oracle": {
+    "golden": "bsa/ClassicPack - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/ClassicPack - Main.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.ClassicPack - Main",
+   "layer": 1,
+   "description": "Golden-file test: ClassicPack - Main.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/ClassicPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.MercenaryPack - Main",
+   "layer": 1,
+   "description": "Listing of MercenaryPack - Main.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/MercenaryPack - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/MercenaryPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.MercenaryPack - Main",
+   "layer": 1,
+   "description": "Header fields of MercenaryPack - Main.bsa.",
+   "oracle": {
+    "golden": "bsa/MercenaryPack - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/MercenaryPack - Main.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.MercenaryPack - Main",
+   "layer": 1,
+   "description": "Golden-file test: MercenaryPack - Main.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/MercenaryPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.TribalPack - Main",
+   "layer": 1,
+   "description": "Listing of TribalPack - Main.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/TribalPack - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/TribalPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.TribalPack - Main",
+   "layer": 1,
+   "description": "Header fields of TribalPack - Main.bsa.",
+   "oracle": {
+    "golden": "bsa/TribalPack - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/TribalPack - Main.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.TribalPack - Main",
+   "layer": 1,
+   "description": "Golden-file test: TribalPack - Main.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/TribalPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1"
+   ]
+  }
+ ]
+}

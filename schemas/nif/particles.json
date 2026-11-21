@@ -1,0 +1,422 @@
+{
+  "format": "fnv.nif.schema/1",
+  "_comment": "Particle systems: NiParticleSystem and its data, modifiers, emitters, colliders and modifier controllers, plus the Bethesda particle blocks. Layouts re-expressed from niftools nif.xml (https://github.com/niftools/nifxml, read as documentation) for the versions in the FNV corpus only: 20.2.0.7 with user version 11 and bs_version 14-34, and 20.0.0.4 with user version 11. Fields that cannot occur in those versions are omitted. Every block is checked against the user's install with `fnvtool nif coverage` (exact consumption + byte-identical re-encode).",
+  "enums": {
+    "NiPSysModifierOrder": {
+      "storage": "u32",
+      "values": {"0": "ORDER_KILLOLDPARTICLES", "1": "ORDER_BSLOD", "1000": "ORDER_EMITTER", "2000": "ORDER_SPAWN", "2500": "ORDER_FO3_BSSTRIPUPDATE", "3000": "ORDER_GENERAL", "4000": "ORDER_FORCE", "5000": "ORDER_COLLIDER", "6000": "ORDER_POS_UPDATE", "6500": "ORDER_POSTPOS_UPDATE", "6600": "ORDER_WORLDSHIFT_PARTSPAWN", "7000": "ORDER_BOUND_UPDATE", "8000": "ORDER_SK_BSSTRIPUPDATE"}
+    },
+    "ForceType": {
+      "storage": "u32",
+      "values": {"0": "FORCE_PLANAR", "1": "FORCE_SPHERICAL", "2": "FORCE_UNKNOWN"}
+    },
+    "DecayType": {
+      "storage": "u32",
+      "values": {"0": "DECAY_NONE", "1": "DECAY_LINEAR", "2": "DECAY_EXPONENTIAL"}
+    },
+    "SymmetryType": {
+      "storage": "u32",
+      "values": {"0": "SPHERICAL_SYMMETRY", "1": "CYLINDRICAL_SYMMETRY", "2": "PLANAR_SYMMETRY"}
+    },
+    "VelocityType": {
+      "storage": "u32",
+      "values": {"0": "VELOCITY_USE_NORMALS", "1": "VELOCITY_USE_RANDOM", "2": "VELOCITY_USE_DIRECTION"}
+    },
+    "EmitFrom": {
+      "storage": "u32",
+      "values": {"0": "EMIT_FROM_VERTICES", "1": "EMIT_FROM_FACE_CENTER", "2": "EMIT_FROM_EDGE_CENTER", "3": "EMIT_FROM_FACE_SURFACE", "4": "EMIT_FROM_EDGE_SURFACE"}
+    }
+  },
+  "structs": {
+    "NiParticleInfo": {
+      "fields": [
+        {"name": "velocity", "type": "vec3"},
+        {"name": "age", "type": "f32"},
+        {"name": "life_span", "type": "f32"},
+        {"name": "last_update", "type": "f32"},
+        {"name": "spawn_generation", "type": "u16"},
+        {"name": "code", "type": "u16"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <struct name=\"NiParticleInfo\">; its rotation axis exists only until 10.4.0.1."
+    }
+  },
+  "blocks": {
+    "NiParticlesData": {
+      "inherit": "NiGeometryData",
+      "fields": [
+        {"name": "has_radii", "type": "bool"},
+        {"name": "radii", "type": "f32", "length": "num_vertices", "cond": "has_radii && version != 0x14020007"},
+        {"name": "num_active", "type": "u16"},
+        {"name": "has_sizes", "type": "bool"},
+        {"name": "sizes", "type": "f32", "length": "num_vertices", "cond": "has_sizes && version != 0x14020007"},
+        {"name": "has_rotations", "type": "bool"},
+        {"name": "rotations", "type": "quat", "length": "num_vertices", "cond": "has_rotations && version != 0x14020007"},
+        {"name": "has_rotation_angles", "type": "bool"},
+        {"name": "rotation_angles", "type": "f32", "length": "num_vertices", "cond": "has_rotation_angles && version != 0x14020007"},
+        {"name": "has_rotation_axes", "type": "bool"},
+        {"name": "rotation_axes", "type": "vec3", "length": "num_vertices", "cond": "has_rotation_axes && version != 0x14020007"},
+        {"name": "has_texture_indices", "type": "bool", "cond": "version == 0x14020007"},
+        {"name": "num_subtexture_offsets", "type": "u8", "cond": "version == 0x14020007"},
+        {"name": "subtexture_offsets", "type": "vec4", "length": "num_subtexture_offsets", "cond": "version == 0x14020007"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiParticlesData\">. Bethesda 20.2.0.7 files (every 20.2.0.7 file in the corpus has bs_version > 0) store only the presence flags, not the per-particle arrays."
+    },
+    "NiPSysData": {
+      "inherit": "NiParticlesData",
+      "fields": [
+        {"name": "particle_info", "type": "NiParticleInfo", "length": "num_vertices", "cond": "version != 0x14020007"},
+        {"name": "has_rotation_speeds", "type": "bool"},
+        {"name": "rotation_speeds", "type": "f32", "length": "num_vertices", "cond": "has_rotation_speeds && version != 0x14020007"},
+        {"name": "num_added_particles", "type": "u16", "cond": "version != 0x14020007"},
+        {"name": "added_particles_base", "type": "u16", "cond": "version != 0x14020007"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysData\">."
+    },
+    "BSStripPSysData": {
+      "inherit": "NiPSysData",
+      "fields": [
+        {"name": "max_point_count", "type": "u16"},
+        {"name": "start_cap_size", "type": "f32"},
+        {"name": "end_cap_size", "type": "f32"},
+        {"name": "do_z_prepass", "type": "bool"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"BSStripPSysData\">."
+    },
+    "NiParticleSystem": {
+      "inherit": "NiParticles",
+      "fields": [
+        {"name": "world_space", "type": "bool"},
+        {"name": "num_modifiers", "type": "u32"},
+        {"name": "modifiers", "type": "ref", "length": "num_modifiers"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiParticleSystem\">; its Skyrim/SSE/FO76 members do not occur at bs_version <= 34."
+    },
+    "BSStripParticleSystem": {"inherit": "NiParticleSystem", "confidence": "documented", "note": "nif.xml <niobject name=\"BSStripParticleSystem\">; no fields of its own."},
+    "BSMasterParticleSystem": {
+      "inherit": "NiNode",
+      "fields": [
+        {"name": "max_emitter_objects", "type": "u16"},
+        {"name": "num_particle_systems", "type": "u32"},
+        {"name": "particle_systems", "type": "ref", "length": "num_particle_systems"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"BSMasterParticleSystem\">."
+    },
+
+    "NiPSysModifier": {
+      "abstract": true,
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "order", "type": "NiPSysModifierOrder"},
+        {"name": "target", "type": "ptr"},
+        {"name": "active", "type": "bool"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysModifier\">."
+    },
+    "NiPSysEmitter": {
+      "abstract": true,
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "speed", "type": "f32"},
+        {"name": "speed_variation", "type": "f32"},
+        {"name": "declination", "type": "f32"},
+        {"name": "declination_variation", "type": "f32"},
+        {"name": "planar_angle", "type": "f32"},
+        {"name": "planar_angle_variation", "type": "f32"},
+        {"name": "initial_color", "type": "color4"},
+        {"name": "initial_radius", "type": "f32"},
+        {"name": "radius_variation", "type": "f32"},
+        {"name": "life_span", "type": "f32"},
+        {"name": "life_span_variation", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysEmitter\">."
+    },
+    "NiPSysVolumeEmitter": {
+      "abstract": true,
+      "inherit": "NiPSysEmitter",
+      "fields": [
+        {"name": "emitter_object", "type": "ptr"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysVolumeEmitter\">."
+    },
+    "NiPSysBoxEmitter": {
+      "inherit": "NiPSysVolumeEmitter",
+      "fields": [
+        {"name": "width", "type": "f32"},
+        {"name": "height", "type": "f32"},
+        {"name": "depth", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysBoxEmitter\">."
+    },
+    "NiPSysCylinderEmitter": {
+      "inherit": "NiPSysVolumeEmitter",
+      "fields": [
+        {"name": "radius", "type": "f32"},
+        {"name": "height", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysCylinderEmitter\">."
+    },
+    "NiPSysSphereEmitter": {
+      "inherit": "NiPSysVolumeEmitter",
+      "fields": [
+        {"name": "radius", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysSphereEmitter\">."
+    },
+    "NiPSysMeshEmitter": {
+      "inherit": "NiPSysEmitter",
+      "fields": [
+        {"name": "num_emitter_meshes", "type": "u32"},
+        {"name": "emitter_meshes", "type": "ptr", "length": "num_emitter_meshes"},
+        {"name": "initial_velocity_type", "type": "VelocityType"},
+        {"name": "emission_type", "type": "EmitFrom"},
+        {"name": "emission_axis", "type": "vec3"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysMeshEmitter\">."
+    },
+    "NiPSysAgeDeathModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "spawn_on_death", "type": "bool"},
+        {"name": "spawn_modifier", "type": "ref"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysAgeDeathModifier\">."
+    },
+    "NiPSysBombModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "bomb_object", "type": "ptr"},
+        {"name": "bomb_axis", "type": "vec3"},
+        {"name": "decay", "type": "f32"},
+        {"name": "delta_v", "type": "f32"},
+        {"name": "decay_type", "type": "DecayType"},
+        {"name": "symmetry_type", "type": "SymmetryType"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysBombModifier\">."
+    },
+    "NiPSysBoundUpdateModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "update_skip", "type": "u16"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysBoundUpdateModifier\">."
+    },
+    "NiPSysColliderManager": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "collider", "type": "ref"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysColliderManager\">."
+    },
+    "NiPSysColorModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "data", "type": "ref"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysColorModifier\">; data is an NiColorData."
+    },
+    "NiPSysDragModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "drag_object", "type": "ptr"},
+        {"name": "drag_axis", "type": "vec3"},
+        {"name": "percentage", "type": "f32"},
+        {"name": "range", "type": "f32"},
+        {"name": "range_falloff", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysDragModifier\">."
+    },
+    "NiPSysGravityModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "gravity_object", "type": "ptr"},
+        {"name": "gravity_axis", "type": "vec3"},
+        {"name": "decay", "type": "f32"},
+        {"name": "strength", "type": "f32"},
+        {"name": "force_type", "type": "ForceType"},
+        {"name": "turbulence", "type": "f32"},
+        {"name": "turbulence_scale", "type": "f32"},
+        {"name": "world_aligned", "type": "bool", "cond": "bs_version > 16"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysGravityModifier\">."
+    },
+    "NiPSysGrowFadeModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "grow_time", "type": "f32"},
+        {"name": "grow_generation", "type": "u16"},
+        {"name": "fade_time", "type": "f32"},
+        {"name": "fade_generation", "type": "u16"},
+        {"name": "base_scale", "type": "f32", "cond": "version == 0x14020007 && bs_version >= 34"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysGrowFadeModifier\">."
+    },
+    "NiPSysPositionModifier": {"inherit": "NiPSysModifier", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysPositionModifier\">; no fields of its own."},
+    "NiPSysRotationModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "rotation_speed", "type": "f32"},
+        {"name": "rotation_speed_variation", "type": "f32"},
+        {"name": "rotation_angle", "type": "f32"},
+        {"name": "rotation_angle_variation", "type": "f32"},
+        {"name": "random_rot_speed_sign", "type": "bool"},
+        {"name": "random_axis", "type": "bool"},
+        {"name": "axis", "type": "vec3"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysRotationModifier\">."
+    },
+    "NiPSysSpawnModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "num_spawn_generations", "type": "u16"},
+        {"name": "percentage_spawned", "type": "f32"},
+        {"name": "min_num_to_spawn", "type": "u16"},
+        {"name": "max_num_to_spawn", "type": "u16"},
+        {"name": "spawn_speed_variation", "type": "f32"},
+        {"name": "spawn_dir_variation", "type": "f32"},
+        {"name": "life_span", "type": "f32"},
+        {"name": "life_span_variation", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysSpawnModifier\">."
+    },
+    "BSPSysSimpleColorModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "fade_in_percent", "type": "f32"},
+        {"name": "fade_out_percent", "type": "f32"},
+        {"name": "color1_end_percent", "type": "f32"},
+        {"name": "color1_start_percent", "type": "f32"},
+        {"name": "color2_end_percent", "type": "f32"},
+        {"name": "color2_start_percent", "type": "f32"},
+        {"name": "colors", "type": "color4", "length": "3"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"BSPSysSimpleColorModifier\">."
+    },
+    "BSPSysStripUpdateModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "update_delta_time", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"BSPSysStripUpdateModifier\">."
+    },
+    "BSWindModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "strength", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"BSWindModifier\">."
+    },
+    "BSParentVelocityModifier": {
+      "inherit": "NiPSysModifier",
+      "fields": [
+        {"name": "damping", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"BSParentVelocityModifier\">."
+    },
+
+    "NiPSysCollider": {
+      "abstract": true,
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "bounce", "type": "f32"},
+        {"name": "spawn_on_collide", "type": "bool"},
+        {"name": "die_on_collide", "type": "bool"},
+        {"name": "spawn_modifier", "type": "ref"},
+        {"name": "parent", "type": "ptr"},
+        {"name": "next_collider", "type": "ref"},
+        {"name": "collider_object", "type": "ptr"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysCollider\">."
+    },
+    "NiPSysPlanarCollider": {
+      "inherit": "NiPSysCollider",
+      "fields": [
+        {"name": "width", "type": "f32"},
+        {"name": "height", "type": "f32"},
+        {"name": "x_axis", "type": "vec3"},
+        {"name": "y_axis", "type": "vec3"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysPlanarCollider\">."
+    },
+    "NiPSysSphericalCollider": {
+      "inherit": "NiPSysCollider",
+      "fields": [
+        {"name": "radius", "type": "f32"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysSphericalCollider\">."
+    },
+
+    "NiPSysUpdateCtlr": {"inherit": "NiTimeController", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysUpdateCtlr\">; no fields of its own."},
+    "NiPSysResetOnLoopCtlr": {"inherit": "NiTimeController", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysResetOnLoopCtlr\">; no fields of its own."},
+    "NiPSysModifierCtlr": {
+      "abstract": true,
+      "inherit": "NiSingleInterpController",
+      "fields": [
+        {"name": "modifier_name", "type": "string"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysModifierCtlr\">."
+    },
+    "NiPSysEmitterCtlr": {
+      "inherit": "NiPSysModifierCtlr",
+      "fields": [
+        {"name": "visibility_interpolator", "type": "ref"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"NiPSysEmitterCtlr\">; its data ref exists only until 10.1.0.103."
+    },
+    "BSPSysMultiTargetEmitterCtlr": {
+      "inherit": "NiPSysEmitterCtlr",
+      "fields": [
+        {"name": "max_emitters", "type": "u16"},
+        {"name": "master_particle_system", "type": "ptr"}
+      ],
+      "confidence": "documented",
+      "note": "nif.xml <niobject name=\"BSPSysMultiTargetEmitterCtlr\">."
+    },
+    "NiPSysModifierBoolCtlr": {"abstract": true, "inherit": "NiPSysModifierCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysModifierBoolCtlr\">."},
+    "NiPSysModifierActiveCtlr": {"inherit": "NiPSysModifierBoolCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysModifierActiveCtlr\">; its data ref exists only until 10.1.0.103."},
+    "NiPSysModifierFloatCtlr": {"abstract": true, "inherit": "NiPSysModifierCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysModifierFloatCtlr\">; its data ref exists only until 10.1.0.103."},
+    "NiPSysEmitterDeclinationCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysEmitterDeclinationCtlr\">."},
+    "NiPSysEmitterDeclinationVarCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysEmitterDeclinationVarCtlr\">."},
+    "NiPSysEmitterInitialRadiusCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysEmitterInitialRadiusCtlr\">."},
+    "NiPSysEmitterLifeSpanCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysEmitterLifeSpanCtlr\">."},
+    "NiPSysEmitterSpeedCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysEmitterSpeedCtlr\">."},
+    "NiPSysEmitterPlanarAngleCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysEmitterPlanarAngleCtlr\">."},
+    "NiPSysEmitterPlanarAngleVarCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysEmitterPlanarAngleVarCtlr\">."},
+    "NiPSysGravityStrengthCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysGravityStrengthCtlr\">."},
+    "NiPSysInitialRotAngleCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysInitialRotAngleCtlr\">."},
+    "NiPSysInitialRotSpeedCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysInitialRotSpeedCtlr\">."},
+    "NiPSysInitialRotSpeedVarCtlr": {"inherit": "NiPSysModifierFloatCtlr", "confidence": "documented", "note": "nif.xml <niobject name=\"NiPSysInitialRotSpeedVarCtlr\">."}
+  }
+}

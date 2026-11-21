@@ -1,0 +1,8 @@
+scn ExtCase19
+ref rCallback
+int iCount
+int iSomeParam
+Begin GameMode
+    let rCallback := {iSomeParam} => iCount += iSomeParam
+    Call rCallback 10
+End

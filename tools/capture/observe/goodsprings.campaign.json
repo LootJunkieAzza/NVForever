@@ -1,0 +1,20 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "goodsprings",
+ "title": "Goodsprings residents over a day: schedules, sandboxing, sleeping, the saloon in the evening, reactions to the player walking up",
+ "save": "nvftest",
+ "defaults": {
+  "every": 60,
+  "depth": 1,
+  "track": ["DocMitchellREF", "SunnyRef", "TrudyRef", "RingoRef", "EasyPeteRef", "GSChetRef", "GSJoeCobbRef",
+            "CheyenneREF", "GSVictorRef", "GoodspringsSettler01Ref", "GoodspringsSettler02Ref",
+            "GoodspringsSettler03Ref", "GoodspringsSettler04Ref"]
+ },
+ "sessions": [
+  {"name": "town_day", "go": {"coc": "Goodsprings"}, "hour": 6, "hours": 24},
+  {"name": "saloon_evening", "go": {"coc": "GSProspectorSaloonInterior"}, "hour": 18, "hours": 6, "every": 30},
+  {"name": "walk_to_settler", "go": {"coc": "Goodsprings"}, "hour": 10, "hours": 1, "every": 15,
+   "walk": {"to": "GoodspringsSettler03Ref", "within": 150}},
+  {"name": "meet_sunny", "go": {"moveto": "SunnyRef"}, "hour": 10, "hours": 1, "every": 15}
+ ]
+}

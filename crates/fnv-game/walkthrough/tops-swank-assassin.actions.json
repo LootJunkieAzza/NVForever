@@ -1,0 +1,225 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless branch of Ring-a-Ding-Ding: Swank talked round, Benny sent to his suite and assassinated there (VMQTops 18 -> 43 -> 80)",
+  "given": [
+    {
+      "kind": "menu",
+      "menu": 1001,
+      "open": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG01",
+      "running": false,
+      "completed": true,
+      "stage": 200,
+      "done": [
+        200
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQ01",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        10,
+        40,
+        50,
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQTops",
+      "running": true,
+      "completed": false,
+      "stage": 10,
+      "done": [
+        10
+      ]
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Speech",
+      "value": 60
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "VBennysCigarette",
+      "count": 1
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "VBennysLighter",
+      "count": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventKnowsBennyLocation",
+      "value": 1
+    }
+  ],
+  "actions": [
+    {
+      "op": "note",
+      "text": "Starts where boulder-city.actions.json ends (VMQTops at 10, VMQ01 100, whose stage script sets VStoryEventKnowsBennyLocation: given), past the Strip gate (tops.actions.json does the gate). The player walks into the Tops' lobby trigger and talks Swank round about Benny's betrayal by Speech (Topic015/018/020: Speech 15, 30 and 45 pass with Speech 60 given; each raises SwankPersuade), then Topic011 (SwankPersuade 3). The player asks Swank to take Benny out (Topic014), wants time first (Topic036), and on Swank's next greeting asks for Benny alone in his suite (Topic037): VMQTops 18."
+    },
+    {
+      "op": "trigger_enter",
+      "trigger": "scripted:0x001190A3"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "talk",
+      "actor": "VMQTopsSwankREF",
+      "label": "swank greeting"
+    },
+    {
+      "op": "choose",
+      "topic": "SwankBennyBetrayalSpeech",
+      "label": "swank: about Benny"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic015",
+      "label": "swank 015 (Speech 15)"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic018",
+      "label": "swank 018 (Speech 30)"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic020",
+      "label": "swank 020 (Speech 45)"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic011",
+      "label": "swank 011"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "var.SwankPersuade",
+        "var.SwankHelp"
+      ],
+      "label": "Swank persuaded"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic014",
+      "label": "swank 014: take him out"
+    },
+    {
+      "op": "wait_talk",
+      "label": "swank 014 choices"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic036",
+      "label": "swank 036: not yet"
+    },
+    {
+      "op": "wait_talk",
+      "label": "swank 036 after"
+    },
+    {
+      "op": "end_talk"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "talk",
+      "actor": "VMQTopsSwankREF",
+      "label": "swank: ready to deal with Benny?"
+    },
+    {
+      "op": "wait_talk",
+      "label": "swank ready choices"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic037",
+      "label": "swank 037: sneak up on Benny"
+    },
+    {
+      "op": "wait_talk",
+      "label": "swank 037 after"
+    },
+    {
+      "op": "end_talk"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "stage",
+        "done.18",
+        "objective.18.displayed",
+        "var.BennyGoToSuite"
+      ],
+      "label": "milestone: VMQTops 18"
+    },
+    {
+      "op": "note",
+      "text": "Swank's line sends Benny to his suite (MoveTo the teleport marker, package re-evaluated). The player rides up (the elevator trigger as the walk), finds Benny there and kills him (combat stand-in); his OnDeath puts the chip on him, and the loot gives VMQTops 80 as in tops.actions.json."
+    },
+    {
+      "op": "trigger_enter",
+      "trigger": "scripted:0x0006919D"
+    },
+    {
+      "op": "kill",
+      "actor": "0x00101CA0",
+      "killer": "player"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "stage",
+        "done.43"
+      ],
+      "label": "milestone: VMQTops 43 (Benny dead)"
+    },
+    {
+      "op": "remove_all_items",
+      "from": "0x00101CA0",
+      "to": "player"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "stage",
+        "done.80"
+      ],
+      "label": "final: VMQTops 80 (Benny assassinated)"
+    }
+  ]
+}

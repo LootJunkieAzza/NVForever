@@ -1,0 +1,568 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Someone to Watch Over Me, Alice and her mother killed (VDialogueVegasNorth 80, 76, 100)",
+ "given": [
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Speech",
+   "value": 65
+  }
+ ],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: as someone-to-watch-over-me does up to Andy Scabb (63); the player kills Alice (VOVNVAliceHostetlerScript: 63 done, her mother alive: 80), then Mrs. Hostetler (VOVNVMrsHostetlerScript: past 50, Alice dead: 76); searching Mrs. Hostetler's body ends the quest (her OnActivate block, 80 done and she dead: 100). Copied from someone-to-watch-over-me.actions.json up to Andy's line (63). Stand-ins: as that chain's; the fights by kill; the search by player_activate."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk into North Vegas Square."
+  },
+  {
+   "op": "move_player",
+   "to": "NVCrandonREF"
+  },
+  {
+   "op": "talk",
+   "actor": "NVCrandonREF",
+   "label": "crandon greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "CrandonWhoAreYou",
+   "label": "who are you"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasCrandonTopic002",
+   "label": "about yourself"
+  },
+  {
+   "op": "choose",
+   "topic": "CrandonTownWatch",
+   "label": "the town watch"
+  },
+  {
+   "op": "choose",
+   "topic": "CrandonJoinUp",
+   "label": "join the watch"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasCrandonTopic000",
+   "label": "i respect your independence"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "var.JoinedWatch"
+   ],
+   "label": "joined the watch"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "talk",
+   "actor": "NVCrandonREF",
+   "label": "crandon watch"
+  },
+  {
+   "op": "choose",
+   "topic": "CrandonWatchStage1",
+   "label": "any work"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasCrandonTopic008",
+   "label": "the newcomers"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.10",
+    "objective.10.displayed"
+   ],
+   "label": "milestone: VDialogueVegasNorth 10"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to the squatters' camp."
+  },
+  {
+   "op": "move_player",
+   "to": "SquatterWatchQuest1REF"
+  },
+  {
+   "op": "talk",
+   "actor": "SquatterWatchQuest1REF",
+   "label": "squatter greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "SquattersMoveAlong",
+   "label": "move along"
+  },
+  {
+   "op": "choose",
+   "topic": "SquattersIntimidate",
+   "label": "intimidate"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "objective.10.completed",
+    "objective.15.displayed",
+    "var.SquattersDealtWith"
+   ],
+   "label": "squatters leave"
+  },
+  {
+   "op": "move_player",
+   "to": "NVCrandonREF"
+  },
+  {
+   "op": "talk",
+   "actor": "NVCrandonREF",
+   "label": "crandon squatters"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasCrandonTopic015",
+   "label": "squatters gone"
+  },
+  {
+   "op": "choose",
+   "topic": "CrandonWatchStage2",
+   "label": "more work"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasCrandonTopic010",
+   "label": "the troublemakers"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.20",
+    "objective.15.completed",
+    "objective.20.displayed"
+   ],
+   "label": "milestone: VDialogueVegasNorth 20"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to the Fiends' hangout (Crandon's line enabled them)."
+  },
+  {
+   "op": "note",
+   "text": "Greasy Johnny (1EWatchFiend1) is the reference WatchFiend2REF."
+  },
+  {
+   "op": "move_player",
+   "to": "WatchFiend2REF"
+  },
+  {
+   "op": "talk",
+   "actor": "WatchFiend2REF",
+   "label": "greasy johnny"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorth1EWatchFiend1Topic000",
+   "label": "fiend 000"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorth1EWatchFiend1Topic004",
+   "label": "angry mob"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.25",
+    "objective.20.completed",
+    "objective.25.displayed",
+    "var.FiendsDealtWith"
+   ],
+   "label": "milestone: VDialogueVegasNorth 25"
+  },
+  {
+   "op": "move_player",
+   "to": "NVCrandonREF"
+  },
+  {
+   "op": "talk",
+   "actor": "NVCrandonREF",
+   "label": "crandon fiends"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasCrandonTopic014",
+   "label": "fiends gone"
+  },
+  {
+   "op": "choose",
+   "topic": "CrandonWatchStage3",
+   "label": "more work"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasCrandonTopic012",
+   "label": "mrs hostetler"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.30",
+    "objective.25.completed",
+    "objective.30.displayed"
+   ],
+   "label": "milestone: VDialogueVegasNorth 30"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to the Hostetlers' house."
+  },
+  {
+   "op": "move_player",
+   "to": "MrsHostetlerREF"
+  },
+  {
+   "op": "talk",
+   "actor": "MrsHostetlerREF",
+   "label": "mrs hostetler greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasMrsHostetlerTopic020",
+   "label": "crandon sent me"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasMrsHostetlerTopic021",
+   "label": "i take care of problems"
+  },
+  {
+   "op": "note",
+   "text": "Topic034 has no line of its own: it shares Topic022's line (INFC/INFX), which offers 037."
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasMrsHostetlerTopic034",
+   "label": "you've got work"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasMrsHostetlerTopic037",
+   "label": "i'll help"
+  },
+  {
+   "op": "wait_talk",
+   "label": "mrs hostetler after"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.40",
+    "objective.30.completed",
+    "objective.40.displayed",
+    "var.BeckyHiresPlayer"
+   ],
+   "label": "milestone: VDialogueVegasNorth 40"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to Jules on his watch."
+  },
+  {
+   "op": "move_player",
+   "to": "VOVNVJulesREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VOVNVJulesREF",
+   "label": "jules greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasJulesTopic000",
+   "label": "why the suspicion"
+  },
+  {
+   "op": "note",
+   "text": "Topic007 shares Topic009's line (INFC), which offers Topic016."
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasJulesTopic007",
+   "label": "some questions"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasJulesTopic016",
+   "label": "alice"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasJulesTopic020",
+   "label": "andy's pad"
+  },
+  {
+   "op": "wait_talk",
+   "label": "jules after"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.45",
+    "objective.40.completed",
+    "objective.45.displayed"
+   ],
+   "label": "milestone: VDialogueVegasNorth 45"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to Andy Scabb's building, where his thugs stand guard."
+  },
+  {
+   "op": "move_player",
+   "to": "VOVNVAndyThug01REF"
+  },
+  {
+   "op": "talk",
+   "actor": "VOVNVAndyThug01REF",
+   "label": "thug greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthVOVNVAndyThug01Topic000",
+   "label": "looking for someone"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthVOVNVAndyThug01Topic003",
+   "label": "where are they"
+  },
+  {
+   "op": "wait_talk",
+   "label": "thug after"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.50",
+    "objective.45.completed",
+    "objective.50.displayed"
+   ],
+   "label": "milestone: VDialogueVegasNorth 50"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the search of the building: the player picks up the henchman's message to Andy (the turf quest script sees the note: 60)."
+  },
+  {
+   "op": "move_player",
+   "to": "placed:VOVNVAndyScabbNote01"
+  },
+  {
+   "op": "activate",
+   "actor": "player",
+   "target": "placed:VOVNVAndyScabbNote01"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.60",
+    "objective.50.completed",
+    "objective.60.displayed"
+   ],
+   "label": "milestone: VDialogueVegasNorth 60"
+  },
+  {
+   "op": "note",
+   "text": "Back past the building's trigger: after 60 it adds Andy's Dialogue package VOVNVAndyTalkPlayer (AddScriptPackage, a stub headless); stand-in: Andy opens the conversation."
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:VOVNVAndyNotHereTrigger"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "move_player",
+   "to": "AndyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AndyREF",
+   "label": "andy greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasAndyScabbTopic001",
+   "label": "andy 001"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasAndyScabbTopic009",
+   "label": "alice"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasAndyScabbTopic017",
+   "label": "her family"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueVegasNorthNorthVegasAndyScabbTopic023",
+   "label": "i want a cut"
+  },
+  {
+   "op": "wait_talk",
+   "label": "andy after"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.63",
+    "objective.63.displayed"
+   ],
+   "label": "milestone: VDialogueVegasNorth 63"
+  },
+  {
+   "op": "move_player",
+   "to": "AliceREF"
+  },
+  {
+   "op": "kill",
+   "target": "AliceREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "AliceREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "AliceREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.80"
+   ],
+   "label": "milestone: VDialogueVegasNorth 80"
+  },
+  {
+   "op": "move_player",
+   "to": "MrsHostetlerREF"
+  },
+  {
+   "op": "kill",
+   "target": "MrsHostetlerREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "MrsHostetlerREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "MrsHostetlerREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.76"
+   ],
+   "label": "milestone: VDialogueVegasNorth 76"
+  },
+  {
+   "op": "player_activate",
+   "target": "MrsHostetlerREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.100",
+    "completed"
+   ],
+   "label": "final: VDialogueVegasNorth 100"
+  }
+ ]
+}

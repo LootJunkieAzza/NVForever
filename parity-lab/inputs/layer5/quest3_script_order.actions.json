@@ -1,0 +1,57 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Quest scripts against object scripts in one frame: BeatrixFX's GameMode adds an hour to GameHour; two Goodsprings windows copy GetCurrentTime into a variable in their GameMode",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "BeatrixFX",
+      "running": false,
+      "vars": {
+        "reset": 0,
+        "bump": 0
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "go_to_cell",
+      "cell": "Goodsprings"
+    },
+    {
+      "op": "start_quest",
+      "quest": "BeatrixFX"
+    },
+    {
+      "op": "sample_jumps",
+      "reads": [
+        {
+          "global": "GameHour"
+        },
+        {
+          "ref": "0x001771EB",
+          "var": "Time"
+        },
+        {
+          "ref": "0x001771EA",
+          "var": "Time"
+        }
+      ],
+      "frames": 900,
+      "min_step": 0.5,
+      "label": "the hour BeatrixFX adds, seen by the windows' scripts"
+    },
+    {
+      "op": "get_quest",
+      "quest": "BeatrixFX",
+      "fields": [
+        "running",
+        "var.bump",
+        "var.reset"
+      ],
+      "label": "BeatrixFX after it ended"
+    }
+  ]
+}

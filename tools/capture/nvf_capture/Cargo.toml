@@ -1,0 +1,27 @@
+[package]
+name = "nvf_capture"
+description = "xNVSE plugin for the ORIGINAL game: runs parity-lab capture jobs and records observations (docs/spec-notes/xnvse-capture.md). Not part of the engine."
+version = "0.1.0"
+edition = "2021"
+# With an additional permission under GPLv3 section 7 to combine it with the game and
+# xNVSE (LICENSE-EXCEPTION.txt).
+license = "GPL-3.0-or-later"
+publish = false
+
+# Own workspace: a 32-bit Windows DLL, kept out of the main workspace (like engine/).
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Screenshots (shot.rs): PNG encoding, and the Win32 calls that copy the game window.
+png = "0.17"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+[profile.release]
+debug = 1

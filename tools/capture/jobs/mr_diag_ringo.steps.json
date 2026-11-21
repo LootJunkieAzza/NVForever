@@ -1,0 +1,4084 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "mr_diag_ringo",
+ "title": "month_short sequence with Ringo's cell and AI package every 2 h",
+ "start": "nvftest",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "start",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nrF1.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+0",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+0",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+0",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "emptied t+0",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+0",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+0",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+2",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+2",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+2",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+2",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+2",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+2",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+4",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+4",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+4",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+4",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+4",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+4",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+6",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+6",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+6",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+6",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+6",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+6",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+8",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+8",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+8",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+8",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+8",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+8",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+10",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+10",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+10",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+10",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+10",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+10",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+12",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+12",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+12",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+12",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+12",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+12",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+14",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+14",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+14",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+14",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+14",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+14",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+16",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+16",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+16",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+16",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+16",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+16",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+18",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+18",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+18",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+18",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+18",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+18",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+20",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+20",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+20",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+20",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+20",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+20",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+22",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+22",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+22",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+22",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+22",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+22",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+24",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+24",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+24",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+24",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+24",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+24",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+26",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+26",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+26",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+26",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+26",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+26",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+28",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+28",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+28",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+28",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+28",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+28",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+30",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+30",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+30",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+30",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+30",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+30",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+32",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+32",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+32",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+32",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+32",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+32",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+34",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+34",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+34",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+34",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+34",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+34",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+36",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+36",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+36",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+36",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+36",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+36",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+38",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+38",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+38",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+38",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+38",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+38",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+40",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+40",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+40",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+40",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+40",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+40",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+42",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+42",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+42",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+42",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+42",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+42",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+44",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+44",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+44",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+44",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+44",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+44",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+46",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+46",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+46",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+46",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+46",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+46",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+48",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+48",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+48",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+48",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+48",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+48",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nrF1.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+48",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+48",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+48",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "emptied t+48",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+48",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+48",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+50",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+50",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+50",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+50",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+50",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+50",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+52",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+52",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+52",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+52",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+52",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+52",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+54",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+54",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+54",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+54",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+54",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+54",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+56",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+56",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+56",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+56",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+56",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+56",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+58",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+58",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+58",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+58",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+58",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+58",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+60",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+60",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+60",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+60",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+60",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+60",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+62",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+62",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+62",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+62",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+62",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+62",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+64",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+64",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+64",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+64",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+64",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+64",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+66",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+66",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+66",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+66",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+66",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+66",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+68",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+68",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+68",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+68",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+68",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+68",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+70",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+70",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+70",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+70",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+70",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+70",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+72",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+72",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+72",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+72",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+72",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+72",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+74",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+74",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+74",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+74",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+74",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+74",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+76",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+76",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+76",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+76",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+76",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+76",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+78",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+78",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+78",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+78",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+78",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+78",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+80",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+80",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+80",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+80",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+80",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+80",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+82",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+82",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+82",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+82",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+82",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+82",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+84",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+84",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+84",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+84",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+84",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+84",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+86",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+86",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+86",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+86",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+86",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+86",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+88",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+88",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+88",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+88",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+88",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+88",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+90",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+90",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+90",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+90",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+90",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+90",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+92",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+92",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+92",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+92",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+92",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+92",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+94",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+94",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+94",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+94",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+94",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+94",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+96",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+96",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+96",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+96",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+96",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+96",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+98",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+98",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+98",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+98",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+98",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+98",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+100",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+100",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+100",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+100",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+100",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+100",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+102",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+102",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+102",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+102",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+102",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+102",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+104",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+104",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+104",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+104",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+104",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+104",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+106",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+106",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+106",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+106",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+106",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+106",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+108",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+108",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+108",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+108",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+108",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+108",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+110",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+110",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+110",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+110",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+110",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+110",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+112",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+112",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+112",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+112",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+112",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+112",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+114",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+114",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+114",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+114",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+114",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+114",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+116",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+116",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+116",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+116",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+116",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+116",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+118",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+118",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+118",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+118",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+118",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+118",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+120",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+120",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+120",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+120",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+120",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+120",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nrF1.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+120",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+120",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+120",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "emptied t+120",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+120",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "emptied t+120",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+122",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+122",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+122",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+122",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+122",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+122",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+124",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+124",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+124",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+124",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+124",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+124",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+126",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+126",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+126",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+126",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+126",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+126",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+128",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+128",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+128",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+128",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+128",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+128",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+130",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+130",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+130",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+130",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+130",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+130",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+132",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+132",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+132",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+132",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+132",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+132",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+134",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+134",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+134",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+134",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+134",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+134",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+136",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+136",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+136",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+136",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+136",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+136",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+138",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+138",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+138",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+138",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+138",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+138",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+140",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+140",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+140",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+140",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+140",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+140",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+142",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+142",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+142",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+142",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+142",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+142",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+144",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+144",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+144",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+144",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+144",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+144",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+146",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+146",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+146",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+146",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+146",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+146",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+148",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+148",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+148",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+148",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+148",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+148",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+150",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+150",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+150",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+150",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+150",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+150",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+152",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+152",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+152",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+152",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+152",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+152",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+154",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+154",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+154",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+154",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+154",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+154",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+156",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+156",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+156",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+156",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+156",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+156",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+158",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+158",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+158",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+158",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+158",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+158",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+160",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+160",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+160",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+160",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+160",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+160",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+162",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+162",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+162",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+162",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+162",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+162",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+164",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+164",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+164",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+164",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+164",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+164",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+166",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+166",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+166",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+166",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+166",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+166",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+168",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+168",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+168",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+168",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+168",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+168",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+170",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+170",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+170",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+170",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+170",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+170",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+172",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+172",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+172",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+172",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+172",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+172",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+174",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+174",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+174",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+174",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+174",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+174",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+176",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+176",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+176",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+176",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+176",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+176",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+178",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+178",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+178",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+178",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+178",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+178",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+180",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+180",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+180",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+180",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+180",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+180",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+182",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+182",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+182",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+182",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+182",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+182",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+184",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+184",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+184",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+184",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+184",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+184",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+186",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+186",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+186",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+186",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+186",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+186",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+188",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+188",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+188",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+188",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+188",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+188",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+190",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+190",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+190",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+190",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+190",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+190",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+192",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+192",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+192",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+192",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+192",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+192",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+194",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+194",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+194",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+194",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+194",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+194",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+196",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+196",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+196",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+196",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+196",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+196",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+198",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+198",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+198",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+198",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+198",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+198",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+200",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+200",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+200",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+200",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+200",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+200",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+202",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+202",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+202",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+202",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+202",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+202",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+204",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+204",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+204",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+204",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+204",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+204",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+206",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+206",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+206",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+206",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+206",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+206",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+208",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+208",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+208",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+208",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+208",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+208",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+210",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+210",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+210",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+210",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+210",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+210",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+212",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+212",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+212",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+212",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+212",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+212",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+214",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+214",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+214",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+214",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+214",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+214",
+   "field": "ringo_disabled"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+216",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+216",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+216",
+   "field": "days"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "t+216",
+   "field": "ringo_cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "t+216",
+   "field": "ringo_pkg"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "t+216",
+   "field": "ringo_disabled"
+  }
+ ]
+}

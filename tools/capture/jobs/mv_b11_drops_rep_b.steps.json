@@ -1,0 +1,1194 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "mv_b11_drops_rep_b",
+ "title": "mv_b11_drops_rep_b: b11_goodsprings, each drop 2 times (no input needed)",
+ "start": "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -75128\nplayer.SetPos Y -3520\nplayer.SetPos Z 8573\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8572\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8572\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings collision_marker_a r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_a r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_a r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72145\nplayer.SetPos Y 705.8\nplayer.SetPos Z 8771\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8770\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8770\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings collision_marker_b r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_b r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_b r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69349.5\nplayer.SetPos Y 7330.3\nplayer.SetPos Z 8951\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8950\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8950\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings collision_marker_c r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_c r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_c r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -70416\nplayer.SetPos Y -1240\nplayer.SetPos Z 8414.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8413.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8413.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings static_fence_rail r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings static_fence_rail r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings static_fence_rail r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72194.7\nplayer.SetPos Y 1302.6\nplayer.SetPos Z 8652.8\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8651.8\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8651.8\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings static_mailbox r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings static_mailbox r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings static_mailbox r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73007.2\nplayer.SetPos Y 1335.5\nplayer.SetPos Z 8969.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8968.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8968.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings animstatic_gate r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings animstatic_gate r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings animstatic_gate r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74300.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings havok_tree_a r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings havok_tree_a r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings havok_tree_a r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -67447.9\nplayer.SetPos Y 6572\nplayer.SetPos Z 8987.9\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8986.9\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8986.9\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings havok_tree_b r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings havok_tree_b r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings havok_tree_b r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69523.7\nplayer.SetPos Y 2820.8\nplayer.SetPos Z 8616\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8615\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8615\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings props_crate r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings props_crate r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings props_crate r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -68969.3\nplayer.SetPos Y 4479.7\nplayer.SetPos Z 8614.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8613.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8613.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings props_barrel r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings props_barrel r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings props_barrel r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69877.6\nplayer.SetPos Y 718.6\nplayer.SetPos Z 8523\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8522\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8522\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_a r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_a r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_a r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69656.2\nplayer.SetPos Y 1618.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_b r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_b r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_b r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74480.4\nplayer.SetPos Y 1261.9\nplayer.SetPos Z 8904.2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8903.2\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8903.2\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74593\nplayer.SetPos Y 1416.8\nplayer.SetPos Z 8989.2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8988.2\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8988.2\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -67457\nplayer.SetPos Y 7781.1\nplayer.SetPos Z 8748\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8747\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8747\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave_pickable r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave_pickable r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave_pickable r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -68442.9\nplayer.SetPos Y 6297.6\nplayer.SetPos Z 8766.7\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8765.7\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8765.7\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize_group r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize_group r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize_group r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -76120\nplayer.SetPos Y 3376\nplayer.SetPos Z 9180.3\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 9179.3\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 9179.3\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings transparent_small_fence_end r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings transparent_small_fence_end r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings transparent_small_fence_end r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -71351.3\nplayer.SetPos Y 997.4\nplayer.SetPos Z 8603\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8602\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8602\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings transparent_small_yucca r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings transparent_small_yucca r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings transparent_small_yucca r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -68593\nplayer.SetPos Y 3398.2\nplayer.SetPos Z 8639.7\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8638.7\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8638.7\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings speedtree_shrub r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings speedtree_shrub r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings speedtree_shrub r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8552\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8551\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8551\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings control_open_ground r1",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings control_open_ground r1",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings control_open_ground r1",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -75128\nplayer.SetPos Y -3520\nplayer.SetPos Z 8573\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8572\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8572\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings collision_marker_a r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_a r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_a r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72145\nplayer.SetPos Y 705.8\nplayer.SetPos Z 8771\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8770\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8770\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings collision_marker_b r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_b r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_b r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69349.5\nplayer.SetPos Y 7330.3\nplayer.SetPos Z 8951\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8950\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8950\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings collision_marker_c r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_c r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings collision_marker_c r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -70416\nplayer.SetPos Y -1240\nplayer.SetPos Z 8414.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8413.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8413.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings static_fence_rail r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings static_fence_rail r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings static_fence_rail r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72194.7\nplayer.SetPos Y 1302.6\nplayer.SetPos Z 8652.8\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8651.8\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8651.8\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings static_mailbox r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings static_mailbox r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings static_mailbox r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73007.2\nplayer.SetPos Y 1335.5\nplayer.SetPos Z 8969.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8968.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8968.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings animstatic_gate r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings animstatic_gate r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings animstatic_gate r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74300.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings havok_tree_a r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings havok_tree_a r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings havok_tree_a r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -67447.9\nplayer.SetPos Y 6572\nplayer.SetPos Z 8987.9\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8986.9\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8986.9\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings havok_tree_b r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings havok_tree_b r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings havok_tree_b r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69523.7\nplayer.SetPos Y 2820.8\nplayer.SetPos Z 8616\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8615\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8615\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings props_crate r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings props_crate r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings props_crate r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -68969.3\nplayer.SetPos Y 4479.7\nplayer.SetPos Z 8614.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8613.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8613.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings props_barrel r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings props_barrel r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings props_barrel r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69877.6\nplayer.SetPos Y 718.6\nplayer.SetPos Z 8523\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8522\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8522\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_a r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_a r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_a r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69656.2\nplayer.SetPos Y 1618.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_b r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_b r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings terrain_rock_b r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74480.4\nplayer.SetPos Y 1261.9\nplayer.SetPos Z 8904.2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8903.2\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8903.2\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74593\nplayer.SetPos Y 1416.8\nplayer.SetPos Z 8989.2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8988.2\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8988.2\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -67457\nplayer.SetPos Y 7781.1\nplayer.SetPos Z 8748\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8747\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8747\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave_pickable r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave_pickable r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_agave_pickable r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -68442.9\nplayer.SetPos Y 6297.6\nplayer.SetPos Z 8766.7\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8765.7\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8765.7\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize_group r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize_group r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings noncollidable_maize_group r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -76120\nplayer.SetPos Y 3376\nplayer.SetPos Z 9180.3\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 9179.3\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 9179.3\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings transparent_small_fence_end r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings transparent_small_fence_end r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings transparent_small_fence_end r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -71351.3\nplayer.SetPos Y 997.4\nplayer.SetPos Z 8603\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8602\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8602\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings transparent_small_yucca r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings transparent_small_yucca r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings transparent_small_yucca r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -68593\nplayer.SetPos Y 3398.2\nplayer.SetPos Z 8639.7\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8638.7\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8638.7\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings speedtree_shrub r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings speedtree_shrub r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings speedtree_shrub r2",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8552\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8551\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8551\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "b11_goodsprings control_open_ground r2",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings control_open_ground r2",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "b11_goodsprings control_open_ground r2",
+   "field": "feet_later"
+  }
+ ]
+}

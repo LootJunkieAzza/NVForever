@@ -1,0 +1,744 @@
+# Patched dependencies
+
+Crates copied from crates.io with a small change, used through `[patch.crates-io]` in
+`engine/Cargo.toml`. Each keeps its own licence files. When the crate is upgraded, copy
+the new version here and apply the change again (or drop the patch if upstream fixed it).
+
+## bevy_winit 0.20.1 (MIT OR Apache-2.0, Bevy)
+
+Adds an explicit cursor request/receipt consumer before ordinary Window
+synchronization. Only acknowledged requests update both Window and its private
+cache; ordinary setters retain their existing path. The cache remains private.
+The `cursor-test-support` feature exposes an offscreen fixture for that same
+consumer with an injected native result, without creating an OS window.
+See `docs/spec-notes/windows-cursor-ack.md` for ownership, bounds and validation
+limits. Both upstream license files are retained.
+
+In `bevy_winit/src/lib.rs`, the crate-level `unsafe_code` lint changes from
+`forbid` to `deny` so Windows-only `native_cursor_owner` in
+`bevy_winit/src/cursor_position.rs` can opt in locally. It uses the live winit-owned
+window handle and a stack `POINT` to check foreground ownership and whether the
+cursor is inside the client area before a warp, even without a motion event. The
+query itself changes neither focus nor cursor position. Every pre-existing
+module retains `forbid`; the rest of the new cursor consumer inherits `deny`.
+
+Source: crates.io `bevy_winit` 0.20.1, archive SHA-256
+`397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6`.
+
+## gilrs 0.11.2 (Apache-2.0 OR MIT, gilrs authors)
+
+Gamepad input under bevy_gilrs. One change (#3097), marked `NVForever patch` in
+`src/gamepad.rs` `Gilrs::next_event_priv`: a raw event for a pad id gilrs holds no data
+for (anything but the `Connected` that adds the next pad) is dropped, with one warning
+per pad id, and the next event is read instead.
+
+Why: gilrs looks every button and axis event's pad up with `Gilrs::gamepad`, which
+indexes `gamepads_data[id]`, and bevy_gilrs runs the `axis_dpad_to_button` filter on every
+event, which does the same. A second controller's input arriving before its `Connected`
+(or a `Connected` with an id past the next one, which upstream only logs as a platform
+error) panicked the game: crash signature `panic-f2bce0a1986452c8`, "index out of bounds:
+the len is 1 but the index is 1" at `gamepad.rs:474`. 0.11.2 is still the latest release.
+
+The crate ships no licence files of its own; its `Cargo.toml` names Apache-2.0/MIT. The
+bundled `SDL_GameControllerDB` keeps its LICENSE. `Cargo.lock` and `Cargo.toml.orig` from
+the archive are left out.
+
+Source: crates.io `gilrs` 0.11.2, archive SHA-256
+`902fb00d3f6398e635be22e5c837b303c501835cca7ac11a47bba138f7aafdd8`.
+
+## gpu-allocator 0.28.0 (MIT OR Apache-2.0, Traverse-Research/gpu-allocator)
+
+Used by wgpu for Vulkan memory. Change, in `src/vulkan/mod.rs` `MemoryType::free`: an
+emptied general memory block is kept for reuse while fewer than
+`KEEP_EMPTY_GENERAL_BLOCKS` (2) other empty general blocks of that memory type exist;
+upstream destroys every emptied block except the last.
+
+Still needed with Bevy 0.20.1 (#934): its wgpu-hal 30 uses gpu-allocator 0.28, and 0.28.0
+is still the latest release, with the same free policy.
+
+Why (#897): late in long sessions the block wgpu keeps fills with long-lived data, so each
+frame's short-lived staging memory spills into a new block, which empties when the frame
+is done and was destroyed at once. An Nsight Systems capture of the owner's game showed
+about 285 blocks of 128 MiB made and freed a second, each zeroed and paged in by Windows,
+and the render thread stalling 100-800 ms in the driver meanwhile.
+
+Second change (#1429), in `src/vulkan/mod.rs` `MemoryBlock::new` and `src/lib.rs`: a
+`vkAllocateMemory` that takes 1 ms or more logs `gpu memory: vkAllocateMemory of <n> MiB
+(memory type <t>, host-visible|device-local, a general block|dedicated) took <ms> ms`, so a
+single slow frame charged to a render system that only writes a buffer
+(`upload_light_probes`, `write_binned_instance_buffers`) can be matched to a new memory
+block. `std` is linked for the clock (wgpu-hal turns the crate's `std` feature off).
+
+## bevy_post_process 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Bevy's post-processing, for its auto exposure, which meters the view for the game's eye
+adaptation (`engine/nvforever/src/eye_adapt.rs`). One change (#2892), marked `NVForever
+exact curve`, in `src/auto_exposure/`:
+
+- `compensation_curve.rs`: the compensation curve's table holds the compensation values
+  themselves as `f32` (texture `R32Float`); upstream keeps a `u8` between the curve's
+  lowest and highest value, rounded down (`R8Unorm`). `AutoExposureCompensationCurve::
+  compensation` gives the value for an average as the shader reads it, for tests.
+- `auto_exposure.wesl`: the curve is read between two table entries in proportion;
+  upstream reads the one entry at or below the average.
+
+Why: the exposure is `curve(average) − average`. With one byte entry per 0.086 EV of
+average and bytes 0.067 EV apart, a curve `y = x` (no change) came out as a sawtooth
+between 0 and about −0.15 EV, so a daylight picture was darkened by up to 10 %, by an
+amount that jumped as the view's average crossed an entry.
+
+## bevy_pbr 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Bevy's 3D passes, for FSR upscaling (docs/design/fsr-upscaling.md), which draws the main
+passes at a lower resolution through `MainPassResolutionOverride`. Two changes, each marked
+by a comment starting `NVForever FSR integration`:
+
+- `src/transmission/node.rs`: the stepped transmission pass (refraction, water) takes the
+  override's size, as the opaque and transparent passes do; upstream it takes the whole
+  target's.
+- `src/render/clustered_forward.wesl`: a fragment's position is mapped through the
+  main-pass viewport before it picks a light cluster, as the clusters are laid out for the
+  display size, so point and spot lights stay where they belong below 1:1.
+
+Without the override both do what upstream does. This is a new patch for Bevy 0.20.1, not
+the dropped 0.19.1 one below.
+
+No directional shadows for one lighting call (the NIF shader's shade light,
+nvf_assets `nif_material.wesl` `with_shade_light`), each part marked `NVForever (no
+directional shadows)`:
+
+- `src/render/mesh_types.wesl`: `NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT` (bit 26 of a
+  `PbrInput`'s flags, which bevy_pbr leaves unused; set by shaders only, never by the CPU).
+- `src/render/pbr_functions.wesl` `apply_pbr_lighting`: the directional loop's shadow-map,
+  transmitted-lobe and contact-shadow conditions skip the light's shadow while the bit is
+  set; point and spot lights keep theirs. `with_shade_light` relit with the receiver bit
+  cleared before, which also dropped the lamps' shadows and changed the ambient occlusion's
+  factor on lamps; its extrapolation (by up to 1/share) turned that difference into a glow
+  on the first-person arms, weapon and Pip-Boy [observed 2026-11-19, Prospector Saloon at
+  22:00, lamp shadows Quality with ambient occlusion; gone after the change].
+
+Without the bit set the lighting is upstream's.
+
+Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/transmission/`,
+each part marked `NVForever one resolve`, with `ViewTarget::set_resolve_deferred` in
+bevy_render below:
+
+- `node.rs`: `begin_deferred_resolve` (before the opaque pass) and `end_deferred_resolve`
+  (after the transmissive pass, before the transparent pass) hold back the multisample
+  resolve of a view whose transparent pass is going to run and which has no main-pass
+  resolution override (the game's FSR passes read the resolved picture in between).
+  `main_transmissive_pass_3d` then resolves the samples straight into the transmission
+  texture with a pass that draws nothing, instead of copying the resolved picture.
+- `texture.rs`: the transmission texture is also a render attachment, to be resolved into.
+- `mod.rs`: the two systems, ordered around the opaque and transmissive passes.
+
+Upstream resolves the whole target at the end of the opaque, transmissive and transparent
+passes and copies it once: three resolves and a copy where one resolve to the transmission
+texture and one to the main texture are read. Without multisampling, with a resolution
+override, or when the transparent phase is empty, upstream's path runs unchanged.
+
+Both FSR changes are already in Bevy's `main`, written almost the same way: bevyengine/bevy#26235
+(transmission, merged 2026-10-26) and bevyengine/bevy#26236 (cluster lookup, merged
+2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first
+Bevy release that has both.
+
+Another change (prepass coverage, docs/design/frame-rate-audit.md §9), in
+`src/render/pbr_prepass_functions.wesl`, marked `NVForever prepass coverage`:
+`nvf_prepass_sample_color` and its result struct, which hand out the base colour, flags and
+alpha cutoff that `prepass_sample_color_and_alpha_discard` samples, without testing them.
+nvf-assets' `fade_prepass.wesl` turns that alpha into a sample mask (the soft edge of grass,
+leaf cards and tree billboards, written by the depth prepass). Upstream's function is
+unchanged, so nothing else behaves differently. Upstream has no way to get the sampled alpha
+out of the prepass's own code; drop this when it has, or when the sampling is written in
+nvf-assets.
+
+Another change (equal-depth position invariance,
+docs/spec-notes/depth-equality-invariance.md), marked `NVForever equal-depth passes`:
+`src/render/forward_io.wesl` and `src/prepass/io.wesl` mark both vertex position
+producers invariant for the engine's Equal-depth passes. Position calculations and
+depth policy are unchanged. `nvf-shader-tests/tests/depth_invariance.rs` composes the actual
+source through Bevy WESL and Naga and checks the SPIR-V decoration, including
+unannotated controls. An earlier integrated run passed three controls and exposed
+two compiler-setup failures; the corrected pass-specific feature matrix and shared
+production lighting preparation are unrun. Reapply both annotations
+after upgrading Bevy until upstream provides the same guarantee, or retire them
+with the Equal-depth policy.
+
+Third change (#1803), in `src/material.rs`, each part marked by a comment starting
+`NVForever material queue probe`: `MaterialQueueProbe`, an optional resource
+that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
+queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
+pass does what upstream does. Drop it when an upstream observation API replaces its
+caller or that readiness check is retired. Retries for meshes not yet uploaded and a
+per-view visibility filter of pending entries were tried with it and dropped: the
+`pipboy-first-open` scenarios passed with a clean first opening without them
+(2026-11-07).
+
+Another change (held shadow maps, docs/design/frame-rate-audit.md §9 and §10; the game's
+Sun shadows' Performance mode and staggered cascades, nvforever shadow_rate.rs), marked
+`NVForever held shadow maps`:
+
+- `src/render/light.rs`: the render-world resource `HoldDirectionalShadowMaps`, a bit per
+  cascade index (#2063: it was one switch for all of them). `per_view_shadow_pass` leaves
+  out the directional light views whose cascade's bit is set, so their shadow maps keep the
+  picture of the last frame that drew them. Point and spot lights' maps are drawn as ever.
+- `src/render/gpu_preprocess.rs`: `gather_shadow_cascades_for_view` leaves out the same
+  views, so `early_gpu_preprocess`, `allocate_uniforms` and `unpack_bins` prepare nothing
+  for those cascades that frame.
+- `src/render/light.rs` `prepare_lights`: when the directional shadow texture the cache hands
+  out is not the one of the frame before (a shadowed spot light such as the flashlight
+  switched on or off changes its layer count, or the old one was dropped), the render
+  world's hold is cleared for that frame, so every cascade is drawn into the new texture
+  instead of a held one sampling an empty or stale layer (#2182 review). It logs
+  `held shadow maps: a new directional shadow texture`.
+
+Bevy inserts no such resource, and without it (or with no bits set) nothing changes.
+Whoever sets it must hand the lights the held cascades as the frame that drew them had
+them, as the game does.
+Upstream has no way to draw a light's shadow map less often than every frame.
+
+Gated materials (#2661, docs/design/graphics-enhanced.md §3.14 "Off"), in `src/material.rs`,
+each part marked `NVForever gated materials`: `MaterialPlugin::gated(MaterialGate)` (a new
+`gate` field, `None` by default). With a gate, the material type's own systems run only
+while it is open (main world: `mark_meshes_as_changed_if_their_materials_changed`,
+`check_entities_needing_specialization`; render world: `extract_mesh_materials`,
+`early_sweep_material_instances`, the two specialization extractions, and the asset
+extraction and preparation through `ErasedRenderAssetPlugin::gated` below); its shaders are
+loaded and its bind group allocator (with the bindless fallback buffers) made at the first
+extraction after the gate opens, and both dropped at the first extraction after it closes
+(a device recovery while open makes the allocator again, as upstream's startup system
+does). The owner opens the gate before the type's first asset or component and closes it
+only once none has been left for a few frames. Without a gate (every Bevy and every other
+NVForever material) the plugin does what upstream does. Upstream registers a material's
+systems, loads its shaders and makes its allocator at startup, and a plugin cannot be added
+after startup; nvforever's mesh terrain blend, off in most runs, gates its two material
+types with it. Drop it if upstream gains a way to register a material type lazily.
+
+Another change (sun visibility, #2670 and #2671, docs/design/sun-visibility.md), each part
+marked `NVForever sun visibility`, for nvforever's `sun_visibility.rs`:
+
+- `src/render/light.rs`: the render-world component `NvfOutdoorSun`. `prepare_lights` sets
+  the new `DirectionalLightFlags::NVF_OUTDOOR_SUN` (bit 4; `mesh_view_types.wesl`
+  `DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT`) in the GPU flags of the directional light
+  whose render entity has it, so a shader can tell the outdoor sun from other directional
+  lights without assuming an index.
+- `src/render/mesh_view_bindings.rs`: the render-world view component
+  `NvfSunVisibilityBindings` (a uniform buffer, a filterable float 2D texture for the
+  clouds, an unfilterable float 2D texture for the terrain shadow-height map and a
+  filtering sampler), the layout key bit `MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY`
+  and bindings 39-42 of the mesh view bind group, present only for a view with it.
+  Binding 41 is declared `Float { filterable: false }` (2026-11-17, #2671 stage T2): the
+  terrain map is `Rgba32Float`, which is filterable only with the optional
+  `FLOAT32_FILTERABLE` feature, so nvforever reads it with `textureLoad` and never with
+  the sampler; its stand-in while no map is uploaded is nvforever's own one-texel
+  `Rgba32Float` texture, not Bevy's fallback image.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_SUN_VISIBILITY`, `NVF_CLOUD_VISIBILITY` and
+  `NVF_TERRAIN_VISIBILITY` (bits 25-27; the key's bit fields above them move up by three,
+  well below the base mesh key's bits from 58), set by `check_views_need_specialization`
+  from the same component, and the shader defs of the same names. The pipelines' layout
+  key and the view's bind group are both read from that one component in the same frame,
+  so they cannot disagree; the component is inserted, changed and removed only during
+  extraction.
+
+The shaders that use the bindings are nvforever's (`sun_visibility.wesl`, patched into
+`apply_pbr_lighting` at run time like lights.rs's edits). Bevy inserts neither component;
+without them the flags, layouts and shader defs are upstream's, and so is every view while
+the game's switches are off; the pipeline keys are the same keys numbered differently (the
+packed fields above the new bits moved up by three). The meshlet path (feature off here) builds its
+view key without the bits, so a meshlet view must not get the component. Upstream has no
+way for an application to add bindings to the mesh view bind group.
+
+Another change (ambient occlusion on the ambient light, #2897 stage two,
+docs/design/graphics-enhanced.md §3.1), each part marked `NVForever ambient occlusion`, for
+nvforever's `ssao_lighting.rs`, built the same way as the sun visibility's:
+
+- `src/render/mesh_view_bindings.rs`: the render-world view component
+  `NvfAmbientOcclusionBindings` (a uniform buffer and an unfilterable float 2D texture, the
+  half-resolution occlusion read with `textureLoad`), the layout key bit
+  `MeshPipelineViewLayoutKey::NVF_AMBIENT_OCCLUSION` and bindings 43-44 of the mesh view
+  bind group, present only for a view with it.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_AMBIENT_OCCLUSION` (bit 28; the key's bit
+  fields above it move up by one more, their top, the colour target format, ending at bit
+  49, still below the base mesh key's bits from 58, which the file's `const_assert_eq!`
+  checks), set by `check_views_need_specialization` from the same component, and the shader
+  def of the same name, pushed only for a pipeline that writes depth (opaque, alpha mask,
+  alpha to coverage), the rule Bevy's own `SCREEN_SPACE_AMBIENT_OCCLUSION` def follows: a
+  blended draw is not in the depth prepass the occlusion is worked out from. A blended
+  pipeline of such a view keeps the bindings in its layout and leaves them unread.
+
+The shader that reads the bindings is nvforever's (`ssao_lighting.wesl`, patched into
+`apply_pbr_lighting` at run time after the sun visibility's hook). Bevy inserts no such
+component; without it the layouts and shader defs are upstream's, and the pipeline keys are
+the same keys numbered differently (the packed fields above the new bit moved up by one).
+As for the sun visibility, a meshlet view must not get the component.
+
+## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+[documented: `src/render_resource/pipeline_cache.rs::create_pipeline_task`, #2317]
+`RENDER_DEVICE_API_GATE` gates pipeline creation on task threads (and synchronous creation).
+Each compilation holds its read side. NVForever's device poll thread shares it;
+`gpu_poll::quiet` takes its write side during DLSS-G's live load/unload, so no pipeline
+compile overlaps `slSetFeatureLoaded` (`sl_core_api.h:130-131` forbids parallel Vulkan calls).
+The guard is taken inside the task, covering even a compile whose cache entry was replaced
+by shader reload. `PipelineTaskOutput` also takes the read side when destroying an unclaimed
+output: async-task can discard a cancelled task's pipeline after its compilation guard was
+released. Outputs taken by the render thread are stored as upstream does. A switch waits
+without a time limit for running driver compiles: they cannot safely be cancelled, so a
+user-requested switch must wait to preserve device safety. A GPU-free unit test checks that
+discarded outputs are destroyed while the gate excludes writers. Drop this patch if Bevy
+supplies an equivalent device-operation gate.
+
+Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First
+change, in `src/renderer/render_context.rs`, each part marked by a comment starting
+`NVForever early finish`: when a render system is done (`RenderContextState`'s
+`SystemBuffer::queue`), each encoder it recorded is handed to the compute threads to be
+finished (`CommandEncoder::finish`) while the render thread records the systems after it.
+Upstream finishes them all at once inside `submit_pending_command_buffers`, with the render
+thread waiting. At submission an encoder no thread has started is finished there, and one
+being finished is waited for; the command buffers are submitted in the same order as
+upstream, so what the GPU does is unchanged. wasm keeps upstream's path (its encoders are
+not `Send`).
+
+[observed 2026-11-07, `campaign.py --only goodsprings-noon novac-noon battle-50`, the
+`profile` build] Alone it took 0.2-0.5 ms a frame off finishing the encoders' wall time
+(Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
+among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
+
+Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/view/mod.rs`,
+marked `NVForever one resolve`: `ViewTarget::set_resolve_deferred` and
+`ViewTarget::resolve_deferred`. While set, `get_color_attachment` hands out the multisampled
+texture without its resolve target, so a pass keeps its samples and resolves nothing. A new
+`ViewTarget` (each frame) starts with it off, and nothing in Bevy sets it: bevy_pbr's
+transmission systems above do.
+
+Second change (#1887, docs/design/frame-rate-audit.md, the indirect-parameter build jobs),
+in `src/batching/gpu_preprocessing.rs`, `coalesce_batch_ranges` (comment starting
+`NVForever coalesced build jobs`): `prepare_indirect_parameters_build_jobs` merges each
+view's batch ranges that follow one another into one build job. Upstream makes one job,
+and so one compute dispatch, per range; wgpu puts a barrier between dispatches that write
+the same storage buffers, and on the GPU each one waits for the last to drain. The shader
+handles each batch index on its own, so the merged dispatch does the same work. Drop it if
+upstream merges the jobs.
+
+[observed 2026-11-08, Nsight Graphics GPU Trace, Goodsprings 12:00, 2560x1440, 4x MSAA,
+no actors] Compute dispatches a frame 2,518 → 904, compute-active time 16 → 9 % of the
+frame; interleaved runs of one build with and without it: 9.0 → 8.5 ms a frame.
+
+Another change (#2064, docs/design/frame-rate-audit.md §10), marked `NVForever unchanged
+uploads`: `RawBufferVec::write_buffer_if_changed` (`src/render_resource/buffer_vec.rs`)
+queues nothing when the same bytes were last written into the same GPU buffer, and
+`batching/gpu_preprocessing.rs` uses it for each multi-drawn batch set's three buffers that
+only the CPU writes (`render_binned_mesh_instance_buffer`, `bin_metadata_buffer`,
+`bin_index_to_bin_metadata_index_buffer`, read-only in `allocate_uniforms.wesl` and
+`unpack_bins.wesl`). Upstream writes all three every frame: about 300 of a Goodsprings
+frame's 400 `queue.write_buffer` calls, each a copy with its own barrier before the frame's
+first pass. Test aid `NVF_PLAY_TEST_SAME_WRITES=1` writes every frame again.
+
+Gated render assets (#2661), in `src/erased_render_asset.rs`, marked `NVForever gated
+materials`: `ErasedRenderAssetPlugin::gated(Arc<AtomicBool>)` runs the asset type's
+extraction and preparation systems only while the flag is set, for bevy_pbr's gated
+materials above. `Default` has no flag and does what upstream does.
+
+A measuring aid for the encoder spans (`NVF_PLAY_TEST_PROFILE_ENCODERS=1`, `enc:<system>`, #2060),
+in `src/diagnostic/internal.rs` (marked `NVForever encoder gaps`), adds
+`zz:wall` (the frame's first encoder to its last), `zz:gaps` (time inside that no encoder
+covers, with the four largest gaps by name) and `zz:between_frames` (the previous frame's
+last encoder to this frame's first) to the `profile gpu:` line.
+
+Third change (#1868), in `src/diagnostic/mod.rs`, each part marked by a comment starting
+`NVForever recorder gate`: `begin_diagnostics_frame`, `resolve_encoder` and
+`finish_diagnostics_frame` take the `DiagnosticsRecorder` as optional and do nothing
+without it. Upstream they require it, so taking it out of the render world stops the app
+(a missing resource fails the systems' parameter check). Every pass already records only
+while the recorder is there (`RenderContext::diagnostic_recorder` is optional; the camera
+driver checks `contains_resource`), so without it no timestamp is written, resolved or read
+back. `nvforever/src/perf_overlay/split.rs` takes it out while the performance overlay's
+frame split, the only reader that added the render diagnostics, is not shown. With the
+recorder there (every run that does not take it out) the systems do what upstream does.
+
+`NVForever recorded instant` (`diagnostic/internal.rs`, `diagnostic/mod.rs`): each frame's
+`FrameData` notes when it began recording, `RenderDiagnostics` carries that instant, and
+`sync_diagnostics` keeps the last pair (the import time its measurements carry in the store,
+the frame's recording time) in a new main-world resource, `RenderDiagnosticsRecorded`. The
+store's measurements keep upstream's import time (frame telemetry exports it as such,
+docs/design/frame-telemetry.md). `nvforever/src/perf_overlay/split.rs` uses the pairs to
+read only the measurements of frames recorded in its window and since its row began to show.
+
+Another change (a measuring aid, docs/design/frame-rate-audit.md §9), in
+`src/renderer/render_context.rs`, marked `NVForever encoder spans`: with
+`NVF_PLAY_TEST_PROFILE_ENCODERS=1` and a diagnostics recorder (the `profile` build's
+`NVF_PLAY_TEST_PROFILE`), every render system's command encoder is wrapped in a GPU time
+span `enc:<system>`, opened when the encoder is made and closed when the system's
+`RenderContext` is dropped. The passes' own spans nest inside it, so the difference is the
+GPU time of what a system records outside its passes: image copies, multisample resolves,
+passes without a span. Without the variable nothing is recorded.
+
+Fourth change (#1778, docs/design/latency-reduction.md): Bevy's `raw_vulkan_init` feature,
+which the engine turns on so `anti_lag.rs` can add a device extension, no longer changes which
+backend starts or which validation wgpu runs. Each part is marked by a comment starting
+`NVForever (2026-11-09)`:
+
+- `src/renderer/mod.rs` `initialize_renderer`: the raw Vulkan instance is created only when
+  the backends include Vulkan, otherwise `Instance::new`, as without the feature. Upstream
+  creates it whatever the backends say, so `WGPU_BACKEND=dx12` or `gl` was ignored.
+- `src/settings.rs` `WgpuSettings::default`: upstream, the feature also removes
+  `InstanceFlags::VALIDATION_INDIRECT_CALL` in every release build, on every backend. Left
+  out: the flag goes only when the backends don't include DX12, as without the feature. On
+  DX12 the built-ins `num_workgroups`, `vertex_index` and `instance_index` read wrong in
+  indirect calls without it [documented: wgpu-types 30.0.1 `instance.rs`], and release builds
+  on Vulkan with the default backends keep the validation (and its GPU time) they had before.
+
+Still as upstream: when the backends include Vulkan, the instance is Vulkan-only whenever
+Vulkan starts, so a Vulkan instance with no adapter that can draw to the window stops the start
+instead of going on to DX12. Left so: the game does not run on DX12 as it is (main's own
+`WGPU_BACKEND=dx12` start stops on bind group validation errors [observed 2026-11-09, RTX
+4070]), so there is nothing to fall back to. Where the Vulkan instance cannot be made at all
+(no driver), upstream's own fallback to `Instance::new` is kept.
+
+Still as upstream, and different from a build without the feature: the instance made from
+the raw Vulkan one takes wgpu-core's default instance flags (`Instance::from_hal`), so
+`WgpuSettings::instance_flags` and the `WGPU_VALIDATION*`/`WGPU_DEBUG` environment switches
+reach the Vulkan layer (wgpu-hal) but not wgpu-core [documented: wgpu-core 30.0.1
+`instance.rs` `from_hal_instance`]. The defaults are the same either way. Drop this change
+when a Bevy release makes the feature follow the backends.
+
+Window images for another thread (2026-11-08, frame generation's presenter,
+docs/design/frame-generation.md "Presentation and pacing", h9x000/NVForever#1). In
+`src/view/window/mod.rs`, each part marked by a comment starting `NVForever (2026-11-08)`:
+
+- `DeferredSwapchain`, a component on a window: `prepare_windows` takes no swapchain image
+  for it and points the window's view at a stand-in texture of the window's size instead
+  (`STAND_INS` = 3, used in turn, so a thread may still read the last two).
+- `SharedSurface` (`SurfaceData::shared`): the window's surface and its configuration behind
+  a lock, for one other thread to take images from and present (`SurfaceGuard::acquire`,
+  `present`). `create_surfaces` reconfigures under the same lock, so never while that thread
+  holds an image (wgpu allows one per surface).
+- `SWAPCHAIN_WAITS`: the time spent in the swapchain's acquires and presents, for frame
+  generation's log line.
+
+Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
+
+- The thread never configures the surface. `SurfaceGuard::acquire` returns no image on
+  `Outdated` and marks the surface (`SurfaceShare::outdated`); `need_surface_configuration`
+  and `create_surfaces` then reconfigure it on the render thread, under the lock, whether or
+  not the window's size changed (alt-tab, a display mode or HDR change), and clear the mark.
+  Before, `acquire` configured the surface itself, and wgpu-core 30's `configure_surface` waits
+  for the GPU and fails with `GpuWaitTimeout`, a validation error, when another thread submits
+  meanwhile (`wgpu-core-30.0.1/src/device/resource.rs` 5338-5351); the render thread keeps
+  submitting.
+- `SurfaceData` keeps a clone of the window's `RawHandleWrapper` and `SharedSurface` holds
+  one, dropped after its surface, so the window outlives every holder of the surface
+  (`create_surface_unsafe`'s contract, which upstream keeps by removing `RawHandleWrapper` and
+  `SurfaceData` together).
+- Review of LootJunkieAzza/NVForever#1964: `SurfaceGuard::acquire` marks the surface on `Lost`
+  as on `Outdated` (a lost surface froze the window with nothing asking for a reconfigure),
+  and `DeferredSwapchain::take_stand_in` gives each frame's stand-in once, so a window
+  `prepare_windows` passed over (no camera draws to it) is not handed over a second time.
+
+Upstream Bevy has no way for a thread other than the render thread to present a window.
+
+Window changes held for one frame (2026-11-13, the DLSS Frame Generation spike, #2317), in
+`src/view/window/mod.rs`, each part marked `NVForever (2026-11-13)`:
+
+- `HoldSurfaceReconfigure`, a render-world resource (default `false`). While `true`,
+  `create_surfaces` does not reconfigure a window whose size or present mode changed or whose
+  surface is outdated: it marks the surface outdated (the 2026-11-09 mark) and reconfigures it
+  on the first frame after the hold is released; `prepare_windows` gives a window whose image
+  comes back `Outdated` no image that frame (marked the same way) instead of configuring the
+  surface there.
+- `SurfaceData::reconfigure_pending`: whether `create_surfaces` would reconfigure the surface
+  this frame, for the system that decides the hold.
+- `extract_windows` is public, so a system can be ordered around it (DLSS Frame Generation sets
+  its mode off before a closing window's surface is removed there, and switches DLSS-G on or
+  off after it).
+
+NVIDIA's DLSS Frame Generation must be off (its mode set off and presented once) before the
+swapchain changes [documented: Streamline 2.14.16 `ProgrammingGuideDLSS_G.md` §12.0, §17],
+and upstream reconfigures in the frame the change is extracted. NVForever's
+`engine/nvforever/src/dlss/frame_gen.rs` holds the reconfigure for that one frame. Nothing
+else sets it, so every other run takes upstream's path.
+
+Vulkan library for the instance (2026-11-12, DLSS spike, #2198), in
+`src/renderer/raw_vulkan_init.rs`, each part marked by a comment starting `NVForever
+(2026-11-12, DLSS spike #2198)`, and an optional `ash` 0.38 dependency (the version wgpu-hal
+30 uses) under the `raw_vulkan_init` feature in `Cargo.toml`:
+
+- `RawVulkanInitSettings::set_vulkan_library` (unsafe): the raw Vulkan instance is made from
+  that library (`ash::Entry::load_from`) instead of the system's loader, for NVIDIA
+  Streamline's interposer. wgpu-hal 30.0.1's `Instance::init_with_callback` loads the loader
+  itself, so its steps are done here with wgpu-hal's public `desired_extensions` and
+  `from_raw`: the same application info, extensions, validation layer and features, and the
+  loader's API version. Instance callbacks cannot run on that path (their argument type has a
+  private field), so with any registered it is not taken. wgpu-hal's debug messenger cannot be
+  handed over (private fields), so when the instance flags ask for `VK_EXT_debug_utils` the
+  file's own messenger writes the layers' messages as wgpu-hal does (same log target, levels,
+  wording and suppressed ids) and is destroyed before the instance. On success
+  `VulkanLibraryInstance` is set in `AdditionalVulkanFeatures`; on any failure the caller's
+  report hears why and upstream's path runs.
+
+Without `set_vulkan_library`, upstream's path runs unchanged. NVForever calls it only once
+its DLSS loader has passed every check (on Windows, with Vulkan among the renderer's
+backends). The loader runs when DLSS is chosen, when the four DLSS files are in the DLSS
+folder, or with `NVF_DLSS_PRELOAD=1`; `NVF_DLSS_PRELOAD=0` leaves out the files case
+(`engine/nvforever/src/upscaler.rs` `UpscalerStartup`, docs/design/dlss-upscaling.md, "Loaded
+whenever the files are there"). Every other run takes upstream's path. Drop it if wgpu-hal gains a way to pass the entry in.
+
+Pipeline compiling (perf/pipeline-cache, 2026-11-19; nvforever
+`src/pipeline_disk_cache.rs` has the measurements), in `src/render_resource/pipeline_cache.rs`,
+each part marked by a comment starting `NVForever`:
+
+- `NVForever pipeline timing`: with `NVF_PLAY_TEST_PIPELINE_LOG` set, each pipeline logs
+  `pipeline timing: queued .. ms, lock .. ms, compose .. ms, naga .. ms (<n> modules), create
+  .. ms: <label>`: the wait for a thread, for the shader cache's lock, the Wesl composition,
+  the part of it in `create_shader_module`, and the pipeline's creation (the driver's compile).
+- `NVForever persistent pipeline cache`: `PipelineCache::set_wgpu_pipeline_cache` gives every
+  pipeline created from then on a `wgpu::PipelineCache` (`cache:` in the descriptors, `None`
+  upstream); nvforever loads it from the home and saves it.
+- `NVForever composed shaders`: `PipelineCache::set_composed_store` hands bevy_shader's store
+  (below) to the shader cache.
+- `NVForever compile pool`: pipelines compile on a pool of their own (a quarter of the logical
+  cores, 2 to 8 threads; `NVF_PIPELINE_THREADS=<n>`, 0 for upstream's async compute pool
+  and no list pool),
+  not on the async compute pool (at most 4 threads, shared with the game's loading). On a
+  driver cache that has none of the pipelines (each 0.6-0.8 s), a Novac start's screen waited
+  6.1 s for them on the async compute pool and 5.3 s on this pool.
+- `NVForever modules off the lock`: the pipeline tasks take their shader modules from
+  bevy_shader's `ShaderCache::prepare` (below) under the lock, then make the ones left to them
+  without it (`nvf_modules`: naga's parse, validation and SPIR-V, and `vkCreateShaderModule`)
+  and hand them back with `finish`; a module another thread is making is waited for, after
+  this thread's own are made. Upstream made every module under the one lock: a Novac start's
+  245 modules took 751 ms one at a time while the compile threads waited 3.9 s in all for
+  the lock [observed 2026-11-19]. This needs wgpu's error scopes per thread, so the
+  dependency on `wgpu` adds its `std` feature (without it the scopes are one stack for all
+  threads, and two threads making modules at once panic with a mismatched
+  `pop_error_scope`).
+- `NVForever pipeline list`: a new module `src/render_resource/nvf_manifest.rs`
+  (`PipelineManifest`, its module notes say how it works) and `PipelineCache::
+  set_pipeline_manifest`. The render and compute tasks turn their descriptor into a recipe
+  (shaders by `Shader::path`) and ask the list: a pipeline the list built from the same
+  modules is handed over, else the task builds it and the list keeps the recipe.
+  `process_queue` feeds the list's recipes whose shaders have loaded (only those asked in
+  the last `REBUILD_RUNS` runs, at most `MAX_REBUILT`) to a pool of its own
+  (`nvf_list_pool`, half the compile pool's default threads), which builds each inside a
+  validation error scope. For the JSON of the recipes the crate depends on `serde` and
+  `serde_json` and on `wgpu-types` with `serde` (all already in the build).
+
+Without the setters and with `NVF_PIPELINE_THREADS=0`, upstream's path runs (no list pool
+either), except that the modules are made outside the lock.
+
+## bevy_shader 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+The shader cache, for composed shaders kept between runs (perf/pipeline-cache, 2026-11-19).
+A new module `src/nvf_composed.rs` (`ComposedStore`: keyed compositions with the source
+hash of each module the composer read, a file format with a producer line, pruning of
+entries unused for 30 runs, at most 96 MB, up to 4 variants a key) and, in
+`src/shader_cache.rs`, each part marked by a comment starting `NVForever composed shaders`:
+`ShaderCache::set_composed_store`, each shader's source hash and each module path's shader
+(kept up to date in `set_shader` and `remove`), and in `get`'s Wesl branch a lookup before
+`wesl::compile` and a `put` after it. The key is the module path, the composer's options
+with its sorted definitions, and the `constants` module's source; an entry is used only
+while every module it read still has the same source. Without a store `get` composes as
+upstream does.
+
+Why: once the driver has a pipeline in its own cache, composing its shaders is most of what
+it costs (15-90 ms a module, one at a time under the cache's lock, against about 2 ms to
+make the module), and the composer orders a module's declarations differently from run to
+run, which hands the driver new SPIR-V. At a Novac start, with NVIDIA's cache warm, the
+screen's wait for pipelines went from 3.8 to 2.3 s and the 45 pipelines asked in the first
+seconds after it from 6.3 s to 1.2 s (asked to ready, all together) [observed, nvforever
+`pipeline_disk_cache.rs`]. Composing on several threads instead was tried and is slower
+(wesl 0.6's identifiers share reference counts). The test `composed_store_skips_compositions_of_unchanged_sources`
+checks a second cache composes nothing the first kept and composes again after a change.
+Drop it when Bevy caches compositions itself.
+
+`NVForever modules off the lock` (`src/shader_cache.rs`): `get` is split into `prepare`
+(compose under the lock; returns `ModuleStep::Ready`, `Build` with the composed source, or
+`Wait` on the `ModuleSlot` of the thread making the same module) and `finish` (keep the
+module made, unless the shader was replaced meanwhile: each shader's data has a
+`generation` that `clear` bumps, and `clear` drops the slots being made). A `ModuleBuild`
+dropped unfinished (its maker panicked or stopped early) fills its slot with
+`ShaderImportNotYetAvailable`, an error the pipeline cache retries, so a waiter's pipeline
+is queued again rather than failed for the run. `get` is
+`prepare`, the module made holding the lock, and `finish`, as before. `ShaderCacheError` is
+`Clone` for the waiters. For the pipeline list (bevy_render above): `shader_path`,
+`shader_by_path` (a path two shaders share is neither) and `shaders_set`, and `prepare`
+takes the pipeline as an `Option` (`None` for the list's builds, which are not compiled
+again when a shader changes). Tests: `a_module_asked_twice_at_once_is_made_once_and_a_stale_one_is_not_kept`,
+`a_build_dropped_unfinished_wakes_its_waiters`, `shaders_are_found_by_a_path_only_they_have`.
+
+## wgpu-hal 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
+
+wgpu's Vulkan backend, for NVIDIA low latency (`VK_NV_low_latency2`,
+docs/design/latency-reduction.md, `nvforever/src/nv_low_latency.rs`). One change, in
+`src/vulkan/swapchain/native.rs` and `src/vulkan/mod.rs`, each part marked by a comment
+starting `NVForever (2026-11-12)`:
+
+- `NativeSurface::create_swapchain`: on a device whose enabled extensions include
+  `VK_NV_low_latency2`, the swapchain is created with `VkSwapchainLatencyCreateInfoNV`,
+  `latencyModeEnable` true. Low latency mode may be used only on a swapchain created so
+  [documented: Vulkan spec, "Latency Reduction", `VkSwapchainLatencyCreateInfoNV`], wgpu
+  creates the swapchain, and it has no hook there. wgpu-hal itself never enables the
+  extension; only a device-creation callback does (`nv_low_latency.rs`), so without one the
+  crate does what upstream does.
+- `vulkan::with_latency_swapchain` (new, public): calls a closure with the newest such
+  swapchain, under a lock that `create_swapchain` takes to clear the handle before the old
+  swapchain is handed over as `oldSwapchain`, and `NativeSwapchain`'s `Drop` before
+  `vkDestroySwapchainKHR`. The extension's calls (`vkSetLatencySleepModeNV`,
+  `vkLatencySleepNV`, `vkSetLatencyMarkerNV`) take the swapchain and come from threads that
+  do not present; upstream's `Surface::raw_native_swapchain` gives the handle but nothing
+  keeps it alive afterwards, and reading it waits behind a blocked acquire or present. One
+  handle for the process: with two windows the newer swapchain takes the calls.
+- `vulkan::swapchains_made` (new, public; marked `NVForever (2026-11-16)`): a count of the
+  swapchains `create_swapchain` has made in the process, on any device, moved on after
+  `vkCreateSwapchainKHR` returned. Streamline's Reflex sets its sleep mode and frame limit on
+  the swapchain it tracks at the call, and a new swapchain starts without them, so the
+  engine sets Reflex's options again when the count moves (`nvforever/src/dlss/frame_token.rs`,
+  LootJunkieAzza/NVForever#2732).
+
+Not run on a GPU yet (2026-11-12): built, and the engine's tests and clippy pass. The copy
+is the crates.io package as published (its `examples` are kept: the manifest names them).
+Drop it when wgpu lets a caller extend swapchain creation, or creates the swapchain with
+the structure itself.
+
+Test aid (marked `NVForever (2026-11-19)`, `src/vulkan/mod.rs` `spirv_salt` and
+`src/vulkan/device.rs` `create_shader_module_impl`): `NVF_PLAY_TEST_SPIRV_SALT=<n>` XORs `n`
+into each shader module's SPIR-V generator word, which names only the tool that wrote it, so
+a driver's own shader cache sees new code: a first launch after a driver update, on demand,
+for measuring (perf/pipeline-cache). Without it nothing changes.
+
+## naga 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
+
+wgpu's shader translator, for the Vulkan SPIR-V of `@builtin(sample_mask)` (#2413). Vulkan
+requires the `SampleMask` built-in to be an array of 32-bit integers
+[documented: Vulkan spec, "Built-In Variables", VUID-SampleMask-SampleMask-04359]; naga's
+SPIR-V back end declares it as a scalar `u32`, as WGSL writes it (open upstream as
+gfx-rs/wgpu#7311). The engine's prepass coverage (`nvf-assets/src/nif_material.rs`
+`prepass_coverage`, PR #2181) returns that built-in from the depth prepass. One change,
+each part marked by a comment starting `NVForever`:
+
+- `src/back/spv/mod.rs`: `Writer::sample_mask_vars`, the ids of the `SampleMask` varyings.
+- `src/back/spv/writer.rs`: `write_varying` declares a `SampleMask` input or output as
+  `OpTypeArray` of `u32` with length 1; `load_io_with_f16_polyfill` and
+  `store_io_with_f16_polyfill` load and store it through `sample_mask_element`, an
+  `OpAccessChain` to element 0. The WGSL side (`u32`) and every other varying are as
+  upstream.
+
+Why: on an Intel N150 (driver 32.0.101.7088, Vulkan) the game crashed in the driver's
+shader compiler (`igc64.dll`) while building `pbr_prepass_pipeline` with MSAA on (the
+default `--msaa 4`), 5 runs of 5 [observed]. Upstream naga's output fails `spirv-val` with
+VUID 04359 and the patched output passes [observed]; on the N150 the game then ran 60 s at
+`--msaa 4` with prepass coverage on, all 25 `pbr_prepass_pipeline` builds done
+[observed, 2026-11-13]. The coverage is worth keeping there: the opaque pass took 40.3 ms
+with it and 48.3 ms without, 1080p 4x MSAA [observed]. `nvf-assets/tests/sample_mask_spirv.rs`
+checks the declaration. The copy is the crates.io package as published; its own
+`.gitignore` lists `Cargo.lock`, which is kept here all the same, as for the other copies.
+Drop it when a naga release declares `SampleMask` as an array (gfx-rs/wgpu#7311 fixed).
+
+## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
+
+The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md) and, added here, FSR 3.1 frame
+generation (docs/design/frame-generation.md): a Rust/wgpu port of AMD FidelityFX
+SDK 1.1.4's upscaler, [cwfitzgerald/wgpu-ffx](https://github.com/cwfitzgerald/wgpu-ffx) at
+commit `6fe7064064b396b30df97341c2ca957ca1b00884`. It is not on crates.io, so it is not a
+`[patch]`: the engine uses its `wgpu-ffx` and `wgpu-ffx-shaders-spv` crates as path
+dependencies, and `engine/Cargo.toml` excludes the workspace. Its shaders are the SDK's
+GLSL (FidelityFX-SDK commit `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`, with AMD's MIT
+notices), compiled to the SPIR-V that `wgpu-ffx-shaders-spv` embeds. `xtask/` and the
+shaders it compiles are that SPIR-V's source and stay with it: `shaders/src/fsr3upscaler`,
+`shaders/src/frameinterpolation`, `shaders/src/opticalflow` and what they include
+(`shaders/include` with those three, `spd` for the pyramids and `fsr1` for RCAS). `LICENSE.MIT` holds both copyright
+notices; `tools/release/third_party_licenses.py` takes it from the workspace root for the
+release's `THIRD-PARTY-LICENSES.txt`.
+
+Changes:
+
+- wgpu 29 → 30 (the version Bevy 0.20.1 uses); the runtime crate's manifest names this
+  workspace (`..`).
+- `wgpu-ffx/src/pass.rs`: wgpu 30's entry-point metadata for SPIR-V passthrough modules.
+  The accumulation pass's motion inputs were reversed upstream: the low-resolution variants
+  now read the converted, dilated motion and the display-resolution variants the input
+  motion, as AMD's shader bindings declare. With them reversed, moving things left trails
+  at every quality, Native AA included [observed]. A binding test covers both sharpening
+  variants.
+- `wgpu-ffx/src/lib.rs`: the dispatch no longer pushes and pops a device-wide error scope,
+  which raced Bevy's pipeline compilation on other threads.
+- `wgpu-ffx/src/lib.rs` (2026-11-08): `FsrView::configure` and `FsrConfigureKey`, the
+  upscaler's tuning constants as FidelityFX SDK 1.1.4's `FfxFsr3UpscalerConfigureKey` sets
+  them (`ffx_fsr3upscaler.h`: names, descriptions, defaults and ranges). The engine keeps
+  AMD's defaults; `tools/fsr-validation` (`ghosting.rs`) uses it to measure them.
+- **Bind groups kept** (2026-11-10): `pass.rs` (`BindKey`, in the view's `FsrResources`) and
+  `fg_pass.rs` (`BindGroups`, in the optical-flow and frame-interpolation views) keep each
+  pass's bind group by what it binds, where upstream and the first port made the bind group
+  and its texture views again for every pass of every frame (0.3 and 0.5 ms a frame of the
+  render thread at 4K, 0.09 and 0.07 after [observed, docs/design/frame-generation.md]).
+  `frameinterpolation.rs`: `FrameInterpolationDispatchInfo::previous_source`, the previous
+  interpolation source kept by the caller, which saves AMD's display-sized copy of it.
+  **Unused ones dropped** (2026-11-11, #2085): `kept.rs` (new) is the list both use. A kept
+  bind group holds clones of the caller's textures, and the lists only started again at
+  their caps (128 and 256), which a steady state never reaches: when the caller stopped
+  handing a texture in while the view lived on, it stayed alive with the view. In the
+  engine, switching frame generation changes the main textures' usage flags, so Bevy makes
+  two new display-sized ones while the FSR view stays [observed in the code:
+  `prepare_view_targets`, `fsr.rs` and `frame_gen.rs` `prepare`; the memory was not
+  measured]. Now each entry remembers the frame it was last used in, and one not used for
+  16 frames (calls of the view's dispatch or prepare) is dropped; the caps stay.
+- **Half precision** (2026-11-08): the upscaler's `perm.toml` compiles `FFX_HALF = [0, 1]`
+  (shaderc 2026.4, Vulkan SDK 1.4.363.0, `--only fsr3upscaler`). The committed FP32 SPIR-V
+  is kept byte for byte (the Half::Off arms of `fsr3upscaler/mod.rs` name the same files);
+  26 FP16 files are added, for the accumulate pass and the two pyramids. `lib.rs`:
+  `FsrContextFlags::ALLOW_FP16` (not one of AMD's flags) and `FP16_FEATURES` (`SHADER_F16`
+  and `SHADER_I16`: the FP16 SPIR-V declares `Float16` and, in 8 accumulate variants,
+  `Int16`). The pyramids stay full precision: SDK 1.1.4's FFX_HALF SPD callbacks in
+  `ffx_fsr3upscaler_luma_pyramid.h` and `ffx_fsr3upscaler_shading_change_pyramid.h` return
+  zero and store nothing, and those variants compile to passes that bind 2 resources where
+  the FP32 ones bind 7 and 12 [observed 2026-11-08, spirv-dis]. The FP16 accumulate variants
+  bind the same sets, bindings and image formats as their FP32 slots [observed 2026-11-08,
+  from the SPIR-V's decorations].
+- **Frame generation** (2026-11-07, #1778), new code ported from AMD's MIT host sources of
+  FidelityFX SDK 1.1.4 (`sdk/src/components/opticalflow/ffx_opticalflow.cpp`,
+  `sdk/src/components/frameinterpolation/ffx_frameinterpolation.cpp`, and the parameters
+  `sdk/src/components/fsr3/ffx_fsr3.cpp` passes them; tag `v1.1.4` of
+  GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, MIT throughout, read as reference and not
+  vendored):
+  - `wgpu-ffx/src/opticalflow.rs` and `wgpu-ffx/src/frameinterpolation.rs`: the passes,
+    their resources, constants, order and dispatch sizes. Left out: the debug view, the async
+    (second queue) mode and the distortion-field input (a 1x1 zero field is bound, as AMD's
+    default).
+  - `wgpu-ffx/src/fg_pass.rs`: the passes bind by GLSL name. AMD's frame-interpolation
+    shaders put their sampler at binding 1000 (over wgpu's limit) and number bindings with
+    gaps; wgpu-hal's Vulkan backend numbers a layout's descriptors 0, 1, 2... and rewrites
+    only shaders it translates, so the SPIR-V's binding decorations are rewritten to that
+    dense order when each module is created. The shader sources stay unchanged.
+  - Tests compare every pass's binding table with the `#define`s of its `.glsl` file and the
+    declarations of the callbacks header, and with the bindings the compiled SPIR-V
+    declares; GPU checks against true midpoints are in `tools/fsr-validation` (`fg.rs`).
+  - Shaders: `shaders/src/{frameinterpolation,opticalflow}` and
+    `shaders/include/{frameinterpolation,opticalflow}` (46 files), each identical to the
+    v1.1.4 tag's file but for line endings (compared by git blob hash, 2026-11-07), with
+    AMD's copyright and MIT notice. Compiled with `perm.toml` configs in
+    `wgpu-ffx-shaders-spv/src/{frameinterpolation,opticalflow}` (base defines from AMD's
+    `CMakeCompile*Shaders.txt`). Not permuted: jittered motion vectors, whose define AMD's
+    list misnames so its own build never compiles that branch (it does not compile).
+- `xtask/src/compile_shaders.rs`: `--only <effect>` compiles one effect's `perm.toml`, so
+  the upscaler's committed SPIR-V is left alone (a newer `glslc` gives different bytes for
+  unchanged sources). The frame-generation SPIR-V was built with shaderc 2026.4 (Vulkan SDK
+  1.4.363.0): `cargo xtask compile-shaders --only frameinterpolation --only opticalflow`.
+- Left out: the upstream repository's Git and CI files, and the shader sources of the SDK's
+  other effects (blur, Brixelizer, CACAO, CAS, the denoiser, depth of field, FSR 2, SSSR and
+  the rest). Nothing here compiles them: `cargo xtask compile-shaders` builds the effects
+  with a `perm.toml` in `wgpu-ffx-shaders-spv/src`: the FSR 3.1 upscaler, frame
+  interpolation and optical flow. Every `#include` of their shaders resolves among the kept
+  files.
+
+The kept shader files are unchanged. To rebuild the SPIR-V, install `glslc` (Vulkan SDK or
+Shaderc) and run `cargo xtask compile-shaders` in `engine/vendor/wgpu-ffx` (`--only <effect>`
+for one); `cargo xtask vendor` downloads the whole AMD SDK and is not needed. Not used:
+AMD's signed DLLs (FSR SDK 2.x), its frame-generation swapchain and DLLs, the SDK's samples
+and prebuilt binaries.
+
+## Dropped
+
+- bevy_pbr 0.19.1 (#903, PR #905): the bindless index-table comparator in
+  `MaterialBindlessSlab::get_bindless_index_table`, reversed in 0.19.1, which kept freed
+  `ExtendedMaterial`s' textures in the slabs. Fixed upstream (bevyengine/bevy#25848);
+  Bevy 0.20 has the fix, in `bevy_render::material_bind_groups` (#934).

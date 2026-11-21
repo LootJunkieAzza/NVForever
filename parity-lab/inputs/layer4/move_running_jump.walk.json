@@ -1,0 +1,45 @@
+{
+ "schema": "fnv.phys.walk-script/1",
+ "description": "Run north (heading 0) over flat ground and jump at the first step: the jump arc with horizontal speed, and the landing.",
+ "start": [
+  -72400.0,
+  4100.0
+ ],
+ "hz": 60,
+ "segments": [
+  {
+   "steps": 30
+  },
+  {
+   "steps": 1,
+   "velocity": [
+    0.0,
+    344.0
+   ],
+   "jump": true
+  },
+  {
+   "steps": 89,
+   "velocity": [
+    0.0,
+    344.0
+   ]
+  }
+ ],
+ "observe": {
+  "from_step": 30,
+  "every": 15,
+  "count": 6
+ },
+ "capture": {
+  "name": "move_running_jump",
+  "set_z": 8356,
+  "heading_deg": 0,
+  "keys": [
+   "forward"
+  ],
+  "jump": true,
+  "settle_frames": 120,
+  "samples": 150
+ }
+}

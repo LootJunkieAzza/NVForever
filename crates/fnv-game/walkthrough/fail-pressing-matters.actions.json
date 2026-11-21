@@ -1,0 +1,20 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Pressing Matters (VMS51), the fail: VMS51 10 as in pressing-matters, then Alice McLafferty killed (VMS51 110)",
+  "given": [
+    {"kind": "quest", "quest": "VMS05", "completed": true, "stage": 100, "done": [100]}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: as pressing-matters to 'VMS51 10'; then Alice McLafferty killed (AliceMcLaffertyScript, before VMS51 100: VMS51 110). Kill stands in for each fight, by the player; travel is move_player."},
+    {"op": "move_player", "to": "AliceMcLaffertyREF"},
+    {"op": "talk", "actor": "AliceMcLaffertyREF", "label": "alice greeting"},
+    {"op": "choose", "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic030", "label": "counterfeit caps"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS51", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VMS51 10"},
+    {"op": "move_player", "to": "AliceMcLaffertyREF"},
+    {"op": "kill", "actor": "AliceMcLaffertyREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS51", "fields": ["stage", "done.110"], "label": "final: VMS51 110"}
+  ]
+}

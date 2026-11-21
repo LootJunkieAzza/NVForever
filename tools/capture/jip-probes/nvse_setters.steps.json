@@ -1,0 +1,63 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_setters",
+ "title": "nvse-setters, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fO := GetWeaponClipRounds rF\nSetWeaponClipRounds 30 rF\nlet fV := GetWeaponClipRounds rF\nSetWeaponClipRounds fO rF\nSetFunctionValue fV\nEnd\n",
+   "label": "clip.set.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetWeaponClipRounds rF)\nEnd\n",
+   "label": "clip.restored",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"F\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fO := GetWeight rF\nSetWeight 0.5 rF\nlet fV := GetWeight rF\nSetWeight fO rF\nSetFunctionValue fV\nEnd\n",
+   "label": "weight.set.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fO := GetItemValue rF\nSetBaseItemValue rF 999\nlet fV := GetItemValue rF\nSetBaseItemValue rF fO\nSetFunctionValue fV\nEnd\n",
+   "label": "value.set.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fO := GetBaseHealth rF\nSetObjectHealth 123 rF\nlet fV := GetBaseHealth rF\nSetObjectHealth fO rF\nSetFunctionValue fV\nEnd\n",
+   "label": "health.set.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetName \"NVF Pistol\" rF\nSetFunctionValue (GetName rF)\nSetName \"10mm Pistol\" rF\nEnd\n",
+   "label": "name.set.get",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetName \"NVF Pistol\" rF\nSetFunctionValue (LNGetName rF)\nSetName \"10mm Pistol\" rF\nEnd\n",
+   "label": "name.set.lngetname",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetName rF)\nEnd\n",
+   "label": "name.restored",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetName \"NVF Doc\" rF\nSetFunctionValue (GetName rD)\nSetName \"Doc Mitchell\" rF\nEnd\n",
+   "label": "name.npc.via.ref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetName \"NVF Doc\" rF\nSetFunctionValue (rD.LNGetName)\nSetName \"Doc Mitchell\" rF\nEnd\n",
+   "label": "name.npc.ref.lngetname",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

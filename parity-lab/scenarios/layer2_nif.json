@@ -1,0 +1,1350 @@
+{
+ "scenarios": [
+  {
+   "id": "L2.nif.stats.Fallout - Meshes",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in Fallout - Meshes.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/Fallout - Meshes.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/Fallout - Meshes.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.Fallout - Meshes",
+   "layer": 2,
+   "description": "Scene graph of every mesh in Fallout - Meshes.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/Fallout - Meshes.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/Fallout - Meshes.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.Fallout - Meshes",
+   "layer": 2,
+   "description": "Geometry of every mesh in Fallout - Meshes.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/Fallout - Meshes.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/Fallout - Meshes.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.Fallout - Meshes",
+   "layer": 2,
+   "description": "Files in Fallout - Meshes.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/Fallout - Meshes.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/Fallout - Meshes.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.stats.Update",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in Update.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/Update.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/Update.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.Update",
+   "layer": 2,
+   "description": "Scene graph of every mesh in Update.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/Update.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/Update.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.Update",
+   "layer": 2,
+   "description": "Geometry of every mesh in Update.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/Update.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/Update.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.Update",
+   "layer": 2,
+   "description": "Files in Update.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/Update.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/Update.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.stats.DeadMoney - Main",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in DeadMoney - Main.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/DeadMoney - Main.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/DeadMoney - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.DeadMoney - Main",
+   "layer": 2,
+   "description": "Scene graph of every mesh in DeadMoney - Main.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/DeadMoney - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/DeadMoney - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.DeadMoney - Main",
+   "layer": 2,
+   "description": "Geometry of every mesh in DeadMoney - Main.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/DeadMoney - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/DeadMoney - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.DeadMoney - Main",
+   "layer": 2,
+   "description": "Files in DeadMoney - Main.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/DeadMoney - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/DeadMoney - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.stats.HonestHearts - Main",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in HonestHearts - Main.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/HonestHearts - Main.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/HonestHearts - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L2.nif.objects.HonestHearts - Main",
+   "layer": 2,
+   "description": "Scene graph of every mesh in HonestHearts - Main.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/HonestHearts - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/HonestHearts - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L2.nif.shapes.HonestHearts - Main",
+   "layer": 2,
+   "description": "Geometry of every mesh in HonestHearts - Main.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/HonestHearts - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/HonestHearts - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L2.nif.skipped.HonestHearts - Main",
+   "layer": 2,
+   "description": "Files in HonestHearts - Main.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/HonestHearts - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/HonestHearts - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L2.nif.stats.OldWorldBlues - Main",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in OldWorldBlues - Main.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/OldWorldBlues - Main.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/OldWorldBlues - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.OldWorldBlues - Main",
+   "layer": 2,
+   "description": "Scene graph of every mesh in OldWorldBlues - Main.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/OldWorldBlues - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/OldWorldBlues - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.OldWorldBlues - Main",
+   "layer": 2,
+   "description": "Geometry of every mesh in OldWorldBlues - Main.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/OldWorldBlues - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/OldWorldBlues - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.OldWorldBlues - Main",
+   "layer": 2,
+   "description": "Files in OldWorldBlues - Main.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/OldWorldBlues - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/OldWorldBlues - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.stats.LonesomeRoad - Main",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in LonesomeRoad - Main.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/LonesomeRoad - Main.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/LonesomeRoad - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.LonesomeRoad - Main",
+   "layer": 2,
+   "description": "Scene graph of every mesh in LonesomeRoad - Main.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/LonesomeRoad - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/LonesomeRoad - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.LonesomeRoad - Main",
+   "layer": 2,
+   "description": "Geometry of every mesh in LonesomeRoad - Main.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/LonesomeRoad - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/LonesomeRoad - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.LonesomeRoad - Main",
+   "layer": 2,
+   "description": "Files in LonesomeRoad - Main.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/LonesomeRoad - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/LonesomeRoad - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.stats.GunRunnersArsenal - Main",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in GunRunnersArsenal - Main.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/GunRunnersArsenal - Main.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/GunRunnersArsenal - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.GunRunnersArsenal - Main",
+   "layer": 2,
+   "description": "Scene graph of every mesh in GunRunnersArsenal - Main.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/GunRunnersArsenal - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/GunRunnersArsenal - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.GunRunnersArsenal - Main",
+   "layer": 2,
+   "description": "Geometry of every mesh in GunRunnersArsenal - Main.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/GunRunnersArsenal - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/GunRunnersArsenal - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.GunRunnersArsenal - Main",
+   "layer": 2,
+   "description": "Files in GunRunnersArsenal - Main.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/GunRunnersArsenal - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/GunRunnersArsenal - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.stats.CaravanPack - Main",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in CaravanPack - Main.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/CaravanPack - Main.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/CaravanPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.CaravanPack - Main",
+   "layer": 2,
+   "description": "Scene graph of every mesh in CaravanPack - Main.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/CaravanPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/CaravanPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.CaravanPack - Main",
+   "layer": 2,
+   "description": "Geometry of every mesh in CaravanPack - Main.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/CaravanPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/CaravanPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.CaravanPack - Main",
+   "layer": 2,
+   "description": "Files in CaravanPack - Main.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/CaravanPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/CaravanPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.stats.ClassicPack - Main",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in ClassicPack - Main.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/ClassicPack - Main.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/ClassicPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.ClassicPack - Main",
+   "layer": 2,
+   "description": "Scene graph of every mesh in ClassicPack - Main.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/ClassicPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/ClassicPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.ClassicPack - Main",
+   "layer": 2,
+   "description": "Geometry of every mesh in ClassicPack - Main.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/ClassicPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/ClassicPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.ClassicPack - Main",
+   "layer": 2,
+   "description": "Files in ClassicPack - Main.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/ClassicPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/ClassicPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.stats.MercenaryPack - Main",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in MercenaryPack - Main.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/MercenaryPack - Main.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/MercenaryPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.MercenaryPack - Main",
+   "layer": 2,
+   "description": "Scene graph of every mesh in MercenaryPack - Main.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/MercenaryPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/MercenaryPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.MercenaryPack - Main",
+   "layer": 2,
+   "description": "Geometry of every mesh in MercenaryPack - Main.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/MercenaryPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/MercenaryPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.MercenaryPack - Main",
+   "layer": 2,
+   "description": "Files in MercenaryPack - Main.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/MercenaryPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/MercenaryPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.stats.TribalPack - Main",
+   "layer": 2,
+   "description": "Header summary of every NIF/KF in TribalPack - Main.bsa: version, stream version, block and string counts, block types.",
+   "oracle": {
+    "golden": "nif/TribalPack - Main.bsa.nif.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "stats",
+     "{data_dir}/TribalPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "version",
+     "user_version",
+     "bs_version",
+     "num_blocks",
+     "strings",
+     "block_types",
+     "error"
+    ]
+   },
+   "tags": [
+    "nif",
+    "stats",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.objects.TribalPack - Main",
+   "layer": 2,
+   "description": "Scene graph of every mesh in TribalPack - Main.bsa: node and shape types, names, parents, local transforms.",
+   "oracle": {
+    "golden": "nif/TribalPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/TribalPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.shapes.TribalPack - Main",
+   "layer": 2,
+   "description": "Geometry of every mesh in TribalPack - Main.bsa: vertex and triangle counts, stored streams, bounding sphere, vertex bounds.",
+   "oracle": {
+    "golden": "nif/TribalPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/TribalPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/shapes",
+    "key": "key",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "nif",
+    "geometry",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.nif.skipped.TribalPack - Main",
+   "layer": 2,
+   "description": "Files in TribalPack - Main.bsa the scene analysis skips (no block-size table, or undecodable).",
+   "oracle": {
+    "golden": "nif/TribalPack - Main.bsa.nif.scene.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "nif",
+     "scene",
+     "{data_dir}/TribalPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "nif",
+    "scene",
+    "M2"
+   ]
+  }
+ ]
+}

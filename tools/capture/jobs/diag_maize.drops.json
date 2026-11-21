@@ -1,0 +1,142 @@
+{
+ "schema": "fnv.phys.drops/1",
+ "name": "diag_maize",
+ "description": "Diagnostic (no scenario): what moved the player 14 units sideways in the B11 noncollidable_maize drop (physics.md 4.2). Repeats of the B11 drop over MaizePickable 0x0010B1BB, drops from other heights, beside it, on bare ground of the same 5-degree LAND slope, the B11 agave_pickable row (same slope, fell straight) twice, and the B11 drop with the maize disabled from the console. Job mv_diag_maize (make_b11_followup_jobs.py).",
+ "seconds": 10,
+ "drops": [
+  {
+   "label": "maize_c1",
+   "at": [
+    -74593.0,
+    1416.8,
+    8989.2
+   ]
+  },
+  {
+   "label": "maize_c2",
+   "at": [
+    -74593.0,
+    1416.8,
+    8989.2
+   ]
+  },
+  {
+   "label": "maize_c3",
+   "at": [
+    -74593.0,
+    1416.8,
+    8989.2
+   ]
+  },
+  {
+   "label": "maize_high",
+   "at": [
+    -74593.0,
+    1416.8,
+    9189.2
+   ]
+  },
+  {
+   "label": "maize_low",
+   "at": [
+    -74593.0,
+    1416.8,
+    8819.2
+   ]
+  },
+  {
+   "label": "maize_inside",
+   "at": [
+    -74593.0,
+    1416.8,
+    8760.0
+   ]
+  },
+  {
+   "label": "maize_+30x",
+   "at": [
+    -74563.0,
+    1416.8,
+    8989.2
+   ]
+  },
+  {
+   "label": "maize_-30x",
+   "at": [
+    -74623.0,
+    1416.8,
+    8989.2
+   ]
+  },
+  {
+   "label": "maize_+30y",
+   "at": [
+    -74593.0,
+    1446.8,
+    8989.2
+   ]
+  },
+  {
+   "label": "maize_-30y",
+   "at": [
+    -74593.0,
+    1386.8,
+    8989.2
+   ]
+  },
+  {
+   "label": "slope_bare_1",
+   "at": [
+    -74560.0,
+    1380.0,
+    8985.25
+   ]
+  },
+  {
+   "label": "slope_bare_2",
+   "at": [
+    -74560.0,
+    1380.0,
+    8985.25
+   ]
+  },
+  {
+   "label": "agave_pickable_1",
+   "at": [
+    -67457.0,
+    7781.1,
+    8748.0
+   ]
+  },
+  {
+   "label": "agave_pickable_2",
+   "at": [
+    -67457.0,
+    7781.1,
+    8748.0
+   ]
+  },
+  {
+   "label": "maize_disabled_1",
+   "at": [
+    -74593.0,
+    1416.8,
+    8989.2
+   ],
+   "console_before": [
+    "0010B1BB.disable"
+   ]
+  },
+  {
+   "label": "maize_disabled_2",
+   "at": [
+    -74593.0,
+    1416.8,
+    8989.2
+   ],
+   "console_after": [
+    "0010B1BB.enable"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,8 @@
+# Fallout: New Vegas is a 32-bit program, so the plugin must be a 32-bit DLL.
+# (rustup target add i686-pc-windows-msvc)
+[build]
+target = "i686-pc-windows-msvc"
+
+# Link the C runtime statically so the DLL does not need a VC++ redistributable.
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

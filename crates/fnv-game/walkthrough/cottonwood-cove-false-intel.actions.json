@@ -1,0 +1,344 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Eye for an Eye (vCCEyeforaneye): the NCR bug shown to Aurelius, the Legion's false intel passed to Astor (50)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: as cottonwood-cove does, the Weathers family is bought free and Astor gives the NCR bug (vCCEyeforaneye started); at Cottonwood Cove the player shows Aurelius the bug instead (Topic022, offered from his plain greeting while the player carries the bug: objective 45 completed, 50 shown, the old patrol plans and notes given); Astor takes the false intel (Topic150, then Topic158: 50, Complete Quest). Copied from cottonwood-cove.actions.json up to the NCR bug. Stand-ins: as that chain's (travel by move_player)."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "Caps001",
+   "count": 300
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 50
+  },
+  {
+   "op": "set_av",
+   "name": "Lockpick",
+   "value": 50
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "Lockpick",
+   "count": 1
+  },
+  {
+   "op": "move_player",
+   "to": "FrankWeathersREF"
+  },
+  {
+   "op": "talk",
+   "actor": "FrankWeathersREF",
+   "label": "frank greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic014",
+   "label": "frank 014"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic016",
+   "label": "frank 016"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic000",
+   "label": "frank 000"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic001",
+   "label": "frank find them"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCLeftMyHeart",
+   "fields": [
+    "running",
+    "objective.10.displayed",
+    "var.iMetFrank"
+   ],
+   "label": "milestone: vCCLeftMyHeart objective 10"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the road to Cottonwood Cove; arriving there finds its map marker (ShowMap with fast travel, the state an arrival gives)."
+  },
+  {
+   "op": "call",
+   "line": "ShowMap CottonwoodCoveMapMarker 1"
+  },
+  {
+   "op": "move_player",
+   "to": "VCCCanyonRunnerREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VCCCanyonRunnerREF",
+   "label": "canyon runner greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCCanyonRunnerTopic002",
+   "label": "canyon runner captives"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCCanyonRunnerTopic016",
+   "label": "canyon runner buy"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCCanyonRunnerTopic007",
+   "label": "canyon runner lie"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCCanyonRunnerTopic009",
+   "label": "canyon runner 150 caps"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "vCCWeathersSlaveKey",
+   "label": "collar key"
+  },
+  {
+   "op": "call",
+   "line": "vCCSlavePenGateREF.Unlock"
+  },
+  {
+   "op": "move_player",
+   "to": "vCCMrsWeathersREF"
+  },
+  {
+   "op": "talk",
+   "actor": "vCCMrsWeathersREF",
+   "label": "mrs weathers greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCMrsWeathersTopic007",
+   "label": "mrs weathers freed"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCLeftMyHeart",
+   "fields": [
+    "objective.50.completed",
+    "objective.100.displayed",
+    "var.iBuySlaves"
+   ],
+   "label": "milestone: family freed"
+  },
+  {
+   "op": "move_player",
+   "to": "FrankWeathersREF"
+  },
+  {
+   "op": "talk",
+   "actor": "FrankWeathersREF",
+   "label": "frank greeting 2"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic015",
+   "label": "frank 015"
+  },
+  {
+   "op": "choose",
+   "prompt": "Yes. They're all alive.",
+   "label": "frank all alive"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCLeftMyHeart",
+   "fields": [
+    "completed",
+    "objective.100.completed"
+   ],
+   "label": "final: vCCLeftMyHeart completed"
+  },
+  {
+   "op": "note",
+   "text": "Eye for an Eye path: at Camp Searchlight First Sergeant Astor, met once before and once Cottonwood Cove is on the map with fast travel, is told of the Legion camp (Topic142, whose lines are Topic006's, shared by Info Connection: iAstorAsked 1; Topic143) and gives the NCR bug (Topic145: StartQuest, objectives 10, 20, 30); at the cove the player takes the Legion's notes from Aurelius's desk and the plans from a filing cabinet (their OnAdd blocks: objectives 10, 20) and plants the bug in the Legion radio (NVCCLegionRadioSCRIPT, button 0: objective 30, 40 shown); Astor takes the intel (Topic150 'an update on Cottonwood Cove', again Topic006's shared lines; 152: objective 40, Polatli's EyeForAnEye 2, 153) and hears the offer to clear the cove (155, 156: objective 90); the player picks the lock of the truck by the docks (NVCCTruckDoorSCRIPT, button 1, Lockpick 50 and a bobby pin) and its barrels poison the cove (iRadiationKill 1, the camp leaders killed by the script, objectives 90 and 95 completed, 100 shown); Astor's thanks for the cove (Topic150, 160, 161 at iRadiationKill 1: 100, Complete Quest). Stand-ins: travel by move_player; taking from the desk and cabinet by remove_all_items (everything in them comes along); the Legion's notice of the player is not modelled (they do not see him take the intel)."
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor first greeting"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic142",
+   "label": "astor 006"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic143",
+   "label": "astor 143"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic145",
+   "label": "astor bug"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCEyeforaneye",
+   "fields": [
+    "running",
+    "objective.10.displayed",
+    "objective.30.displayed",
+    "var.iAstorAsked"
+   ],
+   "label": "milestone: vCCEyeforaneye started"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "NVCCNCRbug",
+   "label": "ncr bug"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip back to the cove."
+  },
+  {
+   "op": "move_player",
+   "to": "NVCCAureliusREF"
+  },
+  {
+   "op": "talk",
+   "actor": "NVCCAureliusREF",
+   "label": "aurelius bug"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCAureliusTopic022"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCEyeforaneye",
+   "fields": [
+    "objective.45.completed",
+    "objective.50.displayed"
+   ],
+   "label": "milestone: vCCEyeforaneye objective 50"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "NVCCLegionPlansOld",
+   "label": "old plans"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the road back to Camp Searchlight."
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor false intel"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic150"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic158"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCEyeforaneye",
+   "fields": [
+    "stage",
+    "done.50",
+    "completed",
+    "objective.50.completed"
+   ],
+   "label": "final: vCCEyeforaneye 50"
+  }
+ ]
+}

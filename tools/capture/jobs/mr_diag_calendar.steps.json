@@ -1,0 +1,455 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "mr_diag_calendar",
+ "title": "nvftest calendar over 12 days (read-only)",
+ "start": "nvftest",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c0",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c0",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c0",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c0",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c0",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c1",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c1",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c1",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c1",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c1",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c2",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c2",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c2",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c2",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c2",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c3",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c3",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c3",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c3",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c3",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c4",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c4",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c4",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c4",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c4",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c5",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c5",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c5",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c5",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c5",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c6",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c6",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c6",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c6",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c6",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c7",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c7",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c7",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c7",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c7",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c8",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c8",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c8",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c8",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c8",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c9",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c9",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c9",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c9",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c9",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c10",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c10",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c10",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c10",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c10",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c11",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c11",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c11",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c11",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c11",
+   "field": "year"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "c12",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "c12",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "c12",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "c12",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "c12",
+   "field": "year"
+  }
+ ]
+}

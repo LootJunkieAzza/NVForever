@@ -1,0 +1,158 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "engine2",
+ "title": "engine2, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 500) (fAx + 0) (fAy + 0) (fAz + -500) 0) * 10))\nEnd\n",
+   "label": "ray.down500.f0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 500) (fAx + 0) (fAy + 0) (fAz + -500) 1) * 10))\nEnd\n",
+   "label": "ray.down500.f1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 500) (fAx + 0) (fAy + 0) (fAz + -500) 2) * 10))\nEnd\n",
+   "label": "ray.down500.f2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 500) (fAx + 0) (fAy + 0) (fAz + -500) 3) * 10))\nEnd\n",
+   "label": "ray.down500.f3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 500) (fAx + 0) (fAy + 0) (fAz + -500) 4) * 10))\nEnd\n",
+   "label": "ray.down500.f4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -200) 0) * 10))\nEnd\n",
+   "label": "ray.down100.f0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -200) 1) * 10))\nEnd\n",
+   "label": "ray.down100.f1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -200) 2) * 10))\nEnd\n",
+   "label": "ray.down100.f2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -200) 3) * 10))\nEnd\n",
+   "label": "ray.down100.f3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -200) 4) * 10))\nEnd\n",
+   "label": "ray.down100.f4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -1000) 0) * 10))\nEnd\n",
+   "label": "ray.down100long.f0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -1000) 1) * 10))\nEnd\n",
+   "label": "ray.down100long.f1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -1000) 2) * 10))\nEnd\n",
+   "label": "ray.down100long.f2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -1000) 3) * 10))\nEnd\n",
+   "label": "ray.down100long.f3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 100) (fAx + 0) (fAy + 0) (fAz + -1000) 4) * 10))\nEnd\n",
+   "label": "ray.down100long.f4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 60) (fAx + 0) (fAy + 5000) (fAz + 60) 0) * 10))\nEnd\n",
+   "label": "ray.north60.f0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 60) (fAx + 0) (fAy + 5000) (fAz + 60) 1) * 10))\nEnd\n",
+   "label": "ray.north60.f1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 60) (fAx + 0) (fAy + 5000) (fAz + 60) 2) * 10))\nEnd\n",
+   "label": "ray.north60.f2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 60) (fAx + 0) (fAy + 5000) (fAz + 60) 3) * 10))\nEnd\n",
+   "label": "ray.north60.f3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\nSetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + 60) (fAx + 0) (fAy + 5000) (fAz + 60) 4) * 10))\nEnd\n",
+   "label": "ray.north60.f4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (IsMusicPlaying)\nEnd\n",
+   "label": "music.before.any",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171B4A\"\nSetFunctionValue (IsMusicPlaying rObj)\nEnd\n",
+   "label": "music.before.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171B4A\"\nPlayMusic rObj\nSetFunctionValue (IsMusicPlaying rObj)\nEnd\n",
+   "label": "music.play",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171B4A\"\nSetFunctionValue (IsMusicPlaying rObj)\nEnd\n",
+   "label": "music.f0.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171B4A\"\nSetFunctionValue (IsMusicPlaying rObj)\nEnd\n",
+   "label": "music.f1.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171B4A\"\nSetFunctionValue (IsMusicPlaying rObj)\nEnd\n",
+   "label": "music.f2.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171B4A\"\nSetFunctionValue (IsMusicPlaying rObj)\nEnd\n",
+   "label": "music.f3.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171B4A\"\nSetFunctionValue (IsMusicPlaying rObj)\nEnd\n",
+   "label": "music.f4.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171B4A\"\nSetFunctionValue (IsMusicPlaying rObj)\nEnd\n",
+   "label": "music.f5.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (IsMusicPlaying)\nEnd\n",
+   "label": "music.after.any",
+   "field": "value"
+  }
+ ]
+}

@@ -1,0 +1,8 @@
+scn ExtCaseUDF
+int a
+int b
+int iSum
+Begin Function {a, b}
+    let iSum := a + b
+    SetFunctionValue iSum
+End

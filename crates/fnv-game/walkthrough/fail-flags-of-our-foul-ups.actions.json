@@ -1,0 +1,31 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Flags of Our Foul-Ups (VFreeformCampGolf), the records path and the fail: Sergeant McCredie's request (stage 10), Poindexter's records idea (stage 30), then a misfit killed (stage 70, MisfitsSCRIPT OnDeath)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: McCredie as in flags-of-our-foul-ups (stage 10); Poindexter (MagsShapeUp1, Topic004, 006, 008, 015: RecordsHacks 1, objective 10 done, stage 30); then Razz is killed by the player (kill stands in for the fight): MisfitsSCRIPT's OnDeath sets the fail stage 70 while the quest is not completed. Travel inside Camp Golf is move_player."},
+    {"op": "move_player", "to": "placed:2CMcCredie"},
+    {"op": "talk", "actor": "placed:2CMcCredie", "label": "mccredie greeting"},
+    {"op": "choose", "topic": "McCredieCampGolf", "label": "mccredie camp golf"},
+    {"op": "choose", "topic": "VFreeformCampGolf2CMcCredieTopic000", "label": "mccredie 000"},
+    {"op": "choose", "topic": "McCredieMisfits", "label": "mccredie misfits"},
+    {"op": "choose", "topic": "VFreeformCampGolf2CMcCredieTopic002", "label": "mccredie 002"},
+    {"op": "wait_talk", "label": "w1"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VFreeformCampGolf", "fields": ["stage", "done.10"], "label": "milestone: VFreeformCampGolf 10"},
+    {"op": "move_player", "to": "OHanrahanREF"},
+    {"op": "move_player", "to": "PoindexterREF"},
+    {"op": "talk", "actor": "PoindexterREF", "label": "poindexter"},
+    {"op": "choose", "topic": "MagsShapeUp1", "label": "poindexter shape up"},
+    {"op": "choose", "topic": "VFreeformCampGolf2CPoindexterTopic004", "label": "poindexter 004"},
+    {"op": "choose", "topic": "VFreeformCampGolf2CPoindexterTopic006", "label": "poindexter 006"},
+    {"op": "choose", "topic": "VFreeformCampGolf2CPoindexterTopic008", "label": "poindexter 008"},
+    {"op": "choose", "topic": "VFreeformCampGolf2CPoindexterTopic015", "label": "poindexter records"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VFreeformCampGolf", "fields": ["stage", "done.30", "var.RecordsHacks", "objective.10.completed", "objective.30.displayed"], "label": "milestone: VFreeformCampGolf 30"},
+    {"op": "kill", "actor": "RazzREF", "killer": "player"},
+    {"op": "wait_frames", "frames": 30},
+    {"op": "get_quest", "quest": "VFreeformCampGolf", "fields": ["stage", "done.70", "completed"], "label": "final: VFreeformCampGolf 70"}
+  ]
+}

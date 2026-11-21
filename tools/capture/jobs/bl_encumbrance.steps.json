@@ -1,0 +1,403 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "bl_encumbrance",
+ "title": "B7 encumbrance edges and Hardcore ammo weight (about 20 s, no input)",
+ "start": "A test character (empties the inventory; Hardcore is switched on and off, not saved).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "script": "Begin Function { }\nplayer.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E0 empty",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV CarryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E0 empty",
+   "field": "capacity"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E0 empty",
+   "field": "over:IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E0 empty",
+   "field": "over:player.IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E0 empty",
+   "field": "over:GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E0 empty",
+   "field": "over:player.GetIsPlayerOverencumbered"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nplayer.AddItem rF1 199 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E1 199 teddy bears",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV CarryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E1 199 teddy bears",
+   "field": "capacity"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E1 199 teddy bears",
+   "field": "over:IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E1 199 teddy bears",
+   "field": "over:player.IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E1 199 teddy bears",
+   "field": "over:GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E1 199 teddy bears",
+   "field": "over:player.GetIsPlayerOverencumbered"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E2 200 teddy bears",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV CarryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E2 200 teddy bears",
+   "field": "capacity"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E2 200 teddy bears",
+   "field": "over:IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E2 200 teddy bears",
+   "field": "over:player.IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E2 200 teddy bears",
+   "field": "over:GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E2 200 teddy bears",
+   "field": "over:player.GetIsPlayerOverencumbered"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213180\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E3 200 teddy bears and a spoon",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV CarryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E3 200 teddy bears and a spoon",
+   "field": "capacity"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E3 200 teddy bears and a spoon",
+   "field": "over:IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E3 200 teddy bears and a spoon",
+   "field": "over:player.IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E3 200 teddy bears and a spoon",
+   "field": "over:GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E3 200 teddy bears and a spoon",
+   "field": "over:player.GetIsPlayerOverencumbered"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213180\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E4 200 teddy bears and two spoons",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV CarryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E4 200 teddy bears and two spoons",
+   "field": "capacity"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E4 200 teddy bears and two spoons",
+   "field": "over:IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E4 200 teddy bears and two spoons",
+   "field": "over:player.IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E4 200 teddy bears and two spoons",
+   "field": "over:GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E4 200 teddy bears and two spoons",
+   "field": "over:player.GetIsPlayerOverencumbered"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213180\nplayer.RemoveItem rF1 2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E5 back to 200 teddy bears",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV CarryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "E5 back to 200 teddy bears",
+   "field": "capacity"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E5 back to 200 teddy bears",
+   "field": "over:IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E5 back to 200 teddy bears",
+   "field": "over:player.IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E5 back to 200 teddy bears",
+   "field": "over:GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "E5 back to 200 teddy bears",
+   "field": "over:player.GetIsPlayerOverencumbered"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 584963\nplayer.RemoveAllItems\nplayer.AddItem rF1 100 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "H0 100 9mm rounds",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV CarryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "H0 100 9mm rounds",
+   "field": "capacity"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H0 100 9mm rounds",
+   "field": "over:IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H0 100 9mm rounds",
+   "field": "over:player.IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H0 100 9mm rounds",
+   "field": "over:GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H0 100 9mm rounds",
+   "field": "over:player.GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsHardcore\nSetFunctionValue fV\nEnd\n",
+   "label": "H0 100 9mm rounds",
+   "field": "hardcore"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetHardcore 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "H1 hardcore on",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV CarryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "H1 hardcore on",
+   "field": "capacity"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H1 hardcore on",
+   "field": "over:IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H1 hardcore on",
+   "field": "over:player.IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H1 hardcore on",
+   "field": "over:GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H1 hardcore on",
+   "field": "over:player.GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsHardcore\nSetFunctionValue fV\nEnd\n",
+   "label": "H1 hardcore on",
+   "field": "hardcore"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetHardcore 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "H2 hardcore off",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV CarryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "H2 hardcore off",
+   "field": "capacity"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H2 hardcore off",
+   "field": "over:IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H2 hardcore off",
+   "field": "over:player.IsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H2 hardcore off",
+   "field": "over:GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsPlayerOverencumbered\nSetFunctionValue fV\nEnd\n",
+   "label": "H2 hardcore off",
+   "field": "over:player.GetIsPlayerOverencumbered"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsHardcore\nSetFunctionValue fV\nEnd\n",
+   "label": "H2 hardcore off",
+   "field": "hardcore"
+  },
+  {
+   "script": "Begin Function { }\nplayer.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  }
+ ]
+}

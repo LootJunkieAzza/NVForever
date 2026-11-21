@@ -1,0 +1,493 @@
+# Navmesh design: the nav graph, paths and travelling NPCs
+
+Owner request 2026-10-09: navmesh building for worldspaces and AI, tested with an NPC that
+navigates the world; the AI must be able to tell that it can reach where its AI package
+sends it, even through several interior cells and worldspaces. Facts and tags:
+docs/spec-notes/navmesh.md. This is the navigation half of Layer 6 (AI); packages
+themselves (PACK records, schedules, conditions) are not part of it.
+
+Status 2026-10-09: **done**: the NAVM/NAVI reader, the load order's nav graph,
+hierarchical paths across spaces with locks, path following with stuck recovery,
+`fnvtool nav` (survey, graph, near, path, walk), travelling NPCs in `nvforever`
+(`--npc-travel`, `--follow-npc`, `--show-navmesh`), and **doors that open in place**
+(§6.1: drawn and colliding with their Open/Close animation, toggled by activation, and
+opened by followers, who wait for the animation to end). **Next**: AI packages driving
+trips (§6.2), physics for travelling NPCs in the game (§6.3).
+
+## 1. Summary and assumptions
+
+- Navmeshes ship in the plugins (NAVM, 6,129 in the masters). NVForever reads them; it
+  does not generate navmesh. "Building" is assembling them into one graph per load order,
+  which takes 0.33 s for all masters, so it is done at start, not cached.
+- Headless first (spec section 7): `fnv-nav` has no Bevy dependency; `fnvtool nav`
+  tests it against the game data; the engine consumes it.
+- How the original game chooses and follows paths is not documented. Costs, clearances,
+  radii, speeds and the stuck rules below are engine choices, marked as such in the code,
+  to be replaced by captured behaviour (spec-notes §7).
+
+## 2. Crate `fnv-nav`
+
+Depends on `fnv-esm` and `fnv-world` only.
+
+| Module | Role |
+|---|---|
+| `record` | NAVM and NAVI from subrecord bytes (schema v1 cannot express NVGD's counted arrays or NVMI's union, so this reads bytes directly; the layouts are xEdit's) |
+| `load` | every NAVM/NAVI of the load order, last definition winning (`NavRecords`) |
+| `graph` | `NavGraph`: global triangle array, edges resolved (internal, portal, ledge, outline), outline vertices, a 512-unit bucket index per space, doors (XTEL), door locks (XLOC), walkable areas, the doors leaving each area; point location (`locate`, `nearest`), portals between triangles, `set_enabled` (`EnableNavMesh`/`DisableNavmesh`), `set_door_lock` |
+| `doors` | doors that open in place (DOOR references without XTEL): where they stand on the navmesh (`in_place_doors`, `set_in_place_doors`), their footprint, opening and stand-off; locked ones close their triangles |
+| `path` | `find_path`, `door_route`, `can_reach`; A*, funnel, shortcut pass, `walkable_line`; door stops on legs (`door_stops`, `square_approach`) |
+| `follow` | `Follower` (where to head along a path; `Steer::OpenDoor`), `Unstuck` (detours, replans), `Walker` (moves an actor on the navmesh surface without physics; `update_with` waits at doors) |
+
+## 3. Paths
+
+1. **Snap** start and goal onto the navmesh of their spaces (within 512 units; the snap
+   distances are returned so a caller can treat a far snap as "not really there").
+2. **Within one walkable area**: A* over triangles. Costs run between the middles of the
+   portals (shrunk by the clearance at outline ends), so each triangle has one entry point
+   and the search is a plain graph search. Preferred triangles cost 0.85 per unit, water
+   3, others 1 (engine choice). Edges between two outline vertices narrower than the
+   clearance are closed. Options close ledges (default), "No Large Creatures" triangles
+   (for large creatures) and triangles steeper than a mover can climb (`max_slope_deg`).
+3. **Across areas** (other spaces, or islands of the same space): the **door route**
+   first, a Dijkstra over doors between walkable areas, costed by straight lines between
+   doors plus a door cost (256 units). This is the "can it get there?" answer
+   (`door_route`, `can_reach`): from Doc Mitchell's house to the Strip it finds
+   house → Mojave → two sewer interiors → Mojave → Freeside North → Freeside → Strip in
+   11 ms. Then A* per leg; a leg that cannot be walked takes its door out of the route and
+   the route is planned again (up to 16 times). Plain A* over every space at once flooded
+   the whole Mojave (575k triangles) before giving up, because no distance estimate
+   exists between spaces; the door route avoids that.
+4. **Locked doors** are closed unless the actor holds the key (`keys`) or may open locks
+   (`open_locked`). The authored XLOC is the starting state. The game's own lock state
+   reaches the graph through `fnv_ai::Ai::apply_door_locks` (`NavGraph::sync_door_locks`),
+   whenever `fnv_sim::World::lock_serial` moved: a script's Lock or Unlock, a package's
+   lock/unlock flags, a key used, a lock picked. A door unlocked lets the packages set
+   aside as out of reach be chosen again at once; a door locked sends the actors whose
+   way goes through it to plan again (2026-10-23; before, nothing updated the graph).
+5. **Funnel** (string pulling) per leg over the corridor's portals, oriented by the
+   counter-clockwise winding (spec-notes §2), with each outline end moved in by the
+   clearance (24 units; the physics capsule is 22): corners round walls become short
+   arcs at the clearance.
+6. **Shortcut pass**: drop corners where a straight line to a later corner (up to 32 ahead)
+   stays on passable triangles and keeps 3/4 of the clearance from impassable edges
+   (`walkable_line`, a navmesh raycast). It straightens what a midpoint corridor bends.
+   The raycast follows one surface: it reaches the later corner only on a triangle whose
+   height there is within `LEVEL_GAP` (40 units) of the corner's, so a line never joins
+   a floor to a catwalk stacked over it (spec-notes/navmesh.md §4b).
+
+7. **Door stops** (§6.1): each door that opens in place whose bounds the leg's polyline
+   enters gets a stop. The polyline is made to cross the door square through the middle
+   of its opening, from the stop to a point beyond it.
+
+A path is a list of legs, one per space visited, each with its polyline, its corridor of
+triangles, its door stops and the door that ends it.
+
+[design, #2716] In-place door bounds overlap entire triangles (`doors.rs`), so only the
+original path's snapped start and goal triangles bypass door refusal when their points
+are outside every refusing door's oriented footprint (bounds edges count as inside).
+`search_path` checks both points and passes those two triangle IDs to A* across all legs;
+intermediate triangles and unrelated teleport-leg endpoints remain closed. Raycasts
+keep ordinary refusal. After funneling, shortcuts and door-stop insertion, each final
+leg is checked against refusing doors on its corridor (`door_segments_open`): any
+segment entering their oriented footprints rejects the path. This covers adjacent
+exempt endpoints on opposite sides and crossings within one triangle.
+[hypothesis, #2716] An already open in-place door refuses no triangle,
+regardless of locks or a previous script refusal (observer check 206). [design / file refs]
+`door_tri_open` reads `PathParams::open_doors`, supplied by `Ai::path_params` from live
+world state, falling back to default-open placement for untouched locked doors.
+[hypothesis, #2716] Runtime passage through an open in-place door likewise wins over
+a cached or fresh activation refusal. [design / `Ai::ask_door`] The activation attempt
+and crossing bookkeeping still run; live state after the attempt decides whether the
+refusal cancels movement. [design, #2716 / `Ai::ask_door`] If an in-place door has
+closed since planning, its live lock, inventory key and own ownership are rechecked
+after activation, honoring the configured path permission overrides. A prior open
+state grants no permission to reopen it; either a script refusal or missing lock
+permission cancels the path before movement or an opening request. Cell ownership
+does not authorize the lock. Load doors retain their existing handling.
+
+[design, #2716] `fnvtool nav path` (and shared path options for `nav walk`) accepts
+repeatable `--open-door <formid>` without granting permission to open any other lock.
+Synthetic nav tests cover overlapping start/goal triangles beside rotated bounds,
+inside/boundary endpoints, multiple refusing doors, closed locked passage and open locked
+passage; `fnv-ai/tests/carry.rs::open_locked_in_place_doors_reach_actor_path_parameters`
+covers script-opened and untouched default-open state;
+`open_locked_in_place_door_allows_arrival_despite_script_refusal` checks arrival with
+cached and fresh refusals while the door stays open and locked.
+[design / file refs] `an_open_planned_door_closed_before_arrival_rechecks_live_permissions`
+checks closure after planning, keys and ownership gained or lost, unlocks, and
+configured overrides, including cancellation before any opening request. Smoke scenarios
+`mick-secret-door-paths` and `mick-secret-door-packages` check the two routes and the
+Travel-arrival-to-secret-sales transition; record evidence is in spec-notes/navmesh.md §4.
+
+[design, #2532: `fnv_nav::PathParams::safe_drop_max`, `NavGraph::search_path`]
+AI without Allow Falls can use authored downward links within the load order's
+`fJumpFallHeightMin`, measured between `ledge_ends`' planned takeoff and landing
+(fallback 600, matching `nvf-play/src/falls.rs`). Ordinary hierarchical routing and
+path smoothing run with safe drops disabled. Only an unreachable result enables a
+retry with bounded full A* and harmless drops, including when an area/door route exists
+but its triangle search cannot reach the goal. Search-limit errors are retained.
+The navigation default remains opt-in, and unrestricted ledges and
+climbs retain their existing policy. [hypothesis, #2532] Per-link height is a provisional
+safety estimate, not a measurement of the original (observer check 214).
+
+[documented: supplied #2532 record brief, main-session fnvtool 2026-11-15]
+The showdown controller enables rangers 0x001438DA/DB; their Patrol package 0x001438E8
+has no Allow Falls and visits markers 01 0x001438D3, 02 0x001438D4, 03 0x001438D1,
+04 0x001438D2 and 05 0x001438D5. No supplied script assigns that package with
+AddScriptPackage.
+[observed: supplied main-session fnvtool nav path, FalloutNV.esm at upstream 1790ab94a]
+The approach to marker 01 works without ledges (152 units). Marker 01 to 02 is
+unreachable without ledges and 987 units with them; marker heights 5939 and 5718
+differ by about 221 units. The next two legs, 02 to 03 (517 units) and 03 to 04
+(1011 units), also work without ledges. [design, #2532] The smoke
+`legate-rangers-showdown` requires natural package selection, marker 01 arrival,
+departure to marker 02, a per-ranger drop diagnostic and marker 02 arrival, in order.
+[hypothesis, #2532] The safe-drop fallback should permit this descent; natural package
+selection and physical traversal still need the main-session smoke, and original
+behavior remains observer check 214.
+
+
+## 4. Following
+
+- `Follower` advances past corners within 16 units (or once passed while close), uses a
+  door from within 48 units of the leg's end (in front of the door, where the frame can
+  keep a body from the exact point), and arrives within `goal_radius` (1 unit by default;
+  next to an actor target: two capsule radii more).
+- `Unstuck`, for actors moved by physics: when the path's remaining length has dropped by
+  less than a fifth of the speed over a second, detour 70° left, then right, then 110°
+  each way (0.6 s each); detours count as having helped only after half a second's walk
+  of real progress past where the actor got stuck; then replan; give up after 5 replans.
+  The game's residents measure progress by how far the feet moved along the way to go
+  (`Unstuck::advise_moved`), not by the path's remaining length, which stays the same
+  for a path planned again and again after a moving target (Follow packages replan every
+  half second; owner's playtest 2026-10-17: a Novac pack brahmin following its merchant
+  counted as stuck all the way and detoured into the motel gate's fence).
+  They skip instead of replanning
+  (`Unstuck::skip`; owner request 2026-10-17: an NPC stuck navigating is put on the next
+  part of the navmesh it was heading for): the actor is moved 160 units on along its path
+  (past corners, never past a door stop it has not opened or the end of its leg), and
+  physics puts it down there again; the log says "actor … stuck at …: moved on along its
+  path to …" and the residents' summary counts "moved N stuck actors on". [design, #1501]
+  The 160 units are horizontal length of path from the feet's projection on the stretch
+  being walked (the stretch and not the nearest of them all: a path looping back past the
+  actor is not jumped along), so feet beside the path do not bend the point off it, and
+  any way across to the path comes on top. A point on the path is not yet a place to
+  stand, so the place is checked before anything changes
+  (`Follower::skip_candidates`, then `commit_skip`): the navmesh surface under it
+  (`NavGraph::skip_surface`: walked over the surface from the corner before it or the one
+  after it; an obstacle may have cut the way from one, and the place past it is what
+  recovery is for; both cut off, the usable triangle under it nearest the path's height,
+  within 40 units; nothing inside a ledge link's span). That last step does not guarantee
+  the route's own floor: 40 units limit the distance from the path's straight height, not
+  which level it is, and a wrong floor accepted there is a success, which never reaches the
+  five rounds below. Then the collision loaded within
+  256 units of it (not all the squares around it: for a place a square off the player's
+  those need not be in, and it would never pass); something walkable to stand on near that height, up to 48 above
+  and 96 below; and room there for the actor's own controller shape, with its ignored
+  layers and without itself, the player and other characters counting, and heavy bodies,
+  but not what it would push aside (`PhysWorld::character_spot`, a look at the place only:
+  no sweep from the feet, or nothing past an obstacle would ever pass). On uneven ground
+  the body may be tried up to a step above the support. It goes to those very feet
+  (`PhysState::place_npc`), not through the wider ground search of a new character.
+  The support can be 96 below or 48 above the navmesh, plus the step. Such feet near the goal
+  can be outside its height check (§4.1), which has a
+  40-unit base margin: when that check applies (the body grounded), it answers with at most two
+  replans per uninterrupted walk, then arrival, which does not guarantee the right floor.
+  A place refused, the same is tried 120, 80 and 40 units on from the same projection, and
+  0 units for feet more than 16 units off the path, all cut to the door stop or leg's end.
+  All refused, the actor keeps its body, feet and place on the path, the AI is told it
+  moved, and it tries again after another second of no progress (`Unstuck::skip_refused`;
+  these do not count towards the 5 replans). The log says "nowhere to move it on to" for
+  the first and the summary counts "N times nowhere to move one to". After 5 such rounds in
+  a row, about four more seconds after the first refused round, it keeps to the navmesh
+  surface for 8 s (`PHYSICS_RETRY`), as an actor with nothing to skip along does (held at a
+  door, no leg left): so no actor stays stuck for good where no place fits, and what stood
+  there for a moment is waited out. The count belongs to the blocked episode: a skip, a new
+  body, however it is made (`ensure_body`), a move by a script or the wait menu starts it
+  again, and 8 s without a refusal; a
+  new path does not, as Follow packages plan one every half second. Stuck again where it was put down,
+  before a second's progress, it is moved on again after a second, without the four
+  detours that already failed (`Unstuck::after_skip`): a stretch blocked for longer than
+  one skip cost 7.4 s per 160 units otherwise (Boone just past his room's door, smoke
+  follower-boone, 2026-10-17: 16.7 s to reach the player, against 9.5 s with the walker
+  fallback before the skip).
+- `Walker` moves an actor along the path on the navmesh surface (height from the
+  triangle under it), turning at up to 180°/s (`WALK_TURN_RATE`; 720°/s before
+  2026-10-11) and slowing while its heading is off the way (`turn_slowdown`; actors.md
+  §8.9), through doors by teleport to the arrival.
+  Standing with its way more than 20° off its heading it first turns on the spot at
+  120°/s (`WalkEvent::Turned`; docs/spec-notes/actors.md §8.9); `Walker::face` turns a
+  standing walker to a heading the same way.
+- At a door stop `Follower` returns `Steer::OpenDoor { door, at }` and keeps returning it,
+  wherever the actor is pushed meanwhile, until the caller calls `door_opened` (§6.1).
+  `Walker::update_with(nav, dt, open)` asks `open(door)` every update until it reports
+  the door fully open, standing meanwhile (`WalkEvent::WaitingForDoor`); `update` passes
+  doors as if open.
+
+### 4.1 A goal's height (#1500)
+
+Everything in this section is [design]: an engine choice with no claim about the original
+game, tried on synthetic navmeshes only.
+
+**What is checked.** One thing: the end of a walk. At the last point of the last leg (an
+ordinary goal, not a load door) `Follower::steer` answers `Steer::Arrived` only when
+`|feet.z - goal.z| <= 40 + horizontal distance * tan(60 degrees)`; otherwise
+`Steer::OffPath`. The goal point is the path's own end: a point on the navmesh, as a rule the
+destination snapped onto it (`search_path`, `legs_of`; a door's approach can put it on
+another point of the navmesh, `square_approach`). 40 is an engineering number, not measured safe: a stair
+step fits it and a storey does not, but stairs, actors pushed sideways on a slope and
+collision that lies apart from the navmesh have no established combined bound. The physics
+residents ask the same of the feet before `LAST_STRETCH` hands an actor to the walker, which
+would otherwise end the walk on the navmesh under the feet or, where there is none, lift it
+towards the goal's height.
+
+**What happens then.** `Walker::off_path` plans a new path from the feet to the place last
+asked for, at most twice in a trip (`HEIGHT_REPLANS`). After that, or when no path is found,
+or when the new path has a door stop or more than one leg, or when it starts more than 64
+units above or below the feet (provisional), the height is waived: the walk ends as it would have without this check, with an
+`AiEvent::HeightWaived` and its own line in the residents' log. A failure here never sets a
+package aside and never makes a sandbox choose again: both see an arrival, so a script's
+Travel package does not strand. No door on a new path means recovery cannot open a door whose
+script was never asked, and cannot be refused at one later and lose the package.
+
+The count and the waiver are on the `Walker` (`Walker::trip`), since each path a package asks
+for makes a new `Follower`. A trip is a place asked for: `go_to` compares the new request with
+the last one, as requested (not snapped), and one more than 256 units away (or in another
+space) starts a new trip. So does any `go_to` after a walk that ended, whether it arrived or
+was cancelled (a Follow package catching up, a package changing): the trip counts only while
+the walker has a follower. There are no cooldowns or progress resets: the two tries are the
+bound on one uninterrupted walk. A target that keeps moving less than 256 units between
+requests stays one trip, so a waiver lasts until that walk ends.
+
+**In the air and in the water.** A resident's body is judged only when grounded and not
+swimming. Otherwise each frame goes as it would without this check: the arrival or the
+hand-over happens at once, so a body that never lands cannot be held up by it. An actor falling
+through its goal's column still arrives in the air, as before. There is no settling state.
+
+**What "never worse" covers.** The aim is reaching the destination: recovery has no door to
+fail at, and a failed search or used-up tries end in an arrival. It is an aim with limits, not a
+proof, and it does not mean the same route, the same time or the right floor. Its known limits:
+
+- A recovery walk is an ordinary walk. If an obstacle or a navmesh switch cuts its way, the
+  ordinary handling applies (the walk is dropped and planned again; a failed plan marks the
+  package unreachable), where the actor would otherwise already have arrived. This comes from
+  reading the code; it was not seen in a run.
+- The two tries are per uninterrupted walk. A caller that cancels the walk and asks again starts
+  a new trip, so repeated cancellation can mean further searches. None of the callers checked
+  (a Follow package, a fixed combat post, a door refusal) does that by itself; a package change
+  can.
+
+- A new or just-placed body starts with `grounded = false` (`crates/fnv-phys/src/character.rs`),
+  so if it is already at the goal, as `Follower::skip_ahead` can leave it, it arrives unjudged
+  in its first frame. That equals the behaviour without this check and is left as it is.
+- Where collision lies more than the tolerance off the navmesh, with other navmesh within 64
+  units of the feet, the actor can take a longer way where it would otherwise have stopped. It
+  cannot be told from a real wrong floor. A walk on such a way can still be stuck, skipped or
+  cancelled as any walk can.
+- Only the leg before a load door is exempt: feet after a load door can mismatch the last leg's
+  end, if that end is within the goal's radius of the door's arrival.
+- `PhysMover` has no unit test (no physics in the tests): the tests move feet and hand over to
+  the headless walker. Grounding, `LAST_STRETCH`, landing on the goal and combat posts are
+  checked by reading and the smoke runs only.
+
+**What is left out, and why.** An earlier attempt at more was dropped: each review of it found
+new ways to leave an actor worse off than before. So:
+
+- Corners, passed corners, ledge take-offs and hops, door stops, load-door endpoints and
+  `door_ahead` stay horizontal. An actor on the wrong floor can still consume a corner from
+  below, and open or use a door above it. This branch does not address the wrong-floor door
+  use the issue asks about.
+- After a waiver a wrong-floor arrival is still possible, as it was before; with feet within
+  the tolerance it is not even noticed. The issue's "does not report arrival" holds until the
+  tries run out, not always.
+- Rules at package level that end a walk by proximity (`crates/fnv-ai/src/carry.rs`: a
+  place's radius in `Ai::within` and a Follow package's catching up, each of which allows 256
+  units of height) are separate policy and untouched.
+- `fnvtool nav walk` ends at `Steer::OffPath` as at `Steer::Arrived`: it does not validate what
+  the residents do, and its result says nothing about this section.
+
+**The walker on the navmesh.** Its feet are the navmesh's height after each step, so at a goal
+they fit, and it behaves as before (no new searches, no change to random numbers or door
+events). Not always: feet off the navmesh and already inside the goal's radius, with no step
+taken (an actor placed in the air, a door's arrival point right at the goal); and a triangle
+picked by `tri_near` on another level, as it searches by horizontal position within two rings.
+Those plan new paths and, if none helps, end as before.
+
+## 5. Tests and tools
+
+- [design, #2511] Actors use the shared `fnv_phys::character::ACTOR_MAX_SLOPE_DEG`
+  of 56° (`nvf_play::phys::npc_params`), below their cone face's roughly 57.7°
+  (`atan(1.58)`, physics.md §6.4.1/§6.9). The previous 60° was an engine choice:
+  it let actors climb thin walls higher than their 24-unit step height (issue #2511's
+  headless measurements). The 56° choice retains room above the 46–49° slopes cited
+  below. Synthetic physics test `actors_walk_navmesh_grade_slopes_below_the_cone_face_angle`
+  exercises that range with person-sized and small-creature parameters. The existing
+  `nav-walks` smoke keeps its default 45°; `nav-walks-actor-slope` repeats the seven
+  routes with `--max-slope 56` and requires every arrival. These real-route runs are
+  deferred to the main session; no game data was accessed for #2511.
+
+- Unit tests (`crates/fnv-nav/src/tests.rs`, synthetic navmeshes): internal edges and
+  outline, straight paths, a wall with clearance, a seam between navmeshes whose grids
+  differ, unreachable goals and opt-in ledges, doors between spaces with a walker going
+  through, **a chain of interiors into another worldspace behind a locked door** (key,
+  runtime unlock), a disabled navmesh, a walker on a slope; funnel, follower, `Unstuck`
+  and turning tests. Doors that open in place: a stop in front of the door and the
+  follower held there until `door_opened` (also when pushed off the stop), a walker
+  standing while a 1.67 s door opens and not waiting at an open one, a locked door
+  closing a corridor (key, `open_locked`, runtime unlock), a path beside a door not
+  stopping and a locked one sending it round, a diagonal approach squared up to the
+  middle of the doorway, an actor starting at the door backing off to open it.
+- `fnvtool nav walk` (headless NPC test): an NPC-sized fnv-phys character walks the path
+  in the collision world of the cells along each leg. On the owner's install
+  (2026-10-09), all arrived:
+
+  | Trip | Doors | Path | Walked | Time | Detours |
+  |---|---|---|---|---|---|
+  | EasyPeteRef → TrudyRef (outside → saloon) | 1 | 1,145 | 1,014 | 11.7 s | 0 |
+  | GSChetRef → SunnyRef | 2 | 2,899 | 2,781 | 35.1 s | 3 |
+  | DocMitchellREF → GSChetRef (house → town → store) | 2 | 7,226 | 7,101 | 88.7 s | 4 |
+  | SunnyRef → DocMitchellREF | 2 | 8,532 | 8,390 | 101.0 s | 1 |
+  | DocMitchellREF → Strip gate 0x0013BB0D (`--keys 0x00119875 --speed 344`) | 7 | 147,625 | 147,825 | 447.9 s | 11 |
+
+  With doors that open in place (§6.1), re-run 2026-10-09; all arrived:
+
+  | Trip | Path | Walked | Time | Detours | Doors opened (wait) |
+  |---|---|---|---|---|---|
+  | EasyPeteRef → TrudyRef | 1,145 | 1,015 | 11.7 s | 0 | none |
+  | GSChetRef → SunnyRef | 2,899 | 2,746 | 33.9 s | 2 | none |
+  | DocMitchellREF → GSChetRef | 7,239 | 7,030 | 82.3 s | 1 | gate 0x0010757E (Open by Default: 0 s) |
+  | SunnyRef → DocMitchellREF | 8,542 | 8,388 | 100.7 s | 1 | gate 0x0010757E (0 s) |
+  | DocMitchellREF → 0x0013BB0D (`--keys 0x00119875 --speed 344`) | 147,684 | 147,498 | 445.7 s | 8 | gate 0x0010757E (0 s), sewer door 0x0012C97C (1.68 s) |
+  | TrudyRef → "-193,600,3456" in GSProspectorSaloonInterior | 968 | 921 | 11.8 s | 0 | saloon door 0x00107C77 (1.02 s) |
+
+  Walk-test rules (engine choices for the test world): the walker's own body and other
+  placed actors' bodies are left out (in the game they are characters that move and give
+  way; `--with-actors` keeps them); doors that open in place whose model has Open and
+  Close stay in the world, posed by their animation, and are opened on the way (§6.1),
+  while the others are left out unless locked against the walker; and paths keep off
+  triangles steeper than the capsule's 45° limit (`--any-slope` lifts that). What got each of these rules added is
+  in spec-notes §2 and §4: the walker spawning inside its own body, a creature placed in
+  a sewer tunnel, a hinged sewer door, 46–49° Mojave slopes.
+- Against the original game: `fnvtool nav observed` on the AI observer captures
+  (spec-notes §4a): 99.7% of recorded NPC positions are within 32 units of our navmesh,
+  every recorded walk can be planned, and recorded walks stay a median 17.6 units from
+  our planned paths.
+- In the game: `nvforever --npc-travel ACTOR=TARGET` (repeatable; target a reference or
+  "x,y,z"), `--npc-speed` (86.8 by default), `--follow-npc` (the free camera chases the
+  first traveller and the renderer follows it through doors), `--show-navmesh` (outline
+  red, cell seams cyan, ledges orange, preferred green, water blue, door triangles yellow,
+  paths magenta). A traveller's root is moved by the walker, and its `Locomotion`
+  (`engine/nvforever/src/locomotion.rs`, workstream 5 part G) gets the velocity it
+  actually moved at and its turn rate, so the actor's own clip set (walk, turns, idle)
+  is chosen and blended as for any actor; cells do not spawn travellers while they
+  travel. A traveller at a door that opens in place opens it through
+  `nvf_play::doors::Doors` (the drawn door and its collision follow) and stands until it
+  is fully open; a door not drawn (its cell not loaded) is passed at once. A traveller in
+  the interior being drawn starts once that cell is in. Door check:
+  `nvforever --data <Data> --cell GSProspectorSaloonInterior --npc-travel
+  "TrudyRef=-193,600,3456" --follow-npc --run-seconds 25` (expect "TrudyRef opens door
+  00107C77 and waits", "walks through door 00107C77 after waiting 1.02s" and "1 of 1
+  travellers arrived"). Smoke test:
+  `nvforever --data <Data> --cell Goodsprings --npc-travel DocMitchellREF=GSChetRef
+  --npc-travel SunnyRef=EasyPeteRef --follow-npc --run-seconds 105` (expect "nav summary:
+  2 of 2 travellers arrived"; Doc arrives after 83–90 s depending on frame rate).
+
+## 6. Next
+
+### 6.1 Animated in-cell doors (owner request 2026-10-09) — done
+
+Doors that are not cell transitions must animate open and closed. What the data holds
+[observed: `UtlDoor01` 0x0003940E, `Dungeons\Utility\Rooms\UtlDoor01.NIF`]: the model has
+an NiControllerManager with two sequences, **"Open" and "Close"** (1.67 s each), whose
+text keys name the sounds (`sound: DRSMetalUtilitySmallOpen` / `...Close`); five
+collision bodies on the AnimStatic layer (keyframed, so collision is meant to follow the
+animated nodes); BSXFlags 11. The DOOR record has SNAM/ANAM sounds and FNAM flags ("Sliding
+Door" set here). Work: play the sequences on the drawn door (the renderer already plays
+Idle sequences on animated references), move the door's keyframed physics bodies with
+the animated node poses (fnv-phys), keep open/closed in the simulation and open with
+activation (nvf-play), and let followers open a door their path crosses (the walk test
+then stops leaving such doors out).
+
+Followers and doors (owner decision 2026-10-09): **an NPC waits until the open animation
+has finished before walking through.** The graph learns where hinged doors stand on the
+navmesh (DOOR references without XTEL, by their bounds against the corridor); a leg whose
+corridor crosses one gets a stop in front of it. There `Follower` returns a new step,
+"open door X", the actor stops, the door's "Open" sequence starts, and the follower holds
+until the sequence ends (its `end` text key: 1.67 s for `UtlDoor01`; the door's state in
+the simulation says open), then walks on. A door already open is walked through; a
+locked one is closed to actors without the key, as teleport doors are. Open questions:
+whether doors close by themselves behind actors, and whether NPCs open doors from a
+distance or must touch them.
+
+**As built** (facts: docs/spec-notes/doors.md; 263 of 474 DOOR models have Open and
+Close, standing at 1,844 references without XTEL):
+
+- `fnv_collide::anim`: a model's node hierarchy and sequences (`ModelAnim`), node poses
+  in the root's frame under a sequence (`node_to_root`), and `DoorMotion`, the clock of
+  one door (closed, opening, open, closing; finished at the `end` text key; told to turn
+  back mid-way it continues from the same fraction of the other sequence [engine
+  choice]).
+- Renderer (nvforever `doors.rs`, world.rs): a DOOR reference without XTEL whose model
+  has Open and Close is drawn with its node hierarchy (`Rig::door`) and posed from its
+  clock whenever it changes; teleport doors stay static. `--open-doors` (test aid) opens
+  every such door as it is drawn.
+- Physics (`fnv_phys::PhysWorld::pose_ref_object`; nvf-play `phys.rs` `pose_doors`): the
+  door's keyframed bodies are moved to `ref ∘ animated node ∘ body transform` every frame
+  the clock changes, and are not solid while the door swings
+  (`PhysWorld::set_ref_keyframed_solid`, `DoorMotion::swinging`; owner request
+  2026-10-09), so a swinging leaf cannot hit or push an actor; at rest they are solid.
+  **Later (not built):** stay non-solid after the sequence ends until no character
+  overlaps the moving parts at rest, so a door closing on someone in the doorway does not
+  trap them; logic and tests to write in docs/spec-notes/doors.md §4. An Open by Default door keeps its moving parts (posed open) through
+  `RefCollisionOptions::posed_doors`; the shared rule `ref_collision` used by the parity
+  lab is unchanged.
+- Simulation and activation (`nvf_play::doors`): `Doors` holds every door's clock,
+  follows the simulation's open flag (activation with E, `SetOpenState`), writes back
+  doors opened by actors, and logs the sequences' sound keys (no sound playback yet).
+  fnv-sim starts a door flagged Open by Default open [hypothesis].
+- Navigation (`fnv_nav::doors`): 1,043 such doors stand on the masters' navmesh. A
+  door's stop is in line with the middle of its opening (the navmesh's walkable stretch
+  along the door's line within its bounds), the opening's width plus the clearance in
+  front of it, and the path then goes straight through to a point a clearance beyond:
+  a hinged leaf swung open lies along that line at the hinge end, half the opening's
+  width to the side, whichever way it opens; where the navmesh is shallower the stop
+  comes closer (down to the clearance and 24 units), and where that cannot be walked the
+  stop goes on the polyline. All engine choices: the first try (a stop 48 units before
+  the door on the polyline) let a door in the Prospector Saloon swing into the waiting
+  actor and leave its open leaf across the diagonal approach, and a stop centred on the
+  bounds missed the sewer doorway, whose bounds are wider than its opening.
+
+### 6.2 AI packages
+
+Decode PACK (types, locations, targets, schedules, conditions), evaluate the current
+package per actor, and send Travel/Sandbox locations to `door_route` / `find_path`. Keys
+come from the actor's inventory (fnv-sim); a package location the actor cannot reach
+should fall to the next package, as `can_reach` allows checking cheaply.
+Done headless (2026-10-10): the records, the reader, the choice and the walk to the
+package's location (`fnv-ai`); see docs/design/actor-behaviour.md §5, and §5.4 for the
+engine.
+
+### 6.3 Travelling NPCs with physics in the game
+
+(Done for residents, 2026-10-10: docs/design/actor-behaviour.md §5.4.) In `--play`, travellers near the player should move by the character controller
+(`Follower` + `Unstuck`, as in `fnvtool nav walk`) where the physics world is loaded, and
+by `Walker` elsewhere (the game's high and low processing levels are the model;
+[hypothesis] on how they divide).
+
+## 7. Decisions for the owner
+
+1. NPC walking speed 86.8 units/s (the player's observed walk; the walk clip's own stride
+   gives 85.3) until captured.
+2. Ledge links unused by default (humans do not take drops of ~300 units).
+3. Locked doors closed to actors without the key; the authored lock is the starting
+   state (as fnv-sim assumes).
+4. In the walk test, other actors are left out of the collision world (§5) until actor
+   avoidance exists; doors that open in place are kept and opened when they can animate,
+   left out otherwise.
+5. Doors that open in place (§6.1): an actor opens one from a stop in line with the
+   middle of the opening, the opening's width plus its clearance in front of it, and
+   waits there until the Open sequence has ended; doors stay open (they do not close by
+   themselves); a door told to close while opening turns back; a swinging door's moving
+   parts are not solid (owner request). How the original game does
+   each of these is not known, except that an inner door a follower opened stayed open
+   for the rest of one capture [observed: npc-behaviour-compare.md §15.2].

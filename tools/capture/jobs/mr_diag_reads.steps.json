@@ -1,0 +1,3124 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "mr_diag_reads",
+ "title": "Merchant restock diagnostic: midnight scenario with 2-hourly reads",
+ "start": "nvftest (inside the Goodsprings gas station)",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "days"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nrF1.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "E0 emptied t+0",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "E0 emptied t+0",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "E0 emptied t+0",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+2",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+2",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+2",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+4",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+4",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+4",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+6",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+6",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+6",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+8",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+8",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+8",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+10",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+10",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+10",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+12",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+12",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+12",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+14",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+14",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+14",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+16",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+16",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+16",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+18",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+18",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+18",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+20",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+20",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+20",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+22",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+22",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+22",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+24",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+24",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+24",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+26",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+26",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+26",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+28",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+28",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+28",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+30",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+30",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+30",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+32",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+32",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+32",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+34",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+34",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+34",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+36",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+36",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+36",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+38",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+38",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+38",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+40",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+40",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+40",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+42",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+42",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+42",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+44",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+44",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+44",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+46",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+46",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+46",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+48",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+48",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+48",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+50",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+50",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+50",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+52",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+52",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+52",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+54",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+54",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+54",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+56",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+56",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+56",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+58",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+58",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+58",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+60",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+60",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+60",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+62",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+62",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+62",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+64",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+64",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+64",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+66",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+66",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+66",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+68",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+68",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+68",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+70",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+70",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+70",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+72",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+72",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+72",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+74",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+74",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+74",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+76",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+76",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+76",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+78",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+78",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+78",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+80",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+80",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+80",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+82",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+82",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+82",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+84",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+84",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+84",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+86",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+86",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+86",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+88",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+88",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+88",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+90",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+90",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+90",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+92",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+92",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+92",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+94",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+94",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+94",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+96",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+96",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+96",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+98",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+98",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+98",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+100",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+100",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+100",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+102",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+102",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+102",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+104",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+104",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+104",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+106",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+106",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+106",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+108",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+108",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+108",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+110",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+110",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+110",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+112",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+112",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+112",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+114",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+114",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+114",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+116",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+116",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+116",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+118",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+118",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+118",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+120",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+120",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+120",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+122",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+122",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+122",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+124",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+124",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+124",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+126",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+126",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+126",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+128",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+128",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+128",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+130",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+130",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+130",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+132",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+132",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+132",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+134",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+134",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+134",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+136",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+136",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+136",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+138",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+138",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+138",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+140",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+140",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+140",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+142",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+142",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+142",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+144",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+144",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+144",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+146",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+146",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+146",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+148",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+148",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+148",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+150",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+150",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+150",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+152",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+152",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+152",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+154",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+154",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+154",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+156",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+156",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+156",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+158",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+158",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+158",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+160",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+160",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+160",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+162",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+162",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+162",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+164",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+164",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+164",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+166",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+166",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+166",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+168",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+168",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+168",
+   "field": "days"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nrF1.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "E7 emptied t+168",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "E7 emptied t+168",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "E7 emptied t+168",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+170",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+170",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+170",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+172",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+172",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+172",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+174",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+174",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+174",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+176",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+176",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+176",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+178",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+178",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+178",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+180",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+180",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+180",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+182",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+182",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+182",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+184",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+184",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+184",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+186",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+186",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+186",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+188",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+188",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+188",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+190",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+190",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+190",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+192",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+192",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+192",
+   "field": "days"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nrF1.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "E8 emptied t+192",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "E8 emptied t+192",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "E8 emptied t+192",
+   "field": "days"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nrF1.AddItem rF2 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "stim added t+192",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "stim added t+192",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "stim added t+192",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "stim added t+192",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+194",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+194",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+194",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+194",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+196",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+196",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+196",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+196",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+198",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+198",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+198",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+198",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+200",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+200",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+200",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+200",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+202",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+202",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+202",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+202",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+204",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+204",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+204",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+204",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+206",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+206",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+206",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+206",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+208",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+208",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+208",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+208",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+210",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+210",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+210",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+210",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+212",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+212",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+212",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+212",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+214",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+214",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+214",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+214",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+216",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+216",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+216",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+216",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+218",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+218",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+218",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+218",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+220",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+220",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+220",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+220",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+222",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+222",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+222",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+222",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+224",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+224",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+224",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+224",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+226",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+226",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+226",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+226",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+228",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+228",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+228",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+228",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+230",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+230",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+230",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+230",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+232",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+232",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+232",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+232",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+234",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+234",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+234",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+234",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+236",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+236",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+236",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+236",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+238",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+238",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+238",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+238",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+240",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+240",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+240",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+240",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+242",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+242",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+242",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+242",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+244",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+244",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+244",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+244",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+246",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+246",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+246",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+246",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+248",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+248",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+248",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+248",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+250",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+250",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+250",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+250",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+252",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+252",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+252",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+252",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+254",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+254",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+254",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+254",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+256",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+256",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+256",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+256",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+258",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+258",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+258",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+258",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+260",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+260",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+260",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+260",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+262",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+262",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+262",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+262",
+   "field": "days"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 2\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+264",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1452480\nlet rF2 := BuildRef fM1 86377\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "t+264",
+   "field": "stim"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "t+264",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "t+264",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetGameSetting \"iHoursToRespawnCell\"\nSetFunctionValue fV\nEnd\n",
+   "label": "gmst",
+   "field": "iHoursToRespawnCell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetGameSetting \"iDaysToRespawnVendor\"\nSetFunctionValue fV\nEnd\n",
+   "label": "gmst",
+   "field": "iDaysToRespawnVendor"
+  }
+ ]
+}

@@ -1,0 +1,175 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "package_kinds",
+ "title": "Escort, Find, Use Item At, Ambush and Flee Not Combat packages given to Goodsprings residents by AddScriptPackage: what the original does with each (docs/spec-notes/packages.md section 3).. The actors are moved and given their packages by compiled scripts (`do` statements): console lines cannot address references [observed 2026-10-17]. GoodspringsSettler02Ref and TrudyRef are disabled at the save's point of the game [observed 2026-10-17], so they are not used.",
+ "save": "nvftest",
+ "defaults": {
+  "every": 15,
+  "depth": 1,
+  "track": [
+   "GoodspringsSettler01Ref",
+   "GoodspringsSettler02Ref",
+   "GoodspringsSettler03Ref",
+   "GoodspringsSettler04Ref",
+   "EasyPeteRef",
+   "CheyenneREF",
+   "TrudyRef",
+   "SunnyRef"
+  ]
+ },
+ "sessions": [
+  {
+   "name": "escort_wait",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -18,
+     0
+    ]
+   },
+   "hour": 12,
+   "hours": 0.4,
+   "do": [
+    [
+     "{0}.MoveTo player 256 0 0",
+     "GoodspringsSettler01Ref"
+    ],
+    [
+     "{0}.AddScriptPackage {1}",
+     "GoodspringsSettler01Ref",
+     "GomezEscortToAtrium"
+    ]
+   ]
+  },
+  {
+   "name": "escort_lead",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -18,
+     0
+    ]
+   },
+   "hour": 12,
+   "hours": 0.6,
+   "walk": {
+    "to": "GoodspringsSettler01Ref",
+    "within": 200,
+    "follow": true,
+    "approach": 0,
+    "max_frames": 0
+   },
+   "do": [
+    [
+     "{0}.MoveTo player 256 0 0",
+     "GoodspringsSettler01Ref"
+    ],
+    [
+     "{0}.AddScriptPackage {1}",
+     "GoodspringsSettler01Ref",
+     "GomezEscortToAtrium"
+    ]
+   ]
+  },
+  {
+   "name": "flee_from_player",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 12,
+   "hours": 0.4,
+   "do": [
+    [
+     "{0}.MoveTo player 200 0 0",
+     "GoodspringsSettler03Ref"
+    ],
+    [
+     "{0}.AddScriptPackage {1}",
+     "GoodspringsSettler03Ref",
+     "VTerrifyingPresencePackage"
+    ]
+   ]
+  },
+  {
+   "name": "flee_to_cell",
+   "go": {
+    "moveto": "EasyPeteRef"
+   },
+   "hour": 9,
+   "hours": 0.4,
+   "do": [
+    [
+     "{0}.AddScriptPackage {1}",
+     "EasyPeteRef",
+     "EasyPeteHideInSaloonPackage"
+    ]
+   ]
+  },
+  {
+   "name": "find_food",
+   "go": {
+    "coc": "GSProspectorSaloonInterior"
+   },
+   "hour": 12,
+   "hours": 0.4,
+   "do": [
+    [
+     "player.PlaceAtMe {0} 1",
+     "MoleRatMeat"
+    ],
+    [
+     "player.MoveTo {0}",
+     "CheyenneREF"
+    ],
+    [
+     "{0}.AddScriptPackage {1}",
+     "CheyenneREF",
+     "FFER24FindFood"
+    ]
+   ]
+  },
+  {
+   "name": "use_furniture",
+   "go": {
+    "coc": "GSProspectorSaloonInterior"
+   },
+   "hour": 12,
+   "hours": 0.4,
+   "do": [
+    [
+     "{0}.AddScriptPackage {1}",
+     "GoodspringsSettler04Ref",
+     "DefaultUseNearbyFurniturePackage"
+    ]
+   ]
+  },
+  {
+   "name": "ambush_go",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 12,
+   "hours": 0.3,
+   "do": [
+    [
+     "{0}.AddScriptPackage {1}",
+     "GoodspringsSettler04Ref",
+     "GSSettlerAmbushPackage"
+    ]
+   ]
+  },
+  {
+   "name": "ambush_walk",
+   "go": {
+    "coc": "GSProspectorSaloonInterior"
+   },
+   "hour": 12,
+   "hours": 0.4,
+   "walk": {
+    "to": "GoodspringsSettler04Ref",
+    "within": 100,
+    "approach": 0
+   }
+  }
+ ]
+}

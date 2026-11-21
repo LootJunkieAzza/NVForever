@@ -1,0 +1,32 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless main-quest chain: Boulder City Showdown (VMS20, the negotiator's path) to the end of They Went That-a-Way (VMQ01 100) and the start of Ring-a-Ding-Ding (VMQTops 10); docs/handoff/mq-walkthrough-2026-10-27.md",
+  "given": [
+    {"kind": "quest", "quest": "VCG01", "running": false, "completed": true, "stage": 200, "done": [200]},
+    {"kind": "quest", "quest": "VMQ01", "running": true, "completed": false, "stage": 50, "done": [10, 40, 50]},
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 50}
+  ],
+  "actions": [
+    {"op": "note", "text": "Starts after Novac: VMQ01 at stage 50 (Primm's road closed, the player sent on to Novac and on), the opening done. Speech 50 so the player can talk Jessup round. The player walks into Boulder City (the cell's COC marker)."},
+    {"op": "go_to_cell", "cell": "BoulderCity"},
+    {"op": "get_quest", "quest": "VMS20", "fields": ["running", "stage"], "label": "VMS20 before Monroe"},
+    {"op": "note", "text": "Lieutenant Monroe: the player offers to negotiate with the Khans (the player's pick ends his conversation; its begin script starts VMS20 at 10)."},
+    {"op": "say_info", "info": "0x00116FE3", "speaker": "placed:BCLieutenantMonroe"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS20", "fields": ["running", "stage", "done.10", "var.negotiator", "objective.10.displayed"], "label": "milestone: VMS20 10 (negotiator)"},
+    {"op": "note", "text": "Jessup in the ruins: the player raises the hostages (the line offers the three ways), then talks him into letting them go with Speech 45 (the line frees the hostages and gives the player Jessup's note, VMS20 objective 70)."},
+    {"op": "say_info", "info": "0x00153C1B", "speaker": "placed:BCJessup"},
+    {"op": "say_info", "info": "0x00153C2B", "speaker": "placed:BCJessup"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS20", "fields": ["stage", "var.hostagesfreed", "var.bgreatkhansspeech", "objective.70.displayed"], "label": "milestone: VMS20 hostages freed"},
+    {"op": "note", "text": "Back to Monroe: the peaceful report ends VMS20 at stage 100 (Khans leaving, outcome 1)."},
+    {"op": "say_info", "info": "0x00153C1E", "speaker": "placed:BCLieutenantMonroe"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS20", "fields": ["running", "completed", "stage", "done.100", "var.bbouldercityoutcome"], "label": "milestone: VMS20 100 (Boulder City Showdown done)"},
+    {"op": "note", "text": "Jessup's line about Benny (Say Once, while VMQTops 80 is not done): its begin script ends VMQ01 at 100 and starts VMQTops at 10."},
+    {"op": "say_info", "info": "0x00153A2D", "speaker": "placed:BCJessup"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMQ01", "fields": ["completed", "stage", "done.100"], "label": "final: VMQ01 100"},
+    {"op": "get_quest", "quest": "VMQTops", "fields": ["running", "stage", "done.10", "objective.10.displayed"], "label": "final: VMQTops 10"}
+  ]
+}

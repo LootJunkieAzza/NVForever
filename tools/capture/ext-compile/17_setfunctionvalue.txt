@@ -1,0 +1,8 @@
+scn ExtCase17
+Begin Function { }
+    if GameHour > 12
+        SetFunctionValue 1
+    else
+        SetFunctionValue 0
+    endif
+End

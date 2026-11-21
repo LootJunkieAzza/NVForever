@@ -1,0 +1,14 @@
+{
+ "schema": "fnv.phys.drops/1",
+ "name": "swim_guardian_drops",
+ "description": "Placed water, held out (physics.md 6.6): the player dropped 5 units above the surface of the placed water NVCleanWater2048x2048 (reference 0x0013F31A, scale 3, z 6528) in the interior CampGuardianCaves, whose CELL XCLW is 6712 (184 higher), over the pool at the south edge of the water's box (y -8704 at scale 3): three drops inside the box over floors 213-434 below the surface, three just outside it (56-146 units south of the edge) over floors 205-274 below. Each drop starts from a fresh coc to the cell, so the player is not swimming when placed. Points chosen 2026-10-08 from vertical rays of `fnvtool phys cell --cell CampGuardianCaves`.",
+ "seconds": 10,
+ "drops": [
+  {"label": "in_deep", "at": [-4900.0, -8450.0, 6533.0]},
+  {"label": "in_edge", "at": [-4800.0, -8650.0, 6533.0]},
+  {"label": "in_north", "at": [-5250.0, -7800.0, 6533.0]},
+  {"label": "out_near", "at": [-4800.0, -8760.0, 6533.0]},
+  {"label": "out_mid", "at": [-4800.0, -8800.0, 6533.0]},
+  {"label": "out_far", "at": [-4850.0, -8850.0, 6533.0]}
+ ]
+}

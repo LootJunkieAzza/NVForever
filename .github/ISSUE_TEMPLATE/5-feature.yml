@@ -1,0 +1,45 @@
+name: Feature or idea
+description: A part of the game that is not built yet, a tool, or an improvement.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [docs/status.md](https://github.com/LootJunkieAzza/NVForever/blob/main/docs/status.md)
+        first: many parts of the game are already planned in a layer. A request is still
+        useful there if it says what matters most to you.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What it would let you do, or what is in the way without it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Part of the original game that is missing
+        - Optional improvement over the original (off by default, like --graphics enhanced)
+        - Tool, test or developer aid
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: original
+    attributes:
+      label: How the original game does it
+      description: If this is a part of the original, describe how it behaves there. Screenshots or links welcome; no game files.

@@ -1,0 +1,54 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "followers_follow",
+ "title": "npc-behaviour-compare.md section 13, what followers left open (plugin version 9, save nvftest, one run): Boone hired in his Novac room as in followers (VNPCFollowers.bBooneHired, SetPlayerTeammate, EvaluatePackage, his default follow package added as a script package if his conditions did not choose it), out through his door, and this time the follow package added again whenever the door dropped it (round 3 saw it change to his PATROL). Then a straight walk from the outside door to Manny Vargas with the player crouching for part of it (follow distance, whether he sneaks: IsSneaking), the package added again first; and two coyotes spawned 600 units off (round 3's 1,500 never reached the player) and set on the player (when Boone enters combat, against the coyotes' OnStartCombat and their first OnHit). The player is in god mode; Boone is not.",
+ "save": "nvftest",
+ "defaults": {
+  "every": 2,
+  "depth": 1,
+  "settle_frames": 120,
+  "track": ["CraigBooneREF"]
+ },
+ "sessions": [
+  {
+   "name": "hire_out",
+   "go": {"coc": "NovacBoonesRoom"},
+   "hours": 0.3,
+   "console_first": ["CloseAllMenus", "tgm"],
+   "do": [
+    ["{0}.MoveTo player 0 150 0", "CraigBooneREF"],
+    "set VNPCFollowers.bBooneHired to 1",
+    ["{0}.SetPlayerTeammate 1", "CraigBooneREF"],
+    ["{0}.EvaluatePackage", "CraigBooneREF"]
+   ],
+   "events": "packages",
+   "timed": [
+    {"after": 1, "script": {"lines": ["if {0}.GetCurrentPackage != {1}", "  {0}.AddScriptPackage {1}", "endif"], "names": ["CraigBooneREF", "FollowersBooneFollowPlayerDEFAULT"]}},
+    {"after": 300, "do": ["{0}.Activate player", "0x000CED40"]},
+    {"after": 420, "repeat": true, "script": {"lines": ["if {0}.GetCurrentPackage != {1}", "  {0}.AddScriptPackage {1}", "endif"], "names": ["CraigBooneREF", "FollowersBooneFollowPlayerDEFAULT"]}}
+   ]
+  },
+  {
+   "name": "follow_walk",
+   "hours": 0.5,
+   "events": "packages",
+   "do_first": [
+    ["{0}.AddScriptPackage {1}", "CraigBooneREF", "FollowersBooneFollowPlayerDEFAULT"]
+   ],
+   "walk": {"to": "MannyVargasREF", "within": 300, "approach": 0, "max_frames": 3000},
+   "timed": [
+    {"after": 300, "do": ["player.SetForceSneak 1"]},
+    {"after": 900, "do": ["player.SetForceSneak 0"]}
+   ]
+  },
+  {
+   "name": "combat",
+   "hours": 0.5,
+   "events": "fight",
+   "do_first": [
+    ["{0}.AddScriptPackage {1}", "CraigBooneREF", "FollowersBooneFollowPlayerDEFAULT"]
+   ],
+   "place": [{"base": "VCrTier1CoyoteMed", "count": 2, "distance": 600, "offset": [0, 600, 0], "attack": "player"}]
+  }
+ ]
+}

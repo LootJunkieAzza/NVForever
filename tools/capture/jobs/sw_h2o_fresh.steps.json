@@ -1,0 +1,550 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "sw_h2o_fresh",
+ "title": "Placed water drops: swim_h2o_fresh (no input needed)",
+ "start": "nvfdoc (Doc Mitchell's house); coc NVDLC03SLH2OINT before each drop (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "console": "coc NVDLC03SLH2OINT"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"OldWorldBlues.esm\"\nlet rF1 := BuildRef fM1 26753\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "deep_a menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "deep_a before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -300\nplayer.SetPos Y -1000\nplayer.SetPos Z -227\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_h2o_fresh deep_a",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh deep_a",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh deep_a",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc NVDLC03SLH2OINT"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"OldWorldBlues.esm\"\nlet rF1 := BuildRef fM1 26753\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "deep_b menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "deep_b before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -300\nplayer.SetPos Y -800\nplayer.SetPos Z -227\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_h2o_fresh deep_b",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh deep_b",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh deep_b",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc NVDLC03SLH2OINT"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"OldWorldBlues.esm\"\nlet rF1 := BuildRef fM1 26753\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "mid_a menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "mid_a before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -500\nplayer.SetPos Y -200\nplayer.SetPos Z -227\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_h2o_fresh mid_a",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh mid_a",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh mid_a",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc NVDLC03SLH2OINT"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"OldWorldBlues.esm\"\nlet rF1 := BuildRef fM1 26753\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "mid_b menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "mid_b before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -700\nplayer.SetPos Y -200\nplayer.SetPos Z -227\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_h2o_fresh mid_b",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh mid_b",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh mid_b",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc NVDLC03SLH2OINT"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"OldWorldBlues.esm\"\nlet rF1 := BuildRef fM1 26753\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "shallow_a menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "shallow_a before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -1100\nplayer.SetPos Y -550\nplayer.SetPos Z -227\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_h2o_fresh shallow_a",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh shallow_a",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh shallow_a",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc NVDLC03SLH2OINT"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"OldWorldBlues.esm\"\nlet rF1 := BuildRef fM1 26753\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "past_depth_a menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "past_depth_a before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -1200\nplayer.SetPos Y 700\nplayer.SetPos Z -227\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_h2o_fresh past_depth_a",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh past_depth_a",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh past_depth_a",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc NVDLC03SLH2OINT"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"OldWorldBlues.esm\"\nlet rF1 := BuildRef fM1 26753\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "past_depth_b menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "past_depth_b before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -1200\nplayer.SetPos Y 800\nplayer.SetPos Z -227\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_h2o_fresh past_depth_b",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh past_depth_b",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh past_depth_b",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc NVDLC03SLH2OINT"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"OldWorldBlues.esm\"\nlet rF1 := BuildRef fM1 26753\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "short_depth_a menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "short_depth_a before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -1500\nplayer.SetPos Y 600\nplayer.SetPos Z -227\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_h2o_fresh short_depth_a",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh short_depth_a",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh short_depth_a",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc NVDLC03SLH2OINT"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"OldWorldBlues.esm\"\nlet rF1 := BuildRef fM1 26753\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "short_depth_b menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "short_depth_b before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -1400\nplayer.SetPos Y 500\nplayer.SetPos Z -227\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < -228\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_h2o_fresh short_depth_b",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh short_depth_b",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_h2o_fresh short_depth_b",
+   "field": "feet_later"
+  }
+ ]
+}

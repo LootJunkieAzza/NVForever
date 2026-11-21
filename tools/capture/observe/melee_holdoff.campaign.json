@@ -1,0 +1,297 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "melee_holdoff",
+ "title": "npc-behaviour-compare.md section 8.4 (plugin version 9, the owner's save nvfstrip, one run): do melee attackers hold off a normal player outdoors? At the Goodsprings outskirts spot of melee_spacing (cow -12 15, then onto Violet's dog's spot if that reference resolves), killall, one attacker at a time set on the player from 700 units: NCR troopers with the sledgehammer, lead pipe and power fist that stopped 147-177 units off a god-mode player there and a knife (control), and a dog, a coyote and a giant mantis. The player is NOT in god mode and keeps their own Health and armour; Health is restored every 30 game loops only so that a death does not reload the save mid-run. The last three sessions turn tgm on at the same spot as the control. Every game loop, the fight field set and the fight events; melee spacing from observe_map.py.",
+ "save": "nvfstrip",
+ "defaults": {
+  "fields": "fight",
+  "every": 1,
+  "depth": 1,
+  "settle_frames": 120,
+  "events": "fight"
+ },
+ "sessions": [
+  {
+   "name": "sledge_normal",
+   "hours": 0.25,
+   "do_first": [
+    [
+     "player.MoveTo {0}",
+     "0x000F573F"
+    ],
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapSledgehammer"
+    }
+   ],
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -12,
+     15
+    ]
+   },
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "lead_pipe_normal",
+   "hours": 0.25,
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapLeadPipe"
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "power_fist_normal",
+   "hours": 0.25,
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapPowerFist"
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "knife_normal",
+   "hours": 0.25,
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "dog_normal",
+   "hours": 0.25,
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1DogMed",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player"
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "coyote_normal",
+   "hours": 0.25,
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1CoyoteMed",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player"
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "mantis_normal",
+   "hours": 0.25,
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier2GiantMantisMed",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player"
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "sledge_tgm",
+   "hours": 0.25,
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapSledgehammer"
+    }
+   ],
+   "console_first": [
+    "tgm"
+   ]
+  },
+  {
+   "name": "dog_tgm",
+   "hours": 0.25,
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1DogMed",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "mantis_tgm",
+   "hours": 0.25,
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier2GiantMantisMed",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player"
+    }
+   ]
+  }
+ ]
+}

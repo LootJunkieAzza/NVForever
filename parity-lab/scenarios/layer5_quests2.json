@@ -1,0 +1,391 @@
+{
+ "scenarios": [
+  {
+   "id": "L5.quest.multi_entry_stage",
+   "layer": 5,
+   "description": "A stage with five log entries, none with conditions, each with a result script (ControlRumble stage 0, allow repeated stages): which entries' result scripts SetStage runs. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest2_multi_entry_stage.actions.json (fnv.script.actions/1 with the round 2 additions, docs/spec-notes/layer5-captures.md sections 4 and 8); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest2/quest2_multi_entry_stage.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest2_multi_entry_stage.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "result-script",
+    "stage-entries",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.condition_groups",
+   "layer": 5,
+   "description": "Condition lists mixing AND and OR, observed through AI package choice: the Goodsprings settlers' flee package (A OR B AND C) and Sunny Smiles' stay package (A AND B AND C OR D OR E), with quest variables, stages and an objective set to cases where the groupings differ. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest2_condition_groups.actions.json (fnv.script.actions/1 with the round 2 additions, docs/spec-notes/layer5-captures.md sections 4 and 8); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest2/quest2_condition_groups.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest2_condition_groups.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "conditions",
+    "packages",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.stray_elseif",
+   "layer": 5,
+   "description": "A quest script with ElseIf markers after their If chain was closed by EndIf (BeatrixFX, FalloutNV SCPT 0x0017B778): the successive values of the variable the stray branches set, and the quest's state after its script stopped it. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest2_stray_elseif.actions.json (fnv.script.actions/1 with the round 2 additions, docs/spec-notes/layer5-captures.md sections 4 and 8); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest2/quest2_stray_elseif.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest2_stray_elseif.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "bytecode",
+    "gamemode",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.dead_activation",
+   "layer": 5,
+   "description": "Scripted Activate of dead and living actors with and without the run-OnActivate flag: a dead actor whose OnActivate never calls Activate, one without an OnActivate block, and the Techatticup hostages (FalloutNV SCPT 0x00123191, whose only Activate follows a stray ElseIf); observed by the container menu and a quest variable. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest2_dead_activation.actions.json (fnv.script.actions/1 with the round 2 additions, docs/spec-notes/layer5-captures.md sections 4 and 8); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest2/quest2_dead_activation.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest2_dead_activation.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "object-script",
+    "onactivate",
+    "bytecode",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.ref_activation",
+   "layer": 5,
+   "description": "A door's OnActivate writes another reference's object-script variable (DocMitchellREF.PlayerLeft) and then activates: scripted Activate with and without the flag, the variable read in the activating script and afterwards. In-game capture on save nvfdoc. Input parity-lab/inputs/layer5/quest2_ref_activation.actions.json (fnv.script.actions/1 with the round 2 additions, docs/spec-notes/layer5-captures.md sections 4 and 8); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest2/quest2_ref_activation.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest2_ref_activation.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "object-script",
+    "onactivate",
+    "reference-variables",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.onadd_gamemode",
+   "layer": 5,
+   "description": "An item's OnAdd and GameMode blocks (JarPistolPowder): item counts in the script that added it and on the following frames. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest2_onadd_gamemode.actions.json (fnv.script.actions/1 with the round 2 additions, docs/spec-notes/layer5-captures.md sections 4 and 8); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest2/quest2_onadd_gamemode.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest2_onadd_gamemode.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "object-script",
+    "onadd",
+    "gamemode",
+    "inventory",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.seconds_after_menu",
+   "layer": 5,
+   "description": "GetSecondsPassed countdowns of two quest scripts (VCG00 every frame with a MenuMode block, VMQ03aTimer every 0.5 s) after a container menu held open for 900 frames: the first drop after the menu (compared within 0.05 s). In-game capture on save nvfdoc. Input parity-lab/inputs/layer5/quest2_seconds_after_menu.actions.json (fnv.script.actions/1 with the round 2 additions, docs/spec-notes/layer5-captures.md sections 4 and 8); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest2/quest2_seconds_after_menu.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest2_seconds_after_menu.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.05
+   },
+   "tags": [
+    "script",
+    "quest",
+    "timing",
+    "gamemode",
+    "menumode",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.r2_holdout_a",
+   "layer": 5,
+   "description": "Layer 5 round 2 quest scenario. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest2_holdout_a.actions.json (fnv.script.actions/1 with the round 2 additions, docs/spec-notes/layer5-captures.md sections 4 and 8); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest2/quest2_holdout_a.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest2_holdout_a.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "M5",
+    "needs-local-capture"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L5.quest.r2_holdout_b",
+   "layer": 5,
+   "description": "Layer 5 round 2 quest scenario. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest2_holdout_b.actions.json (fnv.script.actions/1 with the round 2 additions, docs/spec-notes/layer5-captures.md sections 4 and 8); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest2/quest2_holdout_b.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest2_holdout_b.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "M5",
+    "needs-local-capture"
+   ],
+   "holdout": true
+  }
+ ]
+}

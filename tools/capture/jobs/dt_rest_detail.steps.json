@@ -1,0 +1,1315 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "dt_rest_detail",
+ "title": "Rest height detail: fall traces, repeats, grids, porch",
+ "start": "The Doc Mitchell save (nvfdoc), inside the house.",
+ "steps": [
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "d00 outside",
+   "field": "cell"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74432\nplayer.SetPos Y 1088\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 01",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 02",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 03",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 04",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 05",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 06",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 07",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 08",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 09",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 10",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 11",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 12",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 13",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 14",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 15",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 16",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 17",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 18",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 19",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 20",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 21",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 22",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 23",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 24",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 25",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 26",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 27",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 28",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 29",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 30",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 31",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 32",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 33",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 34",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 35",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 36",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 37",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 38",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 39",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 40",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 41",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 42",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 43",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 44",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, loop 45",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, +345 loops",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, +1546 loops",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, +1546 loops",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 p04 (-74432,1088) from 8750, +1546 loops",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74304\nplayer.SetPos Y 1216\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 01",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 02",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 03",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 04",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 05",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 06",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 07",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 08",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 09",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 10",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 11",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 12",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 13",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 14",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 15",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 16",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 17",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 18",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 19",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 20",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 21",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 22",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 23",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 24",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 25",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 26",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 27",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 28",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 29",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 30",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 31",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 32",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 33",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 34",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 35",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 36",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 37",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 38",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 39",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 40",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 41",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 42",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 43",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 44",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, loop 45",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, +345 loops",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, +1546 loops",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, +1546 loops",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 p05 (-74304,1216) from 8750, +1546 loops",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74432\nplayer.SetPos Y 1088\nplayer.SetPos Z 8700\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d03 p04 from 8700, first loop",
+   "field": "z"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d03 p04 from 8700, +61 loops",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "d03 p04 from 8700, +362 loops",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "d03 p04 from 8700, +362 loops",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d03 p04 from 8700, +362 loops",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74432\nplayer.SetPos Y 1088\nplayer.SetPos Z 8850\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d04 p04 from 8850, first loop",
+   "field": "z"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d04 p04 from 8850, +61 loops",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "d04 p04 from 8850, +362 loops",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "d04 p04 from 8850, +362 loops",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d04 p04 from 8850, +362 loops",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74432\nplayer.SetPos Y 1088\nplayer.SetPos Z 8691.85\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d05 p04 set at 8691.85, first loop",
+   "field": "z"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d05 p04 set at 8691.85, +61 loops",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "d05 p04 set at 8691.85, +362 loops",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "d05 p04 set at 8691.85, +362 loops",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d05 p04 set at 8691.85, +362 loops",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74432\nplayer.SetPos Y 1088\nplayer.SetPos Z 8688.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d06 p04 set at 8688.5, first loop",
+   "field": "z"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d06 p04 set at 8688.5, +61 loops",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "d06 p04 set at 8688.5, +362 loops",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "d06 p04 set at 8688.5, +362 loops",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d06 p04 set at 8688.5, +362 loops",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74304\nplayer.SetPos Y 1216\nplayer.SetPos Z 8695.25\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d07 p05 set at 8695.25, first loop",
+   "field": "z"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d07 p05 set at 8695.25, +61 loops",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "d07 p05 set at 8695.25, +362 loops",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "d07 p05 set at 8695.25, +362 loops",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d07 p05 set at 8695.25, +362 loops",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74304\nplayer.SetPos Y 1216\nplayer.SetPos Z 8700\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d08 p05 from 8700, first loop",
+   "field": "z"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d08 p05 from 8700, +61 loops",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "d08 p05 from 8700, +362 loops",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "d08 p05 from 8700, +362 loops",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d08 p05 from 8700, +362 loops",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74432\nplayer.SetPos Y 1088\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d09 p04 from 8750 again, first loop",
+   "field": "z"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d09 p04 from 8750 again, +61 loops",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "d09 p04 from 8750 again, +362 loops",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "d09 p04 from 8750 again, +362 loops",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "d09 p04 from 8750 again, +362 loops",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74480\nplayer.SetPos Y 1088\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 -48,+0 (-74480,1088) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 -48,+0 (-74480,1088) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 -48,+0 (-74480,1088) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74384\nplayer.SetPos Y 1088\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +48,+0 (-74384,1088) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +48,+0 (-74384,1088) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +48,+0 (-74384,1088) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74432\nplayer.SetPos Y 1040\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +0,-48 (-74432,1040) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +0,-48 (-74432,1040) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +0,-48 (-74432,1040) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74432\nplayer.SetPos Y 1136\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +0,+48 (-74432,1136) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +0,+48 (-74432,1136) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +0,+48 (-74432,1136) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74456\nplayer.SetPos Y 1064\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 -24,-24 (-74456,1064) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 -24,-24 (-74456,1064) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 -24,-24 (-74456,1064) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74408\nplayer.SetPos Y 1112\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +24,+24 (-74408,1112) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +24,+24 (-74408,1112) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +24,+24 (-74408,1112) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74368\nplayer.SetPos Y 1152\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +64,+64 (-74368,1152) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +64,+64 (-74368,1152) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 +64,+64 (-74368,1152) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74496\nplayer.SetPos Y 1024\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 -64,-64 (-74496,1024) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 -64,-64 (-74496,1024) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p04 -64,-64 (-74496,1024) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73328\nplayer.SetPos Y -64\nplayer.SetPos Z 8326\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 -48,+0 (-73328,-64) from 8326",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 -48,+0 (-73328,-64) from 8326",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 -48,+0 (-73328,-64) from 8326",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73232\nplayer.SetPos Y -64\nplayer.SetPos Z 8326\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +48,+0 (-73232,-64) from 8326",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +48,+0 (-73232,-64) from 8326",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +48,+0 (-73232,-64) from 8326",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73280\nplayer.SetPos Y -112\nplayer.SetPos Z 8326\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +0,-48 (-73280,-112) from 8326",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +0,-48 (-73280,-112) from 8326",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +0,-48 (-73280,-112) from 8326",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73280\nplayer.SetPos Y -16\nplayer.SetPos Z 8326\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +0,+48 (-73280,-16) from 8326",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +0,+48 (-73280,-16) from 8326",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +0,+48 (-73280,-16) from 8326",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73304\nplayer.SetPos Y -88\nplayer.SetPos Z 8326\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 -24,-24 (-73304,-88) from 8326",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 -24,-24 (-73304,-88) from 8326",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 -24,-24 (-73304,-88) from 8326",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73256\nplayer.SetPos Y -40\nplayer.SetPos Z 8326\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +24,+24 (-73256,-40) from 8326",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +24,+24 (-73256,-40) from 8326",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +24,+24 (-73256,-40) from 8326",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73216\nplayer.SetPos Y 0\nplayer.SetPos Z 8326\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +64,+64 (-73216,0) from 8326",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +64,+64 (-73216,0) from 8326",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 +64,+64 (-73216,0) from 8326",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73344\nplayer.SetPos Y -128\nplayer.SetPos Z 8326\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 -64,-64 (-73344,-128) from 8326",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 -64,-64 (-73344,-128) from 8326",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p06 -64,-64 (-73344,-128) from 8326",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74352\nplayer.SetPos Y 1216\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 -48,+0 (-74352,1216) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 -48,+0 (-74352,1216) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 -48,+0 (-74352,1216) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74256\nplayer.SetPos Y 1216\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +48,+0 (-74256,1216) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +48,+0 (-74256,1216) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +48,+0 (-74256,1216) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74304\nplayer.SetPos Y 1168\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +0,-48 (-74304,1168) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +0,-48 (-74304,1168) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +0,-48 (-74304,1168) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74304\nplayer.SetPos Y 1264\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +0,+48 (-74304,1264) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +0,+48 (-74304,1264) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +0,+48 (-74304,1264) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74328\nplayer.SetPos Y 1192\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 -24,-24 (-74328,1192) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 -24,-24 (-74328,1192) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 -24,-24 (-74328,1192) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74280\nplayer.SetPos Y 1240\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +24,+24 (-74280,1240) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +24,+24 (-74280,1240) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +24,+24 (-74280,1240) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74240\nplayer.SetPos Y 1280\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +64,+64 (-74240,1280) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +64,+64 (-74240,1280) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 +64,+64 (-74240,1280) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74368\nplayer.SetPos Y 1152\nplayer.SetPos Z 8750\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 -64,-64 (-74368,1152) from 8750",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 -64,-64 (-74368,1152) from 8750",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "g p05 -64,-64 (-74368,1152) from 8750",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73302.9\nplayer.SetPos Y 1312.4\nplayer.SetPos Z 8800\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "f01 porch (-73302.9,1312.4) from 8800",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "f01 porch (-73302.9,1312.4) from 8800",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "f01 porch (-73302.9,1312.4) from 8800",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -73302.9\nplayer.SetPos Y 1372.4\nplayer.SetPos Z 8800\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "f02 porch (-73302.9,1372.4) from 8800",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "f02 porch (-73302.9,1372.4) from 8800",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "f02 porch (-73302.9,1372.4) from 8800",
+   "field": "z"
+  }
+ ]
+}

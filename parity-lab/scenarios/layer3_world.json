@@ -1,0 +1,3961 @@
+{
+ "scenarios": [
+  {
+   "id": "L3.world.refs.FFEncounterWorld",
+   "layer": 3,
+   "description": "Every reference placed in worldspace FFEncounterWorld: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/FFEncounterWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FFEncounterWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.FFEncounterWorld",
+   "layer": 3,
+   "description": "Cells of worldspace FFEncounterWorld: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/FFEncounterWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FFEncounterWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.TestMap01",
+   "layer": 3,
+   "description": "Every reference placed in worldspace TestMap01: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/TestMap01.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TestMap01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.TestMap01",
+   "layer": 3,
+   "description": "Cells of worldspace TestMap01: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/TestMap01.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TestMap01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.WastelandNV",
+   "layer": 3,
+   "description": "Every reference placed in worldspace WastelandNV: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/WastelandNV.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.WastelandNV",
+   "layer": 3,
+   "description": "Cells of worldspace WastelandNV: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/WastelandNV.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.FreesideWorld",
+   "layer": 3,
+   "description": "Every reference placed in worldspace FreesideWorld: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/FreesideWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.FreesideWorld",
+   "layer": 3,
+   "description": "Cells of worldspace FreesideWorld: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/FreesideWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.GamorrahWorld",
+   "layer": 3,
+   "description": "Every reference placed in worldspace GamorrahWorld: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/GamorrahWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "GamorrahWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.GamorrahWorld",
+   "layer": 3,
+   "description": "Cells of worldspace GamorrahWorld: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/GamorrahWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "GamorrahWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.GreenhouseWorld01",
+   "layer": 3,
+   "description": "Every reference placed in worldspace GreenhouseWorld01: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/GreenhouseWorld01.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "GreenhouseWorld01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.GreenhouseWorld01",
+   "layer": 3,
+   "description": "Cells of worldspace GreenhouseWorld01: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/GreenhouseWorld01.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "GreenhouseWorld01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.FreesideNorthWorld",
+   "layer": 3,
+   "description": "Every reference placed in worldspace FreesideNorthWorld: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/FreesideNorthWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideNorthWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.FreesideNorthWorld",
+   "layer": 3,
+   "description": "Cells of worldspace FreesideNorthWorld: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/FreesideNorthWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideNorthWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.FreesideFortWorld",
+   "layer": 3,
+   "description": "Every reference placed in worldspace FreesideFortWorld: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/FreesideFortWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideFortWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.FreesideFortWorld",
+   "layer": 3,
+   "description": "Cells of worldspace FreesideFortWorld: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/FreesideFortWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideFortWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.TheStripWorldNew",
+   "layer": 3,
+   "description": "Every reference placed in worldspace TheStripWorldNew: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/TheStripWorldNew.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TheStripWorldNew"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.TheStripWorldNew",
+   "layer": 3,
+   "description": "Cells of worldspace TheStripWorldNew: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/TheStripWorldNew.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TheStripWorldNew"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.TheFortWorld",
+   "layer": 3,
+   "description": "Every reference placed in worldspace TheFortWorld: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/TheFortWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TheFortWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.TheFortWorld",
+   "layer": 3,
+   "description": "Cells of worldspace TheFortWorld: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/TheFortWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TheFortWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.WastelandNVmini",
+   "layer": 3,
+   "description": "Every reference placed in worldspace WastelandNVmini: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/WastelandNVmini.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNVmini"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.WastelandNVmini",
+   "layer": 3,
+   "description": "Cells of worldspace WastelandNVmini: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/WastelandNVmini.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNVmini"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.BoulderCityWorld",
+   "layer": 3,
+   "description": "Every reference placed in worldspace BoulderCityWorld: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/BoulderCityWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "BoulderCityWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.BoulderCityWorld",
+   "layer": 3,
+   "description": "Cells of worldspace BoulderCityWorld: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/BoulderCityWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "BoulderCityWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.Lucky38World",
+   "layer": 3,
+   "description": "Every reference placed in worldspace Lucky38World: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/Lucky38World.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "Lucky38World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.Lucky38World",
+   "layer": 3,
+   "description": "Cells of worldspace Lucky38World: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/Lucky38World.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "Lucky38World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC01Villa",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC01Villa: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC01Villa.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01Villa"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC01Villa",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC01Villa: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC01Villa.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01Villa"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC01WestTownN",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC01WestTownN: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC01WestTownN.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01WestTownN"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC01WestTownN",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC01WestTownN: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC01WestTownN.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01WestTownN"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC01EastTownS",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC01EastTownS: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC01EastTownS.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01EastTownS"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC01EastTownS",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC01EastTownS: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC01EastTownS.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01EastTownS"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC01WestTownS",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC01WestTownS: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC01WestTownS.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01WestTownS"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC01WestTownS",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC01WestTownS: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC01WestTownS.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01WestTownS"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC01VillaDean",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC01VillaDean: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC01VillaDean.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01VillaDean"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC01VillaDean",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC01VillaDean: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC01VillaDean.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01VillaDean"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC01VillaChristine",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC01VillaChristine: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC01VillaChristine.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01VillaChristine"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC01VillaChristine",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC01VillaChristine: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC01VillaChristine.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01VillaChristine"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC01EastTownN",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC01EastTownN: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC01EastTownN.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01EastTownN"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC01EastTownN",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC01EastTownN: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC01EastTownN.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01EastTownN"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC02ZionCanyon",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC02ZionCanyon: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC02ZionCanyon.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC02ZionCanyon"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L3.world.cells.NVDLC02ZionCanyon",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC02ZionCanyon: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC02ZionCanyon.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC02ZionCanyon"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L3.world.refs.NVDLC03BigMT",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC03BigMT: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC03BigMT.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC03BigMT"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC03BigMT",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC03BigMT: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC03BigMT.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC03BigMT"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC03Higgs",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC03Higgs: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC03Higgs.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC03Higgs"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC03Higgs",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC03Higgs: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC03Higgs.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC03Higgs"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC04Road01World",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC04Road01World: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC04Road01World.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04Road01World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC04Road01World",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC04Road01World: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC04Road01World.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04Road01World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC04DivideWorld",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC04DivideWorld: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC04DivideWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04DivideWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC04DivideWorld",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC04DivideWorld: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC04DivideWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04DivideWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC04Road02World",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC04Road02World: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC04Road02World.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04Road02World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC04Road02World",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC04Road02World: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC04Road02World.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04Road02World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC04DivideVistaWorld",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC04DivideVistaWorld: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC04DivideVistaWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04DivideVistaWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC04DivideVistaWorld",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC04DivideVistaWorld: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC04DivideVistaWorld.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04DivideVistaWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC04NukeNCR",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC04NukeNCR: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC04NukeNCR.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeNCR"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC04NukeNCR",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC04NukeNCR: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC04NukeNCR.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeNCR"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC04NukeLegion",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC04NukeLegion: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC04NukeLegion.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeLegion"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC04NukeLegion",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC04NukeLegion: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC04NukeLegion.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeLegion"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.NVDLC04NukeSilo2",
+   "layer": 3,
+   "description": "Every reference placed in worldspace NVDLC04NukeSilo2: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/NVDLC04NukeSilo2.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeSilo2"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.NVDLC04NukeSilo2",
+   "layer": 3,
+   "description": "Cells of worldspace NVDLC04NukeSilo2: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/NVDLC04NukeSilo2.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeSilo2"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.refs.interiors",
+   "layer": 3,
+   "description": "Every reference placed in every interior cell: cell, base object and model, placement, flags, enable parent.",
+   "oracle": {
+    "golden": "world/interiors.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--interiors"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/refs",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "refs",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.cells.interiors",
+   "layer": 3,
+   "description": "Cells of every interior cell: Editor ID, name, worldspace, grid, flags, water height, reference count, LAND.",
+   "oracle": {
+    "golden": "world/interiors.refs.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "refs",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--interiors"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "formid",
+    "abs_tol": 0.0,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "cells",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.TestMap01",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in TestMap01: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/TestMap01.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TestMap01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.WastelandNV",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in WastelandNV: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/WastelandNV.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.FreesideWorld",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in FreesideWorld: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/FreesideWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.GamorrahWorld",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in GamorrahWorld: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/GamorrahWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "GamorrahWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.GreenhouseWorld01",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in GreenhouseWorld01: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/GreenhouseWorld01.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "GreenhouseWorld01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.FreesideNorthWorld",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in FreesideNorthWorld: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/FreesideNorthWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideNorthWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.FreesideFortWorld",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in FreesideFortWorld: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/FreesideFortWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideFortWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.TheStripWorldNew",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in TheStripWorldNew: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/TheStripWorldNew.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TheStripWorldNew"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.TheFortWorld",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in TheFortWorld: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/TheFortWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TheFortWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.WastelandNVmini",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in WastelandNVmini: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/WastelandNVmini.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNVmini"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.BoulderCityWorld",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in BoulderCityWorld: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/BoulderCityWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "BoulderCityWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.Lucky38World",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in Lucky38World: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/Lucky38World.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "Lucky38World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC01Villa",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC01Villa: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC01Villa.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01Villa"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC01WestTownN",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC01WestTownN: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC01WestTownN.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01WestTownN"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC01EastTownS",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC01EastTownS: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC01EastTownS.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01EastTownS"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC01WestTownS",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC01WestTownS: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC01WestTownS.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01WestTownS"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC01VillaDean",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC01VillaDean: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC01VillaDean.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01VillaDean"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC01VillaChristine",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC01VillaChristine: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC01VillaChristine.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01VillaChristine"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC01EastTownN",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC01EastTownN: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC01EastTownN.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01EastTownN"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC02ZionCanyon",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC02ZionCanyon: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC02ZionCanyon.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC02ZionCanyon"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L3.world.heights.NVDLC03BigMT",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC03BigMT: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC03BigMT.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC03BigMT"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC03Higgs",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC03Higgs: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC03Higgs.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC03Higgs"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC04Road01World",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC04Road01World: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC04Road01World.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04Road01World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC04DivideWorld",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC04DivideWorld: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC04DivideWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04DivideWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC04Road02World",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC04Road02World: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC04Road02World.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04Road02World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC04DivideVistaWorld",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC04DivideVistaWorld: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC04DivideVistaWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04DivideVistaWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC04NukeNCR",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC04NukeNCR: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC04NukeNCR.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeNCR"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC04NukeLegion",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC04NukeLegion: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC04NukeLegion.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeLegion"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC04NukeSilo2",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC04NukeSilo2: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC04NukeSilo2.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeSilo2"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  },
+  {
+   "id": "L3.world.heights.NVDLC01TestMap01",
+   "layer": 3,
+   "description": "Terrain heights of every landscape cell in NVDLC01TestMap01: min, max, mean, corners, centre.",
+   "oracle": {
+    "golden": "world/NVDLC01TestMap01.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "world",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01TestMap01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.001,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "world",
+    "terrain",
+    "M3"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,264 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless fail path: Mr. House killed at his life-support chamber during The House Always Wins VIII; VMQHouse8 fails at stage 200 and House's line goes bust (VMQHouseFail)",
+  "given": [
+    {
+      "kind": "menu",
+      "menu": 1001,
+      "open": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQ01",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQTops",
+      "running": true,
+      "completed": true,
+      "stage": 80,
+      "done": [
+        10,
+        20,
+        30,
+        40,
+        42,
+        43,
+        80
+      ],
+      "objectives": [
+        {
+          "index": 40,
+          "displayed": true,
+          "completed": true
+        }
+      ]
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventBennySeen",
+      "value": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventBennyKilledCasino",
+      "value": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventVisitsLucky38",
+      "value": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryState",
+      "value": 20
+    },
+    {
+      "kind": "ref",
+      "ref": "0x00101CA0",
+      "dead": true
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "VPlatinumChip",
+      "count": 1
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse1",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse2",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse3",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse4",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse5",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse6",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse7",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQHouse8",
+      "running": true,
+      "completed": false,
+      "stage": 0,
+      "objectives": [
+        {
+          "index": 80,
+          "displayed": true,
+          "completed": false
+        }
+      ]
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventSecuritronsFort",
+      "value": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventSecuritronsUpgraded",
+      "value": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventLucky38Relit",
+      "value": 1
+    }
+  ],
+  "actions": [
+    {
+      "op": "note",
+      "text": "Starts at the last of House's tasks (The House Always Wins VIII, VMQHouse8 objective 80: House's 'loose ends' talk done, the dam not yet chosen); I-VII done (given; house.actions.json walks them), Benny killed at the Tops. The player turns on House at the very end: the same control-room terminal path as fail-house-killed.actions.json."
+    },
+    {
+      "op": "note",
+      "text": "The player rides down to the control room under the penthouse (travel stand-in), unseals House's chamber at the control terminal, waits out the pod's timer (L38TimerQuest) and kills him by disabling the cerebral interface. The terminal entry sets VStoryEventMrHouseNeutralized and VMQHouseFail 1."
+    },
+    {
+      "op": "go_to_cell",
+      "cell": "Lucky38ControlRoom"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "terminal",
+      "target": "0x0014B271",
+      "item": 0,
+      "label": "unseal chamber"
+    },
+    {
+      "op": "terminal",
+      "target": "0x0014B271",
+      "menu": "0x0015C1A5",
+      "item": 0,
+      "label": "unseal confirm"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 20
+    },
+    {
+      "op": "terminal",
+      "target": "0x0014B271",
+      "item": 2,
+      "label": "cerebral interface"
+    },
+    {
+      "op": "terminal",
+      "target": "0x0014B271",
+      "menu": "0x0015C1BC",
+      "item": 0,
+      "label": "cerebral interface confirm"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 5
+    },
+    {
+      "op": "get_global",
+      "name": "VStoryEventMrHouseNeutralized",
+      "label": "milestone: House neutralized"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQHouseFail",
+      "fields": [
+        "running",
+        "failed",
+        "stage",
+        "done.1",
+        "done.5"
+      ],
+      "label": "fail: VMQHouseFail 5 (House's line has gone bust)"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQHouse8",
+      "fields": [
+        "running",
+        "failed",
+        "stage",
+        "done.200"
+      ],
+      "label": "final: VMQHouse8 200 (failed)"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQHouse1",
+      "fields": [
+        "completed",
+        "failed",
+        "var.RefusedChip"
+      ],
+      "label": "House's line marked refused (VMQHouse1.RefusedChip)"
+    }
+  ]
+}

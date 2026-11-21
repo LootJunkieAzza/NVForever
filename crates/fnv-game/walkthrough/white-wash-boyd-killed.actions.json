@@ -1,0 +1,180 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless The White Wash (VMS11) failed: Lieutenant Boyd killed while the quest runs (140)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: as white-wash does, Boyd at McCarran asks the player to look into Corporal White (10); the player then kills her (VFreeformMcCarranBoydSCRIPT, VMS11 running: 140, Fail Quest). Copied from white-wash.actions.json up to Boyd's request. Stand-ins: travel by move_player; the fight by kill."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel between McCarran, the Strip, the Sharecropper Farms and Westside: move_player to each speaker."
+  },
+  {
+   "op": "note",
+   "text": "Boyd tells of his missing soldiers only once the player is looking into the McCarran break-ins for Captain Curtis (VMS08 bCurtisSentPlayerToInvestigate): Colonel Hsu asks for help (VMS08 started, bHsuGaveQuest), Curtis sends the player to ask around (VMS08 objective 20)."
+  },
+  {
+   "op": "move_player",
+   "to": "ColonelHsuREF"
+  },
+  {
+   "op": "talk",
+   "actor": "ColonelHsuREF",
+   "label": "hsu asks"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08ColonelHsuTopic000",
+   "label": "hsu asks 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08ColonelHsuTopic032",
+   "label": "hsu asks 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08ColonelHsuTopic006",
+   "label": "hsu asks 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "CaptainCurtisREF"
+  },
+  {
+   "op": "talk",
+   "actor": "CaptainCurtisREF",
+   "label": "curtis investigate"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08CaptainCurtisHsuSentMe",
+   "label": "curtis investigate 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08CaptainCurtisTopic027",
+   "label": "curtis investigate 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS08",
+   "fields": [
+    "running",
+    "var.bCurtisSentPlayerToInvestigate",
+    "objective.20.displayed"
+   ],
+   "label": "spell on you: asked around"
+  },
+  {
+   "op": "move_player",
+   "to": "LieutenantBoydREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LieutenantBoydREF",
+   "label": "boyd missing"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran2LieutenantBoydTopic002",
+   "label": "boyd missing 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran2LieutenantBoydMissing",
+   "label": "boyd missing 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran2LieutenantBoydTopic016",
+   "label": "boyd missing 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran2LieutenantBoydWhiteWash",
+   "label": "boyd missing 4"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "var.bHeardAboutWhite"
+   ],
+   "label": "heard about white"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS11 10"
+  },
+  {
+   "op": "move_player",
+   "to": "LieutenantBoydREF"
+  },
+  {
+   "op": "kill",
+   "target": "LieutenantBoydREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "LieutenantBoydREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "LieutenantBoydREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "stage",
+    "done.140",
+    "failed"
+   ],
+   "label": "fail: VMS11 140"
+  }
+ ]
+}

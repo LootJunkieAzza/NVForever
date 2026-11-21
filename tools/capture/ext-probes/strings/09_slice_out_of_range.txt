@@ -1,0 +1,19 @@
+scn ExtProbeStrings09
+; one edge-case probe moved out of 02 (tools/capture/ext-probes/strings/README.md)
+string_var sS
+string_var sT
+array_var aA
+int iI
+float fF
+ref rRef
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|strings/ExtProbeStrings09|begin"
+    let sS := "abcdef"
+    Print "EXTPROBE|slice.out_of_range|[" + (sS[4:10]) + "]"
+    Print "EXTPROBE|strings/ExtProbeStrings09|end"
+End

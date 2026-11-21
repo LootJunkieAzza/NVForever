@@ -1,0 +1,19 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "jip_check",
+ "title": "A short check that every JIP-tier probe compiles and answers (docs/spec-notes/ai-observer-jip.md section 3): the Goodsprings gunfight (save nvfCombatTown) for half a game hour, every 15 game loops, with the fight events and the hit details",
+ "save": "nvfCombatTown",
+ "defaults": {
+  "jip": true,
+  "every": 15,
+  "depth": 2,
+  "events": "fight",
+  "console_first": ["tgm"],
+  "track": ["SunnyRef", "TrudyRef", "GSChetRef", "GSJoeCobbRef", "GSVictorRef", "GoodspringsSettler01Ref",
+            "GSPG01Ref", "GSPG02Ref", "GSPG03Ref"]
+ },
+ "sessions": [
+  {"name": "gunfight", "hours": 0.5, "settle_frames": 1,
+   "walk": {"to": "SunnyRef", "within": 200, "follow": true, "approach": 0, "max_frames": 0}}
+ ]
+}

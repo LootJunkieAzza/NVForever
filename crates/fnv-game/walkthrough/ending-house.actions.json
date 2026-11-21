@@ -1,0 +1,23 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless main-quest chain: the end slides (VEnding) from VHDHouseBattle 100 (House ending) through the narrator's SayTo chain to FadeToCreditsTimer and ExitGame; docs/handoff/mq-walkthrough-2026-10-27.md",
+  "given": [
+    {"kind": "quest", "quest": "VCG01", "running": false, "completed": true, "stage": 200, "done": [200]},
+    {"kind": "quest", "quest": "VHDHouseBattle", "running": true, "completed": false, "stage": 90, "done": [10, 20, 30, 40, 50, 90]}
+  ],
+  "actions": [
+    {"op": "note", "text": "Joins where All or Nothing's last stage, 100 (House told of the victory), sets the story-event global to 63 (the House ending) and starts VEnding. Set here directly so this chain runs alone."},
+    {"op": "set_stage", "quest": "VHDHouseBattle", "stage": 100},
+    {"op": "get_global", "name": "0x00118ABC", "label": "milestone: ending global (63 = House)"},
+    {"op": "advance_seconds", "seconds": 2},
+    {"op": "get_quest", "quest": "VEnding", "fields": ["running", "var.bstartslideshow"], "label": "milestone: VEnding started"},
+    {"op": "get_ref", "of": "player", "label": "player moved to the slideshow marker"},
+    {"op": "note", "text": "VEnding's quest script moves the player into the slideshow room; the player lands in its trigger (OnTriggerEnter: physics sensors stand in), which starts the narrator's first SayTo (VEndingIntro)."},
+    {"op": "trigger_enter", "trigger": "scripted:0x00161E53"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "note", "text": "From here the narrator's object script chains every slide: each SayToDone block picks the next slide topic by the ending and the world's state, up to VEndingConclusion, whose SayToDone starts FadeToCreditsTimer; its script fades out after 7.8 s and calls ExitGame. Voice lengths time the lines (the runner reads the voice files' lengths). At most 30 minutes of game time."},
+    {"op": "wait_quest", "quest": "FadeToCreditsTimer", "field": "running", "value": true, "max_frames": 108000, "label": "milestone: VEndingConclusion said, credits timer started"},
+    {"op": "advance_seconds", "seconds": 10},
+    {"op": "get_quest", "quest": "FadeToCreditsTimer", "fields": ["running", "var.bfadeoutdone"], "label": "final: FadeToCreditsTimer faded out (ExitGame called)"}
+  ]
+}

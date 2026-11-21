@@ -1,0 +1,107 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "followers_combat_jip",
+ "title": "JIP tier, state only (docs/handoff/observer-jip-audit-2026-10-25.md Q21): Boone hired, then two coyotes set on the player: Boone's combat targets and allies before and after the coyotes' OnStartCombat",
+ "save": "nvftest",
+ "defaults": {
+  "every": 10,
+  "depth": 1,
+  "settle_frames": 120,
+  "track": [
+   "CraigBooneREF"
+  ],
+  "jip": true
+ },
+ "sessions": [
+  {
+   "name": "hire_out",
+   "go": {
+    "coc": "NovacBoonesRoom"
+   },
+   "hours": 0.3,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do": [
+    [
+     "{0}.MoveTo player 0 150 0",
+     "CraigBooneREF"
+    ],
+    "set VNPCFollowers.bBooneHired to 1",
+    [
+     "{0}.SetPlayerTeammate 1",
+     "CraigBooneREF"
+    ],
+    [
+     "{0}.EvaluatePackage",
+     "CraigBooneREF"
+    ]
+   ],
+   "events": "packages",
+   "timed": [
+    {
+     "after": 1,
+     "script": {
+      "lines": [
+       "if {0}.GetCurrentPackage != {1}",
+       "  {0}.AddScriptPackage {1}",
+       "endif"
+      ],
+      "names": [
+       "CraigBooneREF",
+       "FollowersBooneFollowPlayerDEFAULT"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "do": [
+      "{0}.Activate player",
+      "0x000CED40"
+     ]
+    },
+    {
+     "after": 420,
+     "repeat": true,
+     "script": {
+      "lines": [
+       "if {0}.GetCurrentPackage != {1}",
+       "  {0}.AddScriptPackage {1}",
+       "endif"
+      ],
+      "names": [
+       "CraigBooneREF",
+       "FollowersBooneFollowPlayerDEFAULT"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "combat",
+   "hours": 0.5,
+   "events": "fight",
+   "do_first": [
+    [
+     "{0}.AddScriptPackage {1}",
+     "CraigBooneREF",
+     "FollowersBooneFollowPlayerDEFAULT"
+    ]
+   ],
+   "place": [
+    {
+     "base": "VCrTier1CoyoteMed",
+     "count": 2,
+     "distance": 600,
+     "offset": [
+      0,
+      600,
+      0
+     ],
+     "attack": "player"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,50 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "An item's OnAdd and GameMode blocks: a jar of pistol powder added to the player",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x0016665D",
+      "count": 0
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x00140AB2",
+      "count": 0
+    }
+  ],
+  "actions": [
+    {
+      "op": "add_item_read",
+      "to": "player",
+      "item": "0x0016665D",
+      "count": 1,
+      "read": [
+        "0x0016665D",
+        "0x00140AB2"
+      ],
+      "label": "counts in the script that added the jar"
+    },
+    {
+      "op": "sample_items",
+      "of": "player",
+      "items": [
+        "0x0016665D",
+        "0x00140AB2"
+      ],
+      "frames": 20,
+      "label": "counts after the jar"
+    },
+    {
+      "op": "remove_item",
+      "from": "player",
+      "item": "0x00140AB2",
+      "count": 200
+    }
+  ]
+}

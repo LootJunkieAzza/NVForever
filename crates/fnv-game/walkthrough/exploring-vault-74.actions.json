@@ -1,0 +1,22 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Exploring Vault 74 (VT74): from the trigger inside the vault (10) to the overseer's note carried out (100, complete)",
+ "given": [],
+ "actions": [
+  {"op": "note", "text": "Path: walking into Vault 74 (VT74stage10triggerSCRIPT, OnTriggerEnter by the player) sets 10; the player takes the overseer's note (VT74aQuestNote) from the Overseer's Office; standing in the end trigger with the note (VT74EndTRIG, OnTrigger) sets 100 (Complete Quest, 100 XP). Stand-ins: travel by move_player; the walks into the two triggers by trigger_enter; the vault's ghouls are not fought."},
+  {"op": "move_player", "to": "scripted:VT74stage10triggerSCRIPT"},
+  {"op": "trigger_enter", "trigger": "scripted:VT74stage10triggerSCRIPT", "actor": "player", "event": "enter"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "get_quest", "quest": "VT74", "fields": ["running", "stage", "done.10", "objective.10.displayed"], "label": "milestone: VT74 10"},
+  {"op": "note", "text": "Stand-in for the walk to the Overseer's Office: the player picks the note up (its default activation)."},
+  {"op": "move_player", "to": "placed:VT74aQuestNote"},
+  {"op": "activate", "actor": "player", "target": "placed:VT74aQuestNote"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "call", "line": "player.GetHasNote VT74aQuestNote", "label": "note carried"},
+  {"op": "note", "text": "Stand-in for the walk back into the end trigger: the player is in it this frame (OnTrigger)."},
+  {"op": "move_player", "to": "scripted:VT74EndTRIG"},
+  {"op": "trigger_enter", "trigger": "scripted:VT74EndTRIG", "actor": "player", "event": "inside"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "get_quest", "quest": "VT74", "fields": ["stage", "done.100", "completed"], "label": "final: VT74 100"}
+ ]
+}

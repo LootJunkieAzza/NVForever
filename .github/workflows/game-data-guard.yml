@@ -1,0 +1,65 @@
+name: game-data-guard
+
+# The charter (CLAUDE.md) says no game data is ever committed. .gitignore blocks the
+# usual files, but `git add -f` or an edited .gitignore gets past it, so this check looks
+# at what the branch actually tracks. The patterns live here, not in .gitignore, so a
+# pull request cannot loosen them. It runs on every pull request, docs-only ones too.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: No game files or built programs are tracked
+        run: |
+          found=$(git ls-files -- \
+            ':(icase)*.esm' ':(icase)*.esp' ':(icase)*.esl' ':(icase)*.bsa' \
+            ':(icase)*.nif' ':(icase)*.kf' ':(icase)*.dds' ':(icase)*.egm' \
+            ':(icase)*.egt' ':(icase)*.tri' ':(icase)*.lip' ':(icase)*.ogg' \
+            ':(icase)*.wav' ':(icase)*.mp3' ':(icase)*.fos' ':(icase)*.spt' \
+            ':(icase)*.bik' ':(icase)*.fnt' ':(icase)*.sdp' ':(icase)*.nam' \
+            ':(icase)*.exe' ':(icase)*.dll' ':(icase)*.bundle' \
+            'goldens/*' 'parity-lab/goldens/*' '*lab.local.json' '*baseline.json' \
+            ':(icase)*nvforever-*.png' ':(icase)*nvf-screenshot-*.png' 'pr-pictures/*')
+          if [ -n "$found" ]; then
+            echo "::error::These files must not be committed (game data, goldens, lab baselines, screenshots or binaries):"
+            echo "$found"
+            exit 1
+          fi
+      # LEGAL.md promises no screenshots or frames rendered from game data, and a texture
+      # taken out of an archive can be saved as any image type. Images are refused
+      # everywhere except the app's own icons and the vendored Bevy sources; add a new
+      # image of NVForever's own here by its path, in the pull request that adds it.
+      - name: No images outside the allow-list
+        run: |
+          found=$(git ls-files -- \
+            ':(icase)*.png' ':(icase)*.tga' ':(icase)*.bmp' ':(icase)*.jpg' \
+            ':(icase)*.jpeg' ':(icase)*.gif' ':(icase)*.webp' ':(icase)*.tif' \
+            ':(icase)*.tiff' ':(icase)*.hdr' ':(icase)*.exr' ':(icase)*.ico' \
+            ':(exclude)engine/nvforever/assets/icon.png' \
+            ':(exclude)engine/nvforever/assets/nvforever.ico' \
+            ':(exclude)crates/nvf-launcher/assets/icon-64.png' \
+            ':(exclude)crates/nvf-launcher/assets/logo-256.png' \
+            ':(exclude)crates/nvf-launcher/assets/nvf-launcher.ico' \
+            ':(exclude)engine/vendor/*')
+          if [ -n "$found" ]; then
+            echo "::error::Images may be screenshots or textures from the game; only the allow-list in game-data-guard.yml is accepted:"
+            echo "$found"
+            exit 1
+          fi
+      - name: No file over 5 MB
+        run: |
+          big=$(git ls-files -z | xargs -0 -r stat -c '%s %n' | awk '$1 > 5*1024*1024')
+          if [ -n "$big" ]; then
+            echo "::error::Files over 5 MB (game-derived dumps or binaries?):"
+            echo "$big"
+            exit 1
+          fi

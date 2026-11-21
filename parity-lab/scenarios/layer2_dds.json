@@ -1,0 +1,305 @@
+{
+ "scenarios": [
+  {
+   "id": "L2.dds.listing.Fallout - Textures",
+   "layer": 2,
+   "description": "Every texture in Fallout - Textures.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/Fallout - Textures.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/Fallout - Textures.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.Fallout - Textures2",
+   "layer": 2,
+   "description": "Every texture in Fallout - Textures2.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/Fallout - Textures2.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/Fallout - Textures2.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.Update",
+   "layer": 2,
+   "description": "Every texture in Update.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/Update.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/Update.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.DeadMoney - Main",
+   "layer": 2,
+   "description": "Every texture in DeadMoney - Main.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/DeadMoney - Main.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/DeadMoney - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.HonestHearts - Main",
+   "layer": 2,
+   "description": "Every texture in HonestHearts - Main.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/HonestHearts - Main.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/HonestHearts - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L2.dds.listing.OldWorldBlues - Main",
+   "layer": 2,
+   "description": "Every texture in OldWorldBlues - Main.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/OldWorldBlues - Main.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/OldWorldBlues - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.LonesomeRoad - Main",
+   "layer": 2,
+   "description": "Every texture in LonesomeRoad - Main.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/LonesomeRoad - Main.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/LonesomeRoad - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.GunRunnersArsenal - Main",
+   "layer": 2,
+   "description": "Every texture in GunRunnersArsenal - Main.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/GunRunnersArsenal - Main.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/GunRunnersArsenal - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.CaravanPack - Main",
+   "layer": 2,
+   "description": "Every texture in CaravanPack - Main.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/CaravanPack - Main.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/CaravanPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.ClassicPack - Main",
+   "layer": 2,
+   "description": "Every texture in ClassicPack - Main.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/ClassicPack - Main.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/ClassicPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.MercenaryPack - Main",
+   "layer": 2,
+   "description": "Every texture in MercenaryPack - Main.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/MercenaryPack - Main.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/MercenaryPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  },
+  {
+   "id": "L2.dds.listing.TribalPack - Main",
+   "layer": 2,
+   "description": "Every texture in TribalPack - Main.bsa: dimensions, format, mip levels, faces and payload size vs layout.",
+   "oracle": {
+    "golden": "dds/TribalPack - Main.bsa.dds.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "dds",
+     "list",
+     "{data_dir}/TribalPack - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path"
+   },
+   "tags": [
+    "dds",
+    "M2"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,3 @@
+; #1833: the compass strip moved a quarter turn on by SetUITexOffset and masked by
+; SetUIAlphaMap with the HUD's hit gradient (alpha from 255 at the left to about 26).
+PrintC "nvf compass texoffset set %g %g", (SetUITexOffset "HUDMainMenu/HitPoints/compass_window" 0.25 0), (SetUIAlphaMap "HUDMainMenu/HitPoints/compass_window" "interface\hud\hitgradientleft.dds")

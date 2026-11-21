@@ -1,0 +1,7 @@
+scn ExtCase06
+int iA
+Begin GameMode
+    if eval !(PlayerREF.GetDead)
+        let iA := 1
+    endif
+End

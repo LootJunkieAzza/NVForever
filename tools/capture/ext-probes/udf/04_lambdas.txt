@@ -1,0 +1,34 @@
+scn ExtProbeUdf04
+; lambdas reading and changing the parent's variables (tools/capture/ext-probes/udf/README.md)
+int iI
+int iR
+int iP
+ref rL
+ref rRef
+string_var sS
+array_var aA
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|udf/ExtProbeUdf04|begin"
+    let iP := 5
+    let rL := {} => iP += 1
+    let iR := Call rL
+    Print "EXTPROBE|lambda.changes_parent|" + $iP
+    Print "EXTPROBE|lambda.result|" + $iR
+    let rL := {} => iP * 2
+    Print "EXTPROBE|lambda.reads_parent|" + $(Call rL)
+    let iI := 0
+    let rL := {iI} => iP += iI
+    let iR := Call rL 10
+    Print "EXTPROBE|lambda.param|" + $iP
+    let rL := (begin function {}
+        let iP := 100
+    end)
+    let iR := Call rL
+    Print "EXTPROBE|lambda.block|" + $iP
+    Print "EXTPROBE|udf/ExtProbeUdf04|end"
+End

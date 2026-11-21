@@ -1,0 +1,74 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Quest script delay, flag set, DATA delay 0 (L38TimerQuest)",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "L38TimerQuest",
+      "running": false,
+      "vars": {
+        "Timer": 0,
+        "open": 1
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_quest_var",
+      "quest": "L38TimerQuest",
+      "var": "Timer",
+      "value": 100000
+    },
+    {
+      "op": "sample_var",
+      "quest": "L38TimerQuest",
+      "var": "Timer",
+      "frames": 120,
+      "label": "L38TimerQuest timer while stopped"
+    },
+    {
+      "op": "get_quest",
+      "quest": "L38TimerQuest",
+      "label": "L38TimerQuest before StartQuest",
+      "fields": [
+        "running",
+        "stage"
+      ]
+    },
+    {
+      "op": "start_quest",
+      "quest": "L38TimerQuest"
+    },
+    {
+      "op": "sample_var",
+      "quest": "L38TimerQuest",
+      "var": "Timer",
+      "frames": 1500,
+      "runs": 3,
+      "skip": 1,
+      "label": "L38TimerQuest timer while running"
+    },
+    {
+      "op": "get_quest",
+      "quest": "L38TimerQuest",
+      "label": "L38TimerQuest while running",
+      "fields": [
+        "running",
+        "stage"
+      ]
+    },
+    {
+      "op": "stop_quest",
+      "quest": "L38TimerQuest"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "L38TimerQuest",
+      "var": "Timer",
+      "value": 0
+    }
+  ]
+}

@@ -1,0 +1,291 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "melee_holdoff_npc",
+ "title": "npc-behaviour-compare.md sections 8.4 and 13 (plugin version 9, save nvftest, one run): the NPC half of melee_holdoff, which did not engage in nvfstrip. Do NCR troopers with melee weapons hold off a normal player outdoors? Spot A is melee_spacing's (cow -12 15, then onto Violet's dog 0x000F573F, where god-mode attackers stopped 147-177 units off, section 3); spot B is south of Cook-Cook's camp (cow -11 17, creature_spacing's spot), away from the dogs. killall in console_first (round 3 and the first round 4 try ran it in do_first, just before the spawn: the trooper then stood in procedure 11 (FOLLOW) and StartCombat did not take; melee_spacing and gun_reach, whose troopers fought, ran it in console_first), then one trooper at a time spawned 700 units off and set on the player, a knife (control) and a sledgehammer. The player is NOT in god mode; Health is restored every 30 game loops so a death does not reload the save. The last two sessions turn tgm on (it stays on) as the control at each spot. Every game loop, the fight field set and the fight events. Second run: '_late' sessions set the trooper on the player with attack_late (StartCombat 30 game loops after the offset's MoveTo); a_knife_normal keeps the single scan as the control and b_knife_nooffset spawns without an offset.",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 1,
+  "depth": 1,
+  "settle_frames": 120,
+  "events": "fight",
+  "hours": 0.25
+ },
+ "sessions": [
+  {
+   "name": "arrive_a",
+   "hours": 0.02,
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -12,
+     15
+    ]
+   },
+   "note": "arrival only, so the next session's killall reaches the spot's actors (as gun_reach)",
+   "do": [
+    [
+     "player.MoveTo {0}",
+     "0x000F573F"
+    ]
+   ],
+   "console_first": [
+    "killall"
+   ]
+  },
+  {
+   "name": "a_knife_normal",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ],
+   "console_first": [
+    "killall"
+   ],
+   "note": "as gun_reach (killall in console_first, offset, StartCombat in the same scan as the MoveTo)"
+  },
+  {
+   "name": "a_knife_late",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapKnife",
+     "attack_late": true
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ],
+   "console_first": [
+    "killall"
+   ]
+  },
+  {
+   "name": "a_sledge_late",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapSledgehammer",
+     "attack_late": true
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ],
+   "console_first": [
+    "killall"
+   ]
+  },
+  {
+   "name": "arrive_b",
+   "hours": 0.02,
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "note": "arrival only, so the next session's killall reaches the spot's actors (as gun_reach)",
+   "console_first": [
+    "killall"
+   ]
+  },
+  {
+   "name": "b_knife_late",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapKnife",
+     "attack_late": true
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ],
+   "console_first": [
+    "killall"
+   ]
+  },
+  {
+   "name": "b_sledge_late",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapSledgehammer",
+     "attack_late": true
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ],
+   "console_first": [
+    "killall"
+   ]
+  },
+  {
+   "name": "b_knife_nooffset",
+   "note": "fallback as fights_round's melee sessions, which fought: no offset (PlaceAtMe's distance only)",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "attack": "player",
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "b_sledge_tgm_late",
+   "console_first": [
+    "tgm",
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapSledgehammer",
+     "attack_late": true
+    }
+   ]
+  },
+  {
+   "name": "arrive_a2",
+   "hours": 0.02,
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -12,
+     15
+    ]
+   },
+   "note": "arrival only, so the next session's killall reaches the spot's actors (as gun_reach)",
+   "do": [
+    [
+     "player.MoveTo {0}",
+     "0x000F573F"
+    ]
+   ],
+   "console_first": [
+    "killall"
+   ]
+  },
+  {
+   "name": "a_sledge_tgm_late",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "offset": [
+      0,
+      700,
+      0
+     ],
+     "attack": "player",
+     "arm": "WeapSledgehammer",
+     "attack_late": true
+    }
+   ],
+   "console_first": [
+    "killall"
+   ]
+  }
+ ]
+}

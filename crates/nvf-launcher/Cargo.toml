@@ -26,7 +26,10 @@ serde_json.workspace = true
 # The window (docs/design/launcher.md): egui through eframe on OpenGL (glow), not wgpu, so
 # the launcher stays small and starts on any GPU driver. MIT/Apache-2.0. No `accesskit` (screen
 # readers) yet: on Linux it brings zbus/zvariant, unmaintained (RustSec), which deny.toml refuses.
-eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+# `clipboard` is not default-features-false optional: without it egui keeps a copy/paste buffer of
+# its own, so text cannot pass between the launcher and other programs (#3066). egui-winit's
+# clipboard on Linux is arboard (X11) and smithay-clipboard (Wayland); neither brings zbus.
+eframe = { version = "0.37", default-features = false, features = ["clipboard", "default_fonts", "glow", "wayland", "x11"] }
 # Pictures (the logo, the newest save's thumbnail, news images) through egui's image loader.
 egui_extras = { version = "0.37", default-features = false, features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }

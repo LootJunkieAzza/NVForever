@@ -1,0 +1,125 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Layer 5 round 3 held-out scenario B",
+  "save": "nvfdoc",
+  "given": [
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x00040DCB",
+      "count": 0
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x000E2F6D",
+      "count": 0
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x0007EA1B",
+      "count": 0
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x0000000F",
+      "count": 18
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Nighteye",
+      "value": 0
+    }
+  ],
+  "actions": [
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "0x00040DCB",
+      "count": 1
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "0x000E2F6D",
+      "count": 1
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "0x0007EA1B",
+      "count": 1
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x00040DCB",
+      "read": [
+        {
+          "item": "0x0000000F"
+        },
+        {
+          "item": "0x00040DCB"
+        }
+      ],
+      "label": "item 1 used"
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x000E2F6D",
+      "read": [
+        {
+          "av": "Nighteye"
+        },
+        {
+          "item": "0x000E2F6D"
+        }
+      ],
+      "stopwatch": true,
+      "label": "item 2 used"
+    },
+    {
+      "op": "wait_frames",
+      "frames": 600
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x0007EA1B",
+      "read": [
+        {
+          "av": "Nighteye"
+        }
+      ],
+      "label": "item 3 used"
+    },
+    {
+      "op": "wait_av",
+      "of": "player",
+      "av": "Nighteye",
+      "value": 0,
+      "max_frames": 20000,
+      "label": "first end"
+    },
+    {
+      "op": "set_av",
+      "of": "player",
+      "name": "Nighteye",
+      "value": 1
+    },
+    {
+      "op": "wait_av",
+      "of": "player",
+      "av": "Nighteye",
+      "value": 0,
+      "max_frames": 3000,
+      "label": "second end"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+scn ExtUdfTwice
+; function script for tools/capture/ext-probes/udf/README.md
+Begin Function { }
+    SetFunctionValue 1
+    SetFunctionValue 2
+End

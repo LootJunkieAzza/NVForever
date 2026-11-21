@@ -1,0 +1,259 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "gaps11",
+ "title": "gaps11, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (Floor ((rDoc.GetAngle Z) * 100))\nEnd\n",
+   "label": "posex.doc.anglez",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rDoc.GetPos X\nlet fAy := rDoc.GetPos Y\nrDoc.SetPosEx 0 10 0 1\nlet fAx := Floor ((rDoc.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rDoc.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.doc.y10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rDoc.GetPos X\nlet fAy := rDoc.GetPos Y\nrDoc.SetPosEx 0 -10 0 1\nlet fAx := Floor ((rDoc.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rDoc.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.doc.y10.back",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rDoc.GetPos X\nlet fAy := rDoc.GetPos Y\nrDoc.SetPosEx 10 0 0 1\nlet fAx := Floor ((rDoc.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rDoc.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.doc.x10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rDoc.GetPos X\nlet fAy := rDoc.GetPos Y\nrDoc.SetPosEx -10 0 0 1\nlet fAx := Floor ((rDoc.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rDoc.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.doc.x10.back",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rDoc.GetPos X\nlet fAy := rDoc.GetPos Y\nrDoc.SetPosEx 10 10 0 1\nlet fAx := Floor ((rDoc.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rDoc.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.doc.xy",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rDoc.GetPos X\nlet fAy := rDoc.GetPos Y\nrDoc.SetPosEx -10 -10 0 1\nlet fAx := Floor ((rDoc.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rDoc.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.doc.xy.back",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fRes := rPlayer.GetAngle Z\nrPlayer.AuxVarSetFlt \"*nvfAZ\" fRes\nSetFunctionValue (Floor (fRes * 100))\nEnd\n",
+   "label": "posex.player.anglez",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nrPlayer.SetAngle Z 90\nSetFunctionValue (Floor ((rPlayer.GetAngle Z) * 100))\nEnd\n",
+   "label": "posex.player.turn",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "posex.player.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nrPlayer.SetPosEx 0 10 0 1\nlet fAx := Floor ((rPlayer.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rPlayer.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.player.y10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nrPlayer.SetPosEx 0 -10 0 1\nlet fAx := Floor ((rPlayer.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rPlayer.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.player.y10.back",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nrPlayer.SetPosEx 10 0 0 1\nlet fAx := Floor ((rPlayer.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rPlayer.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.player.x10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nrPlayer.SetPosEx -10 0 0 1\nlet fAx := Floor ((rPlayer.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rPlayer.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.player.x10.back",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nrPlayer.SetAngle Z 0\nSetFunctionValue (Floor ((rPlayer.GetAngle Z) * 100))\nEnd\n",
+   "label": "posex.player.turn0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "posex.player.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nrPlayer.SetPosEx 0 10 0 1\nlet fAx := Floor ((rPlayer.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rPlayer.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.player.h0.y10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nrPlayer.SetPosEx 0 -10 0 1\nlet fAx := Floor ((rPlayer.GetPos X) - fAx + 0.5)\nlet fAy := Floor ((rPlayer.GetPos Y) - fAy + 0.5)\nSetFunctionValue (sv_Construct \"%g %g\" fAx fAy)\nEnd\n",
+   "label": "posex.player.h0.y10.back",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nrPlayer.SetAngle Z (rPlayer.AuxVarGetFlt \"*nvfAZ\")\nrPlayer.AuxVarErase \"*nvfAZ\"\nSetFunctionValue (Floor ((rPlayer.GetAngle Z) * 100))\nEnd\n",
+   "label": "posex.player.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nlet fRes := rPlayer.GetItemCount rOther\nrPlayer.AuxVarSetFlt \"*nvfAM\" fRes\nrPlayer.AddItem rObj 1 1\nrPlayer.AddItem rOther 24 1\nrPlayer.EquipItem rObj 0 1\nSetFunctionValue (sv_Construct \"%g %g\" (rPlayer.GetItemCount rObj) fRes)\nEnd\n",
+   "label": "ref.add",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ref.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ref.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ref.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rPlayer.GetEquippedObject 5))\nEnd\n",
+   "label": "ref.equipped",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nSetFunctionValue (GetFormIDString (rObj.GetBaseObject))\nEnd\n",
+   "label": "ref.base",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nSetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth 0) * 100))\nEnd\n",
+   "label": "ref.health.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nSetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth 1) * 100))\nEnd\n",
+   "label": "ref.health.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nSetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth 2) * 100))\nEnd\n",
+   "label": "ref.health.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nlet fRes := rObj.GetItemRefCurrentHealth\nrPlayer.AuxVarSetFlt \"*nvfIH\" fRes\nSetFunctionValue (rObj.SetItemRefCurrentHealth 50)\nEnd\n",
+   "label": "ref.health.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nSetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth) * 100))\nEnd\n",
+   "label": "ref.health.set.read",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nlet fRes := rObj.SetItemRefCurrentHealth 0.5 1\nSetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth) * 100))\nEnd\n",
+   "label": "ref.health.setpct",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nrObj.SetItemRefCurrentHealth (rPlayer.AuxVarGetFlt \"*nvfIH\")\nrPlayer.AuxVarErase \"*nvfIH\"\nSetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth) * 100))\nEnd\n",
+   "label": "ref.health.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nSetFunctionValue (rObj.GetWeaponRefModFlags)\nEnd\n",
+   "label": "ref.modflags",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nSetFunctionValue (rObj.SetWeaponRefModFlags 1)\nEnd\n",
+   "label": "ref.modflags.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nSetFunctionValue (rObj.GetWeaponRefModFlags)\nEnd\n",
+   "label": "ref.modflags.set.read",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rPlayer.EquippedWeaponHasModType 1)\nEnd\n",
+   "label": "ref.modtype.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nlet fRes := rObj.SetWeaponRefModFlags 0\nSetFunctionValue (rObj.GetWeaponRefModFlags)\nEnd\n",
+   "label": "ref.modflags.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nSetFunctionValue (rObj.GetCurrentAmmoRounds)\nEnd\n",
+   "label": "ref.ammo",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rPlayer.GetCurrentAmmoRounds)\nEnd\n",
+   "label": "ref.ammo.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := rPlayer.GetEquippedItemRef 5\nrObj.SetCurrentAmmoRounds 3\nSetFunctionValue (rObj.GetCurrentAmmoRounds)\nEnd\n",
+   "label": "ref.ammo.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rPlayer.GetCurrentAmmoRounds)\nEnd\n",
+   "label": "ref.ammo.set.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fRes := rPlayer.GetCurrentAmmoRounds\nrPlayer.AuxVarSetFlt \"*nvfCR\" fRes\nrPlayer.SetCurrentAmmoRounds 3\nSetFunctionValue (rPlayer.GetCurrentAmmoRounds)\nEnd\n",
+   "label": "ammo.actor.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nrPlayer.SetCurrentAmmoRounds (rPlayer.AuxVarGetFlt \"*nvfCR\")\nrPlayer.AuxVarErase \"*nvfCR\"\nSetFunctionValue (rPlayer.GetCurrentAmmoRounds)\nEnd\n",
+   "label": "ammo.actor.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nrPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\nrPlayer.RemoveItem rOther ((rPlayer.GetItemCount rOther) - (rPlayer.AuxVarGetFlt \"*nvfAM\")) 1\nrPlayer.AuxVarErase \"*nvfAM\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ref.remove",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ref.wait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ref.wait4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (sv_Construct \"%g %g\" (rPlayer.GetItemCount rObj) (rPlayer.GetItemCount rOther))\nEnd\n",
+   "label": "ref.after",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

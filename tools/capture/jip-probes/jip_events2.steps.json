@@ -1,0 +1,226 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip_events2",
+ "title": "jip-events2, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"14DEE2\"\nlet rObj := rObj.GetBaseObject\nlet rA := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef \"*nvfJC\" rA\nSetFunctionValue 1\nEnd\n",
+   "label": "je.place.creature",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rB := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef \"*nvfJN\" rB\nSetFunctionValue 1\nEnd\n",
+   "label": "je.place.npc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.settle0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.settle1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.settle2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.settle3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.settle4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnFireWeaponEventHandler (Begin Function {ref rWp}\n  rP.AuxVarSetFlt \"*nvfJ.fire\" (GetSelf == rP) -1\n  rP.AuxVarSetRef \"*nvfJ.fire.w\" rWp -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "je.reg.fire",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetOnUseAidItemEventHandler (Begin Function {ref rIt}\n  rP.AuxVarSetFlt \"*nvfJ.aid\" (GetSelf == rP) -1\n  rP.AuxVarSetRef \"*nvfJ.aid.i\" rIt -1\nEnd) 1 rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "je.reg.aid",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := rP.AuxVarGetRef \"*nvfJN\"\nSetOnCrippledLimbEventHandler (Begin Function {int iLimb}\n  rP.AuxVarSetFlt \"*nvfJ.cripple\" iLimb -1\nEnd) 1 rB\nSetFunctionValue 1\nEnd\n",
+   "label": "je.reg.cripple",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := rP.AuxVarGetRef \"*nvfJN\"\nSetOnPlayGroupEventHandler (Begin Function {int iGroup}\n  rP.AuxVarSetFlt \"*nvfJ.group\" iGroup -1\nEnd) 1 rB Idle\nSetFunctionValue 1\nEnd\n",
+   "label": "je.reg.playgroup",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfJC\"\nSetOnRagdollEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfJ.ragdoll\" (GetSelf == (rP.AuxVarGetRef \"*nvfJC\")) -1\nEnd) 1\nSetFunctionValue 1\nEnd\n",
+   "label": "je.reg.ragdoll",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnNoteAddedEventHandler (Begin Function {ref rNote}\n  rP.AuxVarSetRef \"*nvfJ.note\" rNote -1\nEnd) 1\nSetFunctionValue 1\nEnd\n",
+   "label": "je.reg.note",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnActorValueChangeEventHandler 1 (Begin Function {int iAV, float fOld, float fNew}\n  rP.AuxVarSetFlt \"*nvfJ.av\" iAV -1\n  rP.AuxVarSetFlt \"*nvfJ.av.d\" (fNew - fOld) -1\nEnd) 0\nSetFunctionValue 1\nEnd\n",
+   "label": "je.reg.av",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.FireWeapon rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "je.do.fire",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nrP.EquipItem rObj 0 1\nSetFunctionValue 1\nEnd\n",
+   "label": "je.do.aid",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := rP.AuxVarGetRef \"*nvfJN\"\nrB.DamageAV LeftAttackCondition 200\nSetFunctionValue 1\nEnd\n",
+   "label": "je.do.cripple",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := rP.AuxVarGetRef \"*nvfJN\"\nrB.PlayGroup Idle 1\nSetFunctionValue 1\nEnd\n",
+   "label": "je.do.playgroup",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"177875\"\nrP.AddNote rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "je.do.note",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.ModAV Health 5\nSetFunctionValue 1\nEnd\n",
+   "label": "je.do.av",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfJC\"\nrA.Kill rP\nSetFunctionValue 1\nEnd\n",
+   "label": "je.do.kill",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.settle.after0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.settle.after1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.settle.after2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.settle.after3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfJ.fire\") > 0)\nEnd\n",
+   "label": "je.fire.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfJ.fire\" 0)\nEnd\n",
+   "label": "je.fire.self",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rP.AuxVarGetRef \"*nvfJ.fire.w\" 0))\nEnd\n",
+   "label": "je.fire.weapon",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfJ.aid\") > 0)\nEnd\n",
+   "label": "je.aid.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfJ.aid\" 0)\nEnd\n",
+   "label": "je.aid.self",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rP.AuxVarGetRef \"*nvfJ.aid.i\" 0))\nEnd\n",
+   "label": "je.aid.item",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfJ.cripple\") > 0)\nEnd\n",
+   "label": "je.cripple.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfJ.cripple\" 0)\nEnd\n",
+   "label": "je.cripple.limb",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfJ.group\") > 0)\nEnd\n",
+   "label": "je.group.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfJ.group\" 0)\nEnd\n",
+   "label": "je.group.index",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfJ.ragdoll\") > 0)\nEnd\n",
+   "label": "je.ragdoll.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfJ.ragdoll\" 0)\nEnd\n",
+   "label": "je.ragdoll.self",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfJ.note\") > 0)\nEnd\n",
+   "label": "je.note.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rP.AuxVarGetRef \"*nvfJ.note\" 0))\nEnd\n",
+   "label": "je.note.form",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfJ.av\") > 0)\nEnd\n",
+   "label": "je.av.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfJ.av\" 0)\nEnd\n",
+   "label": "je.av.code",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfJ.av.d\" 0)\nEnd\n",
+   "label": "je.av.delta",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfJC\"\nlet rB := rP.AuxVarGetRef \"*nvfJN\"\nrA.Disable\nrA.MarkForDelete\nrB.Disable\nrB.MarkForDelete\nrP.ModAV Health -5\nrP.AuxVarErase \"*nvfJC\"\nrP.AuxVarErase \"*nvfJN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "je.cleanup",
+   "field": "value"
+  }
+ ]
+}

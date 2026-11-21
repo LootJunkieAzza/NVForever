@@ -1,0 +1,234 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Arachnophobia (VMS43a): Private Edwards sent off into the wasteland to camp alone (15, 18, 35)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: as camp-searchlight does up to Edwards's first talk (10); the player kills the three radscorpions; Edwards, told (Topic008, then Topic076), is sent off on his own (Topic088: 15, EdwardsToWasteland); he walks out of the camp (CampSearchlightEdwardsLeavingScript: 18) and makes his camp (ActivateEdwardsCamp: 35). Copied from camp-searchlight.actions.json up to Edwards's first talk (VMS43a 10). Stand-ins: travel by move_player; the fights by kill; Edwards's walks (his packages after EvaluatePackage) by trigger_enter with him as the actor."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel to Camp Searchlight and between its houses."
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor first words"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic023",
+   "label": "astor first words 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "move_player",
+   "to": "EdwardsREF"
+  },
+  {
+   "op": "talk",
+   "actor": "EdwardsREF",
+   "label": "edwards"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic042",
+   "label": "edwards 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic043",
+   "label": "edwards 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic063",
+   "label": "edwards 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS43a 10"
+  },
+  {
+   "op": "note",
+   "text": "The three large radscorpions outside Edwards's house (enabled by VMS43a 10, enable parent EdwardsScorpions) are killed; the third death sets ScorpionsGone (CampSearchlightScorpions, GetDeadCount 3). Stand-in for the fight: kill."
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:CampSearchlightScorpions#1"
+  },
+  {
+   "op": "kill",
+   "target": "scripted:CampSearchlightScorpions#1",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "scripted:CampSearchlightScorpions#1",
+   "fields": [
+    "dead"
+   ],
+   "label": "scripted:CampSearchlightScorpions#1 dead"
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:CampSearchlightScorpions#2"
+  },
+  {
+   "op": "kill",
+   "target": "scripted:CampSearchlightScorpions#2",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "scripted:CampSearchlightScorpions#2",
+   "fields": [
+    "dead"
+   ],
+   "label": "scripted:CampSearchlightScorpions#2 dead"
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:CampSearchlightScorpions#3"
+  },
+  {
+   "op": "kill",
+   "target": "scripted:CampSearchlightScorpions#3",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "scripted:CampSearchlightScorpions#3",
+   "fields": [
+    "dead"
+   ],
+   "label": "scripted:CampSearchlightScorpions#3 dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "var.ScorpionsGone"
+   ],
+   "label": "scorpions gone"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the player's own Speech: 60."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 60
+  },
+  {
+   "op": "move_player",
+   "to": "EdwardsREF"
+  },
+  {
+   "op": "talk",
+   "actor": "EdwardsREF",
+   "label": "edwards scorpions gone"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic008"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic076"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic088"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "stage",
+    "done.15",
+    "var.EdwardsToWasteland"
+   ],
+   "label": "milestone: VMS43a 15"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:CampSearchlightEdwardsLeavingScript",
+   "actor": "EdwardsREF"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "stage",
+    "done.18"
+   ],
+   "label": "milestone: VMS43a 18"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:ActivateEdwardsCamp",
+   "actor": "EdwardsREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "stage",
+    "done.35"
+   ],
+   "label": "final: VMS43a 35"
+  }
+ ]
+}

@@ -1,0 +1,183 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip3a",
+ "title": "jip3a, runtime-compiled",
+ "start": "nvftest (read-only: FailQuest changes the session only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetPCMovedCell)\nEnd\n",
+   "label": "jip3a.moved.first",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetPCMovedCell)\nEnd\n",
+   "label": "jip3a.moved.second",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet fRes := 0\nif (GetActorTemplateFlag 1 rObj)\nlet fRes := fRes + 1\nendif\nif (GetActorTemplateFlag 2 rObj)\nlet fRes := fRes + 2\nendif\nif (GetActorTemplateFlag 4 rObj)\nlet fRes := fRes + 4\nendif\nif (GetActorTemplateFlag 8 rObj)\nlet fRes := fRes + 8\nendif\nif (GetActorTemplateFlag 16 rObj)\nlet fRes := fRes + 16\nendif\nif (GetActorTemplateFlag 32 rObj)\nlet fRes := fRes + 32\nendif\nif (GetActorTemplateFlag 64 rObj)\nlet fRes := fRes + 64\nendif\nif (GetActorTemplateFlag 128 rObj)\nlet fRes := fRes + 128\nendif\nif (GetActorTemplateFlag 256 rObj)\nlet fRes := fRes + 256\nendif\nif (GetActorTemplateFlag 512 rObj)\nlet fRes := fRes + 512\nendif\nSetFunctionValue fRes\nEnd\n",
+   "label": "jip3a.tpl.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetIsImmobile rObj)\nEnd\n",
+   "label": "jip3a.immobile.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nlet fRes := 0\nif (GetActorTemplateFlag 1 rObj)\nlet fRes := fRes + 1\nendif\nif (GetActorTemplateFlag 2 rObj)\nlet fRes := fRes + 2\nendif\nif (GetActorTemplateFlag 4 rObj)\nlet fRes := fRes + 4\nendif\nif (GetActorTemplateFlag 8 rObj)\nlet fRes := fRes + 8\nendif\nif (GetActorTemplateFlag 16 rObj)\nlet fRes := fRes + 16\nendif\nif (GetActorTemplateFlag 32 rObj)\nlet fRes := fRes + 32\nendif\nif (GetActorTemplateFlag 64 rObj)\nlet fRes := fRes + 64\nendif\nif (GetActorTemplateFlag 128 rObj)\nlet fRes := fRes + 128\nendif\nif (GetActorTemplateFlag 256 rObj)\nlet fRes := fRes + 256\nendif\nif (GetActorTemplateFlag 512 rObj)\nlet fRes := fRes + 512\nendif\nSetFunctionValue fRes\nEnd\n",
+   "label": "jip3a.tpl.sunny",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetIsImmobile rObj)\nEnd\n",
+   "label": "jip3a.immobile.sunny",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C7C\"\nlet fRes := 0\nif (GetActorTemplateFlag 1 rObj)\nlet fRes := fRes + 1\nendif\nif (GetActorTemplateFlag 2 rObj)\nlet fRes := fRes + 2\nendif\nif (GetActorTemplateFlag 4 rObj)\nlet fRes := fRes + 4\nendif\nif (GetActorTemplateFlag 8 rObj)\nlet fRes := fRes + 8\nendif\nif (GetActorTemplateFlag 16 rObj)\nlet fRes := fRes + 16\nendif\nif (GetActorTemplateFlag 32 rObj)\nlet fRes := fRes + 32\nendif\nif (GetActorTemplateFlag 64 rObj)\nlet fRes := fRes + 64\nendif\nif (GetActorTemplateFlag 128 rObj)\nlet fRes := fRes + 128\nendif\nif (GetActorTemplateFlag 256 rObj)\nlet fRes := fRes + 256\nendif\nif (GetActorTemplateFlag 512 rObj)\nlet fRes := fRes + 512\nendif\nSetFunctionValue fRes\nEnd\n",
+   "label": "jip3a.tpl.ringo",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C7C\"\nSetFunctionValue (GetIsImmobile rObj)\nEnd\n",
+   "label": "jip3a.immobile.ringo",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17498D\"\nlet fRes := 0\nif (GetActorTemplateFlag 1 rObj)\nlet fRes := fRes + 1\nendif\nif (GetActorTemplateFlag 2 rObj)\nlet fRes := fRes + 2\nendif\nif (GetActorTemplateFlag 4 rObj)\nlet fRes := fRes + 4\nendif\nif (GetActorTemplateFlag 8 rObj)\nlet fRes := fRes + 8\nendif\nif (GetActorTemplateFlag 16 rObj)\nlet fRes := fRes + 16\nendif\nif (GetActorTemplateFlag 32 rObj)\nlet fRes := fRes + 32\nendif\nif (GetActorTemplateFlag 64 rObj)\nlet fRes := fRes + 64\nendif\nif (GetActorTemplateFlag 128 rObj)\nlet fRes := fRes + 128\nendif\nif (GetActorTemplateFlag 256 rObj)\nlet fRes := fRes + 256\nendif\nif (GetActorTemplateFlag 512 rObj)\nlet fRes := fRes + 512\nendif\nSetFunctionValue fRes\nEnd\n",
+   "label": "jip3a.tpl.prime",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17498D\"\nSetFunctionValue (GetIsImmobile rObj)\nEnd\n",
+   "label": "jip3a.immobile.prime",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174084\"\nlet fRes := 0\nif (GetActorTemplateFlag 1 rObj)\nlet fRes := fRes + 1\nendif\nif (GetActorTemplateFlag 2 rObj)\nlet fRes := fRes + 2\nendif\nif (GetActorTemplateFlag 4 rObj)\nlet fRes := fRes + 4\nendif\nif (GetActorTemplateFlag 8 rObj)\nlet fRes := fRes + 8\nendif\nif (GetActorTemplateFlag 16 rObj)\nlet fRes := fRes + 16\nendif\nif (GetActorTemplateFlag 32 rObj)\nlet fRes := fRes + 32\nendif\nif (GetActorTemplateFlag 64 rObj)\nlet fRes := fRes + 64\nendif\nif (GetActorTemplateFlag 128 rObj)\nlet fRes := fRes + 128\nendif\nif (GetActorTemplateFlag 256 rObj)\nlet fRes := fRes + 256\nendif\nif (GetActorTemplateFlag 512 rObj)\nlet fRes := fRes + 512\nendif\nSetFunctionValue fRes\nEnd\n",
+   "label": "jip3a.tpl.vet",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174084\"\nSetFunctionValue (GetIsImmobile rObj)\nEnd\n",
+   "label": "jip3a.immobile.vet",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet fRes := 0\nif (GetActorTemplateFlag 1 rObj)\nlet fRes := fRes + 1\nendif\nif (GetActorTemplateFlag 2 rObj)\nlet fRes := fRes + 2\nendif\nif (GetActorTemplateFlag 4 rObj)\nlet fRes := fRes + 4\nendif\nif (GetActorTemplateFlag 8 rObj)\nlet fRes := fRes + 8\nendif\nif (GetActorTemplateFlag 16 rObj)\nlet fRes := fRes + 16\nendif\nif (GetActorTemplateFlag 32 rObj)\nlet fRes := fRes + 32\nendif\nif (GetActorTemplateFlag 64 rObj)\nlet fRes := fRes + 64\nendif\nif (GetActorTemplateFlag 128 rObj)\nlet fRes := fRes + 128\nendif\nif (GetActorTemplateFlag 256 rObj)\nlet fRes := fRes + 256\nendif\nif (GetActorTemplateFlag 512 rObj)\nlet fRes := fRes + 512\nendif\nSetFunctionValue fRes\nEnd\n",
+   "label": "jip3a.tpl.powder",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nSetFunctionValue (GetIsImmobile rObj)\nEnd\n",
+   "label": "jip3a.immobile.powder",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"7B235\"\nSetFunctionValue (GetIsImmobile rObj)\nEnd\n",
+   "label": "jip3a.immobile.turret",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"8F7B0\"\nSetFunctionValue (GetIsImmobile rObj)\nEnd\n",
+   "label": "jip3a.immobile.turret2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fRes := 0\nif (GetActorTemplateFlag 1 (rP.GetBaseObject))\nlet fRes := fRes + 1\nendif\nif (GetActorTemplateFlag 2 (rP.GetBaseObject))\nlet fRes := fRes + 2\nendif\nif (GetActorTemplateFlag 4 (rP.GetBaseObject))\nlet fRes := fRes + 4\nendif\nif (GetActorTemplateFlag 8 (rP.GetBaseObject))\nlet fRes := fRes + 8\nendif\nif (GetActorTemplateFlag 16 (rP.GetBaseObject))\nlet fRes := fRes + 16\nendif\nif (GetActorTemplateFlag 32 (rP.GetBaseObject))\nlet fRes := fRes + 32\nendif\nif (GetActorTemplateFlag 64 (rP.GetBaseObject))\nlet fRes := fRes + 64\nendif\nif (GetActorTemplateFlag 128 (rP.GetBaseObject))\nlet fRes := fRes + 128\nendif\nif (GetActorTemplateFlag 256 (rP.GetBaseObject))\nlet fRes := fRes + 256\nendif\nif (GetActorTemplateFlag 512 (rP.GetBaseObject))\nlet fRes := fRes + 512\nendif\nSetFunctionValue fRes\nEnd\n",
+   "label": "jip3a.pc.tpl",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetIsRagdolled)\nEnd\n",
+   "label": "jip3a.pc.ragdolled",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsCompassHostile)\nEnd\n",
+   "label": "jip3a.pc.compass",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (IsHostilesNearby)\nEnd\n",
+   "label": "jip3a.hostiles.near",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetMenuTargetRef 1009)\nEnd\n",
+   "label": "jip3a.menu.dialogue",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetMenuTargetRef 1008)\nEnd\n",
+   "label": "jip3a.menu.container",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetDebugModeState 1)\nEnd\n",
+   "label": "jip3a.debug.ai.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetDebugModeState 0)\nEnd\n",
+   "label": "jip3a.debug.god.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nConsole \"tai\"\nSetFunctionValue (GetDebugModeState 1)\nEnd\n",
+   "label": "jip3a.debug.tai",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetDebugModeState 1)\nEnd\n",
+   "label": "jip3a.debug.ai.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nConsole \"tai\"\nSetFunctionValue (GetDebugModeState 1)\nEnd\n",
+   "label": "jip3a.debug.tai.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nConsole \"tgm\"\nSetFunctionValue (GetDebugModeState 0)\nEnd\n",
+   "label": "jip3a.debug.tgm",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetDebugModeState 0)\nEnd\n",
+   "label": "jip3a.debug.god.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nConsole \"tgm\"\nSetFunctionValue (GetDebugModeState 0)\nEnd\n",
+   "label": "jip3a.debug.tgm.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"5F8B0\"\nSetFunctionValue (rP.HasEffectShader rObj)\nEnd\n",
+   "label": "jip3a.shader.none",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"38B2\"\nSetFunctionValue (GetQuestFailed rObj)\nEnd\n",
+   "label": "jip3a.quest.failed.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"38B2\"\nFailQuest rObj\nSetFunctionValue (GetQuestFailed rObj)\nEnd\n",
+   "label": "jip3a.quest.fail",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"38B2\"\nSetFunctionValue (GetQuestCompleted rObj)\nEnd\n",
+   "label": "jip3a.quest.completed.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"38B2\"\nSetFunctionValue (GetQuestRunning rObj)\nEnd\n",
+   "label": "jip3a.quest.running.after",
+   "field": "value"
+  }
+ ]
+}

@@ -1,0 +1,152 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_math",
+ "title": "nvse-math, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQFromEuler \"fQw\" \"fQx\" \"fQy\" \"fQz\" 90 0 0\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qfromeuler.x90",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQFromEuler \"fQw\" \"fQx\" \"fQy\" \"fQz\" 0 90 0\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qfromeuler.y90",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQFromEuler \"fQw\" \"fQx\" \"fQy\" \"fQz\" 0 0 90\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qfromeuler.z90",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQFromEuler \"fQw\" \"fQx\" \"fQy\" \"fQz\" 30 45 60\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qfromeuler.xyz",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQFromEuler \"fQw\" \"fQx\" \"fQy\" \"fQz\" 30 45 60 1\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qfromeuler.xyz.pitchyaw",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQFromEulerEx fQw fQx fQy fQz 30 45 60\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qfromeulerex.xyz",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQToEuler \"fQx\" \"fQy\" \"fQz\" 0.7071 0 0 0.7071\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f\" fQx fQy fQz)\nEnd\n",
+   "label": "qtoeuler.z90",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQToEuler \"fQx\" \"fQy\" \"fQz\" 0.8224 0.0222 0.4396 0.3604\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f\" fQx fQy fQz)\nEnd\n",
+   "label": "qtoeuler.xyz",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQToEulerEx fQx fQy fQz 0.7071 0 0 0.7071\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f\" fQx fQy fQz)\nEnd\n",
+   "label": "qtoeulerex.z90",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQMultQuatQuat \"fQw\" \"fQx\" \"fQy\" \"fQz\" 0.7071 0.7071 0 0 0.7071 0 0 0.7071\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qmult.qq",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQMultQuatQuatEx fQw fQx fQy fQz 0.7071 0.7071 0 0 0.7071 0 0 0.7071\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qmultex.qq",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQMultQuatVector3 \"fQx\" \"fQy\" \"fQz\" 0.7071 0 0 0.7071 1 0 0\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f\" fQx fQy fQz)\nEnd\n",
+   "label": "qmult.qv",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQMultQuatVector3Ex fQx fQy fQz 0.7071 0 0 0.7071 1 0 0\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f\" fQx fQy fQz)\nEnd\n",
+   "label": "qmultex.qv",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQNormalize \"fQw\" \"fQx\" \"fQy\" \"fQz\" 2 0 0 2\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qnorm",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQNormalizeEx fQw fQx fQy fQz 2 0 0 2\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qnormex",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQInterpolate \"fQw\" \"fQx\" \"fQy\" \"fQz\" 1 0 0 0 0.7071 0 0 0.7071 0.5\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qinterp.half",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQInterpolate \"fQw\" \"fQx\" \"fQy\" \"fQz\" 1 0 0 0 0.7071 0 0 0.7071 0.5 1\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qinterp.half.sli",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQInterpolateEx fQw fQx fQy fQz 1 0 0 0 0.7071 0 0 0.7071 0.5\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qinterpex.half",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQFromAxisAngle \"fQw\" \"fQx\" \"fQy\" \"fQz\" 0 0 1 90\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qfromaa.z90",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nQFromAxisAngleEx fQw fQx fQy fQz 0 0 1 90\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fQw fQx fQy fQz)\nEnd\n",
+   "label": "qfromaaex.z90",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nV3Normalize \"fQx\" \"fQy\" \"fQz\" 3 0 4\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f\" fQx fQy fQz)\nEnd\n",
+   "label": "v3norm",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nV3NormalizeEx fQx fQy fQz 3 0 4\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f\" fQx fQy fQz)\nEnd\n",
+   "label": "v3normex",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nV3Crossproduct \"fQx\" \"fQy\" \"fQz\" 1 0 0 0 1 0\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f\" fQx fQy fQz)\nEnd\n",
+   "label": "v3cross.xy",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\nV3CrossproductEx fQx fQy fQz 1 0 0 0 1 0\nSetFunctionValue (sv_Construct \"%.4f %.4f %.4f\" fQx fQy fQz)\nEnd\n",
+   "label": "v3crossex.xy",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

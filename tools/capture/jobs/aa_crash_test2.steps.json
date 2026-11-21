@@ -1,0 +1,52 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_crash_test2",
+ "title": "Crash test 2: low TimeScale (a few seconds)",
+ "start": "Any test save.",
+ "steps": [
+  {
+   "console": "set TimeScale to 5"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "TimeScale 5 survived 60 frames",
+   "field": "v"
+  },
+  {
+   "console": "set TimeScale to 2"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "TimeScale 2 survived 60 frames",
+   "field": "v"
+  },
+  {
+   "console": "set TimeScale to 1"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "TimeScale 1 survived 60 frames",
+   "field": "v"
+  },
+  {
+   "console": "set TimeScale to 30"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "TimeScale restored",
+   "field": "v"
+  }
+ ]
+}

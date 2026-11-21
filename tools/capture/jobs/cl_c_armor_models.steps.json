@@ -1,0 +1,651 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "cl_c_armor_models",
+ "title": "Which armour model lies on the ground: pictures (about 2 min, no input)",
+ "start": "nvftest (goes to Goodsprings with cow; noon, clear weather)",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "cow WastelandNV -18 1"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= -73728\n  if player.GetPos X < -69632\n    if player.GetPos Y >= 4096\n      if player.GetPos Y < 8192\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "set GameHour to 12"
+  },
+  {
+   "console": "fw 000FFC88"
+  },
+  {
+   "frames": 600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsSex Female\nSetFunctionValue fV\nEnd\n",
+   "label": "sex before",
+   "field": "female"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rI\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1108607\nlet rI := player.PlaceAtMe rF1 1\nrI.SetPos X -72490\nrI.SetPos Y 4250\nrI.SetPos Z 8362\nrI.SetAngle Z 0\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "male row GamblerMHat01",
+   "field": "ref"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rI\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 132131\nlet rI := player.PlaceAtMe rF1 1\nrI.SetPos X -72430\nrI.SetPos Y 4250\nrI.SetPos Z 8362\nrI.SetAngle Z 0\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "male row ArmorLeather",
+   "field": "ref"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rI\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 979405\nlet rI := player.PlaceAtMe rF1 1\nrI.SetPos X -72370\nrI.SetPos Y 4250\nrI.SetPos Z 8362\nrI.SetAngle Z 0\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "male row OutfitRepublican03",
+   "field": "ref"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rI\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1355860\nlet rI := player.PlaceAtMe rF1 1\nrI.SetPos X -72310\nrI.SetPos Y 4250\nrI.SetPos Z 8362\nrI.SetAngle Z 0\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "male row HatRaul",
+   "field": "ref"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 40\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 40\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "placed_male_far"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_far",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_far",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_far",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_far",
+   "field": "heading"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle X\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_far",
+   "field": "pitch"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_far",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_far",
+   "field": "first_person"
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4170\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 55\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4170\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 55\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "placed_male_near"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_near",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_near",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_near",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_near",
+   "field": "heading"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle X\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_near",
+   "field": "pitch"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_near",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_male_near",
+   "field": "first_person"
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 3800\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z -20\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1108607\nplayer.AddItem rF1 1 1\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 20\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 132131\nplayer.AddItem rF1 1 1\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 3760\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 55\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 3760\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 55\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "dropped_male"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped_male",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped_male",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped_male",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped_male",
+   "field": "heading"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle X\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped_male",
+   "field": "pitch"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped_male",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped_male",
+   "field": "first_person"
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "console": "player.sexchange"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsSex Female\nSetFunctionValue fV\nEnd\n",
+   "label": "sex after",
+   "field": "female"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4400\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rI\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1108607\nlet rI := player.PlaceAtMe rF1 1\nrI.SetPos X -72490\nrI.SetPos Y 4550\nrI.SetPos Z 8362\nrI.SetAngle Z 0\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "female row GamblerMHat01",
+   "field": "ref"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rI\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 132131\nlet rI := player.PlaceAtMe rF1 1\nrI.SetPos X -72430\nrI.SetPos Y 4550\nrI.SetPos Z 8362\nrI.SetAngle Z 0\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "female row ArmorLeather",
+   "field": "ref"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rI\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 979405\nlet rI := player.PlaceAtMe rF1 1\nrI.SetPos X -72370\nrI.SetPos Y 4550\nrI.SetPos Z 8362\nrI.SetAngle Z 0\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "female row OutfitRepublican03",
+   "field": "ref"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rI\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1355860\nlet rI := player.PlaceAtMe rF1 1\nrI.SetPos X -72310\nrI.SetPos Y 4550\nrI.SetPos Z 8362\nrI.SetAngle Z 0\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "female row HatRaul",
+   "field": "ref"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4400\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 40\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4400\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 40\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "placed_female_far"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_far",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_far",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_far",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_far",
+   "field": "heading"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle X\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_far",
+   "field": "pitch"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_far",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_far",
+   "field": "first_person"
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4470\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 55\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4470\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 55\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "placed_female_near"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_near",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_near",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_near",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_near",
+   "field": "heading"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle X\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_near",
+   "field": "pitch"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_near",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "placed_female_near",
+   "field": "first_person"
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 40\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nplayer.SetAngle Z 0\nplayer.SetAngle X 40\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "male_row_seen_as_female"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "male_row_seen_as_female",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "male_row_seen_as_female",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "male_row_seen_as_female",
+   "field": "z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "male_row_seen_as_female",
+   "field": "heading"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle X\nSetFunctionValue fV\nEnd\n",
+   "label": "male_row_seen_as_female",
+   "field": "pitch"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "male_row_seen_as_female",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "male_row_seen_as_female",
+   "field": "first_person"
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "console": "player.sexchange"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsSex Female\nSetFunctionValue fV\nEnd\n",
+   "label": "sex restored",
+   "field": "female"
+  }
+ ]
+}

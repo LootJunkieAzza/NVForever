@@ -1,0 +1,180 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless branch of No Gods, No Masters (VHDIndependentBattle): no Securitron army at the Fort, so the dam's generators are to be blown (stage 25)",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VMQYesMan01",
+      "running": true,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        70,
+        75,
+        80,
+        100
+      ],
+      "vars": {
+        "YesManL38": 1,
+        "bUploaded": 1
+      }
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQYesMan02",
+      "running": true,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQYesMan03",
+      "running": true,
+      "completed": false,
+      "stage": 0,
+      "objectives": [
+        {
+          "index": 90,
+          "displayed": true,
+          "completed": true
+        }
+      ]
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventMrHouseNeutralized",
+      "value": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventSecuritronsUpgraded",
+      "value": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventLucky38Relit",
+      "value": 1
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Speech",
+      "value": 100
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQYesMan01a",
+      "running": true,
+      "completed": false,
+      "stage": 0
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventSecuritronsFort",
+      "value": 0
+    }
+  ],
+  "actions": [
+    {
+      "op": "note",
+      "text": "Branch of dam-panel.actions.json: the Fort's Securitron army was never woken (VStoryEventSecuritronsFort 0, VMQYesMan01a still running: given), so at the dam the control panel in Yes Man's voice greets with the no-army line (Say Once, Goodbye), whose end script sets VHDIndependentBattle 25 (destroy the generators) instead of the army route's 20."
+    },
+    {
+      "op": "note",
+      "text": "Stand-in for the first meeting with Yes Man at the Tops long before: his say-once first greeting is spent, so later greetings are the ones the game would pick."
+    },
+    {
+      "op": "say_info",
+      "info": "0x001164F1",
+      "speaker": "VMQTopsYesManREF"
+    },
+    {
+      "op": "note",
+      "text": "The player is with Yes Man's mainframe in the penthouse and takes the plan of Topic067 (VMQYesMan03 stage 100); his object script saves, shows the point-of-no-return box, and on button 1 moves the player to the dam and sets VHDIndependentBattle 10."
+    },
+    {
+      "op": "go_to_cell",
+      "cell": "Lucky38positionb"
+    },
+    {
+      "op": "say_info",
+      "info": "0x00160723",
+      "speaker": "0x0016A21E"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQYesMan03",
+      "fields": [
+        "completed",
+        "stage",
+        "done.100"
+      ],
+      "label": "milestone: VMQYesMan03 100"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 4
+    },
+    {
+      "op": "press_button",
+      "button": 1
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VHDIndependentBattle",
+      "fields": [
+        "running",
+        "stage",
+        "done.10"
+      ],
+      "label": "milestone: VHDIndependentBattle 10"
+    },
+    {
+      "op": "get_quest",
+      "quest": "vHDBattleController",
+      "fields": [
+        "running",
+        "var.iBattleState"
+      ],
+      "label": "battle controller"
+    },
+    {
+      "op": "note",
+      "text": "Stand-in for the walk from the dam's top into the control room of power plant 01b (the panel's cell, which must be loaded for the consoles' GameMode blocks)."
+    },
+    {
+      "op": "go_to_cell",
+      "cell": "HooverDamIntPowerPlant01b"
+    },
+    {
+      "op": "note",
+      "text": "The control-room panel is a talking activator (VHDControlPanelTalkActivator) that stage 10 gave Yes Man's voice (SetTalkingActivatorActor VMQTopsYesManREF)."
+    },
+    {
+      "op": "talk",
+      "actor": "0x00153FCE",
+      "label": "panel greeting"
+    },
+    {
+      "op": "wait_talk",
+      "label": "panel done"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VHDIndependentBattle",
+      "fields": [
+        "stage",
+        "done.25",
+        "done.20"
+      ],
+      "label": "final: VHDIndependentBattle 25 (destroy the generators)"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+ "schema": "fnv.phys.walk-script/1",
+ "description": "Run down the mountainside west of Goodsprings (heading 137.6) through the plane of the Portal Box CollisionMarker 0x001685B9 (half extents 228.5 x 1 x 1203.2, a thin wall): does a Portal Box marker stop the player (physics.md 4.2)? Starts 120 units uphill of the wall.",
+ "start": [
+  -77757.7,
+  4910.6
+ ],
+ "hz": 60,
+ "segments": [
+  {
+   "steps": 30
+  },
+  {
+   "steps": 90,
+   "velocity": [
+    231.96,
+    -254.029
+   ]
+  }
+ ],
+ "observe": {
+  "from_step": 30,
+  "every": 15,
+  "count": 6
+ },
+ "capture": {
+  "name": "move_portal_wall",
+  "set_z": 10656,
+  "heading_deg": 137.6,
+  "keys": [
+   "forward"
+  ],
+  "jump": false,
+  "settle_frames": 120,
+  "samples": 150
+ }
+}

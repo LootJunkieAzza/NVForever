@@ -1,0 +1,157 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless new-game opening: VCG00's MenuMode block sets stage 0, whose script plays the intro film and jumps to the wake-up (stage 90); the countdown to 100",
+  "save": "nvfnew",
+  "given": [
+    {
+      "kind": "menu",
+      "menu": 1001,
+      "open": true
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG00",
+      "running": true,
+      "completed": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG01",
+      "running": true,
+      "completed": false,
+      "stage": 0
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG01Test",
+      "running": true
+    },
+    {
+      "kind": "quest",
+      "quest": "CGTutorial",
+      "running": true
+    },
+    {
+      "kind": "quest",
+      "quest": "VDLCPackQuest",
+      "running": true
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG02",
+      "running": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG03",
+      "running": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG04",
+      "running": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQ01",
+      "running": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VGenericTimer",
+      "running": false
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Strength",
+      "value": 5
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Perception",
+      "value": 5
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Endurance",
+      "value": 5
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Charisma",
+      "value": 5
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Intelligence",
+      "value": 5
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Agility",
+      "value": 5
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Luck",
+      "value": 5
+    }
+  ],
+  "actions": [
+    {
+      "op": "note",
+      "text": "The new game's first moment, before nvfnew's facts (intro.actions.json starts there): VCG00 runs (Start Game Enabled) with no stage done, and the game is in a menu (a menu open stands for the pack plugins' message boxes of nvfnew; the packs are not loaded here). VCG00's MenuMode block sets stage 0 while its stage is below 5; stage 0's result script moves the player to the opening's start marker, plays the intro film (PlayBink, a recorded call headless), sets the hour and weather and jumps to stage 90 (the wake-up at Doc Mitchell's), which starts VCG00's 3 s countdown. The cemetery stages 5-85 are never reached this way (docs/spec-notes/bink-films.md)."
+    },
+    {
+      "op": "wait_frames",
+      "frames": 3
+    },
+    {
+      "op": "get_quest",
+      "quest": "VCG00",
+      "fields": [
+        "running",
+        "stage",
+        "done.0",
+        "done.90",
+        "var.bRunTimer",
+        "var.fTimer"
+      ],
+      "label": "milestone: VCG00 0 -> 90 (the opening)"
+    },
+    {
+      "op": "get_global",
+      "name": "GameHour",
+      "label": "hour set by stage 0 (23)"
+    },
+    {
+      "op": "note",
+      "text": "The player closes the box; the countdown runs in game mode and VCG00 moves on to 95 and 100 as in intro.actions.json."
+    },
+    {
+      "op": "close_menus"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 8
+    },
+    {
+      "op": "get_quest",
+      "quest": "VCG00",
+      "fields": [
+        "running",
+        "stage",
+        "done.95",
+        "done.100"
+      ],
+      "label": "final: VCG00 after the countdown"
+    }
+  ]
+}

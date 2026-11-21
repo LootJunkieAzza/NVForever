@@ -1,0 +1,3105 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "pc_controls",
+ "title": "Player controls: what DisablePlayerControls stops and what comes back (about 3 min, no input)",
+ "start": "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "as": "door_x"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "as": "door_y"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "as": "door_z"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "as": "door_h"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 0\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable default",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable default",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable default",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable default",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable default",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable default",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "disable default",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable default",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable default",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable default",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable default",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable default",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable default",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable default",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "enable default",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable default",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 0 0 0 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only movement",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only movement",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only movement",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only movement",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only movement",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only movement",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "only movement",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "only movement",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 1 0 0 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pipboy",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pipboy",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pipboy",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pipboy",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pipboy",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pipboy",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "only pipboy",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "only pipboy",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 1 0 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only fighting",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only fighting",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only fighting",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only fighting",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only fighting",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only fighting",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "only fighting",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "only fighting",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pov",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pov",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pov",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pov",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pov",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only pov",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "only pov",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "only pov",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 0 1 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only looking",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only looking",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only looking",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only looking",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only looking",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only looking",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "only looking",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "only looking",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 0 0 1 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only rollover",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only rollover",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only rollover",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only rollover",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only rollover",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only rollover",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "only rollover",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "only rollover",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 0 0 0 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only sneaking",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only sneaking",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only sneaking",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only sneaking",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only sneaking",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "only sneaking",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "only sneaking",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "only sneaking",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls 1 0 0 0 1 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all then move and look back",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all then move and look back",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all then move and look back",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all then move and look back",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all then move and look back",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all then move and look back",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "all then move and look back",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "all then move and look back",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1 1",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1 1",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1 1",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1 1",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1 1",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1 1",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1 1",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 1 1",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 1 1",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 1 1",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 1 1",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 1 1",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 1 1",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 1 1",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 1 1",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 1 1",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 0 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 0 0 0 1",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 0 0 0 1",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 0 0 0 1",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 0 0 0 1",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 0 0 0 1",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 0 0 0 1",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 0 0 0 1",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable 0 0 0 0 1",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls 1 1 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 1 1 0",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 1 1 0",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 1 1 0",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 1 1 0",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 1 1 0",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 1 1 0",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 1 1 0",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 1 1 0",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls 0 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 1 1",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 1 1",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 1 1",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 1 1",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 1 1",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 1 1",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 1 1",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 1 1",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls 0 0 0 0 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 0 0 0 1",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 0 0 0 1",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 0 0 0 1",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 0 0 0 1",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 0 0 0 1",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 0 0 0 1",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 0 0 0 1",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "all off then enable 0 0 0 0 1",
+   "field": "disabled.any"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 0\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 0 0 0 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GetCurrentTime\nSetFunctionValue fV\nEnd\n",
+   "as": "t0"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off still 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off still 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off still 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off still 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off still 004",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 019",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 020",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 021",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 022",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 023",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 024",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 025",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 026",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 027",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 028",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 029",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 030",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 031",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 032",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 033",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 034",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 035",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 036",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 037",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 038",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 039",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 040",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 041",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 042",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 043",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 044",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 045",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 046",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 047",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 048",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 049",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 050",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 051",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 052",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 053",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 054",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 055",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 056",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 057",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 058",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off forward 059",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nTapControl 12\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 019",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 020",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 021",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 022",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 023",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 024",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 025",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 026",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 027",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 028",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 029",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 030",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 031",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 032",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 033",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 034",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 035",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 036",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 037",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 038",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 039",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 040",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 041",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 042",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 043",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 044",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 045",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 046",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 047",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 048",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 049",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 050",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 051",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 052",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 053",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 054",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 055",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 056",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 057",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 058",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off jump 059",
+   "field": "sample"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 11\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 019",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 020",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 021",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 022",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 023",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 024",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 025",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 026",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 027",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 028",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 029",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 030",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 031",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 032",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 033",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 034",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 035",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 036",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 037",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 038",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 039",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 040",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 041",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 042",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 043",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 044",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 045",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 046",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 047",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 048",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 049",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 050",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 051",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 052",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 053",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 054",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 055",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 056",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 057",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 058",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement off auto move 059",
+   "field": "sample"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 019",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 020",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 021",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 022",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 023",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 024",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 025",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 026",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 027",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 028",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 029",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 030",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 031",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 032",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 033",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 034",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 035",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 036",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 037",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 038",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 039",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 040",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 041",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 042",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 043",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 044",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 045",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 046",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 047",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 048",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 049",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 050",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 051",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 052",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 053",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 054",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 055",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 056",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 057",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 058",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "movement back 059",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 0\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nTapControl 7\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "weapon drawn",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "weapon drawn",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "weapon drawn",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "weapon drawn",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 1 0 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting off",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting off",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting off",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting off",
+   "field": "menu"
+  },
+  {
+   "screenshot": "fighting_off"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 7\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting off ready tapped",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting off ready tapped",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting off ready tapped",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting off ready tapped",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting back",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting back",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting back",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting back",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 7\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting back ready tapped",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting back ready tapped",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting back ready tapped",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "fighting back ready tapped",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nif player.IsWeaponOut\n  TapControl 7\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "weapon away",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "weapon away",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "weapon away",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "weapon away",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 13\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "third person",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "third person",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "third person",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "third person",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "pov off",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "pov off",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "pov off",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "pov off",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 13\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "pov off toggle tapped",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "pov off toggle tapped",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "pov off toggle tapped",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "pov off toggle tapped",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "pov back",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "pov back",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "pov back",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "pov back",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nif IsPC1stPerson == 0\n  TapControl 13\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "first person again",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "first person again",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "first person again",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "first person again",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 8\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 0 0 0 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking off",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking off",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking off",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking off",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 8\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking off crouch tapped",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking off crouch tapped",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking off crouch tapped",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking off crouch tapped",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking back",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking back",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking back",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "sneaking back",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nif player.IsSneaking\n  TapControl 8\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "standing again",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "standing again",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "standing again",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "standing again",
+   "field": "menu"
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 1 0 0 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nTapControl 14\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "pipboy off menu tapped",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "pipboy off menu tapped",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "pipboy off menu tapped",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "pipboy off menu tapped",
+   "field": "menu"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 1 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.pipboy"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 1 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.fighting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 1 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.pov"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 1 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.looking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.rollover"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := IsPC1stPerson\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "first_person"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "menu"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 0\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := GetCrosshairRef\nif rC\n  SetFunctionValue (GetFormIDString rC)\nelse\n  SetFunctionValue \"0\"\nendif\nEnd\n",
+   "label": "door controls on, as arrived",
+   "field": "crosshair"
+  },
+  {
+   "screenshot": "door_controls_on_as_arrived"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 180\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := GetCrosshairRef\nif rC\n  SetFunctionValue (GetFormIDString rC)\nelse\n  SetFunctionValue \"0\"\nendif\nEnd\n",
+   "label": "door controls on, turned round",
+   "field": "crosshair"
+  },
+  {
+   "screenshot": "door_controls_on_turned_round"
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 0 0 0 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 0\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := GetCrosshairRef\nif rC\n  SetFunctionValue (GetFormIDString rC)\nelse\n  SetFunctionValue \"0\"\nendif\nEnd\n",
+   "label": "door movement off, as arrived",
+   "field": "crosshair"
+  },
+  {
+   "screenshot": "door_movement_off_as_arrived"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 180\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := GetCrosshairRef\nif rC\n  SetFunctionValue (GetFormIDString rC)\nelse\n  SetFunctionValue \"0\"\nendif\nEnd\n",
+   "label": "door movement off, turned round",
+   "field": "crosshair"
+  },
+  {
+   "screenshot": "door_movement_off_turned_round"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 0\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nTapControl 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with movement off, as arrived",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with movement off, as arrived",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with movement off, as arrived",
+   "field": "z"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 180\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nTapControl 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with movement off, turned round",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with movement off, turned round",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with movement off, turned round",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 0 0 1 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 0\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := GetCrosshairRef\nif rC\n  SetFunctionValue (GetFormIDString rC)\nelse\n  SetFunctionValue \"0\"\nendif\nEnd\n",
+   "label": "door rollover off, as arrived",
+   "field": "crosshair"
+  },
+  {
+   "screenshot": "door_rollover_off_as_arrived"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 180\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := GetCrosshairRef\nif rC\n  SetFunctionValue (GetFormIDString rC)\nelse\n  SetFunctionValue \"0\"\nendif\nEnd\n",
+   "label": "door rollover off, turned round",
+   "field": "crosshair"
+  },
+  {
+   "screenshot": "door_rollover_off_turned_round"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 0\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := GetCrosshairRef\nif rC\n  SetFunctionValue (GetFormIDString rC)\nelse\n  SetFunctionValue \"0\"\nendif\nEnd\n",
+   "label": "door controls back, as arrived",
+   "field": "crosshair"
+  },
+  {
+   "screenshot": "door_controls_back_as_arrived"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 180\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := GetCrosshairRef\nif rC\n  SetFunctionValue (GetFormIDString rC)\nelse\n  SetFunctionValue \"0\"\nendif\nEnd\n",
+   "label": "door controls back, turned round",
+   "field": "crosshair"
+  },
+  {
+   "screenshot": "door_controls_back_turned_round"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 0\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nTapControl 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with controls on, as arrived",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with controls on, as arrived",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with controls on, as arrived",
+   "field": "z"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := %{door_h} + 180\nif fH >= 360\n  let fH := fH - 360\nendif\nplayer.SetPos X %{door_x}\nplayer.SetPos Y %{door_y}\nplayer.SetPos Z %{door_z}\nplayer.SetAngle Z fH\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nTapControl 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with controls on, turned round",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with controls on, turned round",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "door activate with controls on, turned round",
+   "field": "z"
+  }
+ ]
+}

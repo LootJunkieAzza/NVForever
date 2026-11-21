@@ -1,0 +1,221 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Pheeble Will, Heck killed after Ethel's plea (VMS25 125)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Walter hires the player (10), Heck says Ted is missing (20) and Ethel asks the player to talk Walter out of it (25), as pheeble-will does; the player kills Heck anyway (VMS18HeckGundersonSCRIPT: no stage below 30 past 20, HeckDead set); Walter hears it (Topic099, line 0x00127B3B: stage 25 done, so 125, Complete Quest). Copied from pheeble-will.actions.json up to Ethel's line. Stand-ins: travel by move_player; the fight with Heck by kill."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the Strip's street event script (VStreetEventStarterScript), which enables Walter and Ethel one by one while the player is on the Strip (VStreetFluffNPC.iPlayerInArea 2)."
+  },
+  {
+   "op": "enable",
+   "target": "WalterPhebusREF"
+  },
+  {
+   "op": "enable",
+   "target": "EthelPhebusREF"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Speech 100."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "move_player",
+   "to": "WalterPhebusREF"
+  },
+  {
+   "op": "talk",
+   "actor": "WalterPhebusREF",
+   "label": "walter hires"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic001",
+   "label": "walter hires 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic007",
+   "label": "walter hires 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic021",
+   "label": "walter hires 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic024",
+   "label": "walter hires 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic030",
+   "label": "walter hires 5"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS25 10"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk into the Ultra-Luxe's dining room: the player at Heck Gunderson."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS18HeckGundersonREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS18HeckGundersonREF",
+   "label": "heck"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS18VMS18HeckGundersonTopic000",
+   "label": "heck 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS18VMS18HeckGundersonTopic003",
+   "label": "heck 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.20",
+    "var.TedDisappeared"
+   ],
+   "label": "milestone: VMS25 20"
+  },
+  {
+   "op": "move_player",
+   "to": "EthelPhebusREF"
+  },
+  {
+   "op": "talk",
+   "actor": "EthelPhebusREF",
+   "label": "ethel"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25EthelPhebusTopic007",
+   "label": "ethel 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25EthelPhebusTopic011",
+   "label": "ethel 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25EthelPhebusTopic038",
+   "label": "ethel 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25EthelPhebusTopic032",
+   "label": "ethel 4"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.25"
+   ],
+   "label": "milestone: VMS25 25"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS18HeckGundersonREF"
+  },
+  {
+   "op": "kill",
+   "target": "VMS18HeckGundersonREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VMS18HeckGundersonREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VMS18HeckGundersonREF dead"
+  },
+  {
+   "op": "move_player",
+   "to": "WalterPhebusREF"
+  },
+  {
+   "op": "talk",
+   "actor": "WalterPhebusREF",
+   "label": "walter pays"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic099"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.125",
+    "completed"
+   ],
+   "label": "final: VMS25 125"
+  }
+ ]
+}

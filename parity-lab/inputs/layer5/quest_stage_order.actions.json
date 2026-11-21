@@ -1,0 +1,216 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "VMS16: a higher stage, a lower one, the same one again, an undefined one, the fail stage",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VMS16",
+      "running": false,
+      "completed": false,
+      "stage": 0,
+      "not_done": [
+        5,
+        10,
+        50,
+        110
+      ],
+      "objectives": [
+        {
+          "index": 5,
+          "displayed": false
+        },
+        {
+          "index": 10,
+          "displayed": false
+        },
+        {
+          "index": 50,
+          "displayed": false
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "label": "VMS16 before",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.5",
+        "done.10",
+        "done.15",
+        "done.50",
+        "objective.5.displayed",
+        "objective.5.completed",
+        "objective.10.displayed",
+        "objective.10.completed",
+        "objective.50.displayed"
+      ]
+    },
+    {
+      "op": "set_stage",
+      "quest": "VMS16",
+      "stage": 50
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "label": "VMS16 after stage 50",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.5",
+        "done.10",
+        "done.15",
+        "done.50",
+        "objective.5.displayed",
+        "objective.5.completed",
+        "objective.10.displayed",
+        "objective.10.completed",
+        "objective.50.displayed"
+      ]
+    },
+    {
+      "op": "set_stage",
+      "quest": "VMS16",
+      "stage": 10
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "label": "VMS16 after the lower stage 10",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.5",
+        "done.10",
+        "done.15",
+        "done.50",
+        "objective.5.displayed",
+        "objective.5.completed",
+        "objective.10.displayed",
+        "objective.10.completed",
+        "objective.50.displayed"
+      ]
+    },
+    {
+      "op": "set_objective",
+      "quest": "VMS16",
+      "index": 10,
+      "displayed": false
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "label": "VMS16 objective 10 hidden again",
+      "fields": [
+        "objective.10.displayed"
+      ]
+    },
+    {
+      "op": "set_stage",
+      "quest": "VMS16",
+      "stage": 10
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "label": "VMS16 after stage 10 again",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.5",
+        "done.10",
+        "done.15",
+        "done.50",
+        "objective.5.displayed",
+        "objective.5.completed",
+        "objective.10.displayed",
+        "objective.10.completed",
+        "objective.50.displayed"
+      ]
+    },
+    {
+      "op": "set_stage",
+      "quest": "VMS16",
+      "stage": 15
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "label": "VMS16 after the undefined stage 15",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.5",
+        "done.10",
+        "done.15",
+        "done.50",
+        "objective.5.displayed",
+        "objective.5.completed",
+        "objective.10.displayed",
+        "objective.10.completed",
+        "objective.50.displayed"
+      ]
+    },
+    {
+      "op": "set_stage",
+      "quest": "VMS16",
+      "stage": 5
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "label": "VMS16 after the lower stage 5",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.5",
+        "done.10",
+        "done.15",
+        "done.50",
+        "objective.5.displayed",
+        "objective.5.completed",
+        "objective.10.displayed",
+        "objective.10.completed",
+        "objective.50.displayed"
+      ]
+    },
+    {
+      "op": "set_stage",
+      "quest": "VMS16",
+      "stage": 110
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "label": "VMS16 after the fail stage 110",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.5",
+        "done.10",
+        "done.15",
+        "done.50",
+        "objective.5.displayed",
+        "objective.5.completed",
+        "objective.10.displayed",
+        "objective.10.completed",
+        "objective.50.displayed",
+        "done.110"
+      ]
+    }
+  ]
+}

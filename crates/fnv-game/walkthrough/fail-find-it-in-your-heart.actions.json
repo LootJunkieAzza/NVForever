@@ -1,0 +1,18 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Find It in Your Heart (vMojave), the fail: vMojave 25 as in find-it-in-your-heart, then Ranger Jackson killed (vMojave 66)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: as find-it-in-your-heart to 'vMojave 25'; then Ranger Jackson killed (vMORangerJacksonSCRIPT: vMojave 66). Kill stands in for each fight, by the player; travel is move_player."},
+    {"op": "move_player", "to": "vMORRangerJacksonREF"},
+    {"op": "talk", "actor": "vMORRangerJacksonREF", "label": "jackson greeting"},
+    {"op": "choose", "topic": "vMojavevMORangerJacksonTopic000", "label": "any work"},
+    {"op": "choose", "topic": "vMojavevMORangerJacksonTopic002", "label": "road job taken"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "vMojave", "fields": ["running", "stage", "objective.25.displayed", "var.bCrittersReady"], "label": "milestone: vMojave 25"},
+    {"op": "move_player", "to": "scripted:vMORangerJacksonSCRIPT"},
+    {"op": "kill", "actor": "scripted:vMORangerJacksonSCRIPT", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "vMojave", "fields": ["stage", "done.66"], "label": "final: vMojave 66"}
+  ]
+}

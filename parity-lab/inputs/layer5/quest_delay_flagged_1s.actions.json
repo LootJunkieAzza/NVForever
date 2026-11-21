@@ -1,0 +1,62 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Quest script delay, flag set, DATA delay 1.0 s, a running quest (CGTutorial)",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "CGTutorial",
+      "running": true,
+      "vars": {
+        "runTimer": 0,
+        "timer": 0
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_quest_var",
+      "quest": "CGTutorial",
+      "var": "timer",
+      "value": 100000
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "CGTutorial",
+      "var": "runTimer",
+      "value": 1
+    },
+    {
+      "op": "sample_var",
+      "quest": "CGTutorial",
+      "var": "timer",
+      "frames": 1500,
+      "runs": 3,
+      "skip": 1,
+      "label": "CGTutorial timer while running"
+    },
+    {
+      "op": "get_quest",
+      "quest": "CGTutorial",
+      "label": "CGTutorial while running",
+      "fields": [
+        "running",
+        "stage"
+      ]
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "CGTutorial",
+      "var": "runTimer",
+      "value": 0
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "CGTutorial",
+      "var": "timer",
+      "value": 0
+    }
+  ]
+}

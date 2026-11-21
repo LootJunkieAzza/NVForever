@@ -1,0 +1,108 @@
+{
+  "format": "fnv.script.encodings/1",
+  "note": "Bytecode parameter encodings that are not the default tagged value, and the spellings of enumerated codes. Observed in the ten shipped masters by lining up compiled calls with their source (docs/spec-notes/scripts.md section 2.4); names are the ones shipped source uses (alignment: no master calls GetIsAlignment in a script; its codes are the ones mods compiled with the GECK ship, Karmic Balance.esp and Vegas Elysium.esp naming all five, #2275). Functions not listed here: every parameter is a tagged value (observed for every other function shipped scripts call). xedit_types: the rule used for functions shipped scripts never call [hypothesis: same encoding as the observed functions with that xEdit parameter type].",
+  "functions": {
+    "0x1004": {"name": "Rotate", "params": ["axis", "value"]},
+    "0x1006": {"name": "GetPos", "params": ["axis"]},
+    "0x1007": {"name": "SetPos", "params": ["axis", "value"]},
+    "0x1008": {"name": "GetAngle", "params": ["axis"]},
+    "0x1009": {"name": "SetAngle", "params": ["axis", "value"]},
+    "0x100E": {"name": "GetActorValue", "params": ["enum:actor_value"]},
+    "0x100F": {"name": "SetActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1010": {"name": "ModActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1013": {"name": "PlayGroup", "params": ["enum:anim_group", "value"]},
+    "0x1046": {"name": "GetIsSex", "params": ["enum:sex"]},
+    "0x1059": {"name": "ShowMessage", "params": ["value"], "trailer": ["format_vars", "int32"]},
+    "0x1083": {"name": "GetPCIsSex", "params": ["enum:sex"]},
+    "0x1100": {"name": "GetGameSetting", "params": ["string"]},
+    "0x110E": {"name": "ForceActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1114": {"name": "PlayBink", "params": ["string", "value", "value", "value", "value"]},
+    "0x1115": {"name": "GetBaseActorValue", "params": ["enum:actor_value"]},
+    "0x1128": {"name": "IsAnimPlaying", "params": ["enum:anim_group"]},
+    "0x1137": {"name": "ModPCMiscStat", "params": ["enum:misc_stat", "value"]},
+    "0x1138": {"name": "GetPCMiscStat", "params": ["enum:misc_stat"]},
+    "0x1181": {"name": "DamageActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1182": {"name": "RestoreActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1190": {"name": "PlayIdle", "params": ["string"]},
+    "0x11A7": {"name": "PipBoyRadio", "params": ["string", "value"]},
+    "0x11B9": {"name": "ShowWarning", "params": ["string"], "trailer": ["format_vars"]},
+    "0x11BF": {"name": "DisableNavmesh", "params": ["string"]},
+    "0x11C0": {"name": "EnableNavMesh", "params": ["string"]},
+    "0x11CD": {"name": "SetPlayerTagSkill", "params": ["enum:actor_value", "value"]},
+    "0x11CE": {"name": "IsPlayerTagSkill", "params": ["enum:actor_value"]},
+    "0x11E7": {"name": "SexChange", "params": ["enum:sex", "value"]},
+    "0x11EF": {"name": "GetPermanentActorValue", "params": ["enum:actor_value"]},
+    "0x1212": {"name": "SetCriticalStage", "params": ["enum:critical_stage"]},
+    "0x1213": {"name": "IsInCriticalStage", "params": ["enum:critical_stage"]},
+    "0x1248": {"name": "SetSecuritronExpression", "params": ["value", "string", "string"]},
+    "0x1269": {"name": "SwapTexture", "params": ["value", "string", "string"]},
+    "0x126F": {"name": "IsDLCInstalled", "params": ["string"]}
+  },
+  "compiler": {
+    "note": "What the compiler writes that the catalogue does not say, observed in the shipped bytes (docs/spec-notes/script-compiler.md section 3). param_counts: functions whose shipped calls carry more parameters than their wiki page documents; the compiler takes that many. block: whether a call has a parameter block where the catalogue's parameter list would say otherwise. number_types: parameters whose numbers are stored as the other type than the catalogue kind says (a number in a float parameter is stored as a float, in any other as an integer). begin_params: the Begin events whose statement always has a parameter block (every other event never has one).",
+    "param_counts": {"0x1042": 1, "0x1073": 1, "0x107C": 1, "0x107E": 1, "0x1159": 1, "0x11C4": 2, "0x1240": 4, "0x1243": 2, "0x125A": 3, "0x1269": 3, "0x126F": 1, "0x1270": 1},
+    "block": {"0x10AE": true, "0x1120": false},
+    "number_types": {"0x1004": {"1": "int"}, "0x1025": {"2": "int"}, "0x1122": {"0": "float"}, "0x1181": {"1": "float"}, "0x1240": {"1": "float", "2": "float", "3": "float"}, "0x1243": {"0": "float"}, "0x125A": {"2": "float"}},
+    "begin_params": ["0x0001", "0x0002", "0x0003", "0x0004", "0x0005", "0x0006", "0x0007", "0x0008", "0x0009", "0x000A", "0x000F", "0x0010", "0x0014", "0x0016", "0x0017", "0x0018", "0x0019", "0x001A", "0x001B", "0x001C", "0x0023"],
+    "extra_params": {"_note": "[observed: nvse-actors probes in the original game, 2026-10-26: `GetHair rF`, `GetEyes rF`, `GetHairLength rF` compile and read rF; nvse-misc: `rD.GetNthPackage 0`; jip12 hash, 2026-11-09: `GetStringHash \"NVForever\"` compiles and gives -439019037; JAM Misc Tweaks.esp ships `GetRefsInCell (Player.GPC) 28 2 0 2000 45` compiled with all six arguments, against the page's five, #2275; what the sixth does is not known]", "GetStringHash": ["text"], "GetRefsInCell": ["sixth"], "GetHair": ["form"], "GetEyes": ["form"], "GetHairLength": ["form"], "GetNthPackage": ["index"]},
+    "aliases": {"_note": "Spellings the installed extender and its plugins register beside a catalogued name, by spelling: the catalogued name [observed: the nvse.log of the owner's Blue Moon install, RegisterCommand lines with an alias in brackets, 2026-11-13, #2275]", "_note_shipped": "MoveToMarker: a mod's shipped bytes call MoveTo (0x109E) where its source says MoveToMarker [observed: TTW No Hardcore Sacrifice.esp, SCPT 0x0900090D, `CherryRef.MoveToMarker DLC03FollowerStartWaitMarkerREF`, #2335]. PC1st: a mod's shipped bytes call IsPC1stPerson (0x1188) where its source says `if PC1st` [observed: Enhanced FOV.esp, SCPT 0x06000802 in its own load order; the B42 mods' Script Runner files use it as a value, #2335]", "MoveToMarker": "MoveTo", "PC1st": "IsPC1stPerson", "AttachCam": "AttachExtraCamera", "CamShakeNHUD": "SetCameraShakeNoHUDShudder", "CreateDirectoryA": "CreateFolder", "DTAMP": "SetDamageToArmorMaxPercent", "FormListRemoveForm": "RemoveFormFromFormList", "GetAngVelAlt": "GetAngularVelocityAlt", "GetAnimsByGroup": "GetAnimationsByAnimGroup", "GetButtons": "GetPressedButtons", "GetCollLayer": "GetCollisionObjLayerType", "GetCollProp": "GetCollisionObjProperty", "GetEdID": "GetEditorID", "GetHash": "GetStringHash", "GetLinVelAlt": "GetLinearVelocityAlt", "GetMaxCarryWeightPerkModified": "GetCalculatedMaxCarryWeight", "GetNifParents": "GetNifBlockParentNodes", "HBSetTextTrait": "HudBarSetTextTrait", "HBSetValueMax": "HudBarSetValueMax", "IfIDecideToGoWithYourFunctionWhatAreThePerks": "ShowPerkMenu", "ImGoingToBorrowThis": "SetOwnershipTemp", "IsBasedForm": "IsBaseForm", "IsRefrCloned": "IsReferenceCloned", "ProjCam": "ProjectExtraCamera", "ReadFromJSONFile": "ReadFromJSON", "SetActorMovementFlags": "SetPlayerMovementFlags", "SetAngVelEx": "SetAngularVelocityEx", "SetCollLayer": "SetCollisionObjLayerType", "SetCollProp": "SetCollisionObjProperty", "SetRefModel": "SetRefrModelPath", "SorryYoureNotOnTheListAnymore": "RemoveFormFromLeveledList", "TIMM": "ToggleImmortalMode", "TPOU": "TogglePurgeOnUnload", "ToggleNoGunWobble": "SetNoGunWobble", "WriteToJSONFile": "WriteToJSON", "XLSGetWorkSheetCount": "ExcelGetWorkSheetCount", "XLSSetSheetName": "ExcelSetSheetName", "YoureAMurderer": "SetIsPCAMurderer", "scrci": "SetCustomReputationChangeIcon"},
+    "not_commands": ["GetFOSEVersion", "GetFOSERevision", "GetFOSEBeta", "GetMessageDisplayTime", "GetMDT"]
+  },
+  "xedit_types": {
+    "ptActorValue": "enum:actor_value",
+    "ptAxis": "axis",
+    "ptSex": "enum:sex",
+    "ptMiscStat": "enum:misc_stat",
+    "ptCriticalStage": "enum:critical_stage",
+    "ptFormType": "enum:form_type",
+    "ptAlignment": "enum:alignment"
+  },
+  "enums": {
+    "actor_value": {
+      "0": "Aggression", "1": "Confidence", "5": "Strength", "6": "Perception", "7": "Endurance",
+      "8": "Charisma", "9": "Intelligence", "10": "Agility", "11": "Luck", "12": "ActionPoints",
+      "16": "Health", "17": "MeleeDamage", "18": "DamageResist", "20": "RadResist", "21": "SpeedMult",
+      "22": "Fatigue", "23": "Karma", "24": "XP", "25": "PerceptionCondition",
+      "26": "EnduranceCondition", "27": "LeftAttackCondition", "28": "RightAttackCondition",
+      "29": "LeftMobilityCondition", "30": "RightMobilityCondition", "31": "BrainCondition",
+      "32": "Barter", "33": "BigGuns", "34": "EnergyWeapons", "35": "Explosives", "36": "Lockpick",
+      "37": "Medicine", "38": "MeleeWeapons", "39": "Repair", "40": "Science", "41": "Guns",
+      "42": "Sneak", "43": "Speech", "44": "Survival", "45": "Unarmed", "50": "NightEye",
+      "54": "RadiationRads", "55": "BloodyMess", "56": "UnarmedDamage", "57": "Assistance",
+      "62": "Variable01", "63": "Variable02", "64": "Variable03", "65": "Variable04",
+      "66": "Variable05", "68": "Variable07", "71": "Variable10", "74": "Hunger",
+      "75": "SleepDeprevation"
+    },
+    "anim_group": {
+      "0": "Idle", "2": "SpecialIdle", "3": "Forward", "4": "Backward", "5": "Left", "6": "Right",
+      "7": "FastForward", "8": "FastBackward", "9": "FastLeft", "10": "FastRight", "15": "TurnLeft",
+      "17": "Aim", "24": "Equip", "25": "Unequip", "44": "Attack4", "47": "Attack4IS", "50": "Attack5",
+      "62": "Attack7", "201": "JamB", "223": "Stagger", "227": "JumpStart", "228": "JumpLoop"
+    },
+    "sex": {"0": "Male", "1": "Female"},
+    "form_type": {"27": "Container"},
+    "misc_stat": {
+      "0": "Quests Completed", "1": "Locations Discovered", "2": "People Killed",
+      "3": "Creatures Killed", "4": "Locks Picked", "5": "Computers Hacked",
+      "6": "Stimpaks Taken", "7": "Rad-X Taken", "8": "RadAway Taken", "9": "Chems Taken",
+      "10": "Times Addicted", "11": "Mines Disarmed", "12": "Speech Successes",
+      "13": "Pockets Picked", "14": "Pants Exploded", "15": "Books Read",
+      "16": "Health From Stimpaks", "17": "Weapons Created", "18": "Health From Food",
+      "19": "Water Consumed", "20": "Sandman Kills", "21": "Paralyzing Punches",
+      "22": "Robots Disabled", "23": "Times Slept", "24": "Corpses Eaten",
+      "25": "Mysterious Stranger Visits", "26": "Doctor Bags Used",
+      "27": "Challenges Completed", "28": "Miss Fortunate Occurrences", "29": "Disintegrations",
+      "30": "Have Limbs Crippled", "31": "Speech Failures", "32": "Items Crafted",
+      "33": "Weapon Modifications", "34": "Items Repaired", "35": "Total Things Killed",
+      "36": "Dismembered Limbs", "37": "Caravan Games Won", "38": "Caravan Games Lost",
+      "39": "Barter Amount Traded", "40": "Roulette Games Played",
+      "41": "Blackjack Games Played", "42": "Slots Games Played"
+    },
+    "critical_stage": {
+      "0": "None", "1": "GooStart", "2": "GooEnd", "3": "DisintegrateStart", "4": "DisintegrateEnd"
+    },
+    "alignment": {
+      "0": "Good", "1": "Neutral", "2": "Evil", "3": "VeryGood", "4": "VeryEvil"
+    }
+  }
+}

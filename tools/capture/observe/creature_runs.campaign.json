@@ -1,0 +1,1451 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "creature_runs",
+ "title": "Creature run and walk speeds (2026-10-25) on the Searchlight Airport runway (cells 8/9, -29; flat at z 6056). The creature_pace_room charges in TestJoshWeapons failed: the creatures did not path there (the owner: the room is not navmeshed) and a standing player at 1,500 units is below the interior detection range's reach (actor-behaviour.md 2.1); creature_charge's placed creatures were on rough ground. killall clears the airport's radscorpions on arrival (the owner's suggestion). Run each session alone (--only).",
+ "save": "nvfstrip",
+ "defaults": {
+  "fields": "full",
+  "every": 2,
+  "depth": 1,
+  "settle_frames": 300,
+  "hour": 10,
+  "go": {
+   "cow": [
+    "WastelandNV",
+    9,
+    -29
+   ]
+  }
+ },
+ "sessions": [
+  {
+   "name": "airport_save",
+   "hours": 0.02,
+   "console_first": [
+    "CloseAllMenus"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "do": [
+    {
+     "frames": 120
+    },
+    "save nvfairport"
+   ],
+   "note": "the owner's request (2026-10-25): a save on the Searchlight Airport runway with the area's creatures killed, for later tests"
+  },
+  {
+   "name": "run_dog",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F425",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "dog 0x0014F425: spawned 1,500 units up the runway and set on the player (StartCombat): a straight charge on flat ground"
+  },
+  {
+   "name": "run_coyote",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F428",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "coyote 0x0014F428: spawned 1,500 units up the runway and set on the player (StartCombat): a straight charge on flat ground"
+  },
+  {
+   "name": "run_bark_scorpion",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x000EB401",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "bark_scorpion 0x000EB401: spawned 1,500 units up the runway and set on the player (StartCombat): a straight charge on flat ground"
+  },
+  {
+   "name": "run_radscorpion",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F403",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "radscorpion 0x0014F403: spawned 1,500 units up the runway and set on the player (StartCombat): a straight charge on flat ground"
+  },
+  {
+   "name": "run_feral_ghoul",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00167ECC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "feral_ghoul 0x00167ECC: spawned 1,500 units up the runway and set on the player (StartCombat): a straight charge on flat ground"
+  },
+  {
+   "name": "run_deathclaw",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F42C",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "deathclaw 0x0014F42C: spawned 1,500 units up the runway and set on the player (StartCombat): a straight charge on flat ground"
+  },
+  {
+   "name": "run_young_deathclaw",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F42D",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "young_deathclaw 0x0014F42D: spawned 1,500 units up the runway and set on the player (StartCombat): a straight charge on flat ground"
+  },
+  {
+   "name": "walk_radscorpion_1",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0002147A"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F403",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "radscorpion 0x0014F403: spawned 600 units up the runway, the player in its faction 0x0002147A (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_radscorpion_2",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0002147A"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F403",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "radscorpion 0x0014F403: spawned 600 units up the runway, the player in its faction 0x0002147A (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_feral_ghoul_1",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0001C6D3"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167ECC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "feral_ghoul 0x00167ECC: spawned 600 units up the runway, the player in its faction 0x0001C6D3 (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_feral_ghoul_2",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0001C6D3"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167ECC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "feral_ghoul 0x00167ECC: spawned 600 units up the runway, the player in its faction 0x0001C6D3 (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_deathclaw_1",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021474"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F42C",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "deathclaw 0x0014F42C: spawned 600 units up the runway, the player in its faction 0x00021474 (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_deathclaw_2",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021474"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F42C",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "deathclaw 0x0014F42C: spawned 600 units up the runway, the player in its faction 0x00021474 (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_mole_rat_1",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021479"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F404",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "mole_rat 0x0014F404: spawned 600 units up the runway, the player in its faction 0x00021479 (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_mole_rat_2",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021479"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F404",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "mole_rat 0x0014F404: spawned 600 units up the runway, the player in its faction 0x00021479 (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_giant_rat_1",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0014F3FB"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FF",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "giant_rat 0x0014F3FF: spawned 600 units up the runway, the player in its faction 0x0014F3FB (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_giant_rat_2",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0014F3FB"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FF",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "giant_rat 0x0014F3FF: spawned 600 units up the runway, the player in its faction 0x0014F3FB (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_brahmin_1",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021472"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167EF3",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "brahmin 0x00167EF3: spawned 600 units up the runway, the player in its faction 0x00021472 (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "walk_brahmin_2",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021472"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167EF3",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "brahmin 0x00167EF3: spawned 600 units up the runway, the player in its faction 0x00021472 (no tdetect), left to wander on its own package"
+  },
+  {
+   "name": "run_deathclaw_2",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F42C",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "deathclaw 0x0014F42C: run_deathclaw again, for more steady running"
+  },
+  {
+   "name": "run_young_deathclaw_2",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F42D",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "young_deathclaw 0x0014F42D: run_young_deathclaw again, for more steady running"
+  },
+  {
+   "name": "run_feral_ghoul_2",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00167ECC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "feral_ghoul 0x00167ECC: run_feral_ghoul again, for more steady running"
+  },
+  {
+   "name": "run_bark_scorpion_near",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x000EB401",
+     "count": 1,
+     "distance": 200,
+     "attack": "player"
+    }
+   ],
+   "do": [
+    {
+     "until_spawned": [
+      "IsInCombat",
+      "GetDetected player"
+     ],
+     "max_frames": 900
+    },
+    {
+     "frames": 60
+    },
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 30
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "bark scorpion 0x000EB401: it attacks the player as soon as it is spawned (aggro radius 500), so the offset move (which skips actors in combat) left it beside the player in run_bark_scorpion; here it is spawned beside the player and, once it has engaged, the player is moved 1,500 units up the runway"
+  },
+  {
+   "name": "flee_brahmin",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00167EF3",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "brahmin VCrTier0Brahmin 0x00167EF3 (Cowardly): set on the player 300 units up the runway, it flees: its run without a leader to keep step with"
+  }
+ ]
+}

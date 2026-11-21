@@ -1,0 +1,41 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Don't Make a Beggar of Me (VMS04), Tyrone exposed: the suitcase and Chomps (10-30), Tyrone hands over the shipment (40), Lieutenant Hayes told (45)",
+  "given": [
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 40}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: as beggar to Tyrone's handover (stage 40: objective 45); then Lieutenant Hayes in Primm told of Tyrone's thefts (LtHayesVMS04ExposeTyrone: stage 45, which completes the quest) instead of going back to Melissa. Travel is move_player."},
+    {"op": "move_player", "to": "QJMelissaRef"},
+    {"op": "talk", "actor": "QJMelissaRef", "label": "melissa greeting"},
+    {"op": "choose", "topic": "vFreeformSloanQJMelissaTopic002", "label": "melissa 002"},
+    {"op": "choose", "topic": "vFreeformSloanQJMelissaTopic003", "label": "melissa 003"},
+    {"op": "choose", "topic": "vFreeformSloanQJMelissaTopic006", "label": "melissa 006"},
+    {"op": "wait_talk", "label": "w1"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.10"], "label": "milestone: VMS04 10"},
+    {"op": "move_player", "to": "scripted:QJSuitCaseScript"},
+    {"op": "player_activate", "target": "scripted:QJSuitCaseScript"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "close_menus"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.20"], "label": "milestone: VMS04 20"},
+    {"op": "move_player", "to": "placed:QJChompsLewis"},
+    {"op": "talk", "actor": "placed:QJChompsLewis", "label": "chomps greeting"},
+    {"op": "choose", "topic": "vFreeformSloanQJChompsLewisTopic011", "label": "chomps 011"},
+    {"op": "choose", "topic": "vFreeformSloanQJChompsLewisTopic021", "label": "chomps 021"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.30"], "label": "milestone: VMS04 30"},
+    {"op": "note", "text": "Stand-in for the trip to Primm."},
+    {"op": "move_player", "to": "PrimmTyroneRef"},
+    {"op": "talk", "actor": "PrimmTyroneRef", "label": "tyrone greeting"},
+    {"op": "choose", "topic": "vFreeformSloanPrimmTyroneTopic002", "label": "tyrone 002"},
+    {"op": "choose", "topic": "vFreeformSloanPrimmTyroneTopic004", "label": "tyrone hands over (Speech 40)"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.40", "objective.40.displayed"], "label": "milestone: VMS04 40"},
+    {"op": "move_player", "to": "PrimmHayesREF"},
+    {"op": "talk", "actor": "PrimmHayesREF", "label": "hayes"},
+    {"op": "choose", "topic": "LtHayesVMS04ExposeTyrone", "label": "hayes told of tyrone"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.45", "completed"], "label": "final: VMS04 45"}
+  ]
+}

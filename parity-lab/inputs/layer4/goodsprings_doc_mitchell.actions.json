@@ -1,0 +1,28 @@
+{
+  "format": "fnv.sim.actions/1",
+  "seed": 0,
+  "player_level": 1,
+  "actions": [
+    {"op": "remove_all_items", "from": "player"},
+    {"op": "activate", "actor": "player", "target": "0x00105BF3"},
+    {"op": "activate", "actor": "player", "target": "0x00105BF4"},
+    {"op": "activate", "actor": "player", "target": "0x00105BF5"},
+    {"op": "get_item_count", "of": "player", "item": "Stimpak", "label": "stimpaks after taking three"},
+    {"op": "activate", "actor": "player", "target": "0x00106288"},
+    {"op": "activate", "actor": "player", "target": "0x00106289"},
+    {"op": "activate", "actor": "player", "target": "0x0010628A"},
+    {"op": "activate", "actor": "player", "target": "0x0010628B"},
+    {"op": "activate", "actor": "player", "target": "0x0010628C"},
+    {"op": "get_item_count", "of": "player", "item": "Caps001", "label": "caps after taking five"},
+    {"op": "activate", "actor": "player", "target": "0x00105BF3"},
+    {"op": "get_item_count", "of": "player", "item": "Stimpak", "label": "stimpaks after re-activating a taken one"},
+    {"op": "add_item", "to": "player", "item": "Caps001", "count": 10},
+    {"op": "remove_item", "from": "player", "item": "Caps001", "count": 3},
+    {"op": "get_item_count", "of": "player", "item": "Caps001", "label": "caps after +10 -3"},
+    {"op": "remove_item", "from": "player", "item": "Stimpak", "count": 5},
+    {"op": "get_item_count", "of": "player", "item": "Stimpak", "label": "stimpaks after removing more than held"},
+    {"op": "activate", "actor": "player", "target": "GSDocMitchellHouseIntDoorREF"},
+    {"op": "get_pos", "of": "player", "label": "player after leaving Doc Mitchell's house"}
+  ],
+  "report": ["player"]
+}

@@ -1,0 +1,29 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Stocking Up (vFreeformForlornHope02): Quartermaster Mayes at Camp Forlorn Hope buys NCR holotags (stage 10), fifteen handed in for his thanks",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: Quartermaster Carl Mayes is asked about other work (Topic001, 008) and takes up the holotag collection (012: stage 10, his note given); fifteen NCR holotags are brought (stand-in: added; dead NCR troopers carry them) and handed in (011: his greeting's end script counts them, 2 caps each; at 15 or more in all his thanks, Topic024's reward; his line's EnterTrigger on the morale trigger raises VMS30's iForlornHopeMorale once per 5, 10 and 15 tags). The quest has no stage after 10 and no completion in FalloutNV.esm."},
+    {"op": "note", "text": "Stand-in for the trip to Camp Forlorn Hope."},
+    {"op": "move_player", "to": "placed:VCFHCarlMayes"},
+    {"op": "talk", "actor": "placed:VCFHCarlMayes", "label": "mayes greeting"},
+    {"op": "choose", "topic": "VMS30VCFHCarlMayesTopic001", "label": "mayes 001"},
+    {"op": "choose", "topic": "VMS30VCFHCarlMayesTopic008", "label": "mayes 008"},
+    {"op": "choose", "topic": "VMS30VCFHCarlMayesTopic012", "label": "mayes 012"},
+    {"op": "wait_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "vFreeformForlornHope02", "fields": ["running", "stage", "done.10"], "label": "milestone: vFreeformForlornHope02 10"},
+    {"op": "note", "text": "Stand-in for fifteen NCR holotags taken from the dead across the Mojave."},
+    {"op": "add_item", "to": "player", "item": "NCRDogTag", "count": 15},
+    {"op": "talk", "actor": "placed:VCFHCarlMayes", "label": "mayes counts the tags"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "vFreeformForlornHope02", "fields": ["var.NCRDogtag1", "var.NCRDogtagPreTotal", "var.CashMoney"], "label": "tags counted"},
+    {"op": "choose", "topic": "VMS30VCFHCarlMayesTopic011", "label": "tags handed in"},
+    {"op": "choose", "topic": "VMS30VCFHCarlMayesTopic024", "label": "mayes's reward"},
+    {"op": "wait_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "vFreeformForlornHope02", "fields": ["stage", "done.10", "var.NCRDogtagTotal"], "label": "final: vFreeformForlornHope02 10"},
+    {"op": "get_item_count", "of": "player", "item": "NCRDogTag", "label": "tags left"},
+    {"op": "get_quest", "quest": "VMS30", "fields": ["var.iForlornHopeMorale"], "label": "camp morale"}
+  ]
+}

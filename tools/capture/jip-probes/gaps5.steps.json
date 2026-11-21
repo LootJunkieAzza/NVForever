@@ -1,0 +1,544 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "gaps5",
+ "title": "gaps5, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValue \"Guns\")\nEnd\n",
+   "label": "save.guns",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetBaseActorValue \"Guns\")\nEnd\n",
+   "label": "save.guns.base",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsHardcore)\nEnd\n",
+   "label": "save.hardcore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetLevel)\nEnd\n",
+   "label": "save.level",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 0))\nEnd\n",
+   "label": "weapsound.minigun.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 1))\nEnd\n",
+   "label": "weapsound.minigun.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 2))\nEnd\n",
+   "label": "weapsound.minigun.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 3))\nEnd\n",
+   "label": "weapsound.minigun.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 4))\nEnd\n",
+   "label": "weapsound.minigun.4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 5))\nEnd\n",
+   "label": "weapsound.minigun.5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 6))\nEnd\n",
+   "label": "weapsound.minigun.6",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 7))\nEnd\n",
+   "label": "weapsound.minigun.7",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 8))\nEnd\n",
+   "label": "weapsound.minigun.8",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 9))\nEnd\n",
+   "label": "weapsound.minigun.9",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 10))\nEnd\n",
+   "label": "weapsound.minigun.10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"433F\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 11))\nEnd\n",
+   "label": "weapsound.minigun.11",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 0))\nEnd\n",
+   "label": "weapsound.gatling.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 1))\nEnd\n",
+   "label": "weapsound.gatling.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 2))\nEnd\n",
+   "label": "weapsound.gatling.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 3))\nEnd\n",
+   "label": "weapsound.gatling.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 4))\nEnd\n",
+   "label": "weapsound.gatling.4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 5))\nEnd\n",
+   "label": "weapsound.gatling.5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 6))\nEnd\n",
+   "label": "weapsound.gatling.6",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 7))\nEnd\n",
+   "label": "weapsound.gatling.7",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 8))\nEnd\n",
+   "label": "weapsound.gatling.8",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 9))\nEnd\n",
+   "label": "weapsound.gatling.9",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 10))\nEnd\n",
+   "label": "weapsound.gatling.10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 11))\nEnd\n",
+   "label": "weapsound.gatling.11",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 0))\nEnd\n",
+   "label": "weapsound.flamer.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 1))\nEnd\n",
+   "label": "weapsound.flamer.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 2))\nEnd\n",
+   "label": "weapsound.flamer.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 3))\nEnd\n",
+   "label": "weapsound.flamer.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 4))\nEnd\n",
+   "label": "weapsound.flamer.4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 5))\nEnd\n",
+   "label": "weapsound.flamer.5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 6))\nEnd\n",
+   "label": "weapsound.flamer.6",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 7))\nEnd\n",
+   "label": "weapsound.flamer.7",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 8))\nEnd\n",
+   "label": "weapsound.flamer.8",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 9))\nEnd\n",
+   "label": "weapsound.flamer.9",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 10))\nEnd\n",
+   "label": "weapsound.flamer.10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"432D\"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 11))\nEnd\n",
+   "label": "weapsound.flamer.11",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CA9\"\nSetFunctionValue (GetNthPerkEntryType rObj 0)\nEnd\n",
+   "label": "perk.leadbelly.type.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CA9\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 0)\nEnd\n",
+   "label": "perk.leadbelly.function.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CA9\"\nSetFunctionValue (GetNthPerkEntryType rObj 1)\nEnd\n",
+   "label": "perk.leadbelly.type.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CA9\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 1)\nEnd\n",
+   "label": "perk.leadbelly.function.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CB1\"\nSetFunctionValue (GetNthPerkEntryType rObj 0)\nEnd\n",
+   "label": "perk.intensetraining.type.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CB1\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 0)\nEnd\n",
+   "label": "perk.intensetraining.function.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CB1\"\nSetFunctionValue (GetNthPerkEntryType rObj 1)\nEnd\n",
+   "label": "perk.intensetraining.type.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CB1\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 1)\nEnd\n",
+   "label": "perk.intensetraining.function.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DD8\"\nSetFunctionValue (GetNthPerkEntryType rObj 0)\nEnd\n",
+   "label": "perk.educated.type.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DD8\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 0)\nEnd\n",
+   "label": "perk.educated.function.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DD8\"\nSetFunctionValue (GetNthPerkEntryType rObj 1)\nEnd\n",
+   "label": "perk.educated.type.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DD8\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 1)\nEnd\n",
+   "label": "perk.educated.function.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DA9\"\nSetFunctionValue (GetNthPerkEntryType rObj 0)\nEnd\n",
+   "label": "perk.radresistance.type.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DA9\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 0)\nEnd\n",
+   "label": "perk.radresistance.function.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DA9\"\nSetFunctionValue (GetNthPerkEntryType rObj 1)\nEnd\n",
+   "label": "perk.radresistance.type.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DA9\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 1)\nEnd\n",
+   "label": "perk.radresistance.function.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"135EC6\"\nSetFunctionValue (GetNthPerkEntryType rObj 0)\nEnd\n",
+   "label": "perk.smallframe.type.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"135EC6\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 0)\nEnd\n",
+   "label": "perk.smallframe.function.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"135EC6\"\nSetFunctionValue (GetNthPerkEntryType rObj 1)\nEnd\n",
+   "label": "perk.smallframe.type.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"135EC6\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 1)\nEnd\n",
+   "label": "perk.smallframe.function.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"99828\"\nSetFunctionValue (GetNthPerkEntryType rObj 0)\nEnd\n",
+   "label": "perk.commando.type.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"99828\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 0)\nEnd\n",
+   "label": "perk.commando.function.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"99828\"\nSetFunctionValue (GetNthPerkEntryType rObj 1)\nEnd\n",
+   "label": "perk.commando.type.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"99828\"\nSetFunctionValue (GetNthPerkEntryFunction rObj 1)\nEnd\n",
+   "label": "perk.commando.function.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CA9\"\nSetFunctionValue (GetPerkEntryCount rObj)\nEnd\n",
+   "label": "perk.leadbelly.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"44CB1\"\nSetFunctionValue (GetPerkEntryCount rObj)\nEnd\n",
+   "label": "perk.intensetraining.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DD8\"\nSetFunctionValue (GetPerkEntryCount rObj)\nEnd\n",
+   "label": "perk.educated.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"31DA9\"\nSetFunctionValue (GetPerkEntryCount rObj)\nEnd\n",
+   "label": "perk.radresistance.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"135EC6\"\nSetFunctionValue (GetPerkEntryCount rObj)\nEnd\n",
+   "label": "perk.smallframe.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"99828\"\nSetFunctionValue (GetPerkEntryCount rObj)\nEnd\n",
+   "label": "perk.commando.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValueModifier Health 0)\nEnd\n",
+   "label": "avmod.before.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValueModifier Health 1)\nEnd\n",
+   "label": "avmod.before.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValueModifier Health 2)\nEnd\n",
+   "label": "avmod.before.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValueModifier Health 3)\nEnd\n",
+   "label": "avmod.before.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.DamageAV Health 30\nSetFunctionValue (rPlayer.GetAV Health)\nEnd\n",
+   "label": "avmod.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValueModifier Health 0)\nEnd\n",
+   "label": "avmod.after.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValueModifier Health 1)\nEnd\n",
+   "label": "avmod.after.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValueModifier Health 2)\nEnd\n",
+   "label": "avmod.after.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValueModifier Health 3)\nEnd\n",
+   "label": "avmod.after.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.RestoreAV Health 30\nSetFunctionValue (rPlayer.GetActorValueModifier Health)\nEnd\n",
+   "label": "avmod.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor (rPlayer.GetRunSpeed))\nEnd\n",
+   "label": "run.base",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.SetForceSneak 1\nSetFunctionValue 1\nEnd\n",
+   "label": "run.sneak.on",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.sneak.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.sneak.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.sneak.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor (rPlayer.GetRunSpeed))\nEnd\n",
+   "label": "run.sneak",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsSneaking)\nEnd\n",
+   "label": "run.sneak.issneaking",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.SetForceSneak 0\nSetFunctionValue 1\nEnd\n",
+   "label": "run.sneak.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.sneak.offwait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.sneak.offwait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.sneak.offwait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor (rPlayer.GetRunSpeed))\nEnd\n",
+   "label": "run.sneak.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nrPlayer.AddItem rObj 1 1\nrPlayer.EquipItem rObj 0 1\nSetFunctionValue 1\nEnd\n",
+   "label": "run.armour.on",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.armour.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.armour.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor (rPlayer.GetRunSpeed))\nEnd\n",
+   "label": "run.armour",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nrPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "run.armour.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.armour.offwait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "run.armour.offwait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor (rPlayer.GetRunSpeed))\nEnd\n",
+   "label": "run.armour.after",
+   "field": "value"
+  }
+ ]
+}

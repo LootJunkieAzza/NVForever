@@ -1,0 +1,672 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "ld_drop_refs",
+ "title": "References created by Drop and left by a scripted pick-up (about 1 min, no input)",
+ "start": "nvfdoc (inside Doc Mitchell's house; leaves through the front door).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nplayer.RemoveAllItems\nplayer.AddItem rF1 3 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "outside",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "angle_z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == -1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := fN\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.found"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref0"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref0.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref0.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref0.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref1"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref1.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref1.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref1.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref2"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref2.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref2.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken0.ref2.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == -1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := fN\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.found"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref0"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref0.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref0.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref0.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref1"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref1.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref1.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref1.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref2"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref2.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref2.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "taken1.ref2.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping one",
+   "field": "player_stimpaks"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rScan\nref rScanBase\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      let rF2 := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrF2.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == -1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := fN\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.found"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref0"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref0.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref0.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref0.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref1"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref1.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref1.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref1.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref2"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref2.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref2.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken0.ref2.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == -1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := fN\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.found"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref0"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref0.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref0.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref0.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref1"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref1.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref1.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref1.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref2"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref2.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref2.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "taken1.ref2.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "after taking it back",
+   "field": "player_stimpaks"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nplayer.Drop rF1 2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == -1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := fN\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.found"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref0"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref0.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref0.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref0.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref1"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref1.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref1.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref1.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref2"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref2.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref2.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken0.ref2.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == -1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := fN\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.found"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref0"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref0.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref0.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref0.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref1"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref1.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref1.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref1.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref2"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref2.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref2.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "taken1.ref2.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "after dropping two",
+   "field": "player_stimpaks"
+  },
+  {
+   "frames": 600
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == -1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := fN\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.found"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref0"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref0.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref0.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref0.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref1"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref1.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref1.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref1.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref2"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref2.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref2.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken0.ref2.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == -1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := fN\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.found"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref0"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref0.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref0.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 0\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref0.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref1"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref1.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref1.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 1\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref1.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nSetFunctionValue (GetFormIDString rHit)\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref2"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetRefCount\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref2.count"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref2.disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fN\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 0 1\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if fN == 2\n        let rHit := rScan\n      endif\n      let fN := fN + 1\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "taken1.ref2.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "10 s later",
+   "field": "player_stimpaks"
+  }
+ ]
+}

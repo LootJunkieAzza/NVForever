@@ -1,0 +1,42 @@
+[package]
+name = "fnvtool"
+description = "Candidate CLI for the parity lab: archive and plugin inspection as JSON"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fnvtool"
+path = "src/main.rs"
+
+[dependencies]
+fnv-install = { path = "../fnv-install" }
+fnv-util = { path = "../fnv-util" }
+fnv-inflate = { path = "../fnv-inflate" }
+serde_json.workspace = true
+fnv-bsa = { path = "../fnv-bsa" }
+fnv-esm = { path = "../fnv-esm" }
+fnv-nif = { path = "../fnv-nif" }
+fnv-dds = { path = "../fnv-dds" }
+fnv-spt = { path = "../fnv-spt" }
+fnv-vfs = { path = "../fnv-vfs" }
+fnv-world = { path = "../fnv-world" }
+fnv-phys = { path = "../fnv-phys" }
+fnv-collide = { path = "../fnv-collide" }
+fnv-sim = { path = "../fnv-sim" }
+fnv-script = { path = "../fnv-script" }
+fnv-game = { path = "../fnv-game" }
+fnv-save = { path = "../fnv-save" }
+fnv-actor = { path = "../fnv-actor" }
+fnv-combat = { path = "../fnv-combat" }
+fnv-nav = { path = "../fnv-nav" }
+fnv-ai = { path = "../fnv-ai" }
+fnv-voice = { path = "../fnv-voice" }
+fnv-ui = { path = "../fnv-ui" }
+anyhow = "1"
+rand_core = "0.9"
+rand_chacha = "0.9"
+clap = { version = "4", features = ["derive"] }
+rayon = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

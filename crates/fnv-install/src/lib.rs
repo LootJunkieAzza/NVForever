@@ -11,8 +11,8 @@
 //! - The game's location is kept in the home's `NVForever.ini`; before a run,
 //!   [`GameInstall::missing_files`] names any base game file NVForever needs that is absent.
 //! - Which plugins load, and in what order, is NVForever's own `plugins.txt` in the home
-//!   ([`plugins`]), never the original game's list; a start from an external instance takes the
-//!   list of that profile instead ([`mo2`]).
+//!   ([`plugins`]), never the original game's list; a start from Mod Organizer 2 takes the
+//!   list of MO2's profile instead ([`mo2`]).
 //!
 //! Path containment is checked on canonicalized paths, case-insensitively on Windows.
 
@@ -289,7 +289,7 @@ impl fmt::Display for Violation {
 
 /// The original game's load-order folder, `%LOCALAPPDATA%\FalloutNV` (its `plugins.txt`
 /// [observed]). NVForever's own list has the same file name, so a home pointed here
-/// would write over the original's [#1987]. NVForever reads that profile's copy there
+/// would write over the original's [#1987]. NVForever reads MO2's copy there
 /// (`mo2::plugins_file`) and never writes it.
 pub fn original_load_order_dir() -> Option<PathBuf> {
     if cfg!(windows) {

@@ -1,0 +1,289 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "anim1",
+ "title": "anim1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fRes := IsPC1stPerson\nrPlayer.AuxVarSetFlt \"*nvfA1\" fRes\nToggleFirstPerson 0\nSetFunctionValue fRes\nEnd\n",
+   "label": "anim.view.third",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.view.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.view.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.view.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.view.wait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlaying)\nEnd\n",
+   "label": "anim.stand.isanimplaying",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 1 0 0)\nEnd\n",
+   "label": "anim.stand.ex.1.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 1 1 0)\nEnd\n",
+   "label": "anim.stand.ex.1.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 2 0 0)\nEnd\n",
+   "label": "anim.stand.ex.2.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 3 0 0)\nEnd\n",
+   "label": "anim.stand.ex.3.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 4 0 0)\nEnd\n",
+   "label": "anim.stand.ex.4.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.stand.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171DBB\"\nrPlayer.ForcePlayIdle rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.idle.play",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.idle.f0.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.idle.f1.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.idle.f2.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.idle.f3.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.idle.f4.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.idle.f5.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlaying)\nEnd\n",
+   "label": "anim.idle.isanimplaying",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 1 0 0)\nEnd\n",
+   "label": "anim.idle.ex.1.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 1 1 0)\nEnd\n",
+   "label": "anim.idle.ex.1.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 2 0 0)\nEnd\n",
+   "label": "anim.idle.ex.2.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 3 0 0)\nEnd\n",
+   "label": "anim.idle.ex.3.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 4 0 0)\nEnd\n",
+   "label": "anim.idle.ex.4.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.ForceStopIdle\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.idle.forcestop",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.forcestop.f0.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.forcestop.f1.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.forcestop.f2.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.forcestop.f3.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"171DBB\"\nrPlayer.ForcePlayIdle rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.idle.play2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.idle2.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.idle2.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.idle2.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.idle2.wait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.idle2.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.StopIdle\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.idle.stopidle",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.stopidle.f0.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.stopidle.f1.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.stopidle.f2.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "anim.stopidle.f3.played",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlaying)\nEnd\n",
+   "label": "anim.after.isanimplaying",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 1 0 0)\nEnd\n",
+   "label": "anim.after.ex.1.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 1 1 0)\nEnd\n",
+   "label": "anim.after.ex.1.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 2 0 0)\nEnd\n",
+   "label": "anim.after.ex.2.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 3 0 0)\nEnd\n",
+   "label": "anim.after.ex.3.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingEx 4 0 0)\nEnd\n",
+   "label": "anim.after.ex.4.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nToggleFirstPerson (rPlayer.AuxVarGetFlt \"*nvfA1\")\nrPlayer.AuxVarErase \"*nvfA1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.view.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.view.rwait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.view.rwait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.view.rwait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "anim.view.rwait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (IsPC1stPerson)\nEnd\n",
+   "label": "anim.view.restored",
+   "field": "value"
+  }
+ ]
+}

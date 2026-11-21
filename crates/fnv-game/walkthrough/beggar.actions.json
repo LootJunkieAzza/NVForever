@@ -1,0 +1,43 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Don't Make a Beggar of Me (VMS04): Melissa in Sloan sends the player for the suitcase (10), the empty suitcase (20), Chomps Lewis's story (30), Tyrone in Primm talked into handing over the shipment (40), back to Melissa (stage 100)",
+  "given": [
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 40}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: Melissa (Topic002, 003, 006: stage 10); the suitcase in the quarry opened (its OnActivate: 20); Chomps Lewis (011: 30); Tyrone (002, 004 with Speech 40: 40, the chems added); Melissa (012: 100, complete). The quarry's deathclaws are not met: travel is move_player."},
+    {"op": "move_player", "to": "QJMelissaRef"},
+    {"op": "talk", "actor": "QJMelissaRef", "label": "melissa greeting"},
+    {"op": "choose", "topic": "vFreeformSloanQJMelissaTopic002", "label": "melissa 002"},
+    {"op": "choose", "topic": "vFreeformSloanQJMelissaTopic003", "label": "melissa 003"},
+    {"op": "choose", "topic": "vFreeformSloanQJMelissaTopic006", "label": "melissa 006"},
+    {"op": "wait_talk", "label": "w1"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.10"], "label": "milestone: VMS04 10"},
+    {"op": "move_player", "to": "scripted:QJSuitCaseScript"},
+    {"op": "player_activate", "target": "scripted:QJSuitCaseScript"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "close_menus"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.20"], "label": "milestone: VMS04 20"},
+    {"op": "move_player", "to": "placed:QJChompsLewis"},
+    {"op": "talk", "actor": "placed:QJChompsLewis", "label": "chomps greeting"},
+    {"op": "choose", "topic": "vFreeformSloanQJChompsLewisTopic011", "label": "chomps 011"},
+    {"op": "choose", "topic": "vFreeformSloanQJChompsLewisTopic021", "label": "chomps 021"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.30"], "label": "milestone: VMS04 30"},
+    {"op": "note", "text": "Stand-in for the trip to Primm."},
+    {"op": "move_player", "to": "PrimmTyroneRef"},
+    {"op": "talk", "actor": "PrimmTyroneRef", "label": "tyrone greeting"},
+    {"op": "choose", "topic": "vFreeformSloanPrimmTyroneTopic002", "label": "tyrone 002"},
+    {"op": "choose", "topic": "vFreeformSloanPrimmTyroneTopic004", "label": "tyrone hands over (Speech 40)"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.40", "objective.40.displayed"], "label": "milestone: VMS04 40"},
+    {"op": "get_item_count", "of": "player", "item": "QJChems", "label": "shipment carried"},
+    {"op": "note", "text": "Stand-in for the trip back to Sloan."},
+    {"op": "move_player", "to": "QJMelissaRef"},
+    {"op": "talk", "actor": "QJMelissaRef", "label": "melissa shipment"},
+    {"op": "choose", "topic": "vFreeformSloanQJMelissaTopic012", "label": "melissa 012"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS04", "fields": ["stage", "done.100", "completed"], "label": "final: VMS04 100"}
+  ]
+}

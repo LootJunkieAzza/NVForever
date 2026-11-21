@@ -1,0 +1,8 @@
+{
+  "vars": {"python": "python3", "fake": "{lab_root}/fake_candidate.py"},
+  "goldens_dir": "goldens",
+  "scenarios_dirs": ["scenarios"],
+  "runs_dir": "runs",
+  "baseline": "runs/baseline.json",
+  "default_timeout_s": 30
+}

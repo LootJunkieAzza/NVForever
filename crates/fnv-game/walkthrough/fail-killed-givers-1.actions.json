@@ -1,0 +1,296 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless fail paths, quest givers killed before their quests (1): Marcus (Jacobstown's four quests), Michael Angelo, James Garret, Joana, Walter Phebus, Crandon and Jules",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: from a new game the player kills seven people before taking their quests; each OnDeath block fails the quests that hang on them [observed, decompiled scripts]. Marcus (JacobstownMarcusScript, the player the killer, Jacobstown not hostile): VMS24, VMS41, VMS50 and VMS54 110. Michael Angelo (VMS22MichaelAngeloScript, VMS22 below 70): VMS22 80, whose stage script fails it at 100. James Garret (VFSJamesGarretSCRIPT): VFSAtomicPimp 0. Joana (VMS21aJoanaSCRIPT, VMS21a below 5): VMS21a 150, whose stage script sets 160. Walter Phebus (VMS25WalterSCRIPT, VMS25 below 5 and not completed): VMS25 100. Crandon (VOVCrandonScript, VDialogueVegasNorth below 29): 29; then Jules (JulesScript, objective 40 not completed): 110. Crandon goes before Jules, since 110 lifts the stage past 29. Joana's and Walter's other branches (Carlitos 170, Ethel 110) are exclusive with these and are in fail-killed-givers-2."
+  },
+  {
+   "op": "note",
+   "text": "Stand-ins: travel by move_player to each person; each fight by kill with the player as killer (the OnDeath blocks named run as in play). Walter Phebus is enabled by hand, standing in for the Strip's street event script (VStreetEventStarterScript), which enables him while the player is on the Strip (as pheeble-will does)."
+  },
+  {
+   "op": "enable",
+   "target": "WalterPhebusREF"
+  },
+  {
+   "op": "note",
+   "text": "Marcus at Jacobstown."
+  },
+  {
+   "op": "move_player",
+   "to": "MarcusRef"
+  },
+  {
+   "op": "kill",
+   "target": "MarcusRef",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "MarcusRef",
+   "fields": [
+    "dead"
+   ],
+   "label": "MarcusRef dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS24",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VMS24 110"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS41",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VMS41 110"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS50",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VMS50 110"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS54",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VMS54 110"
+  },
+  {
+   "op": "note",
+   "text": "Michael Angelo in Freeside."
+  },
+  {
+   "op": "move_player",
+   "to": "MichaelAngeloREF"
+  },
+  {
+   "op": "kill",
+   "target": "MichaelAngeloREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "MichaelAngeloREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "MichaelAngeloREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS22",
+   "fields": [
+    "stage",
+    "done.80",
+    "done.100",
+    "failed"
+   ],
+   "label": "fail: VMS22 80/100"
+  },
+  {
+   "op": "note",
+   "text": "James Garret at the Atomic Wrangler."
+  },
+  {
+   "op": "move_player",
+   "to": "VFSJamesGarretREF"
+  },
+  {
+   "op": "kill",
+   "target": "VFSJamesGarretREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VFSJamesGarretREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VFSJamesGarretREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VFSAtomicPimp",
+   "fields": [
+    "stage",
+    "done.0",
+    "failed"
+   ],
+   "label": "fail: VFSAtomicPimp 0"
+  },
+  {
+   "op": "note",
+   "text": "Joana at Gomorrah."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21JoanaREF"
+  },
+  {
+   "op": "kill",
+   "target": "VMS21JoanaREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VMS21JoanaREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VMS21JoanaREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "done.150",
+    "done.160",
+    "failed"
+   ],
+   "label": "fail: VMS21a 150/160"
+  },
+  {
+   "op": "note",
+   "text": "Walter Phebus on the Strip."
+  },
+  {
+   "op": "move_player",
+   "to": "WalterPhebusREF"
+  },
+  {
+   "op": "kill",
+   "target": "WalterPhebusREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "WalterPhebusREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "WalterPhebusREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.100",
+    "failed"
+   ],
+   "label": "fail: VMS25 100"
+  },
+  {
+   "op": "note",
+   "text": "Crandon in North Vegas Square."
+  },
+  {
+   "op": "move_player",
+   "to": "NVCrandonREF"
+  },
+  {
+   "op": "kill",
+   "target": "NVCrandonREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "NVCrandonREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "NVCrandonREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.29",
+    "failed"
+   ],
+   "label": "fail: VDialogueVegasNorth 29"
+  },
+  {
+   "op": "note",
+   "text": "Jules in North Vegas Square."
+  },
+  {
+   "op": "move_player",
+   "to": "VOVNVJulesREF"
+  },
+  {
+   "op": "kill",
+   "target": "VOVNVJulesREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VOVNVJulesREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VOVNVJulesREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDialogueVegasNorth",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VDialogueVegasNorth 110"
+  }
+ ]
+}

@@ -1,0 +1,16 @@
+[package]
+name = "nvf-fsr-shader-check"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+[workspace]
+[dependencies]
+bevy_shader = "=0.20.1"
+bevy_asset = "=0.20.1"
+naga = { version = "=30.0.1", features = ["wgsl-in"] }
+uuid = "1"
+wgpu = { version = "=30.0.1", default-features = false, features = ["vulkan", "wgsl", "std", "parking_lot"] }
+pollster = "0.4"
+half = "2"
+wgpu-ffx = { path = "../../engine/vendor/wgpu-ffx/wgpu-ffx" }

@@ -1,0 +1,122 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "followers",
+ "title": "owner-review.md 'Bringing teammates through doors' and the Followers items (plugin version 9, save nvftest, one run; od_03's hire): Boone hired in his Novac room the way his recruit line does it (VNPCFollowers.bBooneHired, SetPlayerTeammate, EvaluatePackage; his default follow package added as a script package only if his conditions did not choose it). Then: out of the room, back in by the outside door (od_03's open half) and out again, sampled every 2 game loops (where he arrives relative to the player and the door, and when); a straight walk across Novac to Manny Vargas with the player crouching for part of it (follow distance, whether he sneaks: IsSneaking); and two coyotes spawned 1,500 units off and set on the player (when Boone enters combat, against the coyotes' OnStartCombat and their first OnHit on the player). The player is in god mode; Boone is not.",
+ "save": "nvftest",
+ "defaults": {
+  "every": 2,
+  "depth": 1,
+  "settle_frames": 120,
+  "track": [
+   "CraigBooneREF"
+  ]
+ },
+ "sessions": [
+  {
+   "name": "hire_doors",
+   "go": {
+    "coc": "NovacBoonesRoom"
+   },
+   "hours": 0.75,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do": [
+    [
+     "{0}.MoveTo player 0 150 0",
+     "CraigBooneREF"
+    ],
+    "set VNPCFollowers.bBooneHired to 1",
+    [
+     "{0}.SetPlayerTeammate 1",
+     "CraigBooneREF"
+    ],
+    [
+     "{0}.EvaluatePackage",
+     "CraigBooneREF"
+    ]
+   ],
+   "events": "packages",
+   "timed": [
+    {
+     "after": 1,
+     "script": {
+      "lines": [
+       "if {0}.GetCurrentPackage != {1}",
+       "  {0}.AddScriptPackage {1}",
+       "endif"
+      ],
+      "names": [
+       "CraigBooneREF",
+       "FollowersBooneFollowPlayerDEFAULT"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "do": [
+      "{0}.Activate player",
+      "0x000CED40"
+     ]
+    },
+    {
+     "after": 1500,
+     "do": [
+      "{0}.Activate player",
+      "0x000CAFA5"
+     ]
+    },
+    {
+     "after": 2400,
+     "do": [
+      "{0}.Activate player",
+      "0x000CED40"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "follow_walk",
+   "hours": 0.5,
+   "walk": {
+    "to": "MannyVargasREF",
+    "within": 300,
+    "approach": 0,
+    "max_frames": 3000
+   },
+   "timed": [
+    {
+     "after": 300,
+     "do": [
+      "player.SetForceSneak 1"
+     ]
+    },
+    {
+     "after": 600,
+     "do": [
+      "player.SetForceSneak 0"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "combat",
+   "hours": 0.5,
+   "events": "fight",
+   "place": [
+    {
+     "base": "VCrTier1CoyoteMed",
+     "count": 2,
+     "distance": 1500,
+     "offset": [
+      0,
+      1500,
+      0
+     ],
+     "attack": "player"
+    }
+   ]
+  }
+ ]
+}

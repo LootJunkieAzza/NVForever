@@ -1,0 +1,126 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_pickup_followup",
+ "title": "Pick-up follow-up (one manual step)",
+ "start": "Load the Doc Mitchell save again (stimpaks still on the shelf). Empties your inventory.",
+ "steps": [
+  {
+   "script": "Begin Function { }\nplayer.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 86377\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "a00 stimpaks at start",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "a01 BF3 disabled before",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nlet rC := rF.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "a02 BF3 cell before",
+   "field": "cell"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nlet fV := rF.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "a03 BF3 z before",
+   "field": "z"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nrF.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 86377\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "a04 stimpaks after 1st scripted activate",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "a05 BF3 disabled after 1st",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nlet rC := rF.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "a06 BF3 cell after 1st",
+   "field": "cell"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nlet fV := rF.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "a07 BF3 z after 1st",
+   "field": "z"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nrF.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 86377\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "a08 stimpaks after 2nd scripted activate",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "a09 BF3 disabled after 2nd",
+   "field": "disabled"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072115\nrF.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 86377\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "a10 stimpaks after 3rd scripted activate",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072116\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "a11 BF4 disabled (untouched)",
+   "field": "disabled"
+  },
+  {
+   "manual": "Take every stimpak still on Doc Mitchell's shelf BY HAND (activate them yourself), then come back here."
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 86377\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "a12 stimpaks after hand pick-up",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072116\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "a13 BF4 disabled after hand pick-up",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072117\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "a14 BF5 disabled after hand pick-up",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072117\nlet rC := rF.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "a15 BF5 cell after hand pick-up",
+   "field": "cell"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1072117\nrF.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 86377\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "a16 stimpaks after scripted activate of hand-taken BF5",
+   "field": "count"
+  }
+ ]
+}

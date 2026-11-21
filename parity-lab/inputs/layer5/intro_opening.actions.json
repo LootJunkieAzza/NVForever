@@ -1,0 +1,564 @@
+{
+ "format": "fnv.script.actions/1",
+ "seed": 0,
+ "frame_seconds": 0.016666666666666666,
+ "title": "VCG00 90 to VCG01 50 from the new-game save: pack message boxes, the opening countdowns, Doc Mitchell's first lines, the name and race menus (closed), stages set by timers and by dialogue",
+ "save": "nvfnew",
+ "given": [
+  {
+   "kind": "menu",
+   "menu": 1001,
+   "open": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG00",
+   "running": true,
+   "completed": false,
+   "stage": 90,
+   "done": [
+    0,
+    90
+   ],
+   "not_done": [
+    5,
+    85,
+    95,
+    100
+   ],
+   "vars": {
+    "bRunTimer": 1
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG01",
+   "running": true,
+   "completed": false,
+   "stage": 0,
+   "not_done": [
+    0,
+    1,
+    3,
+    5,
+    7,
+    8,
+    9,
+    10,
+    15,
+    17,
+    20,
+    25,
+    30,
+    35,
+    36,
+    37,
+    40,
+    45,
+    50,
+    55,
+    60,
+    65,
+    70,
+    75,
+    76,
+    78,
+    79,
+    80,
+    85,
+    90,
+    95,
+    98,
+    100,
+    102,
+    105,
+    110,
+    115,
+    200
+   ],
+   "objectives": [
+    {
+     "index": 10,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 30,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 40,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 50,
+     "displayed": false,
+     "completed": false
+    }
+   ],
+   "vars": {
+    "bChooseSex": 0,
+    "nButton": 0,
+    "bRunTimer": 0,
+    "bGiveTest": 0,
+    "fTimer": 0,
+    "bBeganTest": 0,
+    "nDocReaction": 0,
+    "nMostExtremeStat": 0,
+    "bLow": 0,
+    "fMaxDeviation": 0,
+    "fCurrentValue": 0,
+    "fAbsCurrentValue": 0
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG01Test",
+   "running": true,
+   "completed": false,
+   "vars": {
+    "nBarter": 0,
+    "nBigGuns": 0,
+    "nEnergyWeapons": 0,
+    "nExplosives": 0,
+    "nLockpick": 0,
+    "nMedicine": 0,
+    "nMelee": 0,
+    "nRepair": 0,
+    "nScience": 0,
+    "nSmallGuns": 0,
+    "nSneak": 0,
+    "nSpeech": 0,
+    "nSurvival": 0,
+    "nUnarmed": 0,
+    "bDoFinalCalculation": 0
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "CGTutorial",
+   "running": true,
+   "stage": 0,
+   "not_done": [
+    2
+   ]
+  },
+  {
+   "kind": "quest",
+   "quest": "VDLCPackQuest",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderTribal",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderCaravan",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderClassic",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderMercenary",
+   "running": true
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Strength",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Perception",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Endurance",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Charisma",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Intelligence",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Agility",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Luck",
+   "value": 5
+  }
+ ],
+ "actions": [
+  {
+   "op": "set_quest_var",
+   "quest": "VCG00",
+   "var": "fTimer",
+   "value": 1000
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG00",
+   "fields": [
+    "running",
+    "stage",
+    "var.fTimer"
+   ],
+   "label": "VCG00 while the first box is open"
+  },
+  {
+   "op": "dismiss_message_boxes",
+   "max": 6,
+   "wait_frames": 600
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDLCPackQuest",
+   "fields": [
+    "var.bTribalItemsGiven",
+    "var.bCaravanItemsGiven",
+    "var.bClassicItemsGiven",
+    "var.bMercenaryItemsGiven"
+   ],
+   "label": "pack items given"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "stage",
+    "done.0",
+    "var.bRunTimer"
+   ],
+   "label": "VCG01 after the boxes"
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG00",
+   "var": "fTimer",
+   "value": 3,
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG00",
+   "field": "done.95",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG00 95",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG00",
+   "field": "done.100",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG00 100",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.0",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 0",
+   "stopwatch": true
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG00",
+   "fields": [
+    "running",
+    "completed",
+    "stage",
+    "done.95",
+    "done.100"
+   ],
+   "label": "VCG00 after VCG01 0"
+  },
+  {
+   "op": "get_ref",
+   "ref": "0x00103DFE",
+   "fields": [
+    "disabled"
+   ],
+   "label": "Victor after VCG01 0"
+  },
+  {
+   "op": "get_ref",
+   "ref": "0x00103E61",
+   "fields": [
+    "destroyed"
+   ],
+   "label": "house door after VCG01 0"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "0x00015038",
+   "label": "Pip-Boy after VCG01 0"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.1",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 1",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.3",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 3",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.5",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 5 (Doc's first line ended)"
+  },
+  {
+   "op": "start_stopwatch"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.7",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 7",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.8",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 8"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.10",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 10 (Doc's lines ended)"
+  },
+  {
+   "op": "wait_menu",
+   "menu": 1051,
+   "max_frames": 2400,
+   "label": "name menu open at 10"
+  },
+  {
+   "op": "start_stopwatch"
+  },
+  {
+   "op": "wait_frames",
+   "frames": 120
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.10",
+   "value": true,
+   "max_frames": 2400,
+   "label": "script time in the name menu",
+   "stopwatch": true
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "stage",
+    "done.15"
+   ],
+   "label": "VCG01 in the name menu"
+  },
+  {
+   "op": "close_menus"
+  },
+  {
+   "op": "start_stopwatch"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.15",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 15",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.25",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 25"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.30",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 30"
+  },
+  {
+   "op": "start_stopwatch"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.35",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 35",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.36",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 36"
+  },
+  {
+   "op": "wait_menu",
+   "menu": 1036,
+   "max_frames": 2400,
+   "label": "race menu open at 36"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "stage",
+    "done.36",
+    "done.37",
+    "done.40"
+   ],
+   "label": "VCG01 in the race menu"
+  },
+  {
+   "op": "close_menus"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.45",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 45"
+  },
+  {
+   "op": "start_stopwatch"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.50",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 50",
+   "stopwatch": true
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "running",
+    "completed",
+    "stage",
+    "done.0",
+    "done.1",
+    "done.3",
+    "done.5",
+    "done.7",
+    "done.8",
+    "done.9",
+    "done.10",
+    "done.15",
+    "done.17",
+    "done.20",
+    "done.25",
+    "done.30",
+    "done.35",
+    "done.36",
+    "done.37",
+    "done.40",
+    "done.45",
+    "done.50",
+    "done.55",
+    "objective.10.displayed",
+    "objective.10.completed",
+    "objective.30.displayed",
+    "objective.30.completed",
+    "var.bRunTimer",
+    "var.bChooseSex",
+    "var.bGiveTest",
+    "var.bBeganTest"
+   ],
+   "label": "VCG01 at 50"
+  },
+  {
+   "op": "get_quest",
+   "quest": "CGTutorial",
+   "fields": [
+    "stage",
+    "done.2"
+   ],
+   "label": "CGTutorial at 50"
+  },
+  {
+   "op": "get_menus",
+   "menus": [
+    1001,
+    1036,
+    1051
+   ],
+   "label": "menus at 50"
+  },
+  {
+   "op": "disable",
+   "target": "0x00104C0F"
+  }
+ ]
+}

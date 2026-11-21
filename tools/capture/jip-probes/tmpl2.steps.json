@@ -1,0 +1,75 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "tmpl2",
+ "title": "tmpl2, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"099D05\"\nSetFunctionValue (GetFormIDString (GetRace rObj))\nEnd\n",
+   "label": "tmpl2.trooper3.race",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"099D05\"\nSetFunctionValue (GetFormIDString (GetClass rObj))\nEnd\n",
+   "label": "tmpl2.trooper3.class",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"0E2966\"\nSetFunctionValue (ar_Size (GetBasePackages rObj))\nEnd\n",
+   "label": "tmpl2.paladin0.packages",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"0E2966\"\nSetFunctionValue (GetFormIDString ((GetBasePackages rObj)[0]))\nEnd\n",
+   "label": "tmpl2.paladin0.package0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"0E2960\"\nSetFunctionValue (ar_Size (GetBasePackages rObj))\nEnd\n",
+   "label": "tmpl2.paladin6.packages",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"0E2960\"\nSetFunctionValue (GetFormIDString ((GetBasePackages rObj)[0]))\nEnd\n",
+   "label": "tmpl2.paladin6.package0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11E507\"\nSetFunctionValue (ar_Size (GetBasePackages rObj))\nEnd\n",
+   "label": "tmpl2.child.packages",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11E507\"\nSetFunctionValue (GetFormIDString ((GetBasePackages rObj)[0]))\nEnd\n",
+   "label": "tmpl2.child.package0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"0F6403\"\nSetFunctionValue (ar_Size (GetBasePackages rObj))\nEnd\n",
+   "label": "tmpl2.sharecropper.packages",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"0F6403\"\nSetFunctionValue (GetFormIDString ((GetBasePackages rObj)[0]))\nEnd\n",
+   "label": "tmpl2.sharecropper.package0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15E581\"\nSetFunctionValue (ar_Size (GetBasePackages rObj))\nEnd\n",
+   "label": "tmpl2.paladintmpl.packages",
+   "field": "value"
+  },
+  {
+   "query": "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15E581\"\nSetFunctionValue (GetFormIDString ((GetBasePackages rObj)[0]))\nEnd\n",
+   "label": "tmpl2.paladintmpl.package0",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

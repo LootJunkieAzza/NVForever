@@ -1,0 +1,92 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "gecko_find",
+ "title": "Find's Allow Killing (docs/outstanding.md section 2; owner-decision-captures.md section 4, the owner's gecko food question): gecko 0x0016518B's list is VCrGeckoFindFood (Find, object type Food, Allow Killing, 2 h), a patrol (3 h), FindFood02, a second patrol and a sandbox. A creature is spawned 256 units from it at a moment its package is known: a radroach (its meat is only its death item) while it is on FindFood, the same radroach while it patrols (the control: does the gecko attack it anyway?), and a protectron (no food at all) while it is on FindFood. Run each session alone (--only), from nvftest, the player taken to the gecko and then 1,500 units north of it, in god mode, crouched, Sneak 100 and under a Stealth Boy as in npc_battles (from two cells away the gecko was not in the scan and PlaceAtMe on it made nothing, 2026-10-19).",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "full",
+  "events": "fight",
+  "every": 30,
+  "depth": 1,
+  "settle_frames": 300,
+  "go": {
+   "moveto": "0x0016518B"
+  },
+  "hour": 0,
+  "console_first": [
+   "tgm",
+   "player.SetAV Sneak 100",
+   "player.SetForceSneak 1",
+   "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+  ],
+  "track": [
+   "0x0016518B",
+   "0x0016518C"
+  ],
+  "do_first": [
+   [
+    "player.MoveTo {0} 0 1500 0",
+    "0x0016518B"
+   ]
+  ]
+ },
+ "sessions": [
+  {
+   "name": "find_radroach",
+   "hours": 1.5,
+   "timed": [
+    {
+     "after": 2,
+     "when": [
+      "{0}.GetCurrentPackage == {1}",
+      "0x0016518B",
+      "0x001651B1"
+     ],
+     "do": [
+      "{0}.PlaceAtMe {1} 1 256 0",
+      "0x0016518B",
+      "CrRadroach"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "patrol_radroach",
+   "hours": 7,
+   "timed": [
+    {
+     "after": 20,
+     "when": [
+      "{0}.GetCurrentPackage == {1}",
+      "0x0016518B",
+      "0x001651B5"
+     ],
+     "do": [
+      "{0}.PlaceAtMe {1} 1 256 0",
+      "0x0016518B",
+      "CrRadroach"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "find_protectron",
+   "hours": 1.5,
+   "timed": [
+    {
+     "after": 2,
+     "when": [
+      "{0}.GetCurrentPackage == {1}",
+      "0x0016518B",
+      "0x001651B1"
+     ],
+     "do": [
+      "{0}.PlaceAtMe {1} 1 256 0",
+      "0x0016518B",
+      "VCrTier0CrProtectron"
+     ]
+    }
+   ]
+  }
+ ]
+}

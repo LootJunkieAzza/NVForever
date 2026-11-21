@@ -1,0 +1,13 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "example_manual_step",
+ "title": "Example: a step done by hand between two readings",
+ "start": "Any save.",
+ "steps": [
+  {"query": "player.GetPos X", "label": "before"},
+  {"query": "player.GetPos Y", "label": "before"},
+  {"manual": "Walk somewhere else."},
+  {"query": "player.GetPos X", "label": "after"},
+  {"query": "player.GetPos Y", "label": "after"}
+ ]
+}

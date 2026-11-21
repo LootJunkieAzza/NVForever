@@ -1,0 +1,70 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless There Stands the Grass (VMS06), Keely's spore purge: the purge gas lit by a laser completes objective 50 (#2687)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Hildern sends the player to Vault 22 (10); Keely's line INFO 0x000F43F8 completes objective 40, shows 50 and enables the purge gas V22SporePurgeGasRef (0x000F0908); a laser shot reaches the gas (its OnHitWith ExplodesGasTrapsOnHit runs DamageObject 5), stage 1 destroys it and its OnDestructionStageChange completes objective 50 and shows 60. Stand-ins: the quest started by its stage; Keely's earlier lines by objectives 30 and 40; the shot by hit (the engine's shot through the gas: engine/nvf-play/src/gas_traps.rs)."
+  },
+  {
+   "op": "set_stage",
+   "quest": "VMS06",
+   "stage": 10
+  },
+  {
+   "op": "set_objective",
+   "quest": "VMS06",
+   "index": 40,
+   "displayed": true
+  },
+  {
+   "op": "get_disabled",
+   "of": "V22SporePurgeGasRef",
+   "label": "purge gas before Keely's line"
+  },
+  {
+   "op": "say_info",
+   "info": "0x000F43F8",
+   "force": true
+  },
+  {
+   "op": "get_disabled",
+   "of": "V22SporePurgeGasRef",
+   "label": "purge gas after Keely's line"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS06",
+   "fields": [
+    "objective.40.completed",
+    "objective.50.displayed",
+    "objective.50.completed"
+   ],
+   "label": "milestone: VMS06 objective 50 shown"
+  },
+  {
+   "op": "hit",
+   "target": "V22SporePurgeGasRef",
+   "weapon": "WeapLaserPistol",
+   "label": "laser through the purge gas"
+  },
+  {
+   "op": "get_ref",
+   "of": "V22SporePurgeGasRef",
+   "fields": [
+    "destroyed"
+   ],
+   "label": "purge gas lit"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS06",
+   "fields": [
+    "objective.50.completed",
+    "objective.60.displayed"
+   ],
+   "label": "final: VMS06 objective 50"
+  }
+ ]
+}

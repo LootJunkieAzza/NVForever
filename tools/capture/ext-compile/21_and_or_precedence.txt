@@ -1,0 +1,11 @@
+scn ExtCase21
+int iA
+int iB
+int iC
+int iR
+Begin GameMode
+    let iR := iA || iB && iC
+    if eval iA || iB && iC
+        let iR := 1
+    endif
+End

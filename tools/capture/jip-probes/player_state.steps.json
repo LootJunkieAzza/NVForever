@@ -1,0 +1,163 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "player_state",
+ "title": "player-state, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rPlayer.GetWaterImmersionPerc)\nEnd\n",
+   "label": "ps.water.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rDoc.GetWaterImmersionPerc)\nEnd\n",
+   "label": "ps.water.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (IsInKillCam)\nEnd\n",
+   "label": "ps.killcam",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetPCUsingScope)\nEnd\n",
+   "label": "ps.scope",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetPCUsingIronSights)\nEnd\n",
+   "label": "ps.ironsights",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetAutoMove)\nEnd\n",
+   "label": "ps.automove",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (IsPlayerSwimming)\nEnd\n",
+   "label": "ps.swimming",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (IsInCharGen)\nEnd\n",
+   "label": "ps.chargen",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rPlayer.GetActorVelocity)\nEnd\n",
+   "label": "ps.velocity.player.all",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rPlayer.GetActorVelocity X)\nEnd\n",
+   "label": "ps.velocity.player.X",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rPlayer.GetActorVelocity Y)\nEnd\n",
+   "label": "ps.velocity.player.Y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rPlayer.GetActorVelocity Z)\nEnd\n",
+   "label": "ps.velocity.player.Z",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rDoc.GetActorVelocity)\nEnd\n",
+   "label": "ps.velocity.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"176EE1\"\nSetFunctionValue (rPlayer.IsIdlePlayingEx rObj)\nEnd\n",
+   "label": "ps.idle.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"176EE1\"\nSetFunctionValue (rDoc.IsIdlePlayingEx rObj)\nEnd\n",
+   "label": "ps.idle.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetController)\nEnd\n",
+   "label": "pad.controller",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetPressedButtons)\nEnd\n",
+   "label": "pad.pressed",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetLeftTrigger)\nEnd\n",
+   "label": "pad.lt",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetRightTrigger)\nEnd\n",
+   "label": "pad.rt",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetLeftStickX)\nEnd\n",
+   "label": "pad.lsx",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetLeftStickY)\nEnd\n",
+   "label": "pad.lsy",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetRightStickX)\nEnd\n",
+   "label": "pad.rsx",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetRightStickY)\nEnd\n",
+   "label": "pad.rsy",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (IsButtonPressed 4096)\nEnd\n",
+   "label": "pad.button.a",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (IsButtonDisabled 4096)\nEnd\n",
+   "label": "pad.disabled.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nDisableButton 4096\nSetFunctionValue (IsButtonDisabled 4096)\nEnd\n",
+   "label": "pad.disable",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (IsButtonDisabled 4096)\nEnd\n",
+   "label": "pad.disable.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (IsButtonDisabled 8192)\nEnd\n",
+   "label": "pad.disable.other",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nDisableButton 12288\nSetFunctionValue ((IsButtonDisabled 4096) * 10 + (IsButtonDisabled 8192))\nEnd\n",
+   "label": "pad.disable.two",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nEnableButton 8192\nSetFunctionValue ((IsButtonDisabled 4096) * 10 + (IsButtonDisabled 8192))\nEnd\n",
+   "label": "pad.enable.one",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nEnableButton 4096\nSetFunctionValue (IsButtonDisabled 4096)\nEnd\n",
+   "label": "pad.enable",
+   "field": "value"
+  }
+ ]
+}

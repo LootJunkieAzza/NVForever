@@ -1,0 +1,376 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_10_stray_markers",
+ "title": "TecMineHostage's stray ElseIf/EndIf: its variables after OnActivate (owner-review: 5B runtime decisions) (about 30 s)",
+ "start": "nvftest: the Techatticup hostages, activated from afar; kills hostage 1. Never saved; unattended (capture_run.py --save nvftest).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nrF1.SetVariable \"freed\" 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, before",
+   "field": "var.freed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"doonce\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, before",
+   "field": "var.doonce"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"button\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, before",
+   "field": "var.button"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, before",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nrF1.Activate player 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, activated",
+   "field": "var.freed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"doonce\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, activated",
+   "field": "var.doonce"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"button\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, activated",
+   "field": "var.button"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, activated",
+   "field": "dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, activated",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, activated",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, activated",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, activated",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, activated",
+   "field": "menu.any"
+  },
+  {
+   "screenshot": "hostage_living_freed_0"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, after CloseAllMenus",
+   "field": "var.freed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"doonce\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, after CloseAllMenus",
+   "field": "var.doonce"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"button\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, after CloseAllMenus",
+   "field": "var.button"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 0, after CloseAllMenus",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nrF1.SetVariable \"freed\" 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, before",
+   "field": "var.freed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"doonce\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, before",
+   "field": "var.doonce"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"button\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, before",
+   "field": "var.button"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, before",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nrF1.Activate player 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, activated",
+   "field": "var.freed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"doonce\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, activated",
+   "field": "var.doonce"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"button\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, activated",
+   "field": "var.button"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, activated",
+   "field": "dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, activated",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, activated",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, activated",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, activated",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, activated",
+   "field": "menu.any"
+  },
+  {
+   "screenshot": "hostage_living_freed_1"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, after CloseAllMenus",
+   "field": "var.freed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"doonce\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, after CloseAllMenus",
+   "field": "var.doonce"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"button\"\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, after CloseAllMenus",
+   "field": "var.button"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "living, freed 1, after CloseAllMenus",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nif rF1.GetDead == 0\n  rF1.Kill\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, before",
+   "field": "var.freed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"doonce\"\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, before",
+   "field": "var.doonce"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"button\"\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, before",
+   "field": "var.button"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, before",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nrF1.Activate player 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, activated",
+   "field": "var.freed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"doonce\"\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, activated",
+   "field": "var.doonce"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"button\"\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, activated",
+   "field": "var.button"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, activated",
+   "field": "dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, activated",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, activated",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, activated",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, activated",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, activated",
+   "field": "menu.any"
+  },
+  {
+   "screenshot": "hostage_dead"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, after CloseAllMenus",
+   "field": "var.freed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"doonce\"\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, after CloseAllMenus",
+   "field": "var.doonce"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"button\"\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, after CloseAllMenus",
+   "field": "var.button"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "dead, after CloseAllMenus",
+   "field": "dead"
+  }
+ ]
+}

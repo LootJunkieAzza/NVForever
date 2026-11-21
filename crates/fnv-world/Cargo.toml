@@ -1,0 +1,15 @@
+[package]
+name = "fnv-world"
+description = "World data for Fallout: New Vegas: worldspaces, cells, placed references and landscape across a load order"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-esm = { path = "../fnv-esm" }
+serde_json.workspace = true
+tracing = "0.1"
+
+[dev-dependencies]
+fnv-nif = { path = "../fnv-nif" }
+fnv-vfs = { path = "../fnv-vfs" }

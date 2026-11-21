@@ -1,0 +1,70 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_refs",
+ "title": "nvse-refs, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nSetFunctionValue (GetNumRefsInCell rF 0 0 0)\nEnd\n",
+   "label": "num.doc.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nSetFunctionValue (GetNumRefsInCell rF 200 0 0)\nEnd\n",
+   "label": "num.doc.200",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nSetFunctionValue (GetNumRefsInCell rF 201 0 0)\nEnd\n",
+   "label": "num.doc.201",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nSetFunctionValue (GetNumRefsInCell rF 42 0 0)\nEnd\n",
+   "label": "num.doc.42",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"106185\"\nSetFunctionValue (GetNumRefsInCell rF 0 0 0)\nEnd\n",
+   "label": "num.saloon.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"106185\"\nSetFunctionValue (GetNumRefsInCell rF 200 0 0)\nEnd\n",
+   "label": "num.saloon.200",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"106185\"\nSetFunctionValue (GetNumRefsInCell rF 201 0 0)\nEnd\n",
+   "label": "num.saloon.201",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"106185\"\nSetFunctionValue (GetNumRefsInCell rF 42 0 0)\nEnd\n",
+   "label": "num.saloon.42",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nSetFunctionValue (GetNumRefsInCell rF 0 0 1)\nEnd\n",
+   "label": "num.doc.taken",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"106185\"\nSetFunctionValue (GetNumRefsInCell rF 0 0 1)\nEnd\n",
+   "label": "num.saloon.taken",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nSetFunctionValue (GetFormIDString (GetFirstRefInCell rF 200 0 0))\nEnd\n",
+   "label": "first.doc.200",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"106185\"\nSetFunctionValue (GetFormIDString (GetFirstRefInCell rF 200 0 0))\nEnd\n",
+   "label": "first.saloon.200",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

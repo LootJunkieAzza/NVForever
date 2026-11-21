@@ -1,0 +1,49 @@
+{
+ "schema": "fnv.phys.walk-script/1",
+ "description": "Swimming, held out (physics.md 6.6): fall into Lake Mead off Callville Bay (XCLW 2600, 1568 deep) from its surface, float, then swim backwards (Back held, Always Run, facing north, moving south) for 2 s: the backward stroke cycle.",
+ "start": [
+  50560.0,
+  62720.0,
+  2600.0
+ ],
+ "hz": 60,
+ "segments": [
+  {
+   "steps": 300
+  },
+  {
+   "steps": 120,
+   "velocity": [
+    0.0,
+    -272.8
+   ],
+   "swim_velocity": [
+    0.0,
+    -339.0,
+    0.0
+   ],
+   "stroke": "back"
+  }
+ ],
+ "observe": {
+  "from_step": 300,
+  "every": 15,
+  "count": 8
+ },
+ "capture": {
+  "name": "swim_bay_back",
+  "reset_at": [
+   50560.0,
+   64768.0,
+   2922.0
+  ],
+  "set_z": 2600.0,
+  "heading_deg": 0,
+  "keys": [
+   "back"
+  ],
+  "jump": false,
+  "settle_frames": 300,
+  "samples": 170
+ }
+}

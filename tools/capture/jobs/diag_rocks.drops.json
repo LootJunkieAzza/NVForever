@@ -1,0 +1,168 @@
+{
+ "schema": "fnv.phys.drops/1",
+ "name": "diag_rocks",
+ "description": "Diagnostic (no scenario): the game's spread on the B11 rock rows (physics.md 4.2): the B11 drops on NVNRockCanyon08 0x001075A0 (rock a) and 0x00107587 (rock b) and the open-ground control, four times each, interleaved; and a +-30 grid around rock a's drop. Job mv_diag_rocks (make_b11_followup_jobs.py).",
+ "seconds": 10,
+ "drops": [
+  {
+   "label": "rock_a_c1",
+   "at": [
+    -69877.6,
+    718.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_b_c1",
+   "at": [
+    -69656.2,
+    1618.6,
+    8686.4
+   ]
+  },
+  {
+   "label": "ground_c1",
+   "at": [
+    -72400.0,
+    4100.0,
+    8552.0
+   ]
+  },
+  {
+   "label": "rock_a_c2",
+   "at": [
+    -69877.6,
+    718.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_b_c2",
+   "at": [
+    -69656.2,
+    1618.6,
+    8686.4
+   ]
+  },
+  {
+   "label": "ground_c2",
+   "at": [
+    -72400.0,
+    4100.0,
+    8552.0
+   ]
+  },
+  {
+   "label": "rock_a_c3",
+   "at": [
+    -69877.6,
+    718.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_b_c3",
+   "at": [
+    -69656.2,
+    1618.6,
+    8686.4
+   ]
+  },
+  {
+   "label": "ground_c3",
+   "at": [
+    -72400.0,
+    4100.0,
+    8552.0
+   ]
+  },
+  {
+   "label": "rock_a_c4",
+   "at": [
+    -69877.6,
+    718.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_b_c4",
+   "at": [
+    -69656.2,
+    1618.6,
+    8686.4
+   ]
+  },
+  {
+   "label": "ground_c4",
+   "at": [
+    -72400.0,
+    4100.0,
+    8552.0
+   ]
+  },
+  {
+   "label": "rock_a_-30_-30",
+   "at": [
+    -69907.6,
+    688.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_a_-30_+0",
+   "at": [
+    -69907.6,
+    718.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_a_-30_+30",
+   "at": [
+    -69907.6,
+    748.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_a_+0_-30",
+   "at": [
+    -69877.6,
+    688.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_a_+0_+30",
+   "at": [
+    -69877.6,
+    748.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_a_+30_-30",
+   "at": [
+    -69847.6,
+    688.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_a_+30_+0",
+   "at": [
+    -69847.6,
+    718.6,
+    8523.0
+   ]
+  },
+  {
+   "label": "rock_a_+30_+30",
+   "at": [
+    -69847.6,
+    748.6,
+    8523.0
+   ]
+  }
+ ]
+}

@@ -1,0 +1,111 @@
+//! Ray casts through the engine's physics for the functions that ask for them (JIP's
+//! GetP2PRayCastRange): the engine lends a caster for the length of a script tick
+//! ([`with_caster`]); without one (headless) a cast hits nothing.
+
+use std::cell::Cell;
+
+/// What a cast meets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CastKind {
+    /// Everything but the terrain and the player (GetP2PRayCastRange).
+    Scene,
+    /// The terrain alone (GetTerrainHeight).
+    Terrain,
+    /// Everything but the player, the terrain included (GetRayCastPos and its kin).
+    World,
+    /// Static camera-room collision, without actors or dynamic bodies. The source
+    /// lateral-clearance mapping uses the existing kill-camera filter.
+    CameraClearance,
+    /// The terrain alone, the hit's `form` the landscape texture (LTEX) showing most
+    /// where it hits, `None` for the default texture (JohnnyGuitar's
+    /// GetLandTextureUnderFeet, `crate::nvse_jg10`).
+    LandTexture,
+}
+
+/// Shared existing actor-origin mapping of the script ray queries, game units.
+/// This is not a native eye-height parity claim (vats-script-clearance.md).
+pub(crate) const ACTOR_RAY_EYE_HEIGHT: f32 = 64.0;
+
+/// The first thing a cast meets.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hit {
+    /// Game units from the start.
+    pub distance: f32,
+    pub point: [f32; 3],
+    /// The placed reference or actor hit; `None` for the terrain (for
+    /// [`CastKind::LandTexture`], the landscape texture).
+    pub form: Option<u32>,
+    /// The Havok material code of what was hit, where the collision gives one.
+    pub material: Option<u32>,
+}
+
+/// A cast from one game-space point toward another: the first hit along the segment,
+/// `None` for no hit.
+pub type Cast<'a> = dyn Fn([f32; 3], [f32; 3], CastKind) -> Option<Hit> + 'a;
+
+thread_local! {
+    static CASTER: Cell<Option<*const Cast<'static>>> = const { Cell::new(None) };
+}
+
+/// Run `body` with `caster` answering [`cast`] on this thread.
+pub fn with_caster<R>(caster: &Cast<'_>, body: impl FnOnce() -> R) -> R {
+    // SAFETY: the pointer is only read by `cast` while `body` runs on this thread (or on
+    // a thread a nested script run moved to while this one waits, `Game::nested`), and
+    // `lend` takes it back out when `body` returns or unwinds, so it never outlives the
+    // borrow of `caster`.
+    let p = unsafe { std::mem::transmute::<*const Cast<'_>, *const Cast<'static>>(caster as *const Cast<'_>) };
+    unsafe { lend(Some(p), body) }
+}
+
+/// The caster lent on this thread now, to carry to the thread a nested script run moves
+/// to (`Game::nested`).
+pub(crate) fn lent() -> Option<*const Cast<'static>> {
+    CASTER.with(|c| c.get())
+}
+
+/// Run `body` with `p` (from [`lent`] or [`with_caster`]) answering [`cast`] on this
+/// thread, the one before put back when it returns or unwinds.
+///
+/// # Safety
+/// The caster `p` points to must stay alive, and be used by no other thread, while
+/// `body` runs.
+pub(crate) unsafe fn lend<R>(p: Option<*const Cast<'static>>, body: impl FnOnce() -> R) -> R {
+    struct Restore(Option<*const Cast<'static>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CASTER.with(|c| c.set(self.0));
+        }
+    }
+    let _restore = Restore(CASTER.with(|c| c.replace(p)));
+    body()
+}
+
+/// The engine's answer for a cast from `from` to `to`: the distance to the first hit;
+/// `None` for no hit or without a caster.
+pub fn cast(from: [f32; 3], to: [f32; 3], kind: CastKind) -> Option<f32> {
+    cast_hit(from, to, kind).map(|h| h.distance)
+}
+
+/// [`cast`] with the whole hit.
+pub fn cast_hit(from: [f32; 3], to: [f32; 3], kind: CastKind) -> Option<Hit> {
+    CASTER.with(|c| c.get()).and_then(|p| {
+        // SAFETY: set by `with_caster`, whose borrow is live while the pointer is set.
+        let f = unsafe { &*p };
+        f(from, to, kind)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lent_caster_answers_only_while_lent() {
+        assert_eq!(cast([0.0; 3], [0.0, 10.0, 0.0], CastKind::Scene), None);
+        let wall = 4.0f32;
+        let f = move |a: [f32; 3], b: [f32; 3], _k: CastKind| (b[1] - a[1] > wall).then_some(Hit { distance: wall, point: [0.0, wall, 0.0], form: None, material: None });
+        let inside = with_caster(&f, || cast([0.0; 3], [0.0, 10.0, 0.0], CastKind::Scene));
+        assert_eq!(inside, Some(4.0));
+        assert_eq!(cast([0.0; 3], [0.0, 10.0, 0.0], CastKind::Scene), None);
+    }
+}

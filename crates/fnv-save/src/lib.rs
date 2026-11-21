@@ -755,9 +755,14 @@ mod tests {
         }
     }
 
-    /// A save is stamped with this crate's version, which is the workspace version.
+    /// A save is stamped with this crate's version, which is the root workspace's: it
+    /// must be the release's, which the engine workspace carries (#1984: every save of
+    /// 0.2.0 to 0.6.0 said 0.1.0).
     #[test]
-    fn the_stamp_is_this_crates_version() {
+    fn the_stamp_is_the_engine_workspace_version() {
+        let engine = include_str!("../../../engine/Cargo.toml");
+        let version = engine.lines().skip_while(|l| l.trim() != "[workspace.package]").find_map(|l| l.trim().strip_prefix("version = ")).map(|v| v.trim_matches('"'));
+        assert_eq!(version, Some(env!("CARGO_PKG_VERSION")), "bump the root Cargo.toml's [workspace.package] version with engine/Cargo.toml's");
         assert_eq!(SaveHeader::new(SaveKind::Manual).nvforever_version, env!("CARGO_PKG_VERSION"));
     }
 

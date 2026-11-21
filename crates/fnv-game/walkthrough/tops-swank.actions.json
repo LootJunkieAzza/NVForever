@@ -1,0 +1,182 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless branch of Ring-a-Ding-Ding: Swank talked round about Benny and asked to distract him while the player searches the suite (VMQTops 15)",
+  "given": [
+    {
+      "kind": "menu",
+      "menu": 1001,
+      "open": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG01",
+      "running": false,
+      "completed": true,
+      "stage": 200,
+      "done": [
+        200
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQ01",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        10,
+        40,
+        50,
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQTops",
+      "running": true,
+      "completed": false,
+      "stage": 10,
+      "done": [
+        10
+      ]
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Speech",
+      "value": 60
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "VBennysCigarette",
+      "count": 1
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "VBennysLighter",
+      "count": 1
+    },
+    {
+      "kind": "global",
+      "name": "VStoryEventKnowsBennyLocation",
+      "value": 1
+    }
+  ],
+  "actions": [
+    {
+      "op": "note",
+      "text": "Starts where boulder-city.actions.json ends (VMQTops at 10, VMQ01 100, whose stage script sets VStoryEventKnowsBennyLocation: given), past the Strip gate (tops.actions.json does the gate). The player walks into the Tops' lobby trigger and talks Swank round about Benny's betrayal by Speech (Topic015/018/020: Speech 15, 30 and 45 pass with Speech 60 given; each raises SwankPersuade), then Topic011 (SwankPersuade 3). The player asks Swank to take Benny out (Topic014), wants time first (Topic036), and on Swank's next greeting asks him to keep Benny busy (Topic038): VMQTops 15, objective 40 shown, the player's gear given back."
+    },
+    {
+      "op": "trigger_enter",
+      "trigger": "scripted:0x001190A3"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "talk",
+      "actor": "VMQTopsSwankREF",
+      "label": "swank greeting"
+    },
+    {
+      "op": "choose",
+      "topic": "SwankBennyBetrayalSpeech",
+      "label": "swank: about Benny"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic015",
+      "label": "swank 015 (Speech 15)"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic018",
+      "label": "swank 018 (Speech 30)"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic020",
+      "label": "swank 020 (Speech 45)"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic011",
+      "label": "swank 011"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "var.SwankPersuade",
+        "var.SwankHelp"
+      ],
+      "label": "Swank persuaded"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic014",
+      "label": "swank 014: take him out"
+    },
+    {
+      "op": "wait_talk",
+      "label": "swank 014 choices"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic036",
+      "label": "swank 036: not yet"
+    },
+    {
+      "op": "wait_talk",
+      "label": "swank 036 after"
+    },
+    {
+      "op": "end_talk"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "talk",
+      "actor": "VMQTopsSwankREF",
+      "label": "swank: ready to deal with Benny?"
+    },
+    {
+      "op": "wait_talk",
+      "label": "swank ready choices"
+    },
+    {
+      "op": "choose",
+      "topic": "VMQTopsVMQTopsSwankTopic038",
+      "label": "swank 038: distract Benny"
+    },
+    {
+      "op": "wait_talk",
+      "label": "swank 038 after"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "stage",
+        "done.15",
+        "var.SwankHelp"
+      ],
+      "label": "milestone: VMQTops 15"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "objective.40.displayed",
+        "var.SwankHelp"
+      ],
+      "label": "final: VMQTops 15 (search the suite while Swank distracts Benny)"
+    }
+  ]
+}

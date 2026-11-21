@@ -1,0 +1,603 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless We Will All Go Together (VMS43) and Arachnophobia (VMS43a) at Camp Searchlight: Astor's dog tags (30) and Private Edwards sent to Ranger Station Echo (30)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: at Camp Searchlight First Sergeant Astor greets the player; Private Edwards, a ghoul in a house, talks (VMS43a 10, MetEdwards); Astor asks for his troopers' dog tags (VMS43 10) and, asked about Edwards (his line needs stage 10), tells of the ghoul-run Ranger Station (KnowledgeRSDelta); Edwards, told of the station, leaves for it (15), walks out of camp (17) and reaches Echo (30); ten tags are picked up (VMS43 20) and nine handed over one by one (DogTagReturned 9), then Astor's thanks (30, Complete Quest). VMS43a has no completing stage: 30 ('At RS Echo') ends Edwards's friendly path (20 is his death)."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel to Camp Searchlight and between its houses."
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor first words"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic023",
+   "label": "astor first words 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "move_player",
+   "to": "EdwardsREF"
+  },
+  {
+   "op": "talk",
+   "actor": "EdwardsREF",
+   "label": "edwards"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic042",
+   "label": "edwards 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic043",
+   "label": "edwards 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic063",
+   "label": "edwards 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS43a 10"
+  },
+  {
+   "op": "move_player",
+   "to": "EdwardsREF"
+  },
+  {
+   "op": "talk",
+   "actor": "EdwardsREF",
+   "label": "edwards again"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic023",
+   "label": "edwards again 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43",
+   "fields": [
+    "var.MetEdwards"
+   ],
+   "label": "met edwards"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor asks"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic059",
+   "label": "astor asks 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic000",
+   "label": "astor asks 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic076",
+   "label": "astor asks 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic083",
+   "label": "astor asks 4"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS43 10"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor echo"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic005",
+   "label": "astor echo 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic061",
+   "label": "astor echo 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic104",
+   "label": "astor echo 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic109",
+   "label": "astor echo 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic114",
+   "label": "astor echo 5"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43",
+   "fields": [
+    "var.KnowledgeRSDelta"
+   ],
+   "label": "knows echo"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for looting the ghoul troopers around the camp: ten Irradiated NCR Dogtags, one at a time (the tag's OnAdd counts DogTagCollected while VMS43 is at 10)."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "IrradiatedNCRDogtag",
+   "count": 1
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 6
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43",
+   "fields": [
+    "stage",
+    "done.20",
+    "var.DogTagCollected"
+   ],
+   "label": "milestone: VMS43 20"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "tag 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic013",
+   "label": "tag 1 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "tag 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic013",
+   "label": "tag 2 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "tag 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic013",
+   "label": "tag 3 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "tag 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic013",
+   "label": "tag 4 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "tag 5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic013",
+   "label": "tag 5 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "tag 6"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic013",
+   "label": "tag 6 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "tag 7"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic013",
+   "label": "tag 7 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "tag 8"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic013",
+   "label": "tag 8 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "tag 9"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic013",
+   "label": "tag 9 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43",
+   "fields": [
+    "var.DogTagReturned"
+   ],
+   "label": "tags returned"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor thanks"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic121",
+   "label": "astor thanks 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43",
+   "fields": [
+    "stage",
+    "done.30",
+    "completed"
+   ],
+   "label": "final: VMS43 30"
+  },
+  {
+   "op": "move_player",
+   "to": "EdwardsREF"
+  },
+  {
+   "op": "talk",
+   "actor": "EdwardsREF",
+   "label": "edwards to echo"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightPvtEdwardsTopic049",
+   "label": "edwards to echo 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "stage",
+    "done.15",
+    "var.EdwardsToEcho"
+   ],
+   "label": "milestone: VMS43a 15"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for Edwards's walk (his packages after the evaluate): he enters the camp-exit trigger (CampSearchlightEdwardsLeavingScript: 17, on to Echo), then Echo's sandbox trigger (ActivateEdwardsEchoSandbox: 30)."
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:CampSearchlightEdwardsLeavingScript",
+   "actor": "EdwardsREF"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "stage",
+    "done.17"
+   ],
+   "label": "milestone: VMS43a 17"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:ActivateEdwardsEchoSandbox",
+   "actor": "EdwardsREF"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "stage",
+    "done.30"
+   ],
+   "label": "final: VMS43a 30"
+  }
+ ]
+}

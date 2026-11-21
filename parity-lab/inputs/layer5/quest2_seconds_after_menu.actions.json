@@ -1,0 +1,88 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "GetSecondsPassed in quest scripts after a long menu",
+  "save": "nvfdoc",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VCG00",
+      "running": false,
+      "completed": false,
+      "stage": 100,
+      "done": [
+        100
+      ],
+      "vars": {
+        "bRunTimer": 1
+      }
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQ03aTimer",
+      "running": false,
+      "completed": false,
+      "stage": 0,
+      "vars": {
+        "bRunTimer": 0,
+        "fTimer": 0,
+        "nEvent": 0
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_quest_var",
+      "quest": "VCG00",
+      "var": "fTimer",
+      "value": 100000
+    },
+    {
+      "op": "start_quest",
+      "quest": "VCG00"
+    },
+    {
+      "op": "wait_frames",
+      "frames": 30
+    },
+    {
+      "op": "menu_gap",
+      "via": "0x00103E37",
+      "frames": 900,
+      "quest": "VCG00",
+      "var": "fTimer",
+      "after": 30,
+      "label": "VCG00 countdown: first drop after the menu"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMQ03aTimer",
+      "var": "fTimer",
+      "value": 100000
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMQ03aTimer",
+      "var": "bRunTimer",
+      "value": 1
+    },
+    {
+      "op": "start_quest",
+      "quest": "VMQ03aTimer"
+    },
+    {
+      "op": "wait_frames",
+      "frames": 60
+    },
+    {
+      "op": "menu_gap",
+      "via": "0x00103E37",
+      "frames": 900,
+      "quest": "VMQ03aTimer",
+      "var": "fTimer",
+      "after": 90,
+      "label": "VMQ03aTimer countdown: first drop after the menu"
+    }
+  ]
+}

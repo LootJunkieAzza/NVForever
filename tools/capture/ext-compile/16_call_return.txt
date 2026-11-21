@@ -1,0 +1,8 @@
+scn ExtCase16
+int iValue
+Begin GameMode
+    let iValue := Call ExtCaseUDF 1 2
+    if eval (Call ExtCaseUDF 1 2)
+        let iValue := 0
+    endif
+End

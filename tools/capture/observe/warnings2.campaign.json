@@ -1,0 +1,446 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "warnings2",
+ "title": "Follow-up to `warnings` (owner 2026-10-24; crates/fnv-game/src/aggro.rs 'The timing' and 'Guard packages', docs/spec-notes/idles.md section 14.3, docs/owner-review.md 'Warnings timed from the original'). Four open guesses. (1) t_*: the 15 s from warning to attack as two warnings 5 s apart and an attack 10 s after the second: the cash-room guard 0x00127950 (aggro radius 128, stationary, detects reliably) with fAITrespassWarningTimer / iGuardWarnings changed by setgs, and at TimeScale 60; read the time from his first procedure-44 sample with the draw cycle to in_combat 1. (2) r_*: the attack without warning inside half the aggro radius: the player put at 0.3-0.7 of the radius from the cash-room guard (128), the young gecko VERGSGecko6REF (500) and the coyote VERGSCoyote6REF (1024); read the distance at first detection and whether a procedure-44 phase comes before combat. (3) c_*: every game loop, the lengths of IsWeaponOut 1 / 0 and GetAnimAction 0 / 1 in the draw-holster cycle (2 s gecko, 2.5 s guard at every 5). (4) g_*: Guard packages' own warnings, never seen: Gomorrah's room guards (vGOMRoomGuard, no aggro radius of their own) and the cash-room door, the player 15 units from the guarded door, or 60 from the guard. Plugin version 7 (installed): no events, extra fields or screenshots; warnings2_v9.campaign.json adds GetTrespassWarningLevel and IsIdlePlaying once v9 is installed. Run each session alone (--only): setgs and a fight change the game for the sessions after. God mode only (no tdetect).",
+ "save": "nvfstrip",
+ "defaults": {
+  "fields": "full",
+  "every": 5,
+  "depth": 1,
+  "settle_frames": 300,
+  "hour": 12,
+  "hours": 0.25,
+  "console_first": [
+   "tgm"
+  ]
+ },
+ "sessions": [
+  {
+   "name": "t_base",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -71 55 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "baseline (repeat of warnings/cashroom_near): warning start to combat, 21 s seen"
+  },
+  {
+   "name": "t_timer2",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -71 55 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "fAITrespassWarningTimer 2: does the attack come sooner, and how many timers make it up?",
+   "console_first": [
+    "tgm",
+    "setgs fAITrespassWarningTimer 2"
+   ]
+  },
+  {
+   "name": "t_timer10",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -71 55 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "fAITrespassWarningTimer 10",
+   "console_first": [
+    "tgm",
+    "setgs fAITrespassWarningTimer 10"
+   ],
+   "hours": 0.6
+  },
+  {
+   "name": "t_warnings1",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -71 55 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "iGuardWarnings 1",
+   "console_first": [
+    "tgm",
+    "setgs iGuardWarnings 1"
+   ]
+  },
+  {
+   "name": "t_warnings4",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -71 55 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "iGuardWarnings 4",
+   "console_first": [
+    "tgm",
+    "setgs iGuardWarnings 4"
+   ],
+   "hours": 0.6
+  },
+  {
+   "name": "t_timescale60",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -71 55 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "TimeScale 60: the same 21 real seconds (a real-time timer) or about half (game time)?",
+   "timescale": 60,
+   "hours": 0.5
+  },
+  {
+   "name": "r_cash_38",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -30 23 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "38 units from the guard, 0.3 of his 128: warning first, or combat at once?"
+  },
+  {
+   "name": "r_cash_58",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -46 35 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "58 units, 0.45"
+  },
+  {
+   "name": "r_cash_70",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -55 43 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "70 units, 0.55"
+  },
+  {
+   "name": "r_gecko_220",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -17,
+     -6
+    ]
+   },
+   "track": [
+    "0x00157B3C"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 220 0",
+     "0x00157B3C"
+    ]
+   ],
+   "note": "Young Gecko VERGSGecko6REF (radius 500) at 220, 0.44: the distance when it first detects the player, and whether procedure 44 comes before combat"
+  },
+  {
+   "name": "r_gecko_280",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -17,
+     -6
+    ]
+   },
+   "track": [
+    "0x00157B3C"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 280 0",
+     "0x00157B3C"
+    ]
+   ],
+   "note": "the young gecko at 280, 0.56"
+  },
+  {
+   "name": "r_gecko_350",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -17,
+     -6
+    ]
+   },
+   "track": [
+    "0x00157B3C"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 350 0",
+     "0x00157B3C"
+    ]
+   ],
+   "note": "the young gecko at 350, 0.7"
+  },
+  {
+   "name": "r_coyote_300",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -15,
+     -1
+    ]
+   },
+   "track": [
+    "0x00157B38"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 300 0",
+     "0x00157B38"
+    ]
+   ],
+   "note": "coyote VERGSCoyote6REF (radius 1024) at 300, 0.29"
+  },
+  {
+   "name": "r_coyote_460",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -15,
+     -1
+    ]
+   },
+   "track": [
+    "0x00157B38"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 460 0",
+     "0x00157B38"
+    ]
+   ],
+   "note": "the coyote at 460, 0.45"
+  },
+  {
+   "name": "r_coyote_560",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -15,
+     -1
+    ]
+   },
+   "track": [
+    "0x00157B38"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 560 0",
+     "0x00157B38"
+    ]
+   ],
+   "note": "the coyote at 560, 0.55"
+  },
+  {
+   "name": "r_coyote_720",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -15,
+     -1
+    ]
+   },
+   "track": [
+    "0x00157B38"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 720 0",
+     "0x00157B38"
+    ]
+   ],
+   "note": "the coyote at 720, 0.7"
+  },
+  {
+   "name": "c_cash_fast",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -71 55 0",
+     "0x00127950"
+    ]
+   ],
+   "note": "every game loop for 18 s: the lengths of IsWeaponOut 1 and 0 and of GetAnimAction 0 / 1 in the guard's draw-holster cycle",
+   "every": 1,
+   "max_actors": 3,
+   "hours": 0.15
+  },
+  {
+   "name": "c_hunters_fast",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -17,
+     -6
+    ]
+   },
+   "track": [
+    "0x00165186",
+    "0x00165185",
+    "0x00157B3C"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 400 0",
+     "0x00157B3C"
+    ]
+   ],
+   "note": "every game loop: the Goodsprings gecko hunters 0x00165186 / 0x00165185 came in and warned in gecko_stay_400 (2026-10-24); the lengths of their draw-holster cycle",
+   "every": 1,
+   "max_actors": 4
+  },
+  {
+   "name": "g_room1_door",
+   "go": {
+    "coc": "Gomorrah03"
+   },
+   "track": [
+    "0x001249EC"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 11 -10 0",
+     "0x0010F971"
+    ]
+   ],
+   "note": "vGOMRoomGuard 0x001249EC (vGomorrahGuardPackage, no aggro radius of his own) guards door 0x0010F971, 206 units from him: the player 15 units from the door on his side. A warning here can only be the Guard package's"
+  },
+  {
+   "name": "g_room1_mid",
+   "go": {
+    "coc": "Gomorrah03"
+   },
+   "track": [
+    "0x001249EC"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -44 41 0",
+     "0x001249EC"
+    ]
+   ],
+   "note": "the same guard, the player 60 units from him toward the door (146 from the door, outside 25): a warning means the area is not the door's 25"
+  },
+  {
+   "name": "g_room2_door",
+   "go": {
+    "coc": "Gomorrah03"
+   },
+   "track": [
+    "0x001249EE"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 11 -11 0",
+     "0x0010F970"
+    ]
+   ],
+   "note": "vGOMRoomGuard 0x001249EE guards door 0x0010F970, 226 units away: the player 15 units from the door on his side"
+  },
+  {
+   "name": "g_room2_mid",
+   "go": {
+    "coc": "Gomorrah03"
+   },
+   "track": [
+    "0x001249EE"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} -42 42 0",
+     "0x001249EE"
+    ]
+   ],
+   "note": "the same guard, the player 60 units from him toward the door"
+  },
+  {
+   "name": "g_cash_door",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 6 -14 0",
+     "0x0010D6B9"
+    ]
+   ],
+   "note": "the cash-room door, 15 units from it on the guard's side (warnings/cashroom_at_door stood 24-33 away): inside the 25 his Guard package names"
+  }
+ ]
+}

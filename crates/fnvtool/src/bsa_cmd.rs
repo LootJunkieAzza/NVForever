@@ -1,0 +1,270 @@
+use crate::BsaCmd;
+use anyhow::Context;
+use fnv_bsa::{rewrite, Archive, CompareWriter};
+use fnv_inflate::Trailer;
+use serde_json::{json, Value};
+use fnv_util::sha256;
+use std::path::Path;
+
+fn hex64(v: u64) -> String {
+    format!("0x{v:016x}")
+}
+
+fn archive_name(p: &Path) -> String {
+    p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+fn header_json(a: &Archive) -> Value {
+    let h = &a.header;
+    json!({
+        "version": h.version,
+        "archive_flags": h.archive_flags,
+        "file_flags": h.file_flags,
+        "folder_count": h.folder_count,
+        "file_count": h.file_count,
+        "total_folder_name_length": h.total_folder_name_length,
+        "total_file_name_length": h.total_file_name_length,
+    })
+}
+
+fn warnings_json(a: &Archive, extra: &[(String, String)]) -> Value {
+    let v: Vec<Value> = a
+        .warnings
+        .iter()
+        .map(|w| json!({"code": w.code, "detail": w.detail}))
+        .chain(extra.iter().map(|(code, detail)| json!({"code": code, "detail": detail})))
+        .collect();
+    Value::Array(v)
+}
+
+fn trailer_warning(path: &str, t: Trailer) -> Option<(String, String)> {
+    match t {
+        Trailer::Verified => None,
+        Trailer::Missing => Some(("zlib_trailer_missing".into(), path.to_string())),
+        Trailer::Mismatch { stored, computed } => Some((
+            "zlib_checksum_mismatch".into(),
+            format!("{path}: stored {stored:08x}, computed {computed:08x}"),
+        )),
+        Trailer::Extra { bytes } => Some(("zlib_bytes_after_trailer".into(), format!("{path}: {bytes} bytes after the Adler-32"))),
+    }
+}
+
+/// `fnvtool vfs …`.
+pub fn run_vfs(cmd: crate::VfsCmd) -> anyhow::Result<Value> {
+    match cmd {
+        crate::VfsCmd::Order { data_dir, plugins, archive_list } => {
+            let plugins: Vec<String> = if plugins.is_empty() { fnv_vfs::DEFAULT_PLUGINS.iter().map(|p| p.to_string()).collect() } else { plugins };
+            if let Some(l) = archive_list {
+                fnv_vfs::set_archive_list(fnv_vfs::parse_archive_list(&l)).map_err(|_| anyhow::anyhow!("--archive-list: no archive named"))?;
+            }
+            let (archives, from_env) = fnv_vfs::Vfs::order_for_plugins(&data_dir, &plugins);
+            let source = if from_env {
+                fnv_vfs::ARCHIVE_ORDER_ENV
+            } else if fnv_vfs::archive_list_overridden() {
+                "SArchiveList given, Update.bsa, then each plugin's archives"
+            } else {
+                "SArchiveList default, Update.bsa, then each plugin's archives"
+            };
+            Ok(json!({
+                "schema": "fnv.vfs.order/1",
+                "data": data_dir.display().to_string(),
+                "plugins": plugins,
+                "source": source,
+                "archives": archives,
+                "loose": "above every archive",
+            }))
+        }
+        crate::VfsCmd::Mods { instance, profile, data, path } => {
+            let layout = fnv_install::mo2::Layout::open(&instance, profile.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
+            let modlist = std::fs::read_to_string(layout.profile.join("modlist.txt")).unwrap_or_default();
+            let mods: Vec<Value> = modlist
+                .lines()
+                .filter_map(|l| {
+                    let l = l.trim_end();
+                    let (enabled, foreign, name) = match l.as_bytes().first()? {
+                        b'+' => (true, false, &l[1..]),
+                        b'-' => (false, false, &l[1..]),
+                        b'*' => (true, true, &l[1..]),
+                        b'#' => return None,
+                        _ => (true, false, l),
+                    };
+                    (!name.is_empty()).then(|| {
+                        let present = !foreign && layout.mods.join(name).is_dir();
+                        json!({
+                            "name": name,
+                            // On in MO2: `+`, `*` (a foreign mod), or a legacy unprefixed line.
+                            "enabled": enabled,
+                            // Its folder is merged over Data: only `+` is (a `*` mod's files
+                            // already are the game's, `Layout::mod_roots`).
+                            "layered": present,
+                            "present": present,
+                        })
+                    })
+                })
+                .collect();
+            let roots: Vec<String> = layout.mod_roots().iter().map(|r| r.display().to_string()).collect();
+            let plugins = layout.profile_plugins().map_err(|e| anyhow::anyhow!(e))?;
+            let profile_archives = layout.profile_archives();
+            let unlisted: Vec<String> = match &profile_archives {
+                Some((list, _)) => layout.mod_archives().into_iter().filter(|a| !list.iter().any(|n| n.eq_ignore_ascii_case(a))).collect(),
+                None => layout.mod_archives(),
+            };
+            let mut out = json!({
+                "schema": "fnv.vfs.mods/3",
+                "instance": instance.display().to_string(),
+                "profile": layout.profile_name(),
+                "profile_dir": layout.profile.display().to_string(),
+                "mods": mods,
+                "roots": roots,
+                "plugins": plugins,
+                "profile_archives": profile_archives.as_ref().map(|(l, _)| l.clone()),
+                "profile_archives_from": profile_archives.as_ref().map(|(_, p)| p.display().to_string()),
+                "archives_not_ticked": unlisted,
+                // #1526 phase 2b: the profile's own INIs and saves (settings.ini).
+                "local_settings": layout.local_settings(),
+                "local_saves": layout.local_saves(),
+                "saves_dir": layout.saves_dir().map(|p| p.display().to_string()),
+                "inis": layout.ini_texts().into_iter().map(|(p, _)| p.display().to_string()).collect::<Vec<_>>(),
+                "ini_settings": {
+                    "sLanguage": layout.ini_setting("General", "sLanguage").map(|(v, _)| v),
+                    "uGridsToLoad": layout.ini_setting("General", "uGridsToLoad").map(|(v, _)| v),
+                    // A key the profile's INIs and initweaks.ini all set: the last wins.
+                    "iSize W": layout.ini_setting("Display", "iSize W").map(|(v, _)| v),
+                },
+            });
+            if let Some(p) = path {
+                let data = data.ok_or_else(|| anyhow::anyhow!("--path needs --data (the game's Data folder)"))?;
+                anyhow::ensure!(data.is_dir(), "{}: not a folder", data.display());
+                if let Some((list, _)) = &profile_archives {
+                    fnv_vfs::set_archive_list(list.clone()).map_err(|_| anyhow::anyhow!("the profile's archive list names no archive"))?;
+                }
+                let vfs = fnv_vfs::Vfs::open_for_plugins_layered(&data, &layout.mod_roots(), &plugins)?;
+                out["archives"] = json!(vfs.archives().map(|n| json!({"name": n, "file": vfs.archive_path(n).map(|p| p.display().to_string())})).collect::<Vec<_>>());
+                let key = fnv_vfs::normalize(&p);
+                let loose = vfs.loose_path(&key);
+                let archive_file = vfs.source_of(&key).filter(|s| *s != "loose").and_then(|n| vfs.archive_path(n).map(std::path::Path::to_path_buf));
+                let found = loose.clone().or(archive_file);
+                let layer = found.as_ref().and_then(|f| {
+                    let mut layers: Vec<&std::path::Path> = vec![vfs.data_dir()];
+                    layers.extend(vfs.loose_roots().iter().skip(1).map(std::path::PathBuf::as_path));
+                    layers.extend(vfs.archives().filter_map(|n| vfs.archive_path(n)).filter_map(|f| f.parent()));
+                    layers.iter().rev().find(|r| f.starts_with(r)).map(|r| r.display().to_string())
+                });
+                out["path"] = json!({
+                    "asked": p,
+                    "key": key,
+                    "found": found.map(|f| f.display().to_string()),
+                    "source": vfs.source_of(&key),
+                    "layer": layer,
+                });
+            }
+            Ok(out)
+        }
+    }
+}
+
+pub fn run(cmd: BsaCmd) -> anyhow::Result<Value> {
+    match cmd {
+        BsaCmd::List { archive, no_content_hash } => list(&archive, !no_content_hash),
+        BsaCmd::Extract { archive, path_in_archive: inner, out_file: out } => {
+            let mut a = Archive::open(&archive)?;
+            let (fi, ri) = a.find(&inner).with_context(|| format!("{inner} not found in archive"))?;
+            let r = a.folders[fi].files[ri].clone();
+            let data = a.extract(&r)?;
+            // Never write into the original game install the archive came from.
+            let game = archive.parent().and_then(|d| fnv_install::GameInstall::open(d).ok());
+            fnv_install::guard_write(&out, game.as_ref())?;
+            std::fs::write(&out, &data).with_context(|| out.display().to_string())?;
+            Ok(json!({"schema": "fnv.bsa.extract/1", "path": inner, "size": data.len()}))
+        }
+        BsaCmd::Verify { archive } => verify(&archive),
+        BsaCmd::Check { archives } => {
+            let rows: Vec<(String, Option<String>)> =
+                archives.iter().map(|a| (archive_name(a), fnv_bsa::check(a).err().map(|e| e.to_string()))).collect();
+            let damaged: Vec<String> = rows.iter().filter_map(|(n, e)| e.as_ref().map(|e| format!("{n}: {e}"))).collect();
+            anyhow::ensure!(damaged.is_empty(), "damaged archive(s): {}", damaged.join("; "));
+            Ok(json!({"schema": "fnv.bsa.check/1", "archives": rows.iter().map(|(n, _)| n).collect::<Vec<_>>(), "ok": true}))
+        }
+    }
+}
+
+/// Archive listing. Rows: path, name_hash, folder_hash, stored_size, compressed,
+/// size (decoded), sha256 (of decoded contents).
+fn list(path: &Path, content_hash: bool) -> anyhow::Result<Value> {
+    let mut a = Archive::open(path)?;
+    let entries: Vec<(String, fnv_bsa::FileRecord, u64)> =
+        a.entries().map(|e| (e.path(), e.record.clone(), e.folder.hash)).collect();
+    let mut rows = Vec::with_capacity(entries.len());
+    let mut errors = Vec::new();
+    let mut extra_warnings = Vec::new();
+    let mut decoded = if content_hash {
+        let recs: Vec<fnv_bsa::FileRecord> = entries.iter().map(|e| e.1.clone()).collect();
+        a.decode_files(&recs, |d| (d.len(), sha256::hex(d))).into_iter()
+    } else {
+        Vec::new().into_iter()
+    };
+    for (p, r, fh) in entries {
+        let mut row = json!({
+            "path": p,
+            "name_hash": hex64(r.hash),
+            "folder_hash": hex64(fh),
+            "stored_size": r.stored_size(),
+            "compressed": a.is_compressed(&r),
+        });
+        if content_hash {
+            let (size, hash) = match decoded.next().expect("one result per entry") {
+                Ok(((len, hash), t)) => {
+                    extra_warnings.extend(trailer_warning(&p, t));
+                    (json!(len), json!(hash))
+                }
+                Err(e) => {
+                    errors.push(format!("{p}: {e}"));
+                    (Value::Null, Value::Null)
+                }
+            };
+            row["size"] = size;
+            row["sha256"] = hash;
+        }
+        rows.push(row);
+    }
+    Ok(json!({
+        "schema": "fnv.bsa.listing/1",
+        "archive": archive_name(path),
+        "header": header_json(&a),
+        "warnings": warnings_json(&a, &extra_warnings),
+        "errors": errors,
+        "files": rows,
+    }))
+}
+
+fn verify(path: &Path) -> anyhow::Result<Value> {
+    let original_size = std::fs::metadata(path).with_context(|| path.display().to_string())?.len();
+    let mut a = Archive::open(path)?;
+    // Stream the rewrite into a comparator: memory stays at directory + one file.
+    let file = std::fs::File::open(path).with_context(|| path.display().to_string())?;
+    let mut cmp = CompareWriter::new(std::io::BufReader::new(file));
+    rewrite(&mut a, &mut cmp)?;
+    let rewritten = cmp.written;
+    let (identical, first_diff) = cmp.finish()?;
+    let recs: Vec<(String, fnv_bsa::FileRecord)> = a.entries().map(|e| (e.path(), e.record.clone())).collect();
+    let mut decode_errors = Vec::new();
+    let mut extra_warnings = Vec::new();
+    let file_recs: Vec<fnv_bsa::FileRecord> = recs.iter().map(|(_, r)| r.clone()).collect();
+    for ((p, _), res) in recs.iter().zip(a.decode_files(&file_recs, |_| ())) {
+        match res {
+            Ok((_, t)) => extra_warnings.extend(trailer_warning(p, t)),
+            Err(e) => decode_errors.push(e.to_string()),
+        }
+    }
+    Ok(json!({
+        "schema": "fnv.bsa.verify/1",
+        "archive": archive_name(path),
+        "files": recs.len(),
+        "roundtrip_identical": identical,
+        "original_size": original_size,
+        "rewritten_size": rewritten,
+        "first_difference": first_diff,
+        "decode_errors": decode_errors,
+        "warnings": warnings_json(&a, &extra_warnings),
+    }))
+}

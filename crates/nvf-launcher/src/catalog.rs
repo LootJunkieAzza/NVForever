@@ -11,7 +11,7 @@
 //! - **Built in** ([`Catalog::built_in`]), before the game has written one (a first start, a
 //!   game older than the file, an update not started yet): the tabs, categories and row order
 //!   from the game's own table (`nvf_settings_layout::SECTIONS`, the crate the game's pause
-//!   menu draws from), the labels and notes from `settings-reference.md` in this crate (a test in the
+//!   menu draws from), the labels and notes from `docs/settings-reference.md` (a test in the
 //!   game keeps it the same as the table: `settings_layout.rs`,
 //!   `the_reference_has_every_row_where_the_page_shows_it`). What kind of row a key is the
 //!   launcher then goes by the value the INI holds ([`Kind::of_value`]).
@@ -27,7 +27,7 @@ use nvf_settings_layout::{CONTROL_PREFIX, SECTIONS, TAB_ORDER, TWEAKS_TAB};
 /// set in the game only]. A test fails when the game no longer has one of them.
 pub const LAUNCHER_TABS: [&str; 4] = ["Gameplay", "Display", "Graphics", TWEAKS_TAB];
 
-const REFERENCE: &str = include_str!("settings-reference.md");
+const REFERENCE: &str = include_str!("../../../docs/settings-reference.md");
 
 /// The heading after which the reference lists the Controls tab's own rows (kept in
 /// `[Controls]`, not `[Settings]`): the launcher stops there.
@@ -225,23 +225,28 @@ pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
         ("vats-style", &["Classic", "Mark and Fire"][..]),
         // As the INI keeps them (`Smoothing::stored`, #2676); the engine also reads its older 1/0.
         ("smooth-terrain", &["off", "2x2", "4x4", "4x4-near"][..]),
+        // ssao.rs `AO_CHOICES` (2026-11-19); the engine also reads its older 1/0.
+        ("ambient-occlusion", &["Off", "Performance", "Quality"][..]),
     ])
 }
 
 /// A list row's value as one of its choices ([`list_choices`]): the older values a list took
 /// over from map to the choice they stand for (the Smooth terrain row's on/off of #2149:
-/// `1`, true, on, yes are `4x4`; `0`, false, off, no are `off`, as the engine reads them);
-/// anything else as it is (trimmed).
+/// `1`, true, on, yes are `4x4`; `0`, false, off, no are `off`; the Ambient occlusion row's
+/// switch of before 2026-11-19: `Quality` and `Off`, as the engine reads them); anything else
+/// as it is (trimmed).
 pub fn list_value(key: &str, value: &str) -> String {
     let v = value.trim();
-    if key == "smooth-terrain" {
-        match v.to_ascii_lowercase().as_str() {
-            "1" | "true" | "on" | "yes" => return "4x4".to_string(),
-            "0" | "false" | "off" | "no" => return "off".to_string(),
-            _ => {}
-        }
+    let (on, off) = match key {
+        "smooth-terrain" => ("4x4", "off"),
+        "ambient-occlusion" => ("Quality", "Off"),
+        _ => return v.to_string(),
+    };
+    match v.to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" => on.to_string(),
+        "0" | "false" | "off" | "no" => off.to_string(),
+        _ => v.to_string(),
     }
-    v.to_string()
 }
 
 #[cfg(test)]
@@ -384,8 +389,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The Smooth terrain row's older on/off reads as its choices (4x4 and off), so a
-    /// launcher with an old INI offers the list, not a switch; other values stay as they are.
+    #[test]
+    fn list_choices_match_the_engines_names() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvf-play/src/");
+        for (key, file) in [("kill-camera", "kill_cam.rs"), ("vats-style", "vats_classic.rs"), ("smooth-terrain", "smooth_terrain.rs")] {
+            let src = std::fs::read_to_string(format!("{root}{file}")).unwrap();
+            for name in list_choices()[key] {
+                assert!(src.contains(&format!("=> \"{name}\"")), "{key}: {name} is no longer a choice in {file}");
+            }
+        }
+        // The Ambient occlusion row's, as the engine lists them (ssao.rs `AO_CHOICES`).
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/ssao.rs")).unwrap();
+        let listed = list_choices()["ambient-occlusion"].iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
+        assert!(src.contains(&format!("pub const AO_CHOICES: [&str; 3] = [{listed}];")), "ambient-occlusion: the engine's AO_CHOICES are no longer {listed}");
+    }
+
+    /// The Smooth terrain row's older on/off reads as its choices (4x4 and off), the Ambient
+    /// occlusion row's as Quality and Off, so a launcher with an old INI offers the list, not
+    /// a switch; other values stay as they are.
     #[test]
     fn older_values_map_to_list_choices() {
         let choices = list_choices();
@@ -393,6 +414,11 @@ mod tests {
             let got = list_value("smooth-terrain", v);
             assert_eq!(got, want, "{v}");
             assert!(choices["smooth-terrain"].contains(&got.as_str()));
+        }
+        for (v, want) in [("1", "Quality"), ("0", "Off"), ("on", "Quality"), ("false", "Off"), ("Performance", "Performance"), (" Quality ", "Quality")] {
+            let got = list_value("ambient-occlusion", v);
+            assert_eq!(got, want, "{v}");
+            assert!(choices["ambient-occlusion"].contains(&got.as_str()));
         }
         assert_eq!(list_value("kill-camera", " 1 "), "1");
     }

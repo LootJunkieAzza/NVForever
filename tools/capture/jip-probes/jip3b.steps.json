@@ -1,0 +1,323 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip3b",
+ "title": "jip3b, runtime-compiled",
+ "start": "nvftest (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nlet rObj := rP.PlaceAtMe rB 1 300 0\nrP.AuxVarSetRef \"*nvfJ3\" rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.place",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.w29",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 1)\nEnd\n",
+   "label": "jip3b.ref.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 1 rB)\nEnd\n",
+   "label": "jip3b.base.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 1 rB)\nEnd\n",
+   "label": "jip3b.refbase.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 2)\nEnd\n",
+   "label": "jip3b.ref.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 2 rB)\nEnd\n",
+   "label": "jip3b.base.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 2 rB)\nEnd\n",
+   "label": "jip3b.refbase.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 4)\nEnd\n",
+   "label": "jip3b.ref.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 4 rB)\nEnd\n",
+   "label": "jip3b.base.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 4 rB)\nEnd\n",
+   "label": "jip3b.refbase.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 8)\nEnd\n",
+   "label": "jip3b.ref.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 8 rB)\nEnd\n",
+   "label": "jip3b.base.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 8 rB)\nEnd\n",
+   "label": "jip3b.refbase.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 16)\nEnd\n",
+   "label": "jip3b.ref.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 16 rB)\nEnd\n",
+   "label": "jip3b.base.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 16 rB)\nEnd\n",
+   "label": "jip3b.refbase.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 32)\nEnd\n",
+   "label": "jip3b.ref.32",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 32 rB)\nEnd\n",
+   "label": "jip3b.base.32",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 32 rB)\nEnd\n",
+   "label": "jip3b.refbase.32",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 64)\nEnd\n",
+   "label": "jip3b.ref.64",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 64 rB)\nEnd\n",
+   "label": "jip3b.base.64",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 64 rB)\nEnd\n",
+   "label": "jip3b.refbase.64",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 128)\nEnd\n",
+   "label": "jip3b.ref.128",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 128 rB)\nEnd\n",
+   "label": "jip3b.base.128",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 128 rB)\nEnd\n",
+   "label": "jip3b.refbase.128",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 256)\nEnd\n",
+   "label": "jip3b.ref.256",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 256 rB)\nEnd\n",
+   "label": "jip3b.base.256",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 256 rB)\nEnd\n",
+   "label": "jip3b.refbase.256",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 512)\nEnd\n",
+   "label": "jip3b.ref.512",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (GetActorTemplateFlag 512 rB)\nEnd\n",
+   "label": "jip3b.base.512",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue (rObj.GetActorTemplateFlag 512 rB)\nEnd\n",
+   "label": "jip3b.refbase.512",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nSetFunctionValue ((rObj.GetBaseObject) == rB)\nEnd\n",
+   "label": "jip3b.refbaseform",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rB\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"17465E\"\nlet rObj := rP.AuxVarGetRef \"*nvfJ3\"\nrObj.Disable\nrObj.MarkForDelete\nSetFunctionValue 1\nEnd\n",
+   "label": "jip3b.remove",
+   "field": "value"
+  }
+ ]
+}

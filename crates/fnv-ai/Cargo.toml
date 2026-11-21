@@ -1,0 +1,18 @@
+[package]
+name = "fnv-ai"
+description = "Carrying AI packages out: where a package sends its actor, whether it can get there over the navmesh, and walking it there"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-game = { path = "../fnv-game" }
+fnv-nav = { path = "../fnv-nav" }
+fnv-sim = { path = "../fnv-sim" }
+fnv-world = { path = "../fnv-world" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+fnv-esm = { path = "../fnv-esm" }
+fnv-script = { path = "../fnv-script" }

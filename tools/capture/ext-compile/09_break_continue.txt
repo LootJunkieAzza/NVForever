@@ -1,0 +1,14 @@
+scn ExtCase09
+int iCount
+Begin GameMode
+    set iCount to 0
+    while iCount < 5
+        let iCount += 1
+        if iCount == 2
+            continue
+        elseif iCount == 4
+            break
+        endif
+        Print $iCount
+    loop
+End

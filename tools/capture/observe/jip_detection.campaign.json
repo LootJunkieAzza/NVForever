@@ -1,0 +1,105 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "jip_detection",
+ "title": "JIP tier, state only (docs/handoff/observer-jip-audit-2026-10-25.md Q6, Q7): every Goodsprings resident's GetDetectionValue of the player, with the light on the player (GetActorLightAmount) and GetPCDetectionState, the player standing, sneaking and walking up to Settler 3, at noon and at midnight; the distance is read from the positions",
+ "save": "nvftest",
+ "defaults": {
+  "jip": true,
+  "every": 10,
+  "depth": 1,
+  "track": [
+   "DocMitchellREF",
+   "SunnyRef",
+   "TrudyRef",
+   "RingoRef",
+   "EasyPeteRef",
+   "GSChetRef",
+   "GSJoeCobbRef",
+   "CheyenneREF",
+   "GSVictorRef",
+   "GoodspringsSettler01Ref",
+   "GoodspringsSettler02Ref",
+   "GoodspringsSettler03Ref",
+   "GoodspringsSettler04Ref"
+  ],
+  "hours": 0.5
+ },
+ "sessions": [
+  {
+   "name": "noon_stand",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 12,
+   "console_first": [
+    "tgm"
+   ]
+  },
+  {
+   "name": "noon_sneak",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 12,
+   "console_first": [
+    "player.SetForceSneak 1"
+   ]
+  },
+  {
+   "name": "noon_walk_sneak",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 12,
+   "walk": {
+    "to": "GoodspringsSettler03Ref",
+    "within": 150
+   }
+  },
+  {
+   "name": "night_stand",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 0,
+   "console_first": [
+    "player.SetForceSneak 0"
+   ]
+  },
+  {
+   "name": "night_sneak",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 0,
+   "console_first": [
+    "player.SetForceSneak 1"
+   ]
+  },
+  {
+   "name": "night_walk_sneak",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 0,
+   "walk": {
+    "to": "GoodspringsSettler03Ref",
+    "within": 150
+   }
+  },
+  {
+   "name": "night_walk",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 0,
+   "console_first": [
+    "player.SetForceSneak 0"
+   ],
+   "walk": {
+    "to": "GoodspringsSettler03Ref",
+    "within": 150
+   }
+  }
+ ]
+}

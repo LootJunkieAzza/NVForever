@@ -1,0 +1,20 @@
+scn ExtProbeStrings05
+; one edge-case probe moved out of 02 (tools/capture/ext-probes/strings/README.md)
+string_var sS
+string_var sT
+array_var aA
+int iI
+float fF
+ref rRef
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|strings/ExtProbeStrings05|begin"
+    let sS := "abc"
+    Sv_Replace "|x", sS
+    Print "EXTPROBE|replace.empty_old|[" + (sS) + "]"
+    Print "EXTPROBE|strings/ExtProbeStrings05|end"
+End

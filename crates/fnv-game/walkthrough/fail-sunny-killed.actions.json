@@ -1,0 +1,116 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless fail path: Sunny Smiles killed by the player during Back in the Saddle (VCG02 100) and Ain't That a Kick in the Head (VCG03 255)",
+  "given": [
+    {
+      "kind": "menu",
+      "menu": 1001,
+      "open": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG01",
+      "running": false,
+      "completed": true,
+      "stage": 200,
+      "done": [
+        200
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG02",
+      "running": true,
+      "completed": false,
+      "stage": 5,
+      "done": [
+        5
+      ],
+      "objectives": [
+        {
+          "index": 3,
+          "displayed": true,
+          "completed": false
+        }
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG03",
+      "running": true,
+      "completed": false,
+      "stage": 10,
+      "done": [
+        10
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "op": "note",
+      "text": "Starts in Goodsprings after Doc Mitchell's farewell (intro.actions.json gets here: VCG01 200, VCG02 5 with 'talk to Sunny' shown, VCG03 10 running). The player kills Sunny Smiles in the Prospector Saloon instead of following her (combat stand-in: a kill by the player). Her OnDeath (GSSunnySmilesScript) sets VCG02 100 while it is not completed and VCG03 255 while it runs, and fails VMS16 (110) when its stage 70 is not done."
+    },
+    {
+      "op": "get_quest",
+      "quest": "VCG02",
+      "fields": [
+        "running",
+        "failed",
+        "stage"
+      ],
+      "label": "VCG02 before"
+    },
+    {
+      "op": "move_player",
+      "to": "placed:GSSunnySmiles"
+    },
+    {
+      "op": "kill",
+      "actor": "placed:GSSunnySmiles",
+      "killer": "player"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VCG02",
+      "fields": [
+        "running",
+        "failed",
+        "stage",
+        "done.100"
+      ],
+      "label": "final: VCG02 100 (failed, Sunny dead)"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VCG03",
+      "fields": [
+        "running",
+        "failed",
+        "stage",
+        "done.255"
+      ],
+      "label": "final: VCG03 255 (failed, Sunny dead)"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "fields": [
+        "stage",
+        "done.110"
+      ],
+      "label": "VMS16 110 (Sunny dead before stage 70)"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VFreeformGoodsprings",
+      "fields": [
+        "var.bAllowEnableTrudy"
+      ],
+      "label": "Trudy's enable allowed"
+    }
+  ]
+}

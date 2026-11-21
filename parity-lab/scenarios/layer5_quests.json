@@ -1,0 +1,527 @@
+{
+ "scenarios": [
+  {
+   "id": "L5.quest.stage_order",
+   "layer": 5,
+   "description": "SetStage order on VMS16 (objective-only result scripts): a stage set on a stopped quest, a lower stage after a higher one (GetStage, GetStageDone, whether the lower stage's script runs), the same stage again without the repeat flag, an undefined stage, a lower stage, and the Fail Quest stage. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_stage_order.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_stage_order.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_stage_order.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "stages",
+    "objectives",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.repeated_stage",
+   "layer": 5,
+   "description": "A quest with 'Allow repeated stages' (Generic): stage 70's result script sets the global ScroungerOdds; the global is reset and the stage set again; then the lower stage 60 (GetStage after it). In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_repeated_stage.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_repeated_stage.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_repeated_stage.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "stages",
+    "globals",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.result_effects",
+   "layer": 5,
+   "description": "VCG03 stage 10: the result script sets a quest variable from Player.GetItemCount and enables references; the variable read in the same script that called SetStage; the stage set again (no repeat flag) after changing the count and disabling one reference. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_result_effects.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_result_effects.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_result_effects.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "stages",
+    "result-script",
+    "enable",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.result_additem",
+   "layer": 5,
+   "description": "A result script with if/else that adds an item to an actor and shows objectives. In-game capture on save nvfdoc. Input parity-lab/inputs/layer5/quest_result_additem.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_result_additem.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_result_additem.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "result-script",
+    "inventory",
+    "M5",
+    "needs-local-capture"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L5.quest.complete_flag",
+   "layer": 5,
+   "description": "Stage flags: a Complete Quest stage and then a Fail Quest stage, both with empty scripts (VMS22): GetQuestRunning, GetQuestCompleted, GetStage. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_complete_flag.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_complete_flag.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_complete_flag.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "stages",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.var_storage",
+   "layer": 5,
+   "description": "What a Set statement with a numeric literal stores into short, long, int and float variables: values past 16/32-bit limits, fractions, values a 32-bit float cannot hold, whole-number literals past 2^31, each read back in the same script. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_var_storage.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_var_storage.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_var_storage.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "variables",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.delay_data",
+   "layer": 5,
+   "description": "Quest script processing delay, flag clear, DATA delay 0.5 s (VMQ03aTimer): a stopped quest's GameMode does not run; after StartQuest a GetSecondsPassed countdown drops once per script run (three drops after the first, compared within 0.05 s). In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_delay_data.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_delay_data.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_delay_data.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.05
+   },
+   "tags": [
+    "script",
+    "quest",
+    "timing",
+    "gamemode",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.delay_flagged_short",
+   "layer": 5,
+   "description": "Quest script processing delay, 'Default Script Processing Delay' flag set, DATA delay 0.01 s (VCG01): drops of a GetSecondsPassed countdown (compared within 0.05 s). In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_delay_flagged_short.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_delay_flagged_short.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_delay_flagged_short.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.05
+   },
+   "tags": [
+    "script",
+    "quest",
+    "timing",
+    "gamemode",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.delay_frame",
+   "layer": 5,
+   "description": "Quest script processing delay, flag clear, DATA delay 0.01 s (VCG00): drops of a GetSecondsPassed countdown (compared within 0.05 s). In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_delay_frame.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_delay_frame.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_delay_frame.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.05
+   },
+   "tags": [
+    "script",
+    "quest",
+    "timing",
+    "gamemode",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.delay_flagged_1s",
+   "layer": 5,
+   "description": "Quest script processing delay of a running quest, flag set, DATA delay 1.0 s (CGTutorial): drops of a GetSecondsPassed countdown (compared within 0.05 s). In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_delay_flagged_1s.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_delay_flagged_1s.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_delay_flagged_1s.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.05
+   },
+   "tags": [
+    "script",
+    "quest",
+    "timing",
+    "gamemode",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.delay_zero",
+   "layer": 5,
+   "description": "Quest script processing delay, flag clear, DATA delay 0 (VMS40Timer): drops of a GetSecondsPassed countdown (compared within 0.05 s). In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_delay_zero.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_delay_zero.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_delay_zero.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.05
+   },
+   "tags": [
+    "script",
+    "quest",
+    "timing",
+    "gamemode",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.delay_flagged_zero",
+   "layer": 5,
+   "description": "Quest script processing delay, another flag and DATA delay combination. In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest_delay_flagged_zero.actions.json (fnv.script.actions/1, docs/spec-notes/layer5-captures.md section 4); fnvtool script run is workstream 5B's and errors until it lands.",
+   "oracle": {
+    "golden": "quest/quest_delay_flagged_zero.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest_delay_flagged_zero.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.05
+   },
+   "tags": [
+    "script",
+    "quest",
+    "timing",
+    "gamemode",
+    "M5",
+    "needs-local-capture"
+   ],
+   "holdout": true
+  }
+ ]
+}

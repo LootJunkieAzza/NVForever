@@ -1,0 +1,555 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless fail paths, quest givers killed before their quests (2): Carlitos, Ethel Phebus, ED-E, Alice McLafferty, Thomas Hildern, Astor, Edwards, Logan, Fantastic, Red Lucy, Vulpes Inculta, Raquel, Major Dhatri, Captain Parker",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: from a new game the player kills fourteen people before taking their quests; each OnDeath block fails or ends the quests that hang on them [observed, decompiled scripts]. Carlitos (VMS21aCarlitosSCRIPT, VMS21a below 5): VMS21a 170, whose stage script sets 180. Ethel Phebus (VMS25EthelSCRIPT): VMS25 110. ED-E in Primm (EDEScript): vDialogueEDE 100. Alice McLafferty (AliceMcLaffertyScript): VMS05 110. Thomas Hildern (ThomasHildernScript, VMS06 below 30): VMS06 200. Astor (AstorDeadScript): VMS43 40 and vCCEyeforaneye 0. Private Edwards (EdwardsDeadScript): VMS43a 20. Logan (LoganDeadScript, VMS44 below 10): VMS44 60. Fantastic (FantasticSCRIPT, objective 20 not shown): VMS03 255. Red Lucy (VMS38RedLucyScript, VMS38 below 125): VMS38 140, whose stage script sets 150. Vulpes Inculta at Nipton (VulpesIncultaNiptonSCRIPT): vNiptonVulpes 66. Raquel at Nellis (NellisRaquelSCRIPT): VNellisInfestation 0. Major Dhatri (MajorDhatriScript): VMS12 110. Captain Parker (CaptainParkerScript): VMS13 110."
+  },
+  {
+   "op": "note",
+   "text": "Stand-ins: travel by move_player to each person; each fight by kill with the player as killer (the OnDeath blocks named run as in play). Ethel Phebus is enabled by hand, standing in for the Strip's street event script (as pheeble-will does). Raquel starts disabled; the Nellis front gate steps are copied from ant-misbehavin (the gate guard's greeting enables her)."
+  },
+  {
+   "op": "enable",
+   "target": "EthelPhebusREF"
+  },
+  {
+   "op": "note",
+   "text": "Carlitos in Vault 21."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21aCarlitosREF"
+  },
+  {
+   "op": "kill",
+   "target": "VMS21aCarlitosREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VMS21aCarlitosREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VMS21aCarlitosREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "done.170",
+    "done.180",
+    "failed"
+   ],
+   "label": "fail: VMS21a 170/180"
+  },
+  {
+   "op": "note",
+   "text": "Ethel Phebus on the Strip."
+  },
+  {
+   "op": "move_player",
+   "to": "EthelPhebusREF"
+  },
+  {
+   "op": "kill",
+   "target": "EthelPhebusREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "EthelPhebusREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "EthelPhebusREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VMS25 110"
+  },
+  {
+   "op": "note",
+   "text": "ED-E at the Mojave Express office in Primm."
+  },
+  {
+   "op": "move_player",
+   "to": "EDE1Ref"
+  },
+  {
+   "op": "kill",
+   "target": "EDE1Ref",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "EDE1Ref",
+   "fields": [
+    "dead"
+   ],
+   "label": "EDE1Ref dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "vDialogueEDE",
+   "fields": [
+    "stage",
+    "done.100",
+    "failed"
+   ],
+   "label": "fail: vDialogueEDE 100"
+  },
+  {
+   "op": "note",
+   "text": "Alice McLafferty at the Crimson Caravan."
+  },
+  {
+   "op": "move_player",
+   "to": "AliceMcLaffertyREF"
+  },
+  {
+   "op": "kill",
+   "target": "AliceMcLaffertyREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "AliceMcLaffertyREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "AliceMcLaffertyREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VMS05 110"
+  },
+  {
+   "op": "note",
+   "text": "Thomas Hildern."
+  },
+  {
+   "op": "move_player",
+   "to": "ThomasHildernREF"
+  },
+  {
+   "op": "kill",
+   "target": "ThomasHildernREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "ThomasHildernREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "ThomasHildernREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS06",
+   "fields": [
+    "stage",
+    "done.200",
+    "failed"
+   ],
+   "label": "fail: VMS06 200"
+  },
+  {
+   "op": "note",
+   "text": "Astor at Cottonwood Cove."
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "kill",
+   "target": "AstorREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "AstorREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "AstorREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43",
+   "fields": [
+    "stage",
+    "done.40",
+    "failed"
+   ],
+   "label": "fail: VMS43 40"
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCEyeforaneye",
+   "fields": [
+    "stage",
+    "done.0",
+    "failed"
+   ],
+   "label": "fail: vCCEyeforaneye 0"
+  },
+  {
+   "op": "note",
+   "text": "Private Edwards at Camp Searchlight."
+  },
+  {
+   "op": "move_player",
+   "to": "EdwardsREF"
+  },
+  {
+   "op": "kill",
+   "target": "EdwardsREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "EdwardsREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "EdwardsREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS43a",
+   "fields": [
+    "stage",
+    "done.20",
+    "failed"
+   ],
+   "label": "fail: VMS43a 20"
+  },
+  {
+   "op": "note",
+   "text": "Logan at Camp Searchlight."
+  },
+  {
+   "op": "move_player",
+   "to": "LoganREF"
+  },
+  {
+   "op": "kill",
+   "target": "LoganREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "LoganREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "LoganREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.60",
+    "failed"
+   ],
+   "label": "fail: VMS44 60"
+  },
+  {
+   "op": "note",
+   "text": "Fantastic at HELIOS One."
+  },
+  {
+   "op": "move_player",
+   "to": "FantasticREF"
+  },
+  {
+   "op": "kill",
+   "target": "FantasticREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "FantasticREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "FantasticREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS03",
+   "fields": [
+    "stage",
+    "done.255",
+    "failed"
+   ],
+   "label": "fail: VMS03 255"
+  },
+  {
+   "op": "note",
+   "text": "Red Lucy at the Thorn."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS38RedLucyREF"
+  },
+  {
+   "op": "kill",
+   "target": "VMS38RedLucyREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VMS38RedLucyREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VMS38RedLucyREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.140",
+    "done.150",
+    "failed"
+   ],
+   "label": "fail: VMS38 140/150"
+  },
+  {
+   "op": "note",
+   "text": "Vulpes Inculta at Nipton."
+  },
+  {
+   "op": "move_player",
+   "to": "vLegionaryVulpesIncultaREF"
+  },
+  {
+   "op": "kill",
+   "target": "vLegionaryVulpesIncultaREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "vLegionaryVulpesIncultaREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "vLegionaryVulpesIncultaREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "vNiptonVulpes",
+   "fields": [
+    "stage",
+    "done.66",
+    "failed"
+   ],
+   "label": "fail: vNiptonVulpes 66"
+  },
+  {
+   "op": "note",
+   "text": "Raquel at Nellis."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the run through the Boomers' artillery to the front gate: the gate's trigger brings out the gate guard, whose greeting enables Raquel; he sends for her."
+  },
+  {
+   "op": "move_player",
+   "to": "BoomerFrontGateGuard1REF"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:NellisFrontGateScript"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "talk",
+   "actor": "BoomerFrontGateGuard1REF",
+   "label": "gate guard"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisBoomerFrontGateGuard1Topic002",
+   "label": "who's in charge"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisBoomerFrontGateGuard1Topic004",
+   "label": "not here to attack"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "NellisRaquelREF"
+  },
+  {
+   "op": "kill",
+   "target": "NellisRaquelREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "NellisRaquelREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "NellisRaquelREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VNellisInfestation",
+   "fields": [
+    "stage",
+    "done.0",
+    "failed"
+   ],
+   "label": "fail: VNellisInfestation 0"
+  },
+  {
+   "op": "note",
+   "text": "Major Dhatri at Camp McCarran."
+  },
+  {
+   "op": "move_player",
+   "to": "MajorDhatriREF"
+  },
+  {
+   "op": "kill",
+   "target": "MajorDhatriREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "MajorDhatriREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "MajorDhatriREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS12",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VMS12 110"
+  },
+  {
+   "op": "note",
+   "text": "Captain Parker."
+  },
+  {
+   "op": "move_player",
+   "to": "CaptainParkerREF"
+  },
+  {
+   "op": "kill",
+   "target": "CaptainParkerREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "CaptainParkerREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "CaptainParkerREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS13",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VMS13 110"
+  }
+ ]
+}

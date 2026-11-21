@@ -107,19 +107,7 @@ pub fn gpu_names() -> Vec<String> {
 
 #[cfg(not(windows))]
 pub fn gpu_names() -> Vec<String> {
-    let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir("/proc/driver/nvidia/gpus") else { return out };
-    for entry in rd.flatten() {
-        let Ok(text) = std::fs::read_to_string(entry.path().join("information")) else { continue };
-        for line in text.lines() {
-            let Some(model) = line.strip_prefix("Model:") else { continue };
-            let name = model.trim().to_string();
-            if !name.is_empty() && !out.contains(&name) {
-                out.push(name);
-            }
-        }
-    }
-    out
+    Vec::new()
 }
 
 #[cfg(test)]

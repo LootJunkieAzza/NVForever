@@ -1,0 +1,134 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Generic (allow repeated stages): stage 70 sets ScroungerOdds, set twice; then the lower stage 60",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "Generic",
+      "running": true,
+      "not_done": [
+        60,
+        70
+      ]
+    },
+    {
+      "kind": "global",
+      "name": "ScroungerOdds",
+      "value": 100
+    },
+    {
+      "kind": "global",
+      "name": "FortuneFinderOdds",
+      "value": 100
+    },
+    {
+      "kind": "global",
+      "name": "FortuneFinderChangeOdds",
+      "value": 100
+    }
+  ],
+  "actions": [
+    {
+      "op": "get_quest",
+      "quest": "Generic",
+      "label": "Generic before",
+      "fields": [
+        "running",
+        "stage",
+        "done.60",
+        "done.70"
+      ]
+    },
+    {
+      "op": "set_global",
+      "name": "ScroungerOdds",
+      "value": 0
+    },
+    {
+      "op": "set_stage",
+      "quest": "Generic",
+      "stage": 70
+    },
+    {
+      "op": "get_global",
+      "name": "ScroungerOdds",
+      "label": "ScroungerOdds after stage 70"
+    },
+    {
+      "op": "get_quest",
+      "quest": "Generic",
+      "label": "Generic after stage 70",
+      "fields": [
+        "running",
+        "stage",
+        "done.60",
+        "done.70"
+      ]
+    },
+    {
+      "op": "set_global",
+      "name": "ScroungerOdds",
+      "value": 0
+    },
+    {
+      "op": "set_stage",
+      "quest": "Generic",
+      "stage": 70
+    },
+    {
+      "op": "get_global",
+      "name": "ScroungerOdds",
+      "label": "ScroungerOdds after stage 70 again"
+    },
+    {
+      "op": "get_quest",
+      "quest": "Generic",
+      "label": "Generic after stage 70 again",
+      "fields": [
+        "running",
+        "stage",
+        "done.60",
+        "done.70"
+      ]
+    },
+    {
+      "op": "set_stage",
+      "quest": "Generic",
+      "stage": 60
+    },
+    {
+      "op": "get_global",
+      "name": "FortuneFinderOdds",
+      "label": "FortuneFinderOdds after the lower stage 60"
+    },
+    {
+      "op": "get_quest",
+      "quest": "Generic",
+      "label": "Generic after the lower stage 60",
+      "fields": [
+        "running",
+        "stage",
+        "done.60",
+        "done.70"
+      ]
+    },
+    {
+      "op": "set_global",
+      "name": "ScroungerOdds",
+      "value": 100
+    },
+    {
+      "op": "set_global",
+      "name": "FortuneFinderOdds",
+      "value": 100
+    },
+    {
+      "op": "set_global",
+      "name": "FortuneFinderChangeOdds",
+      "value": 100
+    }
+  ]
+}

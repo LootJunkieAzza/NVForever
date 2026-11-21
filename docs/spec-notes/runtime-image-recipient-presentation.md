@@ -1,0 +1,13 @@
+# Generated image recipient presentation
+
+Repository design: RuntimeImages provides name-scoped entries and revision stamps, alongside normal image painting and generic XML Turn. None is replaced by a parallel image registry. Vanilla local map give_outline/sync_outline and shared MapView/LocalProjection/frame_for are unchanged.
+
+[hypothesis] An entry can optionally carry a finite orthonormal marker frame for one full TileId generation. Convert its axes to an angle -atan2(sin,cos) for the engine's WorldNorth generated raster. This is an explicit engine-owned coordinate contract, not a change to generic XML angle signs or native-plugin parity. A normal set resets metadata; metadata-only updates preserve texture handle, pixels and revision. Another tile naming the same entry keeps its own XML turn. A producer must retain/check the full entry before mutation/release; this API itself is not a producer lease.
+
+[hypothesis] The additive present pass runs in current target units after mark and before final piece comparison. Original mark's slice API and existing stamp/texmod behavior remain unchanged. Only a live image leaf with finite width/height in (0,65536], finite pivot magnitude <=65536, angle magnitude <=tau and target scale in (0,960] is admitted. Bounds are policy and keep this path representable; no native constants are claimed. Missing UI/stale/unsafe declared recipients are omitted; ordinary images remain unchanged. The uses_image query lets an owner avoid deleting pixels retained by another runtime name.
+
+Both rotateaxisx and rotateaxisy must be explicit finite numeric traits within the pivot bound. A declared recipient lacking either trait is omitted deliberately; this does not use generic layout::turn's missing-axis (0,0) fallback. The target-unit scope supplies the existing layout context; present checks its scale bound rather than performing a new coordinate conversion.
+
+The menu path applies present in its pre-paint piece comparison and again in paint. The operation is idempotent for these pieces and metadata, so the repeated pass preserves the result. It still repeats the scan; no scheduling or performance improvement is claimed.
+
+[hypothesis] No configured local provider, held projection, XML trigonometric extension, Game.modpack aggregate or physical freshness API is added here. Nothing enables an adapter. No original game/config/save is changed. Held projected acceptance requires its own source-root/target/unit/lifetime contract, which current main lacks. Generic current Turn's hostile-input/precision policy is a separate concern, not silently changed by this packet.

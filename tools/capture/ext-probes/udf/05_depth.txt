@@ -1,0 +1,23 @@
+scn ExtProbeUdf05
+; recursion depth (observe with care) (tools/capture/ext-probes/udf/README.md)
+int iI
+int iR
+int iP
+ref rL
+ref rRef
+string_var sS
+array_var aA
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|udf/ExtProbeUdf05|begin"
+    Print "EXTPROBE|depth.start|1"
+    Print "EXTPROBE|depth.10|" + $(Call ExtUdfDepth 10)
+    Print "EXTPROBE|depth.100|" + $(Call ExtUdfDepth 100)
+    Print "EXTPROBE|depth.1000|" + $(Call ExtUdfDepth 1000)
+    Print "EXTPROBE|depth.done|1"
+    Print "EXTPROBE|udf/ExtProbeUdf05|end"
+End

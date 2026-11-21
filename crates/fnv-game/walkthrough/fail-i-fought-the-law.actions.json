@@ -1,0 +1,18 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless I Fought the Law (VMS02), the fail: Eddie's first job (stage 10), Eddie killed before the job is done (110)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path, the fail: Eddie's first job (stage 10, as in i-fought-the-law); then the player kills Eddie while not allied with the NCR (kill stands in for the fight; NCRCFEddieDeathScript sets stage 110 and stops the quest). Travel is move_player."},
+    {"op": "move_player", "to": "NCRCFEddieREF"},
+    {"op": "talk", "actor": "NCRCFEddieREF", "label": "eddie greeting"},
+    {"op": "choose", "topic": "VFreeformNCRCFNCRCFEddieTopic001", "label": "eddie 001"},
+    {"op": "choose", "topic": "VFreeformNCRCFNCRCFEddieTopic010", "label": "eddie 010"},
+    {"op": "wait_talk", "label": "w1"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS02", "fields": ["stage", "done.10"], "label": "milestone: VMS02 10"},
+    {"op": "kill", "actor": "NCRCFEddieREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS02", "fields": ["stage", "done.110", "running"], "label": "final: VMS02 110"}
+  ]
+}

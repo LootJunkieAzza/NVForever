@@ -1,0 +1,35 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Bitter Springs (VMS37, VMS40), the deaths: VMS40 10 as in bitter-springs-mountain, then Lieutenant Markland, Captain Gilles killed (VMS40 30, VMS37 30)",
+  "given": [
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 50}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: as bitter-springs-mountain to 'VMS40 10'; then Lieutenant Markland killed (VBSLtMarklandSCRIPT, while VMS40 is not completed: VMS40 30); Captain Gilles killed (VBSCaptainGillesSCRIPT, while VMS37 is not completed: VMS37 30). Kill stands in for each fight, by the player; travel is move_player."},
+    {"op": "note", "text": "Stand-in for the trip to the Bitter Springs refugee camp."},
+    {"op": "move_player", "to": "VBSCaptainGillesREF"},
+    {"op": "talk", "actor": "VBSCaptainGillesREF", "label": "gilles greeting"},
+    {"op": "choose", "topic": "CaptainGillesCamp", "label": "what is this place"},
+    {"op": "choose", "topic": "CaptainGillesAid", "label": "gilles needs help"},
+    {"op": "choose", "topic": "VMS36VBSCaptainGillesTopic003", "label": "the raids"},
+    {"op": "choose", "topic": "VMS36VBSCaptainGillesTopic002", "label": "the medical situation"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS37", "fields": ["stage", "objective.10.displayed"], "label": "milestone: VMS37 10"},
+    {"op": "get_quest", "quest": "VMS36", "fields": ["stage", "objective.30.displayed"], "label": "VMS36 started"},
+    {"op": "move_player", "to": "VBSLtMarklandREF"},
+    {"op": "talk", "actor": "VBSLtMarklandREF", "label": "markland greeting"},
+    {"op": "choose", "topic": "LtMarklandAid", "label": "markland asks for books"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS40", "fields": ["stage", "objective.20.displayed", "objective.40.displayed", "objective.60.displayed"], "label": "milestone: VMS40 10"},
+    {"op": "move_player", "to": "VBSLtMarklandREF"},
+    {"op": "kill", "actor": "VBSLtMarklandREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS40", "fields": ["stage", "done.30"], "label": "milestone: VMS40 30"},
+    {"op": "move_player", "to": "VBSCaptainGillesREF"},
+    {"op": "kill", "actor": "VBSCaptainGillesREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS37", "fields": ["stage", "done.30"], "label": "final: VMS37 30"}
+  ]
+}

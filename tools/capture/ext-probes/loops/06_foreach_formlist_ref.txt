@@ -1,0 +1,21 @@
+scn ExtProbeLoops06
+; foreach over a form list held in a ref variable (tools/capture/ext-probes/loops/README.md); needs the form list ExtProbeList
+int iR
+ref rForm
+ref rList
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|loops/ExtProbeLoops06|begin"
+    let rList := ExtProbeList
+    let iR := 0
+    foreach rForm <- rList
+        let iR += 1
+    loop
+    Print "EXTPROBE|foreach.formlist_ref_count|" + $iR
+    Print "EXTPROBE|foreach.formlist_ref_listcount|" + $(ListGetCount ExtProbeList)
+    Print "EXTPROBE|loops/ExtProbeLoops06|end"
+End

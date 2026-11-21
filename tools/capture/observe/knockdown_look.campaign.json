@@ -1,0 +1,47 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "knockdown_look",
+ "title": "Plugin version 9 trial and docs/outstanding.md section 1 rows 1 and 3: PushActorAway on RingoRef in GSGasStation at three forces (how far the body goes, how long it lies: GetAnimAction 13 is the get-up [documented: GECK wiki GetAnimAction]), then Look with the rotate-body flag and StopLook (the body's turn rate and what it does after). Every game loop, the fight field set plus the more part, every game event heard, a screenshot every 20 samples while Ringo is not standing idle.",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "more": true,
+  "events": "all",
+  "every": 1,
+  "depth": 1,
+  "settle_frames": 120,
+  "close_menus_after": 300
+ },
+ "sessions": [
+  {
+   "name": "push_10",
+   "note": "player.PushActorAway RingoRef 10 at sample 60; 0.12 game hours (about 14 s).",
+   "console_first": ["tgm"],
+   "hours": 0.12,
+   "do": [["player.MoveTo {0} 120 0 0", "RingoRef"]],
+   "timed": [{"after": 60, "do": ["player.PushActorAway {0} 10", "RingoRef"]}],
+   "shots": {"label": "ringo", "when": ["{0}.GetAnimAction != -1", "RingoRef"], "gap": 20, "max": 25}
+  },
+  {
+   "name": "push_40",
+   "hours": 0.12,
+   "do": [["player.MoveTo {0} 120 0 0", "RingoRef"]],
+   "timed": [{"after": 60, "do": ["player.PushActorAway {0} 40", "RingoRef"]}]
+  },
+  {
+   "name": "push_120",
+   "hours": 0.12,
+   "do": [["player.MoveTo {0} 120 0 0", "RingoRef"]],
+   "timed": [{"after": 60, "do": ["player.PushActorAway {0} 120", "RingoRef"]}]
+  },
+  {
+   "name": "look_body",
+   "note": "Ringo turned to heading 0, the player 250 units east of him (90 degrees to his right); Look player 1 at sample 30, StopLook at sample 900 (about 15 s), then 20 s more.",
+   "hours": 0.3,
+   "do": [["{0}.SetAngle Z 0", "RingoRef"], ["player.MoveTo {0} 250 0 0", "RingoRef"]],
+   "timed": [{"after": 30, "do": ["{0}.Look player 1", "RingoRef"]},
+             {"after": 900, "do": ["{0}.StopLook", "RingoRef"]}],
+   "shots": {"label": "look", "when": ["1"], "gap": 60, "max": 40}
+  }
+ ]
+}

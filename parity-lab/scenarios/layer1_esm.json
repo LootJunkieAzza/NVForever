@@ -1,0 +1,1128 @@
+{
+ "scenarios": [
+  {
+   "id": "L1.esm.inventory.FalloutNV",
+   "layer": 1,
+   "description": "Record inventory of FalloutNV.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/FalloutNV.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/FalloutNV.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.header.FalloutNV",
+   "layer": 1,
+   "description": "TES4 header of FalloutNV.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/FalloutNV.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/FalloutNV.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.stats.FalloutNV",
+   "layer": 1,
+   "description": "Structural statistics of FalloutNV.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/FalloutNV.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/FalloutNV.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.roundtrip.FalloutNV",
+   "layer": 1,
+   "description": "Golden-file test: FalloutNV.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/FalloutNV.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory.DeadMoney",
+   "layer": 1,
+   "description": "Record inventory of DeadMoney.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/DeadMoney.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/DeadMoney.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.header.DeadMoney",
+   "layer": 1,
+   "description": "TES4 header of DeadMoney.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/DeadMoney.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/DeadMoney.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.stats.DeadMoney",
+   "layer": 1,
+   "description": "Structural statistics of DeadMoney.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/DeadMoney.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/DeadMoney.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.roundtrip.DeadMoney",
+   "layer": 1,
+   "description": "Golden-file test: DeadMoney.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/DeadMoney.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory.HonestHearts",
+   "layer": 1,
+   "description": "Record inventory of HonestHearts.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/HonestHearts.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/HonestHearts.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.header.HonestHearts",
+   "layer": 1,
+   "description": "TES4 header of HonestHearts.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/HonestHearts.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/HonestHearts.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.stats.HonestHearts",
+   "layer": 1,
+   "description": "Structural statistics of HonestHearts.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/HonestHearts.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/HonestHearts.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.roundtrip.HonestHearts",
+   "layer": 1,
+   "description": "Golden-file test: HonestHearts.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/HonestHearts.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory.OldWorldBlues",
+   "layer": 1,
+   "description": "Record inventory of OldWorldBlues.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/OldWorldBlues.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/OldWorldBlues.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.header.OldWorldBlues",
+   "layer": 1,
+   "description": "TES4 header of OldWorldBlues.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/OldWorldBlues.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/OldWorldBlues.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.stats.OldWorldBlues",
+   "layer": 1,
+   "description": "Structural statistics of OldWorldBlues.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/OldWorldBlues.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/OldWorldBlues.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.roundtrip.OldWorldBlues",
+   "layer": 1,
+   "description": "Golden-file test: OldWorldBlues.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/OldWorldBlues.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory.LonesomeRoad",
+   "layer": 1,
+   "description": "Record inventory of LonesomeRoad.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/LonesomeRoad.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/LonesomeRoad.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L1.esm.header.LonesomeRoad",
+   "layer": 1,
+   "description": "TES4 header of LonesomeRoad.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/LonesomeRoad.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/LonesomeRoad.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L1.esm.stats.LonesomeRoad",
+   "layer": 1,
+   "description": "Structural statistics of LonesomeRoad.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/LonesomeRoad.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/LonesomeRoad.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L1.esm.roundtrip.LonesomeRoad",
+   "layer": 1,
+   "description": "Golden-file test: LonesomeRoad.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/LonesomeRoad.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L1.esm.inventory.GunRunnersArsenal",
+   "layer": 1,
+   "description": "Record inventory of GunRunnersArsenal.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/GunRunnersArsenal.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/GunRunnersArsenal.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.header.GunRunnersArsenal",
+   "layer": 1,
+   "description": "TES4 header of GunRunnersArsenal.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/GunRunnersArsenal.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/GunRunnersArsenal.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.stats.GunRunnersArsenal",
+   "layer": 1,
+   "description": "Structural statistics of GunRunnersArsenal.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/GunRunnersArsenal.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/GunRunnersArsenal.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.roundtrip.GunRunnersArsenal",
+   "layer": 1,
+   "description": "Golden-file test: GunRunnersArsenal.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/GunRunnersArsenal.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory.CaravanPack",
+   "layer": 1,
+   "description": "Record inventory of CaravanPack.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/CaravanPack.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/CaravanPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.header.CaravanPack",
+   "layer": 1,
+   "description": "TES4 header of CaravanPack.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/CaravanPack.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/CaravanPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.stats.CaravanPack",
+   "layer": 1,
+   "description": "Structural statistics of CaravanPack.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/CaravanPack.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/CaravanPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.roundtrip.CaravanPack",
+   "layer": 1,
+   "description": "Golden-file test: CaravanPack.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/CaravanPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory.ClassicPack",
+   "layer": 1,
+   "description": "Record inventory of ClassicPack.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/ClassicPack.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/ClassicPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.header.ClassicPack",
+   "layer": 1,
+   "description": "TES4 header of ClassicPack.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/ClassicPack.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/ClassicPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.stats.ClassicPack",
+   "layer": 1,
+   "description": "Structural statistics of ClassicPack.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/ClassicPack.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/ClassicPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.roundtrip.ClassicPack",
+   "layer": 1,
+   "description": "Golden-file test: ClassicPack.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/ClassicPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory.MercenaryPack",
+   "layer": 1,
+   "description": "Record inventory of MercenaryPack.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/MercenaryPack.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/MercenaryPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.header.MercenaryPack",
+   "layer": 1,
+   "description": "TES4 header of MercenaryPack.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/MercenaryPack.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/MercenaryPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.stats.MercenaryPack",
+   "layer": 1,
+   "description": "Structural statistics of MercenaryPack.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/MercenaryPack.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/MercenaryPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.roundtrip.MercenaryPack",
+   "layer": 1,
+   "description": "Golden-file test: MercenaryPack.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/MercenaryPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.inventory.TribalPack",
+   "layer": 1,
+   "description": "Record inventory of TribalPack.esm: every record's type, EditorID, FULL name and flags, keyed by file-local FormID.",
+   "oracle": {
+    "golden": "esm/TribalPack.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/TribalPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/records",
+    "key": "formid",
+    "fields": [
+     "type",
+     "edid",
+     "full",
+     "flags",
+     "form_version"
+    ]
+   },
+   "tags": [
+    "esm",
+    "inventory",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.header.TribalPack",
+   "layer": 1,
+   "description": "TES4 header of TribalPack.esm (version, record count, masters, ONAM size).",
+   "oracle": {
+    "golden": "esm/TribalPack.inventory.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "inventory",
+     "{data_dir}/TribalPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "esm",
+    "header",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.stats.TribalPack",
+   "layer": 1,
+   "description": "Structural statistics of TribalPack.esm: record/group counts by type, compression, HEDR self-check.",
+   "oracle": {
+    "golden": "esm/TribalPack.stats.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "stats",
+     "{data_dir}/TribalPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact"
+   },
+   "tags": [
+    "esm",
+    "stats",
+    "M1"
+   ]
+  },
+  {
+   "id": "L1.esm.roundtrip.TribalPack",
+   "layer": 1,
+   "description": "Golden-file test: TribalPack.esm re-serializes byte-identically; all records decompress and subrecords re-serialize.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decompress_errors": [],
+     "subrecord_errors": [],
+     "payload_roundtrip_mismatches": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "esm",
+     "verify",
+     "{data_dir}/TribalPack.esm"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "esm",
+    "roundtrip",
+    "M1"
+   ]
+  }
+ ]
+}

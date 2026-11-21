@@ -1,0 +1,132 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "l1_oob_formid",
+ "title": "Layer 1: out-of-range FormID in GunRunnersArsenal.esm (read-only)",
+ "start": "Any save (unattended: nvftest). Travels to the test cell TestMentats; changes nothing else.",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "as": "gra"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "as": "dm"
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := BuildRef %{gra} 2049\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "buildref",
+   "field": "gra_000801"
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := BuildRef %{gra} 2048\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "buildref",
+   "field": "gra_000800"
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := BuildRef %{dm} 72483\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "buildref",
+   "field": "dm_011B23"
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := BuildRef %{dm} 67805\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "buildref",
+   "field": "dm_0108DD"
+  },
+  {
+   "console": "coc TestMentats"
+  },
+  {
+   "frames": 400
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := player.GetParentCell\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "cell",
+   "field": "player_cell"
+  },
+  {
+   "query": "ref rA\nref rB\nint iN\nint iC\nfloat fD\nfloat fBest\nfloat fPx\nfloat fPy\nfloat fPz\nBegin Function { }\nlet rA := GetFirstRef\nlet rB := rA\nlet iN := 0\nlet iC := 0\nlet fBest := 1000000000\nwhile rA != 0 && iN < 20000\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nSetFunctionValue iN\nEnd\n",
+   "label": "cell",
+   "field": "refs_total"
+  },
+  {
+   "query": "ref rA\nref rB\nint iN\nint iC\nfloat fD\nfloat fBest\nfloat fPx\nfloat fPy\nfloat fPz\nBegin Function { }\nlet rA := GetFirstRef\nlet rB := rA\nlet iN := 0\nlet iC := 0\nlet fBest := 1000000000\nwhile rA != 0 && iN < 20000\n  if rA.GetSourceModIndex == %{gra}\n    let iC := iC + 1\n  endif\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nSetFunctionValue iC\nEnd\n",
+   "label": "cell",
+   "field": "refs_from_gra"
+  },
+  {
+   "query": "ref rA\nref rB\nint iN\nint iC\nfloat fD\nfloat fBest\nfloat fPx\nfloat fPy\nfloat fPz\nBegin Function { }\nlet rA := GetFirstRef\nlet rB := rA\nlet iN := 0\nlet iC := 0\nlet fBest := 1000000000\nwhile rA != 0 && iN < 20000\n  let fPx := rA.GetPos X\n  let fPy := rA.GetPos Y\n  let fPz := rA.GetPos Z\n  let fD := (fPx - 2341.27) * (fPx - 2341.27) + (fPy - 2058.89) * (fPy - 2058.89) + (fPz - 6991.75) * (fPz - 6991.75)\n  if fD < fBest\n    let fBest := fD\n    let rB := rA\n  endif\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nSetFunctionValue fBest\nEnd\n",
+   "label": "nearest",
+   "field": "dist_sq"
+  },
+  {
+   "query": "ref rA\nref rB\nint iN\nint iC\nfloat fD\nfloat fBest\nfloat fPx\nfloat fPy\nfloat fPz\nBegin Function { }\nlet rA := GetFirstRef\nlet rB := rA\nlet iN := 0\nlet iC := 0\nlet fBest := 1000000000\nwhile rA != 0 && iN < 20000\n  let fPx := rA.GetPos X\n  let fPy := rA.GetPos Y\n  let fPz := rA.GetPos Z\n  let fD := (fPx - 2341.27) * (fPx - 2341.27) + (fPy - 2058.89) * (fPy - 2058.89) + (fPz - 6991.75) * (fPz - 6991.75)\n  if fD < fBest\n    let fBest := fD\n    let rB := rA\n  endif\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nSetFunctionValue (GetFormIDString rB)\nEnd\n",
+   "label": "nearest",
+   "field": "id"
+  },
+  {
+   "query": "ref rA\nref rB\nint iN\nint iC\nfloat fD\nfloat fBest\nfloat fPx\nfloat fPy\nfloat fPz\nBegin Function { }\nlet rA := GetFirstRef\nlet rB := rA\nlet iN := 0\nlet iC := 0\nlet fBest := 1000000000\nwhile rA != 0 && iN < 20000\n  let fPx := rA.GetPos X\n  let fPy := rA.GetPos Y\n  let fPz := rA.GetPos Z\n  let fD := (fPx - 2341.27) * (fPx - 2341.27) + (fPy - 2058.89) * (fPy - 2058.89) + (fPz - 6991.75) * (fPz - 6991.75)\n  if fD < fBest\n    let fBest := fD\n    let rB := rA\n  endif\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet rA := rB.GetBaseObject\nSetFunctionValue (GetFormIDString rA)\nEnd\n",
+   "label": "nearest",
+   "field": "base"
+  },
+  {
+   "query": "ref rA\nref rB\nint iN\nint iC\nfloat fD\nfloat fBest\nfloat fPx\nfloat fPy\nfloat fPz\nBegin Function { }\nlet rA := GetFirstRef\nlet rB := rA\nlet iN := 0\nlet iC := 0\nlet fBest := 1000000000\nwhile rA != 0 && iN < 20000\n  let fPx := rA.GetPos X\n  let fPy := rA.GetPos Y\n  let fPz := rA.GetPos Z\n  let fD := (fPx - 2341.27) * (fPx - 2341.27) + (fPy - 2058.89) * (fPy - 2058.89) + (fPz - 6991.75) * (fPz - 6991.75)\n  if fD < fBest\n    let fBest := fD\n    let rB := rA\n  endif\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fD := rB.GetDisabled\nSetFunctionValue fD\nEnd\n",
+   "label": "nearest",
+   "field": "disabled"
+  },
+  {
+   "query": "ref rA\nref rW\nref rO\nint iN\nint iC\nBegin Function { }\nlet rW := BuildRef %{gra} 2048\nlet rA := GetFirstRef\nlet iN := 0\nlet iC := 0\nwhile rA != 0 && iN < 20000\n  let rO := rA.GetBaseObject\n  if rO == rW\n    let iC := iC + 1\n  endif\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nSetFunctionValue iC\nEnd\n",
+   "label": "cell",
+   "field": "refs_with_gra_000800_base"
+  }
+ ]
+}

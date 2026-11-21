@@ -1,0 +1,28 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Hard Luck Blues (VES34Vault): Morgan Blake's failing crops, the East Pump Station's readings, Vault 34's reactor shut down from the master override to save the farms (stage 30, completed at 50)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: Morgan Blake at the Aerotech sharecropper farms asks the player to look at the pump station (stage 10); the East Pump Station terminal shows the radiation comes from outside (20); in Vault 34 the reactor terminal points to the master override (25, objective 40 offered); the master override's first entry shuts the reactor down (30: the farms saved, NCR fame, stage 50 completes the quest). The other ending, the survivors saved (40, then 60), is the override's second entry."},
+    {"op": "note", "text": "Stand-in for the trip to the sharecropper farms."},
+    {"op": "move_player", "to": "placed:1ESharecropperMorganBlake"},
+    {"op": "talk", "actor": "placed:1ESharecropperMorganBlake", "label": "morgan blake greeting"},
+    {"op": "choose", "topic": "VES34Vault1ESharecropperMorganBlakeTopic000", "label": "the crops"},
+    {"op": "choose", "topic": "VES34Vault1ESharecropperMorganBlakeTopic002", "label": "help offered"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VES34Vault", "fields": ["stage", "var.hasquest", "objective.10.displayed"], "label": "milestone: VES34Vault 10"},
+    {"op": "note", "text": "Stand-in for the trip to the East Pump Station."},
+    {"op": "move_player", "to": "placed:EastPumpStationTerminal"},
+    {"op": "terminal", "target": "placed:EastPumpStationTerminal", "item": 0, "label": "pump readings"},
+    {"op": "get_quest", "quest": "VES34Vault", "fields": ["stage", "var.foundrads", "objective.20.displayed"], "label": "milestone: VES34Vault 20"},
+    {"op": "note", "text": "Stand-in for the trip through Vault 34's flooded, irradiated halls to the reactor."},
+    {"op": "move_player", "to": "placed:V34ReactorTerminal"},
+    {"op": "terminal", "target": "placed:V34ReactorTerminal", "item": 0, "label": "reactor terminal"},
+    {"op": "get_quest", "quest": "VES34Vault", "fields": ["stage", "objective.30.displayed", "objective.40.displayed", "var.blearnssurvivors"], "label": "milestone: VES34Vault 25"},
+    {"op": "move_player", "to": "placed:V34MasterOverrideTerminal"},
+    {"op": "terminal", "target": "placed:V34MasterOverrideTerminal", "item": 1, "label": "reactor shut down"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VES34Vault", "fields": ["stage", "done.30", "done.50", "completed", "var.savedcrops"], "label": "final: VES34Vault 50"},
+    {"op": "get_reputation", "rep": "RepNVNCR", "fields": ["fame"], "label": "ncr fame"}
+  ]
+}

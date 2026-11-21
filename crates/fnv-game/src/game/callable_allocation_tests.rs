@@ -1,0 +1,177 @@
+use super::*;
+
+#[test]
+fn exhausted_callable_regions_return_no_handle_before_adding_units_or_lambdas() {
+    let (forms, refs, data) = fixture();
+    let mut g = Game::new(
+        &data,
+        World::new(&forms, &refs, Default::default()),
+        GameConfig {
+            strict: true,
+            ..Default::default()
+        },
+    );
+    g.next_compiled = TEMP_REF_BASE;
+    assert!(g
+        .compile_source("exhausted", "Begin Function {}\nEnd\n".into())
+        .is_none());
+    assert!(g.compiled_files.is_empty() && g.compiled_slots.is_empty());
+    assert_eq!(g.next_compiled, TEMP_REF_BASE);
+    assert!(g.events.iter().any(|e| matches!(&e.kind, EventKind::Skipped { what, .. } if what == "exhausted: no compiled-script ID left")), "{:?}", g.events);
+    g.next_lambda = FormId::FIRST_DYNAMIC.0;
+    let result = g.run_query(
+        "Begin Function {}\nSetFunctionValue (Begin Function {}\nEnd)\nEnd\n",
+        Default::default(),
+    );
+    assert_eq!(result, Err("runtime lambda handles exhausted".into()));
+    assert!(g.lambdas.is_empty() && g.lambda_slots.is_empty());
+    assert!(g.lambda_ids.is_empty());
+    assert_eq!(g.next_lambda, FormId::FIRST_DYNAMIC.0);
+    assert!(g.compiled_files.is_empty() && g.compiled_slots.is_empty());
+    g.other.jip13.made_packages = FormId::FIRST_DYNAMIC.0 - LAMBDA_BASE;
+    let result = crate::nvse_jip13::call(
+        &mut g,
+        &Default::default(),
+        "traveltoref",
+        Some(FormId::PLAYER_REF),
+        &[fnv_script::vm::XVal::Ref(1)],
+    );
+    assert_eq!(
+        result,
+        Some(Err("runtime travel package handles exhausted".into()))
+    );
+    assert!(g.package_overrides.is_empty());
+    assert!(
+        !g.extra.contains_key(&FormId::PLAYER_REF),
+        "capacity failure precedes actor/package mutation"
+    );
+    assert_eq!(
+        g.other.jip13.made_packages,
+        FormId::FIRST_DYNAMIC.0 - LAMBDA_BASE
+    );
+}
+
+#[test]
+fn non_strict_lambda_exhaustion_keeps_the_existing_recoverable_error_policy() {
+    let (forms, refs, data) = fixture();
+    let mut g = Game::new(
+        &data,
+        World::new(&forms, &refs, Default::default()),
+        Default::default(),
+    );
+    assert!(!g.cfg.strict, "characterize the accepted default mode");
+    g.next_lambda = FormId::FIRST_DYNAMIC.0;
+    let result = g.run_query(
+        "Begin Function {}\nSetFunctionValue (Begin Function {}\nEnd)\nEnd\n",
+        Default::default(),
+    );
+    assert_eq!(result, Ok(fnv_script::vm::XVal::Num(0.0)));
+    assert_eq!(g.events.iter().filter(|e| matches!(&e.kind, EventKind::Skipped { what, .. } if what == "runtime lambda handles exhausted")).count(), 1, "{:?}", g.events);
+    assert!(g.lambdas.is_empty() && g.lambda_slots.is_empty() && g.lambda_ids.is_empty());
+    assert_eq!(g.next_lambda, FormId::FIRST_DYNAMIC.0);
+    assert!(g.compiled_files.is_empty() && g.compiled_slots.is_empty());
+    assert!(g.udf.is_empty() && g.ext.is_empty());
+}
+
+#[test]
+fn last_free_handles_keep_cached_lambda_identity_and_refuse_only_new_allocations() {
+    use fnv_script::vm::XVal;
+    let (forms, refs, data) = fixture();
+    let mut g = Game::new(
+        &data,
+        World::new(&forms, &refs, Default::default()),
+        GameConfig {
+            strict: true,
+            ..Default::default()
+        },
+    );
+    let maker =
+        "Begin Function {}\nSetFunctionValue (Begin Function {}\nSetFunctionValue 7\nEnd)\nEnd\n";
+    g.next_compiled = TEMP_REF_BASE - 1;
+    let compiled = g
+        .compile_source("last free unit", maker.into())
+        .expect("last compiled slot must remain usable");
+    assert_eq!(compiled, TEMP_REF_BASE - 1);
+    assert_eq!(g.next_compiled, TEMP_REF_BASE);
+    assert!(g.compile_source("past last unit", maker.into()).is_none());
+    assert_eq!((g.compiled_files.len(), g.compiled_slots.len()), (1, 1));
+    assert_eq!(g.next_compiled, TEMP_REF_BASE);
+    g.next_lambda = FormId::FIRST_DYNAMIC.0 - 1;
+    let first = g
+        .run_function(&XVal::Ref(compiled), None, vec![], None, Default::default())
+        .unwrap();
+    assert_eq!(first, XVal::Ref(FormId::FIRST_DYNAMIC.0 - 1));
+    assert_eq!(g.next_lambda, FormId::FIRST_DYNAMIC.0);
+    let cached = g
+        .run_function(&XVal::Ref(compiled), None, vec![], None, Default::default())
+        .unwrap();
+    assert_eq!(
+        cached, first,
+        "the same maker/instance reuses its existing identity at capacity"
+    );
+    assert_eq!(
+        g.run_function(&cached, None, vec![], None, Default::default())
+            .unwrap(),
+        XVal::Num(7.0)
+    );
+    assert_eq!(
+        (g.lambdas.len(), g.lambda_slots.len(), g.lambda_ids.len()),
+        (1, 1, 1)
+    );
+    let distinct = g.run_query(maker, Default::default());
+    assert_eq!(
+        distinct,
+        Err("runtime lambda handles exhausted".into()),
+        "a different query unit cannot borrow the cached maker's identity"
+    );
+    assert_eq!(
+        (g.lambdas.len(), g.lambda_slots.len(), g.lambda_ids.len()),
+        (1, 1, 1)
+    );
+    assert_eq!(g.next_lambda, FormId::FIRST_DYNAMIC.0);
+    assert_eq!((g.compiled_files.len(), g.compiled_slots.len()), (1, 1));
+
+    let mut g = Game::new(
+        &data,
+        World::new(&forms, &refs, Default::default()),
+        Default::default(),
+    );
+    g.other.jip13.made_packages = FormId::FIRST_DYNAMIC.0 - LAMBDA_BASE - 1;
+    let travel = |g: &mut Game<'_>| {
+        crate::nvse_jip13::call(
+            g,
+            &Default::default(),
+            "traveltoref",
+            Some(FormId::PLAYER_REF),
+            &[XVal::Ref(1)],
+        )
+    };
+    assert_eq!(travel(&mut g), Some(Ok(XVal::Num(0.0))));
+    let last = FormId(FormId::FIRST_DYNAMIC.0 - 1);
+    assert_eq!(g.extra[&FormId::PLAYER_REF].script_package, Some(last));
+    assert_eq!(g.package_overrides.len(), 1);
+    assert!(g.package_overrides.contains_key(&last));
+    let full = g.other.jip13.made_packages;
+    assert_eq!(full, FormId::FIRST_DYNAMIC.0 - LAMBDA_BASE);
+    assert_eq!(
+        travel(&mut g),
+        Some(Err("runtime travel package handles exhausted".into()))
+    );
+    assert_eq!(g.other.jip13.made_packages, full);
+    assert_eq!(g.extra[&FormId::PLAYER_REF].script_package, Some(last));
+    assert_eq!(g.extra.len(), 1);
+    assert_eq!(g.package_overrides.len(), 1);
+}
+
+fn fixture() -> (fnv_sim::FormStore, fnv_sim::RefTable, GameData) {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+    let path = root.join("script/functions.json");
+    let table = fnv_script::FunctionTable::load(&path).unwrap();
+    let json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let lo = fnv_esm::LoadOrder::new(&[]).unwrap();
+    let schema = fnv_esm::Schema::load_dir(root.join("fnv")).unwrap();
+    let forms = fnv_sim::FormStore::default();
+    let refs = fnv_sim::RefTable::default();
+    let data = GameData::build(&lo, &schema, table, &json, &refs);
+    (forms, refs, data)
+}

@@ -1,0 +1,172 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Wheel of Fortune (VMS44) ended by Logan's death after Boxcars names the cave (55)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: as wheel-of-fortune does, Logan at Camp Searchlight wants the radiation suits (10) and Boxcars in Nipton points to them (15); the player then kills Logan (LoganDeadScript, VMS44 past 10 and at most 20: 55, then CompleteQuest; at 10 it sets 60). Copied from wheel-of-fortune.actions.json up to Boxcars (15). Stand-ins: travel by move_player; the fight by kill."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel between Camp Searchlight and Nipton."
+  },
+  {
+   "op": "move_player",
+   "to": "0x00141392"
+  },
+  {
+   "op": "terminal",
+   "target": "0x00141392",
+   "item": 2,
+   "label": "storage terminal"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "var.HasRadSuitLocation"
+   ],
+   "label": "suit location"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Speech 100 (Logan's Speech 50 line)."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "move_player",
+   "to": "LoganREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LoganREF",
+   "label": "logan first words"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic031",
+   "label": "logan first words 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "move_player",
+   "to": "LoganREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LoganREF",
+   "label": "logan asks"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic008",
+   "label": "logan asks 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic041",
+   "label": "logan asks 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic047",
+   "label": "logan asks 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS44 10"
+  },
+  {
+   "op": "move_player",
+   "to": "vNiptonBoxcarsREF"
+  },
+  {
+   "op": "talk",
+   "actor": "vNiptonBoxcarsREF",
+   "label": "boxcars"
+  },
+  {
+   "op": "choose",
+   "topic": "VNiptonvNiptonBoxcars2Topic005",
+   "label": "boxcars 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.15"
+   ],
+   "label": "milestone: VMS44 15"
+  },
+  {
+   "op": "move_player",
+   "to": "LoganREF"
+  },
+  {
+   "op": "kill",
+   "target": "LoganREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "LoganREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "LoganREF dead"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.55",
+    "completed"
+   ],
+   "label": "final: VMS44 55"
+  }
+ ]
+}

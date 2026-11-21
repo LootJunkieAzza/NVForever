@@ -1,0 +1,254 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Ant Misbehavin', the power restored and the ants claimed dead (VNellisInfestation 22)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: as ant-misbehavin does up to Raquel's job (the quest starts, objectives 15 and 20); the player goes into the generator building and throws the two side switches and the main breaker (objective 15) but leaves the ants alone (objective 20 not done); Raquel is told the ants are dead (Topic021, then Topic022 with Speech 55: 22, the other ending, Complete Quest). Copied from ant-misbehavin.actions.json up to the generator key and from its switch steps. Stand-ins: as that chain's (travel by move_player and go_to_cell); Speech 55 set by set_av."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the run through the Boomers' artillery to the front gate: the gate's trigger brings out the gate guard, whose greeting enables Raquel; he sends for her."
+  },
+  {
+   "op": "move_player",
+   "to": "BoomerFrontGateGuard1REF"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:NellisFrontGateScript"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "talk",
+   "actor": "BoomerFrontGateGuard1REF",
+   "label": "gate guard"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisBoomerFrontGateGuard1Topic002",
+   "label": "who's in charge"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisBoomerFrontGateGuard1Topic004",
+   "label": "not here to attack"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for Raquel's walk to the gate (her package after EvaluatePackage): the player talks to her there; she starts the escort to Pearl."
+  },
+  {
+   "op": "move_player",
+   "to": "NellisRaquelREF"
+  },
+  {
+   "op": "talk",
+   "actor": "NellisRaquelREF",
+   "label": "raquel at the gate"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisRaquelTopic000",
+   "label": "take me to pearl"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk through Nellis's artillery field and the gate to Pearl's hangar."
+  },
+  {
+   "op": "move_player",
+   "to": "NellisPearlREF"
+  },
+  {
+   "op": "talk",
+   "actor": "NellisPearlREF",
+   "label": "pearl greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS15NellisPearlTopic000",
+   "label": "pearl offer help"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisPearlTopic010",
+   "label": "pearl first task"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS15",
+   "fields": [
+    "running",
+    "stage",
+    "objective.25.displayed"
+   ],
+   "label": "VMS15 20"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to Raquel's post by the artillery field."
+  },
+  {
+   "op": "move_player",
+   "to": "NellisRaquelREF"
+  },
+  {
+   "op": "talk",
+   "actor": "NellisRaquelREF",
+   "label": "raquel greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisRaquelTopic008",
+   "label": "the power"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisRaquelTopic013",
+   "label": "anyone can kill ants"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VNellisInfestation",
+   "fields": [
+    "running",
+    "objective.15.displayed",
+    "objective.20.displayed",
+    "objective.35.displayed"
+   ],
+   "label": "milestone: VNellisInfestation started"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "NellisGeneratorKey",
+   "label": "generator key"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk into the generator building (its setup trigger) and down to the ant nest."
+  },
+  {
+   "op": "go_to_cell",
+   "cell": "NellisGenerator"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "placed:NellisGeneratorSetup"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "note",
+   "text": "The two side switches, then the main breaker (it is destroyed until both side switches are thrown)."
+  },
+  {
+   "op": "move_player",
+   "to": "NellisPowerSwitch1REF"
+  },
+  {
+   "op": "player_activate",
+   "target": "NellisPowerSwitch1REF"
+  },
+  {
+   "op": "player_activate",
+   "target": "NellisPowerSwitch2REF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "player_activate",
+   "target": "NellisPowerSwitchMainREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 4
+  },
+  {
+   "op": "get_quest",
+   "quest": "VNellisInfestation",
+   "fields": [
+    "objective.15.completed",
+    "objective.45.displayed"
+   ],
+   "label": "milestone: VNellisInfestation power on"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VFreeformNellis",
+   "fields": [
+    "var.iGeneratorSwitches"
+   ],
+   "label": "generator switches"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the player's own Speech: 55 for the bluff."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 55
+  },
+  {
+   "op": "move_player",
+   "to": "NellisRaquelREF"
+  },
+  {
+   "op": "talk",
+   "actor": "NellisRaquelREF",
+   "label": "raquel report"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisRaquelTopic021"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisRaquelTopic022"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VNellisInfestation",
+   "fields": [
+    "stage",
+    "done.22",
+    "completed",
+    "objective.20.completed"
+   ],
+   "label": "final: VNellisInfestation 22"
+  }
+ ]
+}

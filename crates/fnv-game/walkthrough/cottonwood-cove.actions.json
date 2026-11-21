@@ -1,0 +1,468 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Left My Heart (vCCLeftMyHeart) and Eye for an Eye (vCCEyeforaneye): the Weathers family bought free at Cottonwood Cove (quest completed), then the Legion's intel, the NCR bug and the cove poisoned for First Sergeant Astor (100, complete)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Left My Heart path: Frank Weathers, in Vegas, tells his story (Topic014: iFamilyDialogue, 016, 000) and asks the player to find his family (Topic001, begin script: objective 10, iMetFrank, ShowMap of Cottonwood Cove); at the cove Canyon Runner is asked about captives (Topic002: CapturesMentioned 2), is asked to sell them (Topic016: iBuySlaves 1), talked down with a lie (Topic007, Speech 50: iBuySlaves 2) and sold them for 150 caps (Topic009: the collar key, objective 10 completed); with the pen gate unlocked Mrs. Weathers greets (objective 50) and is freed (Topic007: objective 50 completed, 100 shown); Frank hears they are alive (Topic015, Topic004 0x000FB8F6: objective 100 completed, CompleteQuest). The quest's stages are 0 (Fail: Frank dead) and 100, which nothing sets, so no stage is reached on this path. Stand-ins: travel by move_player; 300 caps, a bobby pin by add_item; the player carries no Mark of Caesar (with it, before Caesar is met, Canyon Runner only sends the player to Lucullus); Speech 50 and Lockpick 50 given (set_av); the pen gate unlocked by its key (Unlock by console line: the key's use on the gate)."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "Caps001",
+   "count": 300
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 50
+  },
+  {
+   "op": "set_av",
+   "name": "Lockpick",
+   "value": 50
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "Lockpick",
+   "count": 1
+  },
+  {
+   "op": "move_player",
+   "to": "FrankWeathersREF"
+  },
+  {
+   "op": "talk",
+   "actor": "FrankWeathersREF",
+   "label": "frank greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic014",
+   "label": "frank 014"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic016",
+   "label": "frank 016"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic000",
+   "label": "frank 000"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic001",
+   "label": "frank find them"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCLeftMyHeart",
+   "fields": [
+    "running",
+    "objective.10.displayed",
+    "var.iMetFrank"
+   ],
+   "label": "milestone: vCCLeftMyHeart objective 10"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the road to Cottonwood Cove; arriving there finds its map marker (ShowMap with fast travel, the state an arrival gives)."
+  },
+  {
+   "op": "call",
+   "line": "ShowMap CottonwoodCoveMapMarker 1"
+  },
+  {
+   "op": "move_player",
+   "to": "VCCCanyonRunnerREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VCCCanyonRunnerREF",
+   "label": "canyon runner greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCCanyonRunnerTopic002",
+   "label": "canyon runner captives"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCCanyonRunnerTopic016",
+   "label": "canyon runner buy"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCCanyonRunnerTopic007",
+   "label": "canyon runner lie"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCCanyonRunnerTopic009",
+   "label": "canyon runner 150 caps"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "vCCWeathersSlaveKey",
+   "label": "collar key"
+  },
+  {
+   "op": "call",
+   "line": "vCCSlavePenGateREF.Unlock"
+  },
+  {
+   "op": "move_player",
+   "to": "vCCMrsWeathersREF"
+  },
+  {
+   "op": "talk",
+   "actor": "vCCMrsWeathersREF",
+   "label": "mrs weathers greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCottonwoodCoveNVCCMrsWeathersTopic007",
+   "label": "mrs weathers freed"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCLeftMyHeart",
+   "fields": [
+    "objective.50.completed",
+    "objective.100.displayed",
+    "var.iBuySlaves"
+   ],
+   "label": "milestone: family freed"
+  },
+  {
+   "op": "move_player",
+   "to": "FrankWeathersREF"
+  },
+  {
+   "op": "talk",
+   "actor": "FrankWeathersREF",
+   "label": "frank greeting 2"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueVegasEast21EFrankWeathersTopic015",
+   "label": "frank 015"
+  },
+  {
+   "op": "choose",
+   "prompt": "Yes. They're all alive.",
+   "label": "frank all alive"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCLeftMyHeart",
+   "fields": [
+    "completed",
+    "objective.100.completed"
+   ],
+   "label": "final: vCCLeftMyHeart completed"
+  },
+  {
+   "op": "note",
+   "text": "Eye for an Eye path: at Camp Searchlight First Sergeant Astor, met once before and once Cottonwood Cove is on the map with fast travel, is told of the Legion camp (Topic142, whose lines are Topic006's, shared by Info Connection: iAstorAsked 1; Topic143) and gives the NCR bug (Topic145: StartQuest, objectives 10, 20, 30); at the cove the player takes the Legion's notes from Aurelius's desk and the plans from a filing cabinet (their OnAdd blocks: objectives 10, 20) and plants the bug in the Legion radio (NVCCLegionRadioSCRIPT, button 0: objective 30, 40 shown); Astor takes the intel (Topic150 'an update on Cottonwood Cove', again Topic006's shared lines; 152: objective 40, Polatli's EyeForAnEye 2, 153) and hears the offer to clear the cove (155, 156: objective 90); the player picks the lock of the truck by the docks (NVCCTruckDoorSCRIPT, button 1, Lockpick 50 and a bobby pin) and its barrels poison the cove (iRadiationKill 1, the camp leaders killed by the script, objectives 90 and 95 completed, 100 shown); Astor's thanks for the cove (Topic150, 160, 161 at iRadiationKill 1: 100, Complete Quest). Stand-ins: travel by move_player; taking from the desk and cabinet by remove_all_items (everything in them comes along); the Legion's notice of the player is not modelled (they do not see him take the intel)."
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor first greeting"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic142",
+   "label": "astor 006"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic143",
+   "label": "astor 143"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic145",
+   "label": "astor bug"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCEyeforaneye",
+   "fields": [
+    "running",
+    "objective.10.displayed",
+    "objective.30.displayed",
+    "var.iAstorAsked"
+   ],
+   "label": "milestone: vCCEyeforaneye started"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "NVCCNCRbug",
+   "label": "ncr bug"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip back to the cove and the walk through its buildings."
+  },
+  {
+   "op": "move_player",
+   "to": "placed:NVCCAureliusDesk"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "placed:NVCCAureliusDesk",
+   "to": "player"
+  },
+  {
+   "op": "move_player",
+   "to": "placed:NVCCFilingCabinet"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "placed:NVCCFilingCabinet",
+   "to": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:NVCCLegionRadioSCRIPT"
+  },
+  {
+   "op": "player_activate",
+   "target": "scripted:NVCCLegionRadioSCRIPT"
+  },
+  {
+   "op": "press_button",
+   "button": 0
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "dismiss_message_boxes",
+   "max": 1,
+   "wait_frames": 60,
+   "label": "bug planted box"
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCEyeforaneye",
+   "fields": [
+    "objective.10.completed",
+    "objective.20.completed",
+    "objective.30.completed",
+    "objective.40.displayed"
+   ],
+   "label": "milestone: intel and bug"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor greeting 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic150",
+   "label": "astor intel"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic152",
+   "label": "astor 152"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic153",
+   "label": "astor 153"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic155",
+   "label": "astor clear the cove"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic156",
+   "label": "astor 156"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCEyeforaneye",
+   "fields": [
+    "objective.40.completed",
+    "objective.90.displayed"
+   ],
+   "label": "milestone: clear the cove"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to the truck by the docks."
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:NVCCTruckDoorSCRIPT"
+  },
+  {
+   "op": "player_activate",
+   "target": "scripted:NVCCTruckDoorSCRIPT"
+  },
+  {
+   "op": "press_button",
+   "button": 1
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 12
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCEyeforaneye",
+   "fields": [
+    "var.iRadiationKill",
+    "objective.90.completed",
+    "objective.95.completed",
+    "objective.100.displayed"
+   ],
+   "label": "milestone: cove poisoned"
+  },
+  {
+   "op": "get_ref",
+   "ref": "NVCCAureliusREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "aurelius dead"
+  },
+  {
+   "op": "get_ref",
+   "ref": "vCCMrsWeathersREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "mrs weathers spared"
+  },
+  {
+   "op": "move_player",
+   "to": "AstorREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AstorREF",
+   "label": "astor greeting 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic150",
+   "label": "astor cove"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic160",
+   "label": "astor 160"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS43CampSearchlightAstorTopic161",
+   "label": "astor 161"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCEyeforaneye",
+   "fields": [
+    "stage",
+    "done.100",
+    "completed",
+    "objective.100.completed"
+   ],
+   "label": "final: vCCEyeforaneye 100"
+  }
+ ]
+}

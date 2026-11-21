@@ -1,0 +1,17 @@
+scn ExtProbeExpr08
+; the compiler override's evaluation order (tools/capture/ext-probes/expressions/README.md)
+int iX
+int iY
+int iR
+float fF
+int iDone
+Begin _GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|expressions/ExtProbeExpr08|begin"
+    let iR := Sin 90 > 0.5
+    Print "EXTPROBE|override.sin_eq|" + $(iR)
+    Print "EXTPROBE|expressions/ExtProbeExpr08|end"
+End

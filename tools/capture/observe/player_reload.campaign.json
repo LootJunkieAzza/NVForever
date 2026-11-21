@@ -1,0 +1,154 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "player_reload",
+ "title": "docs/outstanding.md section 1 row 4: GetAnimAction 17 on the player (anim-state.md section 1.1: seen only on NPCs' .357 and hunting revolver reloads, between the last shot's 4 and the reload's 9). The player (god mode, GSGasStation, save nvftest) draws a .357 Magnum Revolver with 12 rounds and taps Attack every 60 game loops (the cylinder holds 6, so the seventh press finds it empty), then Ready Item (the reload key); GetAnimAction and IsPlayerActionActive every game loop. The Cowboy Repeater (also loaded round by round) the same. Session revolver_low: 8 rounds only, Attack every 45 loops, so the cylinder runs dry and the next press reloads (12 rounds gave 7 shots and no reload in 14 s, 2026-10-19).",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "more": true,
+  "every": 1,
+  "depth": 1,
+  "settle_frames": 120,
+  "extra_header": [
+   [
+    "player_anim",
+    "num",
+    "player.GetAnimAction"
+   ]
+  ]
+ },
+ "sessions": [
+  {
+   "name": "revolver",
+   "console_first": [
+    "tgm"
+   ],
+   "hours": 0.12,
+   "do_first": [
+    [
+     "player.AddItem {0} 1",
+     "WeapNV357Revolver"
+    ],
+    [
+     "player.AddItem {0} 12",
+     "Ammo357Magnum"
+    ],
+    [
+     "player.EquipItem {0}",
+     "WeapNV357Revolver"
+    ],
+    [
+     "player.SetAngle Z 0"
+    ],
+    [
+     "player.SetAngle X 0"
+    ]
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "do": [
+      "TapControl 7"
+     ]
+    },
+    {
+     "after": 60,
+     "repeat": true,
+     "do": [
+      "TapControl 4"
+     ]
+    },
+    {
+     "after": 700,
+     "do": [
+      "TapControl 7"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "repeater",
+   "hours": 0.15,
+   "do_first": [
+    [
+     "player.AddItem {0} 1",
+     "WeapNVCowboyRepeater"
+    ],
+    [
+     "player.AddItem {0} 20",
+     "Ammo357Magnum"
+    ],
+    [
+     "player.EquipItem {0}",
+     "WeapNVCowboyRepeater"
+    ]
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "do": [
+      "TapControl 7"
+     ]
+    },
+    {
+     "after": 60,
+     "repeat": true,
+     "do": [
+      "TapControl 4"
+     ]
+    },
+    {
+     "after": 900,
+     "do": [
+      "TapControl 7"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "revolver_low",
+   "console_first": [
+    "tgm"
+   ],
+   "hours": 0.2,
+   "do_first": [
+    [
+     "player.RemoveAllItems"
+    ],
+    [
+     "player.AddItem {0} 1",
+     "WeapNV357Revolver"
+    ],
+    [
+     "player.AddItem {0} 8",
+     "Ammo357Magnum"
+    ],
+    [
+     "player.EquipItem {0}",
+     "WeapNV357Revolver"
+    ],
+    [
+     "player.SetAngle Z 0"
+    ],
+    [
+     "player.SetAngle X 0"
+    ]
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "do": [
+      "TapControl 7"
+     ]
+    },
+    {
+     "after": 45,
+     "repeat": true,
+     "do": [
+      "TapControl 4"
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,38 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless The Moon Comes Over the Tower (vfreeformlucky38), Emily sent off and killed: the bug planted and rewarded as in moon-over-the-tower (10, 20, 25), Emily's goodbye (35), Emily killed (110)",
+  "given": [
+    {"kind": "global", "name": "VStoryEventBennyKilledCasino", "value": 1},
+    {"kind": "global", "name": "VStoryEventVisitsLucky38", "value": 1},
+    {"kind": "quest", "quest": "VMQTops", "running": true, "done": [70]},
+    {"kind": "disabled", "of": "FollowerEmily", "disabled": false}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: as moon-over-the-tower to Emily's reward (stage 25); Emily asked about herself (GREETING, Topic012) and sent on her way (027: stage 35, she sandboxes); then the player kills her (kill stands in for the fight: her OnDeath sets stage 110). Travel is move_player."},
+    {"op": "move_player", "to": "FollowerEmily"},
+    {"op": "talk", "actor": "FollowerEmily", "label": "emily greeting"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic001", "label": "emily 001"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic003", "label": "emily 003"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic006", "label": "emily gives the bug"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "vfreeformlucky38", "fields": ["stage", "done.10", "var.bGivenBug"], "label": "milestone: vfreeformlucky38 10"},
+    {"op": "move_player", "to": "scripted:Lucky38MainframeSCRIPT"},
+    {"op": "player_activate", "target": "scripted:Lucky38MainframeSCRIPT"},
+    {"op": "advance_seconds", "seconds": 0.1},
+    {"op": "press_button", "button": 1},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "vfreeformlucky38", "fields": ["stage", "done.20", "var.bBuggedTower"], "label": "milestone: vfreeformlucky38 20"},
+    {"op": "move_player", "to": "FollowerEmily"},
+    {"op": "talk", "actor": "FollowerEmily", "label": "emily again"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic008", "label": "emily 008"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "vfreeformlucky38", "fields": ["stage", "done.25", "completed"], "label": "milestone: vfreeformlucky38 25"},
+    {"op": "talk", "actor": "FollowerEmily", "label": "emily 3"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic012", "label": "emily 012"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic027", "label": "emily bye"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "vfreeformlucky38", "fields": ["stage", "done.35"], "label": "milestone: vfreeformlucky38 35"},
+    {"op": "kill", "actor": "FollowerEmily", "killer": "player"},
+    {"op": "get_quest", "quest": "vfreeformlucky38", "fields": ["stage", "done.110"], "label": "final: vfreeformlucky38 110"}
+  ]
+}

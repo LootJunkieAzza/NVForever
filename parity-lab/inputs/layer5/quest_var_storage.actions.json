@@ -1,0 +1,286 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "What a Set statement stores into short, long, int and float variables",
+  "save": "nvftest",
+  "given": [],
+  "actions": [
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 32767,
+      "label": "short set to 32767"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 32768,
+      "label": "short set to 32768"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 40000,
+      "label": "short set to 40000"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 65535,
+      "label": "short set to 65535"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 65536,
+      "label": "short set to 65536"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 70000,
+      "label": "short set to 70000"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": -32768,
+      "label": "short set to -32768"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": -32769,
+      "label": "short set to -32769"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": -40000,
+      "label": "short set to -40000"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 2147483647,
+      "label": "short set to 2147483647"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 2147483648,
+      "label": "short set to 2147483648"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 3000000000,
+      "label": "short set to 3000000000"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 2.7,
+      "label": "short set to 2.7"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": -2.7,
+      "label": "short set to -2.7"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 2.5,
+      "label": "short set to 2.5"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": -2.5,
+      "label": "short set to -2.5"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 0.5,
+      "label": "short set to 0.5"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": -0.5,
+      "label": "short set to -0.5"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 0.3333333333333333,
+      "label": "short set to 0.3333333333333333"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 40000.5,
+      "label": "short set to 40000.5"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 2147483647.5,
+      "label": "short set to 2147483647.5"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": 3000000000.5,
+      "label": "short set to 3000000000.5"
+    },
+    {
+      "op": "set_local",
+      "type": "short",
+      "value": -3000000000.5,
+      "label": "short set to -3000000000.5"
+    },
+    {
+      "op": "set_local",
+      "type": "long",
+      "value": 40000,
+      "label": "long set to 40000"
+    },
+    {
+      "op": "set_local",
+      "type": "long",
+      "value": 2147483647,
+      "label": "long set to 2147483647"
+    },
+    {
+      "op": "set_local",
+      "type": "long",
+      "value": 2147483648,
+      "label": "long set to 2147483648"
+    },
+    {
+      "op": "set_local",
+      "type": "long",
+      "value": 3000000000,
+      "label": "long set to 3000000000"
+    },
+    {
+      "op": "set_local",
+      "type": "long",
+      "value": -3000000000,
+      "label": "long set to -3000000000"
+    },
+    {
+      "op": "set_local",
+      "type": "long",
+      "value": 2.7,
+      "label": "long set to 2.7"
+    },
+    {
+      "op": "set_local",
+      "type": "long",
+      "value": -2.7,
+      "label": "long set to -2.7"
+    },
+    {
+      "op": "set_local",
+      "type": "int",
+      "value": 40000,
+      "label": "int set to 40000"
+    },
+    {
+      "op": "set_local",
+      "type": "int",
+      "value": 3000000000,
+      "label": "int set to 3000000000"
+    },
+    {
+      "op": "set_local",
+      "type": "int",
+      "value": 2.7,
+      "label": "int set to 2.7"
+    },
+    {
+      "op": "set_local",
+      "type": "int",
+      "value": -2.7,
+      "label": "int set to -2.7"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": 0.3333333333333333,
+      "label": "float set to 0.3333333333333333"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": 0.1,
+      "label": "float set to 0.1"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": 16777217,
+      "label": "float set to 16777217"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": 1e-08,
+      "label": "float set to 1e-08"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": 123456789.123,
+      "label": "float set to 123456789.123"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": 40000,
+      "label": "float set to 40000"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": -2.7,
+      "label": "float set to -2.7"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": 3000000000,
+      "label": "float set to 3000000000"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": 3000000000.5,
+      "label": "float set to 3000000000.5"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": -3000000000,
+      "label": "float set to -3000000000"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": -3000000000.5,
+      "label": "float set to -3000000000.5"
+    },
+    {
+      "op": "set_local",
+      "type": "float",
+      "value": 4294967296.5,
+      "label": "float set to 4294967296.5"
+    }
+  ]
+}

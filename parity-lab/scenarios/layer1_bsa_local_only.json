@@ -1,0 +1,634 @@
+{
+ "scenarios": [
+  {
+   "id": "L1.bsa.listing.Fallout - Meshes",
+   "layer": 1,
+   "description": "Listing of Fallout - Meshes.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/Fallout - Meshes.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Meshes.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.Fallout - Meshes",
+   "layer": 1,
+   "description": "Header fields of Fallout - Meshes.bsa.",
+   "oracle": {
+    "golden": "bsa/Fallout - Meshes.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Meshes.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.Fallout - Meshes",
+   "layer": 1,
+   "description": "Golden-file test: Fallout - Meshes.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/Fallout - Meshes.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.Fallout - Textures",
+   "layer": 1,
+   "description": "Listing of Fallout - Textures.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/Fallout - Textures.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Textures.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.Fallout - Textures",
+   "layer": 1,
+   "description": "Header fields of Fallout - Textures.bsa.",
+   "oracle": {
+    "golden": "bsa/Fallout - Textures.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Textures.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.Fallout - Textures",
+   "layer": 1,
+   "description": "Golden-file test: Fallout - Textures.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/Fallout - Textures.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.Fallout - Textures2",
+   "layer": 1,
+   "description": "Listing of Fallout - Textures2.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/Fallout - Textures2.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Textures2.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.Fallout - Textures2",
+   "layer": 1,
+   "description": "Header fields of Fallout - Textures2.bsa.",
+   "oracle": {
+    "golden": "bsa/Fallout - Textures2.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Textures2.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.Fallout - Textures2",
+   "layer": 1,
+   "description": "Golden-file test: Fallout - Textures2.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/Fallout - Textures2.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.Fallout - Sound",
+   "layer": 1,
+   "description": "Listing of Fallout - Sound.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/Fallout - Sound.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Sound.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.Fallout - Sound",
+   "layer": 1,
+   "description": "Header fields of Fallout - Sound.bsa.",
+   "oracle": {
+    "golden": "bsa/Fallout - Sound.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Sound.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.Fallout - Sound",
+   "layer": 1,
+   "description": "Golden-file test: Fallout - Sound.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/Fallout - Sound.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.Fallout - Voices1",
+   "layer": 1,
+   "description": "Listing of Fallout - Voices1.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/Fallout - Voices1.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Voices1.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.Fallout - Voices1",
+   "layer": 1,
+   "description": "Header fields of Fallout - Voices1.bsa.",
+   "oracle": {
+    "golden": "bsa/Fallout - Voices1.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/Fallout - Voices1.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.Fallout - Voices1",
+   "layer": 1,
+   "description": "Golden-file test: Fallout - Voices1.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/Fallout - Voices1.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.LonesomeRoad - Main",
+   "layer": 1,
+   "description": "Listing of LonesomeRoad - Main.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/LonesomeRoad - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/LonesomeRoad - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.LonesomeRoad - Main",
+   "layer": 1,
+   "description": "Header fields of LonesomeRoad - Main.bsa.",
+   "oracle": {
+    "golden": "bsa/LonesomeRoad - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/LonesomeRoad - Main.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.LonesomeRoad - Main",
+   "layer": 1,
+   "description": "Golden-file test: LonesomeRoad - Main.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/LonesomeRoad - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.listing.OldWorldBlues - Main",
+   "layer": 1,
+   "description": "Listing of OldWorldBlues - Main.bsa: every file's path, stored size, compression, decoded size and SHA-256.",
+   "oracle": {
+    "golden": "bsa/OldWorldBlues - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/OldWorldBlues - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/files",
+    "key": "path",
+    "fields": [
+     "name_hash",
+     "stored_size",
+     "compressed",
+     "size",
+     "sha256"
+    ]
+   },
+   "tags": [
+    "bsa",
+    "listing",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.header.OldWorldBlues - Main",
+   "layer": 1,
+   "description": "Header fields of OldWorldBlues - Main.bsa.",
+   "oracle": {
+    "golden": "bsa/OldWorldBlues - Main.bsa.listing.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "list",
+     "{data_dir}/OldWorldBlues - Main.bsa",
+     "--no-content-hash"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/header"
+   },
+   "tags": [
+    "bsa",
+    "header",
+    "M1",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L1.bsa.roundtrip.OldWorldBlues - Main",
+   "layer": 1,
+   "description": "Golden-file test: OldWorldBlues - Main.bsa rebuilds byte-identically and every file decodes.",
+   "oracle": {
+    "inline": {
+     "roundtrip_identical": true,
+     "decode_errors": []
+    }
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "bsa",
+     "verify",
+     "{data_dir}/OldWorldBlues - Main.bsa"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "subset": true
+   },
+   "tags": [
+    "bsa",
+    "roundtrip",
+    "M1",
+    "needs-local-capture"
+   ]
+  }
+ ]
+}

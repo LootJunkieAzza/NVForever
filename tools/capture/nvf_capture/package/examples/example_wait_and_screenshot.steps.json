@@ -1,0 +1,16 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "example_wait_and_screenshot",
+ "title": "Example: wait three game minutes, then a screenshot without the HUD",
+ "start": "Any save, game windowed or borderless.",
+ "steps": [
+  {"remember": "GameDaysPassed", "as": "day0"},
+  {"until": "GameDaysPassed >= %{day0} + 0.002", "max_frames": 7200},
+  {"query": "GameDaysPassed"},
+  {"console": "tm"},
+  {"frames": 30},
+  {"screenshot": "example"},
+  {"console": "tm"},
+  {"frames": 30}
+ ]
+}

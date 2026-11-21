@@ -1,0 +1,742 @@
+//! NPCs at scripted doors (`fnv_game::npc_doors`, docs/spec-notes/doors.md §5) on a
+//! synthetic plugin: a door whose OnActivate activates for anyone but the player, one
+//! that does something only for the player, one whose block is for the player only, one
+//! without a script and one whose script has no OnActivate block; the extender's
+//! OnActivate handlers hear each NPC's attempt once, before any block (#2123).
+
+use fnv_esm::raw::{write_subrecords, Subrecord};
+use fnv_esm::{LoadOrder, Plugin, Schema};
+use fnv_game::game::{ActMode, Game, GameConfig, InstKey};
+use fnv_game::npc_doors::{DoorAnswer, ASKED_SECONDS, REFUSED_SECONDS};
+use fnv_game::trace::EventKind;
+use fnv_game::GameData;
+use fnv_script::vm::Value;
+use fnv_script::FunctionTable;
+use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
+use serde_json::Value as Json;
+
+fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
+    Subrecord { sig: *sig, data, extended: false }
+}
+
+fn z(s: &str) -> Vec<u8> {
+    [s.as_bytes(), &[0]].concat()
+}
+
+fn record(sig: &[u8; 4], flags: u32, fid: u32, subs: &[Subrecord]) -> Vec<u8> {
+    let payload = write_subrecords(subs);
+    [&sig[..], &(payload.len() as u32).to_le_bytes(), &flags.to_le_bytes(), &fid.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload]
+        .concat()
+}
+
+fn group(label: [u8; 4], gtype: i32, body: &[u8]) -> Vec<u8> {
+    [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), &label, &gtype.to_le_bytes(), &[0; 8], body].concat()
+}
+
+fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    group(*sig, 0, body)
+}
+
+fn tes4() -> Vec<u8> {
+    let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+    record(b"TES4", 1, 0, &[sub(b"HEDR", hedr)])
+}
+
+/// SCHR + SCDA + variables (`(index, name, 1 = Integer / 0 = FloatOrRef)`) + SCRO list.
+fn unit(scda: &[u8], vars: &[(u32, &str, u8)], refs: &[u32]) -> Vec<Subrecord> {
+    let mut schr = vec![0u8; 4];
+    schr.extend((refs.len() as u32).to_le_bytes());
+    schr.extend((scda.len() as u32).to_le_bytes());
+    schr.extend((vars.len() as u32).to_le_bytes());
+    schr.extend(0u16.to_le_bytes());
+    schr.extend(1u16.to_le_bytes());
+    let mut out = vec![sub(b"SCHR", schr), sub(b"SCDA", scda.to_vec())];
+    for (i, n, t) in vars {
+        let mut slsd = i.to_le_bytes().to_vec();
+        slsd.extend([0u8; 12]);
+        slsd.push(*t);
+        slsd.extend([0u8; 7]);
+        out.push(sub(b"SLSD", slsd));
+        out.push(sub(b"SCVR", z(n)));
+    }
+    for r in refs {
+        out.push(sub(b"SCRO", r.to_le_bytes().to_vec()));
+    }
+    out
+}
+
+fn le16(v: u16) -> Vec<u8> {
+    v.to_le_bytes().to_vec()
+}
+fn st(op: u16, body: &[u8]) -> Vec<u8> {
+    [le16(op), le16(body.len() as u16), body.to_vec()].concat()
+}
+fn ex(tokens: &[Vec<u8>]) -> Vec<u8> {
+    tokens.iter().flat_map(|t| [vec![b' '], t.clone()].concat()).collect()
+}
+fn a(s: &str) -> Vec<u8> {
+    s.as_bytes().to_vec()
+}
+fn var(letter: u8, i: u16) -> Vec<u8> {
+    [vec![letter], le16(i)].concat()
+}
+fn set(target: Vec<u8>, e: Vec<u8>) -> Vec<u8> {
+    st(0x15, &[target, le16(e.len() as u16), e].concat())
+}
+fn if_(skip: u16, e: Vec<u8>) -> Vec<u8> {
+    st(0x16, &[le16(skip), le16(e.len() as u16), e].concat())
+}
+fn endif() -> Vec<u8> {
+    st(0x19, &[])
+}
+fn r(i: u16) -> Vec<u8> {
+    [vec![b'r'], le16(i)].concat()
+}
+fn xcall(op: u16, blob: &[u8]) -> Vec<u8> {
+    [vec![b'X'], le16(op), le16(blob.len() as u16), blob.to_vec()].concat()
+}
+
+/// One block: event code, parameter block, body.
+type BlockBytes = (u16, Option<Vec<u8>>, Vec<u8>);
+
+/// ScriptName, then `Begin <event> [params]` … `End` around each body.
+fn script(blocks: &[BlockBytes]) -> Vec<u8> {
+    let mut out = st(0x1D, &[]);
+    for (event, params, body) in blocks {
+        let end = st(0x11, &[]);
+        let len = (body.len() + end.len()) as u32;
+        let mut b = [le16(*event), len.to_le_bytes().to_vec()].concat();
+        if let Some(p) = params {
+            b.extend(p);
+        }
+        out.extend(st(0x10, &b));
+        out.extend(body);
+        out.extend(end);
+    }
+    out
+}
+
+const ACTIVATE: u16 = 0x100D;
+const IS_ACTION_REF: u16 = 0x1069;
+const ON_ACTIVATE: u16 = 2;
+const GAME_MODE: u16 = 0;
+
+const SCRIPT_LETS: u32 = 0x901;
+const SCRIPT_PLAYER: u32 = 0x902;
+const SCRIPT_PLAYER_BLOCK: u32 = 0x903;
+const SCRIPT_NO_ACTIVATE: u32 = 0x904;
+const SCRIPT_NEST: u32 = 0x905;
+const DOOR_LETS: u32 = 0x911;
+const DOOR_PLAYER: u32 = 0x912;
+const DOOR_PLAYER_BLOCK: u32 = 0x913;
+const DOOR_PLAIN: u32 = 0x914;
+const DOOR_NO_ACTIVATE: u32 = 0x915;
+const DOOR_NEST: u32 = 0x916;
+const GLOBAL: u32 = 0x800;
+const NPC: u32 = 0x920;
+const CELL: u32 = 0x930;
+const REF_LETS: u32 = 0x301;
+const REF_PLAYER: u32 = 0x302;
+const REF_PLAYER_BLOCK: u32 = 0x303;
+const REF_PLAYER_LOAD: u32 = 0x304;
+const REF_PLAIN: u32 = 0x305;
+const REF_NO_ACTIVATE: u32 = 0x306;
+const REF_NEST: u32 = 0x307;
+const NPC_REF: u32 = 0x310;
+// [design, #2538] Synthetic keys for script-driven lock replacement.
+const OLD_KEY: u32 = 0x940;
+const NEW_KEY: u32 = 0x941;
+
+/// `IsActionRef player == want`: the expression token.
+fn is_player(want: &str) -> Vec<u8> {
+    ex(&[xcall(IS_ACTION_REF, &[le16(1), r(1)].concat()), a(want), a("==")])
+}
+
+fn plugin_bytes() -> Vec<u8> {
+    // nUsed (1, short) counts the block's runs in each script; nSeen (2, short) is
+    // TestGlobal (SCRO 2) as the block starts: what the extender's handlers had counted.
+    let count = || set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
+    let seen = || set(var(b's', 2), ex(&[[vec![b'G'], le16(2)].concat()]));
+    let activate = || st(ACTIVATE, &le16(0));
+    // begin OnActivate
+    //   set nSeen to TestGlobal
+    //   set nUsed to nUsed + 1
+    //   if IsActionRef player == 0
+    //     Activate
+    //   endif
+    // end
+    let lets = [seen(), count(), if_(1, is_player("0")), activate(), endif()].concat();
+    // begin OnActivate
+    //   set nSeen to TestGlobal
+    //   set nUsed to nUsed + 1
+    //   if IsActionRef player == 1
+    //     Activate
+    //   endif
+    // end
+    let player = [seen(), count(), if_(1, is_player("1")), activate(), endif()].concat();
+    // begin OnActivate
+    //   set nUsed to nUsed + 1
+    //   DoorPlainREF.Activate          ; SCRO 3, for the action reference
+    //   if IsActionRef player == 0
+    //     Activate
+    //   endif
+    // end
+    let nest = [count(), [le16(0x1C), le16(3)].concat(), activate(), if_(1, is_player("0")), activate(), endif()].concat();
+    // begin OnActivate player
+    //   set nUsed to nUsed + 1
+    // end
+    let player_block = count();
+    let scpt = |id: u32, edid: &str, blocks: &[BlockBytes]| {
+        record(b"SCPT", 0, id, &[vec![sub(b"EDID", z(edid))], unit(&script(blocks), &[(1, "nUsed", 1), (2, "nSeen", 1)], &[0x14, GLOBAL, REF_PLAIN])].concat())
+    };
+    let scripts = [
+        scpt(SCRIPT_LETS, "DoorLetsScript", &[(ON_ACTIVATE, None, lets)]),
+        scpt(SCRIPT_PLAYER, "DoorPlayerScript", &[(ON_ACTIVATE, None, player)]),
+        scpt(SCRIPT_PLAYER_BLOCK, "DoorPlayerBlockScript", &[(ON_ACTIVATE, Some([le16(1), r(1)].concat()), player_block)]),
+        // begin GameMode
+        //   set nUsed to nUsed + 1
+        // end
+        scpt(SCRIPT_NO_ACTIVATE, "DoorNoActivateScript", &[(GAME_MODE, None, count())]),
+        scpt(SCRIPT_NEST, "DoorNestScript", &[(ON_ACTIVATE, None, nest)]),
+    ]
+    .concat();
+    let door = |id: u32, edid: &str, script: u32| record(b"DOOR", 0, id, &[sub(b"EDID", z(edid)), sub(b"SCRI", script.to_le_bytes().to_vec())]);
+    let doors = [
+        door(DOOR_LETS, "DoorLets", SCRIPT_LETS),
+        door(DOOR_PLAYER, "DoorPlayer", SCRIPT_PLAYER),
+        door(DOOR_PLAYER_BLOCK, "DoorPlayerBlock", SCRIPT_PLAYER_BLOCK),
+        record(b"DOOR", 0, DOOR_PLAIN, &[sub(b"EDID", z("DoorPlain"))]),
+        door(DOOR_NO_ACTIVATE, "DoorNoActivate", SCRIPT_NO_ACTIVATE),
+        door(DOOR_NEST, "DoorNest", SCRIPT_NEST),
+    ]
+    .concat();
+    let npc = record(
+        b"NPC_",
+        0,
+        NPC,
+        &[
+            sub(b"EDID", z("Walker")),
+            sub(b"ACBS", [&0u32.to_le_bytes()[..], &[0; 4], &4u16.to_le_bytes(), &[0; 6], &0f32.to_le_bytes(), &[0; 4]].concat()),
+            sub(b"DATA", [&30i32.to_le_bytes()[..], &[5, 5, 5, 5, 5, 5, 5]].concat()),
+        ],
+    );
+    let placed = |sig: &[u8; 4], id: u32, edid: &str, base: u32| record(sig, 0, id, &[sub(b"EDID", z(edid)), sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    // DoorPlayer's script on a load door too: XTEL to DoorLets' reference (door, position,
+    // rotation, no alarm).
+    let xtel = [REF_LETS.to_le_bytes().to_vec(), [0f32; 6].iter().flat_map(|f| f.to_le_bytes()).collect(), 0u32.to_le_bytes().to_vec()].concat();
+    let load = record(b"REFR", 0, REF_PLAYER_LOAD, &[sub(b"EDID", z("DoorPlayerLoadREF")), sub(b"NAME", DOOR_PLAYER.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]), sub(b"XTEL", xtel)]);
+    let refs = [
+        placed(b"REFR", REF_LETS, "DoorLetsREF", DOOR_LETS),
+        placed(b"REFR", REF_PLAYER, "DoorPlayerREF", DOOR_PLAYER),
+        placed(b"REFR", REF_PLAYER_BLOCK, "DoorPlayerBlockREF", DOOR_PLAYER_BLOCK),
+        load,
+        placed(b"REFR", REF_PLAIN, "DoorPlainREF", DOOR_PLAIN),
+        placed(b"REFR", REF_NO_ACTIVATE, "DoorNoActivateREF", DOOR_NO_ACTIVATE),
+        placed(b"REFR", REF_NEST, "DoorNestREF", DOOR_NEST),
+        placed(b"ACHR", NPC_REF, "WalkerREF", NPC),
+    ]
+    .concat();
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("DoorCell"))]);
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
+    let glob = record(b"GLOB", 0, GLOBAL, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b's']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    [
+        tes4(),
+        top(b"GLOB", &glob),
+        top(b"SCPT", &scripts),
+        top(b"DOOR", &doors),
+        top(b"KEYM", &[
+            record(b"KEYM", 0, OLD_KEY, &[sub(b"EDID", z("OldDoorKey"))]),
+            record(b"KEYM", 0, NEW_KEY, &[sub(b"EDID", z("NewDoorKey"))]),
+        ].concat()),
+        top(b"NPC_", &npc),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+    ]
+    .concat()
+}
+
+struct Fixture {
+    data: GameData,
+    forms: FormStore,
+    refs: RefTable,
+}
+
+fn fixture() -> Fixture {
+    let plugins = vec![Plugin::parse(&plugin_bytes(), "Doors.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, FunctionTable::load(&p).unwrap(), &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+fn game(f: &Fixture) -> Game<'_> {
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.new_game();
+    g
+}
+
+fn used(g: &Game, door: u32) -> Value {
+    g.var(InstKey::Ref { reference: FormId(door) }, 1)
+}
+
+#[test]
+fn a_door_whose_block_activates_for_others_lets_the_npc_through() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(used(&g, REF_LETS), Value::Num(1.0));
+    // The block's Activate was the NPC's activation: an event, but no default action
+    // (the AI moves the actor itself; the door was not toggled by the simulation).
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::Activated { reference, by, .. } if reference.0 == REF_LETS && by == npc)));
+    assert!(!g.world.peek(FormId(REF_LETS)).is_some_and(|s| s.open));
+    assert!(g.refused_doors(npc).is_empty());
+    // Asked once for the walk through.
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(used(&g, REF_LETS), Value::Num(1.0));
+    g.time += ASKED_SECONDS + 0.1;
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(used(&g, REF_LETS), Value::Num(2.0));
+}
+
+#[test]
+fn a_door_whose_block_acts_only_for_the_player_refuses_the_npc_for_a_while() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(used(&g, REF_PLAYER), Value::Num(1.0));
+    assert_eq!(g.refused_doors(npc), vec![REF_PLAYER]);
+    // Another actor is asked for itself.
+    assert!(g.refused_doors(FormId::PLAYER_REF).is_empty());
+    g.time += REFUSED_SECONDS + 0.1;
+    assert!(g.refused_doors(npc).is_empty());
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(used(&g, REF_PLAYER), Value::Num(2.0));
+}
+
+/// A load door whose block does nothing for an NPC takes it through all the same; the
+/// block has run.
+#[test]
+fn a_load_door_lets_the_npc_through_whatever_its_block_did() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER_LOAD)), DoorAnswer::LoadDoor);
+    assert_eq!(used(&g, REF_PLAYER_LOAD), Value::Num(1.0));
+    assert!(g.refused_doors(npc).is_empty());
+}
+
+#[test]
+fn a_block_for_the_player_only_does_not_hold_the_npc() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(g.npc_door(FormId(NPC_REF), FormId(REF_PLAYER_BLOCK)), DoorAnswer::NoBlock);
+    assert_eq!(used(&g, REF_PLAYER_BLOCK), Value::Num(0.0));
+}
+
+#[test]
+fn the_players_own_activation_of_a_scripted_door_is_unchanged() {
+    let f = fixture();
+    let mut g = game(&f);
+    // The block runs instead of the default action; for the player it does not
+    // activate DoorLets, so nothing opens.
+    g.activate(FormId::PLAYER_REF, FormId(REF_LETS), ActMode::Hand).unwrap();
+    assert_eq!(used(&g, REF_LETS), Value::Num(1.0));
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Activated { .. })));
+    // DoorPlayer activates for the player: the default action toggles it open.
+    g.activate(FormId::PLAYER_REF, FormId(REF_PLAYER), ActMode::Hand).unwrap();
+    assert!(g.world.peek(FormId(REF_PLAYER)).is_some_and(|s| s.open));
+}
+
+// ---- the extender's OnActivate (#2123) --------------------------------------------
+
+/// An OnActivate handler that counts 1 for the walker activating `door`, 100 for anything
+/// else (another target or another actor).
+fn listen(g: &mut Game, door: &str) {
+    let src = format!(
+        "SetEventHandler \"OnActivate\" (begin function {{ref rT, ref rA}}\nif rT == {door} && rA == WalkerREF\nlet TestGlobal := TestGlobal + 1\nelse\nlet TestGlobal := TestGlobal + 100\nendif\nend)"
+    );
+    g.run_source(&src, Default::default()).expect("compiles");
+}
+
+fn heard(g: &Game) -> f32 {
+    g.world.global(FormId(GLOBAL)).unwrap()
+}
+
+/// What the handlers had counted when `door`'s block started (its nSeen).
+fn seen_by_block(g: &Game, door: u32) -> Value {
+    g.var(InstKey::Ref { reference: FormId(door) }, 2)
+}
+
+#[test]
+fn an_unscripted_door_is_heard_once_per_asking() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorPlainREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+    // Kept for the walk through: not asked, not heard again.
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+    assert!(g.refused_doors(npc).is_empty(), "a door without a block is never refused");
+    // The answer runs out: asked and heard again.
+    g.time += ASKED_SECONDS + 0.1;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 2.0);
+    // Another actor is asked, and heard, for itself.
+    assert_eq!(g.npc_door(FormId::PLAYER_REF, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 102.0);
+    // No activation of the door itself: the AI opens it as before.
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Activated { .. })));
+}
+
+#[test]
+fn a_script_without_an_onactivate_block_is_heard() {
+    let f = fixture();
+    let mut g = game(&f);
+    listen(&mut g, "DoorNoActivateREF");
+    assert_eq!(g.npc_door(FormId(NPC_REF), FormId(REF_NO_ACTIVATE)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+    assert_eq!(used(&g, REF_NO_ACTIVATE), Value::Num(0.0), "its GameMode block did not run");
+}
+
+#[test]
+fn a_block_that_lets_the_npc_through_is_heard_once_and_first() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorLetsREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    // The block's own `Activate` is the same activation: heard once.
+    assert_eq!(heard(&g), 1.0);
+    assert_eq!(seen_by_block(&g, REF_LETS), Value::Num(1.0), "the handler ran before the block started");
+    // The let-through is unchanged: the activation event and no default action.
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Activated { reference, by, .. } if reference.0 == REF_LETS && by == npc)).count(), 1);
+    assert!(!g.world.peek(FormId(REF_LETS)).is_some_and(|s| s.open));
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(heard(&g), 1.0);
+    g.time += ASKED_SECONDS + 0.1;
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!((heard(&g), used(&g, REF_LETS)), (2.0, Value::Num(2.0)));
+}
+
+#[test]
+fn a_refusing_block_is_heard_first_and_once_while_the_refusal_stands() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorPlayerREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(heard(&g), 1.0);
+    assert_eq!(seen_by_block(&g, REF_PLAYER), Value::Num(1.0), "the handler ran before the block started");
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(heard(&g), 1.0);
+    g.time += REFUSED_SECONDS + 0.1;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(heard(&g), 2.0);
+}
+
+#[test]
+fn a_load_door_and_a_player_only_block_are_heard() {
+    let f = fixture();
+    let npc = FormId(NPC_REF);
+    let mut g = game(&f);
+    listen(&mut g, "DoorPlayerLoadREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER_LOAD)), DoorAnswer::LoadDoor);
+    assert_eq!(heard(&g), 1.0);
+    let mut h = game(&f);
+    listen(&mut h, "DoorPlayerBlockREF");
+    assert_eq!(h.npc_door(npc, FormId(REF_PLAYER_BLOCK)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&h), 1.0);
+    assert_eq!(used(&h, REF_PLAYER_BLOCK), Value::Num(0.0));
+    assert_eq!(h.npc_door(npc, FormId(REF_PLAYER_BLOCK)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&h), 1.0);
+}
+
+/// A destroyed door is heard (the event runs "even if activation will be prevented"), and
+/// a handler that destroys the door refuses the activation before the block runs; the NPC
+/// still goes through as before (no block for a destroyed door).
+#[test]
+fn a_destroyed_door_is_heard_and_a_handler_can_destroy_it_first() {
+    let f = fixture();
+    let npc = FormId(NPC_REF);
+    let mut g = game(&f);
+    listen(&mut g, "DoorPlainREF");
+    g.extra.entry(FormId(REF_PLAIN)).or_default().destroyed = true;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+
+    let mut h = game(&f);
+    h.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}\nlet TestGlobal := TestGlobal + 1\nrT.SetDestroyed 1\nend)", Default::default()).expect("compiles");
+    assert_eq!(h.npc_door(npc, FormId(REF_LETS)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&h), 1.0);
+    assert_eq!(used(&h, REF_LETS), Value::Num(0.0), "the block did not run");
+}
+
+/// A script's own `Activate` of a door for the NPC, outside its walk, is an activation of
+/// its own: heard, as before.
+#[test]
+fn a_scripts_activate_of_a_door_for_an_npc_is_still_heard() {
+    let f = fixture();
+    let mut g = game(&f);
+    listen(&mut g, "DoorPlainREF");
+    g.activate(FormId(NPC_REF), FormId(REF_PLAIN), ActMode::Default).unwrap();
+    assert_eq!(heard(&g), 1.0);
+}
+
+/// A door's NoBlock answer is not kept: a door asked while destroyed and repaired at once
+/// is asked again (its block runs and refuses), while the extender heard that walk once.
+#[test]
+fn a_repaired_door_is_asked_again_at_once() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorPlayerREF");
+    g.extra.entry(FormId(REF_PLAYER)).or_default().destroyed = true;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+    g.extra.entry(FormId(REF_PLAYER)).or_default().destroyed = false;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(used(&g, REF_PLAYER), Value::Num(1.0));
+    assert_eq!(heard(&g), 1.0, "the same walk");
+    // Doors without a block keep no answer.
+    assert!(!g.door_gates.contains_key(&(npc, FormId(REF_PLAIN))));
+    g.npc_door(npc, FormId(REF_PLAIN));
+    assert!(!g.door_gates.contains_key(&(npc, FormId(REF_PLAIN))));
+}
+
+/// The record of heard walks keeps only those that stand.
+#[test]
+fn heard_walks_are_dropped_once_they_expire() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    g.npc_door(npc, FormId(REF_PLAIN));
+    g.npc_door(FormId::PLAYER_REF, FormId(REF_PLAIN));
+    assert_eq!(g.door_heard.len(), 2);
+    g.time += ASKED_SECONDS + 0.1;
+    g.npc_door(npc, FormId(REF_NO_ACTIVATE));
+    assert_eq!(g.door_heard.keys().copied().collect::<Vec<_>>(), vec![(npc, FormId(REF_NO_ACTIVATE))]);
+}
+
+/// Review of #2123: while DoorNest's block runs for the walker it activates DoorPlain for
+/// it; DoorPlain's handler activates DoorNest for the walker. That handler's activation is
+/// one of its own: heard (not taken for the block's), and the block's own `Activate`
+/// still lets the walker through, unheard.
+#[test]
+fn a_handlers_activation_inside_the_block_is_heard() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    g.run_source(
+        "SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorPlainREF
+let TestGlobal := TestGlobal + 10
+DoorNestREF.Activate rA
+elseif rT == DoorNestREF
+let TestGlobal := TestGlobal + 1
+endif
+end)",
+        Default::default(),
+    )
+    .expect("compiles");
+    assert_eq!(g.npc_door(npc, FormId(REF_NEST)), DoorAnswer::Let);
+    // The walk (1), DoorPlain (10), the handler's DoorNest activation (1).
+    assert_eq!(heard(&g), 12.0);
+    assert_eq!(used(&g, REF_NEST), Value::Num(1.0), "the handler's activation was the default one, no block");
+}
+
+/// A crossing the AI closed (`Game::npc_door_left`) is over: the next walk through the
+/// door is heard again at once, also when the door's answer is kept (its block does not
+/// run again until the answer runs out).
+#[test]
+fn a_new_crossing_is_heard_again_whatever_the_kept_answer() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorLetsREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(heard(&g), 1.0, "one crossing");
+    g.npc_door_left(npc, FormId(REF_LETS));
+    assert!(g.door_heard.is_empty());
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(heard(&g), 2.0, "a second crossing");
+    assert_eq!(used(&g, REF_LETS), Value::Num(1.0), "the kept answer stands");
+}
+
+
+/// [design, #2538] No game data: a plain door borrows a synthetic partner's lock.
+#[test]
+fn load_door_lock_queries_picking_and_script_unlock_agree() {
+    use fnv_game::functions::Ctx;
+    use fnv_game::lockpick::{self, Level, Opening, Refusal};
+    use fnv_sim::refs::{Lock, Teleport};
+    let mut f = fixture();
+    let (a, b) = (FormId(REF_PLAIN), FormId(REF_LETS));
+    f.refs.refs.get_mut(&a).unwrap().teleport = Some(Teleport { door: b, pos: [1.0, 2.0, 3.0], rot: [0.0; 3], no_alarm: false });
+    f.refs.refs.get_mut(&b).unwrap().lock = Some(Lock { level: 255, key: None, leveled: false });
+    let mut g = game(&f);
+    // [documented: schemas/script/functions.json] The vanilla function opcodes.
+    let call = |g: &mut Game, opcode| {
+        let ctx = Ctx { unit: "load-door-lock".into(), opcode, on: Some(a), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, &[])
+    };
+    assert_eq!(call(&mut g, 0x1041), Value::Num(255.0));
+    assert_eq!(call(&mut g, 0x1005), Value::Num(1.0));
+    assert_eq!(lockpick::opening(&mut g, a, 100.0), Opening::Refused(Refusal::RequiresKey));
+    call(&mut g, 0x1073);
+    assert_eq!(g.world.lock_status(b).unwrap(), 0);
+    assert_eq!(lockpick::opening(&mut g, a, 100.0), Opening::NotLocked);
+    g.world.lock(b, Some(25)).unwrap();
+    lockpick::broke(&mut g, a);
+    assert!(g.locks.broken.contains(&b));
+    assert!(!g.locks.broken.contains(&a));
+    assert_eq!(call(&mut g, 0x1005), Value::Num(2.0));
+    assert_eq!(call(&mut g, 0x120A), Value::Num(1.0));
+    lockpick::broke(&mut g, a);
+    assert!(g.locks.retried.contains(&b));
+    g.locks.broken.clear();
+    g.locks.retried.clear();
+    g.world.get(FormId::PLAYER_REF).unwrap().inventory.get_or_insert_with(Default::default).add(lockpick::BOBBY_PIN, 3);
+    assert!(matches!(lockpick::opening(&mut g, a, 100.0), Opening::Pick { level: Level::Easy, .. }));
+    lockpick::opened(&mut g, a, Level::Easy, false);
+    assert_eq!(g.world.lock_status(b).unwrap(), 0);
+    assert_eq!(call(&mut g, 0x1005), Value::Num(0.0));
+    call(&mut g, 0x1072);
+    assert_eq!(g.world.lock_source(a), a);
+    assert_eq!(g.world.lock_status(b).unwrap(), 0);
+}
+
+/// [design, #2538] Script key changes keep the inherited lock's access and level.
+#[test]
+fn load_door_lock_set_open_key_preserves_inherited_state_and_updates_serial() {
+    use fnv_sim::refs::{Lock, Teleport};
+    use fnv_sim::world::Outcome;
+    let mut f = fixture();
+    let (a, b) = (FormId(REF_PLAIN), FormId(REF_LETS));
+    f.refs.refs.get_mut(&a).unwrap().teleport = Some(Teleport { door: b, pos: [1.0, 2.0, 3.0], rot: [0.0; 3], no_alarm: false });
+    f.refs.refs.get_mut(&b).unwrap().lock = Some(Lock { level: 75, key: Some(FormId(OLD_KEY)), leveled: false });
+    for locked in [true, false] {
+        for warm in [false, true] {
+            let mut g = game(&f);
+            if warm {
+                g.world.get(a).unwrap();
+                g.world.get(b).unwrap();
+            }
+            if !locked {
+                g.world.unlock(b).unwrap();
+            }
+            let serial = g.world.lock_serial();
+            g.run_source("DoorPlainREF.SetOpenKey NewDoorKey", Default::default()).unwrap();
+            assert!(g.world.lock_serial() > serial, "navigation must refresh its keys");
+            assert_eq!(g.world.lock_source(a), b);
+            assert!(g.world.peek(a).is_none_or(|s| s.lock.is_none()), "no local override");
+            for door in [a, b] {
+                let lock = g.world.lock_of(door).unwrap();
+                assert_eq!((lock.level, lock.locked, lock.key), (75, locked, Some(FormId(NEW_KEY))));
+            }
+            for source in ["DoorPlainREF.GetOpenKey", "DoorLetsREF.GetOpenKey"] {
+                let query = format!("Begin Function {{}}\nSetFunctionValue ({source})\nEnd");
+                assert_eq!(g.run_query(&query, Default::default()).unwrap(), fnv_script::vm::XVal::Ref(NEW_KEY));
+            }
+            if locked {
+                let player = FormId::PLAYER_REF;
+                let before = g.world.get(player).unwrap().pos;
+                assert_eq!(g.world.activate(player, a).unwrap().outcome, Outcome::Locked { level: 75 });
+                g.world.get(player).unwrap().inventory.get_or_insert_with(Default::default).add(FormId(OLD_KEY), 1);
+                assert_eq!(g.world.activate(player, a).unwrap().outcome, Outcome::Locked { level: 75 });
+                assert_eq!(g.world.get(player).unwrap().pos, before);
+                g.world.inventory_mut(player).unwrap().add(FormId(NEW_KEY), 1);
+                assert!(matches!(g.world.activate(player, a).unwrap().outcome, Outcome::Teleported { to_door, .. } if to_door == b));
+                assert!(!g.world.lock_of(b).unwrap().locked);
+            }
+        }
+    }
+}
+
+/// [design, #2538] Own locks stay independent; a wholly lockless pair keeps its fallback.
+#[test]
+fn load_door_lock_set_open_key_keeps_own_lock_precedence_and_empty_fallback() {
+    use fnv_sim::refs::{Lock, Teleport};
+    let mut f = fixture();
+    let (a, b) = (FormId(REF_PLAIN), FormId(REF_LETS));
+    f.refs.refs.get_mut(&a).unwrap().teleport = Some(Teleport { door: b, pos: [1.0, 2.0, 3.0], rot: [0.0; 3], no_alarm: false });
+    f.refs.refs.get_mut(&b).unwrap().lock = Some(Lock { level: 75, key: Some(FormId(OLD_KEY)), leveled: false });
+    let mut g = game(&f);
+    g.world.lock(a, Some(25)).unwrap();
+    let serial = g.world.lock_serial();
+    g.run_source("DoorPlainREF.SetOpenKey NewDoorKey", Default::default()).unwrap();
+    assert!(g.world.lock_serial() > serial);
+    assert_eq!(g.world.lock_source(a), a);
+    let own = g.world.lock_of(a).unwrap();
+    assert_eq!((own.level, own.locked, own.key), (25, true, Some(FormId(NEW_KEY))));
+    let partner = g.world.lock_of(b).unwrap();
+    assert_eq!((partner.level, partner.locked, partner.key), (75, true, Some(FormId(OLD_KEY))));
+
+    f.refs.refs.get_mut(&b).unwrap().lock = None;
+    let mut g = game(&f);
+    let serial = g.world.lock_serial();
+    g.run_source("DoorPlainREF.SetOpenKey NewDoorKey", Default::default()).unwrap();
+    assert!(g.world.lock_serial() > serial);
+    assert_eq!(g.world.lock_source(a), a);
+    let own = g.world.lock_of(a).unwrap();
+    assert_eq!((own.level, own.locked, own.key), (0, false, Some(FormId(NEW_KEY))));
+    assert!(g.world.lock_of(b).is_none());
+}
+
+// ---- a scripted load door and a player a script disabled (#2617) -------------------
+
+/// The player's activations of `door` that teleported them.
+fn teleports(g: &Game, door: u32) -> usize {
+    g.events
+        .iter()
+        .filter(|e| match &e.kind {
+            EventKind::Activated { reference, by, outcome: Some(o) } => reference.0 == door && *by == FormId::PLAYER_REF && o["result"] == "teleported",
+            _ => false,
+        })
+        .count()
+}
+
+/// #2617: Hoover Dam's Power Plant 01 elevator (SCPT 0x0014659A) ends its OnActivate in a
+/// bare `Activate`; on the Legion route a trigger had disabled the player first
+/// (VHDIntakeTowerLegionaryDespawnScript), and a disabled actor's `Activate` does
+/// nothing, so the elevator never took the player through. Disable now leaves the player
+/// enabled, and the load door's bare `Activate` teleports them (DoorPlayer's block
+/// activates for the player; REF_PLAYER_LOAD has an XTEL).
+#[test]
+fn a_scripts_disable_of_the_player_leaves_the_load_door_working() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.run_source("player.Disable 1", Default::default()).expect("compiles");
+    g.run_source("player.Disable", Default::default()).expect("compiles");
+    // As `Activate` reads it: a player the world has no state for yet is enabled.
+    assert!(g.world.is_enabled(FormId::PLAYER_REF).unwrap_or(true), "the player is never disabled");
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::RefDisabled { reference, .. } if reference == FormId::PLAYER_REF)));
+    g.activate(FormId::PLAYER_REF, FormId(REF_PLAYER_LOAD), ActMode::Hand).unwrap();
+    assert_eq!(used(&g, REF_PLAYER_LOAD), Value::Num(1.0), "the block ran");
+    assert_eq!(teleports(&g, REF_PLAYER_LOAD), 1, "its bare Activate took the player through");
+}
+
+/// A save that holds the player disabled (made before the fix) loads with the player
+/// enabled, so the same door works after the load.
+#[test]
+fn a_save_with_the_player_disabled_loads_with_the_player_enabled() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.world.set_enabled(FormId::PLAYER_REF, false).unwrap();
+    let s = g.snapshot();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    assert_eq!(world.is_enabled(FormId::PLAYER_REF), Ok(false), "the save holds the player disabled");
+    let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.world.is_enabled(FormId::PLAYER_REF), Ok(true));
+    h.activate(FormId::PLAYER_REF, FormId(REF_PLAYER_LOAD), ActMode::Hand).unwrap();
+    assert_eq!(teleports(&h, REF_PLAYER_LOAD), 1);
+}

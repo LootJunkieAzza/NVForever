@@ -1,0 +1,24 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless I Don't Hurt Anymore (VMS56), the fail: VMS56 10 as in i-dont-hurt-anymore, then Sergeant Bitter-Root killed (VMS56 110)",
+  "given": [
+    {"kind": "actor_value", "of": "player", "av": "Intelligence", "value": 7},
+    {"kind": "actor_value", "of": "player", "av": "Medicine", "value": 40}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: as i-dont-hurt-anymore to 'VMS56 10'; then Sergeant Bitter-Root killed (SergeantBitterRootScript, before VMS56 100: VMS56 110). Kill stands in for each fight, by the player; travel is move_player."},
+    {"op": "note", "text": "Stand-in for the trip to Camp McCarran's terminal building."},
+    {"op": "move_player", "to": "LieutenantGorobetsRef"},
+    {"op": "talk", "actor": "LieutenantGorobetsRef", "label": "gorobets greeting"},
+    {"op": "choose", "topic": "VFreeformMcCarran31ELieutenantGorobetsTopic016", "label": "first recon"},
+    {"op": "choose", "topic": "VFreeformMcCarran31ELieutenantGorobetsTopic003", "label": "betsy's problem"},
+    {"op": "choose", "topic": "VFreeformMcCarran31ELieutenantGorobetsTopic015", "label": "help offered"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS56", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VMS56 10"},
+    {"op": "move_player", "to": "SergeantBitterRootRef"},
+    {"op": "kill", "actor": "SergeantBitterRootRef", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS56", "fields": ["stage", "done.110"], "label": "final: VMS56 110"}
+  ]
+}

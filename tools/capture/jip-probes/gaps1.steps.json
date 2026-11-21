@@ -1,0 +1,141 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "gaps1",
+ "title": "gaps1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\")\nEnd\n",
+   "label": "ui.dehy.get",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetUIString \"HUDMainMenu\\HardcoreMode\\Dehydration\\string\")\nEnd\n",
+   "label": "ui.dehy.get.backslash",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet sText := GetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\"\nrPlayer.AuxVarSetStr \"*nvfUS\" sText\nSetFunctionValue 1\nEnd\n",
+   "label": "ui.dehy.save",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\" \"NVF one\"\nSetFunctionValue (GetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\")\nEnd\n",
+   "label": "ui.setuistring",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (SetUIStringAlt \"HUDMainMenu/HardcoreMode/Dehydration/string\" \"NVF %g\" 2)\nEnd\n",
+   "label": "ui.setuistringalt",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\")\nEnd\n",
+   "label": "ui.setuistringalt.read",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (SetUIStringAlt \"HUDMainMenu/NVFNone/string\" \"x\")\nEnd\n",
+   "label": "ui.setuistringalt.missing",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet sText := rPlayer.AuxVarGetStr \"*nvfUS\"\nSetUIStringAlt \"HUDMainMenu/HardcoreMode/Dehydration/string\" \"%z\" sText\nSetFunctionValue (GetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\")\nEnd\n",
+   "label": "ui.stringalt.z",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetUIStringAlt \"HUDMainMenu/HardcoreMode/Dehydration/string\" \"H20\"\nrPlayer.AuxVarErase \"*nvfUS\"\nSetFunctionValue (GetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\")\nEnd\n",
+   "label": "ui.dehy.restore",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (SetUIFloatAlt \"HUDMainMenu/alpha\" 128)\nEnd\n",
+   "label": "ui.floatalt.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
+   "label": "ui.floatalt.read",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (SetUIFloatAlt \"HUDMainMenu/alpha\" 128)\nEnd\n",
+   "label": "ui.floatalt.same",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (SetUIFloatAlt \"HUDMainMenu/nvfnone\" 1)\nEnd\n",
+   "label": "ui.floatalt.missing",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetUIFloatAlt \"HUDMainMenu/alpha\" 255\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
+   "label": "ui.floatalt.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := GetLoadedTypeArray 40\nSetFunctionValue (ar_Size aA)\nEnd\n",
+   "label": "glta.weap",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := GetLoadedTypeArray 40 0\nSetFunctionValue (ar_Size aA)\nEnd\n",
+   "label": "glta.weap.esm",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := GetLoadedTypeArray 40 0\nlet rObj := aA[0]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "glta.weap.first",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := GetLoadedTypeArray 47\nSetFunctionValue (ar_Size aA)\nEnd\n",
+   "label": "glta.alch",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := GetLoadedTypeArray 40 (GetModIndex \"NVFExtProbe.esp\")\nSetFunctionValue (ar_Size aA)\nEnd\n",
+   "label": "glta.probe",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := GLTA 47 0\nSetFunctionValue (ar_Size aA)\nEnd\n",
+   "label": "glta.alias",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (GetCrosshairRef))\nEnd\n",
+   "label": "crosshair",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15511B\"\nPlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound.loop.play",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15511B\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound.loop.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15511B\"\nStopSound rObj\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound.loop.stop",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15511B\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound.loop.stopped",
+   "field": "value"
+  }
+ ]
+}

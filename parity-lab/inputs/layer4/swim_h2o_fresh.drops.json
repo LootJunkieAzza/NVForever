@@ -1,0 +1,80 @@
+{
+ "schema": "fnv.phys.drops/1",
+ "name": "swim_h2o_fresh",
+ "description": "Placed water, held out (physics.md 6.6; replaces swim_h2o_drops, retired by the owner 2026-10-09: its capture placed the player while it still swam from the previous drop): drops 5 units above the Old World Blues interior NVDLC03SLH2OINT's XCLW (-232), 96 above its placed water (NVDLC03CleanWater2048x2048, reference 0x03014467, scale 2, surface -328), each after a fresh coc to the cell so the player is not swimming. The five points of the retired scenario (floors 456-496 and 40 below the placed surface, and one beside the catwalk stairs), plus two over floors 122 and 130 below the surface (past the 100-unit swimming depth) and two over floors 75 and 79 below it (short of it). Points from vertical rays of `fnvtool phys cell --cell NVDLC03SLH2OINT` (2026-10-09).",
+ "seconds": 10,
+ "drops": [
+  {
+   "label": "deep_a",
+   "at": [
+    -300.0,
+    -1000.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "deep_b",
+   "at": [
+    -300.0,
+    -800.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "mid_a",
+   "at": [
+    -500.0,
+    -200.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "mid_b",
+   "at": [
+    -700.0,
+    -200.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "shallow_a",
+   "at": [
+    -1100.0,
+    -550.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "past_depth_a",
+   "at": [
+    -1200.0,
+    700.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "past_depth_b",
+   "at": [
+    -1200.0,
+    800.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "short_depth_a",
+   "at": [
+    -1500.0,
+    600.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "short_depth_b",
+   "at": [
+    -1400.0,
+    500.0,
+    -227.0
+   ]
+  }
+ ]
+}

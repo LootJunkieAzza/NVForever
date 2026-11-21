@@ -1,0 +1,135 @@
+{
+  "format": "fnv.sim.actions/1",
+  "seed": 0,
+  "player_level": 1,
+  "actions": [
+    {
+      "op": "remove_all_items",
+      "from": "0x001629C0"
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box after emptying"
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box 72 h after emptying"
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box left full 96 h more"
+    },
+    {
+      "op": "remove_all_items",
+      "from": "0x001629C0"
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box after emptying at day 7"
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box 24 h after emptying at day 7"
+    },
+    {
+      "op": "remove_all_items",
+      "from": "0x001629C0"
+    },
+    {
+      "op": "add_item",
+      "to": "0x001629C0",
+      "item": "Stimpak",
+      "count": 1
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box after emptying at day 8"
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box 24 h after emptying at day 8"
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box 48 h after emptying at day 8"
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Stimpak",
+      "label": "stimpak 48 h after emptying at day 8"
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box 72 h after emptying at day 8"
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Stimpak",
+      "label": "stimpak 72 h after emptying at day 8"
+    }
+  ]
+}

@@ -1,0 +1,270 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "fights_round",
+ "title": "docs/outstanding.md section 4 and script-function-coverage section 3.3 (plugin version 9, save nvftest; run each session alone with --only): the six NCR troopers against Cook-Cook's Fiends as npc_battles' ncr_fiends, sampled every game loop with the fight events (OnHit before the damage, OnDeath), for the shots, hits and damage that make the original's fight last; the same battle with the player taken 3,500 units away once it has begun (IsInCombat of NPCs fighting out of the player's reach) and ResetAI on one trooper in combat; and melee attackers against a player who is not in god mode (Damage Threshold raised and Health restored every 2 s), against god mode as before; the melee sessions run where the save stands (GSGasStation): a MoveTo to Violet's dog 0x000F573F failed in game (the reference does not resolve from nvftest), so god mode and no god mode are compared in the same room, with a knife, a sledgehammer (a long weapon held off a god-mode player outdoors, npc-behaviour-compare.md section 3) and a dog.",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 1,
+  "depth": 1,
+  "settle_frames": 120,
+  "events": "fight"
+ },
+ "sessions": [
+  {
+   "name": "ncr_fiends",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 1,
+   "do": [
+    [
+     "{0}.MoveTo player -400 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -200 650 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 0 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 200 650 0",
+     "0x0015CE08"
+    ],
+    [
+     "{0}.MoveTo player 400 600 0",
+     "0x000FCEB1"
+    ],
+    [
+     "{0}.MoveTo player 600 550 0",
+     "0x000FD572"
+    ]
+   ],
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ]
+  },
+  {
+   "name": "ncr_fiends_far_resetai",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 1,
+   "every": 2,
+   "fields": "full",
+   "do": [
+    [
+     "{0}.MoveTo player -400 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -200 650 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 0 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 200 650 0",
+     "0x0015CE08"
+    ],
+    [
+     "{0}.MoveTo player 400 600 0",
+     "0x000FCEB1"
+    ],
+    [
+     "{0}.MoveTo player 600 550 0",
+     "0x000FD572"
+    ]
+   ],
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08",
+    "0x000FCEB1",
+    "0x000FD572"
+   ],
+   "timed": [
+    {
+     "after": 30,
+     "when": [
+      "{0}.IsInCombat",
+      "0x000F36F6"
+     ],
+     "do": [
+      "{0}.ResetAI",
+      "0x000F36F6"
+     ]
+    },
+    {
+     "after": 1500,
+     "do": [
+      "player.MoveTo {0} 0 -3500 0",
+      "0x000F36F5"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "melee_knife_dt",
+   "hours": 0.25,
+   "console_first": [
+    "player.SetAV DamageThreshold 200"
+   ],
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "arm": "WeapKnife",
+     "attack": "player"
+    }
+   ],
+   "timed": [
+    {
+     "after": 120,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "melee_knife_tgm",
+   "hours": 0.25,
+   "console_first": [
+    "tgm"
+   ],
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "arm": "WeapKnife",
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "melee_dog_dt",
+   "hours": 0.25,
+   "console_first": [
+    "player.SetAV DamageThreshold 200"
+   ],
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1DogMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ],
+   "timed": [
+    {
+     "after": 120,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "melee_sledge_dt",
+   "hours": 0.25,
+   "console_first": [
+    "player.SetAV DamageThreshold 200"
+   ],
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "attack": "player",
+     "arm": "WeapSledgehammer"
+    }
+   ],
+   "timed": [
+    {
+     "after": 120,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 1000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "melee_sledge_tgm",
+   "hours": 0.25,
+   "console_first": [
+    "tgm"
+   ],
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "attack": "player",
+     "arm": "WeapSledgehammer"
+    }
+   ]
+  },
+  {
+   "name": "melee_dog_tgm",
+   "hours": 0.25,
+   "console_first": [
+    "tgm"
+   ],
+   "do_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1DogMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,288 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless branch: Ring-a-Ding-Ding's ambush (VMQTops 20 -> 30 -> 40): Benny's suite is a trap, he talks over the intercom and flees, his goons attack",
+  "given": [
+    {
+      "kind": "menu",
+      "menu": 1001,
+      "open": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG01",
+      "running": false,
+      "completed": true,
+      "stage": 200,
+      "done": [
+        200
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQ01",
+      "running": false,
+      "completed": true,
+      "stage": 100,
+      "done": [
+        10,
+        40,
+        50,
+        100
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMQTops",
+      "running": true,
+      "completed": false,
+      "stage": 10,
+      "done": [
+        10
+      ]
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Speech",
+      "value": 60
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Barter",
+      "value": 35
+    }
+  ],
+  "actions": [
+    {
+      "op": "note",
+      "text": "Starts where boulder-city.actions.json ends (VMQTops at 10), with 2000 caps for the Strip gate's credit check (as in tops.actions.json). This time the player opens the gate door and meets Victor's Securitron messenger on the Strip (VMQTops 5), then walks into the Tops' lobby trigger, takes Benny's invitation with the cash up front (Topic033, a Barter check, Barter 35 given: VMQTops 20, bennyambush 2, so the suite is a trap), rides up and waits in the suite by the intercom."
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "Caps001",
+      "count": 2000
+    },
+    {
+      "op": "go_to_cell",
+      "cell": "FreesideNorthGate"
+    },
+    {
+      "op": "call",
+      "line": "0x00116425.GetLocked",
+      "label": "Strip gate locked before the check"
+    },
+    {
+      "op": "note",
+      "text": "The Securitron greeter at the north gate: the player shows 2000 caps (the line for the player's sex is the one that passes). Its end script unlocks the gate and marks the player as cleared."
+    },
+    {
+      "op": "say_first",
+      "speaker": "placed:VFSSecuritronGreeter",
+      "infos": [
+        "0x0011977D",
+        "0x0011977E"
+      ],
+      "label": "Strip gate: credit check passed"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "call",
+      "line": "0x00116425.GetLocked",
+      "label": "Strip gate unlocked"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VFreeformFreeside",
+      "fields": [
+        "var.playerpassport",
+        "var.securitronsangry"
+      ],
+      "label": "Strip gate passport"
+    },
+    {
+      "op": "note",
+      "text": "The player opens the unlocked gate to the Strip (VFSVegasDoorSCRIPT's OnActivate marks the first visit, VStreetFluffNPC.bFirstTime, and fills the Strip code boxes' bots; the door's load is not followed here). On the Strip the player walks into the trigger by the gate where Victor's Securitron messenger first meets the player (VMQTopsSecuritronMsgTrigBSCRIPT: VMQTops 5, House has word of Benny; its objective only when objective 10 is not shown, and here it is). Then into the Tops' lobby trigger (VMQTops 10 again, Benny's package re-evaluated)."
+    },
+    {
+      "op": "player_activate",
+      "target": "FreesideGateToStripREF",
+      "label": "Strip gate opened"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VStreetFluffNPC",
+      "fields": [
+        "var.bFirstTime"
+      ],
+      "label": "milestone: first Strip visit marked"
+    },
+    {
+      "op": "trigger_enter",
+      "trigger": "scripted:0x0011A066"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "stage",
+        "done.5"
+      ],
+      "label": "milestone: VMQTops 5 (House has word of Benny)"
+    },
+    {
+      "op": "trigger_enter",
+      "trigger": "scripted:0x001190A3"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "say_info",
+      "info": "0x0011985F",
+      "speaker": "0x00101CA0"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "stage",
+        "done.20",
+        "var.bennyambush",
+        "var.bennygotopresidential"
+      ],
+      "label": "milestone: VMQTops 20 (invited, the trap set)"
+    },
+    {
+      "op": "note",
+      "text": "Up in the suite (the elevator trigger as the walk): Benny has not reached the suite, so with bennyfleeing set VTopsAmbushTriggerSCRIPT marks him fled and starts its 15 s timer; the player stands by the intercom (travel stand-in). When the timer runs out the script gives the intercom Benny's voice and calls its Activate with the player; that scripted activation opens the conversation through the intercom."
+    },
+    {
+      "op": "trigger_enter",
+      "trigger": "scripted:0x0006919D"
+    },
+    {
+      "op": "move_player",
+      "to": "VTopsPresidentialIntercomREF"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 17
+    },
+    {
+      "op": "wait_talk",
+      "start": true,
+      "max_frames": 30000,
+      "label": "intercom: Benny speaks"
+    },
+    {
+      "op": "wait_talk",
+      "label": "intercom talk"
+    },
+    {
+      "op": "choose",
+      "topic": "VDialogueBennyBennyTopic014",
+      "label": "Benny: the player's temper"
+    },
+    {
+      "op": "wait_talk",
+      "label": "intercom talk over"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "stage",
+        "done.30",
+        "objective.30.displayed",
+        "var.bennyambush"
+      ],
+      "label": "milestone: VMQTops 30 (the ambush)"
+    },
+    {
+      "op": "get_global",
+      "name": "VStoryEventBennyFled",
+      "label": "Benny fled"
+    },
+    {
+      "op": "note",
+      "text": "The four goons of the ambush attack; the player kills them (combat stand-in). VTopsAmbushThugSCRIPT counts the deaths and on the fourth sets VMQTops 40 (find out where Benny went)."
+    },
+    {
+      "op": "kill",
+      "actor": "AmbushGoon1REF",
+      "killer": "player"
+    },
+    {
+      "op": "kill",
+      "actor": "AmbushGoon2REF",
+      "killer": "player"
+    },
+    {
+      "op": "kill",
+      "actor": "AmbushGoon3REF",
+      "killer": "player"
+    },
+    {
+      "op": "kill",
+      "actor": "AmbushGoon4REF",
+      "killer": "player"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "stage",
+        "done.40",
+        "var.ambushdefeated",
+        "objective.30.completed"
+      ],
+      "label": "milestone: VMQTops 40 (ambush survived)"
+    },
+    {
+      "op": "note",
+      "text": "The player searches the suite, where Yes Man explains Benny's plan (as in fail-benny-fled.actions.json): his line completes objective 40 and, with Benny fled, sets VMQTops 80."
+    },
+    {
+      "op": "say_info",
+      "info": "0x001164E6",
+      "speaker": "VMQTopsYesManREF"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 2
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQTops",
+      "fields": [
+        "completed",
+        "stage",
+        "done.80",
+        "objective.40.completed"
+      ],
+      "label": "final: VMQTops 80 (Benny fled after the ambush)"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+name: Build, setup or tool problem
+description: NVForever will not build, fnvtool setup or another fnvtool command fails, a test or smoke check fails, or Play.ps1 misbehaves.
+title: "[Build] "
+labels: ["build"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please paste errors as text, not screenshots, and include the whole command you ran.
+        **Never attach game files** or fnvtool output that dumps game content (decoded
+        records, meshes, textures, scripts); a description or the error line is enough.
+
+  - type: dropdown
+    id: what
+    attributes:
+      label: What failed
+      options:
+        - Building (cargo build) the root workspace or fnvtool
+        - Building the engine (engine/, nvforever or nvf-viewer)
+        - fnvtool setup or fnvtool paths
+        - Another fnvtool command
+        - cargo test or clippy
+        - Python checks (parity-lab, tools/smoke, tools/capture)
+        - tools/play/Play.ps1
+        - Release download (missing file, will not unpack or run)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      description: Exactly as typed, with the folder you ran it from.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The error and the lines leading up to it. For cargo, the first error matters most.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit or release
+      description: "`git rev-parse --short HEAD`, or the release tag. Say if you have local changes."
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Paste the output of these, as far as they apply.
+      value: |
+        OS:
+        rustc --version:
+        cargo --version:
+        python --version:
+        PowerShell ($PSVersionTable.PSVersion):
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Did it work on an earlier commit? Does a clean build (`cargo clean`) fix it?

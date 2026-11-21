@@ -1,0 +1,72 @@
+scn ExtProbeLoops01
+; while, break, continue, assignment in the condition, nested loops (tools/capture/ext-probes/loops/README.md)
+int iI
+int iJ
+int iR
+int iN
+int iFrame
+ref rItem
+ref rKeep
+ref rForm
+array_var aA
+array_var aE
+string_var sS
+string_var sC
+Begin GameMode
+    let iFrame += 1
+    if iFrame == 1
+        Print "EXTPROBE|loops/ExtProbeLoops01|begin"
+        let iI := 0
+        let iR := 0
+        while iI < 5
+            let iI += 1
+            let iR += iI
+        loop
+        Print "EXTPROBE|while.sum|" + $iR
+        let iI := 0
+        let iR := 0
+        while iI < 5
+            let iI += 1
+            if iI == 2
+                continue
+            elseif iI == 4
+                break
+            endif
+            let iR := iR * 10 + iI
+        loop
+        Print "EXTPROBE|while.break_continue|" + $iR
+        let iI := 0
+        while 5 > (iI += 1)
+        loop
+        Print "EXTPROBE|while.cond_assign_final|" + $iI
+        let iI := 0
+        let iN := 0
+        while iI < 3
+            let iI += 1
+            let iJ := 0
+            while iJ < 3
+                let iJ += 1
+                if iJ == 2
+                    break
+                endif
+                let iN += 1
+            loop
+        loop
+        Print "EXTPROBE|nested.inner_break|" + $iN
+        let iI := 0
+        let iN := 0
+        while iI < 3
+            let iI += 1
+            let iJ := 0
+            while iJ < 3
+                let iJ += 1
+                if iJ == 1
+                    continue
+                endif
+                let iN += 1
+            loop
+        loop
+        Print "EXTPROBE|nested.inner_continue|" + $iN
+        Print "EXTPROBE|loops/ExtProbeLoops01|end"
+    endif
+End

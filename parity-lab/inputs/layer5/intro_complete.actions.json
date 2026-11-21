@@ -1,0 +1,634 @@
+{
+ "format": "fnv.script.actions/1",
+ "seed": 0,
+ "frame_seconds": 0.016666666666666666,
+ "title": "VCG01 80 to 200 without stage 55: the psych test's tag skills, 85 to 115 with the tag-skill and trait menus closed, and VGenericTimer's event 3 completing VCG01 and starting VMQ01, VCG02 and VCG04",
+ "save": "nvfnew",
+ "given": [
+  {
+   "kind": "menu",
+   "menu": 1001,
+   "open": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG00",
+   "running": true,
+   "completed": false,
+   "stage": 90,
+   "done": [
+    0,
+    90
+   ],
+   "not_done": [
+    5,
+    85,
+    95,
+    100
+   ],
+   "vars": {
+    "bRunTimer": 1
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG01",
+   "running": true,
+   "completed": false,
+   "stage": 0,
+   "not_done": [
+    0,
+    1,
+    3,
+    5,
+    7,
+    8,
+    9,
+    10,
+    15,
+    17,
+    20,
+    25,
+    30,
+    35,
+    36,
+    37,
+    40,
+    45,
+    50,
+    55,
+    60,
+    65,
+    70,
+    75,
+    76,
+    78,
+    79,
+    80,
+    85,
+    90,
+    95,
+    98,
+    100,
+    102,
+    105,
+    110,
+    115,
+    200
+   ],
+   "objectives": [
+    {
+     "index": 10,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 30,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 40,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 50,
+     "displayed": false,
+     "completed": false
+    }
+   ],
+   "vars": {
+    "bChooseSex": 0,
+    "nButton": 0,
+    "bRunTimer": 0,
+    "bGiveTest": 0,
+    "fTimer": 0,
+    "bBeganTest": 0,
+    "nDocReaction": 0,
+    "nMostExtremeStat": 0,
+    "bLow": 0,
+    "fMaxDeviation": 0,
+    "fCurrentValue": 0,
+    "fAbsCurrentValue": 0
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG01Test",
+   "running": true,
+   "completed": false,
+   "vars": {
+    "nBarter": 0,
+    "nBigGuns": 0,
+    "nEnergyWeapons": 0,
+    "nExplosives": 0,
+    "nLockpick": 0,
+    "nMedicine": 0,
+    "nMelee": 0,
+    "nRepair": 0,
+    "nScience": 0,
+    "nSmallGuns": 0,
+    "nSneak": 0,
+    "nSpeech": 0,
+    "nSurvival": 0,
+    "nUnarmed": 0,
+    "bDoFinalCalculation": 0
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "CGTutorial",
+   "running": true,
+   "stage": 0,
+   "not_done": [
+    2
+   ]
+  },
+  {
+   "kind": "quest",
+   "quest": "VDLCPackQuest",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderTribal",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderCaravan",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderClassic",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderMercenary",
+   "running": true
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Strength",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Perception",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Endurance",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Charisma",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Intelligence",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Agility",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Luck",
+   "value": 5
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG02",
+   "running": false,
+   "completed": false,
+   "stage": 0
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG03",
+   "running": false,
+   "completed": false,
+   "stage": 0
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG04",
+   "running": false,
+   "completed": false,
+   "stage": 0
+  },
+  {
+   "kind": "quest",
+   "quest": "VMQ01",
+   "running": false,
+   "completed": false,
+   "stage": 0
+  },
+  {
+   "kind": "quest",
+   "quest": "VGenericTimer",
+   "running": false,
+   "completed": false,
+   "stage": 0
+  },
+  {
+   "kind": "disabled",
+   "of": "0x001088F6",
+   "disabled": true
+  }
+ ],
+ "actions": [
+  {
+   "op": "set_stage",
+   "quest": "VCG01",
+   "stage": 0
+  },
+  {
+   "op": "set_stage",
+   "quest": "VCG01",
+   "stage": 80
+  },
+  {
+   "op": "dismiss_message_boxes",
+   "max": 6,
+   "wait_frames": 600
+  },
+  {
+   "op": "get_tag_skills",
+   "skills": [
+    "Barter",
+    "EnergyWeapons",
+    "Explosives",
+    "Guns",
+    "Lockpick",
+    "Medicine",
+    "MeleeWeapons",
+    "Repair",
+    "Science",
+    "Sneak",
+    "Speech",
+    "Survival",
+    "Unarmed"
+   ],
+   "label": "tag skills before the psych test"
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nSneak",
+   "value": 2
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nScience",
+   "value": 3
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nSpeech",
+   "value": 1
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nSmallGuns",
+   "value": 2
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nMedicine",
+   "value": 1
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "nSurvival",
+   "value": 1
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01Test",
+   "var": "bDoFinalCalculation",
+   "value": 1
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01Test",
+   "field": "var.bDoFinalCalculation",
+   "value": 2,
+   "max_frames": 600,
+   "label": "VCG01Test calculation done"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01Test",
+   "fields": [
+    "running",
+    "var.nBarter",
+    "var.nBigGuns",
+    "var.nEnergyWeapons",
+    "var.nExplosives",
+    "var.nLockpick",
+    "var.nMedicine",
+    "var.nMelee",
+    "var.nRepair",
+    "var.nScience",
+    "var.nSmallGuns",
+    "var.nSneak",
+    "var.nSpeech",
+    "var.nSurvival",
+    "var.nUnarmed",
+    "var.nMaxStatValue",
+    "var.nBestSpecialStat",
+    "var.nSpecialBias",
+    "var.nTopCombat",
+    "var.nTopGateOpener",
+    "var.nTopOverall",
+    "var.nSkillsLeftToBeat",
+    "var.nSneakBias",
+    "var.bApplySneakBias",
+    "var.nMaxValue",
+    "var.bDoFinalCalculation"
+   ],
+   "label": "VCG01Test after"
+  },
+  {
+   "op": "get_tag_skills",
+   "skills": [
+    "Barter",
+    "EnergyWeapons",
+    "Explosives",
+    "Guns",
+    "Lockpick",
+    "Medicine",
+    "MeleeWeapons",
+    "Repair",
+    "Science",
+    "Sneak",
+    "Speech",
+    "Survival",
+    "Unarmed"
+   ],
+   "label": "tag skills after the psych test"
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VCG01",
+   "var": "bBeganTest",
+   "value": 1
+  },
+  {
+   "op": "set_objective",
+   "quest": "VCG01",
+   "index": 40,
+   "completed": true
+  },
+  {
+   "op": "set_stage",
+   "quest": "VCG01",
+   "stage": 85
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.90",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 90"
+  },
+  {
+   "op": "wait_menu",
+   "menu": 1048,
+   "max_frames": 2400,
+   "label": "tag-skill menu open at 90"
+  },
+  {
+   "op": "close_menus"
+  },
+  {
+   "op": "start_stopwatch"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.95",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 95",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.98",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 98 (Doc's trait lines ended)"
+  },
+  {
+   "op": "start_stopwatch"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.100",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 100",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.102",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 102",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_menu",
+   "menu": 1084,
+   "max_frames": 2400,
+   "label": "trait menu open at 102"
+  },
+  {
+   "op": "close_menus"
+  },
+  {
+   "op": "start_stopwatch"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.105",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 105",
+   "stopwatch": true
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.110",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 110 (Doc's farewell lines ended)"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "stage",
+    "done.85",
+    "done.90",
+    "done.95",
+    "done.98",
+    "done.100",
+    "done.102",
+    "done.105",
+    "done.110",
+    "objective.40.displayed",
+    "objective.40.completed",
+    "objective.50.displayed",
+    "objective.50.completed"
+   ],
+   "label": "VCG01 at 110"
+  },
+  {
+   "op": "set_stage",
+   "quest": "VCG01",
+   "stage": 115
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "stage",
+    "done.115",
+    "done.200"
+   ],
+   "label": "VCG01 at 115"
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VGenericTimer",
+   "var": "fTimer",
+   "value": 0.1
+  },
+  {
+   "op": "set_quest_var",
+   "quest": "VGenericTimer",
+   "var": "nEvent",
+   "value": 3
+  },
+  {
+   "op": "start_quest",
+   "quest": "VGenericTimer"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.200",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 200"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "running",
+    "completed",
+    "stage",
+    "done.200",
+    "objective.10.displayed",
+    "objective.10.completed",
+    "objective.30.displayed",
+    "objective.30.completed",
+    "objective.40.displayed",
+    "objective.40.completed",
+    "objective.50.displayed",
+    "objective.50.completed"
+   ],
+   "label": "VCG01 at 200"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMQ01",
+   "fields": [
+    "running",
+    "completed",
+    "stage",
+    "done.10",
+    "done.15",
+    "objective.10.displayed",
+    "objective.20.displayed",
+    "objective.25.displayed",
+    "objective.30.displayed"
+   ],
+   "label": "VMQ01 after VCG01 200"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG02",
+   "fields": [
+    "running",
+    "completed",
+    "stage",
+    "done.5",
+    "done.10",
+    "objective.3.displayed",
+    "objective.5.displayed"
+   ],
+   "label": "VCG02 after VCG01 200"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG04",
+   "fields": [
+    "running",
+    "completed"
+   ],
+   "label": "VCG04 after VCG01 200"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VGenericTimer",
+   "fields": [
+    "running",
+    "var.nEvent"
+   ],
+   "label": "VGenericTimer after VCG01 200"
+  },
+  {
+   "op": "get_disabled",
+   "of": "0x001088F6",
+   "label": "cemetery map marker after VCG01 200"
+  },
+  {
+   "op": "get_global",
+   "name": "GameHour",
+   "label": "GameHour after VCG01 200"
+  }
+ ]
+}
