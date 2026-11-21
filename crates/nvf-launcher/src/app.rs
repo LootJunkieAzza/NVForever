@@ -137,9 +137,9 @@ pub struct App {
     backup_keep: usize,
     /// Apply is asking before it saves.
     apply_ask: bool,
-    /// Path typed into Add on the Mods page.
+    /// Path of a folder or archive dropped on Add. A path is not typed.
     add_path: String,
-    /// The folder typed on the Mods page. Read lists the profiles in it.
+    /// A profile folder dropped on the Profiles bar. A path is not typed.
     profile_path: String,
     /// Profile name, then the folder that holds its lists.
     profile_choices: Vec<(String, PathBuf)>,
@@ -147,6 +147,8 @@ pub struct App {
     profile_pick: Option<String>,
     /// The Profiles box, so a drop there is not installed as a mod.
     profile_rect: egui::Rect,
+    /// The Add row on the left, so a drop there sets a path instead of installing.
+    mod_add_rect: egui::Rect,
     /// An open archive installer. Nothing else is added until it is finished.
     wizard: Option<crate::fomod::Wizard>,
     /// Bottom bar height. Saved when the user lets go of the grip.
@@ -252,6 +254,7 @@ impl App {
             profile_choices: Vec::new(),
             profile_pick: None,
             profile_rect: egui::Rect::NOTHING,
+            mod_add_rect: egui::Rect::NOTHING,
             wizard: None,
             bar_h: 86.0,
             monitors: crate::display::monitors(),
@@ -2306,9 +2309,14 @@ impl App {
 
     /// Add a folder, a loose plugin, or an archive. An installer that needs a choice opens a window.
     fn mod_tools(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.add_path).hint_text("Drop a folder or an archive, or type its path").desired_width(ui.available_width() - 52.0));
-            if ui.button("Add").clicked() {
+        let row = ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.add_path)
+                    .interactive(false)
+                    .hint_text("Drop a folder or an archive")
+                    .desired_width(ui.available_width() - 52.0),
+            );
+            if ui.button("Add").on_hover_text("Installs the dropped folder or archive. Nothing is copied into the game folder.").clicked() {
                 let path = PathBuf::from(self.add_path.trim());
                 match self.stage_one(&path) {
                     Ok(Some(name)) => self.finish_import(Ok(name), true),
@@ -2321,6 +2329,7 @@ impl App {
                 }
             }
         });
+        self.mod_add_rect = row.response.rect;
     }
 
     fn installer_window(&mut self, ctx: &egui::Context) {
@@ -2422,8 +2431,10 @@ impl App {
             return;
         }
         // A folder dropped on the Profiles box is a profile folder, not a mod to install.
+        // A drop on the mod Add row only fills that path.
         let over_profile = ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| self.profile_rect.contains(p));
-        if over_profile {
+        let over_mod_add = ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| self.mod_add_rect.contains(p));
+        if over_profile || over_mod_add {
             let path = ctx.input(|i| {
                 i.raw.dropped_files.iter().find_map(|f| {
                     let path = f.path();
@@ -2432,8 +2443,13 @@ impl App {
             });
             match path {
                 Some(path) => {
-                    self.profile_path = path.display().to_string();
-                    self.read_profiles();
+                    if over_profile {
+                        self.profile_path = path.display().to_string();
+                        self.read_profiles();
+                    } else {
+                        self.add_path = path.display().to_string();
+                        self.message = Some(("Path set. Add installs it.".into(), false));
+                    }
                 }
                 None => self.message = Some(("That drop had no file path.".into(), true)),
             }
@@ -2708,11 +2724,17 @@ impl App {
         let block = ui.vertical(|ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("Profiles").small().color(GOLD));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.profile_path)
-                    .hint_text("Drop a profile folder here, or type its path")
-                    .desired_width(ui.available_width()),
-            );
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.profile_path)
+                        .interactive(false)
+                        .hint_text("Drop a profile folder")
+                        .desired_width(ui.available_width() - 52.0),
+                );
+                if ui.button("Add").on_hover_text("Saves this page's folder order and plugin order as a new profile. Nothing is copied.").clicked() {
+                    self.save_new_profile();
+                }
+            });
             ui.horizontal(|ui| {
                 if ui.button("Read").on_hover_text("Finds profiles in that folder.").clicked() {
                     self.read_profiles();
@@ -2752,6 +2774,64 @@ impl App {
         let n = found.len();
         self.profile_choices = found;
         self.message = Some((format!("Found {n} profiles."), false));
+    }
+
+    /// Writes the current folder order and plugin order as a new profile. Files are not copied. The game folder is not changed.
+    fn save_new_profile(&mut self) {
+        let Some(home) = self.home.clone() else {
+            self.message = Some(("No home folder yet.".into(), true));
+            return;
+        };
+        if self.mod_rows.is_empty() && self.mods.as_ref().is_none_or(|list| list.entries.is_empty()) {
+            self.message = Some(("Nothing to save.".into(), true));
+            return;
+        }
+        let profiles = home.root.join("profiles");
+        let dropped = PathBuf::from(self.profile_path.trim());
+        let game_root = self.game().map(|g| g.root);
+        let (parent, left_mods) = if dropped.is_dir() {
+            let folder = if dropped.join("modlist.txt").is_file() {
+                dropped.parent().map(Path::to_path_buf).unwrap_or_else(|| dropped.clone())
+            } else {
+                dropped
+            };
+            if game_root.as_ref().is_some_and(|root| self.dir_is_under(&folder, root)) {
+                self.message = Some(("That folder is in the game folder. The profile was not written.".into(), true));
+                return;
+            }
+            if self.dir_is_under(&folder, &home.mods()) {
+                (profiles, true)
+            } else {
+                (folder, false)
+            }
+        } else {
+            (profiles, false)
+        };
+        if let Err(e) = std::fs::create_dir_all(&parent) {
+            self.message = Some((format!("{}: {e}", parent.display()), true));
+            return;
+        }
+        let name = Self::fresh_profile_name(&parent);
+        let dir = parent.join(&name);
+        if let Err(e) = Self::write_profile_folder(&dir, &self.mod_rows, self.mods.as_ref()) {
+            self.message = Some((e, true));
+            return;
+        }
+        self.profile_path = parent.display().to_string();
+        self.profile_choices = Self::profile_folders(&parent);
+        self.profile_pick = Some(name.clone());
+        let note = if left_mods { " The mods folder was left alone." } else { "" };
+        self.message = Some((format!("Saved profile {name}. Nothing was copied.{note}"), false));
+    }
+
+    fn dir_is_under(&self, path: &Path, root: &Path) -> bool {
+        if root.as_os_str().is_empty() {
+            return false;
+        }
+        match (path.canonicalize(), root.canonicalize()) {
+            (Ok(path), Ok(root)) => path == root || path.starts_with(&root),
+            _ => false,
+        }
     }
 
     fn load_chosen_profile(&mut self) {
@@ -3121,6 +3201,62 @@ impl App {
             names.push(name.to_string());
         }
         names
+    }
+
+    /// The next free profile name in `parent`.
+    fn fresh_profile_name(parent: &Path) -> String {
+        let mut names = vec!["Profile".to_string()];
+        for n in 2..1000 {
+            names.push(format!("Profile {n}"));
+        }
+        names.into_iter().find(|name| !parent.join(name).exists()).unwrap_or_else(|| format!("Profile {}", std::process::id()))
+    }
+
+    /// Writes one profile folder. The winning folder is first in the file. This page keeps that folder last.
+    fn write_profile_folder(dir: &Path, rows: &[ModRow], list: Option<&plugins::PluginList>) -> Result<(), String> {
+        if dir.exists() {
+            return Err(format!("{} already exists.", dir.display()));
+        }
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let modlist = Self::modlist_text(rows);
+        let (plugins_text, order_text) = Self::plugin_list_text(list);
+        for (name, body) in [("modlist.txt", modlist), ("plugins.txt", plugins_text), ("loadorder.txt", order_text)] {
+            let path = dir.join(name);
+            std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+        Ok(())
+    }
+
+    fn modlist_text(rows: &[ModRow]) -> String {
+        let mut body = String::new();
+        for row in rows.iter().rev() {
+            if row.name.is_empty() || row.name.contains('/') || row.name.contains('\\') || row.name.ends_with("_separator") {
+                continue;
+            }
+            body.push(if row.on { '+' } else { '-' });
+            body.push_str(&row.name);
+            body.push('\n');
+        }
+        body
+    }
+
+    fn plugin_list_text(list: Option<&plugins::PluginList>) -> (String, String) {
+        let mut active = String::new();
+        let mut order = String::new();
+        let Some(list) = list else { return (active, order) };
+        for entry in &list.entries {
+            if entry.name.is_empty() || entry.name.contains('/') || entry.name.contains('\\') {
+                continue;
+            }
+            order.push_str(&entry.name);
+            order.push('\n');
+            if entry.active {
+                active.push('*');
+                active.push_str(&entry.name);
+                active.push('\n');
+            }
+        }
+        (active, order)
     }
 
     fn backup_row(&mut self, ui: &mut egui::Ui) {
@@ -3965,6 +4101,37 @@ mod tests {
         assert!(out.platform_output.commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(_))));
         // The test never draws, so the font atlas is unused. egui panics if it is dropped dirty.
         out.textures_delta.clear();
+    }
+
+    #[test]
+    fn a_saved_profile_reads_back_in_page_order() {
+        let dir = std::env::temp_dir().join(format!("nvforever-profile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let rows = vec![
+            super::ModRow { name: "A".into(), on: false },
+            super::ModRow { name: "B".into(), on: true },
+            super::ModRow { name: "C".into(), on: true },
+        ];
+        let list = fnv_install::plugins::PluginList {
+            entries: vec![
+                fnv_install::plugins::PluginEntry { name: "FalloutNV.esm".into(), active: true },
+                fnv_install::plugins::PluginEntry { name: "Off.esp".into(), active: false },
+                fnv_install::plugins::PluginEntry { name: "On.esp".into(), active: true },
+            ],
+        };
+        let saved = dir.join("Profile");
+        super::App::write_profile_folder(&saved, &rows, Some(&list)).unwrap();
+        let mods = std::fs::read_to_string(saved.join("modlist.txt")).unwrap();
+        let plugins_text = std::fs::read_to_string(saved.join("plugins.txt")).unwrap();
+        let order = std::fs::read_to_string(saved.join("loadorder.txt")).unwrap();
+        assert_eq!(
+            super::App::profile_mod_rows(&mods),
+            vec![("A".into(), false), ("B".into(), true), ("C".into(), true)]
+        );
+        assert_eq!(super::App::profile_plugin_names(&order), vec!["FalloutNV.esm", "Off.esp", "On.esp"]);
+        assert_eq!(super::App::profile_plugin_names(&plugins_text), vec!["FalloutNV.esm", "On.esp"]);
+        assert!(mods.lines().next().unwrap().starts_with("+C"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
