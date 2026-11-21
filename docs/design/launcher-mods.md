@@ -10,6 +10,8 @@ The file layout that reader already understands is written up in
 [mod-organizer-profile.md](https://github.com/LootJunkieAzza/NVForever/blob/main/docs/spec-notes/mod-organizer-profile.md).
 The files this page writes are in
 [launcher-profile.md](../spec-notes/launcher-profile.md).
+The rules for the Mods page and for a start without `--mo2` are in
+[mod-manager.md](../spec-notes/mod-manager.md).
 This note does not add facts about the original game.
 
 No settings row is added. If one is added later it follows

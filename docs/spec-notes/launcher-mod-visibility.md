@@ -1,6 +1,7 @@
 # Spec note: how a launcher mod is seen
 
-NVForever's own rules for the launcher's mods folder. This is not a claim about
+NVForever's own rules for the launcher's mods folder. The page that owns
+those rules is [mod-manager.md](mod-manager.md). This is not a claim about
 the original game, and it is not another program's deploy step. No code was
 copied. The game `Data` folder is not written.
 
