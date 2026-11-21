@@ -642,9 +642,12 @@ impl Pointer {
                 report.clicks.push(c);
                 return;
             } else if trait_name.eq_ignore_ascii_case(MOUSEOVER) {
+                let before = self.over;
                 self.highlight(ui, Some(t), report);
                 self.keyed = true;
-                report.over_by_key = report.over.is_some();
+                if self.over != before {
+                    report.over_by_key = true;
+                }
                 return;
             }
             report.unfollowed.push(format!("{name}: ref to {trait_name} not followed"));
@@ -1031,10 +1034,17 @@ mod tests {
         assert_eq!(p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure).over, None);
         assert_eq!(p.over, Some(cancel));
         // Cancel's xup goes back; then the pointer moving takes the highlight again.
-        p.step(&mut ui, &[menu], &Input { pads: vec!["xup".into()], ..at(120.0, 115.0) }, &no_measure);
+        let r = p.step(&mut ui, &[menu], &Input { pads: vec!["xup".into()], ..at(120.0, 115.0) }, &no_measure);
+        assert!(r.over_by_key);
         assert_eq!(p.over, Some(ok));
-        p.step(&mut ui, &[menu], &at(220.0, 140.0), &no_measure);
+        let r = p.step(&mut ui, &[menu], &at(220.0, 140.0), &no_measure);
+        assert!(!r.over_by_key, "pure pointer highlight move is not a key navigation");
         assert_eq!(p.over, Some(cancel));
+        // A same-frame pointer move onto Cancel paired with a pad press that does not
+        // move off Cancel must not claim over_by_key.
+        let r = p.step(&mut ui, &[menu], &Input { pads: vec!["xdown".into()], ..at(120.0, 115.0) }, &no_measure);
+        assert_eq!(r.over, Some((Some(cancel), Some(cancel))));
+        assert!(r.over_by_key, "xdown moved Ok -> Cancel after pointer moved Cancel -> Ok");
     }
 
     #[test]

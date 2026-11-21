@@ -38,7 +38,7 @@ pub enum Ev {
     Crosshair,
     /// The settings menu closes after a change: ().
     SettingsUpdate,
-    /// Keyboard or controller navigation moves a menu's selection: (delta).
+    /// Keyboard or controller navigation moves a menu's selection: (menu_id).
     KeyboardSelection,
     /// A radio reference gets a sound: (radio, mode).
     RadioPostSound,
@@ -183,6 +183,16 @@ impl Game<'_> {
     /// The settings menu closed after a change (the engine tells it).
     pub fn jg8_settings_closed(&mut self) {
         self.jg8_fire(Ev::SettingsUpdate, &[], Vec::new());
+    }
+
+    /// Keyboard or controller navigation moved a menu's selection (`ui_input::step`):
+    /// fires `SetJohnnyOnKeyboardControllerSelectionChangeEventHandler` /
+    /// `SetOnKBCTrlUIDeltaHandler` handlers with `menu_id` and filters by optional
+    /// `MenuID` (`0` or omitted matches any menu) [hypothesis: menu ID argument as
+    /// expected by menu UI scripts alongside SetOnMouseoverChangeEventHandler;
+    /// observer check].
+    pub fn jg8_keyboard_selection(&mut self, menu_id: f64) {
+        self.jg8_fire(Ev::KeyboardSelection, &[XVal::Num(menu_id)], vec![XVal::Num(menu_id)]);
     }
 
     /// The loaded cells changed (`Game::set_loaded`): the cells seen for the first time,
@@ -426,7 +436,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         | "setongeneralsubtitleeventhandler"
         | "setjohnnyoncrosshaireventhandler"
         | "setjohnnyonsettingsupdateeventhandler"
+        | "setonsettingsupdateeventhandler"
         | "setjohnnyonkeyboardcontrollerselectionchangeeventhandler"
+        | "setonkbctrluideltahandler"
         | "setjohnnyonradiopostsoundattacheventhandler"
         | "setontakebackitemeventhandler" => {
             let ev = match name.trim_start_matches("set").trim_start_matches("johnny").trim_start_matches("on") {
@@ -441,14 +453,15 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 "generalsubtitleeventhandler" => Ev::GeneralSubtitle,
                 "crosshaireventhandler" => Ev::Crosshair,
                 "settingsupdateeventhandler" => Ev::SettingsUpdate,
-                "keyboardcontrollerselectionchangeeventhandler" => Ev::KeyboardSelection,
+                "keyboardcontrollerselectionchangeeventhandler" | "kbctrluideltahandler" => Ev::KeyboardSelection,
                 "radiopostsoundattacheventhandler" => Ev::RadioPostSound,
                 _ => Ev::TakeBackItem,
             };
             let Some(func) = args.get(1).cloned().filter(|f| !matches!(f, XVal::Num(n) if *n == 0.0)) else { return Some(Ok(zero)) };
             // The filters that are numbers (a limb, a level, an actor value code, an
             // emotion, a form type, the sleep/wait mode) keep 0 as a value; a 0 where a
-            // form goes is no filter [hypothesis: scripts pass 0 for "any"].
+            // form goes (or a menu ID for KeyboardSelection) is no filter [hypothesis:
+            // scripts pass 0 for "any"].
             let numeric: &[usize] = match ev {
                 Ev::LimbGone | Ev::ProcessLevel | Ev::NpcActorValue | Ev::Crosshair => &[1],
                 Ev::NpcResponse | Ev::SleepWait | Ev::KeyboardSelection => &[0],
@@ -461,6 +474,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 .map(|(k, a)| match a {
                     XVal::Ref(0) => None,
                     XVal::Num(n) if !numeric.contains(&k) && *n == 0.0 => None,
+                    XVal::Num(n) if ev == Ev::KeyboardSelection && *n <= 0.0 => None,
                     XVal::Num(n) if numeric.contains(&k) && ev != Ev::SleepWait && *n < 0.0 => None,
                     x => Some(x.clone()),
                 })

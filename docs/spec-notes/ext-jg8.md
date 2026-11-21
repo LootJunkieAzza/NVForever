@@ -35,8 +35,9 @@ fewer arguments than it is given.
 | SetJohnnyOnSleepWaitEventHandler `[mode]` | the hours of the wait menu starting to pass (`Game::begin_rest`) | 1 wait, 2 sleep; filter 0 both [documented] |
 | SetOnGeneralSubtitleEventHandler `[speaker]` | a line said outside the player's conversation (Say, SayTo, greetings, `Game::say_line`) | speaker, the first response's text, topic [hypothesis: the page gives no arguments] |
 | SetJohnnyOnCrosshairEventHandler `[form] [form type]` | the activation reach coming onto a reference (`nvf-play` activate.rs) | the reference [documented]; the type filter is the base's form type code (`functions::items::form_type_code`) |
-| SetJohnnyOnSettingsUpdateEventHandler | `Game::jg8_settings_closed`, for the engine's settings menu | none [documented] |
-| SetJohnnyOnKeyboardControllerSelectionChangeEventHandler `[menu]`, SetJohnnyOnRadioPostSoundAttachEventHandler, SetOnTakeBackItemEventHandler `[form] [form]` | kept; nothing fires them yet (follow-up) | delta; radio, mode; [hypothesis] item, count |
+| SetJohnnyOnSettingsUpdateEventHandler (SetOnSettingsUpdateEventHandler) | `Game::jg8_settings_closed`, for the engine's settings menu | none [documented] |
+| SetJohnnyOnKeyboardControllerSelectionChangeEventHandler (SetOnKBCTrlUIDeltaHandler) `[menu]` | keyboard/controller navigation moving tile highlight in `ui_input::step` (`Game::jg8_keyboard_selection`); `MenuID` `0` or omitted matches any menu [hypothesis: menu ID filter 0 = any] | menu ID [hypothesis: mod UI handlers take `{iMenuID}` alongside `SetOnMouseoverChangeEventHandler`; observer check] |
+| SetJohnnyOnRadioPostSoundAttachEventHandler, SetOnTakeBackItemEventHandler `[form] [form]` | kept; nothing fires them yet (follow-up) | radio, mode; [hypothesis] item, count |
 
 ## 2. Other functions
 
@@ -57,8 +58,9 @@ fewer arguments than it is given.
 
 ## 3. Follow-ups (engine)
 
-Fire the keyboard selection, radio sound and take-back handlers, and call
-`jg8_settings_closed` when the settings menu closes after a change; draw the custom map
+Fire the radio sound and take-back handlers, call `jg8_settings_closed` when the
+settings menu closes after a change, and fire `jg8_keyboard_selection` from any
+hand-built menus not stepped through `ui_input::step`; draw the custom map
 marker on the Pip-Boy map; let the radios read TuneRadioRef. The sound-by-path family
 (PlaySoundFile, PlaySoundFromPath, PlaySound3DFromPath, PlaySoundFade, the Stop… calls,
 StopSoundLooping, PlayHolotape, StopHolotape) is the next batch: it needs the engine's
