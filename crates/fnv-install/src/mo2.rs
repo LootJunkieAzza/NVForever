@@ -978,8 +978,9 @@ mod tests {
             "{BASE}"
         );
         let (inst, _) = fixture("ini", &ini.replace("{BASE}", "PLACEHOLDER"));
-        // Rewrite with the real absolute folder after it exists.
-        std::fs::write(inst.join(INI_FILE), ini.replace("{BASE}", &inst.display().to_string())).unwrap();
+        // Rewrite with the real absolute folder after it exists, its backslashes doubled as
+        // QSettings writes them (`qt_unescape`; a Windows temp folder has them, #3169).
+        std::fs::write(inst.join(INI_FILE), ini.replace("{BASE}", &inst.display().to_string().replace('\\', "\\\\"))).unwrap();
         std::fs::create_dir_all(inst.join("profiles/Other")).unwrap();
         std::fs::create_dir_all(inst.join("custommods/One")).unwrap();
         std::fs::write(inst.join("profiles/Other/modlist.txt"), format!("{HEADER}\r\n+One\r\n")).unwrap();
