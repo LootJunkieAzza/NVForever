@@ -14,38 +14,32 @@ mod files anywhere. A profile **Save** or **Load** writes or reads
 `profiles/<name>/` only.
 
 `mod-order.txt` is read by the launcher when it draws the page. The game
-process does not read it.
+process does not read it [documented: `engine/nvforever/src/main.rs` opens
+`GameData::open_for_plugins_in` when `--mo2` is not set, and
+`plugins::plugin_path` does not open `mod-order.txt`].
 
 ## What the game process reads
 
 The launcher starts NVForever. NVForever indexes files itself. It does not
 ask the original executable to look in a second folder.
 
-[documented: `plugin_path` and `is_base_game_plugin` in `crates/fnv-install/src/plugins.rs`,
-and `engine/nvforever/src/main.rs` when `--mo2` is not set]
+[documented: `plugin_path` in `crates/fnv-install/src/plugins.rs`, and
+`engine/nvforever/src/main.rs` when `--mo2` is not set]
 
-- The base game is read from `Data`: `FalloutNV.esm`, the add-on masters, their
-  `<master>_lang.esp` files, the base archives, and the loose files that ship there.
-- Any other plugin is a mod. It is opened only from the mods folder. The walk
-  enters subfolders. A copy of that plugin in `Data` is not opened.
-- A folder turned off in `mod-order.txt` is not entered. A folder the file does
-  not mention is on. The last on-line wins.
-- [documented: `Vfs::open_launcher_mods`] Each enabled mod folder is its own
-  layer, lowest priority first. If the folder contains `Data`, loose files are
-  read from that directory. Archives are read from the mod folder and from
-  folders nested inside it. A mod archive or loose file is not read from the
-  game `Data` folder.
+- A plugin is opened from the mods folder when that folder has it, including a
+  file nested in a subfolder. The same name in `Data` is used when the mods
+  folder does not have it. A mod installed in `Data` by hand is still read.
+- Loose files and the base archives in `Data` are still read
+  [documented: `Vfs::open_for_plugins_in`].
+- Archives that sit beside a plugin in the mods folder are mounted with that
+  plugin [documented: `Vfs::archive_order_in`].
 - [documented: `Layout::mod_roots` and `Vfs::open_for_plugins_layered`] A start
   with `--mo2` is unchanged: each enabled mod folder of that instance, then its
   overwrite folder. That start only reads.
 
-## Links, and Windows
+## Links
 
-[documented: `link_on_rows_into_data`, `symlink_mod_into_data`, and
-`ensure_mod_link` in `crates/nvf-launcher/src/app.rs`] Those functions are not
-called by **Apply** or **Load**. They call `std::os::unix::fs::symlink` and
-would write into the game `Data` folder. There is no Windows version of them.
-Leaving them unused is intentional.
+Nothing in the launcher links or deletes files in the game `Data` folder.
 
 [documented: `link_into_mods` and `symlink_file` in
 `crates/fnv-install/src/plugins.rs`] The only link still made is into the mods
@@ -66,13 +60,3 @@ The order is the same on both platforms:
    The copy is still into the mods folder, not into `Data`.
 
 If every link fails, the plugin is read from the path where it was found.
-
-## A mods folder as an extra Data folder
-
-[documented: `Vfs::open_launcher_mods` and `plugins::mod_content_layers`] This is
-what a start without `--mo2` does now. Each enabled mod folder is a root over
-`Data`, lowest priority first, on Linux and Windows the same way. The index
-only reads. Nothing is written into `Data`.
-
-The base game is still read from `Data`. A mod file is not. The original game's
-executable is not given a second Data path.

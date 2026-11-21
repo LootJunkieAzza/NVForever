@@ -1307,18 +1307,11 @@ fn main() -> AppExit {
             }
         }
     }
-    // Enabled mod folders, lowest priority first. Loose files and archives in those
-    // folders are read from there, recursively. The base game stays in Data.
-    // (docs/spec-notes/launcher-mod-visibility.md)
+    // The archives beside a plugin in the mods folder are mounted with it. Loose files
+    // in Data are still read. `--mo2` uses that instance's folders instead.
     let game = match &mo2 {
         Some(l) => GameData::open_for_plugins_layered(args.data(), &l.mod_roots(), &args.plugins, &args.nif_schema),
-        None => match mods.first() {
-            Some(dir) => {
-                let layers = fnv_install::plugins::mod_content_layers(dir);
-                GameData::open_launcher_mods(args.data(), dir, &layers, &args.plugins, &args.nif_schema)
-            }
-            None => GameData::open_for_plugins_in(args.data(), None, &args.plugins, &args.nif_schema),
-        },
+        None => GameData::open_for_plugins_in(args.data(), mods.first().map(|p| p.as_path()), &args.plugins, &args.nif_schema),
     };
     let game = match game {
         Ok(g) => g,

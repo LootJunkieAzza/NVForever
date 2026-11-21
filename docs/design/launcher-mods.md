@@ -50,11 +50,9 @@ The profile save does not write the game folder, `Documents\My Games\FalloutNV`,
 or the original game's plugin list. That is the install rule
 ([install-layout.md](https://github.com/LootJunkieAzza/NVForever/blob/main/docs/design/install-layout.md)).
 
-**Apply** writes the launcher home's `plugins.txt` and `mod-order.txt`. The same two files are written when the mod list or the load order changes, with no profile open and without pressing **Save** [design]. Those home files are what the next launch reads. An open profile is updated as well and still overrides the home lists when that profile is opened. **Save**
+**Apply** writes the launcher home's `plugins.txt` and `mod-order.txt`. The same two files are written when the mod list or the load order changes, with no profile open and without pressing **Save** [design]. Those home files are what the next launch of the launcher reads. The game process does not read `mod-order.txt`. An open profile is updated as well and still overrides the home lists when that profile is opened. **Save**
 and **Load** write the profile's three text files. None of them link or copy
-files into the game `Data` folder. Older functions that did, with a Unix
-symlink only, are still in the launcher and are not called. They have no
-Windows branch. The facts of what the game process then reads are in
+files into the game `Data` folder. The game still reads a plugin, an archive, or a loose file that was installed in `Data`. The facts of what the game process then reads are in
 [launcher-mod-visibility.md](../spec-notes/launcher-mod-visibility.md).
 
 ## Output folder, not built yet

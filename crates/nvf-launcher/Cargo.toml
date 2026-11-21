@@ -52,7 +52,7 @@ flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 # The displays and their modes for the Resolution and Monitor lists (src/display.rs):
 # EnumDisplayDevicesW / EnumDisplaySettingsW. The version winit already brings. MIT/Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security_Cryptography", "Win32_System_Memory"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"

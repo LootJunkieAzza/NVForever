@@ -23,6 +23,15 @@ from NVIDIA: see [docs/dlss.md](docs/dlss.md).
 
 ## Mods
 
+- **Mod Organizer 2:** add `nvforever.exe` to MO2's executables (the drop-down beside
+  **Run**, then **<Edit…>**) and start it from there. It loads the plugins ticked in MO2,
+  in MO2's order, and the game folder MO2 manages. See
+  [docs/mod-organizer-2.md](docs/mod-organizer-2.md). `--mo2` only reads that instance.
+- **Without a mod manager:** put the mod in the game's `Data` folder, then turn its plugin
+  on in `Documents\My Games\NVForever\plugins.txt` with a `*` in front of its line. The
+  order of the lines is the load order. NVForever keeps its own list, so the original
+  game's mod list is not changed. A plugin, archive, or loose file in `Data` is still read.
+
 The launcher's Mods page is its own manager. Mod folders live under
 `Documents\My Games\NVForever\mods`, not in the game folder.
 
@@ -33,8 +42,8 @@ The launcher's Mods page is its own manager. Mod folders live under
   and red when a lower folder's copy wins.
 - Drag plugins the same way. **Apply** writes the plugin list and the folder
   order the launcher uses. It does not link or copy files into the game folder.
-  The base game is still read from Data. A mod is read only from the mods folder,
-  including nested folders. A mod file that is not there is not taken from Data.
+  The base game and a mod installed in `Data` are still read from there. A file
+  of the same name in the mods folder is the one opened.
 
 A profile is a name you type, plus the folder order and the plugin order on the
 page. The name is one folder name, not a path.
@@ -64,9 +73,7 @@ used. Reading another program's instance with `--mo2` stays read-only.
 You can still drop an archive onto the Mods page. **Quick Install** opens.
 OK uses the archive as it is. Manual lists the files, and `<data>` is the
 folder that becomes the mod. Nothing is copied until OK, and it is not copied
-into Data. Nexus and ModPub downloads are not in the running launcher. That
-code is kept in `crates/nvf-launcher/disabled/nexus-modpub/` and is not built.
-**Saves** is a tab on the right of the Mods page.
+into Data. **Saves** is a tab on the right of the Mods page.
   
 Script extenders (xNVSE, JIP LN, JohnnyGuitar and several smaller ones) are built into the
 engine: their script functions run without the plugin `.dll` files, which NVForever never
