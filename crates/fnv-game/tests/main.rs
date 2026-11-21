@@ -57,6 +57,7 @@ mod item_ref_health;
 mod jg_nif;
 mod jg10;
 mod jg3;
+mod jip_main_loop_zero;
 mod jlm_dropped_refs;
 mod jg4;
 mod jg5;

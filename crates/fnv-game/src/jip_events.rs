@@ -146,8 +146,19 @@ pub struct MainLoop {
     /// 1 game mode, 2 menu mode, 8 removed on load [documented].
     pub flags: u32,
     pub due: u64,
+    pub(crate) seq: u64,
     /// Quantized game clock at registration or the last actual invocation.
     pub(crate) last_clock: f64,
+}
+
+impl MainLoop {
+    fn failure_context(&self) -> String {
+        let receiver = self.on.map_or_else(|| "none".into(), |r| format!("0x{:08X}", r.0));
+        format!(
+            "registration={} callable={} receiver={} delay={} flags={}",
+            self.seq, diagnostic_value(&self.func), receiver, self.delay, self.flags,
+        )
+    }
 }
 
 /// What a filter at each position tests: the calling reference or an argument
@@ -215,11 +226,56 @@ impl Game<'_> {
     }
 
     /// SetGameMainLoopCallback func add [delay] [flags].
-    pub(crate) fn jip_main_loop(&mut self, func: XVal, add: bool, delay: u64, flags: u32, on: Option<FormId>) {
-        self.jip.main_loop.retain(|m| !(m.func == func && m.on == on));
-        if add {
-            let delay = delay.max(1);
-            self.jip.main_loop.push(MainLoop { func, on, delay, flags, due: self.frame + delay, last_clock: crate::functions::clock_now(self.time) });
+    pub(crate) fn jip_main_loop(
+        &mut self,
+        func: XVal,
+        add: bool,
+        delay: u64,
+        flags: u32,
+        on: Option<FormId>,
+        registrar: Option<Arc<Registrar>>,
+    ) {
+        let registrars = &mut self.jip.registrars;
+        self.jip.main_loop.retain(|m| {
+            if m.func == func && m.on == on {
+                registrars.remove(&m.seq);
+                false
+            } else {
+                true
+            }
+        });
+        if !add {
+            return;
+        }
+        // Refuse null/zero callable tokens at registration time with registrar
+        // attribution rather than enqueuing a form-0 callback that fails every frame
+        // (#2603) [design].
+        let is_zero = matches!(func, XVal::Ref(0)) || matches!(func, XVal::Num(n) if n == 0.0);
+        if is_zero {
+            let receiver = on.map_or_else(|| "none".into(), |r| format!("0x{:08X}", r.0));
+            let callable = diagnostic_value(&func);
+            self.handler_failed_with_registrar(
+                "JIP main-loop callback".into(),
+                format!("cannot register zero callable token {callable}"),
+                || Some(format!("registration=0 callable={callable} receiver={receiver} delay={} flags={flags}", delay.max(1))),
+                registrar.as_deref(),
+            );
+            return;
+        }
+        let delay = delay.max(1);
+        self.jip.seq += 1;
+        let seq = self.jip.seq;
+        self.jip.main_loop.push(MainLoop {
+            func,
+            on,
+            delay,
+            flags,
+            due: self.frame + delay,
+            seq,
+            last_clock: crate::functions::clock_now(self.time),
+        });
+        if let Some(registrar) = registrar {
+            self.jip.registrars.insert(seq, registrar);
         }
     }
 
@@ -402,8 +458,14 @@ impl Game<'_> {
         let menu = self.menu.is_some() || self.dialogue.is_some();
         let want = if menu { 2 } else { 1 };
         let frame = self.frame;
-        let due: Vec<MainLoop> = self.jip.main_loop.iter().filter(|m| m.due <= frame && m.flags & want != 0).cloned().collect();
-        for m in due {
+        let due: Vec<(MainLoop, Option<Arc<Registrar>>)> = self
+            .jip
+            .main_loop
+            .iter()
+            .filter(|m| m.due <= frame && m.flags & want != 0)
+            .map(|m| (m.clone(), self.jip.registrars.get(&m.seq).cloned()))
+            .collect();
+        for (m, registrar) in due {
             let now = crate::functions::clock_now(self.time);
             let seconds = (now - m.last_clock).max(0.0);
             for x in self.jip.main_loop.iter_mut().filter(|x| x.func == m.func && x.on == m.on) {
@@ -413,7 +475,12 @@ impl Game<'_> {
             let on = m.on.unwrap_or(FormId::PLAYER_REF);
             let ctx = RunCtx { self_ref: Some(on), ..RunCtx::default() };
             if let Err(error) = self.run_function_with_seconds(&m.func, Some(Value::Ref(on.0)), Vec::new(), None, (ctx, Some(seconds))) {
-                self.handler_failed("JIP main-loop callback".into(), error);
+                self.handler_failed_with_registrar(
+                    "JIP main-loop callback".into(),
+                    error,
+                    || Some(m.failure_context()),
+                    registrar.as_deref(),
+                );
             }
         }
     }

@@ -3717,7 +3717,7 @@ impl<'a> Game<'a> {
             EventCall::CurrentName => XVal::Str(self.event_names.last().cloned().unwrap_or_default()),
             EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters, registrar)))),
             EventCall::MainLoop { func, add, delay, flags, on } => {
-                self.jip_main_loop(func, add, delay, flags, on.and_then(|v| v.as_form()).map(FormId));
+                self.jip_main_loop(func, add, delay, flags, on.and_then(|v| v.as_form()).map(FormId), registrar);
                 XVal::Num(0.0)
             }
         })
