@@ -984,7 +984,19 @@ lines --all` against `fnvtool script coverage`, 2026-10-24].
 **To confirm** (owner statements of 2026-10-10, the rules the runtime follows):
 
 - A. Greeting choice when lines of several quests qualify: rules 1–3 of §4, including
-  equal priorities and the stored order of §3.1.
+  equal priorities and the stored order of §3.1. Two counter-examples to "equal priority:
+  stored order" are in the data, where the shipped quests need the line stored later
+  [observed; observer check 248]: Hoover Dam's control panel in All or Nothing (House's
+  generic greeting 0x00125EBD, VDialogueMrHouse, stored before the panel's 0x001554D8,
+  VHDHouseBattle, the only line that sets its stage 20; #3199) and Doctor Zimmer in TTW
+  (MS08Fin's goodbye 0x0A0C84FF stored before MS08's hire line 0x0A02026A; #3061). Both
+  pairs are of priority-50/55 quests with no other condition between them. One rule fits
+  both and FormID or start order does not: the line that wins is the Say Once one
+  [hypothesis]. Applied to every line it would reorder lines inside 112 of the 228
+  quests with GREETING lines in the New Vegas masters (a plain line stored before one of
+  the quest's own Say Once lines) [observed: `fnvtool dialogue lines --topic GREETING`],
+  so if it holds it is a rule between quests, not inside one. Not changed in the runtime
+  until the original answers.
 - B. A conversation with the player pauses the game (GameMode, game time); SayTo and Say
   lines do not (§5, §6). Game time and an attacker were seen to hold while the menu is
   open [observed 2026-10-19, owner-decision-captures.md §7].

@@ -671,7 +671,8 @@ impl Game<'_> {
         if self.data.actors.get(&base).is_some_and(|d| &d.sig == b"NPC_") {
             return false;
         }
-        self.template_source(base, r, |d| d.template_base).is_some_and(|(_, d)| d.is_ghost)
+        self.template_source(base, r, |d| d.template_base)
+            .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::IS_GHOST, |d| d.is_ghost))
     }
 
     /// `target` is a ghost that `detector` would otherwise attack: such an enemy does not
@@ -724,7 +725,11 @@ impl Game<'_> {
     /// ghost while sealed (its script's SetGhost 1) and House's body killable once the
     /// terminal unseals it (owner ruling 2026-11-13).
     pub fn is_fixture(&self, r: FormId) -> bool {
-        if r == FormId::PLAYER_REF || !self.base_data_def(r).is_some_and(|d| d.immobile && &d.sig == b"CREA") {
+        if r == FormId::PLAYER_REF
+            || !self
+                .base_data_source(r)
+                .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::IMMOBILE, |d| d.immobile))
+        {
             return false;
         }
         let calm = self.def_following(r, |d| d.template_ai).is_some_and(|d| d.aggression == Some(0) && d.assistance == Some(0));
@@ -741,14 +746,22 @@ impl Game<'_> {
         calm && !armed()
     }
 
+    /// Whether `SetCombatDisabled 1` keeps `r` out of combat: the actor never enters
+    /// combat with other actors (though others may still attack it, and UseWeapon /
+    /// Use Weapon packages still work); reset on every load [documented: GECK wiki
+    /// SetCombatDisabled].
+    pub fn combat_disabled(&self, r: FormId) -> bool {
+        self.gaps.combat_disabled.contains(&r)
+    }
+
     /// The rule of [`Game::hostile_to`], read-only: `aggression` gives an actor's
     /// Aggression; `None` when it gives none for an actor the rule asks about.
     fn hostility(&self, actor: FormId, other: FormId, aggression: &dyn Fn(FormId) -> Option<i64>) -> Option<bool> {
         if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
             return Some(false);
         }
-        // A fixture never fights (issue #2431): before StartCombat, grudges and crimes.
-        if self.is_fixture(actor) {
+        // A fixture or combat-disabled actor never fights (issue #2431; SetCombatDisabled).
+        if self.is_fixture(actor) || self.combat_disabled(actor) {
             return Some(false);
         }
         let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
@@ -968,9 +981,10 @@ impl Game<'_> {
                 self.awareness.tactics.calm(id);
                 continue;
             }
-            // A fixture keeps no targets or alarms, from whatever gave them (an ally's
-            // call, a hit, a crime): it stays Normal (`Game::is_fixture`, issue #2431).
-            if self.is_fixture(id) {
+            // A fixture or combat-disabled actor keeps no targets or alarms, from whatever
+            // gave them (an ally's call, a hit, a crime): it stays Normal
+            // (`Game::is_fixture`, `Game::combat_disabled`, issue #2431).
+            if self.is_fixture(id) || self.combat_disabled(id) {
                 if let Some(a) = self.awareness.actors.remove(&id).filter(|a| a.state != State::Normal) {
                     self.awareness.changes.push(Change { actor: id, from: a.state, to: State::Normal, time: now, about: None, cause: None, at: None, value: None });
                 }
@@ -1217,8 +1231,9 @@ impl Game<'_> {
     /// other (`Awareness::settle`) [engineering choice]. The target's combat group (the
     /// catalogue's second case) is not built: there are no combat groups yet.
     pub fn start_combat(&mut self, actor: FormId, target: FormId) {
-        // A fixture takes no combat target (`Game::is_fixture`, issue #2431).
-        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) || self.is_fixture(actor) {
+        // A fixture or combat-disabled actor takes no combat target (`Game::is_fixture`,
+        // `Game::combat_disabled`, issue #2431).
+        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) || self.is_fixture(actor) || self.combat_disabled(actor) {
             return;
         }
         self.awareness.forced.insert((actor, target));

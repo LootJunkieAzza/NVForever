@@ -212,11 +212,38 @@ pub struct Graphics {
     pub heat_haze: bool,
     /// A dust haze in the weather's fog (haze.rs; off in every preset) [design, #2675].
     pub desert_haze: bool,
+    /// Surfaces whose diffuse has an authored PBR set under `textures\pbr\` are shaded from
+    /// it (#2981, docs/spec-notes/pbr-materials.md; on in both looks: a texture pack's maps
+    /// are assets, as a diffuse replacer is). Read once at the start (nvf_assets
+    /// `authored::set_enabled`, main.rs); this field is the settings row's value for the
+    /// next start.
+    pub authored_materials: bool,
+    /// Authored materials reflect the sky or the room around them (#2981 reflections,
+    /// reflection_sky.rs; docs/spec-notes/pbr-materials.md "Reflections on authored
+    /// materials"; on in both looks: without a pack, or with Authored materials off, nothing
+    /// changes). Read once at the start (nvf_assets `reflection_cube::set_enabled`, main.rs);
+    /// this field is the settings row's value for the next start.
+    pub authored_reflections: bool,
+    /// Full models of static scenery in the cells beyond the loaded ones, draw-only
+    /// (full_detail.rs; 7 x 7 in `enhanced`, off in vanilla) [design, #2701; maintainer
+    /// decision 2026-11-21 on #3048].
+    pub full_detail: crate::full_detail::FullDetail,
+    /// Static scenery the distant LOD blocks do not hold, from its own LOD models or full
+    /// models by size, beyond the loaded cells and the ring, draw-only (distant_objects.rs;
+    /// off in both presets) [design, #3014].
+    pub distant_objects: crate::distant_objects::DistantObjects,
 }
 
-/// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
-/// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 20] = [
+/// The settings key of the Authored materials row (#2981).
+pub const AUTHORED_MATERIALS_KEY: &str = "authored-materials";
+
+/// The settings key of the Reflections on authored materials row (#2981).
+pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
+
+/// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
+/// shadow-filter, full-detail and distant-object choices that are not vanilla's, in the
+/// order of [`Graphics::describe`].
+pub const KEYS: [&str; 24] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -237,6 +264,10 @@ pub const KEYS: [&str; 20] = [
     "terrain-shadows",
     "heat-haze",
     "desert-haze",
+    "full-detail-7x7",
+    "full-detail-9x9",
+    "distant-objects-8",
+    "distant-objects-12",
 ];
 
 impl Graphics {
@@ -294,6 +325,17 @@ impl Graphics {
             heat_haze: false,
             // Off in every preset: an addition of our own [design, #2675].
             desert_haze: false,
+            // On in both looks [design, #2981]: without a pack nothing changes.
+            authored_materials: true,
+            // On in both looks [design, #2981]: without a pack nothing reflects.
+            authored_reflections: true,
+            // An addition of our own for machines with GPU headroom: the 7 x 7 ring in
+            // `enhanced`, off in vanilla [design, #2701; maintainer decision 2026-11-21 on
+            // #3048].
+            full_detail: if on { crate::full_detail::FullDetail::Seven } else { crate::full_detail::FullDetail::Off },
+            // Off in both looks: an addition of our own; whether `enhanced` turns it on is
+            // the maintainer's call [design, #3014].
+            distant_objects: crate::distant_objects::DistantObjects::Off,
         }
     }
 
@@ -319,12 +361,15 @@ impl Graphics {
             "terrain-shadows" => &mut self.terrain_shadows,
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
+            AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
+            AUTHORED_REFLECTIONS_KEY => &mut self.authored_reflections,
             _ => return None,
         })
     }
 
     /// Exactly the improvements named ([`KEYS`]) on (`--graphics-only`); of the
-    /// anti-aliasings and of the shadow filters the last named wins.
+    /// anti-aliasings, of the shadow filters, of the full-detail sizes and of the
+    /// distant-object reaches the last named wins.
     pub fn only(keys: &[String]) -> Result<Self, String> {
         let mut g = Graphics::preset(Preset::Vanilla);
         for k in keys.iter().map(|k| k.trim()).filter(|k| !k.is_empty()) {
@@ -334,13 +379,19 @@ impl Graphics {
                 "taa" => g.screen_aa = ScreenAa::Taa,
                 "shadow-filter-hardware" => g.shadow_filter = ShadowFilteringMethod::Hardware2x2,
                 "shadow-filter-temporal" => g.shadow_filter = ShadowFilteringMethod::Temporal,
+                "full-detail-7x7" => g.full_detail = crate::full_detail::FullDetail::Seven,
+                "full-detail-9x9" => g.full_detail = crate::full_detail::FullDetail::Nine,
+                "distant-objects-8" => g.distant_objects = crate::distant_objects::DistantObjects::Eight,
+                "distant-objects-12" => g.distant_objects = crate::distant_objects::DistantObjects::Twelve,
                 "no-glow" => g.glow = false,
                 "no-eye-adaptation" => g.eye_adaptation = false,
                 "no-neon-glow" => g.neon_glow = false,
                 "no-water-mirror" => g.water_mirror = false,
+                "no-authored-materials" => g.authored_materials = false,
+                "no-authored-reflections" => g.authored_reflections = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections", KEYS.join(", "))),
                 },
             }
         }
@@ -374,6 +425,10 @@ impl Graphics {
             (self.terrain_shadows, "terrain shadows"),
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
+            (!self.authored_materials, "no authored materials"),
+            (!self.authored_reflections, "no authored reflections"),
+            (self.full_detail != crate::full_detail::FullDetail::Off, self.full_detail.describe()),
+            (self.distant_objects != crate::distant_objects::DistantObjects::Off, self.distant_objects.describe()),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -1464,8 +1519,11 @@ mod tests {
     #[test]
     fn every_key_is_a_switch_and_enhanced_leaves_taa_off() {
         let all = Graphics::only(&KEYS.map(String::from)).expect("keys");
-        // Of the three anti-aliasings and the two shadow filters the last named is on.
-        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1 - 3);
+        // Of the three anti-aliasings, the two shadow filters, the two full-detail sizes and
+        // the two distant-object reaches the last named is on.
+        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1 - 5);
+        assert_eq!(all.full_detail, crate::full_detail::FullDetail::Nine);
+        assert_eq!(all.distant_objects, crate::distant_objects::DistantObjects::Twelve);
         assert_eq!((all.screen_aa, all.shadow_filter), (ScreenAa::Taa, ShadowFilteringMethod::Temporal));
         let enhanced = Graphics::preset(Preset::Enhanced);
         assert!(enhanced.screen_aa == ScreenAa::Off && enhanced.light_shafts && enhanced.water_reflections && enhanced.water_effects);
@@ -1477,6 +1535,31 @@ mod tests {
         assert_eq!(graphics, vec![vanilla, Graphics::only(&["taa".into(), "light-shafts".into()]).unwrap(), enhanced, vanilla, vanilla]);
         assert_eq!(cycle.iter().map(|c| c.no_sun_shadows).collect::<Vec<_>>(), vec![false, false, false, true, false]);
         assert_eq!((cycle[4].shadow_distance, cycle[4].cascades), (Some(8000.0), Some(3)));
+    }
+
+    #[test]
+    fn authored_materials_are_on_in_both_looks_and_can_be_switched_off() {
+        assert!(Graphics::preset(Preset::Vanilla).authored_materials && Graphics::preset(Preset::Enhanced).authored_materials);
+        let off = Graphics::only(&["no-authored-materials".into()]).expect("no-authored-materials");
+        assert!(!off.authored_materials);
+        assert_eq!(off.describe(), "light glow, no authored materials");
+        assert!(Graphics::only(&[]).unwrap().authored_materials, "--graphics-only leaves it on unless told");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch(AUTHORED_MATERIALS_KEY).unwrap() = false;
+        assert!(!g.authored_materials);
+    }
+
+    #[test]
+    fn authored_reflections_are_on_in_both_looks_and_can_be_switched_off() {
+        assert!(Graphics::preset(Preset::Vanilla).authored_reflections && Graphics::preset(Preset::Enhanced).authored_reflections);
+        let off = Graphics::only(&["no-authored-reflections".into()]).expect("no-authored-reflections");
+        assert!(!off.authored_reflections && off.authored_materials, "the materials row stays on");
+        assert_eq!(off.describe(), "light glow, no authored reflections");
+        let only = Graphics::only(&["authored-materials".into()]).unwrap();
+        assert!(only.authored_reflections, "--graphics-only leaves it on unless told");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch(AUTHORED_REFLECTIONS_KEY).unwrap() = false;
+        assert!(!g.authored_reflections);
     }
 
     #[test]

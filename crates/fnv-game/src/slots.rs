@@ -11,10 +11,9 @@ use rand_core::RngCore;
 /// The help message shown the first time the menu opens (slots.md §5) [observed:
 /// FalloutNV.esm MESG `HelpSlots`, flags Message Box and Auto Display].
 pub const HELP_MESSAGE: FormId = FormId(0x0017_2096);
-/// The menu's code to scripts (slots.md §1) [hypothesis: NVForever's own; the menu file's
-/// `&SlotMachineMenu;` class number is not in the menu files and no shipped script asks
-/// for it; roulette's is 1101, blackjack's 1102].
-pub const MENU_CODE: u16 = 1103;
+/// The menu's code to scripts (slots.md §1) [documented: GECK wiki MenuMode /
+/// `fnv_ui::value::MENU_CLASSES`, `SlotMachineMenu = 1080`].
+pub const MENU_CODE: u16 = 1080;
 /// Symbols on a reel: 1 to 6 and W [documented: GECK wiki GetCasinoReelStops].
 pub const SYMBOLS: usize = 7;
 /// The winning symbol W, the seventh (index 6) [documented: same page].
@@ -87,14 +86,23 @@ pub fn multiple(line: [u8; REELS]) -> u32 {
 
 /// The line's win in words ("Three oranges", "One cherry"), none for a loss.
 pub fn win_name(line: [u8; REELS]) -> Option<String> {
+    win_words(line).map(str::to_string)
+}
+
+/// Three of a kind, each as one whole text, so a language file can have a line for it
+/// (#3146: a text put together from "Three" and a plural cannot be translated).
+const THREES: [&str; SYMBOLS] = ["Three bells", "Three BARs", "Three sevens", "Three lemons", "Three grapes", "Three oranges", "Three cherries"];
+
+/// [`win_name`] as one of a fixed set of texts, each a key of the language files.
+pub fn win_words(line: [u8; REELS]) -> Option<&'static str> {
     if multiple(line) == 0 {
         return None;
     }
     if line[0] == line[1] && line[1] == line[2] {
-        return Some(format!("Three {}", plural(line[0])));
+        return Some(THREES.get(line[0] as usize).copied().unwrap_or("?"));
     }
     let ws = line.iter().take_while(|&&s| s == W).count();
-    Some(if ws == 1 { "One cherry".to_string() } else { "Two cherries".to_string() })
+    Some(if ws == 1 { "One cherry" } else { "Two cherries" })
 }
 
 /// The payout list's rows: the symbols each row shows and its multiple (slots.md §3).
@@ -196,6 +204,10 @@ mod tests {
         assert_eq!(win_name([W, 2, 2]).as_deref(), Some("One cherry"));
         assert_eq!(win_name([W, W, W]).as_deref(), Some("Three cherries"));
         assert_eq!(win_name([1, 2, 3]), None);
+        // Each three of a kind is the plural's own text (#3146).
+        for s in 0..SYMBOLS as u8 {
+            assert_eq!(win_words([s; 3]).map(str::to_string), Some(format!("Three {}", plural(s))));
+        }
         assert_eq!(payout_rows().len(), 9);
     }
 

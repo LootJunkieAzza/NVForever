@@ -28,6 +28,7 @@
 //! in the home and passes `fnv_install::guard_write`.
 
 pub mod anomaly;
+pub mod asset_sources;
 pub mod snapshot;
 mod controls;
 mod delete;
@@ -95,8 +96,9 @@ fn redact_with(text: &str, folders: &[(String, &'static str)]) -> String {
 }
 
 /// The folders [`redact`] hides for this run, longest (innermost) first; a root or a drive
-/// is left out, as it would hide every path.
-fn folders_to_hide(data: &Path, exe_dir: Option<&Path>) -> Vec<(String, &'static str)> {
+/// is left out, as it would hide every path. `mo2`: the Mod Organizer 2 folders of a
+/// `--mo2` run ([`mo2_folders`]).
+fn folders_to_hide(data: &Path, exe_dir: Option<&Path>, mo2: &[(PathBuf, &'static str)]) -> Vec<(String, &'static str)> {
     let data = std::path::absolute(data).unwrap_or_else(|_| data.to_path_buf());
     let mut v: Vec<(String, &'static str)> = Vec::new();
     let mut add = |p: &Path, shown: &'static str| {
@@ -113,7 +115,21 @@ fn folders_to_hide(data: &Path, exe_dir: Option<&Path>) -> Vec<(String, &'static
     if let Some(exe) = exe_dir {
         add(exe, "<NVForever>");
     }
+    for (folder, shown) in mo2 {
+        add(&std::path::absolute(folder).unwrap_or_else(|_| folder.clone()), shown);
+    }
     v.sort_by_key(|(f, _)| std::cmp::Reverse(f.len()));
+    v
+}
+
+/// The folders of a `--mo2` run for [`ReportsPlugin::mo2_folders`]: the instance, and its
+/// mods and overwrite folders, which the instance's INI may put elsewhere.
+pub fn mo2_folders(instance: &Path, layout: Option<&fnv_install::mo2::Layout>) -> Vec<(PathBuf, &'static str)> {
+    let mut v = vec![(instance.to_path_buf(), "<MO2>")];
+    if let Some(l) = layout {
+        v.push((l.mods.clone(), "<MO2 mods>"));
+        v.push((l.overwrite.clone(), "<MO2 overwrite>"));
+    }
     v
 }
 
@@ -400,6 +416,10 @@ pub struct ReportsPlugin {
     pub plugins: Vec<String>,
     pub data: PathBuf,
     pub mo2: bool,
+    /// The Mod Organizer 2 folders of a `--mo2` run and what each is written as in a
+    /// report (the instance, its mods and overwrite folders): they are often outside the
+    /// home folder and can carry a name (#3152).
+    pub mo2_folders: Vec<(PathBuf, &'static str)>,
     /// A load handed over from an earlier run (kept for the log; it collects and sends as any run).
     pub handoff: bool,
     /// What this run's start loads: `save_load` (`--load`) or `new_game`; it names the start's
@@ -467,7 +487,7 @@ impl Plugin for ReportsPlugin {
         );
         delete::add_row(app);
         let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
-        let _ = HIDDEN_FOLDERS.set(folders_to_hide(&self.data, exe_dir.as_deref()));
+        let _ = HIDDEN_FOLDERS.set(folders_to_hide(&self.data, exe_dir.as_deref(), &self.mo2_folders));
         // A hand report needs no opt-in (§3.3): the form and the snapshot it sends are
         // there whatever the choice.
         form::add(app);
@@ -503,7 +523,7 @@ impl Plugin for ReportsPlugin {
                 detectors: Default::default(),
             })
             .add_systems(Startup, (read_gpu, read_window))
-            .add_systems(Update, (collect, track_loads, detect).chain())
+            .add_systems(Update, (collect, track_loads, list_model_sources, detect.after(nvf_play::control::enforce_locks)).chain())
             // After Bevy's window-closed exit (AppExit in Last): else a window closed by the
             // player missed the clean end and the run was sent as a native crash (#2203).
             .add_systems(Last, (controls::detect, write_summary.after(bevy::window::ExitSystems)).chain());
@@ -759,12 +779,45 @@ fn refresh_snapshot(
     snapshot::keep(v);
 }
 
+/// Whether the player asks to move and could: playing, a movement key held, and neither a
+/// script's movement lock nor furniture holding them (`held_still`; #3046).
+fn asks_to_move(state: &str, intent: Option<&nvf_play::player::MoveIntent>, held_still: bool) -> bool {
+    state == "playing" && !held_still && intent.is_some_and(|i| i.forward.abs() + i.right.abs() > 0.1)
+}
+
+#[cfg(test)]
+mod stuck_tests {
+    use super::asks_to_move;
+    use nvf_play::player::MoveIntent;
+
+    /// #3046: keys held while a script locks movement (Doc Mitchell's opening) or furniture
+    /// holds the player are not a player stuck; the same keys free are.
+    #[test]
+    fn held_keys_count_only_when_the_player_could_move() {
+        let forward = MoveIntent { forward: 1.0, ..MoveIntent::default() };
+        assert!(asks_to_move("playing", Some(&forward), false));
+        assert!(!asks_to_move("playing", Some(&forward), true), "locked or seated");
+        assert!(!asks_to_move("menu", Some(&forward), false));
+        assert!(!asks_to_move("playing", Some(&MoveIntent::default()), false));
+        assert!(!asks_to_move("playing", None, false));
+    }
+}
+
+/// Whose record names each model file, listed once on a thread of its own as soon as the
+/// load order is there (#3045, asset_sources.rs).
+fn list_model_sources(world: Option<Res<crate::world::WorldData>>) {
+    if let Some(world) = world {
+        anomaly::list_model_sources(world.lo);
+    }
+}
+
 /// The anomaly detectors that read the game's state each frame (anomaly.rs), and the ones
 /// the log lines found since the last frame, given where the player is.
 fn detect(
     real: Res<Time<Real>>,
     loading: Option<Res<nvf_play::loading::Loading>>,
     intent: Option<Res<nvf_play::player::MoveIntent>>,
+    (locks, seat): (Option<Res<nvf_play::control::ControlLocks>>, Option<Res<nvf_play::furniture::PlayerSeat>>),
     voice: Option<Res<nvf_play::voice::VoiceState>>,
     memory: Option<Res<crate::memory_budget::MemoryBudget>>,
     mut c: ResMut<Collector>,
@@ -789,7 +842,12 @@ fn detect(
     if ms > anomaly::HITCH_MS && !loading_now && settled && matches!(c.here.state, "playing" | "viewer") {
         c.detectors.fire(&mut c.summary, &c.here, t_s, "hitch", serde_json::json!({ "ms": ms.round() }));
     }
-    let moving = c.here.state == "playing" && intent.as_ref().is_some_and(|i| i.forward.abs() + i.right.abs() > 0.1);
+    // Movement keys held count only when the player could move: not while scripts lock
+    // movement (the opening in Doc Mitchell's house: 3 of 49 installs' only player_stuck,
+    // #3046; controls_locked covers a lock) nor while furniture holds the player. Read after
+    // `enforce_locks`, which strikes a locked movement from the frame's intent.
+    let held_still = locks.as_ref().is_some_and(|l| l.movement) || seat.as_ref().is_some_and(|s| s.hold.is_some());
+    let moving = asks_to_move(c.here.state, intent.as_deref(), held_still);
     c.detectors.check_stuck(&mut c.summary, &c.here, t_s, real.elapsed_secs_f64(), moving);
     if let Some(m) = memory {
         c.detectors.check_memory(&mut c.summary, &c.here, t_s, m.vram_use_mb, m.ram_share);
@@ -994,7 +1052,7 @@ mod tests {
         let (root, s) = if cfg!(windows) { (r"D:\", r"\") } else { ("/", "/") };
         let p = |parts: &[&str]| format!("{root}{}", parts.join(s));
         let data = p(&["Games", "Alex Smith", "Fallout New Vegas", "Data"]);
-        let f = super::folders_to_hide(std::path::Path::new(&data), Some(std::path::Path::new(&p(&["Tools", "NVForever"]))));
+        let f = super::folders_to_hide(std::path::Path::new(&data), Some(std::path::Path::new(&p(&["Tools", "NVForever"]))), &[]);
         let r = |t: &str| super::redact_with(t, &f);
         assert_eq!(r(&format!("loaded {data}{s}FalloutNV.esm")), format!("loaded <Data>{s}FalloutNV.esm"));
         // Any case, either separator.
@@ -1003,7 +1061,27 @@ mod tests {
         assert_eq!(r(&format!("exe {}{s}nvforever.exe", p(&["Tools", "NVForever"]))), format!("exe <NVForever>{s}nvforever.exe"));
         assert_eq!(r("nothing here"), "nothing here");
         // A root or a drive is never hidden whole.
-        assert!(super::folders_to_hide(std::path::Path::new(&p(&["Data"])), None).iter().all(|(p, _)| p.len() > 3));
+        assert!(super::folders_to_hide(std::path::Path::new(&p(&["Data"])), None, &[]).iter().all(|(p, _)| p.len() > 3));
+    }
+
+    /// A `--mo2` run hides the instance and its mods and overwrite folders, wherever the
+    /// instance's INI puts them (#3152).
+    #[test]
+    fn reports_hide_the_mo2_folders() {
+        let (root, s) = if cfg!(windows) { (r"E:\", r"\") } else { ("/", "/") };
+        let p = |parts: &[&str]| format!("{root}{}", parts.join(s));
+        let path = |parts: &[&str]| std::path::PathBuf::from(p(parts));
+        let instance = path(&["Alex Smith", "MO2"]);
+        // The mods folder under the instance, the overwrite folder somewhere else.
+        let folders = vec![(instance.clone(), "<MO2>"), (instance.join("mods"), "<MO2 mods>"), (path(&["Alex Smith", "ow"]), "<MO2 overwrite>")];
+        let f = super::folders_to_hide(std::path::Path::new(&p(&["Games", "FNV", "Data"])), None, &folders);
+        let r = |t: &str| super::redact_with(t, &f);
+        assert_eq!(r(&format!("read {}{s}mods{s}A Mod{s}a.esp", instance.display())), format!("read <MO2 mods>{s}A Mod{s}a.esp"));
+        assert_eq!(r(&format!("ini {}{s}ModOrganizer.ini", instance.display())), format!("ini <MO2>{s}ModOrganizer.ini"));
+        assert_eq!(r(&format!("wrote {}{s}x.txt", p(&["Alex Smith", "ow"]))), format!("wrote <MO2 overwrite>{s}x.txt"));
+        assert!(!r(&format!("{} and {}", instance.display(), p(&["Alex Smith", "ow", "y"]))).contains("Alex"));
+        // Without a layout only the instance is named.
+        assert_eq!(super::mo2_folders(&instance, None), [(instance, "<MO2>")]);
     }
 
     use super::*;

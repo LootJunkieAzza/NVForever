@@ -29,6 +29,12 @@ const CELL: u32 = 0x200;
 const ROBOT_REF: u32 = 0x320;
 const OTHER_REF: u32 = 0x321;
 const GET_IS_ID: u16 = 72;
+const GET_IS_VOICE_TYPE: u16 = 427;
+const INTERCOM: u32 = 0x930;
+const INTERCOM_REF: u32 = 0x330;
+const Q_VOICE: u32 = 0x902;
+const T_VOICE: u32 = 0xA03;
+const L_VOICE: u32 = 0xB03;
 
 fn u32b(v: u32) -> Vec<u8> {
     v.to_le_bytes().to_vec()
@@ -41,6 +47,17 @@ fn is_id(actor: u32) -> Subrecord {
     d.extend(GET_IS_ID.to_le_bytes());
     d.extend([0, 0]);
     d.extend(actor.to_le_bytes());
+    d.extend([0u8; 12]);
+    sub(b"CTDA", d)
+}
+
+/// `GetIsVoiceType <voice type> == 1` on the subject.
+fn is_voice(voice: u32) -> Subrecord {
+    let mut d = vec![0u8, 0, 0, 0];
+    d.extend(1f32.to_le_bytes());
+    d.extend(GET_IS_VOICE_TYPE.to_le_bytes());
+    d.extend([0, 0]);
+    d.extend(voice.to_le_bytes());
     d.extend([0u8; 12]);
     sub(b"CTDA", d)
 }
@@ -66,6 +83,8 @@ fn plugin_bytes() -> Vec<u8> {
     let quests = [
         record(b"QUST", 0, Q_GATED, &[sub(b"EDID", z("RobotTalk")), quest_data(), is_id(ROBOT)]),
         record(b"QUST", 0, Q_PLAIN, &[sub(b"EDID", z("AnyTalk")), quest_data()]),
+        // Gated on the voice type, as The Pitt's DLC01Quest03 (#3060).
+        record(b"QUST", 0, Q_VOICE, &[sub(b"EDID", z("VoiceTalk")), quest_data(), is_voice(VOICE_UNIQUE)]),
     ]
     .concat();
     // DNAM 0: Allow Default Dialog is off.
@@ -76,15 +95,20 @@ fn plugin_bytes() -> Vec<u8> {
         topic(T_GATED, "RobotGreeting", &line(L_GATED, Q_GATED, vec![])),
         topic(T_PLAIN, "AnyGreeting", &line(L_PLAIN, Q_PLAIN, vec![])),
         topic(T_OWN, "OwnGreeting", &line(L_OWN, Q_PLAIN, vec![is_id(ROBOT)])),
+        topic(T_VOICE, "IntercomLine", &line(L_VOICE, Q_VOICE, vec![])),
     ]
     .concat();
     let placed = |id: u32, edid: &str, base: u32| record(b"ACHR", 0, id, &[sub(b"EDID", z(edid)), sub(b"NAME", u32b(base)), sub(b"DATA", vec![0; 24])]);
+    // A talking activator with that voice type (TACT VNAM), as Ashur's intercom.
+    let tact = record(b"TACT", 0, INTERCOM, &[sub(b"EDID", z("Intercom")), sub(b"VNAM", u32b(VOICE_UNIQUE))]);
+    let intercom_ref = record(b"REFR", 0, INTERCOM_REF, &[sub(b"EDID", z("IntercomREF")), sub(b"NAME", u32b(INTERCOM)), sub(b"DATA", vec![0; 24])]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("GateCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(ROBOT_REF, "RobotREF", ROBOT), placed(OTHER_REF, "OtherREF", OTHER)].concat()));
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(ROBOT_REF, "RobotREF", ROBOT), placed(OTHER_REF, "OtherREF", OTHER), intercom_ref].concat()));
     [
         tes4(),
         top(b"VTYP", &voice),
         top(b"NPC_", &[player, npc(ROBOT, "Robot"), npc(OTHER, "Other")].concat()),
+        top(b"TACT", &tact),
         top(b"QUST", &quests),
         top(b"DIAL", &dial),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
@@ -135,4 +159,19 @@ fn a_quests_condition_on_the_speaker_opens_its_lines_to_a_voice_without_default_
     // The line's own condition, as before.
     assert_eq!(g.select_line(robot, player, FormId(T_OWN)), Some(FormId(L_OWN)));
     assert_eq!(g.select_line(other, player, FormId(T_OWN)), None);
+}
+
+/// #3060: a talking activator speaks with its base's VNAM voice type, so GetIsVoiceType
+/// holds for it and a quest gated on that voice type gives it its line (Ashur's intercom
+/// in The Pitt).
+#[test]
+fn a_talking_activator_has_its_base_s_voice_type() {
+    let f = fixture();
+    assert_eq!(f.data.talking_voices.get(&FormId(INTERCOM)), Some(&FormId(VOICE_UNIQUE)));
+    let mut g = game(&f);
+    let intercom = FormId(INTERCOM_REF);
+    assert_eq!(g.voice_type_of(intercom), Some(FormId(VOICE_UNIQUE)));
+    assert_eq!(g.select_line(intercom, Some(FormId::PLAYER_REF), FormId(T_VOICE)), Some(FormId(L_VOICE)));
+    // The robot shares the voice type: the gate passes for it too.
+    assert_eq!(g.select_line(FormId(ROBOT_REF), Some(FormId::PLAYER_REF), FormId(T_VOICE)), Some(FormId(L_VOICE)));
 }

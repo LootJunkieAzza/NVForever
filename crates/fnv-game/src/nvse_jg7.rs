@@ -112,16 +112,53 @@ impl Game<'_> {
     }
 
     /// HideItemBarterEx's flag for `item` at `vendor`: 0 shown, 1 shown on the player's
-    /// side only, 2 on the vendor's only, 3 hidden on both [documented]; the vendor's own
-    /// entry first, then the one for every vendor [hypothesis].
+    /// side only, 2 on the vendor's only, 3 hidden on both [documented]; the vendor
+    /// reference's own entry first, then its base form's, then the one for every vendor
+    /// [hypothesis].
     pub fn barter_hide_flag(&self, item: FormId, vendor: Option<FormId>) -> i64 {
         let h = &self.other.jg7.barter_hidden;
-        h.get(&(item, vendor)).or_else(|| h.get(&(item, None))).copied().unwrap_or(0)
+        let vendor_base = vendor.and_then(|v| self.world.placed.get(v).map(|p| p.base));
+        h.get(&(item, vendor))
+            .or_else(|| vendor_base.and_then(|b| h.get(&(item, Some(b)))))
+            .or_else(|| h.get(&(item, None)))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Active non-zero `HideItemBarterEx` flags for a barter session with `vendor`.
+    pub fn barter_hidden_for(&self, vendor: FormId) -> std::collections::BTreeMap<FormId, i64> {
+        let mut out = std::collections::BTreeMap::new();
+        for &(item, _) in self.other.jg7.barter_hidden.keys() {
+            if out.contains_key(&item) {
+                continue;
+            }
+            let flag = self.barter_hide_flag(item, Some(vendor));
+            if flag != 0 {
+                out.insert(item, flag);
+            }
+        }
+        out
     }
 
     /// Whether a script has disabled saving (ToggleDisableSaves) [documented].
     pub fn saves_disabled(&self) -> bool {
         !self.other.jg7.saves_disabled_by.is_empty()
+    }
+
+    /// Whether the level-up menu is enabled (`ToggleLevelUpMenu`, on by default) [documented].
+    pub fn level_up_menu_enabled(&self) -> bool {
+        !self.other.jg7.level_up_menu_off
+    }
+
+    /// The `SOUN` FormID set by `SetUIUpdateSound` for notification `kind` (`1` quest
+    /// failed, `2` quest added, `3` quest completed, `4` location discovered) [documented].
+    pub fn ui_update_sound(&self, kind: i64) -> Option<FormId> {
+        self.other.jg7.ui_sounds.get(&kind).copied()
+    }
+
+    /// The quest pushed to the top of the Pip-Boy quest list (`PushUIQuestToTop`) [documented].
+    pub fn top_ui_quest(&self) -> Option<FormId> {
+        self.other.jg7.top_quest
     }
 }
 

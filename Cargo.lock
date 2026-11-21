@@ -1179,6 +1179,7 @@ dependencies = [
  "fnv-world",
  "jiff",
  "png",
+ "proptest",
  "qrcodegen",
  "rand_chacha",
  "rand_core 0.9.5",
@@ -1235,6 +1236,14 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tracing",
+]
+
+[[package]]
+name = "fnv-pbr"
+version = "0.8.1"
+dependencies = [
+ "fnv-vfs",
+ "toml",
 ]
 
 [[package]]
@@ -1373,6 +1382,7 @@ dependencies = [
  "fnv-install",
  "fnv-nav",
  "fnv-nif",
+ "fnv-pbr",
  "fnv-phys",
  "fnv-save",
  "fnv-script",

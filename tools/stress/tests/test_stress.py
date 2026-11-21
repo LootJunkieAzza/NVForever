@@ -874,5 +874,17 @@ class ProcSamplesTest(unittest.TestCase):
         self.assertIsNotNone(lib.system_busy_secs())
 
 
+class LockedReportTest(unittest.TestCase):
+    """#3277: a launch with the Windows session locked says so in its report."""
+
+    def test_only_a_locked_check_warns(self):
+        from stress import lib
+        self.assertEqual(lib.locked_report(None), [])
+        self.assertEqual(lib.locked_report((12, 0)), [])
+        out = " ".join(lib.locked_report((12, 3)))
+        self.assertIn("Locked in 3 of 12 checks", out)
+        self.assertIn("LogonUI.exe", out)
+
+
 if __name__ == "__main__":
     unittest.main()

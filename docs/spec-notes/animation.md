@@ -1124,3 +1124,67 @@ Sources: `fnvtool nif stats` over every mesh archive of the base game and the ad
 - Weapons: WEAP `WNAM` "1st Person Model" names a STAT [documented: xEdit]; the 9mm
   pistol's is `1stPerson9mm` (0x000E7653), whose model is the same `9mm.NIF` with
   texture swaps (`MODS`).
+
+### 9.13 NPC turn clips and the accumulation-root basis
+
+- [observed: contributor's 2026-11-17 TTW playtest, #2859] A Brotherhood knight's model tips over
+  when it turns to speak. The recorded activation says its greeting without opening
+  a conversation; the AI owns its heading and the armed locomotion consumer selects
+  `locomotion\2haturnright.kf` and then `2haturnleft.kf`. This reaches the ordinary
+  NPC movement binder, rather than the dialogue camera or dialogue-only head turn.
+- [observed: the loaded KF files' `NiControllerSequence` and
+  `NiTransformInterpolator` data, 2026-11-17] Both turn files name `Bip01` as the
+  accumulation root, contain a `Bip01 NonAccum` track, and give `Bip01` a static
+  rotation that takes its up axis almost horizontal. The loaded unarmed
+  `mtturnleft.kf` and `mtturnright.kf` have the same static root orientation;
+  `2haforward.kf` and `2habackward.kf` instead start with an almost identity root.
+  These are asset observations, not an original-game playback capture.
+- [design] An NPC turn played in place starts its accumulation-root rotation at
+  the identity: `BoundClip::turn_in_place` takes the basis from that clip's own
+  starting rotation, and the existing pose sampler removes that basis. Relative
+  keyed rotation and every child-bone pose are retained. `locomotion::bind_move`
+  applies this only to `Move::TurnLeft` and `Move::TurnRight`, including weapon,
+  crouched, hurt and replacement movement sets. Other movement and generic clip
+  binding keep their existing policy; there is no actor ID or corrective angle.
+- [hypothesis] The original game plays these turn clips with the actor upright,
+  keeping only the root rotation relative to each clip's start; how it treats the
+  exported static root orientation has not been observed in its playback. The
+  same is assumed, unobserved, for every turn clip of the weapon, crouched, hurt
+  and replacement movement sets, which the design above covers beyond the four
+  files inspected.
+- [implementation validation] `anim_play::tests::turn_in_place_…` exercises the real
+  `BlendPlayer::sample` consumer with a tilted static root plus NonAccum, phase
+  wrap/release, relative keyed rotation and absent root/rotation controls.
+  `locomotion::tests::turn_moves_remove_exported_root_basis_at_the_pose_consumer`
+  calls the production move binder and sampler for both turns, idle, forward and
+  backward. These four portable controls and the three retained generic root
+  height/rotation controls each passed once in hosted CI for implementation head
+  `8548f552`. The same consumer fixture is prepared against the previous production
+  interface for an unchanged-expectation baseline comparison; that baseline is
+  still unrun.
+- [implementation validation] The local-data fixture
+  `locomotion::tests::loaded_turn_assets_keep_accumulation_root_upright` was ignored
+  in the hosted run. A later Windows Rust 1.99 CPU application-test run on integrated
+  source `01fb825f` (tree `d8190206`) executed it with `NVF_TURN_CLIP_DIR`,
+  `NVF_NIF_SCHEMA` and `--ignored --exact`: one aggregate test passed once, with no
+  failures or ignores. All four pinned armed/unarmed left/right files reached the
+  NIF parser, clip conversion, production move binder and pose sampler; root-up
+  assertions completed at phases 0, .25, .5, .75 and 0 for each file. The portable
+  binder/sampler control also passed once. Both complete Knight runtime/test files,
+  NIF decoder sources and five schemas match public `4d4b353a` byte for byte. This
+  QA opt-level 0/debug 0 CPU result is separate from the hosted graph/profile;
+  compiler exit zero retained a descendant-shutdown warning, and all owned Jobs
+  ended with unchanged source seals. No Game/GPU or native playback was run, and no
+  game files are included in the source.
+- [implementation validation] The [hosted CI run](https://github.com/LootJunkieAzza/NVForever/actions/runs/44024337735)
+  and [game-data guard](https://github.com/LootJunkieAzza/NVForever/actions/runs/44024337705)
+  passed all seven checks for `8548f552`, using Rust 1.100.0. Actual checkout
+  `d2226113` has parents main `a0ebe1c5` and that head, with the same complete tree:
+  core 3,444 passed/0 failed/5 ignored; engine 3,413 passed/0 failed/4 ignored.
+  Root/engine strict Clippy, dependency and tools checks passed. These results
+  qualify that implementation revision; later heads retain their own check status.
+- [open] Same-fixture baseline failure/corrected success and the installed-mod
+  knight's rendered greeting still require execution. Original-game playback and
+  parity of relative root rotation remain unobserved; the executed actual-KF CPU
+  consumer does not qualify performance, all animation or dialogue behavior, or
+  full installed-mod acceptance.

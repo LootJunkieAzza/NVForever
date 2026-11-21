@@ -1364,7 +1364,7 @@ pub(crate) fn model_ctx_resources(world: &mut World) {
     world.init_resource::<nvf_assets::ModelCache>();
     world.init_resource::<nvf_assets::texture::TextureCache>();
     let vfs = fnv_vfs::Vfs::open(std::path::Path::new("nvf-test-no-game-data"), &[]).expect("an empty file system");
-    world.insert_resource(nvf_assets::GameData { vfs: Arc::new(vfs), schema: Arc::new(fnv_nif::Schema::default()) });
+    world.insert_resource(nvf_assets::GameData::new(Arc::new(vfs), Arc::new(fnv_nif::Schema::default())));
 }
 
 #[cfg(test)]

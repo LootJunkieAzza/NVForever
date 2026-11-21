@@ -671,11 +671,13 @@ impl Music {
         Some(files[k.min(files.len() - 1)].clone())
     }
 
-    /// The archive path of a music file, warning once when a folder has none.
-    fn file_path(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
+    /// The archive path of a music file, saying once when a folder has none: a warning,
+    /// or at debug level when the record naming it is the game's own (`own`; the base
+    /// game's music types name Fallout 3's folders, #2757).
+    fn file_path(&mut self, vfs: &fnv_vfs::Vfs, file: &str, own: bool) -> Option<String> {
         let path = self.path(vfs, file);
         if path.is_none() && self.reported.insert(file.to_string()) {
-            warn!("music: no files in music\\{file}");
+            crate::game_files::say_missing(own, &format!("music: no files in music\\{file}"));
         }
         path
     }
@@ -683,7 +685,8 @@ impl Music {
     /// Whether a music file is there to be played (its folder has a file, the archives
     /// have it and it was not found unreadable), without reading it.
     fn playable(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> bool {
-        self.file_path(vfs, file).is_some_and(|p| vfs.exists(&p) && !matches!(self.files.peek(&p), Some(None)))
+        // Only asked of the default objects' music, which may well not be shipped.
+        self.file_path(vfs, file, true).is_some_and(|p| vfs.exists(&p) && !matches!(self.files.peek(&p), Some(None)))
     }
 
     /// Start what is wanted, silent, with its layers fading in. Its files are read off
@@ -692,9 +695,14 @@ impl Music {
     fn start(&mut self, commands: &mut Commands, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Assets<LayeredMusic>, w: &Wanted, now: f32) -> Track {
         let levels: Arc<[AtomicU32; 3]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)]);
         let mut paths = Vec::new();
+        // Whose record names the files: the set's, the battle's or the type's.
+        let own = crate::game_files::games_own(match w.key {
+            Key::Set { set, .. } => set,
+            Key::Battle(form) | Key::Type(form) => form,
+        });
         for (k, file) in w.files.iter().enumerate() {
             let Some(file) = file else { continue };
-            match self.file_path(vfs, file) {
+            match self.file_path(vfs, file, own) {
                 Some(p) => paths.push((k, p)),
                 None => self.failed += 1,
             }

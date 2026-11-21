@@ -18,18 +18,18 @@ for the process.
 | Function | NVForever |
 |---|---|
 | ToggleCombatMusic `0/1`, IsCombatMusicEnabled | off or on "until the game is restarted" [documented], so for the process, not cleared by a load. The engine's music starts no battle music while it is off (`nvf-play` music.rs) |
-| ToggleLevelUpMenu `0/1`, IsLevelUpMenuEnabled | the switch; loading a save turns it back on [documented]. The level-up menu does not read it yet (follow-up) |
+| ToggleLevelUpMenu `0/1`, IsLevelUpMenuEnabled | the switch (`Game::level_up_menu_enabled`); loading a save turns it back on [documented]. `experience::level_up_due` and `xp_meter` hold the automatic level-up menu while off, releasing earned levels once re-enabled |
 | DisableMenuArrowKeys, EnableMenuArrowKeys | the switch [documented: scripts still see the keys]; the menus do not read it yet (follow-up) |
 | SetYieldTimer `seconds`, GetYieldTimer | counts down from the value set, in game seconds (`Game::time`), 0 when run out or never set [documented: a positive value keeps the player from yielding; hypothesis: game time, and that it counts down]. NVForever's combat has no yielding yet, so nothing else reads it |
 | SetViewmodelClipDistance `distance`, GetViewmodelClipDistance | the value, 0 the default ("resets the value") [documented]; below 0 reads 0 [hypothesis]. The first-person camera does not read it yet |
 | SetNiLODLevel `level`, GetNiLODLevel | the global LOD level override for NiLODNodes [documented], -1 before any SetNiLODLevel [observed 2026-11-08]. The renderer does not read it yet |
 | ToggleDisableSaves `0/1` | per plugin: the load-order index (high byte) of the calling script's quest or reference names the plugin; saving waits until every plugin that disabled it calls 0, or a save is loaded [documented: "stored on a per-mod basis"]. A query or console script with neither counts as one plugin (0xFF) [documented: "the console … share one mod index"]. The engine's saves (`nvf-play` save.rs) refuse with "a script disabled saving"; ForceSave and SystemSave wait with them [documented] |
-| SetUIUpdateSound `sound type` | type 1 quest failed, 2 quest added, 3 quest completed, 4 location discovered [documented]; another type or a form that is no SOUN changes nothing [hypothesis]. The corner messages do not play it yet |
+| SetUIUpdateSound `sound type` | type 1 quest failed, 2 quest added, 3 quest completed, 4 location discovered [documented]; another type or a form that is no SOUN changes nothing [hypothesis]. `quest_messages` plays `Game::ui_update_sound(type)` ahead of default notice sounds and the `discovered_sound` tweak [design] |
 | SetCustomReputationChangeIcon `reputation tier path` | 1 when kept [documented: returns success]; a tier outside 1-4 or a form that is no REPU gives 0 [hypothesis: the tiers]. The corner message does not show it yet |
 | SetDisablePlayerControlsHUDVisibilityFlags `flags` | the bit mask kept [documented]; the HUD does not read it yet |
 | ToggleNthPipboyLight `button on` | 0 Stats, 1 Items, 2 Data [documented]; the Pip-Boy does not draw them yet |
-| PushUIQuestToTop `quest` | the quest kept (a QUST only) [documented]; the Pip-Boy's quest list does not read it yet |
-| HideItemBarterEx `item hide [side] [vendor]`, IsItemBarterHiddenEx `item [vendor]` | hide 0 shows the item again; side 1 keeps it shown on the player's side, 2 on the vendor's, none hides it on both [documented: HideItemBarterEx and the reader's notes, 0 shown … 3 hidden on both]; kept for the barter menu as that flag (`Game::barter_hide_flag`; with a vendor, its own entry first, then the one for every vendor [hypothesis]). IsItemBarterHiddenEx reads 0: in the original it read 0 after every HideItemBarterEx, on the caps and on the 10mm pistol, with and without a vendor [observed 2026-11-08: jg7.barter, jg7.barter.pistol, outside the barter menu]. The barter menu does not read the flag yet (follow-up) |
+| PushUIQuestToTop `quest` | the quest kept (a QUST only; `Game::top_ui_quest`) [documented]; `pipboy::data` promotes the listed quest to index 0 of the Pip-Boy quest list while preserving the relative order of the rest [design] |
+| HideItemBarterEx `item hide [side] [vendor]`, IsItemBarterHiddenEx `item [vendor]` | hide 0 shows the item again; side 1 keeps it shown on the player's side, 2 on the vendor's, none hides it on both [documented: HideItemBarterEx and the reader's notes, 0 shown … 3 hidden on both]; kept for the barter menu as that flag (`Game::barter_hide_flag` / `barter_hidden_for`; the vendor reference's own entry first, then its base form's, then the one for every vendor [hypothesis]). `menu` and `menu::model::Trade::refresh_trade` apply the flags on barter open and live sync. IsItemBarterHiddenEx reads 0: in the original it read 0 after every HideItemBarterEx, on the caps and on the 10mm pistol, with and without a vendor [observed 2026-11-08: jg7.barter, jg7.barter.pistol, outside the barter menu] |
 | QueueCinematicText `title subtitle [sound] [priority] [justification] [title font] [subtitle font]` | queued: priority 0 appends, 1 prepends, 2 clears the queue and shows at once; justification 0 left, 1 centre, 2 right; fonts are the [Fonts] slots [documented]. The HUD does not show the queue yet |
 | QueueObjectiveText `text [completed] [multiple]` | queued [documented: QueueObjectiveText]; the HUD does not show it yet |
 | TogglePipBoy `[tab]` | closes the Pip-Boy when it is open, else opens it on 1002 Inventory, 1003 Stats, 1023 Data [documented]; without a tab on the inventory [hypothesis: the page's "tab it closed on" is not kept by NVForever] |
@@ -50,13 +50,14 @@ AsmBreak and RefAddr, for the reasons above.
 ## Follow-ups (engine)
 
 Read by the engine in this batch: ToggleCombatMusic (music), ToggleDisableSaves (saves),
-TogglePipBoy (the menus). Still to read, each a change of its own system: the level-up
-menu switch, the menu arrow keys, the yield timer (no yielding yet), the viewmodel clip
-distance, the NiLOD override, the UI update sounds, the reputation and map marker icons,
-the HUD visibility flags under DisablePlayerControls, the Pip-Boy button lights, the top
-quest, barter hiding (`menu.rs` vendor_sells and the barter rows), the queued cinematic and
-objective texts, and the requests (exit to the main menu, credits, the VATS camera, the
-camera shake, the HUD shudder).
+TogglePipBoy (the menus), ToggleLevelUpMenu (`experience::level_up_due` / `xp_meter`),
+SetUIUpdateSound (`quest_messages`), PushUIQuestToTop (`pipboy::data` quest list), and
+HideItemBarterEx (`menu` / `menu::model::Trade`). Still to read, each a change of its own
+system: the menu arrow keys, the yield timer (no yielding yet), the viewmodel clip
+distance, the NiLOD override, the reputation and map marker icons,
+the HUD visibility flags under DisablePlayerControls, the Pip-Boy button lights,
+the queued cinematic and objective texts, and the requests (exit to the main menu, credits,
+the VATS camera, the camera shake, the HUD shudder).
 
 ## Observed 2026-11-08
 

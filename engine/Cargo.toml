@@ -18,6 +18,7 @@ license = "GPL-3.0-or-later"
 bevy = { version = "=0.20.1", features = ["pbr_specular_textures", "debug", "raw_vulkan_init"] }
 fnv-nif = { path = "../crates/fnv-nif" }
 fnv-dds = { path = "../crates/fnv-dds" }
+fnv-pbr = { path = "../crates/fnv-pbr" }
 fnv-spt = { path = "../crates/fnv-spt" }
 fnv-font = { path = "../crates/fnv-font" }
 fnv-vfs = { path = "../crates/fnv-vfs" }

@@ -81,6 +81,26 @@ impl Game<'_> {
         })
     }
 
+    /// Living, present actors whose currently chosen package is `Follow` or `Accompany`
+    /// targeting `leader` (including via `TargetKind::LinkedReference`), sorted by FormID
+    /// (`GetFollowers`). Pure read: does not evaluate unevaluated packages.
+    pub fn followers_of(&self, leader: FormId) -> Vec<FormId> {
+        let mut out: Vec<FormId> = self
+            .extra
+            .iter()
+            .filter_map(|(&actor, e)| {
+                if actor == leader || actor == FormId::PLAYER_REF || e.dead || !self.present(actor) {
+                    return None;
+                }
+                let pkg = e.current_package?;
+                let def = self.package_def(&pkg)?;
+                (matches!(def.ty, PackageType::Follow | PackageType::Accompany) && self.package_target(actor, def) == Some(leader)).then_some(actor)
+            })
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
     /// Whether `actor` is with the player: a teammate, or an actor whose package already
     /// chosen follows the player (`Game::package_follows_player`). Such an
     /// actor seeing the player does not count for the sneak word (#1159, owner's playtest

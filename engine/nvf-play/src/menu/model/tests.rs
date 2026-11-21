@@ -1359,3 +1359,34 @@ fn every_opening_of_a_pocket_rolls_afresh() {
     }
     assert!((8_300..=8_700).contains(&unseen), "{unseen} of 10,000 first takes at 85% went unnoticed");
 }
+
+#[test]
+fn hide_item_barter_ex_filters_vendor_player_and_both_sides() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    // Give both sides CAN, PISTOL, and RIFLE so each side flag is exercised distinctly.
+    w.inventory_mut(FormId(0x14)).unwrap().add(FormId(CAN), 1);
+    w.inventory_mut(FormId(0x14)).unwrap().add(FormId(RIFLE), 1);
+    w.inventory_mut(FormId(BOX_REF)).unwrap().add(FormId(PISTOL), 1);
+
+    let mut m = MenuModel::open_barter(&mut w, FormId(BOX_REF), FormId(BOX_REF), FormId(CAPS), 50.0, 0).unwrap();
+    let has = |m: &MenuModel, side: Side, item: u32| m.list(side).rows.iter().any(|r| r.item == FormId(item));
+    assert!(has(&m, Side::Container, CAN) && has(&m, Side::Player, CAN));
+    assert!(has(&m, Side::Container, PISTOL) && has(&m, Side::Player, PISTOL));
+    assert!(has(&m, Side::Container, RIFLE) && has(&m, Side::Player, RIFLE));
+
+    // Flag 1: shown on player's side only (hidden on vendor's side).
+    // Flag 2: shown on vendor's side only (hidden on player's side).
+    // Flag 3: hidden on both sides.
+    let hidden = BTreeMap::from([(FormId(CAN), 1), (FormId(PISTOL), 2), (FormId(RIFLE), 3)]);
+    m.set_barter_hidden(&mut w, hidden).unwrap();
+    assert!(!has(&m, Side::Container, CAN) && has(&m, Side::Player, CAN), "flag 1 hides vendor side only");
+    assert!(has(&m, Side::Container, PISTOL) && !has(&m, Side::Player, PISTOL), "flag 2 hides player side only");
+    assert!(!has(&m, Side::Container, RIFLE) && !has(&m, Side::Player, RIFLE), "flag 3 hides both sides");
+
+    // Clearing the script overrides restores all items on both sides.
+    m.set_barter_hidden(&mut w, BTreeMap::new()).unwrap();
+    assert!(has(&m, Side::Container, CAN) && has(&m, Side::Player, CAN));
+    assert!(has(&m, Side::Container, PISTOL) && has(&m, Side::Player, PISTOL));
+    assert!(has(&m, Side::Container, RIFLE) && has(&m, Side::Player, RIFLE));
+}

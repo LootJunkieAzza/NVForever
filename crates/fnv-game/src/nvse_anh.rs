@@ -24,10 +24,14 @@ fn num(args: &[XVal], k: usize) -> f64 {
 }
 
 impl Game<'_> {
-    /// An encounter zone's record (ECZN DATA) with SetZoneMinLevel's, SetZoneOwner's and
-    /// SetZoneFlag's (`nvse_lutana`) changes.
+    /// An encounter zone's record (ECZN DATA) with saved `SetZoneRespawns`
+    /// (`World::zone_respawns_override`) and session `SetZoneMinLevel`,
+    /// `SetZoneOwner`, and `SetZoneFlag` (`nvse_lutana`) changes.
     pub(crate) fn zone(&self, z: FormId) -> Option<fnv_sim::forms::ZoneDef> {
         let mut d = *self.world.forms.zones.get(&z)?;
+        if let Some(respawns) = self.world.zone_respawns_override(z) {
+            d.never_resets = !respawns;
+        }
         if let Some(c) = self.other.zone_changes.get(&z) {
             d.min_level = c.min_level.unwrap_or(d.min_level);
             if let Some(o) = c.owner {

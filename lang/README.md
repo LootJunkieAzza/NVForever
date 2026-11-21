@@ -58,12 +58,16 @@ they choose none and English stays.
 `cargo test --workspace` reads every file here: each must parse, each English line must
 still be a text NVForever writes (found in the sources), and each translation must keep
 its line's `{places}`. A line whose English is changed in the code fails the check until
-the file is updated too.
+the file is updated too. And each text the code hands to `tr("…")` or `trf("…")` must
+have a line in every file shipped here (#3146), so a new text cannot be left English by
+forgetting them.
 
 What goes through these files today: the main menu and the pause menu (their entries,
 Back, Defaults, the quit and keep questions), the settings page (its tabs, rows, notes,
 ON / OFF and the names of the choices in its lists and on its choice meters: Off, Auto,
-Amber, Very Hard …), the hacking log and the terminal refusals (#2095), and the Quick Loot list (its keys' words, column heads and `Empty`; the items' and containers' names are the install's). A choice's
+Amber, Very Hard …), the hacking log and the terminal refusals (#2095), lockpicking and the casino games
+(blackjack, roulette, slots: their buttons, rows, refusals and results, #3146; the
+chips' and casinos' names are the install's), and the Quick Loot list (its keys' words, column heads and `Empty`; the items' and containers' names are the install's). A choice's
 name with no line (a resolution, a display's name, a language's own name) shows as it
 is. A note that names a choice names it as the page shows it, so a translated choice
 name is translated in the notes too.

@@ -1436,6 +1436,8 @@ pub fn setup_sky(
     // Per vertex: the weights of the horizon, sky-lower and sky-upper colours (red,
     // green, blue).
     let dome: Vec<[f32; 3]> = weights.iter().map(|w| [w[0], w[1], w[2]]).collect();
+    // The same weights by height, for the reflection cube's sky (reflection_sky.rs).
+    commands.insert_resource(crate::reflection_sky::DomeProfile::from_vertices(&atmosphere.positions, &atmosphere.colors));
     commands.spawn((
         Name::new("Sky"),
         SkyDome(dome),
@@ -2081,6 +2083,21 @@ pub fn tell_sky_colors(sky: Res<SkyState>, mut script: Option<ResMut<nvf_play::s
     rt.game.other.jg9.sky_colors = sky.interior.is_none().then(|| sky.all_color_bytes());
 }
 
+/// Compose the current cell/weather fog for the main camera. Underwater fog uses
+/// the same composition on exit, without waiting for the next weather refresh.
+pub(crate) fn apply_cell_fog(sky: &SkyState, fog: &mut DistanceFog, emissive_mod: f32, no_interior_fog: bool) {
+    if let Some(l) = sky.interior {
+        fog.color = to_color(l.fog_color.map(fnv_world::sky::srgb_to_linear));
+        let far = if no_interior_fog { NO_FOG_FAR } else { l.fog_far };
+        fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), far, l.fog_power, false, 1.0);
+    } else {
+        let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());
+        let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
+        fog.color = to_color(sky.color(ColorType::Fog)).with_alpha(strength);
+        fog.falloff = crate::fog::falloff(near.max(0.0), far, sky.fog_power(), true, sky.emissive_scale() * emissive_mod);
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn update_sky(
     mut sky: ResMut<SkyState>,
@@ -2135,10 +2152,7 @@ pub fn update_sky(
             light.color = crate::lights::display_color(shown(l.directional));
             light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0) * INTERIOR_DIRECTIONAL_SHARE;
         }
-        fog.color = c(l.fog_color);
-        // The player's tweak pushes interior fog out of sight [design: docs/design/tweaks.md].
-        let far = if tweaks.as_ref().is_some_and(|t| t.no_interior_fog) { NO_FOG_FAR } else { l.fog_far };
-        fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), far, l.fog_power, false, 1.0);
+        apply_cell_fog(&sky, &mut fog, emissive_mod, tweaks.as_ref().is_some_and(|t| t.no_interior_fog));
         info!("interior lighting: fog {:.0}..{:.0} power {:.2}", l.fog_near, l.fog_far, l.fog_power);
         return;
     }
@@ -2222,9 +2236,8 @@ pub fn update_sky(
     // No fog: the fog colour's alpha scales the whole effect, so zero turns it off.
     let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());
     let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
-    fog.color = to_color(sky.color(ColorType::Fog)).with_alpha(strength);
     let power = sky.fog_power();
-    fog.falloff = crate::fog::falloff(near.max(0.0), far, power, true, sky.emissive_scale() * emissive_mod);
+    apply_cell_fog(&sky, &mut fog, emissive_mod, false);
     // A lightning flash changes the light each frame it lasts: not worth a line each.
     let flashing = std::mem::replace(&mut *flashed, flash != Vec3::ZERO);
     if sky.time_scale <= 0.0 && flash == Vec3::ZERO && !flashing {

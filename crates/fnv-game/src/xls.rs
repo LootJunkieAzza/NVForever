@@ -6,7 +6,7 @@
 //! and inline strings, formula results, booleans); written: one `Workbook` stream with the
 //! sheets, their names and values. Formatting is neither read nor kept.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 /// A cell's value. The kinds are the ones ExcelGetCellValueType reports [documented:
 /// ExcelGetCellValueType, 1 int, 2 float, 3 string, 4 wide string, 5 formula].
@@ -140,8 +140,16 @@ fn cfb_stream(b: &[u8], names: &[&str]) -> Option<Vec<u8>> {
     if b.get(..8)? != SIG {
         return None;
     }
-    let ss = 1usize << u16_at(b, 30)?.min(16);
-    let mss = 1usize << u16_at(b, 32)?.min(16);
+    let ss_shift = u16_at(b, 30)?;
+    if !(9..=16).contains(&ss_shift) {
+        return None;
+    }
+    let mss_shift = u16_at(b, 32)?;
+    if mss_shift > ss_shift {
+        return None;
+    }
+    let ss = 1usize << ss_shift;
+    let mss = 1usize << mss_shift;
     let dir_start = u32_at(b, 48)?;
     let cutoff = u32_at(b, 56)? as usize;
     let minifat_start = u32_at(b, 60)?;
@@ -151,22 +159,39 @@ fn cfb_stream(b: &[u8], names: &[&str]) -> Option<Vec<u8>> {
         b.get(o..o + ss)
     };
     // The allocation table's sectors: 109 in the header, the rest in a chain of DIFAT
-    // sectors, each ending with the next one's number.
+    // sectors, each ending with the next one's number. A file of `b.len()` bytes can hold
+    // at most `max_sectors` sectors, so both the DIFAT walk and `fat_sectors` are bounded
+    // by it and any DIFAT cycle is rejected [design].
+    let max_sectors = b.len() / ss;
     let mut fat_sectors: Vec<u32> = (0..109).filter_map(|k| u32_at(b, 76 + 4 * k)).filter(|&s| s < MAXREGSECT).collect();
+    if fat_sectors.len() > max_sectors {
+        return None;
+    }
     let mut d = difat_start;
-    let mut guard = 0;
-    while d < MAXREGSECT && guard < 1 << 16 {
+    let mut visited_difat = HashSet::new();
+    while d < MAXREGSECT {
+        if !visited_difat.insert(d) || visited_difat.len() > max_sectors {
+            return None;
+        }
         let s = sector(d)?;
         let n = ss / 4 - 1;
-        fat_sectors.extend((0..n).filter_map(|k| u32_at(s, 4 * k)).filter(|&s| s < MAXREGSECT));
+        for k in 0..n {
+            let f = u32_at(s, 4 * k)?;
+            if f < MAXREGSECT {
+                if fat_sectors.len() >= max_sectors {
+                    return None;
+                }
+                fat_sectors.push(f);
+            }
+        }
         d = u32_at(s, 4 * n)?;
-        guard += 1;
     }
     let fat: Vec<u32> = fat_sectors.iter().filter_map(|&s| sector(s)).flat_map(|s| s.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c))).collect();
     let chain = |start: u32, table: &[u32]| -> Vec<u32> {
         let mut out = Vec::new();
+        let mut seen = HashSet::new();
         let mut s = start;
-        while s < MAXREGSECT && out.len() <= table.len() {
+        while s < MAXREGSECT && out.len() <= table.len() && seen.insert(s) {
             out.push(s);
             s = *table.get(s as usize).unwrap_or(&ENDOFCHAIN);
         }
@@ -191,7 +216,15 @@ fn cfb_stream(b: &[u8], names: &[&str]) -> Option<Vec<u8>> {
         let size = entry_size(e);
         let start = u32_at(e, 116)?;
         let mut data = if size < cutoff {
-            chain(start, &minifat).into_iter().filter_map(|s| mini_stream.get(s as usize * mss..s as usize * mss + mss)).flatten().copied().collect()
+            chain(start, &minifat)
+                .into_iter()
+                .filter_map(|s| {
+                    let off = (s as usize).checked_mul(mss)?;
+                    mini_stream.get(off..off.checked_add(mss)?)
+                })
+                .flatten()
+                .copied()
+                .collect()
         } else {
             read(start)
         };
@@ -307,10 +340,12 @@ fn records(s: &[u8], at: usize) -> impl Iterator<Item = (u16, &[u8], usize)> {
     let mut o = at;
     std::iter::from_fn(move || {
         let t = u16_at(s, o)?;
-        let n = u16_at(s, o + 2)? as usize;
-        let body = s.get(o + 4..o + 4 + n)?;
+        let n = u16_at(s, o.checked_add(2)?)? as usize;
+        let start = o.checked_add(4)?;
+        let end = start.checked_add(n)?;
+        let body = s.get(start..end)?;
         let here = o;
-        o += 4 + n;
+        o = end;
         Some((t, body, here))
     })
 }
@@ -399,7 +434,7 @@ impl<'a> Segs<'a> {
         let ext = if flags & 4 != 0 { self.u32()? as usize } else { 0 };
         let wide = flags & 1 != 0;
         let s = self.chars(n, wide)?;
-        self.skip(4 * runs + ext)?;
+        self.skip(runs.saturating_mul(4).saturating_add(ext))?;
         Some((s, wide))
     }
 }
@@ -455,7 +490,7 @@ fn parse_biff(s: &[u8]) -> Option<Book> {
                 }
             }
             SST => {
-                let mut segs = vec![&b[8..]];
+                let mut segs = vec![b.get(8..)?];
                 while k + 1 < recs.len() && recs[k + 1].0 == CONTINUE {
                     k += 1;
                     segs.push(recs[k].1);
@@ -761,5 +796,103 @@ mod tests {
     fn not_a_workbook() {
         assert_eq!(Book::parse(b"hello"), None);
         assert_eq!(Book::parse(&[0u8; 2048]), None);
+    }
+
+    #[test]
+    fn self_pointing_difat_sector_returns_none() {
+        // 512-byte header + one 512-byte DIFAT sector (sector 0) whose next-DIFAT pointer
+        // names itself. Without cycle/sector bounds this expands to ~4.3 GB.
+        let mut buf = vec![0u8; 1024];
+        buf[..8].copy_from_slice(&SIG);
+        buf[30..32].copy_from_slice(&9u16.to_le_bytes()); // sector shift: 512 B
+        buf[32..34].copy_from_slice(&6u16.to_le_bytes()); // mini sector shift: 64 B
+        buf[48..52].copy_from_slice(&ENDOFCHAIN.to_le_bytes()); // dir_start
+        buf[56..60].copy_from_slice(&4096u32.to_le_bytes()); // mini cutoff
+        buf[60..64].copy_from_slice(&ENDOFCHAIN.to_le_bytes()); // minifat_start
+        buf[68..72].copy_from_slice(&0u32.to_le_bytes()); // difat_start = sector 0
+        for k in 0..109 {
+            buf[76 + 4 * k..80 + 4 * k].copy_from_slice(&FREESECT.to_le_bytes());
+        }
+        // Sector 0: 127 FAT sector entries all naming sector 0, then next-DIFAT = 0.
+        for k in 0..128 {
+            buf[512 + 4 * k..516 + 4 * k].copy_from_slice(&0u32.to_le_bytes());
+        }
+        assert_eq!(Book::parse(&buf), None);
+    }
+
+    #[test]
+    fn difat_cycle_and_excess_fat_sectors_return_none() {
+        // Two-sector DIFAT cycle: 0 -> 1 -> 0.
+        let mut cycle = vec![0u8; 1536];
+        cycle[..8].copy_from_slice(&SIG);
+        cycle[30..32].copy_from_slice(&9u16.to_le_bytes());
+        cycle[32..34].copy_from_slice(&6u16.to_le_bytes());
+        cycle[68..72].copy_from_slice(&0u32.to_le_bytes());
+        for k in 0..109 {
+            cycle[76 + 4 * k..80 + 4 * k].copy_from_slice(&FREESECT.to_le_bytes());
+        }
+        for k in 0..127 {
+            cycle[512 + 4 * k..516 + 4 * k].copy_from_slice(&FREESECT.to_le_bytes());
+            cycle[1024 + 4 * k..1028 + 4 * k].copy_from_slice(&FREESECT.to_le_bytes());
+        }
+        cycle[512 + 4 * 127..512 + 4 * 128].copy_from_slice(&1u32.to_le_bytes());
+        cycle[1024 + 4 * 127..1024 + 4 * 128].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(Book::parse(&cycle), None);
+
+        // Header listing 109 FAT sectors in a 2-sector file (exceeds max_sectors).
+        let mut flood = vec![0u8; 1024];
+        flood[..8].copy_from_slice(&SIG);
+        flood[30..32].copy_from_slice(&9u16.to_le_bytes());
+        flood[32..34].copy_from_slice(&6u16.to_le_bytes());
+        flood[68..72].copy_from_slice(&ENDOFCHAIN.to_le_bytes());
+        for k in 0..109 {
+            flood[76 + 4 * k..80 + 4 * k].copy_from_slice(&0u32.to_le_bytes());
+        }
+        assert_eq!(Book::parse(&flood), None);
+    }
+
+    mod malformed {
+        use super::*;
+        use proptest::prelude::*;
+        use proptest::sample::Index;
+
+        fn sample_workbook_bytes() -> Vec<u8> {
+            let mut b = Book::default();
+            b.sheet_mut(0).cells.insert((0, 0), Cell::Float(10.5));
+            b.sheet_mut(0).cells.insert((1, 0), Cell::Int(-7));
+            b.sheet_mut(0).cells.insert((2, 1), Cell::Str("sample".into()));
+            b.sheet_mut(1).cells.insert((0, 0), Cell::of_text("Привет"));
+            b.to_bytes().unwrap()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(128))]
+
+            /// Mutated or truncated compound workbooks never panic or blow up memory.
+            #[test]
+            fn mutated_workbooks(
+                edits in prop::collection::vec((any::<Index>(), any::<u8>()), 1..8),
+                cut in prop::option::of(any::<Index>()),
+            ) {
+                let mut bytes = sample_workbook_bytes();
+                for (i, byte) in &edits {
+                    let at = i.index(bytes.len());
+                    bytes[at] = *byte;
+                }
+                if let Some(c) = cut {
+                    bytes.truncate(c.index(bytes.len() + 1));
+                }
+                let _ = Book::parse(&bytes);
+            }
+
+            /// Arbitrary payloads starting with the compound-file signature never panic.
+            #[test]
+            fn arbitrary_cfb_payloads(body in prop::collection::vec(any::<u8>(), 0..2048)) {
+                let mut bytes = Vec::with_capacity(SIG.len() + body.len());
+                bytes.extend_from_slice(&SIG);
+                bytes.extend_from_slice(&body);
+                let _ = Book::parse(&bytes);
+            }
+        }
     }
 }

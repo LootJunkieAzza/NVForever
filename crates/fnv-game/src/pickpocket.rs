@@ -234,9 +234,10 @@ impl Game<'_> {
         if self.extra.get(&r).is_some_and(|e| e.teammate || e.out_cold()) {
             return Some(Refusal::NotAllowed);
         }
-        let creature = base_of(self, r).and_then(|b| self.data.actors.get(&b)).is_some_and(|d| &d.sig == b"CREA");
-        if creature && !self.base_data_def(r).is_some_and(|d| d.allow_pickpocket) {
-            return Some(Refusal::NotAllowed);
+        if let Some((id, d)) = self.base_data_source(r) {
+            if &d.sig == b"CREA" && !self.acbs_flag(id, d, crate::actor_values::acbs::ALLOW_PICKPOCKET, |d| d.allow_pickpocket) {
+                return Some(Refusal::NotAllowed);
+            }
         }
         let fighting_player = self.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
         // The player's tweak lets a fleeing actor's pockets be picked [design: docs/design/tweaks.md].

@@ -12,13 +12,9 @@ use rand_core::RngCore;
 /// The help message shown the first time the menu opens (roulette.md §5) [observed:
 /// FalloutNV.esm MESG `HelpRoulette`, flags Message Box and Auto Display].
 pub const HELP_MESSAGE: FormId = FormId(0x0017_2095);
-/// The menu's code to scripts (roulette.md §1) [hypothesis: NVForever's own; the menu
-/// file's `&RouletteMenu;` class number is not in the menu files and no shipped script
-/// asks for it; blackjack's is 1102]. Not 1036: that is the race menu's, which
-/// ShowRaceMenu opens in the opening [observed: layer5-captures.md §10.3;
-/// `game::menus::RACE`]; sharing it made the race menu no script menu, and nothing could
-/// close it. Above the codes the game is known to use (1001 to 1084) [design].
-pub const MENU_CODE: u16 = 1101;
+/// The menu's code to scripts (roulette.md §1) [documented: GECK wiki MenuMode /
+/// `fnv_ui::value::MENU_CLASSES`, `RouletteMenu = 1082`].
+pub const MENU_CODE: u16 = 1082;
 /// The double zero's pocket number (0 to 36 are their own).
 pub const DOUBLE_ZERO: u8 = 37;
 /// Pockets on the wheel [documented: the help message, "38 colored and numbered pockets"].
@@ -147,6 +143,12 @@ impl Spot {
     /// The bet's name for the menu's "Bet:" line: the kind, then the numbers of an inside
     /// bet ("Split 17-20") [design].
     pub fn label(&self) -> String {
+        self.label_with(&|kind| kind)
+    }
+
+    /// [`Spot::label`] with the kind's name put through `word` (the screen's language,
+    /// #3146); the numbers are the same in every language.
+    pub fn label_with(&self, word: &dyn Fn(&'static str) -> &'static str) -> String {
         match self.kind {
             Kind::StraightUp | Kind::Split | Kind::Street | Kind::SixLine | Kind::Corner | Kind::Basket => {
                 let mut n = self.numbers.clone();
@@ -161,9 +163,9 @@ impl Spot {
                 } else {
                     n.iter().map(|&p| pocket_name(p)).collect()
                 };
-                format!("{} {}", self.kind.name(), names.join("-"))
+                format!("{} {}", word(self.kind.name()), names.join("-"))
             }
-            _ => self.kind.name().to_string(),
+            _ => word(self.kind.name()).to_string(),
         }
     }
 }
@@ -542,6 +544,8 @@ mod tests {
         assert_eq!(spot("A13").unwrap().label(), "Six Line 16-21");
         assert_eq!(spot("D01").unwrap().label(), "Basket 0-00-2");
         assert_eq!(spot("S11").unwrap().label(), "Odd");
+        // The kind's name in another language, the numbers as they are (#3146).
+        assert_eq!(spot("D13").unwrap().label_with(&|w| if w == "Split" { "Geteilt" } else { w }), "Geteilt 17-20");
     }
 
     #[test]

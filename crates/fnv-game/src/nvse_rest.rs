@@ -50,10 +50,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `flags [npc]`: the ACBS flags' high 16 bits, the low ones kept [documented:
         // SetActorBaseFlagsHigh; GetActorBaseFlagsHigh reads the same bits].
         "setactorbaseflagshigh" => {
-            if let Some(b) = form(args, 1).or(subject).map(|f| base(g, f)) {
-                let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
-                let new = (flags & 0xFFFF) | ((num(args, 0, 0.0).max(0.0) as u64 & 0xFFFF) << 16);
-                g.field_overrides.insert((b, "ACBS/flags".into()), XVal::Num(new as f64));
+            if let Some(b) = form(args, 1).or(subject).map(|f| g.actor_flags_target(f)) {
+                g.set_actor_base_flags(b, true, (num(args, 0, 0.0).max(0.0) as u64 & 0xFFFF) as u16);
             }
             zero
         }

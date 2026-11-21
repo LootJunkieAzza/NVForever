@@ -14,6 +14,19 @@ original-game parity remain unverified.
 - [documented: GECK wiki, [RemoveReputationExact](https://geckwiki.com/index.php?title=RemoveReputationExact)]
   `RemoveReputationExact reputation axis amount` subtracts a possibly fractional
   amount from infamy (axis 0) or fame (axis 1).
+- [documented: GECK wiki, [SetPCExpelled](https://geckwiki.com/index.php?title=SetPCExpelled); [GetPCExpelled](https://geckwiki.com/index.php?title=GetPCExpelled)]
+  `SetPCExpelled FactionID iFlag` expels the player from `FactionID` and sets
+  the expelled flag when `iFlag != 0`, or clears the expelled flag when
+  `iFlag == 0`. `GetPCExpelled FactionID` (`0x10C1`, CTDA condition index `193`,
+  `ptFaction`) returns `1` when the player is expelled from `FactionID` and `0`
+  otherwise.
+- [documented: GECK wiki, [ShowNameMenu](https://geckwiki.com/index.php?title=ShowNameMenu)]
+  `ShowNameMenu` takes no arguments and opens the player name-entry menu (menu
+  code `1051`, `menus::NAME`).
+- [documented: GECK wiki, [KillAllActors](https://geckwiki.com/index.php?title=KillAllActors)]
+  `KillAllActors [Killer]` (alias `KillAll`) kills every living, present actor
+  in the loaded area except the player, knocking out essential actors instead;
+  the optional `Killer` reference takes credit for the kill.
 
 ## NVForever mapping and open questions
 
@@ -31,6 +44,29 @@ original-game parity remain unverified.
   axes retain the established script-return request and call failure. [hypothesis]
   Those neighboring policies also apply to exact removal; negative and zero amounts,
   boundaries, missing scales and disguise interaction require original-game captures.
+- [design] `SetPCExpelled` and `GetPCExpelled` store expelled faction FormIDs
+  in `PlayerState::expelled_from` (persisted in `GameSnapshot`, omitted when
+  empty). Both accept either a `FACT` FormID (CTDA `ptFaction`, bytecode, ref
+  expression) or an editorID string resolved via `GameData::by_edid`, and
+  reject unknown or non-`FACT` forms without mutating state. When `iFlag != 0`
+  and the player is currently a member of the faction (`faction_rank >= 0`),
+  `SetPCExpelled` also sets the player's rank to `-1` and invalidates the
+  faction/relation caches so `GetInFaction` and `GetFactionRank` reflect the
+  expulsion; `iFlag == 0` clears the expelled flag without re-adding faction
+  membership. [hypothesis] Automatic interior eviction through the nearest door
+  when the player stands inside a faction-owned interior cell, native
+  `SetPCExpelled` bytecode argument encoding, and original-game non-faction /
+  receiver edge cases remain uncaptured and are not implemented here.
+- [design] `ShowNameMenu` calls `Game::open_menu(menus::NAME)`, reusing the same
+  name-entry menu path as `GetPlayerName`. `KillAllActors` and its alias
+  `KillAll` call the shared loaded-area kill pass
+  `functions::console::kill_all_actors_in_loaded` (also used by console
+  `killall`), accepting an omitted or empty `Killer` reference as `None`, a
+  loaded/placed/player reference as `Some(killer)`, and rejecting unknown or
+  non-reference killer arguments without mutating actors. [hypothesis] Native
+  GECK bytecode argument encoding, whether `ShowNameMenu` suppresses or closes
+  an active `ShowTextInputMenu`, and original-game invalid-killer / receiver
+  edge cases remain uncaptured.
 - [hypothesis: selected portable source convention] These global player commands
   ignore a valid explicit receiver and never redirect the mutation to that receiver.
   An explicit empty/invalid receiver fails before dispatch, rather than being

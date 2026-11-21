@@ -195,7 +195,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             for (it, eq) in items {
                 let sig = g.data.sig(it);
                 let ty_ok = code == 0 || sig.and_then(|s| fnv_script::vm::form_type_code(&s)).is_some_and(|t| i64::from(t) == code);
-                let np = g.world.forms.item(it).is_some_and(|i| i.non_playable);
+                let np = g.is_item_non_playable(it);
                 if ty_ok && !(no_np && np) && !(no_q && g.world.is_quest_item(it)) && !(no_eq && eq) {
                     refs.push(XVal::Ref(g.temp_ref(c, it).0));
                 }

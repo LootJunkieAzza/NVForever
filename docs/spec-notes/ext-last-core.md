@@ -13,9 +13,9 @@ the HUD captures in hud.md §14 [observed]. Changes last for the session unless 
 | SetEyes `eyes` | the NPC base's eyes (ENAM), so every reference of it; 1 when set [documented: "Returns 1 for success", "affects their baseform"] | GetEyes |
 | SetHairLength `length [npc]` | the NPC base's LNAM [documented] | GetHairLength |
 | SetNPCWeight `weight [npc]` | the NPC base's NAM7 [documented] | GetNPCWeight |
-| SetActorBaseFlagsHigh `flags [npc]` | the ACBS flags' high 16 bits, the low ones kept [documented] | GetActorBaseFlagsHigh |
+| SetActorBaseFlagsHigh `flags [npc]` | the ACBS flags' high 16 bits, the low ones kept, reaching `fnv-game` actor-flag consumers (§10) [documented] | GetActorBaseFlagsHigh |
 | SetOwningFactionRequiredRank `rank` | the rank a reference's owning faction needs (XRNK) [documented] | GetOwningFactionRequiredRank |
-| SetPackageTargetDistance `package value` (alias SetPackageTargetCount) | the package target's count or distance, for every reader, the AI too [documented] | GetPackageTargetDistance |
+| SetPackageTargetDistance `package value` (alias SetPackageTargetCount) | the package target's count or distance, for every reader, the AI too (`Game::package_def`) [documented]; authored package edits (`SetPackageFlag`, `SetPackageLocation*`, `SetPackageTarget*`) are carried across same-run loads in `Game::Session` and not saved [hypothesis] | GetPackageTargetDistance |
 | SetRefCount `count` | a placed stack's count [documented]; an inventory reference's stack is left alone [hypothesis] | GetRefCount |
 | SetCurrentQuest `quest` | the active quest, "identical to ForceActiveQuest" [documented] | GetCurrentQuest |
 | SetStringGameSettingEx `"Name\|Value"` | a string game setting, as SetStringSetting [documented; the page calls it broken and its replacement working] | GetStringGameSetting |
@@ -163,3 +163,63 @@ existing needs-tracking switch is unchanged.
 encoding remain capture work. Source compiler support is exercised independently
 of numeric bytecode admission. Native command identity is insufficient evidence for
 an argument decoder or CTDA mapping.
+
+## 9. SetCombatDisabled / GetCombatDisabled (`nvse_gaps.rs`)
+
+[documented: https://geckwiki.com/index.php?title=SetCombatDisabled]
+`actor.SetCombatDisabled 0/1` disables or re-enables combat for the calling actor:
+a combat-disabled actor never enters combat with other actors (though others may
+still attack it, and `UseWeapon` / `Use Weapon` packages are unaffected), and the
+state resets on every saved-game load (kept out of both `GameSnapshot` and
+`Game::Session`). `SetCombatDisabled` returns 0 [observed: gaps2] and
+`GetCombatDisabled` reads the flag [observed: gaps3]. [hypothesis] Enabling
+`SetCombatDisabled 1` on an actor already in combat immediately stops its active
+combat (`Game::stop_combat`) and suppresses ally/provocation alarms (`awareness.rs`,
+`combat_group.rs`, `provocation.rs`).
+
+## 10. Live `SetActorBaseFlagsLow` / `SetActorBaseFlagsHigh` consumers (`actor_values.rs`)
+
+[documented: https://geckwiki.com/index.php?title=SetActorBaseFlagsLow,
+https://geckwiki.com/index.php?title=SetActorBaseFlagsHigh,
+https://geckwiki.com/index.php?title=GetActorBaseFlagsLow,
+https://geckwiki.com/index.php?title=GetActorBaseFlagsHigh,
+https://geckwiki.com/index.php?title=ActorHasBaseFlag; `schemas/fnv/gameplay.json`
+NPC_ and CREA ACBS]
+`SetActorBaseFlagsLow` and `SetActorBaseFlagsHigh` update the low and high 16-bit
+halves of an actor base form's 32-bit `ACBS` flags for the current session while
+preserving the opposite half. Record-type-specific bits stay guarded by the resolved
+actor record signature (`NPC_` vs `CREA`): for example, bit 0 is `Female` on `NPC_`
+(`Biped` on `CREA`), bit 4 is `Auto-calc stats` on `NPC_` (`Swims` on `CREA`), bit 23
+is `Autocalc Service` on `NPC_` (`Immobile` on `CREA`), and bits 15–18, 21–22, 28–29,
+and 31 apply to `CREA` only.
+
+[design] Session overrides are indexed in `OtherState::acbs_flags` (`HashMap<FormId,
+u32>`) alongside `field_overrides` (`"ACBS/flags"`) so hot gameplay consumers perform
+an O(1) zero-allocation check (and an empty-map fast path when no overrides are set),
+while `GetActorBaseFlagsLow`, `GetActorBaseFlagsHigh`, `ActorHasBaseFlag`, and
+`GetIsImmobile` read the same override. Every existing `fnv-game` ACBS flag consumer
+now checks the resolved template source's live override before falling back to
+authored `ActorDef` fields: `can_knock_down` (`No Knockdowns`, `Immobile`),
+`no_vats_melee` (`No VATS Melee`), `no_blood` (`No Blood Spray`/`Decal`),
+`allows_pc_dialogue` (`Allow PC Dialogue`), `cant_open_doors` (`Can't Open Doors`),
+`keeps_out_of_water` (`Walks`/`Flies`/`Swims`), `no_combat_in_water`
+(`No Combat in Water`), `base_is_ghost` (`Is Ghost`), `is_fixture` (`Immobile`),
+`actor_level` (`PC Level Mult`), `max_health` (`Auto-calc stats`),
+`no_low_level_processing` (`No Low Level Processing`), `is_immune` (`Invulnerable`),
+`essential_flagged` (`Essential`, below saved `SetEssential` overrides), `respawns`
+(`Respawn`), `pickpocket_refusal` (`Allow Pickpocket`), `services`
+(`Autocalc Service`), `vats_untargetable` (`Flies`), `actor_female` (`Female`, below
+explicit `SetFemale`/character-creator look overrides), and `runtime_minor_flags`
+(`Not Pushable`, `No Rotating To Head-track`, `No Head`, `No Right Arm`,
+`No Left Arm`).
+
+[design] For placed actor references (including `LVLN`/`LVLC` leveled actors),
+`Get/SetActorBaseFlagsLow/High` and `GetIsImmobile` resolve the spawned `NPC_`/`CREA`
+base via `template_source(..., |_| false)` without following template links, while
+each consumer retains its existing template-flag inheritance policy (`No Knockdowns`
+and `No VATS Melee` stay on the actor's own record; Base Data, Model/Animation, Stats,
+AI Data, and Traits flags follow their respective template flags). [hypothesis] That
+every consumer path reacts immediately in the original game without reloading the
+reference or cell, and the exact precedence when `SetEssential` or `SetFemale` has
+already run on the same actor, remain uncaptured; overrides retain the module's
+session-only lifetime (not saved in `GameSnapshot`).

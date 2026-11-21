@@ -21,6 +21,9 @@ pub struct Jip3State {
     pub jg_handlers: Vec<(JgEvent, XVal, Option<FormId>)>,
     /// FreezeTime's mode: game time stands still (`Game::tick`).
     pub time_frozen: bool,
+    /// The quantized game clock at the last RenderUpdate dispatch: its handlers'
+    /// GetSecondsPassed is the time since (docs/spec-notes/jip-callback-clock.md).
+    pub render_clock: Option<f64>,
 }
 
 /// The JohnnyGuitar events whose handlers this file keeps.
@@ -76,6 +79,17 @@ impl Game<'_> {
     /// RenderUpdate) [documented: the SetJohnnyOn…EventHandler pages; hypothesis: the
     /// arguments].
     pub(crate) fn jg_event(&mut self, ev: JgEvent, subject: Option<FormId>) {
+        // A RenderUpdate handler runs every frame as a function, with no script instance
+        // of its own: its GetSecondsPassed (and its nested calls') is the game-clock time
+        // since the previous dispatch, as a main-loop callback's (jip-callback-clock.md)
+        // [hypothesis: B42 True Leaning eases its lean by GetSecondsPassed in its handler;
+        // observed: mods_reference ln_B42Leaning.txt]. A clock that went back (another
+        // session) gives 0.
+        let seconds = (ev == JgEvent::RenderUpdate).then(|| {
+            let now = crate::functions::clock_now(self.time);
+            let last = self.gaps.jip3.render_clock.replace(now);
+            last.map_or(0.0, |l| (now - l).max(0.0))
+        });
         if self.gaps.jip3.jg_handlers.iter().all(|(e, _, _)| *e != ev) {
             return;
         }
@@ -90,7 +104,7 @@ impl Game<'_> {
                 continue;
             }
             let args = subject.map(|s| vec![XVal::Ref(s.0)]).unwrap_or_default();
-            if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
+            if let Err(error) = self.run_function_with_seconds(&f, None, args, None, (RunCtx::default(), seconds)) {
                 self.handler_failed("JohnnyGuitar event handler".into(), error);
             }
         }
@@ -219,12 +233,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let flags = crate::nvse::record_value(g, b, "ACBS", "template_flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
             yes(flags & (num(args, 0, 0.0) as u64) != 0)
         }
-        // The base's Immobile flag (ACBS bit 23) [documented: GetIsImmobile, "incapable of
+        // The base's Immobile flag (CREA ACBS bit 23) [documented: GetIsImmobile, "incapable of
         // moving"; the bit, the schema's ACBS flags].
         "getisimmobile" => {
-            let Some(b) = form(args, 0).or_else(|| subject.map(|r| crate::functions::base_of(g, r).unwrap_or(r))) else { return Some(Ok(zero)) };
-            let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
-            yes(flags & (1 << 23) != 0)
+            let Some(b) = form(args, 0).or(subject).map(|r| g.actor_flags_target(r)) else { return Some(Ok(zero)) };
+            if g.data.sig(g.unclone(b)) == Some(*b"NPC_") {
+                return Some(Ok(zero));
+            }
+            yes(g.actor_base_flags_raw(b) & (1 << crate::actor_values::acbs::IMMOBILE) != 0)
         }
         // LU `list`: the calling actor's race is in the form list [documented: IsRaceInList].
         "israceinlist" => {

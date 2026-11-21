@@ -51,6 +51,9 @@ const CHEM_HELD: u32 = 0x86C;
 const POISON_FX: u32 = 0x85A;
 const POISON: u32 = 0x86D;
 const WITHDRAWAL_HELD: u32 = 0x873;
+const NAMED_FX: u32 = 0x85B;
+const SCRIPT_FX: u32 = 0x85C;
+const PSYCHO: u32 = 0x86E;
 
 const P: FormId = FormId::PLAYER_REF;
 const STRENGTH: u16 = 5;
@@ -174,6 +177,10 @@ fn plugin_bytes() -> Vec<u8> {
         mgef(DAMAGE_RADS, "DamageRads", 4, 0, 54),
         mgef(RESTORE_HUNGER, "RestoreHunger", 0, 0, 74),
         mgef(REDUCE_END, "ReduceEndurance", 2 | 4, 0, 7),
+        // Script effects (archetype 1): one flagged Display Name Only (bit 13), as
+        // Psycho's "Damage +25%", and one not, as a Nuka-Cola's cap.
+        mgef(NAMED_FX, "PsychoMagicEffect", 1 << 13, 1, -1),
+        mgef(SCRIPT_FX, "PlainScriptEffect", 0, 1, -1),
     ]
     .concat();
     let alchs = [
@@ -196,6 +203,7 @@ fn plugin_bytes() -> Vec<u8> {
         alch(BLOOD, "Blood", 0, 0, 0.0, vec![effect_if(RESTORE_HEALTH, 4, 5, 16, vec![has_perk(LEAD_BELLY, 1.0)]), effect(RESTORE_HEALTH, 1, 0, 16)]),
         alch(CHEM_HELD, "ChemHeld", 0, WITHDRAWAL_HELD, 0.0, vec![effect(MOD_STR, 2, 4, 5)]),
         alch(POISON, "TestVenom", 0, 0, 0.0, vec![effect(POISON_FX, 5, 0, 16)]),
+        alch(PSYCHO, "Psycho", 0, 0, 0.0, vec![effect(NAMED_FX, 0, 240, -1), effect(SCRIPT_FX, 0, 240, -1), effect(MOD_STR, 1, 240, 5)]),
     ]
     .concat();
     let spels = [
@@ -996,4 +1004,18 @@ fn a_poison_needs_a_weapon_that_takes_it() {
     assert!(!g.is_poison(FormId(STIM)) && !g.is_poison(FormId(BUFF)));
     assert_eq!(g.use_poison(FormId(POISON)), PoisonUse::NoWeapon);
     assert!(g.player.weapon_poisons.is_empty() && g.player.poison_asked.is_none());
+}
+
+/// #3119: the preview names a Script effect flagged Display Name Only (Psycho's), not one
+/// without the flag, beside the values; an item with none names nothing.
+#[test]
+fn the_preview_names_script_effects_shown_by_name() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(g.aid_preview_names(P, FormId(PSYCHO)), vec![FormId(NAMED_FX)]);
+    assert_eq!(g.aid_preview(P, FormId(PSYCHO)), vec![(STRENGTH, 1.0)]);
+    assert!(g.aid_preview_names(P, FormId(STIM)).is_empty());
+    let m = &g.data.magic_effects[&FormId(NAMED_FX)];
+    assert!(m.shows_name());
+    assert!(!g.data.magic_effects[&FormId(SCRIPT_FX)].shows_name());
 }

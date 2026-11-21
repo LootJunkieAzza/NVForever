@@ -77,6 +77,18 @@ struct GorePiece {
     actor: u32,
     /// It has come to rest (and been measured, [`move_pieces`]).
     settled: bool,
+    /// Where it started (game units), to tell its own flight from the corpse's travel.
+    start: Vec3,
+}
+
+/// An actor's gore on its way to rest: pieces thrown (less those lost), the distances from
+/// the corpse of those at rest, and each one's flight from its start, its start's distance
+/// from the corpse, and where it lies.
+#[derive(Default)]
+struct Landed {
+    thrown: u32,
+    from_corpse: Vec<f32>,
+    pieces: Vec<(f32, f32, Vec3)>,
 }
 
 #[derive(Resource)]
@@ -94,9 +106,11 @@ struct Gore {
     shapes_redrawn: u32,
     joints_cut: u32,
     thrown: u32,
+    /// Pieces removed for leaving the loaded cells or falling through the ground (#3026).
+    lost: u32,
     /// Per actor, the pieces thrown and the distances from its corpse those at rest lie
     /// at, for the log line that tells where the gore ended up.
-    landed: HashMap<u32, (u32, Vec<f32>)>,
+    landed: HashMap<u32, Landed>,
     /// Per actor reference, body bone above a cut and gone bone (skeleton node indices):
     /// the gone bone's pose relative to that body bone when its piece was cut off
     /// ([`anchor_slots`]), so the stump keeps it when the shapes are cut again.
@@ -115,6 +129,7 @@ impl Default for Gore {
             shapes_redrawn: 0,
             joints_cut: 0,
             thrown: 0,
+            lost: 0,
             landed: HashMap::new(),
             anchors: HashMap::new(),
         }
@@ -666,7 +681,7 @@ fn throw_gore(
         let actor_scale = sim.ref_scale(e.form_id) * rig.map_or(1.0, |r| r.base_scale);
         let (thrown, farthest, lowest) = throw_pieces(&mut commands, world_root, &models.meshes, &mut phys, &mut gore, e.form_id, origin, frame, actor_scale, &wanted, &loaded, Vec3::from(e.dir));
         gore.thrown += thrown;
-        gore.landed.entry(e.form_id).or_default().0 += thrown;
+        gore.landed.entry(e.form_id).or_default().thrown += thrown;
         while gore.pieces.len() > MAX_PIECES {
             let (id, ent) = gore.pieces.remove(0);
             phys.world.remove_gore(id);
@@ -738,7 +753,7 @@ fn throw_pieces(
                 angvel: spin.to_array(),
                 mass: PIECE_MASS,
             });
-            let holder = commands.spawn((Transform::from_translation(t).with_rotation(q).with_scale(Vec3::splat(k)), Visibility::Inherited, ChildOf(world_root), GorePiece { id, actor: owner, settled: false })).id();
+            let holder = commands.spawn((Transform::from_translation(t).with_rotation(q).with_scale(Vec3::splat(k)), Visibility::Inherited, ChildOf(world_root), GorePiece { id, actor: owner, settled: false, start: t })).id();
             farthest = farthest.max(t.distance(origin));
             lowest = lowest.min(t.z);
             for (rel, si) in shapes {
@@ -877,6 +892,21 @@ fn move_pieces(mut commands: Commands, mut pieces: Query<(Entity, &mut GorePiece
             continue;
         }
         let Some(s) = phys.world.gore_state(p.id) else { continue };
+        // A piece out of the loaded cells or fallen through the ground is gone: it is not
+        // seen, and its body would stay until its actor unloads (#3026: a player's log had
+        // pieces at rest 7,000 to 700,000 units from the corpse).
+        let at = s.translation;
+        if let Some(why) = lost_piece(phys.ready_at(at), phys.terrain_z(at[0], at[1]), at[2]) {
+            info!("dismember: gore piece {} of {:08X} {why} at ({:.0}, {:.0}, {:.0}): removed", p.id, p.actor, at[0], at[1], at[2]);
+            gore.lost += 1;
+            if !p.settled {
+                if let Some(entry) = gore.landed.get_mut(&p.actor) {
+                    entry.thrown = entry.thrown.saturating_sub(1);
+                }
+            }
+            gone.push((p.id, e));
+            continue;
+        }
         // Drawn between the last two physics steps (`fnv_phys::drawn`); measured where the
         // step put it.
         let d = phys.world.drawn_gore_state(p.id, phys.draw_alpha()).unwrap_or(s);
@@ -889,10 +919,18 @@ fn move_pieces(mut commands: Commands, mut pieces: Query<(Entity, &mut GorePiece
         p.settled = true;
         let Some(corpse) = phys.world.ragdoll_center(p.actor) else { continue };
         let entry = gore.landed.entry(p.actor).or_default();
-        entry.1.push(Vec3::from(s.translation).distance(Vec3::from(corpse)));
-        if entry.1.len() as u32 >= entry.0 {
-            let mut d = std::mem::take(&mut entry.1);
+        entry.from_corpse.push(Vec3::from(s.translation).distance(Vec3::from(corpse)));
+        entry.pieces.push((Vec3::from(s.translation).distance(p.start), p.start.distance(Vec3::from(corpse)), Vec3::from(s.translation)));
+        if entry.from_corpse.len() as u32 >= entry.thrown {
+            let mut d = std::mem::take(&mut entry.from_corpse);
             d.sort_by(f32::total_cmp);
+            // How far each piece went from its own start, and how far its start lies from the
+            // corpse at rest (the corpse's own travel, #3026); the lowest piece's height.
+            let own = std::mem::take(&mut entry.pieces);
+            let flown = own.iter().map(|o| o.0).fold(0.0f32, f32::max);
+            let travel = own.iter().map(|o| o.1).fold(0.0f32, f32::max);
+            let lowest = own.iter().map(|o| o.2.z).fold(f32::INFINITY, f32::min);
+            info!("dismember: gore of {:08X}: pieces flew up to {flown:.0} units from their start; the corpse lies up to {travel:.0} units from where they started; lowest piece at z {lowest:.0}", p.actor);
             info!(
                 "dismember: gore of {:08X} at rest: {} pieces lie {:.0} to {:.0} units from the corpse's trunk (median {:.0}) at ({:.0}, {:.0}, {:.0})",
                 p.actor,
@@ -914,15 +952,39 @@ fn move_pieces(mut commands: Commands, mut pieces: Query<(Entity, &mut GorePiece
     }
 }
 
+/// Why a gore piece at height `z` is lost, if it is: its cell is not loaded (`loaded`
+/// false), or it lies more than [`crate::ragdoll::FELL_THROUGH`] under the terrain there
+/// (`terrain`, an exterior's height) [design, as a corpse is put back from there].
+fn lost_piece(loaded: bool, terrain: Option<f32>, z: f32) -> Option<&'static str> {
+    if !loaded {
+        Some("left the loaded cells")
+    } else if terrain.is_some_and(|t| z < t - crate::ragdoll::FELL_THROUGH) {
+        Some("fell through the ground")
+    } else {
+        None
+    }
+}
+
 fn report(mut exit: MessageReader<AppExit>, gore: Res<Gore>) {
     if exit.read().next().is_some() && (gore.thrown > 0 || gore.shapes_redrawn > 0) {
-        info!("dismember summary: {} shapes redrawn, {} ragdoll joints cut, {} gore pieces thrown, {} still out", gore.shapes_redrawn, gore.joints_cut, gore.thrown, gore.pieces.len());
+        info!("dismember summary: {} shapes redrawn, {} ragdoll joints cut, {} gore pieces thrown, {} lost (out of the loaded cells or through the ground), {} still out", gore.shapes_redrawn, gore.joints_cut, gore.thrown, gore.lost, gore.pieces.len());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #3026: a piece out of the loaded cells or more than 150 units under the terrain is
+    /// lost; one on the ground, a little under it, or in an interior (no terrain) is not.
+    #[test]
+    fn a_piece_out_of_the_cells_or_through_the_ground_is_lost() {
+        assert_eq!(lost_piece(false, Some(5400.0), 5400.0), Some("left the loaded cells"));
+        assert_eq!(lost_piece(true, Some(5400.0), 5200.0), Some("fell through the ground"));
+        assert_eq!(lost_piece(true, Some(5400.0), 5300.0), None, "100 under: not yet");
+        assert_eq!(lost_piece(true, Some(5400.0), 5410.0), None);
+        assert_eq!(lost_piece(true, None, -100_000.0), None, "an interior has no terrain to fall through");
+    }
 
     #[test]
     fn partitions_follow_gone_parts() {

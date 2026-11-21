@@ -162,6 +162,11 @@ impl World<'_> {
         }
     }
 
+    /// Saved `SetZoneRespawns` override for `zone`, if any.
+    pub fn zone_respawns_override(&self, zone: FormId) -> Option<bool> {
+        self.zone_respawns.get(&zone).copied()
+    }
+
     /// `SetZoneRespawns zone flag`: the zone's cells reset (`true`) or never reset, over
     /// its "Never Resets" flag; kept in the saved state [documented: GECK wiki
     /// SetZoneRespawns, "turns respawning on or off for an encounter zone", a savebaked

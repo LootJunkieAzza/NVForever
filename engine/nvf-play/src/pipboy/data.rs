@@ -1416,12 +1416,17 @@ fn track(st: &mut DataState, game: &Game) {
         let world = loc.world;
         // A plugin's value as it is (0 included); the default only when none sets it.
         let reveal = game.sim.as_ref().and_then(|s| s.forms.setting_f32("iMapMarkerRevealDistance")).unwrap_or(REVEAL_DISTANCE);
+        // A marker not in the world now (Initially Disabled and never enabled, a script's
+        // Disable) is not found: Fallout3.esm's 42 switched-off design markers (`DC23b`)
+        // never are, a quest's marker is once enabled; a found marker disabled later stays
+        // found (#3123) [hypothesis: as `known` leaves it off the map].
+        let present = |form: u32| game.sim.as_ref().is_none_or(|s| s.present(form));
         let found: Vec<u32> = markers(st, game)
             .into_iter()
             .flatten()
             .filter(|m| {
                 let r = discovery_radius(m.radius, reveal);
-                m.world == world && r > 0.0 && (m.pos[0] - feet[0]).hypot(m.pos[1] - feet[1]) <= r
+                m.world == world && r > 0.0 && (m.pos[0] - feet[0]).hypot(m.pos[1] - feet[1]) <= r && present(m.form)
             })
             .map(|m| m.form)
             .collect();
@@ -1495,7 +1500,7 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
         .filter(|(q, s)| listed(g, **q, s) && !(g.tweaks.hide_completed_quests && (s.completed || s.failed)))
         .map(|(q, s)| QuestKey { seen: st.seen.get(&q.0).copied().unwrap_or(st.seen_count + 1), form: q.0, done: s.completed || s.failed })
         .collect();
-    model::sort_quests(&mut out.quests);
+    model::sort_quests_with_top(&mut out.quests, g.top_ui_quest().map(|q| q.0));
     // A script's ForceActiveQuest makes its quest the active one [documented: GECK wiki
     // ForceActiveQuest]; the player's pick afterwards wins again.
     if g.ui.active_quest_count != st.forced_seen {
@@ -4301,6 +4306,51 @@ mod tests {
         track(&mut st, &game);
         assert_eq!(st.discovered, BTreeSet::from([10, 40]));
         assert_eq!(st.newly_found, vec![10, 40]);
+    }
+
+    /// #3123: a marker that is Initially Disabled (Fallout3.esm's `DC23b`) is not found in
+    /// range; once a script enables it (a quest's marker) it is found the next time the
+    /// player is in range; a found marker disabled later stays found. Enabled markers as
+    /// before.
+    #[test]
+    fn a_disabled_marker_is_not_found_until_it_is_enabled() {
+        use bevy::ecs::system::SystemState;
+        use fnv_sim::refs::PlacedRef;
+
+        const OFF: u32 = 0x0009_5D47;
+        const ON: u32 = 0x0004_BA53;
+        let off = PlacedRef { sig: *b"REFR", flags: fnv_sim::refs::FLAG_INITIALLY_DISABLED, ..crate::sim::placed_ref(OFF) };
+        let on = crate::sim::placed_ref(ON);
+        let marker = |form, x: f32| read::Marker { form, world: 1, pos: [x, 0.0, 0.0], name: format!("Place {form}"), kind: 5, flags: 0, radius: 0.0, reputation: None };
+        let mut st = DataState { markers: Some(vec![marker(OFF, 100.0), marker(ON, -100.0)]), ..DataState::default() };
+        let mut world = World::new();
+        world.insert_resource(SimState::over_placed([off, on]));
+        world.insert_resource(Location { world: 1, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            track(&mut st, &game);
+        }
+        assert_eq!(st.discovered, BTreeSet::from([ON]), "the disabled marker is in range but not found");
+        assert_eq!(st.newly_found, vec![ON], "no banner or XP for the disabled one");
+
+        // A script enables it: found on the next tracking in range.
+        world.resource_mut::<SimState>().world.set_enabled(FormId(OFF), true).unwrap();
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            track(&mut st, &game);
+        }
+        assert_eq!(st.discovered, BTreeSet::from([OFF, ON]));
+        assert_eq!(st.newly_found, vec![ON, OFF]);
+
+        // Disabled again: it keeps its found state.
+        world.resource_mut::<SimState>().world.set_enabled(FormId(OFF), false).unwrap();
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            track(&mut st, &game);
+        }
+        assert_eq!(st.discovered, BTreeSet::from([OFF, ON]));
     }
 
     /// #2338: a plugin's `iMapMarkerRevealDistance` is used as it is: 0 finds no marker

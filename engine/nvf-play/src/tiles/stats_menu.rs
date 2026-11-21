@@ -1453,6 +1453,10 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
         }
         // On every drawn frame, so a window injected or enabled later crops too.
         fnv_ui::input::mark_clip_windows(ui, p.menu);
+        list::unclip_row_children(ui, list, w.rows.iter().map(|r| r.tile));
+        if let Some(other) = other {
+            list::unclip_row_children(ui, other, w.other_rows.iter().map(|r| r.tile));
+        }
     }
     write_scroll(ui, p.bar, view.desc);
     // The model's first row over the file's own count of the clicks, as the description's.
@@ -3244,6 +3248,36 @@ mod tests {
         ui.set_trait(p.desc_rect, "y", Value::Num(100.0));
         ui.update();
         assert!(run(&mut ui, &snap(), &mut v, true, &mut t).is_ok());
+        ui.set_trait(p.list(), "width", Value::Num(15.0));
+        ui.update();
+        assert!(run(&mut ui, &snap(), &mut v, true, &mut t).unwrap_err().contains("row 0 does not fit"));
+    }
+
+    /// A list row with `<clips>1</clips>` inside a `<clipwindow>1</clipwindow>` list opts
+    /// into the list's window rather than self-clipping its own text children (`list_box_template.xml`,
+    /// [documented: GECK wiki `clipwindow`]): a text vertical alignment offset exceeding
+    /// `_VerticalSpacing` stays inside the list window instead of failing with `row 0 does not fit`,
+    /// while narrowing the list window itself still rejects the page.
+    #[test]
+    fn a_clipped_list_row_with_vertical_text_offset_uses_the_lists_clipwindow() {
+        let with_offset = |x: &str| {
+            x.replace(
+                r#"<hotrect name="TestRow"><target>&true;</target>"#,
+                r#"<hotrect name="TestRow"><target>&true;</target><clips>&true;</clips>"#,
+            )
+            .replace(
+                r#"<text name="ListItemText"><string>Row</string></text>"#,
+                r#"<text name="ListItemText"><y>14</y><string>Row</string></text>"#,
+            )
+        };
+        let (mut ui, mut v, mut t) = (tree_changed(with_offset), view(), StatsTiles::default());
+        run(&mut ui, &snap(), &mut v, true, &mut t).expect("row text inside list clipwindow should be admitted");
+        let p = paths(&ui, PAGE, None).unwrap();
+        let row0_text = t.written.rows[0].text;
+        let piece = t.pieces.iter().find(|piece| piece.tile == row0_text).expect("row 0 text piece");
+        let clip = piece.clip.expect("list clipwindow clip");
+        assert!(clip.height > ROW, "clip should come from the list window ({}), not the {ROW}-unit row box", clip.height);
+        // Narrowing the list container itself still clips row 0 and refuses the page.
         ui.set_trait(p.list(), "width", Value::Num(15.0));
         ui.update();
         assert!(run(&mut ui, &snap(), &mut v, true, &mut t).unwrap_err().contains("row 0 does not fit"));

@@ -225,9 +225,9 @@ fn place(ui: &Ui, t: TileId, parent: Place, measure: &Measure<'_>) -> Place {
             area.width = num(ui, t, "width", w);
             area.height = num(ui, t, "height", h);
         }
-        area.left -= match tile.get("justify") {
-            Some(Value::Sym(s)) if s == "center" => area.width / 2.0,
-            Some(Value::Sym(s)) if s == "right" => area.width,
+        area.left -= match tile.get("justify").and_then(Value::sym_name).as_deref() {
+            Some("center") => area.width / 2.0,
+            Some("right") => area.width,
             _ => 0.0,
         };
     }
@@ -1132,6 +1132,16 @@ mod tests {
         assert!(hit(&ui, &[menu], (86.0, 5.0), &measure).is_some());
         assert!(hit(&ui, &[menu], (116.0, 5.0), &measure).is_none());
         assert!(hit(&ui, &[menu], (86.0, 5.0), &no_measure).is_none());
+        // Entity strings written via SetUIString/SetUIStringAlt behave like Value::Sym.
+        let word = ui.find_tile("T/Word").unwrap();
+        ui.set_trait(word, "justify", Value::Str("&right".into()));
+        // 30 wide, right-justified on x 100: 70 to 100.
+        assert!(hit(&ui, &[menu], (71.0, 5.0), &measure).is_some());
+        assert!(hit(&ui, &[menu], (101.0, 5.0), &measure).is_none());
+        ui.set_trait(word, "visible", Value::Str("&false".into()));
+        assert!(hit(&ui, &[menu], (71.0, 5.0), &measure).is_none());
+        ui.set_trait(word, "visible", Value::Str("&true".into()));
+        assert!(hit(&ui, &[menu], (71.0, 5.0), &measure).is_some());
     }
 
     #[test]

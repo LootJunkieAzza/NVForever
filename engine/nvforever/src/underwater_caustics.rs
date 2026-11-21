@@ -40,7 +40,7 @@ struct UnderwaterCaustics {
     sun: Vec4,
     // Surface height, minimum cell x/y, cell size.
     water: Vec4,
-    // Effective camera fog near, far and alpha; written by underwater_fog in Update.
+    // Effective camera fog near, far and alpha; written by underwater_fog in PostUpdate.
     fog: Vec4,
     // Matching-height, loaded water planes, one bit per cell (row-major).
     wet: UVec4,
@@ -72,9 +72,16 @@ impl Plugin for UnderwaterCausticsPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "underwater_caustics.wesl");
         app.add_plugins((ExtractComponentPlugin::<UnderwaterCaustics>::default(), UniformComponentPlugin::<UnderwaterCaustics>::default()))
-            // WaterPlugin updates underwater_fog in Update. PostUpdate therefore
-            // captures this frame's effective fog, including the depth-density scale.
-            .add_systems(PostUpdate, follow_camera.after(bevy::camera::CameraUpdateSystems).after(bevy::transform::TransformSystems::Propagate));
+            // UnderwaterFogPlugin updates underwater_fog in PostUpdate after
+            // TransformSystems::Propagate; order follow_camera after it so caustics
+            // capture this frame's effective fog, including the depth-density scale.
+            .add_systems(
+                PostUpdate,
+                follow_camera
+                    .after(bevy::camera::CameraUpdateSystems)
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .after(crate::underwater::underwater_fog),
+            );
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         // Ordered against every other pass that flips the view target after tonemapping
         // (`post_process_write`). Core3d runs on the multi-threaded executor and these

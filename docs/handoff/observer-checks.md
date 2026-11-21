@@ -3396,3 +3396,99 @@ already talking takes over at once, same topic or another; nothing is queued or 
      moving ones, and the change from walking to standing can let one creature
      pass briefly into the other. Both are left for the follow-up on the character
      controller's movement path.
+
+## Added 2026-11-21 (script effects shown by name, #3119)
+
+245. **How do the ITEMS card and STATS > EFF write a Script effect flagged Display Name
+     Only?** (P3; #3119, pipboy.md §5.) The GECK wiki says such an effect shows its name
+     and that the names of several are put together [documented: GECK wiki Base Effect];
+     it does not say where or how. Ours: after the value changes, comma-separated
+     ("STR +2, Damage +25%"), the EFF line titled with the item's name [hypothesis]. With a
+     Psycho, a Cateye and a Steady carried, read the ITEMS > Aid card of each; use the
+     Psycho and read STATS > Status > EFF while it lasts; a screenshot of each answers it.
+
+## Added 2026-11-21 (Ammo Use 0 on a ranged weapon, #3023)
+
+246. **Does a ranged weapon with Ammo Use 0 fire without spending or carrying its ammo,
+     and does it ever reload?** (P2; #3023.) The GECK wiki calls Ammo Use "the amount of
+     ammo used per shot" [documented: GECK wiki Weapons] and says nothing of 0. Of the
+     base game's and the add-ons' 502 WEAP records, 25 have Ammo Use 0; all but one are
+     melee weapons or detonators without a projectile; the one ranged weapon is Lonesome
+     Road's Laser Detonator (NVDLC04WeapSonicDetonator, automatic, clip 1, Fire Rate 10,
+     Microfusion Breeder ammo) [observed: `fnvtool combat form` over the six masters].
+     Ours: no round is spent, so it fires at its rate with no reload and needs none carried
+     [hypothesis]. In the Divide, hold the trigger on one of the laser targets for 5 s with
+     and without Microfusion Breeder rounds carried: count the beams (a video at 30 fps
+     does it), watch for a reload, and read the ammo count before and after.
+
+## Added 2026-11-21 (what GetDestructionStage counts, #3053)
+
+247. **Does GetDestructionStage give the stage counted from 1 (DSTD index + 1) or the
+     stage's DSTD damage-stage field?** (P2; #3053, scripts.md.) The wiki says it returns
+     "the current Damage Stage" [documented: GECK wiki GetDestructionStage]. Counting from
+     0 cannot be it: Zeta's generator core tests 8 with eight stages, the Brain waits for 7
+     with seven [observed: their scripts and DEST]. Ours: index + 1 [hypothesis]; the
+     damage-stage field fits every case found too. They differ on Point Lookout's
+     DLC04DarMuckBubble (0x0A012C5E: index 1, damage stage 3, at 40 %): damage one to under
+     40 % with the console (`DamageObject`) and print `GetDestructionStage` (2 or 3).
+     A second case, in the base game and needing no console (#3298): the mantis egg in the
+     Goodsprings schoolhouse (0x0010AC54, V22MantisOotheca: health 1; stages index 0 at
+     100 %, index 1 at 99 % with Cap Damage and Destroy and 50 points a second of its own
+     damage, index 2 at 0 %; damage-stage fields 0, 1, 2 [observed: fnvtool esm decode]).
+     Its script places 12 nymphs (four `PlaceAtMe … 3`) on each OnDestructionStageChange
+     where `GetDestructionStage` is 1 or 2 [observed: fnvtool script decompile, SCPT
+     0x000EF406]. Shoot the egg once and count the nymphs. 12 says index + 1 (our two
+     stage changes, to index 1 and then 2, read 2 and 3). 24 does not settle it: the
+     damage-stage field gives it (the changes read 1 and 2), and so does index + 1 if
+     the original also runs the block for index 0 (reading 1, 2, 3). Ours: 12 since
+     #3053; the smoke scenario `mantis-egg-spawn` expected at least 20 before it.
+
+## Added 2026-11-21 (greetings of two quests at equal priority, #3199, #3061)
+
+248. **Which greeting does an actor say when two quests of the same priority both have
+     one it can say?** (P1: All or Nothing cannot be finished on House's path without the
+     answer; #3199, #3061, dialogue.md §7 item A.) The runtime takes the one stored first
+     (rule 2, an owner statement of 2026-10-10). Two cases where the shipped quest needs
+     the later one [observed: records]:
+     - On House's path, install the override chip in the Hoover Dam control room
+       (VHDControlOverrideBoxSCRIPT runs `VHDMainControlPanel1REF.StartConversation
+       Player, Greeting`). Does the panel say 0x001554D8 ("I knew you'd make it.
+       Resourceful, as always."; VHDHouseBattle, Say Once) or House's generic Lucky 38
+       greeting 0x00125EBD ("The Legion's assault could begin at any moment.";
+       VDialogueMrHouse)? Both quests are priority 55; the generic line is stored first.
+     - In Fallout 3 (or TTW), talk to Doctor Zimmer in Rivet City before The Replicated
+       Man starts: the hire line 0x0002026A (MS08, Say Once) or MS08Fin's goodbye
+       0x000C84FF ("Our dealings are done...")? Both priority 50; the goodbye is stored first.
+     Our [hypothesis]: at equal priority a Say Once line of one quest wins over another
+     quest's plain line. If both come out as the quests need, any further pair that tells
+     "Say Once first" from "later quest first" (the second case has the earlier quest win)
+     is worth a frame.
+
+## Added 2026-11-15 (the Camp McCarran observation window, #2462)
+
+249. **How does the observation window at Camp McCarran look from each side?** (P3;
+     #2462, nif.md §6 "Window glass and environment maps".) Ours since #2462: the pane
+     (VWindow01 0x000FB2F4 in CampMCTermInt02, `vwindow01.nif`) draws its environment
+     cube `ShinyBright_e.dds` added over its blend, not weighted by its texture alpha
+     (about 0.05 in the middle), so grey reflection streaks show from both sides
+     [hypothesis]. In CampMCTermInt02 take one frame from the observation side
+     (`player.setpos x 112`, `y 1200`, `z 18672`, facing north) and one from inside the
+     interrogation room (`x 112`, `y 1700`, `z 18672`, facing south), then a third from
+     the room side while strafing past, to see whether the streaks move with the view.
+     Streaks moving with the view as bright as the frame agree with ours; a pane that is
+     only a faint grey film, or nothing, says the reflection is weighted by alpha.
+
+## Added 2026-11-21 (the angles SetNifBlockRotation sets on a drawn node, #3135, #3138)
+
+250. **Which way does SetNifBlockRotation turn a drawn node?** (P3; #3138,
+     [nif-blocks](../design/nif-blocks.md) Conventions.) NVForever takes a node's angles
+     as those of the transpose of the rotation it is drawn with [observed: the 10mm
+     pistol's ProjectileNode reads 90 0 90 in GetNifBlockRotation, its file matrix's rows
+     taken as columns], and so draws a set angle turned the other way from the plain
+     right-handed rotation [hypothesis: B42 True Leaning's lean right steps the view +22
+     along X and turns its nodes -18° about Y, a roll right only so]. In the original,
+     with a pistol drawn in first person, read `player.GetNifBlockTranslationAlt "Bip01 R
+     Hand" x y z 1 2` (the world place), run `player.SetNifBlockRotation "Bip01 Translate"
+     0 0 30 0 2`, wait a frame and read it again; do the same in NVForever from the same
+     place and heading. The hand moving the same way in both settles it. The reading
+     back, `player.GetNifBlockRotation "Bip01 Translate" "Z" 0 2`, should be 30 in both.

@@ -221,14 +221,35 @@ impl IdlePicker {
 }
 
 impl<'a> Game<'a> {
-    /// The current model file of an IDLE, including SetIdleAnimPath's session
-    /// replacement. The renderer must use the same path as script getters.
+    /// The authored IDLE definition for `idle`, resolving `TempCloneForm`
+    /// aliases back to their original IDLE record.
+    pub fn idle_def(&self, idle: FormId) -> Option<&'a IdleDef> {
+        let origin = self.unclone(idle);
+        self.data.idles.get(&origin)
+    }
+
+    /// The current model file of an IDLE (or its `TempCloneForm` alias),
+    /// including `SetIdleAnimPath`'s session replacement. The renderer must
+    /// use the same path as script getters.
     pub fn idle_animation_path(&self, idle: FormId) -> Option<&str> {
-        let def = self.data.idles.get(&idle)?;
-        match self.field_overrides.get(&(idle,"MODL/".into())) {
-            Some(fnv_script::vm::XVal::Str(path)) => Some(path.as_str()),
-            _ => def.model.as_deref(),
+        let def = self.idle_def(idle)?;
+        let mut cur = idle;
+        for _ in 0..=64 {
+            if let Some(fnv_script::vm::XVal::Str(path)) = self.field_overrides.get(&(cur, "MODL/".into())) {
+                return Some(path.as_str());
+            }
+            match self.clones.get(&cur).copied() {
+                Some(parent) => cur = parent,
+                None => break,
+            }
         }
+        def.model.as_deref()
+    }
+
+    /// Whether `idle` (or its `TempCloneForm` alias) currently names a `.kf`
+    /// animation file, accounting for `SetIdleAnimPath` overrides.
+    pub fn idle_has_file(&self, idle: FormId) -> bool {
+        self.idle_animation_path(idle).is_some_and(|m| m.trim().to_ascii_lowercase().ends_with(".kf"))
     }
 
     /// `actor` is to play `idle`: queued for the animating layer and traced. An IDLE
@@ -236,9 +257,9 @@ impl<'a> Game<'a> {
     /// [hypothesis: only idles with a file can be listed or played by name; the editor
     /// lists only those in collections, documented], which is traced instead.
     pub fn ask_idle(&mut self, actor: FormId, idle: FormId, source: IdleSource) -> bool {
-        let reason = match self.data.idles.get(&idle) {
+        let reason = match self.idle_def(idle) {
             None => Some("not an idle animation"),
-            Some(d) if !d.has_file() => Some("names no animation file"),
+            Some(_) if !self.idle_has_file(idle) => Some("names no animation file"),
             Some(_) => None,
         };
         if let Some(reason) = reason {
@@ -262,8 +283,7 @@ impl<'a> Game<'a> {
     /// As [`Game::idle_allowed`], with `target` as the conditions' target (Run On
     /// Target): the one the actor talks with, for the talking gestures.
     fn idle_allowed_with(&mut self, actor: FormId, target: Option<FormId>, idle: FormId) -> bool {
-        let data = self.data;
-        match data.idles.get(&idle).map(|d| d.conditions.as_deref()) {
+        match self.idle_def(idle).map(|d| d.conditions.as_deref()) {
             Some(Some(c)) => c.is_empty() || self.conditions_pass(c, Some(actor), target, &format!("IDLE {idle}")),
             _ => false,
         }

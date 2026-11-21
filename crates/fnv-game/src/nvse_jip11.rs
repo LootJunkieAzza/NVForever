@@ -117,9 +117,19 @@ impl Game<'_> {
         self.other.jip11.condition_penalty.unwrap_or(fnv_sim::inventory::CONDITION_DAMAGE_PENALTY)
     }
 
-    /// [`fnv_sim::inventory::condition_mult`] with [`Game::condition_damage_penalty`].
+    /// Weapon damage condition multiplier with [`Game::condition_damage_penalty`] and
+    /// Stewie's `no_condition_damage_penalty` / `no_condition_damage_buffer` tweaks
+    /// (matching `fnv_combat::damage` and `engine/nvf-play/src/combat.rs`).
     pub fn weapon_condition_mult(&self, condition: f32) -> f32 {
-        1.0 - (fnv_sim::inventory::CONDITION_DAMAGE_THRESHOLD - condition.clamp(0.0, 1.0)).max(0.0) * self.condition_damage_penalty()
+        if self.tweaks.no_condition_damage_penalty {
+            return 1.0;
+        }
+        let threshold = if self.tweaks.no_condition_damage_buffer {
+            1.0
+        } else {
+            fnv_sim::inventory::CONDITION_DAMAGE_THRESHOLD
+        };
+        (1.0 - (threshold - condition.clamp(0.0, 1.0)).max(0.0) * self.condition_damage_penalty().max(0.0)).max(0.0)
     }
 
     /// A hit on `target`: whether its damage before armour got past the target's DT
@@ -209,7 +219,13 @@ fn item_condition(g: &mut Game, r: FormId) -> (Option<FormId>, f32) {
         return (Some(item), cond);
     }
     let base = crate::functions::base_of(g, r);
-    (base, g.world.peek(r).and_then(|s| s.extra.condition).unwrap_or(1.0))
+    let cond = g
+        .world
+        .peek(r)
+        .and_then(|s| s.extra.condition)
+        .or_else(|| g.world.placed.get(r).and_then(|p| p.health))
+        .unwrap_or(1.0);
+    (base, cond)
 }
 
 /// The JIP batch-11 functions; `None` for any other name.
@@ -510,7 +526,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // script takes it off (the world's NoUnequip lock, saved) [documented].
         "setnounequip" => {
             let Some((actor, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(zero)) };
-            if !g.world.equipment(actor).unwrap_or_default().contains(&item) {
+            let equipped = g.world.peek(actor).and_then(|s| s.inventory.as_ref()).is_some_and(|inv| inv.is_equipped(item));
+            if !equipped {
                 return Some(Ok(zero));
             }
             let lock = num(args, 0).is_some_and(|x| x != 0.0).then_some(fnv_sim::world::EquipLock::NoUnequip);
@@ -521,8 +538,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // ---- armour ----
         // DR or DT times the share condition leaves: all of it from half condition up,
-        // below `1 − (0.5 − condition) × penalty` (SetArmorConditionPenalty's, else 1)
-        // [documented: SetArmorConditionPenalty's formula].
+        // below `1 − (0.5 − condition) × penalty` clamped at 0 (`Game::armor_condition_mult`:
+        // SetArmorConditionPenalty's, else Stewie's `Tweaks::armor_condition_penalty`,
+        // default 1) [documented: SetArmorConditionPenalty's formula; design:
+        // docs/design/tweaks.md].
         "getarmoreffectivedr" | "getarmoreffectivedt" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let (Some(item), cond) = item_condition(g, r) else { return Some(Ok(zero)) };
@@ -530,8 +549,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 return Some(Ok(zero));
             }
             let value = field_num(g, item, "DNAM", if name == "getarmoreffectivedr" { "dr" } else { "dt" }).unwrap_or(0.0);
-            let share = 1.0 - (0.5 - f64::from(cond).clamp(0.0, 1.0)).max(0.0) * g.armor_condition_penalty();
-            XVal::Num(value * share)
+            XVal::Num(value * g.armor_condition_mult(cond))
         }
         // Whether the actor's last hit got past its DT [documented: in its OnHit].
         "getarmourpenetrated" => yes(subject.and_then(|r| g.other.jip11.penetrated.get(&r).copied()).unwrap_or(false)),

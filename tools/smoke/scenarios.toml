@@ -135,6 +135,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "pbr-selftest"
+kind = "tool"
+source = "[design] docs/spec-notes/pbr-materials.md (NVForever's own pack format, #2981); DDS headers [documented] MS DDS_HEADER / DDS_HEADER_DXT10. Files built in memory by fnvtool, no game data."
+note = "fnvtool pbr selftest builds a clean set (DX10 BC7 _orm, BC5_UNORM _n of another size, BC4_UNORM _p, a scalar file) and seven broken files in memory, runs the pbr check validator on them and passes only when exactly the seven expected findings are raised and the clean set reads as its three formats."
+areas = ["graphics"]
+paths = ["crates/fnv-pbr/", "crates/fnv-dds/", "crates/fnvtool/src/pbr_cmd.rs", "crates/fnvtool/src/pbr_check.rs"]
+commands = [["pbr", "selftest"]]
+expect = [
+  { json = "selftest.verdict", schema = "fnv.pbr.check/1", equals = "pbr selftest: PASS (3 formats, 7 expected findings)", count = 1 },
+  { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC7_UNORM", count = 1 },
+  { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC5_UNORM", count = 1 },
+  { json = "selftest.formats.*", schema = "fnv.pbr.check/1", equals = "BC4_UNORM", count = 1 },
+  { json = "selftest.pass", schema = "fnv.pbr.check/1", equals = true, count = 1 },
+  { json = "selftest.missing.#", schema = "fnv.pbr.check/1", equals = 0, count = 1 },
+  { json = "selftest.unexpected.#", schema = "fnv.pbr.check/1", equals = 0, count = 1 },
+]
+
+[[scenario]]
 name = "ui-bit-test-operator"
 kind = "tool"
 source = "[documented] GECK UIO Extra XML Operators; docs/spec-notes/ui-bit-test-operator.md. Authored portable XML expressions without game data."
@@ -336,6 +354,79 @@ run_seconds = 25
 expect = [
   { re = 'distant LOD at the end: .* blocks (\d+) trees', range = [3, 100000], label = "Freeside's object blocks are found and drawn (6 on 2026-11-04; 0 before)" },
   { re = 'distant LOD at the end: LOD chunks (\d+) ', range = [5, 100000], label = "and its game terrain chunks (23 on 2026-11-04; 0 before)" },
+]
+
+[[scenario]]
+name = "distant-objects"
+source = "[design, #3014] docs/design/graphics-enhanced.md §3.21 (engine/nvforever/src/distant_objects.rs): started with --graphics-only distant-objects-12 at Goodsprings noon, the distant objects come on at a reach of 12 cells once, and the exit summary counts the cells judged and the references drawn beyond the loaded cells, without a rendering or validation error. Whether they sit where the LOD leaves holes, with no doubling, is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/distant_objects.rs", "engine/nvforever/src/lod.rs", "crates/fnv-world/tests/visible_when_distant.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "distant-objects-12"]
+run_seconds = 30
+order = [[
+  { text = "distant objects: reach 12 cells (ratio", label = "the distant objects come on at 12 cells from the start" },
+  { re = 'distant objects summary: (?P<n>\d+) cells', range = [1, 2000], label = "the exit summary: cells out to 12 cells judged (at most 600 around a player standing still)" },
+]]
+expect = [
+  { re = 'graphics: .*distant objects 12 cells', label = "the graphics line names the distant objects" },
+  { text = "distant objects: reach 12 cells (ratio", count = 1, label = "the distant objects on once" },
+  { re = 'distant objects summary: \d+ cells, (?P<n>\d+) drawn', range = [1, 1000000], label = "the distant objects drew references the LOD leaves out" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the distant objects" },
+  { text = "Shader validation error", label = "a shader of the distant objects that does not validate" },
+  { text = "Validation Error", label = "a graphics API validation error with the distant objects on from the start" },
+  { text = "panicked", label = "a panic with the distant objects on from the start" },
+]
+
+[[scenario]]
+name = "distant-objects-switch"
+source = "[design, #3014] docs/design/graphics-enhanced.md §3.21 (engine/nvforever/src/distant_objects.rs): the settings page's Distant objects row goes to 12 cells while the game runs at Goodsprings noon, the distant objects come on and stream in; then to 8 cells (the far ones fade out) and Off, without a rendering or validation error; the exit summary is logged as they were on"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/distant_objects.rs", "engine/nvforever/src/settings.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,24:28", NVF_PLAY_TEST_SETTINGS = "11:distant-objects=12 cells,25:distant-objects=8 cells,26.5:distant-objects=Off" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+order = [[
+  "settings: distant-objects 12 cells",
+  { text = "distant objects: reach 12 cells (ratio", label = "the row turns the distant objects on at 12 cells in play" },
+  "settings: distant-objects 8 cells",
+  { text = "distant objects: reach 8 cells (ratio", label = "the reach made smaller in play" },
+  "settings: distant-objects Off",
+  { text = "distant objects: off, 0 cells left", label = "Off: every distant cell faded out and retired" },
+  { re = 'distant objects summary: (?P<n>\d+) cells', range = [1, 2000], label = "the exit summary: cells judged while they were on" },
+]]
+expect = [
+  { re = 'graphics: .*distant objects 12 cells', label = "the graphics line names the distant objects at 12 cells" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the distant objects' reach changes" },
+  { text = "Shader validation error", label = "a shader that does not validate while the distant objects' reach changes" },
+  { text = "Validation Error", label = "a graphics API validation error while the distant objects' reach changes" },
+  { text = "panicked", label = "a panic while the distant objects' reach changes" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "distant-objects-with-ring"
+source = "[design, #3014] docs/design/graphics-enhanced.md §3.21 (engine/nvforever/src/distant_objects.rs, full_detail.rs): started with --graphics-only full-detail-9x9,distant-objects-12 at Goodsprings noon, the full-detail ring and the distant objects beyond it both come on and both log their exit summaries, without a rendering or validation error"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/distant_objects.rs", "engine/nvforever/src/full_detail.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "full-detail-9x9,distant-objects-12"]
+run_seconds = 30
+expect = [
+  { text = "full detail: 9 x 9 ring (radius 4)", count = 1, label = "the ring on once beside the distant objects" },
+  { text = "distant objects: reach 12 cells (ratio", count = 1, label = "the distant objects on once beside the ring" },
+  { re = 'full detail summary: 9x9, (?P<n>\d+) cells', range = [1, 500], label = "the ring's exit summary with cells beyond the loaded ones" },
+  { re = 'distant objects summary: (?P<n>\d+) cells', range = [1, 2000], label = "the distant objects' exit summary with cells beyond the ring" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the ring and the distant objects" },
+  { text = "Shader validation error", label = "a shader that does not validate with the ring and the distant objects" },
+  { text = "Validation Error", label = "a graphics API validation error with the ring and the distant objects" },
+  { text = "panicked", label = "a panic with the ring and the distant objects" },
 ]
 
 [[scenario]]
@@ -965,7 +1056,7 @@ expect = [
 
 [[scenario]]
 name = "graphics-enhanced"
-source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing (the Anti-aliasing choice) replaces the multisampling and back without a rendering error"
+source = "docs/design/graphics-enhanced.md §3: the enhanced look starts (with the 7 x 7 full-detail ring since #3048, §3.20, so every line ends with it), its switches change while the game runs, and temporal anti-aliasing (the Anti-aliasing choice) replaces the multisampling and back without a rendering error"
 areas = ["renderer", "graphics"]
 paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao*", "engine/nvforever/src/post*",
@@ -978,13 +1069,13 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--grap
 run_seconds = 24
 order = [[
   "graphics: ambient occlusion, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
-  { re = 'graphics: longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: longer shadows, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, screen-space water reflections, water caustics and river flow$' },
+  { re = 'graphics: longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: longer shadows, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
 ]]
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" },
@@ -1531,6 +1622,113 @@ order = [[
   { re = 'draw distances: objects 100%, actors 30%, items 25%' },
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the ranges change" }]
+
+[[scenario]]
+name = "full-detail-ring"
+source = "[design, #2701] docs/design/graphics-enhanced.md §3.20 (engine/nvforever/src/full_detail.rs): started with --graphics-only full-detail-9x9 at Goodsprings noon, the full-detail ring comes on at 9 x 9 (radius 4) once, streams draw-only cells beyond the loaded 5 x 5 and draws their references; the exit summary counts its cells and references drawn, without a rendering or validation error. Whether the ring meets the loaded cells and the LOD without holes or doubling is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/full_detail.rs", "engine/nvforever/src/lod.rs", "engine/nvforever/src/treelod.rs", "engine/nvforever/src/destroyed.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "full-detail-9x9"]
+run_seconds = 30
+order = [[
+  { text = "full detail: 9 x 9 ring (radius 4)", label = "the ring comes on at 9 x 9 from the start" },
+  { re = 'full detail summary: 9x9, (?P<n>\d+) cells', range = [1, 500], label = "the exit summary: the ring spawned cells beyond the loaded ones (56 around a player standing still)" },
+]]
+expect = [
+  { re = 'graphics: .*full-detail scenery 9 x 9', label = "the graphics line names the ring" },
+  { text = "full detail: 9 x 9 ring (radius 4)", count = 1, label = "on once" },
+  { re = 'full detail summary: 9x9, \d+ cells, (?P<n>\d+) references drawn', range = [50, 1000000], label = "the ring drew its cells' references" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the ring's cells" },
+  { text = "Shader validation error", label = "a shader of the ring's cells that does not validate" },
+  { text = "Validation Error", label = "a graphics API validation error with the ring on from the start" },
+  { text = "panicked", label = "a panic with the ring on from the start" },
+]
+
+[[scenario]]
+name = "full-detail-switch"
+source = "[design, #2701] docs/design/graphics-enhanced.md §3.20 Sizes (engine/nvforever/src/full_detail.rs): the settings page's Full-detail scenery row goes to 9 x 9 while the game runs at Goodsprings noon, the ring comes on and streams in; then to 7 x 7 (the outer cells fade out) and Off, without a rendering or validation error; the exit summary names the last size the ring had"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/full_detail.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,24:28", NVF_PLAY_TEST_SETTINGS = "11:full-detail=9 x 9,25:full-detail=7 x 7,26.5:full-detail=Off" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+order = [[
+  "settings: full-detail 9 x 9",
+  { text = "full detail: 9 x 9 ring (radius 4)", label = "the row turns the ring on at 9 x 9 in play" },
+  "settings: full-detail 7 x 7",
+  { text = "full detail: 7 x 7 ring (radius 3)", label = "made smaller in play" },
+  "settings: full-detail Off",
+  { re = 'full detail summary: 7x7, (?P<n>\d+) cells', range = [1, 500], label = "the exit summary: cells were spawned while it was on; 7 x 7 the last size it had" },
+]]
+expect = [
+  { re = 'graphics: .*full-detail scenery 9 x 9', label = "the graphics line names the ring" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the ring changes size" },
+  { text = "Shader validation error", label = "a shader that does not validate while the ring changes size" },
+  { text = "Validation Error", label = "a graphics API validation error while the ring changes size" },
+  { text = "panicked", label = "a panic while the ring changes size" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "full-detail-ring-off"
+source = "[design, #2701] docs/design/graphics-enhanced.md §3.20 Draw-only: the reference run of full-detail-ring-9x9, the same start, moves and clock with the ring off. Its game-side exit lines (cells loaded, residents in high process, encounter zones and triggers entered, quests running) give the numbers full-detail-ring-9x9 must give too: the ring changes nothing game-side"
+note = "Keep env and args the same as full-detail-ring-9x9's but for the --graphics-only keys. GOD and GOTO: two cells east at 8 s, a short walk, back two cells at 16 s. The scripts' exit line has no OnLoad count; its quests running stand for the scripts"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/full_detail.rs", "engine/nvforever/src/destroyed.rs", "engine/nvf-play/src/moved.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "8:-59700:1400:9000,16:-67900:1400:8500", NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0", NVF_PLAY_TEST_GAME_DIGEST = "6,12,20,25" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12", "--npc-packages", "all", "--graphics-only", "no-glow"]
+run_seconds = 26
+expect = [
+  { re = 'streaming summary: (?P<n>\d+) cells loaded', range = [40, 40], label = "the cells the game loaded" },
+  { re = 'process summary: (?P<n>\d+) residents in the loaded area \(high process\)', range = [38, 38], label = "the AI's residents in high process at the end" },
+  { re = 'zones: encounter zone \S+ \(\S+\) entered', count = 0, label = "the encounter zones entered" },
+  { re = 'script: .* entered trigger ', count = 1, label = "the triggers entered" },
+  { re = 'scripts: \d+ frames, .*; (?P<n>\d+) quests running;', range = [360, 360], label = "the quests running at the end" },
+]
+order = [[
+  { text = "game digest t=6: cells 2aae5d495d566c31 residents-high c92291cb133ed36a triggers 1 zone-levels 0 onload 59 end", label = "the game's state at 6 s (cells loaded, residents in high process, triggers, zone levels, OnLoad blocks so far)" },
+  { text = "game digest t=12: cells 24348d698ebfa85f residents-high 5e765febfc3b0e13 triggers 1 zone-levels 0 onload 69 end", label = "the game's state at 12 s (cells loaded, residents in high process, triggers, zone levels, OnLoad blocks so far)" },
+  { text = "game digest t=20: cells 2aae5d495d566c31 residents-high 60fc00e0ae5bc653 triggers 1 zone-levels 0 onload 109 end", label = "the game's state at 20 s (cells loaded, residents in high process, triggers, zone levels, OnLoad blocks so far)" },
+  { text = "game digest t=25: cells 2aae5d495d566c31 residents-high 60fc00e0ae5bc653 triggers 1 zone-levels 0 onload 109 end", label = "the game's state at 25 s (cells loaded, residents in high process, triggers, zone levels, OnLoad blocks so far)" },
+]]
+forbid = [
+  { re = 'full detail', label = "nothing of the ring with the row off" },
+  { text = "Caught rendering error", label = "a rendering (validation) error on the ring-off walk" },
+  { text = "panicked", label = "a panic on the ring-off walk" },
+]
+
+[[scenario]]
+name = "full-detail-ring-9x9"
+source = "[design, #2701] docs/design/graphics-enhanced.md §3.20 Draw-only: full-detail-ring-off's run with the ring at 9 x 9 gives the same game-side exit lines with the same numbers (cells loaded, residents in high process, encounter zones and triggers entered, quests running): ring cells are never loaded cells, so scripts, AI, triggers and streaming see no difference; the ring itself drew cells"
+note = "Keep env and args the same as full-detail-ring-off's but for the --graphics-only keys; take the numbers from that scenario's"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/full_detail.rs", "engine/nvforever/src/destroyed.rs", "engine/nvf-play/src/moved.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "8:-59700:1400:9000,16:-67900:1400:8500", NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0", NVF_PLAY_TEST_GAME_DIGEST = "6,12,20,25" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12", "--npc-packages", "all", "--graphics-only", "no-glow,full-detail-9x9"]
+run_seconds = 26
+expect = [
+  { re = 'full detail summary: 9x9, (?P<n>\d+) cells', range = [1, 1000], label = "the ring drew cells on the way" },
+  { re = 'streaming summary: (?P<n>\d+) cells loaded', range = [40, 40], label = "the same cells loaded as with the ring off" },
+  { re = 'process summary: (?P<n>\d+) residents in the loaded area \(high process\)', range = [38, 38], label = "the same residents in high process at the end" },
+  { re = 'zones: encounter zone \S+ \(\S+\) entered', count = 0, label = "the same encounter zones entered" },
+  { re = 'script: .* entered trigger ', count = 1, label = "the same triggers entered" },
+  { re = 'scripts: \d+ frames, .*; (?P<n>\d+) quests running;', range = [360, 360], label = "the same quests running at the end" },
+]
+order = [[
+  { text = "game digest t=6: cells 2aae5d495d566c31 residents-high c92291cb133ed36a triggers 1 zone-levels 0 onload 59 end", label = "the game's state at 6 s, the same as with the ring off" },
+  { text = "game digest t=12: cells 24348d698ebfa85f residents-high 5e765febfc3b0e13 triggers 1 zone-levels 0 onload 69 end", label = "the game's state at 12 s, the same as with the ring off" },
+  { text = "game digest t=20: cells 2aae5d495d566c31 residents-high 60fc00e0ae5bc653 triggers 1 zone-levels 0 onload 109 end", label = "the game's state at 20 s, the same as with the ring off" },
+  { text = "game digest t=25: cells 2aae5d495d566c31 residents-high 60fc00e0ae5bc653 triggers 1 zone-levels 0 onload 109 end", label = "the game's state at 25 s, the same as with the ring off" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error on the 9 x 9 walk" },
+  { text = "panicked", label = "a panic on the 9 x 9 walk" },
+]
 
 [[scenario]]
 name = "sound-volumes"
@@ -3437,6 +3635,26 @@ order = [[
 ]]
 
 [[scenario]]
+name = "sleeper-crosshair-talk"
+source = "issue #3231 (simulation.md §5, crosshair activation): a bed someone lies on yields the crosshair to the sleeper within reach (pick::to_occupant); E on it wakes the sleeper and the conversation follows, instead of the bed refused as in use [design]"
+note = "Easy Pete laid on his bed NVbedtwin01 00176ACE at 2:00 (placed at 497,-248,2334 turned 90°, collision box ±48.6 × ±84.7 in its own space, so it runs east-west over y -297..-200, the floor at 2304). At 25 s the player stands 50 south of the bed's south side; at 27 s the view looks north, 62° down, at that side under the mattress (497,-297,~2330), away from his body, so the ray meets the bed and not him; E at 30 s. Before the fix the bed was the target and `furniture: the player cannot use 00176ACE: in use` was all that happened. A target line `by Collision` or `by Bounds` on him means the view met his body: move the aim, do not loosen the line"
+areas = ["furniture", "dialogue"]
+paths = ["engine/nvf-play/src/activate/pick.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0", NVF_PLAY_TEST_GOTO = "25:497:-347:2310", NVF_PLAY_TEST_LOOK = "27:0:-62", NVF_PLAY_TEST_ACTIVATE = "30" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "2", "--npc-packages", "EasyPeteRef", "--no-voice"]
+run_seconds = 60
+expect = [
+  { text = "furniture: the player cannot use 00176ACE", count = 0, label = "the bed is never what E uses while he lies on it" },
+]
+order = [[
+  { text = "furniture: 00104C80 is on 00176ACE", label = "Easy Pete asleep on his bed" },
+  { re = 'target 0x00104C80 .*\(Talk\) by Occupant', label = "the crosshair on his bed offers Talk to him, by the bed" },
+  { re = 'activate 0x00104C80 .*: asleep, it wakes and gets up before talking', label = "E wakes him" },
+  { text = "furniture: 00104C80 got off 00176ACE", label = "woken, he is off the bed (the exit played)" },
+  { re = 'dialogue: .* is up after [0-9.]+ s: the player talks to it', label = "and the conversation follows, him off the bed" },
+]]
+
+[[scenario]]
 name = "actor-values"
 kind = "tool"
 source = "CLAUDE.md: after actor value changes, fnvtool actor values (docs/spec-notes/actor-values.md §3.1, §7)"
@@ -3657,6 +3875,22 @@ expect = [
   "detection summary",
   { re = '(?P<n>\d+) actors detected by the player', range = [1, 1000], label = "the player detects actors from the camera (player.GetDetected, added 2026-10-17)" },
 ]
+
+[[scenario]]
+name = "getlos-dead-body"
+source = "#3232: TTW's \"Those!\" (Fallout3.esm MS04Script) advances on Player.GetLOS FredWilksRef == 1 with Fred Wilks lying dead; dead actors are in no detection pair, so player.GetLineOfSight on a body read 0"
+note = "VERT1GSRoachHuntedREF (0x00168D1A, south of Goodsprings, as in death-item-radroach) is moved 200 units north of the player, the view turned north and the roach killed; its body in the camera's view reads 1, and 0 once the view is turned south (behind the camera)"
+areas = ["detection", "deaths"]
+paths = ["crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_LOOK = "6:0:-15,13:180:-15", NVF_PLAY_TEST_CONSOLE = "7:00168D1A.moveto player 0 200 20;7.3:close;8:00168D1A.killactor;8.3:close;11:00168D1A.getdead;11.2:player.getlineofsight 00168D1A;11.5:close;15:player.getlineofsight 00168D1A;15.3:close" }
+args = ["--play", "--pos=-58300,-38400,5900", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 17
+expect = [
+  { re = 'console: GetDead on .*>> 1\.00', label = "the roach is dead" },
+  { re = 'console: GetLineOfSight on player >> 1\.00', count = 1, label = "its body in the camera's view: seen" },
+  { re = 'console: GetLineOfSight on player >> 0\.00', count = 1, label = "behind the camera: not seen" },
+]
+order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'GetLineOfSight on player >> 1\.00' }, { re = 'GetLineOfSight on player >> 0\.00' }]]
 
 [[scenario]]
 name = "alert-fiend"
@@ -6208,13 +6442,31 @@ name = "worn-addons-lucky"
 source = "playtest list 7 items 3 and 28 (fnv_actor::records Armor::addons, held_world_model): the CaravanPack's Lightweight Leather Armor wears its biped model list's gloves; Lucky is held in third person as its own engraved model"
 note = "the player equips PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L) and Lucky (WeapNV357RevolverUnique 0x000E2C86; MOD4 357revolverCustom.nif)"
 areas = ["actors", "weapons"]
-paths = ["crates/fnv-actor/src/records.rs", "crates/fnv-actor/src/resolve.rs", "schemas/fnv/objects.json"]
+paths = ["crates/fnv-actor/src/records.rs", "crates/fnv-actor/src/resolve.rs", "crates/fnv-actor/src/first_person.rs", "schemas/fnv/objects.json"]
 env = { NVF_PLAY_TEST_EQUIP = "001735E0,000E2C86", NVF_PLAY_TEST_CONTROL = "6:weapon" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 12
 expect = [
   { re = 'player body: .*wearing \[[^\]]*001735E0[^\]]*\] with the addons \["LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "the armour's gloves are worn with it" },
   { re = 'player weapon: mods 0 on, models Some\("weapons\W+1handpistol\W+357revolverCustom\.nif"\)', label = "Lucky's own model in third person" },
+]
+
+[[scenario]]
+name = "fist-addon-first-person"
+source = "issue #3226 (fnv_actor::first_person::wears_weapon_addons, engine/nvforever/src/player_body.rs build; docs/spec-notes/actors.md §9.2): a fist weapon with no model of its own (WeapBladedGauntlet 0x001519E0: no MODL, BIPL -> ARMABladedGuantlet, Right Hand) was left off the first-person arms, so nothing of it was drawn in first person. The arms now wear its addon, the armour's right glove giving way as on the third-person body; the power fist (a rigid MODL) keeps the bare hand under its model in first person, as before"
+note = "the player wears PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L), is given WeapBladedGauntlet and WeapPowerFist (0x00004347, MODL PowerFistRigid.NIF, BIPL -> ARMAPowerfist) at 2 s, equips the gauntlet at 3 s, draws it at 4 s, swings at 6 and 7 s and switches to the power fist at 8 s. Each equip rebuilds the body; the rebuild's line lists the addons the first-person rig wears and drew a shape of (`first_person::worn_addons`, `Rig::spawned_forms`), only when that rig was built ('N nodes from <folder>', not 'missing')"
+areas = ["actors", "weapons"]
+paths = ["crates/fnv-actor/src/first_person.rs", "crates/fnv-actor/src/resolve.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "001735E0", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:WeapBladedGauntlet:1,2:call:player:AddItem:WeapPowerFist:1,3:call:player:EquipItem:WeapBladedGauntlet,8:call:player:EquipItem:WeapPowerFist", NVF_PLAY_TEST_CONTROL = "4:weapon,6:fire,7:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'player body: armour drawn \[[^\]]*"ARMABladedGuantlet"', label = "the third-person body wears the gauntlet" },
+  { re = 'player body: .*first-person rig \d+ nodes from \S+, wearing \[[^\]]*001519E0[^\]]*\] with the addons \[[^\]]*"ARMABladedGuantlet"[^\]]*\]', label = "the built first-person rig drew the gauntlet (before #3226 only the armour's gloves)" },
+  { re = 'player body: .*wearing \[[^\]]*001519E0[^\]]*\] with the addons \[(?:(?!ARMABladedGuantlet)[^\]])*\]', count = 0, label = "no rebuild with the gauntlet equipped leaves it off the first-person rig" },
+  { re = 'player body: .*wearing \[[^\]]*001519E0[^\]]*\] with the addons \[[^\]]*"LeatherArmorGloveR"', count = 0, label = "the armour's right glove gives way to it, one hand model per hand" },
+  { re = 'combat: WeapBladedGauntlet swing ', label = "the gauntlet swings while worn" },
+  { re = 'player body: .*first-person rig \d+ nodes from \S+, wearing \[[^\]]*00004347[^\]]*\] with the addons \["LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "switched to the power fist: the gauntlet is gone, the arms keep the glove under the rigid fist" },
 ]
 
 # ------------------------------------------------------------------ objects' and actors' animation groups
@@ -6392,9 +6644,23 @@ forbid = [
 ]
 
 [[scenario]]
+name = "trap-pitching-machine-fires"
+source = "issue 3128: a pitching machine's FireWeapon TrapBaseball throws its balls from the model's ProjectileNode; started from its own origin they hit the machine at once"
+note = "TestTraps' pitching machine 0x00165268 (TrapPitchingMachine01) at (3140, 7777, 8449); activated for the plate 0x0016526C with the OnActivate flag (Activate 0016526C 1; without it the console's Activate plays the default Open and the script never runs) at 8 s, its script plays Forward and fires TrapBaseball every 0.5 s, 12 balls. The player stands 600 units in front of it."
+areas = ["traps", "combat"]
+paths = ["crates/fnv-game/src/functions/fighting.rs", "crates/fnv-game/src/nif_blocks.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:00165268.activate 0016526C 1;8.5:close" }
+args = ["--cell", "TestTraps", "--pos=3140,8377,8460", "--heading", "180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'combat: FireWeapon: 0x00165268 fires', min = 3, label = "the machine fires its balls" },
+  { re = 'combat: FireWeapon: 0x00165268 fires TrapBaseball from \(-?\d+, -?\d+, (?P<n>-?\d+)\)', range = [8500, 8540], label = "the balls leave its ProjectileNode, about 70 units above its origin (8449), not its origin" },
+]
+
+[[scenario]]
 name = "grenade-bouquet-self-damage"
 source = "[design] #1819; docs/spec-notes/combat-rules.md, object destruction: Cap Damage stops the first crossing hit, then self-damage must pass it; the issue's supplied data lists bouquet 0016526B at health 20 with stages 98/95/75 percent"
-note = "In TestTraps the player moves onto plate 0016526C, the activate parent of bouquet 0016526B. Require all three stages, its stage explosion and disabled/destroyed state; a loose model or resting wreck alone is insufficient. [hypothesis] The issue's roughly 4.6 seconds follows from its data; ordered logs allow frame scheduling variation without requiring that duration."
+note = "In TestTraps the player moves onto plate 0016526C, the activate parent of bouquet 0016526B. GetDestructionStage counts the last stage (index 2) from 1, so 3 (#3053). Require all three stages, its stage explosion and disabled/destroyed state; a loose model or resting wreck alone is insufficient. [hypothesis] The issue's roughly 4.6 seconds follows from its data; ordered logs allow frame scheduling variation without requiring that duration."
 areas = ["traps", "scripts", "combat"]
 paths = ["crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/combat.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "8:moveto:player:0x0016526C", NVF_PLAY_TEST_CONSOLE = "22:0016526B.getdestructionstage;0016526B.getdisabled;0016526B.getdestroyed;22.5:close" }
@@ -6406,7 +6672,7 @@ order = [[
   "combat: 0x0016526B destruction stage 0 -> 1",
   "combat: 0x0016526B destruction stage 1 -> 2, destroyed, disabled, 1 explosion(s)",
   "combat: explosion GrenadeFragExplosion at ",
-  "console: GetDestructionStage on 0x0016526B >> 2.00",
+  "console: GetDestructionStage on 0x0016526B >> 3.00",
   "console: GetDisabled on 0x0016526B >> 1.00",
   "console: GetDestroyed on 0x0016526B >> 1.00",
 ]]
@@ -6706,6 +6972,21 @@ forbid = [
   { text = "pipboy: the menus are on the model's screen", label = "the arm raised with no Pip-Boy worn" },
   { text = "pipboy: screen treatment on", label = "the screen menu has no background or scanlines" },
   { text = "pipboy: the glare is over the menus", label = "the screen menu has no glass" },
+]
+
+[[scenario]]
+name = "pipboy-holotape-fixed-speaker"
+source = "issue 3022 (holotapes.md section 3): Dead Money's Dog Command Tape names Dog as its speaker while its line is God's (ANAM); its one file is in God's voice folder, and the tape plays it"
+note = "NVDLC01DogCommandNote is given by the console at 8 s and picked at 15 s; its FormID 0100DFCF assumes Dead Money is the first plugin after FalloutNV.esm (the owner's install, as fnvtool reads it). INFO 0100DFC7 has one response, 2.88 s."
+areas = ["pipboy", "audio"]
+paths = ["engine/nvf-play/src/holotape.rs", "crates/fnv-voice/src/bank.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote NVDLC01DogCommandNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=0100DFCF,22:close" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720"]
+run_seconds = 26
+expect = [
+  { re = 'holotape: NVDLC01DogCommandNote plays .* said by NVDLC01Dog, 1 responses', label = "the tape is picked and its line found" },
+  { text = 'holotape: playing sound\voice\deadmoney.esm\nvdlc01creatureuniquegod\nvdlc01dog_nvdlc01dogdialo_0000dfc7_1.ogg', label = "God's file plays" },
+  { text = "holotape: no file for", count = 0, label = "no response is skipped" },
 ]
 
 [[scenario]]
@@ -8125,6 +8406,20 @@ expect = [
   { json = "use.uses.?item=Buffout.usage", equals = 60.0, label = "the second Buffout's usage 60" },
   { json = "use.values_after.Strength", equals = 5.0 },
   { json = "use.values_after.Health", equals = 179.0 },
+]
+
+[[scenario]]
+name = "created-creature-prompt"
+source = "issue 3124: a creature made at run time (PlaceAtMe) is told a creature by its base; one without Allow PC Dialogue shows its name only, not Talk, as a placed one"
+note = "a Brahmin (CrBrahmin 0001CFA2) is PlaceAtMe'd at 3 s, the first created reference 0xFF000000, and moved 150 units in front of the player (heading 0, north). Without the fix the prompt reads Talk."
+areas = ["activation", "reticle", "creatures"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/sim.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrBrahmin:1,3.5:moveto:0xFF000000:player:0:150:0" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { re = 'reticle: prompt "[^"]*" on "Brahmin"', min = 1, label = "the created brahmin is under the crosshair" },
+  { re = 'reticle: prompt "[^"]*Talk[^"]*" on "Brahmin"', count = 0, label = "no Talk on a created creature without Allow PC Dialogue" },
 ]
 
 [[scenario]]
@@ -13569,7 +13864,7 @@ order = [[
   { re = 'sound speed: 0\.\d\d -> 1\.00', label = "and come back to speed when it ends" },
 ]]
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   "player controls: all held, the player is dead",
   { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
@@ -13587,7 +13882,7 @@ env = { NVFOREVER_HOME = "death-fade-recovery-delay-home", NVF_PLAY_TEST_GOTO = 
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   { re = 'death camera: the screen starts fading to black (?P<n>[\d.]+) s after the death', range = [2.0, 2.3], label = "the fade starts about 2 s after the death" },
   { re = 'death camera: the screen is black (?P<n>[\d.]+) s after the death', range = [6.0, 6.3], label = "the screen is black about 6 s after the death" },
@@ -13603,7 +13898,7 @@ env = { NVFOREVER_HOME = "death-cam-third-recovery-delay-home", NVF_PLAY_TEST_GO
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   "death camera: the player died in third person: the body drops as a ragdoll, the camera stays put and looks at it",
   { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
 ]
@@ -13656,7 +13951,7 @@ env = { NVFOREVER_HOME = "ragdoll-floats-recovery-delay-home", NVF_PLAY_TEST_MOV
 args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 50
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   { re = 'ragdoll: actor 00000014 floats at \(5\d{4}, 37\d{3}, [\d.]+\), its trunk (?P<n>-?\d+) units under the surface at 2600', range = [-25, 25], label = "the body comes to rest floating, its trunk at the lake's surface (6 under, 13 s after the death, 2026-10-25)" },
 ]
@@ -16527,7 +16822,7 @@ env = { NVFOREVER_HOME = "death-music-dobj-recovery-delay-home", NVF_PLAY_TEST_C
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   { re = 'music: the player died: the music stops, MUSDeath \(0x[0-9A-F]{8}\) plays', label = "the SOUN fallback plays: the DOBJ's death music names no shipped file" },
 ]
 forbid = [{ text = "death recovery:", label = "camera-only fixture does not dispatch recovery during its unchanged observation window" }, { text = "the default objects' death music", label = "no default objects' death music file in the shipped data" }]
@@ -17507,6 +17802,52 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-script-effect-names"
+source = "[documented] GECK wiki Base Effect: a Script effect flagged Display Name Only shows its name; issue 3119: Psycho's card and STATS > EFF said nothing"
+note = "Psycho (ALCH 00015166) is added at 9 s; ITEMS > Aid is opened at 13.5 s and walked down row by row (the start carries other aid items; each row's card is logged as it is selected); the drop aid uses Psycho at 19 s; STATS > Status > EFF is opened at 23-24 s. Its effect PsychoMagicEffect (MGEF 000679F4) is a Script effect named \"Damage +25%\" with Display Name Only [observed: FalloutNV.esm, #3119]."
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/stats/read.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Psycho:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=2,14:key=down,14.4:key=down,14.8:key=down,15.2:key=down,15.6:key=down,16:key=down,16.4:key=down,17:close,22:open,23:page=stats,23.5:tab=0,27:close", NVF_PLAY_TEST_DROP = "19:00015166:use", NVF_PLAY_TEST_PIPBOY_STATS = "24:sub=2" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'pipboy items: Psycho selected: .*effects: Some\("Damage \+25%"\)', min = 1, label = "the card names the Script effect" },
+  { re = 'aid: the player used Psycho', label = "Psycho is used" },
+  { re = 'pipboy stats: LVL .*, [1-9]\d* effects,', min = 1, label = "STATS lists an effect while Psycho lasts (none before #3119)" },
+]
+
+[[scenario]]
+name = "pipboy-items-heading-heal"
+source = "issue 3120: a Stimpak used from ITEMS > Aid heals a frame after the list changes; the hand-built page's heading draws the new HP with the Pip-Boy still open"
+note = "Health 200 less 60 is 140; the Stimpak at potency 1.3 (Medicine 15) gives 39, so 179 (aid-items). The drop aid opens ITEMS at 16 s, selects the Stimpak (00015169; the start carries other aid items) and uses it, closing half a second later. Without the fix the heading is logged at 140 after the use and not again."
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/stats/read.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:damage:player:Health:60,9.4:call:player:AddItem:Stimpak:1", NVF_PLAY_TEST_DROP = "16:00015169:use" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  { text = "pipboy items: heading HP 140/200", min = 1, label = "the page opens on the damaged HP" },
+  { re = 'aid: the player used Stimpak .*Health 140 → 179', label = "the Stimpak heals" },
+  { text = "pipboy items: heading HP 179/200", min = 1, label = "the heading draws the healed HP, the Pip-Boy still open" },
+]
+order = [["pipboy items: heading HP 140/200", { re = 'aid: the player used Stimpak' }, "pipboy items: heading HP 179/200"]]
+
+[[scenario]]
+name = "tiles-items-heading-heal"
+source = "issue 3120: with [UI] TileMenus=InventoryMenu the tile page writes the healed HP after a Stimpak is used from ITEMS > Aid"
+note = "the same steps as pipboy-items-heading-heal on the tile page."
+areas = ["pipboy", "aid", "ui", "menus"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/stats/read.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:damage:player:Health:60,9.4:call:player:AddItem:Stimpak:1", NVF_PLAY_TEST_DROP = "16:00015169:use" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  { re = 'tiles: InventoryMenu page from tiles: .*HP 140/200,', min = 1, label = "the tile page opens on the damaged HP" },
+  { re = 'tiles: InventoryMenu page from tiles: .*HP 179/200,', min = 1, label = "the tile page writes the healed HP, the Pip-Boy still open" },
+]
+order = [[{ re = 'HP 140/200,' }, { re = 'aid: the player used Stimpak' }, { re = 'tiles: InventoryMenu page from tiles: .*HP 179/200,' }]]
+
+[[scenario]]
 name = "pipboy-aid-effects"
 source = "owner's playtest list 7 items 5, 20 and 33 (docs/spec-notes/aid-items.md §14, pipboy.md §5): an aid item's EFFECTS are the effects whose conditions pass for the player, one line per value (Programmer's Digest one Science +10 without Comprehension or Retention, the Blood Pack HP +1 without Hematophage, the Stimpak one HP line); the ITEMS heading reads HP and DT; a skill book is listed on the Aid tab"
 areas = ["pipboy"]
@@ -17784,7 +18125,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SAMPLE = "2", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "GSSchoolHouse", "--pos", "700,-900,3340", "--play", "--no-voice", "--no-messages"]
 run_seconds = 50
 expect = [
-  { re = 'NVCrGiantMantisNymph \S+: created at \(1101, -1875, 3339\), stands at \(-?\d+, -?\d+, 33[2-5]\d\)', min = 20, label = "the nymphs stand on the floor round the egg, not in it" },
+  { re = 'NVCrGiantMantisNymph \S+: created at \(1101, -1875, 3339\), stands at \(-?\d+, -?\d+, 33[2-5]\d\)', min = 20, label = "the nymphs stand on the floor round the egg, not in it", known_failing = "#3298: 12 since #3053 (GetDestructionStage counts from 1): the egg's script places 12 at stage 1 or 2, and the aid's one hit takes it through 2 and 3; whether the original gives 12 or 24 is observer check 247" },
   { text = "created where no free spot is near", count = 0, label = "every nymph found a spot" },
   { re = 'stress frames: .*1% low (?P<n>[\d.]+) ms', range = [0, 400], label = "no run of second-long frames (was 1,162 ms)" },
   { re = 'at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the footsteps are held to the voice limit" },
@@ -18697,6 +19038,23 @@ expect = [
   { re = 'hotkeys: slot 4: equipped \.357 Magnum Revolver', label = "a tap of 4 after closing equips the revolver" },
 ]
 order = [["pipboy hotkeys: key 3 held", "hotkeys: slot 3 holds", "moved from slot 3", "slot 2 is Ammo Swap", "cannot be hotkeyed", "hotkeys: slot 4: equipped"]]
+
+[[scenario]]
+name = "dismember-quarry-deathclaws"
+source = "issue 3026: a player's 0.8.x log had the gore of two of seven dismembered Quarry Junction Deathclaws come to rest 7,000 to 700,000 units from the corpse; every piece should come to rest near its trunk"
+note = "The player (god mode) stands on the high ground south-west of the QJDeathclawAmbusher references 000E6307 and 000E631C of the player's log; they charge, and the hit aid explodes each head with an overkill sniper shot at 12 and 12.6 s, beside the player and about 900 units above the quarry floor (also the young Deathclaw 000E745F at 14 s, its body out of reach). Corpses and pieces roll down to the floor together, 1,300 to 1,700 units from where they started (seen 2026-11-21); the at-rest line measures from the corpse, so the pieces end within a few hundred units of it."
+areas = ["combat"]
+paths = ["engine/nvforever/src/dismember.rs", "engine/nvf-play/src/dismember.rs", "crates/fnv-phys/src/gore.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "12:0x000E6307:5000:WeapSniperRifle:limb=PerceptionCondition,12.6:0x000E631C:5000:WeapSniperRifle:limb=PerceptionCondition,14:0x000E745F:5000:WeapSniperRifle:limb=PerceptionCondition" }
+args = ["--play", "--world", "WastelandNV", "--pos=-21500,21300,5900", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'dismember: .* 0x000E6307: Head exploded', label = "the first Deathclaw's head explodes" },
+  { re = 'dismember: .* 0x000E631C: Head exploded', label = "the second's too" },
+  { re = 'dismember: gore of 000E6307 at rest: \d+ pieces lie \d+ to (?P<n>\d+) units', range = [0, 1500], label = "every piece of the first comes to rest within 1,500 units of its trunk" },
+  { re = 'dismember: gore of 000E631C at rest: \d+ pieces lie \d+ to (?P<n>\d+) units', range = [0, 1500], label = "and of the second" },
+  { re = 'dismember: gore piece \d+ of \S+ (left the loaded cells|fell through the ground)', count = 0, label = "no piece leaves the loaded cells or falls through the ground here" },
+]
 
 [[scenario]]
 name = "dismember-geckos"
@@ -29524,6 +29882,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-stats-perks-not-playable"
+source = "[documented] GECK wiki Category:Perk: Hidden keeps a perk off the interface, Playable is the level-up menu's; issue 3118: perks given by scripts (challenge perks, implants) are not Playable and are listed"
+note = "the aid gives Lord Death (0015EAE4, a challenge perk, DATA 00 00 03 00 00), the Strength Implant (0014C069) and Intense Training (00044CB1, Playable) before the page opens; the hand-built Perks tab lists all three in name order and down walks them. A --cell start has no perks of its own (tiles-stats-perks counts 2 rows from two)."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/stats/read.rs", "engine/nvf-play/src/pipboy/stats/mod.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=0015EAE4,20.05:perk=0014C069,20.1:perk=00044CB1,29:down,30:down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,32:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 35
+expect = [
+  { re = 'pipboy stats: LVL .*; \d+ S\.P\.E\.C\.I\.A\.L\., \d+ skills, 3 perks,', min = 1, label = "three perks listed: the two that are not Playable with the Playable one" },
+  { re = 'pipboy stats: Perks: Intense Training( \d+)? selected', min = 1, label = "the Playable perk, first by name" },
+  { re = 'pipboy stats: Perks: Lord Death( \d+)? selected', min = 1, label = "the challenge perk (not Playable, not Hidden) is a row" },
+  { re = 'pipboy stats: Perks: Strength Implant( \d+)? selected', min = 1, label = "the implant (not Playable, not Hidden) is a row" },
+]
+
+[[scenario]]
 name = "tiles-stats-perks-off"
 source = "[design] pipboy.md section 5.1.2: without the switch the Perks tab is the hand-built one: nothing of the tile page runs"
 note = "the same steps and times as tiles-stats-perks, at the hand-built places. Shots to compare with it."
@@ -33778,4 +34152,231 @@ run_seconds = 12
 expect = [
   { re = 'combat: swing reaches 1 actors .*1 of them out of the fan of rays at eye height', label = "the level knife swing reaches the low creature through the ground fallback" },
   { re = 'combat: .*, 1 swings \(0 chained, 0 power, 1 hits\)', label = "the short weapon hits once at the widened blocking stop" },
+]
+
+# ------------------------------------------------------------------ authored PBR materials (#2981)
+
+[[scenario]]
+name = "pbr-authored-field"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md: generated authored sets on the real material path; engineering comparator policy, not original-game pixels"
+areas = ["renderer", "textures", "nif"]
+paths = ["crates/fnv-dds/src/lib.rs", "crates/fnv-pbr/", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_spawn/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/authored/", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/pbr_field/", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/data.rs", "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1" }
+# The setting is pinned on: both field scenarios share a home, and a given switch wins over a saved row in a timed run.
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials"]
+run_seconds = 20
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "pbr field: authored sets found (orm in both slots", count = 1 },
+  { text = "pbr field: actual NIF material source, 5 panels (plain, lit, dark, reference, flat), setting on", count = 1 },
+  { re = 'pbr field: readback \d means plain=', count = 2, label = "each readback logs the panels' means and differences" },
+  { text = "pbr field: first rendered readback PASS", count = 1 },
+  { text = "pbr field: second rendered readback PASS", count = 1 },
+  { text = "pbr field: occlusion alone darkens, the two-channel normal matches the three-channel reference, the normal shows PASS", count = 1 },
+  { re = 'authored materials summary: [1-9]\d* material builds applied an ORM set \([1-9]\d* distinct ORM set stems at build\)', count = 1, label = "the exit summary counts the field's authored (ORM) material builds" },
+]
+order = [["pbr field: first rendered readback PASS", "pbr field: second rendered readback PASS", "pbr field: occlusion alone darkens, the two-channel normal matches the three-channel reference, the normal shows PASS"]]
+forbid = [
+  { re = '(?i)pbr field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "Panels plain (no set), lit (_orm occlusion 1 + two-channel BC5 _n decoded on a worker), dark (as lit but for the ORM's red), reference (lit's _orm and the same normal as a three-channel game normal map) and flat (_orm, no normal), identical diffuse bytes, one light with a Y component. The thresholds (pbr_field.rs) are set from the first real readbacks with margins. Each run reserves a new run-* child under pbr-field-home/pbr-field-output with both readbacks (.rgba, .ppm) and the comparator reports."
+manual = "Open readback-1.ppm and readback-2.ppm in the evidence directory: the third panel is darker than the second (occlusion alone), the second and fourth look the same, the fifth differs from the fourth (the normal's tilt)."
+
+[[scenario]]
+name = "pbr-authored-field-off"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md: the Authored materials setting off: the material path builds no index, loads no textures\\pbr\\ file and leaves every material the game's own"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "no-authored-materials"]
+run_seconds = 20
+timeout = 180
+expect = [
+  "authored materials: off",
+  { text = 'pbr field: setting off, no index built and no textures\pbr\ file loaded by the material path', count = 1 },
+  { re = 'pbr field: readback \d means plain=', count = 2, label = "each readback logs the panels' means with the setting off" },
+  { re = "pbr field: first rendered readback PASS", count = 1, label = "first readback with the setting off" },
+  { re = "pbr field: second rendered readback PASS", count = 1, label = "second readback with the setting off" },
+  { text = "pbr field: setting off, plain-material panels identical and the reference distinct PASS", count = 1 },
+  { text = "authored materials summary: off (setting)", count = 1 },
+  { text = "pbr field height: panels (height, height-control) tilted 50 degrees about Y: setting off, neither has a depth map", count = 1, label = "setting off: neither height panel has a depth map" },
+  { re = 'pbr field height: readback \d PASS', count = 2, label = "setting off: both stripes straight, the shifts within tolerance, in both readbacks" },
+  { text = "pbr field height: setting off, no depth map on either panel, both stripes straight PASS", count = 1 },
+]
+forbid = [
+  { re = '(?i)pbr field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = '(?i)pbr field height:.*FAIL', label = "setting off: no height failure" },
+  { re = 'authored materials: \d+ sets under' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The same field with the setting off: the index is never built (no 'authored materials: N sets' line), the material path loads no pbr file (the fixture's own check reads the generated files first), the plain, lit, dark and flat panels draw the same and the reference (its game normal map) differs from them."
+
+[[scenario]]
+name = "pbr-reflect-field"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": generated authored sets on the real material path under a fixed asymmetric reflection cube; engineering comparator policy set from reasoning, not original-game pixels"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/reflection_cube/", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/pbr_field/reflect/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/", "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/vendor/bevy_pbr/src/light_probe/"]
+env = { NVF_PLAY_TEST_PBR_REFLECT_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1", NVF_PBR_METAL_GAIN = "" }
+# The Authored materials row pinned on, as in pbr-authored-field (the two share a home), and with it
+# Reflections on authored materials.
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,authored-reflections"]
+run_seconds = 30
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "authored reflections: on (", count = 1 },
+  { text = "lights: reflection gate installed", count = 1 },
+  { text = "pbr reflect field: actual NIF material source, 12 panels (metal20+X, …), switch on, gate Installed", count = 1 },
+  { text = "pbr reflect field: camera A's cube attached (switch on)", count = 1 },
+  { re = 'pbr reflect field: readback \d A \[metal20\+X=', count = 2, label = "each readback logs both cameras' panel means and the judged quantities" },
+  { text = "pbr reflect field: first rendered readback PASS", count = 1 },
+  { text = "pbr reflect field: second rendered readback PASS", count = 1 },
+  { text = "pbr reflect field: metals show the faces their reflections point at, rougher nearer the cube's mean, controls and the cube-less camera unchanged PASS", count = 1 },
+]
+order = [["pbr reflect field: camera A's cube attached", "pbr reflect field: first rendered readback PASS", "pbr reflect field: second rendered readback PASS", "pbr reflect field: metals show the faces their reflections point at"]]
+forbid = [
+  { re = '(?i)pbr reflect field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = 'reflection gate.*(not found|not installed)' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The reflections' fixed-cube field (the Reflections on authored materials row pinned on; the field's own cameras, not the world camera, whose cube is authored-reflections-sky's). Twelve panels (rows one and two white diffuse; row three the metal base colour: a dark bronze diffuse at the default metal gain 12 and the same at metal_gain = 1), two cameras of one pose (Bevy's default exposure, MSAA 4x, world-view ambient 0.6 with negative alpha, no sun): camera A carries a reflection cube with a different linear colour per world face (+X red, -X cyan, +Y green, -Y magenta, +Z blue, -Z yellow; each level mixed towards their grey mean by level/5), camera B none. Judged on camera A: the five tilted smooth metals (roughness 0.2) show the face their reflection points at (+X, -X, +Y, -Y, +Z: face orientation and Bevy's z flip), the head-on metals at roughness 0.2/0.5/0.9 lie nearer the neutral mean in chromaticity as roughness rises (the level rule), the smooth one clearly blue; the legacy and zero-reflectance controls equal camera B's; the dielectric does not darken; the lifted bronze is at least 1.6 times as bright as the gain-1 bronze (about 2.5 expected: the gain limited to 1/0.40 by the bronze's red) with the same chromaticity (within 0.04). On camera B every white panel is the same white under the ambient (metallic held at 0 without a cube) and the two bronze panels the same bronze. THE THRESHOLDS (the row-three ones too, #2981 metal base colour) (pbr_field/reflect.rs) ARE SET FROM REASONING, NOT FROM READBACKS: the main session must confirm them against the first real readbacks, and compare this run's camera B means (the readback line, B [...]) with pbr-reflect-field-off's, panel for panel: they should be equal. Each run reserves a new run-* child under pbr-field-home/pbr-reflect-field-output with both cameras' readbacks (.rgba, .ppm) and the comparator reports."
+manual = "Open readback-2-a.ppm: top row red, cyan, green, magenta, blue panels (tilted); middle row a duller blue, an almost grey panel, then three white-grey panels; bottom row a dull bronze-tinted blue panel and a darker one of the same tint. readback-2-b.ppm: ten identical grey panels in the top two rows, two identical bronze ones below."
+
+[[scenario]]
+name = "pbr-reflect-field-off"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": the row off, a reflection cube on a camera changes no panel (the reflection gate keeps it from every shader that did not opt in)"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/reflection_cube/", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/pbr_field/reflect/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/", "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/vendor/bevy_pbr/src/light_probe/"]
+env = { NVF_PLAY_TEST_PBR_REFLECT_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1", NVF_PBR_METAL_GAIN = "" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,no-authored-reflections"]
+run_seconds = 30
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "authored reflections: off (setting)", count = 1 },
+  { text = "lights: reflection gate installed", count = 1 },
+  { text = "pbr reflect field: actual NIF material source, 12 panels (metal20+X, …), switch off, gate Installed", count = 1 },
+  { text = "pbr reflect field: camera A's cube attached (switch off)", count = 1 },
+  { re = 'pbr reflect field: readback \d A \[metal20\+X=', count = 2, label = "each readback logs both cameras' panel means with the switch off" },
+  { re = "pbr reflect field: first rendered readback PASS", count = 1, label = "first readback with the switch off" },
+  { re = "pbr reflect field: second rendered readback PASS", count = 1, label = "second readback with the switch off" },
+  { text = "pbr reflect field: switch off, the cube on camera A changes no panel PASS", count = 1 },
+]
+forbid = [
+  { re = '(?i)pbr reflect field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = 'authored reflections: on' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+  { re = 'reflection gate.*(not found|not installed)', label = "the gate in place with the switch off too" },
+]
+note = "The reflection field with the Reflections on authored materials row off (--graphics-only no-authored-reflections): authored materials are built with metallic 0 and no NIF pipeline opts in, yet camera A still carries the filled cube (Bevy sets ENVIRONMENT_MAP for its pipelines), so every panel of camera A must equal camera B's: the reflection gate keeps the cube from shaders without the opt-in. Camera B is today's picture of these panels. Thresholds as in pbr-reflect-field (set from reasoning; the main session confirms them against the first real readbacks). Output under pbr-field-home/pbr-reflect-field-output."
+
+[[scenario]]
+name = "authored-reflections-sky"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": the world camera's reflection cube filled from the sky where the mount has authored sets; generated sets only (the reflection field's fixture written into a fresh folder of the run and mounted over every loose layer for the run), no game-derived file"
+areas = ["renderer", "textures", "sky"]
+paths = ["engine/nvforever/src/reflection_sky.rs", "engine/nvforever/src/reflection_sky/", "engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/reflection_cube/", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_MOUNT_PACK = "1", NVFOREVER_HOME = "pbr-reflect-home", NVF_PLAY_TEST_GOD = "1" }
+# Both rows pinned on (a given switch wins over a saved row in a timed run).
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,authored-reflections"]
+run_seconds = 20
+timeout = 180
+expect = [
+  { re = 'pbr mount pack: \d+ generated files written under ', count = 1, label = "the generated sets are in the run's own fresh folder, mounted with the game's" },
+  "authored materials: on",
+  { text = "authored reflections: on (", count = 1, label = "both rows on, so the run's reflections state is on" },
+  { text = "lights: reflection gate installed", count = 1 },
+  { re = 'authored materials: [1-9]\d* sets under ', count = 1, label = "the mount's index counts the generated sets" },
+  { re = "reflection sky: first fill of the world camera's cube \\(outdoors;", count = 1, label = "the first fill, from the exterior's sky" },
+  { re = 'reflection cube: attached to \S+ \(generation \d+', count = 1, label = "Bevy's component on the world camera once the fill is on the GPU" },
+  { re = 'reflection sky summary: [1-9]\d* fills \([1-9]\d* outdoors, 0 indoors\), \d+ checks skipped as unchanged', count = 1, label = "the exit summary counts the fills" },
+]
+order = [["reflection sky: first fill of the world camera's cube", "reflection cube: attached to", "reflection sky summary:"]]
+forbid = [
+  { re = 'pbr mount pack: FAIL' },
+  { re = 'reflection sky: off' },
+  { re = 'reflection gate.*(not found|not installed)', label = "the gate in place, or no cube could be attached" },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The world camera's reflection cube (#2981): the test aid NVF_PLAY_TEST_PBR_MOUNT_PACK writes the reflection field's generated sets (textures\\reflect\\, textures\\pbr\\reflect\\; no game shape uses them) into a fresh folder of the run, pbr-reflect-home/pbr-mount-pack/run-*, every file created new, and mounts it over every other loose layer for the run only (no mods folder is written), so the mount has authored sets; with both rows on and the gate installed the producer makes one cube for the world camera, fills it from Goodsprings' sky (the first-fill line logs the level-0 zenith, horizon and nadir texels and both hemisphere means: the units to check against the ambient), and Bevy's component goes on once the fill is on the GPU. Log lines only: nothing in the scene is authored, so no picture changes; pictures of a real pack are the main session's."
+
+[[scenario]]
+name = "authored-reflections-off"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": the row off, no cube is made although the mount has authored sets"
+areas = ["renderer", "textures", "sky"]
+paths = ["engine/nvforever/src/reflection_sky.rs", "engine/nvforever/src/reflection_sky/", "engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_MOUNT_PACK = "1", NVFOREVER_HOME = "pbr-reflect-home", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,no-authored-reflections"]
+run_seconds = 20
+timeout = 180
+expect = [
+  { re = 'pbr mount pack: \d+ generated files written under ', count = 1, label = "the mount has authored sets, so only the row keeps the cube away" },
+  "authored materials: on",
+  { text = "authored reflections: off (setting)", count = 1 },
+  { text = "reflection sky: off (setting); no reflection cube is made", count = 1 },
+  { text = "reflection sky summary: off (setting)", count = 1 },
+]
+forbid = [
+  { re = 'pbr mount pack: FAIL' },
+  { re = 'reflection sky: first fill' },
+  { re = 'reflection cube: attached' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The row off with the same generated sets in the mount: no cube is allocated or attached, the summary says off (setting). With the row off the NIF pipelines get no opt-in def and authored metallic stays 0, so the picture is the one before the reflections (the pull request's head a71e8f00a); that equality in pictures is the main session's check."
+
+[[scenario]]
+name = "pbr-authored-field-height"
+source = "[design, #2981 stage 4] docs/spec-notes/pbr-materials.md: a generated height-only set's _p drawn as parallax on a tilted panel beside its control; engineering comparator policy (first, generous thresholds), not original-game pixels"
+areas = ["renderer", "textures", "nif"]
+paths = ["crates/fnv-pbr/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/authored/", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/pbr_field/", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_spawn/", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/vendor/bevy_pbr/src/render/parallax_mapping.wesl", "engine/vendor/bevy_pbr/src/render/pbr_fragment.wesl"]
+env = { NVF_PLAY_TEST_PBR_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1" }
+# The setting pinned on, as pbr-authored-field (the same field, judged here for its height panels).
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials"]
+run_seconds = 20
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "pbr field height: panels (height, height-control) tilted 50 degrees about Y: the height-only set's _p", count = 1 },
+  { re = 'pbr field height: readback \d high=[+-]\d+\.\d+ px low=[+-]\d+\.\d+ px \(predicted low -7\.8\d px.*brightest \d+, ground \d+\.\d', count = 2, label = "each readback logs the height panels' stripe shifts in pixels, the brightest value and the ground" },
+  { re = 'pbr field height: readback \d PASS', count = 2, label = "both readbacks' height panels pass" },
+  { text = "pbr field: second rendered readback PASS", count = 1 },
+  { text = "pbr field height: the height map moves the low band's stripe the predicted way and leaves the high band's in place PASS", count = 1 },
+  { re = 'authored materials summary: .*, [1-9]\d* a height-only set.s height map;.*height maps: [1-9]\d* material builds applied one;', count = 1, label = "the exit summary counts the height panel's height-only build and its height map" },
+]
+order = [["pbr field: second rendered readback PASS", "pbr field height: the height map moves the low band's stripe the predicted way and leaves the high band's in place PASS"]]
+forbid = [
+  { re = '(?i)pbr field:.*(FAIL|timeout|missing|wrong byte count)', label = "no failure or timeout in the five panels' lines (the readbacks must complete)" },
+  { re = '(?i)pbr field height:.*(FAIL|no stripe found)', label = "no height failure or missing stripe" },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "Panels height and height-control: the same quad tilted 50 degrees about Y (the five other panels and the orthographic camera as in pbr-authored-field), a diffuse with a narrow bright stripe at U 0.5; height has a height-only set (_p white above, black below, parallax_depth 0.08, the scalar range's end since 2026-11-20; 0.1 before), drawn with the default method (relief:4 after at most 8 layers, named in the panels' log line). Per readback the log gives the stripe's shift (height minus control) in the high and the low band and the prediction (about -7.8 px: towards decreasing mesh U; -9.8 at the old depth); the comparator wants the low band within 2.5 px of the prediction and the high band and the control within 1.5 px. Observed on b4660af00 (field only, depth 0.1, occlusion): high +0.00, low -9.76 against -9.81, control 64.00/64.00; the stripe then clipped at 255 and was darkened to sRGB 180 on 90. Observed at ca0e10c9e (depth 0.08, relief:4 after eight layers): both readbacks passed, high +0.13 px, low -7.86 against -7.84 px, control 64.00/64.00. The height lines (pbr field height:) never decide the five panels' verdict."
+manual = "Open readback-1.ppm in the evidence directory: in the sixth panel the stripe's lower half sits left of its upper half; in the seventh (the control) it runs straight."
+
+[[scenario]]
+name = "glass-mccarran-observation"
+source = "docs/spec-notes/nif.md §6 \"Window glass and environment maps\" (issue #2462, owner's playtest 2026-11-14: the interrogation room's window at Camp McCarran has no visible glass): CampMCTermInt02, the window 000FB2F4 (vwindow01.nif, Window_Environment_Mapping, ShinyBright_e.dds) seen from the observation side, south of it, looking north into the interrogation room; one frame in target/smoke (glass_mccarran_south.png)"
+areas = ["rendering"]
+paths = ["engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "8:glass_mccarran_south.png" }
+args = ["--play", "--cell", "CampMCTermInt02", "--pos=112,1200,18672", "--heading", "35", "--no-voice", "--no-messages"]
+run_seconds = 10
+manual = "glass_mccarran_south.png: the window in the wall ahead shows a pane: grey streaks of reflection over the room beyond, which stays readable through it"
+expect = [
+  { re = 'vwindow01\.nif: 1 shape\(s\) with a window environment map \(textures.effects.ShinyBright_e\.dds, scale 1\.00, over the blend\): VWindow01:0', label = "the pane is drawn with its environment map, added over its blend" },
+  { re = 'test aid: screenshot .*glass_mccarran_south\.png', label = "the observation-side frame is saved" },
+]
+
+[[scenario]]
+name = "glass-mccarran-interrogation"
+source = "docs/spec-notes/nif.md §6 \"Window glass and environment maps\" (issue #2462): the same window seen from inside the interrogation room, north of it, looking south at the dark lockers behind it, where the owner saw no pane at all; one frame in target/smoke (glass_mccarran_north.png)"
+areas = ["rendering"]
+paths = ["engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "8:glass_mccarran_north.png" }
+args = ["--play", "--cell", "CampMCTermInt02", "--pos=112,1700,18672", "--heading", "145", "--no-voice", "--no-messages"]
+run_seconds = 10
+manual = "glass_mccarran_north.png: the window ahead shows a pane over the dark lockers beyond (reflection streaks), not an empty opening"
+expect = [
+  { re = 'vwindow01\.nif: 1 shape\(s\) with a window environment map \(textures.effects.ShinyBright_e\.dds, scale 1\.00, over the blend\): VWindow01:0', label = "the pane is drawn with its environment map, added over its blend" },
+  { re = 'test aid: screenshot .*glass_mccarran_north\.png', label = "the interrogation-side frame is saved" },
 ]

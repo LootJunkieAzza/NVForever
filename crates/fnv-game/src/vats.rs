@@ -224,7 +224,9 @@ impl Game<'_> {
         if self.is_ghost(r) {
             return Some("a ghost");
         }
-        let flies = self.stats_def(r).is_some_and(|d| d.flies);
+        let flies = self
+            .stats_source(r)
+            .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::FLIES, |d| d.flies));
         if flies && crate::functions::actor_value(self, r, crate::actor_values::AGGRESSION).unwrap_or(0.0) < 1.0 {
             return Some("an unaggressive flying creature");
         }

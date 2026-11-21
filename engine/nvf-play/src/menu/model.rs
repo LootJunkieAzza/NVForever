@@ -714,6 +714,9 @@ pub struct Trade {
     /// A script's price multipliers, buying and selling (SetBarterPriceMult,
     /// `fnv_game::nvse_jip12`), in place of the rules'.
     pub mult_set: [Option<f32>; 2],
+    /// Items hidden by `HideItemBarterEx` for this merchant (`1` hidden on vendor's side,
+    /// `2` hidden on player's side, `3` hidden on both) [documented: HideItemBarterEx].
+    pub hidden: BTreeMap<FormId, i64>,
 }
 
 /// Whether the merchant sells an item: `None` when it does, else the name of the service
@@ -771,6 +774,17 @@ impl Trade {
         match side {
             Side::Container => self.stock,
             Side::Player => PLAYER,
+        }
+    }
+
+    /// Whether `HideItemBarterEx` hides `item` on `side` (`1` hidden on vendor's side,
+    /// `2` hidden on player's side, `3` hidden on both) [documented: HideItemBarterEx].
+    pub fn is_hidden(&self, item: FormId, side: Side) -> bool {
+        match self.hidden.get(&item).copied().unwrap_or(0) {
+            1 => side == Side::Container,
+            2 => side == Side::Player,
+            3 => true,
+            _ => false,
         }
     }
 
@@ -1045,6 +1059,7 @@ impl MenuModel {
             sells: None,
             withheld: Vec::new(),
             mult_set: [None; 2],
+            hidden: BTreeMap::new(),
         });
         m.focus = Side::Player;
         m.refresh(world)?;
@@ -1055,6 +1070,14 @@ impl MenuModel {
     pub fn set_sells(&mut self, world: &mut World<'_>, sells: Sells) -> Result<(), SimError> {
         if let Some(t) = self.trade.as_mut() {
             t.sells = Some(sells);
+        }
+        self.refresh(world)
+    }
+
+    /// Apply active `HideItemBarterEx` item flags for this merchant and list the trade again.
+    pub fn set_barter_hidden(&mut self, world: &mut World<'_>, hidden: BTreeMap<FormId, i64>) -> Result<(), SimError> {
+        if let Some(t) = self.trade.as_mut() {
+            t.hidden = hidden;
         }
         self.refresh(world)
     }
@@ -1239,8 +1262,9 @@ impl MenuModel {
             own[i] = l
                 .rows
                 .into_iter()
-                // A live explosive (`Row::live`) is not for trade (#1640).
-                .filter(|r| r.item != t.caps && !r.quest && !r.live && !(side == Side::Player && hide_equipped && r.equipped) && !(side == Side::Player && hotkeyed.contains(&r.item)))
+                // A live explosive (`Row::live`) is not for trade (#1640); items hidden by
+                // `HideItemBarterEx` (`t.is_hidden`) stay off the requested side(s).
+                .filter(|r| r.item != t.caps && !r.quest && !r.live && !t.is_hidden(r.item, side) && !(side == Side::Player && hide_equipped && r.equipped) && !(side == Side::Player && hotkeyed.contains(&r.item)))
                 .filter(|r| {
                     // The player's tweak holds the player's side to the merchant's list too [design: docs/design/tweaks.md].
                     let why = (side == Side::Container || both_sides).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
@@ -1995,6 +2019,7 @@ pub fn report_trade_progress_fixture(step: usize) -> MenuModel {
         sells: None,
         withheld: vec![],
         mult_set: [None; 2],
+        hidden: BTreeMap::new(),
     };
     if step >= 1 {
         t.offered[0].insert((FormId(100), None, 0), 1);

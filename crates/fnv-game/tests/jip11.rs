@@ -247,3 +247,73 @@ fn engine_channels_and_the_dead() {
     q(&mut g, "ClearDeadActors");
     assert_eq!(n(&mut g, "MarkRef.GetDisabled"), 1.0);
 }
+
+#[test]
+fn condition_penalties_honor_stewie_tweaks_and_script_overrides() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let mut g = game(&f);
+
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+
+    // Equip a 20%-condition TestHat (DNAM DR 10, DT 5).
+    let inv = g.world.inventory_mut(FormId::PLAYER_REF).unwrap();
+    inv.add_extra(FormId(HAT), 1, Extra { condition: Some(0.2), ..Default::default() });
+    assert!(inv.set_equipped(FormId(HAT)));
+
+    let inv_eff = |g: &mut Game, fn_name: &str| -> f64 {
+        let script = format!("array_var a\nref r\nlet a := player.GetInvRefsForItem TestHat\nlet r := a[0]\nSetFunctionValue (r.{fn_name})");
+        match q(g, &script) {
+            XVal::Num(x) => x,
+            v => panic!("{fn_name}: {v:?}"),
+        }
+    };
+
+    // Default penalty 1.0: share = 1 - (0.5 - 0.2) * 1.0 = 0.7 -> DR 7.0, DT 3.5.
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDR") - 7.0).abs() < 1e-6);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDT") - 3.5).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDR") - 7.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDT") - 3.5).abs() < 1e-6);
+
+    // Stewie's bCustomArmorConditionPenalty (0.0 -> no penalty, 2.0 -> doubled slope).
+    g.tweaks.armor_condition_penalty = 0.0;
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty"), 0.0);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDR") - 10.0).abs() < 1e-6);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDT") - 5.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDR") - 10.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDT") - 5.0).abs() < 1e-6);
+
+    g.tweaks.armor_condition_penalty = 2.0;
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty"), 2.0);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDR") - 4.0).abs() < 1e-6);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDT") - 2.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDR") - 4.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDT") - 2.0).abs() < 1e-6);
+
+    // Explicit script SetArmorConditionPenalty overrides the tweak default.
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty 0.5"), 2.0);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDR") - 8.5).abs() < 1e-6);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDT") - 4.25).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDR") - 8.5).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDT") - 4.25).abs() < 1e-6);
+
+    // Extreme multiplier clamps effective DR/DT at 0.0 instead of going negative.
+    q(&mut g, "SetArmorConditionPenalty 5.0");
+    assert_eq!(inv_eff(&mut g, "GetArmorEffectiveDR"), 0.0);
+    assert_eq!(inv_eff(&mut g, "GetArmorEffectiveDT"), 0.0);
+    assert_eq!(n(&mut g, "player.GetActorTotalArmorDR"), 0.0);
+    assert_eq!(n(&mut g, "player.GetActorTotalArmorDT"), 0.0);
+
+    // Weapon condition multiplier honors Stewie's bNoWeaponConditionDamagePenalty and bRemoveWeaponDamageBuffer.
+    assert!((g.weapon_condition_mult(0.5) - (1.0 - 0.25 * 0.67)).abs() < 1e-6);
+    g.tweaks.no_condition_damage_penalty = true;
+    assert_eq!(g.weapon_condition_mult(0.0), 1.0);
+    assert_eq!(g.weapon_condition_mult(0.5), 1.0);
+    g.tweaks.no_condition_damage_penalty = false;
+    assert_eq!(g.weapon_condition_mult(0.8), 1.0);
+    g.tweaks.no_condition_damage_buffer = true;
+    assert!((g.weapon_condition_mult(0.8) - (1.0 - 0.2 * 0.67)).abs() < 1e-6);
+    g.tweaks.no_condition_damage_buffer = false;
+    q(&mut g, "SetConditionDamagePenalty 3.0");
+    assert_eq!(g.weapon_condition_mult(0.0), 0.0);
+}

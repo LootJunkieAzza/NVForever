@@ -706,6 +706,9 @@ impl MagicEffectDef {
     /// "FX Persist": the effect shader's persistent part shows while the effect lasts
     /// [documented: xEdit MGEF flags; GECK wiki EffectShader].
     pub const FX_PERSIST: u32 = 1 << 10;
+    /// "Display Name Only": a Script effect, which shows nothing by default, shows its
+    /// name [documented: GECK wiki Base Effect; schema `gameplay.json` MGEF flags bit 13].
+    pub const DISPLAY_NAME_ONLY: u32 = 1 << 13;
     /// "No Death Dispel": the effect goes on after its target dies [documented: xEdit
     /// MGEF flags; hypothesis: without it the effect ends at the death,
     /// docs/spec-notes/hit-effects.md §4].
@@ -713,6 +716,13 @@ impl MagicEffectDef {
 
     pub fn has(&self, flag: u32) -> bool {
         self.flags & flag != 0
+    }
+
+    /// Whether the interface names this effect where it shows no value: a Script effect
+    /// flagged Display Name Only (Psycho's "Damage +25%", Cateye's "Low-Light Vision")
+    /// [documented: GECK wiki Base Effect; #3119].
+    pub fn shows_name(&self) -> bool {
+        self.archetype == ARCHETYPE_SCRIPT && self.has(Self::DISPLAY_NAME_ONLY)
     }
 }
 
@@ -818,6 +828,47 @@ impl ActorDef {
     /// (`Game::keeps_out_of_water`); one with none of the three flags is left as it is.
     pub fn keeps_out_of_water(&self) -> bool {
         (self.walks || self.flies) && !self.swims
+    }
+
+    /// Reconstruct the parsed `ACBS` flag bits from this `ActorDef` (used when a
+    /// synthetic fixture populates `GameData::actors` without raw `record_fields`).
+    pub(crate) fn authored_acbs_flags(&self) -> u32 {
+        use crate::actor_values::acbs;
+        let npc = &self.sig == b"NPC_";
+        let crea = &self.sig == b"CREA";
+        let mut bits = 0u32;
+        let mut set = |on: bool, bit: u32| {
+            if on {
+                bits |= 1 << bit;
+            }
+        };
+        set(npc && self.female, acbs::FEMALE);
+        set(self.essential, acbs::ESSENTIAL);
+        set(self.respawn, acbs::RESPAWN);
+        set(npc && self.autocalc, acbs::AUTOCALC);
+        set(crea && self.swims, acbs::SWIMS);
+        set(crea && self.flies, acbs::FLIES);
+        set(crea && self.walks, acbs::WALKS);
+        set(self.pc_level_mult, acbs::PC_LEVEL_MULT);
+        set(self.no_low_level, acbs::NO_LOW_LEVEL);
+        set(self.no_blood_spray, acbs::NO_BLOOD_SPRAY);
+        set(self.no_blood_decal, acbs::NO_BLOOD_DECAL);
+        set(crea && self.no_head, acbs::NO_HEAD);
+        set(crea && self.no_right_arm, acbs::NO_RIGHT_ARM);
+        set(crea && self.no_left_arm, acbs::NO_LEFT_ARM);
+        set(crea && self.no_combat_in_water, acbs::NO_COMBAT_IN_WATER);
+        set(self.no_vats_melee, acbs::NO_VATS_MELEE);
+        set(crea && self.allow_pc_dialogue, acbs::ALLOW_PC_DIALOGUE);
+        set(crea && self.cant_open_doors, acbs::CANT_OPEN_DOORS);
+        set(crea && self.immobile, acbs::IMMOBILE);
+        set(npc && self.autocalc_service, acbs::AUTOCALC_SERVICE);
+        set(self.no_knockdowns, acbs::NO_KNOCKDOWNS);
+        set(self.not_pushable, acbs::NOT_PUSHABLE);
+        set(crea && self.allow_pickpocket, acbs::ALLOW_PICKPOCKET);
+        set(crea && self.is_ghost, acbs::IS_GHOST);
+        set(self.no_head_track, acbs::NO_HEAD_TRACK);
+        set(crea && self.invulnerable, acbs::INVULNERABLE);
+        bits
     }
 }
 
@@ -1095,6 +1146,10 @@ pub struct GameData {
     /// TACT: the record-header flags of every talking activator (radio stations: the
     /// Continuous Broadcast bit, `crate::radio`; docs/spec-notes/radio.md §2).
     pub station_flags: HashMap<FormId, u32>,
+    /// TACT VNAM: each talking activator's voice type [documented: xEdit TACT "Voice
+    /// Type"; schema `placed.json`], for GetIsVoiceType and the voice gate
+    /// (`Game::voice_type_of`; #3060: The Pitt's Ashur intercom, DLC01RaiderMaleColdVoice).
+    pub talking_voices: HashMap<FormId, FormId>,
     /// PERK: perks and traits ([`PerkDef`]).
     pub perks: HashMap<FormId, PerkDef>,
     /// AVIF: the name, short name, description and icon of each actor value
@@ -1897,6 +1952,20 @@ impl GameData {
         let form_flags: HashMap<FormId, u32> = winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect();
         let record_fields = RecordFields::new(schema, winners.iter().filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig)).map(|&(g, _, r)| (FormId(g), r.clone())));
         let station_flags: HashMap<FormId, u32> = winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect();
+        let talking_voices: HashMap<FormId, FormId> = winners
+            .iter()
+            .filter(|w| &w.2.header.sig == b"TACT")
+            .filter_map(|&(g, pi, r)| {
+                let mut local = None;
+                r.visit_subrecords(|sig, data| {
+                    if sig == b"VNAM" && local.is_none() {
+                        local = data.get(0..4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+                    }
+                })
+                .ok()?;
+                Some((FormId(g), FormId(lo.to_global(pi, local.filter(|&l| l != 0)?)?)))
+            })
+            .collect();
         clock.lap("form flags, record field handles");
         let radiation_markers = crate::radiation::markers(refs);
         clock.lap("radiation markers");
@@ -1978,6 +2047,7 @@ impl GameData {
             idle_children: HashMap::new(),
             image_modifiers: HashMap::new(),
             station_flags,
+            talking_voices,
             perks: HashMap::new(),
             actor_value_infos: HashMap::new(),
             recipes: HashMap::new(),
@@ -2405,6 +2475,25 @@ impl GameData {
             None => Vec::new(),
         };
         idx.into_iter().filter_map(|i| self.load_order.get(usize::from(i)).cloned()).collect()
+    }
+
+    /// Whether `form` is overridden by at least one plugin after its defining plugin in
+    /// the load order (`IsFormOverridden`).
+    pub fn is_form_overridden(&self, form: FormId) -> bool {
+        self.form_overrides.get(&form).is_some_and(|v| v.len() > 1)
+    }
+
+    /// The load-order index of the winning (last) plugin that defines or overrides
+    /// `form` (`GetFormOverrideIndex`), or `None` when `form` is not known from any
+    /// plugin in `GameData`.
+    pub fn form_override_index(&self, form: FormId) -> Option<u8> {
+        if let Some(last) = self.form_overrides.get(&form).and_then(|v| v.last().copied()) {
+            return Some(last);
+        }
+        if (form.0 >> 24) < 0xFE && self.sig(form).is_some() {
+            return Some((form.0 >> 24) as u8);
+        }
+        None
     }
 
     pub fn by_edid(&self, edid: &str) -> Option<FormId> {

@@ -46,6 +46,14 @@ ordinary/result/instance neighbors. The fixture explicitly binds SGMLC's
 receiver. It does not infer a receiver from the query's RunCtx alone. All public
 576 compilation and execution remain unqualified until separately reported.
 
+[hypothesis: bounded compatibility policy] JohnnyGuitar's RenderUpdate handlers
+(SetJohnnyOnRenderUpdateEventHandler) run every frame the same way, as functions
+without an instance: each dispatch hands them, and their nested calls, the
+quantized game-clock time since the previous dispatch (0 the first time, and when
+the clock went back). B42 True Leaning eases its lean by `GetSecondsPassed` in
+such a handler; with 0 it never moved [observed: mods_reference
+`ln_B42Leaning.txt`, its lerp variables stayed 0 with the key held].
+
 [hypothesis: limits] This leaf does not repair previously saved modifiers or
 establish native timing, automatic engine event coverage, whole-mod support,
 animation, audio, renderer or device behavior.

@@ -522,6 +522,26 @@ class Env:
     masters: list[str] = field(default_factory=list)
 
 
+LOCKED_NOTE = ("the Windows session was locked (LogonUI.exe running): frames wait 300-500 ms to be shown "
+               "then, so frame times and timed expectations do not measure the engine (#3277)")
+
+
+def session_locked() -> bool | None:
+    """Whether the Windows session is locked: LogonUI.exe, the lock screen, is running
+    [observed #3277: frames wait 300 to 500 ms in `window::prepare_windows` while it runs,
+    also with display-sync off]. `None`: not Windows, or the process list could not be read."""
+    if os.name != "nt":
+        return None
+    try:
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq LogonUI.exe", "/FO", "CSV", "/NH"],
+                           capture_output=True, text=True, timeout=10, errors="replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return "logonui.exe" in r.stdout.lower()
+
+
 def aid_free_environ(extra: dict[str, str]) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith(AID_PREFIXES)}
     env.update(extra)
@@ -645,6 +665,7 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
             (env.out / f"{launch.name}.front.txt").unlink(missing_ok=True)
             held = locks.acquire() if locks else None  # a smoke slot, or None for the old locks
             started = time.monotonic()  # the launch's own time, without waiting for the locks
+            locked = session_locked()
             try:
                 with open(log, "w", encoding="utf-8", errors="replace") as f:
                     p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,
@@ -675,6 +696,9 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
             finally:
                 if locks:
                     locks.release(held)
+            locked = bool(locked) or bool(session_locked())
+            if locked:
+                env.say(f"warning: {launch.name}: {LOCKED_NOTE}")
     else:
         s = launch.scenarios[0]
         ctx = {"data": str(env.data), "repo": str(env.repo)}
@@ -702,7 +726,10 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                     break
         (env.out / f"{launch.name}.cmd.txt").write_text("\n".join(cmds) + "\n")
     secs = time.monotonic() - started
-    (env.out / f"{launch.name}.exit").write_text(json.dumps({"exit": code, "error": err, "seconds": round(secs, 1)}))
+    meta = {"exit": code, "error": err, "seconds": round(secs, 1)}
+    if launch.kind == GAME and locked:
+        meta["session_locked"] = True
+    (env.out / f"{launch.name}.exit").write_text(json.dumps(meta))
     return code, err, secs
 
 

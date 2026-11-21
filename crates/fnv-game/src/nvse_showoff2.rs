@@ -177,8 +177,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // (`nvse_jg5::cell_zone`).
         "getcellencounterzone" | "getcellzone" => XVal::Ref(form(args, 0).and_then(|c| crate::nvse_jg5::cell_zone(g, c)).map_or(0, |z| z.0)),
         // `zone`: whether its cells respawn, so not "Never Resets" [documented:
-        // GetZoneRespawns; the ECZN flag, encounter-zones.md §1].
-        "getzonerespawns" => yes(form(args, 0).and_then(|z| g.world.forms.zones.get(&z)).is_some_and(|d| !d.never_resets)),
+        // GetZoneRespawns; the ECZN flag, encounter-zones.md §1], reading saved
+        // `SetZoneRespawns` and session `SetZoneFlag` changes through `Game::zone`.
+        "getzonerespawns" => yes(form(args, 0).and_then(|z| g.zone(z)).is_some_and(|d| !d.never_resets)),
         // [documented: IsBaseForm, a valid base form; IsReferenceCloned, a reference made
         // in play, mod index 0xFF; IsActorAlt, an actor reference or an NPC or creature
         // base].

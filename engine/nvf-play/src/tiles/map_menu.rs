@@ -1667,6 +1667,9 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         place_tabs(ui, &w.tabs);
         // The clip windows on before the panes read what clips them.
         super::item_menu::mark_menu(ui, MAP_MENU, &[QUESTS_LIST, NOTES_LIST, CHALLENGE_LIST, STATIONS_LIST]);
+        if let Some(objectives) = ui.find_tile(OBJECTIVES) {
+            list::unclip_row_children(ui, objectives, w.objectives.iter().map(|r| r.tile));
+        }
         if let Some(list_tile) = list_tile {
             list::settle_list(ui, list_tile, &w.rows[kind.index()], ROW_TEXT, &mut w.views[kind.index()], s.selected, s.group, s.pointer_pick, s.navigated);
         }
@@ -2439,7 +2442,7 @@ mod tests {
         for (name, size) in [("icon_21.dds", 512), ("icon_22.dds", 1024)] {
             std::fs::write(owned.0.join("textures").join(name), crate::interface::tests::authored_rgba_dds(size, size)).unwrap();
         }
-        let data = nvf_assets::GameData { vfs: Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()), schema: Arc::new(fnv_nif::Schema::default()) };
+        let data = nvf_assets::GameData::new(Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
         let pictures = crate::interface::Pictures::load(Some(&data));
         let mut fonts = ImageFonts { data, images: Assets::default(), pictures };
         // Independently authored ratio-driven marker: the invisible child requests the

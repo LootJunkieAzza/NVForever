@@ -305,6 +305,14 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Saving while a mod's temporary clone is placed (#3147).** [design, #3147] While a
+  reference whose base was made by `TempCloneForm` is alive, every save is refused
+  whole (`Game::checked_snapshot`; a failed save now says so in a corner message). A mod
+  that keeps such a clone placed stops all saving for as long as it exists. The other
+  choice: save without those references, so the game is saved and the clones are gone
+  after a load (dropping them silently was rejected in review; nothing records your
+  choice). Keep refusing, or save without them?
+  ([temporary scene bases](spec-notes/temporary-scene-bases.md))
 - **Corpses in a crowd held while a head or hand still turns (#2083).** [observed, #2083]
   In battle-50, 34 corpses were held still moving at their time limit: 26 shot corpses
   at the 1 s `MAX_AWAKE_SHOVED` (your item 51), 8 fresh ones (7 at the 3 s

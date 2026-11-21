@@ -440,3 +440,61 @@ fn setters_keep_their_fields_in_range() {
     assert_eq!(n(&mut g, &format!("ClimateAddWeatherType TestClimate TestWeather2 {NAN}")), 0.0);
     assert_eq!(n(&mut g, "GetClimateNumWeatherTypes TestClimate"), 1.0);
 }
+
+#[test]
+fn projectile_flag_overrides_reach_launch_traits_and_clones() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+
+    let proj = FormId(PROJ);
+    assert_eq!(g.projectile_flags_override(proj), None);
+    assert_eq!(g.projectile_flags(proj), Some(0));
+    assert!(!g.projectile_can_be_disabled(proj));
+    assert_eq!(g.projectile_launch_traits(proj).unwrap().flags, None);
+
+    // Toggle Hitscan (0), Explosion (1), Can Be Disabled (5), Supersonic (7).
+    q(&mut g, "SetProjectileFlag TestProjectile 0 1");
+    q(&mut g, "SetProjectileFlag TestProjectile 1 1");
+    q(&mut g, "SetProjectileFlag TestProjectile 5 1");
+    q(&mut g, "SetProjectileFlag TestProjectile 7 1");
+    let want = (1u16 << 0) | (1u16 << 1) | (1u16 << 5) | (1u16 << 7);
+    assert_eq!(n(&mut g, "GetProjectileFlag TestProjectile 0"), 1.0);
+    assert_eq!(n(&mut g, "GetProjectileFlag TestProjectile 5"), 1.0);
+    assert_eq!(n(&mut g, "GetProjectileFlag TestProjectile 7"), 1.0);
+    assert_eq!(g.projectile_flags_override(proj), Some(want));
+    assert_eq!(g.projectile_flags(proj), Some(want));
+    assert!(g.projectile_can_be_disabled(proj));
+    assert_eq!(g.projectile_launch_traits(proj).unwrap().flags, Some(want));
+
+    // Clear Hitscan (0) (e.g. Bullet Drop) and Can Be Disabled (5).
+    q(&mut g, "SetProjectileFlag TestProjectile 0 0");
+    q(&mut g, "SetProjectileFlag TestProjectile 5 0");
+    let after = (1u16 << 1) | (1u16 << 7);
+    assert_eq!(n(&mut g, "GetProjectileFlag TestProjectile 0"), 0.0);
+    assert_eq!(g.projectile_flags_override(proj), Some(after));
+    assert!(!g.projectile_can_be_disabled(proj));
+    assert_eq!(g.projectile_launch_traits(proj).unwrap().flags, Some(after));
+
+    // TempCloneForm inherits original overrides and isolates clone-specific edits.
+    let clone_inherited = match q(&mut g, "SetFunctionValue (TempCloneForm TestProjectile)") {
+        XVal::Ref(r) => FormId(r),
+        v => panic!("TempCloneForm: {v:?}"),
+    };
+    assert_eq!(g.projectile_launch_traits(clone_inherited).unwrap().original, proj);
+    assert_eq!(g.projectile_launch_traits(clone_inherited).unwrap().flags, Some(after));
+    let clone_edited = match q(&mut g, "ref c\nlet c := TempCloneForm TestProjectile\nSetProjectileFlag c 10 1\nSetFunctionValue c") {
+        XVal::Ref(r) => FormId(r),
+        v => panic!("TempCloneForm edit: {v:?}"),
+    };
+    assert_eq!(g.projectile_flags_override(clone_edited), Some(after | (1u16 << 10)));
+    assert_eq!(g.projectile_flags_override(proj), Some(after), "clone edit does not mutate original");
+    assert_eq!(g.projectile_launch_traits(clone_edited).unwrap().flags, Some(after | (1u16 << 10)));
+
+    // Non-projectile forms are refused without polluting field_overrides.
+    q(&mut g, "SetProjectileFlag TestGun 0 1");
+    assert_eq!(n(&mut g, "GetProjectileFlag TestGun 0"), 0.0);
+    assert_eq!(g.projectile_flags_override(FormId(WEAP)), None);
+    assert_eq!(g.projectile_flags(FormId(WEAP)), None);
+    assert_eq!(g.num_field(FormId(WEAP), "DATA", "flags"), 0.0);
+}

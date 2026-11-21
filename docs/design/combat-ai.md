@@ -127,7 +127,7 @@ their reach and field of view.
 | StopCombat | the actor leaves its combat state; StartCombat's hostility is undone | [documented] |
 | IsInCombat, GetCombatTarget, GetIsAlerted, GetCurrentAIProcedure / Package | as alert.md §6: a fight reads GetIsAlerted 0 (SetAlert's alone); GetCombatTarget keeps the target it fought while it is out of sight, through Lost; Lost reads procedure COMBAT 13 and package COMBAT 5 (#2121) | |
 | StopCombatAlarmOnActor | every actor fighting or hunting the calling actor stops (StopCombat) | [documented: GECK wiki StopCombatAlarmOnActor] |
-| GetFriendHit | the friendly hits of the target on the actor that still count (§10.1) | [documented: GECK wiki GetFriendHit, Friendly Fire] |
+| GetFriendHit | the friendly hits of the target on the actor that still count (§10.1); parameterless CTDA conditions (index 288, empty CTDA params in `FalloutNV.esm`) read `Game::condition_target` (or `0` when absent), while script calls still require an explicit actor argument | [documented: GECK wiki GetFriendHit, Friendly Fire]; parameterless CTDA target binding: [hypothesis] |
 | GetAttacked | 1 once anyone attacked the actor, cleared when it leaves combat | [documented: GECK wiki GetAttacked] |
 | SetIgnoreFriendlyHits | its friends' and allies' hits never turn it (§10.1) | [hypothesis: the name] |
 

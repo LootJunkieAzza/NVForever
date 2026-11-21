@@ -7,14 +7,17 @@ use fnv_script::vm::{ArgValue, Value, XVal};
 use fnv_sim::FormId;
 
 pub(crate) fn handles(name: &str) -> bool {
-    ["AdvancePCLevel", "AdvLevel", "ModPCAttribute", "RemoveReputationExact"].iter().any(|n| n.eq_ignore_ascii_case(name))
+    ["AdvancePCLevel", "AdvLevel", "ModPCAttribute", "RemoveReputationExact", "SetPCExpelled", "ShowNameMenu", "KillAllActors", "KillAll"]
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(name))
 }
 
 pub(crate) fn call(g: &mut Game, ctx: &Ctx, receiver: Option<Value>, name: &str, values: &[XVal]) -> Option<Result<XVal, String>> {
-    let count = match name {
-        "advancepclevel" | "advlevel" => 0,
-        "modpcattribute" => 2,
-        "removereputationexact" => 3,
+    let (min_args, max_args) = match name {
+        "advancepclevel" | "advlevel" | "shownamemenu" => (0, 0),
+        "killallactors" | "killall" => (0, 1),
+        "modpcattribute" | "setpcexpelled" => (2, 2),
+        "removereputationexact" => (3, 3),
         _ => return None,
     };
     Some((|| {
@@ -26,8 +29,12 @@ pub(crate) fn call(g: &mut Game, ctx: &Ctx, receiver: Option<Value>, name: &str,
                 return Err("invalid calling reference".into());
             }
         }
-        if values.len() != count {
-            return Err(format!("{name} expects {count} arguments"));
+        if values.len() < min_args || values.len() > max_args {
+            return Err(if min_args == max_args {
+                format!("{name} expects {min_args} arguments")
+            } else {
+                format!("{name} expects {min_args}..={max_args} arguments")
+            });
         }
         let args: Vec<ArgValue> = values.iter().map(|v| match v {
             XVal::Num(n) if n.is_finite() => Ok(ArgValue::Value(Value::Num(*n))),
@@ -38,6 +45,21 @@ pub(crate) fn call(g: &mut Game, ctx: &Ctx, receiver: Option<Value>, name: &str,
         let a = Args(&args);
         match name {
             "advancepclevel" | "advlevel" => { crate::levelup::advance(g); }
+            "shownamemenu" => { g.open_menu(crate::game::menus::NAME); }
+            "killallactors" | "killall" => {
+                let killer = match values.first() {
+                    None | Some(XVal::Ref(0)) => None,
+                    Some(XVal::Ref(r)) => {
+                        let k = FormId(*r);
+                        if k != FormId::PLAYER_REF && g.world.placed.get(k).is_none() && g.world.peek(k).is_none() {
+                            return Err("invalid killer reference".into());
+                        }
+                        Some(k)
+                    }
+                    Some(_) => return Err("KillAllActors killer argument must be a reference".into()),
+                };
+                super::console::kill_all_actors_in_loaded(g, killer);
+            }
             "modpcattribute" => {
                 let code = actor::av_code(g, a.str(0)?)?;
                 if !crate::actor_values::SPECIALS.contains(&code) {
@@ -51,6 +73,7 @@ pub(crate) fn call(g: &mut Game, ctx: &Ctx, receiver: Option<Value>, name: &str,
                 }
             }
             "removereputationexact" => { reputation::remove_reputation_exact(g, ctx, &a)?; }
+            "setpcexpelled" => { actor::set_pc_expelled(g, &a)?; }
             _ => unreachable!(),
         }
         Ok(XVal::Num(0.0))

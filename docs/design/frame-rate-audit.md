@@ -733,6 +733,14 @@ placement: one L3 domain, nothing to do`, `... all the same size, nothing to do`
 affinity already set, left alone`, `cpu placement: off by setting (...)`; smoke scenarios
 `cpu-placement` and `cpu-placement-off` match it.
 
+**Rayon (#3148).** Under a restriction, rayon's global pool (the load-time data building:
+forms, references, script compile) is built with the task pools' budget right after the
+placement, and a second line says so (`cpu placement: rayon's pool 16 threads, as the task
+pools`). Without it rayon sized itself from `available_parallelism`, which counts every
+logical processor under CPU sets: 32 workers on a 16-LP domain. A `RAYON_NUM_THREADS` the
+player set is left alone. [hypothesis: the load-time gain is not measured; no dual-CCD
+machine was at hand.]
+
 **Left to do.** Linux (`/sys/devices/system/cpu/cpu*/cache/index3`, `sched_setaffinity`,
 same rules). Putting the background threads (generated-terrain bake, read pool) on the
 other domain with `SetThreadSelectedCpuSets`, leaving the cache domain to the main,

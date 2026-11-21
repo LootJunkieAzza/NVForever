@@ -74,7 +74,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "isquestitem" => yes(g.world.is_quest_item(item(g, 0))),
         "isplayable" => {
             let it = item(g, 0);
-            yes(g.playable_overrides.get(&it).copied().unwrap_or_else(|| g.world.forms.item(it).is_some_and(|i| !i.non_playable)))
+            yes(g.is_item_playable(it))
         }
         "ispowerarmor" => {
             let f = item(g, 0);

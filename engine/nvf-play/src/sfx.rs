@@ -746,6 +746,9 @@ pub struct Sfx {
     /// machine would otherwise run into it).
     one_shot_wait: Duration,
     reported: HashSet<String>,
+    /// The names of the sounds asked for whose record is the game's own
+    /// (`crate::game_files`): a file of theirs that is not shipped is no warning (#2757).
+    games_own: HashSet<String>,
     pub(crate) rng: SplitMix,
     pub played: u32,
     pub silent: u32,
@@ -836,6 +839,7 @@ impl Sfx {
             cover_notes: Vec::new(),
             one_shot_wait: MAX_ONE_SHOT_WAIT,
             reported: HashSet::new(),
+            games_own: HashSet::new(),
             rng: SplitMix(0x5f37_59df),
             played: 0,
             silent: 0,
@@ -1196,15 +1200,22 @@ pub(crate) fn resolve(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, sound: FormId) -> Optio
     if let Some(path) = sfx.path_files.get(&sound) {
         return Some(Resolved { s, name, path: path.clone() });
     }
+    let own = crate::game_files::games_own(sound.0);
+    if own && !sfx.games_own.contains(&name) {
+        sfx.games_own.insert(name.clone());
+    }
     let Some(path) = s.file.as_deref().and_then(|f| pick_file(sfx, vfs, f)) else {
         sfx.failed += 1;
         if sfx.reported.insert(name.clone()) {
-            warn!("sfx: {name}: no file for {:?}", s.file);
+            crate::game_files::say_missing(own, &format!("sfx: {name}: no file for {:?}", s.file));
         }
         return None;
     };
     Some(Resolved { s, name, path })
 }
+
+/// How [`decode_file`]'s error ends for a file no archive has.
+const NOT_IN_THE_ARCHIVES: &str = "not in the archives";
 
 /// Read and decode the sound file at `path` whole (on a worker thread). A panic decoding
 /// a broken file is that file's failure, not the game's (nvf_assets::guard).
@@ -1215,9 +1226,9 @@ fn decode_file(vfs: &fnv_vfs::Vfs, path: &str) -> Result<PcmSound, String> {
             vfs.read(path)
         };
         let bytes = match read {
-            Some(Ok(bytes)) => nvf_assets::data::test_broken(path, bytes).ok_or_else(|| format!("{path}: not in the archives"))?,
+            Some(Ok(bytes)) => nvf_assets::data::test_broken(path, bytes).ok_or_else(|| format!("{path}: {NOT_IN_THE_ARCHIVES}"))?,
             Some(Err(e)) => return Err(format!("{path}: {e}")),
-            None => return Err(format!("{path}: not in the archives")),
+            None => return Err(format!("{path}: {NOT_IN_THE_ARCHIVES}")),
         };
         let _span = info_span!("sfx::decode").entered();
         if path.ends_with(".wav") {
@@ -1327,7 +1338,7 @@ fn collect_files(sfx: &mut Sfx, assets: &mut Assets<PcmSound>) {
     if sfx.decoding.is_empty() {
         return;
     }
-    let Sfx { files, decoding, .. } = sfx;
+    let Sfx { files, decoding, games_own, .. } = sfx;
     decoding.retain(|path| {
         let Some(state) = files.get_mut(path) else { return false };
         let FileState::Decoding(task, name) = state else { return false };
@@ -1335,7 +1346,10 @@ fn collect_files(sfx: &mut Sfx, assets: &mut Assets<PcmSound>) {
         *state = match result {
             Ok(pcm) => FileState::Ready(assets.add(pcm)),
             Err(e) => {
-                warn!("sfx: {name}: {e}");
+                // A file the game's own record names and no archive has is no fault
+                // (#2757); one that is there and does not decode is.
+                let absent = e.ends_with(NOT_IN_THE_ARCHIVES);
+                crate::game_files::say_missing(absent && games_own.contains(name.as_str()), &format!("sfx: {name}: {e}"));
                 FileState::Broken
             }
         };
@@ -2573,10 +2587,10 @@ mod tests {
         std::fs::write(fx.join("broken.wav"), b"not a sound file").unwrap();
         std::fs::write(fx.join("takes").join("a.wav"), half_second()).unwrap();
         std::fs::write(fx.join("takes").join("b.wav"), half_second()).unwrap();
-        let data = nvf_assets::GameData {
-            vfs: Arc::new(fnv_vfs::Vfs::open(&dir.0, &[]).unwrap()),
-            schema: Arc::new(fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap()),
-        };
+        let data = nvf_assets::GameData::new(
+            Arc::new(fnv_vfs::Vfs::open(&dir.0, &[]).unwrap()),
+            Arc::new(fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap()),
+        );
         let mut forms = FxForms::default();
         forms.sounds.insert(BEEP, record("TestBeep", Some("fx\\beep.wav"), &[]));
         forms.sounds.insert(BROKEN, record("TestBroken", Some("fx\\broken.wav"), &[]));
@@ -2970,7 +2984,8 @@ mod tests {
         std::fs::create_dir_all(&beds).unwrap();
         std::fs::write(beds.join("a.wav"), bed).unwrap();
         let vfs = Arc::new(fnv_vfs::Vfs::open(&files.0, &[]).unwrap());
-        app.world_mut().resource_mut::<nvf_assets::GameData>().vfs = vfs;
+        let schema = app.world().resource::<nvf_assets::GameData>().schema.clone();
+        app.insert_resource(nvf_assets::GameData::new(vfs, schema));
         let gate = gated_index(&mut app);
         app.world_mut().resource_mut::<Sfx>().forms.sounds.insert(FOLDER_BED, record("TestBed", Some("fx\\beds"), &["Loop"]));
         app.init_resource::<crate::ambient::Ambient>()

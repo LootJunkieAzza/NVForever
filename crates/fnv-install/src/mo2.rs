@@ -978,8 +978,10 @@ mod tests {
             "{BASE}"
         );
         let (inst, _) = fixture("ini", &ini.replace("{BASE}", "PLACEHOLDER"));
-        // Rewrite with the real absolute folder after it exists.
-        std::fs::write(inst.join(INI_FILE), ini.replace("{BASE}", &inst.display().to_string())).unwrap();
+        // Rewrite with the real absolute folder after it exists, its backslashes doubled the
+        // way MO2 (Qt) writes a Windows path [observed: `workingDirectory=F:\\Modlists\\VNV\\…`
+        // and `F:/Modding/…` in the owner's two instances, never a single backslash; #3157].
+        std::fs::write(inst.join(INI_FILE), ini.replace("{BASE}", &inst.display().to_string().replace('\\', "\\\\"))).unwrap();
         std::fs::create_dir_all(inst.join("profiles/Other")).unwrap();
         std::fs::create_dir_all(inst.join("custommods/One")).unwrap();
         std::fs::write(inst.join("profiles/Other/modlist.txt"), format!("{HEADER}\r\n+One\r\n")).unwrap();

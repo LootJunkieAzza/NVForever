@@ -56,6 +56,9 @@ own rules are not known]:
 - what is still open at the end of a file is closed there (each included file is read
   on its own, so this stays inside the include);
 - a start tag cut short by `<` ends there, open (its own end tag follows);
+- an element opened inside 256 open ones is left out with everything in it, up to its own
+  end tag [design: `xml::MAX_DEPTH`, NVForever's own guard against running out of stack on
+  a broken or crafted file, #3156; no vanilla file comes near it];
 - an unquoted attribute value runs to a space or `>`, stray quotes dropped;
 - `<!-- -->` comments, `<?…?>` and `<!…>` are skipped; `&amp;` `&lt;` `&gt;` `&quot;`
   `&apos;` `&#N;` are decoded; any other `&name;` is kept by name;
@@ -126,6 +129,16 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
 - `&hudmain;` 1, `&hudalt;` 2 [observed: private job hud_jip file_0032;
   hud_hardcore2 hc2-hc5; hud.md §14.8];
 - every other constant reads 0 as a number [hypothesis].
+
+Scripts can also write standalone entity tokens into a trait via `SetUIString` /
+`SetUIStringAlt` with or without a trailing semicolon (e.g. `"&false"`, `"&true"`,
+`"&center"`) [hypothesis: JIP UI scripts hide vanilla tiles by writing `"&false"` to
+`.../visible`, relying on the trait parser recognising `&name` constants the same as XML
+entities; observer check]. NVForever keeps the written `Value::Str` text verbatim for
+`GetUIString`, while evaluating standalone `&name` / `&name;` ASCII identifier strings
+(excluding `&-sName;` game-string placeholders and mixed prose) identically to
+`Value::Sym` for `truthy()`, `num()`, `eq`, `justify`, and suffix-`<copy>` lookup
+[design: `fnv_ui::value`].
 
 ### 2.4 Game setting strings
 

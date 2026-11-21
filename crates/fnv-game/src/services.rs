@@ -117,8 +117,8 @@ impl Game<'_> {
     /// AI data's as SetServiceFlag left them (`nvse_lutana`). 0 for what is no actor.
     pub fn services(&self, actor: FormId) -> u32 {
         let Some(b) = crate::functions::base_of(self, actor) else { return 0 };
-        let Some((_, ai)) = self.template_source(b, actor, |d| d.template_ai) else { return 0 };
-        if ai.autocalc_service {
+        let Some((ai_id, ai)) = self.template_source(b, actor, |d| d.template_ai) else { return 0 };
+        if &ai.sig == b"NPC_" && self.acbs_flag(ai_id, ai, crate::actor_values::acbs::AUTOCALC_SERVICE, |d| d.autocalc_service) {
             let class = self.traits_class(actor);
             if let Some(s) = class.and_then(|c| self.data.class_services.get(&c)) {
                 return *s;

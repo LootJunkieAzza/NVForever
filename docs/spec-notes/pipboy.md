@@ -664,8 +664,12 @@ is the top left 85 × 92 of `head.dds`) [observed].
   temporary modifiers, less damage), which holds the worn apparel's enchantments in the
   temporary pool [documented: GECK wiki ActorValue; aid-items.md §13; #2495], skills kept to
   0–100; "(+)" or "(-)" when it differs from the permanent value [observed: "34 (+)";
-  hypothesis: "(-)"]. Perks: the player's perks, playable and not hidden by PERK DATA
-  [hypothesis: its bytes as trait, minimum level, ranks, playable, hidden], traits
+  hypothesis: "(-)"]. Perks: the player's perks that are not Hidden by PERK DATA
+  [hypothesis: its bytes as trait, minimum level, ranks, playable, hidden; documented: GECK
+  wiki Category:Perk, Hidden "does not show up in the user interface", Playable only that
+  the level-up menu offers it]. Perks that are not Playable (challenge perks such as Lord
+  Death, implants, companion and quest perks: 62 of FalloutNV.esm's 176 [observed: #3118])
+  are listed [hypothesis: as the original does; capture a non-Playable perk's row], traits
   included [hypothesis], in name order, the rank as the number when the perk has more
   than one [hypothesis].
   - Names, descriptions and pictures: AVIF FULL, DESC, ICON (the record of code c is
@@ -2233,3 +2237,25 @@ still need runtime checks after this review revision.
   positive emitted dimensions may differ by at most one representable f32 step when
   an atlas subrectangle is multiplied back into canvas units. Normalized source
   regions and the selected atlas rectangle remain independent, unchanged checks.
+
+### List-row `<clips>` under `<clipwindow>` (`StatsMenu`, `InventoryMenu`, `MapMenu`)
+
+- [documented: GECK wiki `clipwindow`] In `list_box.xml` + `list_box_template.xml`,
+  `<clipwindow> 1 </clipwindow>` on a list container defines the clipping window for
+  descendants carrying `<clips> 1 </clips>`. On a list row (`stats_list_template_item`,
+  `IM_InventoryListTemplateRect`, etc.), `<clips> 1 </clips>` opts that row into the
+  list's `<clipwindow>` rather than cropping the row's own text children
+  (`ListItemText`, value/modifier texts) to the row's `<hotrect>` height.
+- [design] Because `fnv_ui::input::clips_children` retains self-clipping for legacy
+  `<clips>` layouts, `tiles::list::unclip_row_children` marks live direct children of a
+  `<clips>` row under a `<clipwindow>` list with `fnv_ui::input::OUTSIDE_CLIP` (the same
+  mechanism `tiles::vats_menu` uses for right-justified queue rows). Both layout and
+  pointer hit-testing then assign `parent.clip_above` — the enclosing list's
+  `<clipwindow>` — to the row's text children. This prevents rows whose `ListItemText`
+  vertical alignment offset exceeds `_VerticalSpacing` from failing `StatsMenu`
+  readiness with `row 0 does not fit` (or `InventoryMenu` / `MapMenu` with `no row shows
+  whole`) while keeping list-window clipping and off-canvas/narrow-window rejections
+  intact.
+- [hypothesis] Original-game clipping of nested grandchildren inside a `<clips>` list
+  row and full installed-profile visual verification remain unqualified without an
+  original-game capture.

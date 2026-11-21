@@ -156,7 +156,7 @@ fn play(
                 st.stop(&mut commands);
                 let n = g.data.infos.get(&info).map_or(0, |d| d.responses.len());
                 st.queue = (0..n)
-                    .filter_map(|k| match bank.file(info.0, k, speaker.0) {
+                    .filter_map(|k| match bank.recording_file(info.0, k, speaker.0) {
                         Some(path) => {
                             // Without a length from the file (a broken header): the text's fitted length.
                             let seconds = bank.seconds(&path).unwrap_or_else(|| g.response_seconds_as(Some(speaker), info, k));

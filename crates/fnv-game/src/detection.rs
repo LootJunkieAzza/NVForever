@@ -553,6 +553,32 @@ impl Game<'_> {
         self.detection.detected_by(FormId::PLAYER_REF, |d| !self.with_player(d) && !self.is_dead(d))
     }
 
+    /// Living, present actors currently in `Band::Detected` against actor `target`,
+    /// excluding self-pairs, sorted by FormID (`GetDetectingActors`). Non-actor targets
+    /// return an empty list.
+    pub fn detecting_actors(&self, target: FormId) -> Vec<FormId> {
+        let is_actor = target == FormId::PLAYER_REF
+            || crate::functions::base_of(self, target).is_some_and(|b| crate::ai::is_actor_base(self.world.forms, b));
+        if !is_actor {
+            return Vec::new();
+        }
+        let mut out: Vec<FormId> = self
+            .detection
+            .pairs
+            .iter()
+            .filter_map(|(&(detector, seen), (det, _))| {
+                (seen == target
+                    && detector != target
+                    && det.band == Band::Detected
+                    && !self.is_dead(detector)
+                    && (detector == FormId::PLAYER_REF || self.present(detector)))
+                    .then_some(detector)
+            })
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
     pub fn player_detected_for_sneak(&self) -> bool {
         self.detection.highest_among(FormId::PLAYER_REF, |d| !self.with_player(d)).is_some_and(|(_, d)| d.band == Band::Detected)
     }

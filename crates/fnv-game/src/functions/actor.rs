@@ -877,7 +877,7 @@ pub fn essential_flagged(g: &Game, r: FormId) -> bool {
     let base = base_of(g, r);
     let base_flag = base
         .and_then(|b| g.forms.essential.get(&b).copied())
-        .unwrap_or_else(|| g.base_data_def(r).is_some_and(|d| d.essential));
+        .unwrap_or_else(|| g.base_data_source(r).is_some_and(|(id, d)| g.acbs_flag(id, d, crate::actor_values::acbs::ESSENTIAL, |d| d.essential)));
     base_flag || g.extra.get(&r).and_then(|e| e.essential).unwrap_or(false)
 }
 
@@ -1183,6 +1183,48 @@ pub fn set_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
 pub fn get_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.expire_crimes();
     yes(g.player.enemy_of.contains(&a.form(0)?))
+}
+
+/// Resolve a faction parameter passed as a FormID (CTDA / bytecode / ref expression) or
+/// editorID string (source calls where `functions.json` types `FactionID` as `string`),
+/// requiring a `FACT` record [design].
+fn faction_arg(g: &Game, a: &Args, i: usize) -> Result<FormId, String> {
+    let id = if let Some(f) = a.peek_form(i) {
+        f
+    } else if let Some(edid) = a.peek_str(i) {
+        g.data.by_edid(edid).ok_or_else(|| format!("unknown faction {edid:?}"))?
+    } else {
+        return Err(format!("parameter {} is not a faction", i + 1));
+    };
+    if g.data.sig(id).as_ref() != Some(b"FACT") {
+        return Err(format!("parameter {} ({id}) is not a faction", i + 1));
+    }
+    Ok(id)
+}
+
+/// `GetPCExpelled faction`: 1 when the player has been expelled from `faction`
+/// [documented: GECK wiki GetPCExpelled; `schemas/script/functions.json`, 0x10C1 / CTDA 193].
+pub fn get_pc_expelled(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    yes(g.player.expelled_from.contains(&faction_arg(g, a, 0)?))
+}
+
+/// `SetPCExpelled faction flag`: expels the player from `faction` and sets the expelled
+/// flag when `flag != 0`, or clears the flag when `flag == 0` without re-adding membership
+/// [documented: GECK wiki SetPCExpelled; hypothesis: interior faction-owned cell eviction
+/// is not performed in core rules].
+pub(crate) fn set_pc_expelled(g: &mut Game, a: &Args) -> Result<(), String> {
+    let f = faction_arg(g, a, 0)?;
+    let expel = a.int(1)? != 0;
+    if expel {
+        g.player.expelled_from.insert(f);
+        if faction_rank(g, FormId::PLAYER_REF, f) >= 0 {
+            g.extra.entry(FormId::PLAYER_REF).or_default().factions.insert(f, -1);
+            forget_factions(g, FormId::PLAYER_REF);
+        }
+    } else {
+        g.player.expelled_from.remove(&f);
+    }
+    Ok(())
 }
 
 pub fn clear_faction_player_enemy_flag(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {

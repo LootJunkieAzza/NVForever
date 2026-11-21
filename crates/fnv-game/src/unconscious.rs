@@ -299,7 +299,11 @@ impl Game<'_> {
             }
             return self.furniture_use(r).is_none() && self.dialogue.is_none();
         }
-        self.def_following(r, |_| false).is_some_and(|d| !d.no_knockdowns && !d.immobile)
+        self.source_following(r, |_| false).is_some_and(|(id, d)| {
+            let no_knockdowns = self.acbs_flag(id, d, crate::actor_values::acbs::NO_KNOCKDOWNS, |d| d.no_knockdowns);
+            let immobile = &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::IMMOBILE, |d| d.immobile);
+            !no_knockdowns && !immobile
+        })
     }
 
     /// `source.PushActorAway target force`: `target` is knocked down ([`Cause::Pushed`])

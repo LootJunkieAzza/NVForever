@@ -219,12 +219,13 @@ pub fn standing(g: &Game) -> Standing {
     Standing { xp: g.player.xp, level, max: max_level(g), this: total_for(level, base, bump), next: total_for(level + 1, base, bump) }
 }
 
-/// Whether the player has the experience for the next level and is under the cap, and
-/// is not in character generation: there "the player will not level up (although XP will
-/// accumulate" [documented: GECK wiki SetInCharGen]; after `SetInCharGen 0` the levels
-/// earned meanwhile come one after another.
+/// Whether the player has the experience for the next level and is under the cap, is
+/// not in character generation (`SetInCharGen 1` [documented: GECK wiki SetInCharGen]),
+/// and has not had the level-up menu disabled by `ToggleLevelUpMenu 0` [documented:
+/// GECK wiki ToggleLevelUpMenu]. After re-enabling, levels earned meanwhile come one
+/// after another.
 pub fn level_up_due(g: &Game) -> bool {
-    !g.player.in_chargen && standing(g).due()
+    !g.player.in_chargen && g.level_up_menu_enabled() && standing(g).due()
 }
 
 /// The living actors that keep the level-up menu shut: those fighting the player

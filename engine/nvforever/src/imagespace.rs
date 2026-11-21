@@ -244,6 +244,35 @@ impl ScreenModifiers {
     }
 }
 
+/// Current assigned cinematic values for nonanimated records (image-modifiers.md).
+/// Keep the decoded record immutable: another session/lens must not inherit edits.
+fn live_modifier_effect(m: &ImageModifier, seconds: f32, game: Option<&fnv_game::Game<'_>>) -> ScreenEffect {
+    let mut effect = m.at(seconds);
+    let Some(game) = game.filter(|_| !m.animatable) else { return effect };
+    for trait_id in 37..=50 {
+        let Some(value) = game.traits.image_modifier_override(fnv_sim::FormId(m.form_id), trait_id) else { continue };
+        let value = value as f32;
+        if !value.is_finite() { continue; }
+        match trait_id {
+            37 => effect.cinematic.saturation.mult = value,
+            38 => effect.cinematic.saturation.add = value,
+            // Match the IMAD getter's IAD signatures and the record decoder's field order.
+            39 => effect.cinematic.contrast_avg_lum.mult = value,
+            40 => effect.cinematic.contrast_avg_lum.add = value,
+            41 => effect.cinematic.contrast.mult = value,
+            42 => effect.cinematic.contrast.add = value,
+            43 => effect.cinematic.brightness.mult = value,
+            44 => effect.cinematic.brightness.add = value,
+            45 => effect.blur_radius = value,
+            46 => effect.double_vision = value,
+            // Tint RGBA are all 0–255, alpha included (image-modifiers.md).
+            47..=50 => effect.tint[(trait_id - 47) as usize] = value / 255.0,
+            _ => unreachable!(),
+        }
+    }
+    effect
+}
+
 /// `--imod <Editor ID or 0xFormID>[@seconds]`.
 pub fn parse_forced(world: &WorldData, arg: &str) -> Result<Forced, String> {
     let (name, at) = match arg.split_once('@') {
@@ -317,7 +346,7 @@ fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&
         if m.finished(seconds) {
             continue;
         }
-        effects.push(m.at(seconds));
+        effects.push(live_modifier_effect(m, seconds, script.and_then(|s| s.rt.as_ref()).map(|rt| &rt.game)));
         forms.push(form);
     }
     // The strongest depth of field and motion blur are the ones shown (`combine`).
@@ -678,7 +707,8 @@ fn update_grade(
     // A 3D scope's lens: a neutral grade with only the lens's modifiers on it.
     let lens = match &world {
         Some(w) if !mods.lens_held.is_empty() => {
-            let effects: Vec<ScreenEffect> = mods.lens_held.clone().into_iter().filter_map(|f| mods.record(w, f).map(|m| m.at(0.0))).collect();
+            let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+            let effects: Vec<ScreenEffect> = mods.lens_held.clone().into_iter().filter_map(|f| mods.record(w, f).map(|m| live_modifier_effect(m, 0.0, game))).collect();
             let e = combine(&effects);
             let c = graded(&fnv_world::imagespace::Cinematic::default(), &e);
             let r = &e.radial;
@@ -1040,3 +1070,7 @@ mod tests {
         assert!((a - 0.75).abs() < 1e-6 && (r - 1.0 / 3.0).abs() < 1e-6, "{r} {a}");
     }
 }
+
+#[cfg(test)]
+#[path = "imagespace_live_trait_tests.rs"]
+mod live_trait_tests;

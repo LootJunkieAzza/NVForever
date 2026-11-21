@@ -488,39 +488,63 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- values ----
-        // `[accountForBarter]` on an item reference: its value at its condition; with the
-        // flag, on an inventory reference while the barter menu is open, what the player
-        // is paid for their own item or pays for the merchant's [documented:
-        // GetCalculatedItemValue]. Weapon mods' values and the Calculate Buy Price perks
-        // are not counted [hypothesis: the mods carry no value field NVForever reads]. -1
-        // for no item.
+        // `[accountForBarter]` on an item reference: its value at its condition plus the
+        // attached weapon mods' IMOD values (which condition does not lower [observed:
+        // o26_value, docs/spec-notes/weapon-mods.md §6, `FormStore::mods_value`]); with
+        // the flag, on an inventory reference while the barter menu is open, multiplied
+        // by the active trade's buy/sell multiplier (`SetBarterPriceMult` override, else
+        // live `BarterView::mult`, else the Barter skill GMST fallback) [documented:
+        // GetCalculatedItemValue; hypothesis: Calculate Buy Price perks outside a live
+        // BarterView are not counted]. -1 for no item.
         "getcalculateditemvalue" => {
             let Some(r) = subject else { return Some(Ok(XVal::Num(-1.0))) };
-            let (holder, item, condition) = match g.temp_item(r) {
+            let (holder, item, condition, mods) = match g.temp_item(r) {
                 Some((c, i)) => {
-                    let cond = g.world.peek(c).and_then(|s| s.inventory.as_ref()).and_then(|inv| inv.groups().find(|x| x.0 == i).and_then(|x| x.1.condition));
-                    (Some(c), i, cond)
+                    let (cond, mods) = g
+                        .world
+                        .peek(c)
+                        .and_then(|s| s.inventory.as_ref())
+                        .and_then(|inv| inv.groups().find(|x| x.0 == i).map(|x| (x.1.condition, x.1.mods)))
+                        .unwrap_or((None, 0));
+                    (Some(c), i, cond, mods)
                 }
                 None => match crate::functions::base_of(g, r) {
-                    Some(b) => (None, b, g.world.placed.get(r).and_then(|p| p.health)),
+                    Some(b) => {
+                        let (cond, mods) = match g.world.peek(r) {
+                            Some(s) => (s.extra.condition, s.extra.mods),
+                            None => (g.world.placed.get(r).and_then(|p| p.health), 0),
+                        };
+                        (None, b, cond, mods)
+                    }
                     None => return Some(Ok(XVal::Num(-1.0))),
                 },
             };
-            let Some(value) = g.world.forms.item(item).and_then(|i| i.value) else { return Some(Ok(XVal::Num(-1.0))) };
-            let has_health = g.world.forms.item(item).is_some_and(|i| i.health.is_some_and(|h| h > 0));
-            let mut v = value_at(g, f64::from(value), condition, has_health);
+            let Some(it) = g.world.forms.item(item) else { return Some(Ok(XVal::Num(-1.0))) };
+            let Some(value) = g.forms.item_values.get(&item).copied().or(it.value) else { return Some(Ok(XVal::Num(-1.0))) };
+            let has_health = it.health.is_some_and(|h| h > 0);
+            let mut v = value_at(g, f64::from(value), condition, has_health) + f64::from(g.world.forms.mods_value(item, mods));
             if num(args, 0, 0.0) != 0.0 && holder.is_some() && g.menu_open(crate::game::menus::BARTER) {
-                let skill = crate::functions::actor::actor_value(g, FormId::PLAYER_REF, crate::actor_values::BARTER).unwrap_or(0.0);
-                let s = |n: &str, d: f64| crate::combat::setting(g, n, d);
-                v *= if holder == Some(FormId::PLAYER_REF) {
-                    (s("fBarterSellBase", 0.45) + skill * s("fBarterSellMult", 0.45) / 100.0).min(1.0)
-                } else {
-                    (s("fBarterBuyBase", 1.55) + skill * s("fBarterBuyMult", -0.45) / 100.0).max(1.0)
-                };
+                let side = usize::from(holder == Some(FormId::PLAYER_REF));
+                let mult = g
+                    .other
+                    .jip12
+                    .price_mults[side]
+                    .or_else(|| g.other.jip12.barter.as_ref().map(|b| b.mult[side]))
+                    .map(f64::from)
+                    .unwrap_or_else(|| {
+                        let skill = crate::functions::actor::actor_value(g, FormId::PLAYER_REF, crate::actor_values::BARTER).unwrap_or(0.0);
+                        let s = |n: &str, d: f64| crate::combat::setting(g, n, d);
+                        if side == 1 {
+                            (s("fBarterSellBase", 0.45) + skill * s("fBarterSellMult", 0.45) / 100.0).min(1.0)
+                        } else {
+                            (s("fBarterBuyBase", 1.55) + skill * s("fBarterBuyMult", -0.45) / 100.0).max(1.0)
+                        }
+                    });
+                v *= mult;
             }
-            // A whole number, the fraction dropped [observed: 749.46 shows as 749;
-            // hypothesis: truncated rather than rounded].
-            XVal::Num(v.trunc())
+            // Rounded to nearest whole number [observed: o26_value Varmint Rifle
+            // 74.946 -> 75 and 48.679 -> 49; showoff5.itemvalue.pistol 749.46 -> 749].
+            XVal::Num(v.round())
         }
         // `whatAttack [weapon]`: the AP of the player's weapon (fists without one): 0 the
         // weapon's own (its override, else its animation type's setting), 1 a melee

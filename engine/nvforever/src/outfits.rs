@@ -710,10 +710,10 @@ pub(crate) mod tests {
         for name in ["mtidle", "1hpholster", "2hrholster", "h2hholster"] {
             std::fs::write(dir.0.join("meshes").join(format!("{name}.kf")), idle_kf()).unwrap();
         }
-        let data = GameData {
-            vfs: Arc::new(fnv_vfs::Vfs::open(&dir.0, &[]).unwrap()),
-            schema: Arc::new(fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap()),
-        };
+        let data = GameData::new(
+            Arc::new(fnv_vfs::Vfs::open(&dir.0, &[]).unwrap()),
+            Arc::new(fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap()),
+        );
         let mut world = appearance_world();
         world.pose = crate::actors::ActorPose::Idle;
         world.actors.weapons.get_mut(&WEAPON).unwrap().anim_type = Some("Rifle - Ballistic (2 Hand)".into());

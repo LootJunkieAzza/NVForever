@@ -116,7 +116,7 @@ bit 5 manager controlled; so 72 = active loop, 76 = active clamp, 104/108 = sequ
 | SF bit 18 `hair` | 92 / 19 | nv_headpikemale01 (8) | read+used `nif_spawn.rs:326`, `specular()` | — | — |
 | SF bit 19 `dynamic_alpha` | NL 234 / 770; PP 36 / 1,112 | klaxon (174); maize_healthy01 (233) | NL read+used `nif_spawn.rs:295,325,436`; PP not read | PP meaning unknown | — |
 | SF bit 20 `localmap_hide_secret` | 1 / 3 | blackrefblock256 (3) | not read | Hidden from the Pip-Boy local map [documented name] | local-map render (if it draws placed geometry) |
-| SF bit 21 `window_environment_mapping` | PP 490 / 2,639; NL 5 / 34 | beerbottle01 (314); pplight02 (21) | **not read** (nif.md:1003) | Window/glass env map [documented name] | with bit 7 |
+| SF bit 21 `window_environment_mapping` | PP 490 / 2,639; NL 5 / 34 | beerbottle01 (314); pplight02 (21) | read+used with bit 7 on lit shapes (#2462): `nif_spawn::window_env`, slot 4 cube / slot 5 mask, `environment_map_scale`; nif.md §6 "Window glass and environment maps" | Window/glass env map [documented name] | — |
 | SF bit 25 `remappable_textures` | PP 10,879 / 195,027; NL 2,486 / 37,244 | creosotebushsm | not read | Meaning for rendering unknown [hypothesis: texture-swap permission] | — |
 | SF bits 26/27 decals | PP 1,099 / 25,127, 1,059 / 23,891; NL 685 / 8,369 | nvn_cliffcanyonl01 (1,471); metalbox01 (743) | read+used `nif_spawn.rs:241,329`, `nif_material.rs:428` depth bias | — | — |
 | SF bit 29 `external_emittance` | PP 213 / 6,268; NL 316 / 8,892 | nvfungusstalk03 (830); fxglowsimpfillrndflthalf (866) | read+used `nif_spawn.rs:328`, `model.rs:64` | — | — |

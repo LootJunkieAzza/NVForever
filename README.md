@@ -97,8 +97,8 @@ cargo build --release --locked -p nvf-launcher
 The program is `target/release/nvforever-launcher` (`nvforever-launcher.exe` on Windows).
 
 More: [docs/development.md](docs/development.md) (build, test, options, tools) ·
-[docs/status.md](docs/status.md) (what's built) ·
-[docs/outstanding.md](docs/outstanding.md) (what's left).
+[docs/status.md](docs/status.md) (what's built and what's left) ·
+[open issues](https://github.com/LootJunkieAzza/NVForever/issues) (the work to do).
 
 ## Community
 

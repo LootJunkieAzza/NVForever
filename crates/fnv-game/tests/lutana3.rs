@@ -260,3 +260,111 @@ fn cell_events_follow_the_player() {
     assert_eq!(n(&mut g, "PlayerREF.AuxVarGetRef \"*enter\""), f64::from(HALL));
     assert_eq!(n(&mut g, "PlayerREF.AuxVarGetRef \"*exit\""), f64::from(ROOM));
 }
+
+/// Session `SetPerkLevel`, `SetPerkFlag` (0 trait, 1 playable, 2 hidden), and
+/// `LNSetIsPlayable` on PERK forms must reach `PerkSheet::of_player`, `TraitSheet::of_player`,
+/// `chargen::requirement_line`, ITR `GetPerkEligibility`, `GetAllPerks`, and
+/// `revision::keeps_perk`, reset on fresh-run restore, and survive same-run `put_session`
+/// (#2272).
+#[test]
+fn perk_level_and_flag_overrides_reach_consumers_and_session() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // 1. Baseline defaults + non-PERK / out-of-range flag guards.
+    assert_eq!(n(&mut g, "GetPerkLevel TestPerk"), 1.0);
+    assert_eq!(n(&mut g, "GetPerkFlag TestPerk 0"), 0.0);
+    assert_eq!(n(&mut g, "GetPerkFlag TestPerk 1"), 1.0);
+    assert_eq!(n(&mut g, "GetPerkFlag TestPerk 2"), 0.0);
+    assert_eq!(n(&mut g, "IsTrait TestPerk"), 0.0);
+    assert_eq!(n(&mut g, "LNIsPlayable TestPerk"), 1.0);
+    assert!(fnv_game::levelup::PerkSheet::of_player(&mut g, 1).can_take(FormId(PERK)));
+    assert!(!fnv_game::chargen::TraitSheet::of_player(&g).traits.contains(&FormId(PERK)));
+    assert_eq!(fnv_game::chargen::requirement_line(&g, FormId(PERK)), "--");
+
+    q(&mut g, "SetPerkLevel TestJunk 8\nSetPerkFlag TestJunk 1 1\nSetPerkFlag TestPerk 3 1");
+    assert_eq!(n(&mut g, "GetPerkLevel TestJunk"), 0.0, "non-PERK form must stay 0");
+    assert_eq!(n(&mut g, "GetPerkFlag TestJunk 1"), 0.0, "non-PERK flag must stay 0");
+    assert_eq!(n(&mut g, "GetPerkFlag TestPerk 3"), 0.0, "out-of-range flag ID must stay 0");
+
+    // 2. SetPerkLevel reaches PerkSheet, requirement_line, and ITR GetPerkEligibility.
+    q(&mut g, "SetPerkLevel TestPerk 6");
+    assert_eq!(n(&mut g, "GetPerkLevel TestPerk"), 6.0);
+    assert_eq!(fnv_game::chargen::requirement_line(&g, FormId(PERK)), "Level 6--");
+    let sheet4 = fnv_game::levelup::PerkSheet::of_player(&mut g, 4);
+    assert!(sheet4.perks.contains(&FormId(PERK)));
+    assert!(!sheet4.can_take(FormId(PERK)), "level 4 player must see level-6 perk as faint");
+    let sheet6 = fnv_game::levelup::PerkSheet::of_player(&mut g, 6);
+    assert!(sheet6.can_take(FormId(PERK)), "level 6 player must be able to take level-6 perk");
+    g.player.level = Some(4);
+    assert_eq!(n(&mut g, "let aR := GetPerkEligibility TestPerk\nSetFunctionValue (aR[\"eligible\"])"), 0.0);
+    g.player.level = Some(6);
+    assert_eq!(n(&mut g, "let aR := GetPerkEligibility TestPerk\nSetFunctionValue (aR[\"eligible\"])"), 1.0);
+    // Min level 0 hides a perk from level-up offering (challenge-reward gate).
+    q(&mut g, "SetPerkLevel TestPerk 0");
+    assert!(!fnv_game::levelup::PerkSheet::of_player(&mut g, 10).perks.contains(&FormId(PERK)));
+    q(&mut g, "SetPerkLevel TestPerk 6");
+
+    // 3. Playable flag via LNSetIsPlayable & SetPerkFlag 1 reaches PerkSheet.
+    q(&mut g, "LNSetIsPlayable 0 TestPerk");
+    assert_eq!(n(&mut g, "LNIsPlayable TestPerk"), 0.0);
+    assert_eq!(n(&mut g, "GetPerkFlag TestPerk 1"), 0.0);
+    assert!(!fnv_game::levelup::PerkSheet::of_player(&mut g, 6).perks.contains(&FormId(PERK)));
+    q(&mut g, "SetPerkFlag TestPerk 1 1");
+    assert_eq!(n(&mut g, "LNIsPlayable TestPerk"), 1.0);
+    assert!(fnv_game::levelup::PerkSheet::of_player(&mut g, 6).can_take(FormId(PERK)));
+
+    // 4. Hidden flag (SetPerkFlag 2) reaches PerkSheet and GetAllPerks hidden filter.
+    q(&mut g, "SetPerkFlag TestPerk 2 1");
+    assert!(!fnv_game::levelup::PerkSheet::of_player(&mut g, 6).perks.contains(&FormId(PERK)));
+    q(&mut g, "PlayerREF.SetPerkRank TestPerk 1");
+    // Empty GetAllPerks returns Ar_Null (Ar_Size == -1).
+    assert_eq!(n(&mut g, "let aR := PlayerREF.GetAllPerks 0 0\nSetFunctionValue (Ar_Size aR)"), -1.0);
+    assert_eq!(n(&mut g, "let aR := PlayerREF.GetAllPerks 0 1\nSetFunctionValue (Ar_Size aR)"), 1.0);
+    q(&mut g, "SetPerkFlag TestPerk 2 0");
+    assert_eq!(n(&mut g, "let aR := PlayerREF.GetAllPerks 0 0\nSetFunctionValue (Ar_Size aR)"), 1.0);
+
+    // 5. Trait flag (SetPerkFlag 0) reaches IsTrait, TraitSheet, PerkSheet, and revision::keeps_perk.
+    let rev_ctx = fnv_game::functions::Ctx {
+        unit: fnv_game::revision::REVISION_UNIT.into(),
+        opcode: 0x11C5,
+        on: Some(FormId::PLAYER_REF),
+        self_ref: None,
+        action_ref: None,
+        quest: None,
+        inst: None,
+        in_condition: false,
+    };
+    assert!(fnv_game::revision::keeps_perk(&g, &rev_ctx, FormId::PLAYER_REF, FormId(PERK)), "non-trait perk is kept by revision");
+    q(&mut g, "SetPerkFlag TestPerk 0 1");
+    assert_eq!(n(&mut g, "IsTrait TestPerk"), 1.0);
+    assert!(!fnv_game::revision::keeps_perk(&g, &rev_ctx, FormId::PLAYER_REF, FormId(PERK)), "trait perk is not kept by revision");
+    assert!(fnv_game::chargen::TraitSheet::of_player(&g).traits.contains(&FormId(PERK)));
+    g.player.perks.remove(&FormId(PERK));
+    assert!(!fnv_game::levelup::PerkSheet::of_player(&mut g, 6).perks.contains(&FormId(PERK)));
+
+    // 6a. Fresh-run restore (without Session transfer) resets session-only overrides to authored PERK DATA.
+    q(&mut g, "SetPerkLevel TestPerk 8");
+    let snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.checked_snapshot().unwrap()).unwrap()).unwrap();
+    let fresh_world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut fresh = Game::restore(&f.data, fresh_world, GameConfig::default(), &snap).unwrap();
+    assert_eq!(n(&mut fresh, "GetPerkLevel TestPerk"), 1.0);
+    assert_eq!(n(&mut fresh, "GetPerkFlag TestPerk 0"), 0.0);
+    assert_eq!(n(&mut fresh, "IsTrait TestPerk"), 0.0);
+    assert!(!fnv_game::chargen::TraitSheet::of_player(&fresh).traits.contains(&FormId(PERK)));
+    assert!(fnv_game::levelup::PerkSheet::of_player(&mut fresh, 1).can_take(FormId(PERK)));
+
+    // 6b. Same-run restore with put_session preserves SetPerkLevel / SetPerkFlag overrides across load.
+    let session = g.take_session();
+    let world_session = g.world.take_session();
+    let mut same_world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    same_world.put_session(world_session);
+    let mut same_run = Game::restore(&f.data, same_world, GameConfig::default(), &snap).unwrap();
+    same_run.put_session(session);
+    assert_eq!(n(&mut same_run, "GetPerkLevel TestPerk"), 8.0);
+    assert_eq!(n(&mut same_run, "GetPerkFlag TestPerk 0"), 1.0);
+    assert_eq!(n(&mut same_run, "IsTrait TestPerk"), 1.0);
+    assert_eq!(fnv_game::chargen::requirement_line(&same_run, FormId(PERK)), "Level 8--");
+    assert!(fnv_game::chargen::TraitSheet::of_player(&same_run).traits.contains(&FormId(PERK)));
+    assert!(!fnv_game::levelup::PerkSheet::of_player(&mut same_run, 10).perks.contains(&FormId(PERK)));
+}

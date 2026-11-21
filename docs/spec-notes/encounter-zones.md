@@ -96,7 +96,16 @@ actors, `resolve_changed_at`), `engine/nvforever/src/zones.rs` (the engine's cop
   `Game::cell_entered`) [documented: GECK wiki SetZoneRespawns, "Creatures will no longer
   respawn in the Yao Gaui Den zone"; GECK wiki Reference, references "will respawn
   according to the Encounter Zone setting"]. The zone's own level never resets either way
-  (§2). SetZoneRespawns itself is not built (no opcode in the catalogue).
+  (§2). `SetZoneRespawns` (`0x11EA`, saved in `World::zone_respawns`), session
+  `SetZoneFlag` bit 1 (`nvse_lutana`), `GetZoneFlag`, `GetZoneRespawns`
+  (`nvse_showoff2`) and `Game::cell_never_resets` (`respawn.rs`, also
+  consulting `SetCellEncounterZone` / `SetWorldspaceEncounterZone`, and passed
+  to `World::attach_cell_with_never_resets` during `Game::cell_entered` so
+  respawning containers and actors obey the same effective flag) all read the
+  same effective `never_resets` state through `Game::zone`; calling
+  `SetZoneRespawns` supersedes any earlier session `SetZoneFlag` bit-1 override
+  [design; hypothesis: original-game interaction between `SetZoneRespawns` and
+  extender `SetZoneFlag` / `GetZoneRespawns`].
 
 ## 5. Engine
 

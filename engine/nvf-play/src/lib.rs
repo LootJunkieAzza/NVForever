@@ -12,6 +12,7 @@
 //! [`dialogue_look`] turns the player's view to the actor they talk to.
 
 pub mod after_combat;
+pub mod game_files;
 pub mod activate;
 pub mod aid;
 pub mod aim_zoom;
@@ -268,6 +269,44 @@ pub struct PlayerCamera;
 #[component(immutable, on_insert = hitvol::ref_visual_inserted, on_remove = hitvol::ref_visual_removed)]
 pub struct RefVisual(pub u32);
 
+/// Beside [`RefVisual`] on every entity nvforever's full-detail scenery ring draws (its
+/// `full_detail.rs`, #2701): the full model of a reference in a cell beyond the loaded
+/// ones, drawn only. The simulation's state still shows and hides it ([`activate`]'s
+/// `sync_visuals`), but nothing that acts on what is loaded reads it: the console's and
+/// the editor's picks, the crosshair, the loaded-reference counts and the scripts' NIF
+/// functions leave it out (`Without<DrawOnly>`) [design].
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DrawOnly;
+
+/// On the entity of a cell nvforever's full-detail ring draws (its `full_detail.rs`): no
+/// [`RenderCell`] (nothing of the game draws into it), but the parent of draw-only copies
+/// that [`moved`] moves with their references.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DrawOnlyCell;
+
+/// The drawn parts of references that a ray or a box can pick ([`console::pick_under`],
+/// the crosshair, the outlines): every [`RefVisual`] but the draw-only ones ([`DrawOnly`]).
+pub type PickVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static bevy::camera::primitives::Aabb, &'static GlobalTransform, &'static InheritedVisibility), Without<DrawOnly>>;
+
+#[cfg(test)]
+mod draw_only_tests {
+    use super::*;
+    use bevy::camera::primitives::Aabb;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// #2701: the picks (console, editor, crosshair, outlines) see a loaded reference's
+    /// drawn parts and never the full-detail ring's draw-only ones.
+    #[test]
+    fn picks_leave_draw_only_parts_out() {
+        let mut world = World::new();
+        let part = (Aabb::default(), GlobalTransform::IDENTITY, InheritedVisibility::VISIBLE);
+        world.spawn((RefVisual(7), part));
+        world.spawn((RefVisual(8), part, DrawOnly));
+        let seen = world.run_system_once(|v: PickVisuals| v.iter().map(|(r, ..)| r.0).collect::<Vec<u32>>()).unwrap();
+        assert_eq!(seen, vec![7]);
+    }
+}
+
 /// On the root of a reference's own node hierarchy (an animated model spawned with
 /// `nvf_assets::model::Rig::spawn_nodes`: nvforever's doors, containers, activators and
 /// scripted models, [`script_draw`]'s enabled references): the reference and its node
@@ -393,6 +432,8 @@ pub struct PlayPlugin(pub PlayData);
 impl Plugin for PlayPlugin {
     fn build(&self, app: &mut App) {
         let d = self.0;
+        // Whose record names a file that is not there (game_files.rs, #2757).
+        game_files::note_load_order(d.lo);
         app.insert_resource(PlayWorld(d))
             .insert_resource(Location { world: d.world, interior: d.interior })
             .insert_resource(sim::SimState::new(d.lo, d.schema, d.index))
