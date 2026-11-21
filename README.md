@@ -55,16 +55,7 @@ game `Data` folder. A file already there is left alone. Nothing is copied. A
 profile save does not do that. An output folder for files the game or a tool
 creates is not built yet. Reading another program's instance with `--mo2` stays
 read-only.
-
-- **Mod Organizer 2:** add `nvforever.exe` to MO2's executables (the drop-down beside
-  **Run**, then **<Edit…>**) and start it from there. It loads the plugins ticked in MO2,
-  in MO2's order, and the game folder MO2 manages. See
-  [docs/mod-organizer-2.md](docs/mod-organizer-2.md).
-- **Without a mod manager:** put the mod in the game's `Data` folder, then turn its plugin
-  on in `Documents\My Games\NVForever\plugins.txt` with a `*` in front of its line. The
-  order of the lines is the load order. NVForever keeps its own list, so the original
-  game's mod list is not changed.
-
+  
 Script extenders (xNVSE, JIP LN, JohnnyGuitar and several smaller ones) are built into the
 engine: their script functions run without the plugin `.dll` files, which NVForever never
 loads. A mod that needs a plugin's engine patches, or a function not built yet, may not work.
