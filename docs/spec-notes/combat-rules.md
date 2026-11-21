@@ -18,7 +18,7 @@ them.
 
 | Value | Default | Shapes |
 |---|---|---|
-| `dt_floor` | 0.2 | DT never removes more than 80 % of a hit |
+| `dt_floor` | 0.2 | Armour never removes more than 80 % of a hit [observed: damage-armour.md §2] |
 | `headshot_unaware_crit` | true | a headshot on an unaware target is a critical |
 | `bloom_per_shot`, `bloom_per_min_spread`, `bloom_auto_mult` | 0.08 + 0.04 × Min Spread, × 0.5 for automatics | spread added per shot (spread units) |
 | `bloom_max`, `bloom_recovery` | 1.0 (about 6° of deviation, 3° of cone), 2.0 /s | bloom cap; how fast it shrinks once settling |
@@ -92,14 +92,21 @@ For one projectile (or one swing) that hits [documented unless marked]:
      attacks included [documented: GECK wiki Weapons, Crit % Mult: "will not cause any
      critical hits, even for sneak attacks"].
    - Critical damage (through "Calculate My Critical Hit Damage") is added before
-     armour. For shotguns it is shared among the projectiles [design].
+     armour and before the ammunition's Damage Mod, which multiplies it with the rest;
+     each projectile of a shotgun adds the whole of it [observed 2026-11-21:
+     damage-armour.md §3].
 7. **Armour.**
    - DT comes from the target, then ammo DT Mod effects, then the attacker's and
      defender's DT perk hooks. A weapon with "Ignores Normal Weapon Resistance" skips
      DT and DR [design: the page says the flag did not work in the original].
-   - After DT, at least `dt_floor` of the hit remains [design].
-   - DR (after ammo DR Mod effects, capped at `fMaxArmorRating`) then takes its
-     percentage.
+   - DR (after ammo DR Mod effects, capped at `fMaxArmorRating`) takes its percentage
+     of what DT leaves, for every damage type; a weapon's own resistance (§ the damage
+     type, weapon-data-fields.md §3) cuts it as well.
+   - The hit never deals less than `dt_floor` of its damage and critical bonus before
+     the ammunition's Damage Mod, whatever DT and DR took.
+   - The body part's multiplier comes last, on what armour let through.
+   - These four in this order are the original's [observed 2026-11-21:
+     damage-armour.md §1, §2 and §4].
    - A teammate's DT and DR are × (1 + Companion Nerve) before the ammo effects and
      perks [documented: as step 3, "armor"; hypothesis: that armour means both, and
      the order] (`Target::nerve`). Its energy and fire resistances are not changed.

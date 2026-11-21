@@ -9783,7 +9783,7 @@ forbid = [{ re = 'style weapon: .* takes up .*(Van Graff|001251CD)', label = "an
 
 [[scenario]]
 name = "energy-resist-hit"
-source = "ESM gap audit medium group 2 (docs/spec-notes/weapon-data-fields.md §3): a weapon's damage type (WEAP Resist) takes the target's resistance of that kind in place of DR"
+source = "ESM gap audit medium group 2 (docs/spec-notes/weapon-data-fields.md §3): a weapon's damage type (WEAP Resist) takes the target's resistance of that kind as well as DR (DR cutting such hits is the original's, docs/spec-notes/damage-armour.md §4, #3218)"
 note = "GSGeneralStore: Chet is given Energy Resistance 50 at the console; the player (GOD) shoots him with a laser pistol (00004335, Energy Resistance)"
 areas = ["combat"]
 paths = ["crates/fnv-combat/src/damage.rs", "engine/nvf-play/src/combat.rs"]
@@ -9791,7 +9791,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_T
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 24
 expect = [
-  { re = 'combat: \S+ takes WeapLaserPistol damage less 50 % \(Energy Resistance\) in place of DR', label = "the laser hit is cut by Chet's Energy Resistance" },
+  { re = 'combat: \S+ takes WeapLaserPistol damage less 50 % \(Energy Resistance\) as well as DR', label = "the laser hit is cut by Chet's Energy Resistance" },
 ]
 
 [[scenario]]

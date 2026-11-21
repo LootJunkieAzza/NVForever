@@ -500,9 +500,10 @@ are marked [design].
    critical [design]. The critical adds the weapon's Crit Dmg through
    the critical-damage perks before armour, and applies its critical effect. For
    automatic weapons the chance multiplier is divided by the fire rate (§4.2).
-4. **Armour**: the target's DT is subtracted, with a floor so weak weapons still do a
-   fraction of their damage (default 20 %). The ammo's DT effect changes the DT. DR, if
-   the target has any, reduces what's left.
+4. **Armour**: the target's DT is subtracted, the ammo's DT effect changing it, and DR,
+   if the target has any, reduces what's left; a floor (20 %) lets weak weapons still do
+   a fraction of their damage, and the body part's multiplier comes last. The order is
+   the original's, measured (docs/spec-notes/damage-armour.md).
 5. **Apply** through the actor-value damage part of Health (as `DamageAV`), fire OnHit
    on the target's scripts, and at zero health mark it dead and fire OnDeath. Limb
    health and crippling come later.

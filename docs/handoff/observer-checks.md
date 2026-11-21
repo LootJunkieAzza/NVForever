@@ -121,7 +121,9 @@ engine if needed, and delete the item here.
    or it starts alerted. Answers #1341's question.
 3. **Damage numbers.** Ours:
    - Power attacks do 3× standing and 2× moving.
-   - A damage type uses its resistance in place of DR (capped at 85 %, after DT).
+   - A damage type uses its resistance (capped at 85 %, after DT) as well as DR. That DR
+     cuts laser and plasma hits is answered [observed 2026-11-21: damage-armour.md §4,
+     #3218]; whether the resistance itself cuts them is still open.
    - Rippers, Chainsaw and Thermic Lance ignore DT/DR.
    - `fCombatPlayerLimbDamageMult` halves damage to the player's limbs.
    - Difficulty multipliers are 2/1.5/1/0.75/0.5 dealt and the inverse taken, including

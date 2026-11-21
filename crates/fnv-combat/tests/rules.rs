@@ -64,18 +64,19 @@ fn gun_damage_skill_and_dt() {
 }
 
 #[test]
-fn a_damage_type_takes_its_resistance_in_place_of_dr() {
-    // weapon-data-fields.md §3: a laser is cut by Energy Resistance, not DR; DT first.
+fn a_damage_type_takes_its_resistance_as_well_as_dr() {
+    // DR cuts a laser's hit [observed, damage-armour.md §4] and Energy Resistance does
+    // too [hypothesis, weapon-data-fields.md §3]; DT first.
     let laser = WeaponStats { resist: Some("Energy Resistance".into()), ..gun(20) };
     assert_eq!(damage::resistance_of(&laser), Some("Energy Resistance"));
     let d = hit(&laser, 1, &skilled(), &Target { dt: 5.0, dr: 50.0, resist: 20.0, ..Target::default() }, &[], HitPart::default(), 0.99);
-    assert!(close(d.dr, 20.0) && close(d.dealt, 12.0), "{d:?}");
-    // No resistance of that kind: all of what DT leaves.
+    assert!(close(d.dr, 50.0) && close(d.dealt, 6.0), "{d:?}");
+    // No resistance of that kind: DR alone.
     let d = hit(&laser, 1, &skilled(), &Target { dt: 5.0, dr: 50.0, ..Target::default() }, &[], HitPart::default(), 0.99);
-    assert!(close(d.dealt, 15.0));
-    // Capped as DR is (fMaxArmorRating 85).
+    assert!(close(d.dealt, 7.5));
+    // Capped as DR is (fMaxArmorRating 85), and never under the floor's 20 %.
     let d = hit(&laser, 1, &skilled(), &Target { resist: 100.0, ..Target::default() }, &[], HitPart::default(), 0.99);
-    assert!(close(d.dr, 85.0) && close(d.dealt, 3.0), "{d:?}");
+    assert!(close(d.dr, 0.0) && close(d.dealt, 4.0), "{d:?}");
     // None and Damage Resistance keep DR.
     for r in ["None", "Damage Resistance"] {
         let w = WeaponStats { resist: Some(r.into()), ..gun(20) };
@@ -113,6 +114,62 @@ fn npc_against_npc_hits_of_the_originals_fight() {
     assert!((d.dealt - 23.36).abs() < 0.01, "{d:?}");
 }
 
+/// The original's figures, hit by hit, at skill 50 with a weapon in full condition
+/// [observed 2026-11-21: the damage parity matrix, docs/spec-notes/damage-armour.md].
+#[test]
+fn armour_steps_match_the_measured_hits() {
+    let a = Attacker::default();
+    let near = |d: &damage::Damage, v: f32| (d.dealt - v).abs() < 0.01;
+    let (torso, head) = (HitPart::default(), HitPart { damage_mult: 2.0, head: true });
+    let on = |dt: f32, dr: f32| Target { dt, dr, ..Target::default() };
+    let rifle = WeaponStats { crit_damage: 52, ..gun(52) };
+    let pistol = WeaponStats { crit_damage: 16, ..gun(16) };
+    // The part's multiplier after DT, the floor and DR (#3215).
+    assert!(near(&hit(&pistol, 1, &a, &on(4.0, 0.0), &[], head.clone(), 0.99), 16.0));
+    assert!(near(&hit(&pistol, 1, &a, &on(11.0, 0.0), &[], torso.clone(), 0.99), 2.4));
+    assert!(near(&hit(&pistol, 1, &a, &on(11.0, 0.0), &[], head.clone(), 0.99), 4.8));
+    assert!(near(&hit(&rifle, 1, &a, &on(19.0, 30.0), &[], torso.clone(), 0.99), 14.0));
+    assert!(near(&hit(&rifle, 1, &a, &on(19.0, 30.0), &[], head.clone(), 0.99), 28.0));
+    // A critical: its bonus before DT, doubled on the head with the rest.
+    assert!(near(&hit(&pistol, 1, &a, &on(11.0, 0.0), &[], head.clone(), 0.0), 34.0));
+    assert!(near(&hit(&rifle, 1, &a, &on(11.0, 0.0), &[], head.clone(), 0.0), 160.0));
+    // DR does not cut the floor (#3216).
+    assert!(near(&hit(&pistol, 1, &a, &on(21.0, 30.0), &[], torso.clone(), 0.99), 2.4));
+    // Hollow Point (damage x1.75, DT x3): the floor is of the 39 before the ammunition.
+    let hp = [effect("Damage Mod", "Multiply", 1.75), effect("DT Mod", "Multiply", 3.0)];
+    let hp: Vec<&AmmoEffect> = hp.iter().collect();
+    assert!(near(&hit(&rifle, 1, &a, &on(2.0, 0.0), &hp, torso.clone(), 0.99), 62.25));
+    assert!(near(&hit(&rifle, 1, &a, &on(25.0, 0.0), &hp, torso.clone(), 0.99), 7.8));
+    assert!(near(&hit(&rifle, 1, &a, &on(24.0, 30.0), &hp, head.clone(), 0.99), 15.6));
+    // The ammunition's multiplier is on the critical bonus too (#3217).
+    assert!(near(&hit(&rifle, 1, &a, &on(0.0, 0.0), &hp, torso.clone(), 0.0), 159.25));
+    assert!(near(&hit(&rifle, 1, &a, &on(24.0, 30.0), &hp, torso.clone(), 0.0), 61.075));
+    let ap = [effect("Damage Mod", "Multiply", 0.95), effect("DT Mod", "Subtract", 15.0)];
+    let ap: Vec<&AmmoEffect> = ap.iter().collect();
+    assert!(near(&hit(&rifle, 1, &a, &on(11.0, 0.0), &ap, torso.clone(), 0.0), 86.45));
+    assert!(near(&hit(&rifle, 1, &a, &on(19.0, 30.0), &ap, torso.clone(), 0.99), 23.135));
+    // Buckshot (x1.2), 7 pellets of a 70 shotgun: the floor from 7.5, and a pellet's
+    // critical adds the weapon's whole 10.
+    let shotgun = WeaponStats { crit_damage: 10, ..gun(70) };
+    let buck = [effect("Damage Mod", "Multiply", 1.2)];
+    let buck: Vec<&AmmoEffect> = buck.iter().collect();
+    assert!(near(&hit(&shotgun, 7, &a, &on(0.0, 0.0), &buck, torso.clone(), 0.99), 9.0));
+    assert!(near(&hit(&shotgun, 7, &a, &on(11.0, 0.0), &buck, torso.clone(), 0.99), 1.5));
+    assert!(near(&hit(&shotgun, 7, &a, &on(5.0, 0.0), &buck, torso.clone(), 0.0), 16.0));
+    assert!(near(&hit(&shotgun, 7, &a, &on(18.0, 0.0), &buck, torso.clone(), 0.0), 3.5));
+    // DT leaves 4, DR would make it 2.8: the floor's 3.5 holds after DR too.
+    assert!(near(&hit(&shotgun, 7, &a, &on(17.0, 30.0), &buck, torso.clone(), 0.0), 3.5));
+    assert!(near(&hit(&shotgun, 7, &a, &on(25.0, 0.0), &buck, head.clone(), 0.0), 7.0));
+    // DR cuts a laser and a plasma rifle (the cell takes 2 off DT) (#3218).
+    let cell = [effect("DT Mod", "Subtract", 2.0)];
+    let cell: Vec<&AmmoEffect> = cell.iter().collect();
+    let laser = WeaponStats { resist: Some("Energy Resistance".into()), ..gun(22) };
+    let plasma = WeaponStats { resist: Some("Energy Resistance".into()), ..gun(47) };
+    assert!(near(&hit(&laser, 1, &a, &on(0.0, 30.0), &cell, torso.clone(), 0.99), 11.55));
+    assert!(near(&hit(&plasma, 1, &a, &on(24.0, 30.0), &cell, torso.clone(), 0.99), 9.275));
+    assert!(near(&hit(&laser, 1, &a, &on(21.0, 30.0), &cell, head, 0.99), 6.6));
+}
+
 #[test]
 fn shotgun_damage_is_shared() {
     let d = hit(&gun(100), 14, &skilled(), &Target::default(), &[], HitPart::default(), 0.99);
@@ -131,7 +188,7 @@ fn criticals() {
     assert!(close(c, 1.25));
     // A headshot on an unaware target always crits [design].
     let d = hit(&w, 1, &skilled(), &Target { unaware: true, ..Target::default() }, &[], HitPart { damage_mult: 2.0, head: true }, 0.99);
-    assert!(d.critical && close(d.dealt, 50.0));
+    assert!(d.critical && close(d.dealt, 60.0), "the part's x2 is on the critical bonus too: {d:?}");
     // No critical without a crit multiplier.
     let none = WeaponStats { crit_mult: 0.0, ..gun(20) };
     assert!(!hit(&none, 1, &skilled(), &Target { unaware: true, ..Target::default() }, &[], HitPart { damage_mult: 1.0, head: true }, 0.0).critical);
@@ -150,9 +207,9 @@ fn limb_damage_leaves_out_the_part_multiplier() {
     assert!(close(head.limb_damage(1.0), 20.0), "the head's ×2 is not in the limb damage");
     assert!(close(head.limb_damage(2.0), 40.0), "the weapon's Limb Dmg Mult is (a knife's 2)");
     assert!(close(head.limb_damage(0.0), 0.0) && close(head.limb_damage(-1.0), 0.0));
-    // Armour first, then the part multiplier comes out: DT 10 on the ×2 head hit.
+    // Armour first, then the part multiplier: DT 10 off the hit, then the head's ×2.
     let armoured = hit(&w, 1, &skilled(), &Target { dt: 10.0, ..Target::default() }, &[], HitPart { damage_mult: 2.0, head: true }, 0.99);
-    assert!(close(armoured.dealt, 30.0) && close(armoured.limb_damage(1.0), 15.0), "{armoured:?}");
+    assert!(close(armoured.dealt, 20.0) && close(armoured.limb_damage(1.0), 10.0), "{armoured:?}");
     // A part of multiplier 0 deals no health damage and so no limb damage.
     let none = hit(&w, 1, &skilled(), &Target::default(), &[], HitPart { damage_mult: 0.0, head: false }, 0.99);
     assert!(close(none.limb_damage(1.0), 0.0));

@@ -3874,7 +3874,7 @@ fn target_resist(script: Option<&mut ScriptState>, sim: &mut SimState, target: F
     let Some(code) = fnv_game::functions::av_by_name(name) else { return 0.0 };
     let v = actor_av(script, sim, target, code).unwrap_or(0.0);
     if v > 0.0 {
-        info!("combat: {target} takes {} damage less {v:.0} % ({name}) in place of DR", w.edid.as_deref().unwrap_or("?"));
+        info!("combat: {target} takes {} damage less {v:.0} % ({name}) as well as DR", w.edid.as_deref().unwrap_or("?"));
     }
     v
 }
