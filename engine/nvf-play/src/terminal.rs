@@ -758,7 +758,7 @@ fn open(
             };
             // The player's hacking tweaks [design: docs/design/tweaks.md].
             let t = &rt.game.tweaks;
-            puzzle.rules = fnv_game::hacking::HackRules { no_single_chars: t.hack_no_single_chars, no_repeat_words: t.hack_no_repeat_words, dud_when_full: t.hack_dud_when_full, spare_guessed: t.hack_spare_guessed };
+            puzzle.rules = fnv_game::hacking::HackRules::from_tweaks(t);
             stats.hacks += 1;
             info!(
                 "terminal: open {reference} {name}: hacking, {} (Science {sci:.0}): {} words of {} letters, {} bracket pairs",

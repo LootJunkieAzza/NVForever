@@ -424,3 +424,28 @@ above (`UIHackingCharSingle`, `…Multiple`, the loop `UIHackingCharScrollLP`), 
 something else — and whether moving onto a lone character sounds differently from moving
 onto a word. Until it is answered the record and the 70 ms rule stay as above
 [hypothesis / design].
+
+## 10. Hacking tweaks (`bImprovedHacking`)
+
+[documented: Stewie's Tweaks public readme and Nexus Mods 9.50 changelog] Under
+`bImprovedHacking`, `bMarkGuessesAsDuds` blanks denied guesses to `.` in the dump,
+`bMarkGuessesAsDudsKeepMatchingCharacters` (added in Stewie 9.50) retains letters at
+positions that match the password (for example `A.S..ING`), `bCompactGuesses` logs a
+wrong guess on one line without the denied line (for example `HORIZON (1/7)`), and
+`iAllowanceReplenishedBonus` adds bonus attempts on Replenished instead of resetting to
+the maximum (`4`).
+
+[design] `HackRules` (`crates/fnv-game/src/hacking.rs`, populated via
+`HackRules::from_tweaks` in `engine/nvf-play/src/terminal.rs`) implements these four
+options beside the existing four switches, all off / `0` by default. Marking a wrong
+guess as a dud sets `Word::removed = true` so the word is no longer selectable as a
+`Target::Word` and bracket-pair dud removal skips it; retained matching characters stay
+alphabetic in `Puzzle::chars` so they do not allow spurious bracket pairs across a
+removed word.
+
+[hypothesis] Exact interaction between `bMarkGuessesAsDudsKeepMatchingCharacters` when
+`bMarkGuessesAsDuds` is off (NVForever treats it as a sub-option that only applies when
+`mark_guesses_as_duds` is enabled), `iAllowanceReplenishedBonus` interacting with
+`dud_when_full` when attempts already meet or exceed `ATTEMPTS`, and single-line log
+clipping for compact guesses longer than 12 characters have not been observed in the
+original plugin.

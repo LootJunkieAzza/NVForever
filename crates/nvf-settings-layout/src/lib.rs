@@ -380,6 +380,10 @@ pub const SECTIONS: &[Section] = &[
             "tweak-hack-spare-guessed",
             "tweak-hack-no-repeat-words",
             "tweak-hack-no-single-chars",
+            "tweak-hack-mark-guesses-as-duds",
+            "tweak-hack-keep-matching-chars",
+            "tweak-hack-compact-guesses",
+            "tweak-hack-replenish-bonus",
             "tweak-key-name",
             "tweak-no-grab-owned",
             "tweak-no-terminal-lockout",
@@ -963,6 +967,7 @@ pub const NEEDS: &[(&str, &str, &str)] = &[
     ("fps-counter-upscaling", "fps-counter", "Needs the Frame Rate Counter."),
     ("fps-counter-low", "fps-counter", "Needs the Frame Rate Counter."),
     ("fps-counter-low", "fps-counter-fps", "Needs Counter: Frame Rate."),
+    ("tweak-hack-keep-matching-chars", "tweak-hack-mark-guesses-as-duds", "Needs Hacking: Mark Guesses as Duds."),
 ];
 
 /// The Controls tab's rows that are shown only while the input device is a controller
