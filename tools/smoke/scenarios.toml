@@ -3677,6 +3677,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "getlos-dead-body"
+source = "#3232: TTW's \"Those!\" (Fallout3.esm MS04Script) advances on Player.GetLOS FredWilksRef == 1 with Fred Wilks lying dead; dead actors are in no detection pair, so player.GetLineOfSight on a body read 0"
+note = "VERT1GSRoachHuntedREF (0x00168D1A, south of Goodsprings, as in death-item-radroach) is moved 200 units north of the player, the view turned north and the roach killed; its body in the camera's view reads 1, and 0 once the view is turned south (behind the camera)"
+areas = ["detection", "deaths"]
+paths = ["crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_LOOK = "6:0:-15,13:180:-15", NVF_PLAY_TEST_CONSOLE = "7:00168D1A.moveto player 0 200 20;7.3:close;8:00168D1A.killactor;8.3:close;11:00168D1A.getdead;11.2:player.getlineofsight 00168D1A;11.5:close;15:player.getlineofsight 00168D1A;15.3:close" }
+args = ["--play", "--pos=-58300,-38400,5900", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 17
+expect = [
+  { re = 'console: GetDead on .*>> 1\.00', label = "the roach is dead" },
+  { re = 'console: GetLineOfSight on player >> 1\.00', count = 1, label = "its body in the camera's view: seen" },
+  { re = 'console: GetLineOfSight on player >> 0\.00', count = 1, label = "behind the camera: not seen" },
+]
+order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'GetLineOfSight on player >> 1\.00' }, { re = 'GetLineOfSight on player >> 0\.00' }]]
+
+[[scenario]]
 name = "alert-fiend"
 launch = "violet"
 note = "NVF_PLAY_TEST_SCRIPT_MENUS=1 added (CLAUDE.md gave no test aid): with none the run is attended and the add-on packs' first message box stays open all run, so Violet never reaches Combat (alone, 2026-10-12)"

@@ -38,6 +38,13 @@
 //!   camera is, along where it looks (`Situation::camera_sight`) [documented: same page,
 //!   "the *camera*"; observed: same capture, 0 at 90° left but 1 to 110° right, the
 //!   third-person camera being off to one side].
+//! - **Bodies**: dying and dead actors are in no pair (they detect no one and are not
+//!   detected), but the player's camera measures the drawn ones for GetLineOfSight: the
+//!   same ±95° and wall check aimed at where the body lies (`body_point`: its ragdoll's
+//!   trunk), told to the game as `Game::set_camera_sights` [documented: GECK wiki
+//!   GetLineOfSight, on the player any object can be the target; Fallout3.esm's
+//!   MS04Script advances on `Player.GetLOS FredWilksRef == 1` with Fred Wilks lying
+//!   dead, #3232].
 //! - **The player as a detector**: measured like an actor, its Perception against the
 //!   target's Sneak [observed: player.GetDetected Ringo and Chet 1 in the original,
 //!   function probes fp1/fp2 2026-10-17, also with `tdetect` on, so the toggle and
@@ -366,6 +373,37 @@ pub(crate) fn eyes_of(phys: Option<&PhysState>, id: u32, feet: [f32; 3], eye: f3
 /// How far above its origin a body must start to have its eyes on it, game units
 /// [design: the ceiling turret's starts 47 up; feet and a crouch start at 0].
 const LIFTED: f32 = 16.0;
+
+/// Where the player's camera looks for a dead or dying actor, game space: its ragdoll's
+/// trunk (the heaviest body's mass centre) where it has one, else the middle of its hit
+/// volume as drawn (its widest part: a body lying in its death pose is low), else
+/// [`BODY_LIFT`] above its origin. Not the eye or chest height of a standing actor:
+/// Fred Wilks' body lay at z 454 with the player's feet at 449 (#3232) [observed: the
+/// report's log, `ragdoll: actor 060393EA at rest at (1896, -1574, 454)`].
+fn body_point(phys: Option<&PhysState>, id: u32, feet: [f32; 3]) -> [f32; 3] {
+    let world = phys.map(|p| &p.world);
+    world.and_then(|w| w.ragdoll_center(id)).or_else(|| world.and_then(|w| w.actor_aim_point(id))).unwrap_or([feet[0], feet[1], feet[2] + BODY_LIFT])
+}
+
+/// [`body_point`] of a body the physics knows nothing of, units above its origin
+/// [design: about a lying body's thickness].
+const BODY_LIFT: f32 = 12.0;
+
+/// The bodies (`(reference, point)`) the player's camera sees, for GetLineOfSight
+/// (#3232): within the camera's ±95° about where it looks and with nothing solid
+/// between it and the point (`clear`, which answers each (from, [point, point]) at once
+/// as [`sights`] does; actors and the corpses' own ragdolls do not block). Bodies are in
+/// no detection pair, so this is their only measurement; the player sees drawn actors at
+/// any distance, bodies too (the module notes). Without a camera nothing is seen.
+fn bodies_seen(camera: Option<([f32; 3], [f32; 2])>, bodies: &[(u32, [f32; 3])], clear: impl FnOnce(&[([f32; 3], [[f32; 3]; 2])]) -> Vec<bool>) -> Vec<FormId> {
+    let Some((at, ahead)) = camera else { return Vec::new() };
+    let asked: Vec<(u32, [f32; 3])> = bodies.iter().copied().filter(|&(_, p)| in_view(at, ahead, p)).collect();
+    if asked.is_empty() {
+        return Vec::new();
+    }
+    let asks: Vec<_> = asked.iter().map(|&(_, p)| (at, [p, p])).collect();
+    asked.iter().zip(clear(&asks)).filter(|(_, c)| *c).map(|(&(id, _), _)| FormId(id)).collect()
+}
 
 /// Whether the collision world lets `from` see `to` (also the combat AI's cover test,
 /// `combat_tactics`).
@@ -863,8 +901,16 @@ fn measure(
         turning: turning(FormId::PLAYER_REF.0, player.heading, &mut state.headings),
         swimming: phys.as_deref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming),
     });
+    // The drawn bodies (dying or dead), measured from the player's camera alone for
+    // GetLineOfSight ([`bodies_seen`]), at the point the camera looks for.
+    let mut bodies: Vec<(u32, [f32; 3])> = Vec::new();
     for (rig, g, vis, dying, corpse, name) in &actors {
-        if !vis.get() || dying || corpse || rt.game.is_dead(FormId(rig.reference)) {
+        if !vis.get() {
+            continue;
+        }
+        if dying || corpse || rt.game.is_dead(FormId(rig.reference)) {
+            let feet = bevy_to_game(g.translation()).to_array();
+            bodies.push((rig.reference, body_point(phys.as_deref(), rig.reference, feet)));
             continue;
         }
         let feet = bevy_to_game(g.translation()).to_array();
@@ -1122,6 +1168,9 @@ fn measure(
             .collect();
         let mut camera_sight = vec![false; ordered.len()];
         look(camera_asks, &mut camera_sight);
+        // The bodies the camera sees: player.GetLineOfSight on a dead actor (#3232).
+        let seen = bodies_seen(people[0].camera, &bodies, |asks| sights(phys.as_deref_mut(), land, world, exterior, asks, &mut counts));
+        g.set_camera_sights(seen);
         for (k, &(i, j)) in ordered.iter().enumerate() {
             let (d, t) = (&people[i], &people[j]);
             let by_player = i == 0;
@@ -1527,6 +1576,32 @@ mod tests {
         // The ceiling turret: body 47-93 over its origin [observed, #1537], eyes halfway up.
         phys.world.set_actor_volume(6, fnv_phys::HitVolume { feet: [0.0, 0.0, 7807.0], radius: 20.0, height: 46.0, dead: false });
         assert_eq!(eyes_of(Some(&phys), 6, [0.0, 0.0, 7760.0], EYE_HEIGHT), [0.0, 0.0, 7830.0]);
+    }
+
+    /// #3232: the bodies the player's camera sees, for player.GetLineOfSight on a dead
+    /// actor. In front of the camera and clear: seen; behind it: not asked; in view but
+    /// behind a wall (the line answered blocked): not seen; no camera: nothing.
+    #[test]
+    fn the_camera_sees_bodies_in_view_and_clear() {
+        // Fred Wilks' body 193 units ahead of the camera, as in the report; one behind
+        // the camera; one in view with a wall between.
+        let eye = [1964.0, -1393.0, 570.0];
+        let camera = Some((eye, [0.0, -1.0]));
+        let fred = (0x060393EA, [1896.0, -1574.0, 454.0]);
+        let behind = (2, [1964.0, -1200.0, 460.0]);
+        let walled = (3, [2100.0, -1600.0, 460.0]);
+        let mut asked = Vec::new();
+        let seen = bodies_seen(camera, &[fred, behind, walled], |asks| {
+            asked = asks.to_vec();
+            asks.iter().map(|(_, [p, _])| *p != walled.1).collect()
+        });
+        assert_eq!(seen, vec![FormId(fred.0)]);
+        // The line is cast from the camera to where the body lies, not to a standing
+        // actor's chest; the body behind the camera is never asked.
+        assert_eq!(asked, vec![(eye, [fred.1, fred.1]), (eye, [walled.1, walled.1])]);
+        assert!(bodies_seen(None, &[fred], |_| panic!("no camera, no rays")).is_empty());
+        // Where the physics knows nothing of the body: a little above its origin.
+        assert_eq!(body_point(None, 7, [10.0, 20.0, 30.0]), [10.0, 20.0, 30.0 + BODY_LIFT]);
     }
 
     /// #2117: a shot is heard at the loudness of the weapon as fired, its mod flags on
