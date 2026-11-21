@@ -314,3 +314,21 @@
         self.show_downloads();
     }
 
+
+// ----- helper used only by the Downloads tab (app.rs shown_size) -----
+
+fn shown_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    let n = bytes as f64;
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if n < MB {
+        format!("{:.1} KB", n / KB)
+    } else if n < GB {
+        format!("{:.1} MB", n / MB)
+    } else {
+        format!("{:.2} GB", n / GB)
+    }
+}

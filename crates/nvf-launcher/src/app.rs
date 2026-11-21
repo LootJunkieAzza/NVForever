@@ -6083,22 +6083,6 @@ fn shown_place(location: &str) -> Option<&str> {
     (!l.is_empty() && !grid && !editor_id).then_some(l)
 }
 
-fn shown_size(bytes: u64) -> String {
-    const KB: f64 = 1024.0;
-    const MB: f64 = 1024.0 * 1024.0;
-    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
-    let n = bytes as f64;
-    if bytes < 1024 {
-        format!("{bytes} B")
-    } else if n < MB {
-        format!("{:.1} KB", n / KB)
-    } else if n < GB {
-        format!("{:.1} MB", n / MB)
-    } else {
-        format!("{:.2} GB", n / GB)
-    }
-}
-
 /// The gap a dragged row would drop into: the number of rows whose middle is above `y`
 /// (0 = before the first row, `centers.len()` = after the last).
 fn header_ok(path: &Path) -> bool {
