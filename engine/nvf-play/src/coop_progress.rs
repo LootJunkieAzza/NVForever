@@ -134,7 +134,16 @@ pub struct CoopProgress {
     pub returns: Returns,
     /// A guest: the quests it was told the host went on without it in.
     pub unshared_told: std::collections::BTreeSet<u32>,
+    /// A guest: the host's stage offers heard before this game was kept as its own
+    /// (`save::SoloBase`, right after joining, when a catch-up comes), and since when.
+    /// Taken in order once it is kept, at most [`HOLD_FOR`] later (duo 134, 2026-11-21:
+    /// a returning guest's catch-up stages were lost this way).
+    pub held: Vec<Shared>,
+    pub held_since: Option<std::time::Instant>,
 }
+
+/// How long a guest holds the host's stage offers while its own game is not kept yet.
+pub const HOLD_FOR: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// The host's catch-up for players that drop and come back (owner, 2026-11-20: "when
 /// someone reconnects they will get whatever they would've gotten had they been there").
@@ -491,6 +500,19 @@ fn take_inbox(
             w => Some((id, w)),
         })
         .collect();
+    // Stage offers held until this game is kept as the guest's own: first, in order.
+    let kept = solo.is_some();
+    let mut inbox = inbox;
+    if role != Role::Guest {
+        p.held.clear();
+        p.held_since = None;
+    } else if kept && !p.held.is_empty() {
+        info!("co-op: {} held stage offers taken now this game is kept as its own", p.held.len());
+        let mut all: Vec<(u8, Shared)> = std::mem::take(&mut p.held).into_iter().map(|w| (0, w)).collect();
+        all.append(&mut inbox);
+        inbox = all;
+        p.held_since = None;
+    }
     if caught_up > 0 {
         let host = mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str());
         say(&mut corner, format!("Back with {host}: caught up on what you missed"));
@@ -612,6 +634,16 @@ fn take_inbox(
             }
             Shared::Stage { quest, stage, line, line_end, prior, to } if p.role == Role::Guest && id == 0 => {
                 if !p.my_id.is_some_and(|m| m < 8 && to & (1 << m) != 0) || p.joint_on != Some(true) {
+                    continue;
+                }
+                // Not kept as its own yet (just joined): held, in order, until it is.
+                if !kept || script.as_deref().is_none_or(|s| s.rt.is_none()) {
+                    let since = *p.held_since.get_or_insert(now);
+                    if now.saturating_duration_since(since) < HOLD_FOR {
+                        p.held.push(Shared::Stage { quest, stage, line, line_end, prior, to });
+                    } else {
+                        warn!("co-op: the host set {} stage {stage}: this game was not kept as its own in {} s, so nothing is claimed", FormId(quest), HOLD_FOR.as_secs());
+                    }
                     continue;
                 }
                 let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { continue };
