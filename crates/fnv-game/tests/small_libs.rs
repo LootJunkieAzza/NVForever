@@ -468,6 +468,17 @@ fn vheyes_moon_stamps_and_queued_command() {
 }
 
 #[test]
+fn interactive_console_evaluation_prints_compiled_results_before_cleanup() {
+    let f = fixture();
+    let mut g = game(&f);
+    let eval = |g: &mut fnv_game::Game<'_>, expression| g.eval_console_expression(expression, Default::default()).unwrap();
+    assert_eq!(eval(&mut g, "5 + 5"), "10");
+    assert_eq!(eval(&mut g, "GetModelPath TestBox"), r#""Test\\Box.nif""#);
+    assert_eq!(eval(&mut g, "ar_List 1, 9"), "[0: 1, 1: 9]");
+    assert!(g.eval_console_expression("5 +", Default::default()).is_err());
+}
+
+#[test]
 fn cacheui_anh_and_the_small_plugins() {
     files();
     let f = fixture();

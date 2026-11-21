@@ -3331,28 +3331,51 @@ impl<'a> Game<'a> {
     /// `ctx.self_ref`; the value is what SetFunctionValue set (0 when nothing). The
     /// extender's and JIP's stores, handlers and the game itself keep what it changed.
     pub fn run_query(&mut self, src: &str, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
-        use fnv_script::vm::XVal;
-        let c = fnv_script::compile::compile_runtime(src, &self.data.table, &GameEnv { g: self });
-        if let Some(e) = c.errors().next() {
-            // The error is the capture's own text; what the compiler said goes to the trace.
-            let what = format!("query: {}: {}", e.kind.replace('_', " "), e.detail);
-            self.emit(EventKind::Skipped { unit: "query".into(), what });
-            return Err("script did not compile".into());
+        self.run_query_with(src, ctx, false, |_, value| value)
+    }
+
+    /// Print an interactive expression before the VM sweeps temporary arrays.
+    pub fn eval_console_expression(&mut self, expr: &str, ctx: RunCtx) -> Result<String, String> {
+        if expr.trim().is_empty() || expr.contains(['\r', '\n']) {
+            return Err("eval requires one script expression".into());
         }
-        let d = fnv_script::decode(&c.bytes, &self.data.table);
-        let unit = fnv_script::ScriptUnit {
-            plugin: "query".into(),
-            owner: fnv_script::UnitOwner::Other { sig: "QURY".into(), form: 0, ordinal: 0 },
-            kind: fnv_script::ScriptKind::Object,
-            header: Default::default(),
-            variables: c.variables,
-            refs: c.refs,
-            has_scda: true,
-            bytes: c.bytes,
-            source: Some(src.to_string()),
+        let src = format!("Begin Function {{}}\nSetFunctionValue ({expr})\nEnd");
+        self.run_query_with(&src, ctx, true, |g, value| crate::functions::console::expression_result(g, &value))
+    }
+
+    fn run_query_with<T>(
+        &mut self,
+        src: &str,
+        ctx: RunCtx,
+        console: bool,
+        finish: impl FnOnce(&Self, fnv_script::vm::XVal) -> T,
+    ) -> Result<T, String> {
+        use fnv_script::vm::XVal;
+        let unit = if console {
+            self.compile_statements(src, "console", "CONS")?.0
+        } else {
+            let c = fnv_script::compile::compile_runtime(src, &self.data.table, &GameEnv { g: self });
+            if let Some(e) = c.errors().next() {
+                let what = format!("query: {}: {}", e.kind.replace('_', " "), e.detail);
+                self.emit(EventKind::Skipped { unit: "query".into(), what });
+                return Err("script did not compile".into());
+            }
+            let d = fnv_script::decode(&c.bytes, &self.data.table);
+            let unit = fnv_script::ScriptUnit {
+                plugin: "query".into(),
+                owner: fnv_script::UnitOwner::Other { sig: "QURY".into(), form: 0, ordinal: 0 },
+                kind: fnv_script::ScriptKind::Object,
+                header: Default::default(),
+                variables: c.variables,
+                refs: c.refs,
+                has_scda: true,
+                bytes: c.bytes,
+                source: Some(src.to_string()),
+            };
+            // A lambda made by the query may outlive the call.
+            let unit: &'a Compiled = Box::leak(Box::new(Compiled::new(unit, d.program, d.report.raw_total())));
+            unit
         };
-        // Leaked as the console's lines are: a lambda the query makes may outlive it.
-        let unit: &'a Compiled = Box::leak(Box::new(Compiled::new(unit, d.program, d.report.raw_total())));
         let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or("the script has no Function block")?;
         let data = self.data;
         let opts = self.opts();
@@ -3373,8 +3396,9 @@ impl<'a> Game<'a> {
         let frame = self.udf.pop();
         let v = frame.and_then(|f| f.value).unwrap_or(XVal::Num(0.0));
         self.ext.hand_over(&v);
+        let shown = result.map(|_| finish(self, v));
         self.ext.sweep();
-        result.map(|_| v)
+        shown
     }
 
     /// CompileScript: the script a text file under `Data\NVSE\user_defined_functions`

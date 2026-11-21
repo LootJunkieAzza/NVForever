@@ -718,6 +718,7 @@ fn typing(
                 let terms = query_terms(rest);
                 if terms.is_empty() {
                     c.print("A line is a script function: [reference.]Function argument ...  e.g. player.additem 0000000F 100");
+                    c.print("eval <script expression>: print a number, form, quoted string, or array preview");
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
                     c.print("prid <ref>, coc <cell>, cow <world> <x> <y>, coe <x> <y>, tgm, cls, save <name>, load [name], saves, set <var> to <value>, editor (editor mode on/off), editor select|move|turn|place|delete|undo, editor save <Name.esp>, editor why [topic] (why the selected actor says what it says). Click something to select it; calls without a reference run on it.");
                     c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq, advlevel (level up), poker [casino] (a poker table)");
@@ -1593,7 +1594,16 @@ pub(crate) fn run_call(rt: &mut Runtime, call: &ConsoleCall) -> ConsoleReply {
 }
 
 fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String> {
-    let w = words(&call.line);
+    let line = call.line.trim();
+    let end = line.find(char::is_whitespace).unwrap_or(line.len());
+    let (word, expression) = line.split_at(end);
+    if word.eq_ignore_ascii_case("eval") {
+        let expression = expression.trim();
+        let ctx = fnv_game::game::RunCtx { self_ref: call.selected.map(FormId), ..Default::default() };
+        let value = rt.game.eval_console_expression(expression, ctx)?;
+        return Ok(ConsoleReply { lines: vec![format!("{expression} >> {value}")], ..Default::default() });
+    }
+    let w = words(line);
     let Some(first) = w.first() else { return Ok(ConsoleReply::default()) };
     let (on_name, func) = match first.rsplit_once('.') {
         Some((r, f)) if !r.is_empty() && !f.is_empty() => (Some(r.to_string()), f.to_string()),

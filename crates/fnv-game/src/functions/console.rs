@@ -24,6 +24,47 @@ pub struct ConsoleCtx {
     pub active_quest: Option<FormId>,
 }
 
+/// A bounded first-level preview. Nested arrays are labeled rather than traversed.
+pub(crate) fn expression_result(g: &Game, value: &fnv_script::vm::XVal) -> String {
+    use fnv_script::vm::{number_text, XKey, XVal};
+    use std::fmt::Write as _;
+
+    fn atom(g: &Game, line: &mut String, value: &XVal) {
+        match value {
+            XVal::Num(n) => line.push_str(&number_text(*n)),
+            XVal::Ref(0) => line.push_str("none"),
+            XVal::Ref(r) => { let _ = write!(line, "{} {}", FormId(*r), g.data.name(FormId(*r))); }
+            XVal::Str(s) => { let _ = write!(line, "{s:?}"); }
+            XVal::Array(id) => { let _ = write!(line, "array #{id}"); }
+        }
+    }
+
+    let mut line = String::new();
+    if let XVal::Array(id) = value {
+        let Some(array) = g.ext.array(*id) else { return "(no array)".into() };
+        const PREVIEW: usize = 16;
+        line.push('[');
+        for (i, (key, value)) in array.entries.iter().take(PREVIEW).enumerate() {
+            if i > 0 {
+                line.push_str(", ");
+            }
+            match key {
+                XKey::Num(n) => line.push_str(&number_text(*n)),
+                XKey::Str(s) => { let _ = write!(line, "{s:?}"); }
+            }
+            line.push_str(": ");
+            atom(g, &mut line, value);
+        }
+        if array.entries.len() > PREVIEW {
+            let _ = write!(line, ", … ({} more)", array.entries.len() - PREVIEW);
+        }
+        line.push(']');
+    } else {
+        atom(g, &mut line, value);
+    }
+    line
+}
+
 /// Something only the engine can do, asked by a console command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleRequest {
