@@ -127,6 +127,11 @@ impl Game<'_> {
         }
     }
 
+    /// What `r`'s active abilities add to actor value `code`, together.
+    pub fn ability_value(&self, r: FormId, code: u16) -> f64 {
+        self.effects.iter().filter(|e| e.target == r && !e.inactive && self.is_ability_effect(e)).filter_map(|e| e.change.as_ref()).filter(|c| c.code == code).map(|c| c.amount).sum()
+    }
+
     /// Whether an effect is an ability's (an effect of a listed spell of type Ability).
     pub fn is_ability_effect(&self, e: &crate::game::ActiveEffect) -> bool {
         e.permanent && e.worn.is_none() && self.data.spell_types.get(&e.source) == Some(&SPELL_ABILITY)

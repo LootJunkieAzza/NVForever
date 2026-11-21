@@ -49,6 +49,7 @@ pub const LUCK: u16 = 11;
 pub const ACTION_POINTS: u16 = 12;
 pub const CARRY_WEIGHT: u16 = 13;
 pub const CRITICAL_CHANCE: u16 = 14;
+pub const DAMAGE_RESISTANCE: u16 = 18;
 pub const HEALTH: u16 = 16;
 pub const MELEE_DAMAGE: u16 = 17;
 pub const POISON_RESISTANCE: u16 = 19;
@@ -388,6 +389,12 @@ impl<'a> Game<'a> {
             // What the actor carries [documented: GECK wiki GetCalculatedMaxCarryWeight,
             // "CarryWeight and InventoryWeight are both Actor Values"].
             INVENTORY_WEIGHT => self.world.carried_weight(r).unwrap_or(0.0),
+            // An ability's Damage Resistance is in the base value as well as in its
+            // effect, so it counts twice: a nightkin (NightkinToughness, +15) read 30
+            // with a base of 15, and its hits lost 30 % [observed 2026-11-21, #3219:
+            // docs/spec-notes/actor-values.md, "Damage Resistance from abilities"].
+            // Not the player's [hypothesis: not measured].
+            DAMAGE_RESISTANCE if r != FormId::PLAYER_REF => self.ability_value(r, DAMAGE_RESISTANCE),
             _ => 0.0,
         })
     }

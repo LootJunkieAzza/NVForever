@@ -28,6 +28,11 @@ const RAD_IMMUNITY: u32 = 0x871;
 const AURA: u32 = 0x872;
 const GHOUL_RAD: u32 = 0x873;
 const REDUCE_PER: u32 = 0x854;
+const MOD_DR: u32 = 0x855;
+const TOUGHNESS: u32 = 0x878;
+const MUTANT: u32 = 0x403;
+const MUTANT_REF: u32 = 0x502;
+const DAMAGE_RESISTANCE: u16 = 18;
 const HEAD_CRIPPLED: u32 = 0x874;
 const ENCH_HAT: u32 = 0x880;
 const ENCH_GLASSES: u32 = 0x881;
@@ -159,12 +164,13 @@ fn placed(fid: u32, base: u32) -> Vec<u8> {
 
 fn plugin_bytes() -> Vec<u8> {
     // MGEF flag 2 Recover, 4 Detrimental.
-    let mgefs = [mgef(MOD_DT, "IncDT", 2, 76), mgef(MOD_RAD, "IncRad", 2, 20), mgef(MOD_PER, "IncPer", 2, 6), mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10), mgef(REDUCE_PER, "ReducePerception", 2 | 4, 6)].concat();
+    let mgefs = [mgef(MOD_DT, "IncDT", 2, 76), mgef(MOD_RAD, "IncRad", 2, 20), mgef(MOD_PER, "IncPer", 2, 6), mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10), mgef(REDUCE_PER, "ReducePerception", 2 | 4, 6), mgef(MOD_DR, "IncDR", 2, 18)].concat();
     let spels = [
         spel(DT_ABILITY, "RobotDT", 4, vec![effect(MOD_DT, 15, 76, vec![])]),
         spel(RAD_IMMUNITY, "RadImmunity", 4, vec![effect(MOD_RAD, 100, 20, vec![])]),
         spel(AURA, "Aura", 0, vec![effect(MOD_PER, 1, 6, vec![])]),
         spel(GHOUL_RAD, "GhoulRad", 4, vec![effect(MOD_RAD, 50, 20, vec![])]),
+        spel(TOUGHNESS, "NightkinToughness", 4, vec![effect(MOD_DR, 15, 18, vec![])]),
         spel(HEAD_CRIPPLED, "HeadCrippleEffect", 4, vec![effect(REDUCE_PER, 4, 6, vec![head_crippled()])]),
         spel(PERK_SPELL_1, "PerkSharpEyes1", 4, vec![effect(MOD_PER, 1, 6, vec![])]),
         spel(PERK_SPELL_2, "PerkSharpEyes2", 4, vec![effect(MOD_PER, 2, 6, vec![])]),
@@ -204,10 +210,11 @@ fn plugin_bytes() -> Vec<u8> {
         npc(ROBOT_COPY, "RobotCopy", vec![acbs(0x08), sub(b"TPLT", ROBOT.to_le_bytes().to_vec())]),
         npc(ROBOT_TEMPLATE, "RobotTemplate", vec![acbs(0), splo(DT_ABILITY), splo(RAD_IMMUNITY), splo(AURA)]),
         npc(GHOUL, "Ghoul", vec![acbs(0), sub(b"RNAM", RACE_GHOUL.to_le_bytes().to_vec())]),
+        npc(MUTANT, "Mutant", vec![acbs(0), splo(TOUGHNESS)]),
     ]
     .concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let refs = [placed(ROBOT_REF, ROBOT), placed(GHOUL_REF, GHOUL)].concat();
+    let refs = [placed(ROBOT_REF, ROBOT), placed(GHOUL_REF, GHOUL), placed(MUTANT_REF, MUTANT)].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
@@ -314,13 +321,34 @@ fn authored_abilities_are_effects() {
     assert_eq!(target(&mut g, FormId(GHOUL_REF), GHOUL_RAD), 1.0);
     let base = call(&mut g, FormId(GHOUL_REF), GET_BASE_AV, &[code(RAD_RESIST)]);
     assert_eq!(av(&mut g, FormId(GHOUL_REF), RAD_RESIST), base + 50.0);
-    // Given once: another frame adds nothing.
+    // Given once: a frame after the one that loads every actor adds nothing.
+    g.tick();
     let n = g.effects.len();
     g.tick();
     assert_eq!(g.effects.len(), n);
     assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 15.0);
     // The player has none.
     assert_eq!(target(&mut g, P, RAD_IMMUNITY), 0.0);
+}
+
+/// An ability's Damage Resistance counts twice, in the base value and as the effect: the
+/// original's nightkin (NightkinToughness +15) reads 30 with a base of 15, where an
+/// ability's Damage Threshold counts once (the alpha deathclaw's 15, base 0) [observed
+/// 2026-11-21, #3219]. Dispelled, both go.
+#[test]
+fn an_ability_s_damage_resistance_counts_twice() {
+    let f = fixture();
+    let mut g = game(&f);
+    let mutant = FormId(MUTANT_REF);
+    assert_eq!(target(&mut g, mutant, TOUGHNESS), 1.0);
+    assert_eq!(av(&mut g, mutant, DAMAGE_RESISTANCE), 30.0);
+    assert_eq!(call(&mut g, mutant, GET_BASE_AV, &[code(DAMAGE_RESISTANCE)]), 15.0);
+    assert_eq!(call(&mut g, mutant, GET_PERMANENT_AV, &[code(DAMAGE_RESISTANCE)]), 15.0);
+    // Damage Threshold from an ability: once.
+    assert_eq!(av(&mut g, FormId(ROBOT_REF), DAMAGE_THRESHOLD), 15.0);
+    assert_eq!(call(&mut g, FormId(ROBOT_REF), GET_BASE_AV, &[code(DAMAGE_THRESHOLD)]), 0.0);
+    call(&mut g, mutant, DISPEL, &[form(TOUGHNESS)]);
+    assert_eq!(av(&mut g, mutant, DAMAGE_RESISTANCE), 0.0);
 }
 
 /// The loaded actors get theirs in the frame, without a script asking.
