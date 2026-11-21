@@ -218,14 +218,19 @@ pub struct Graphics {
     /// `authored::set_enabled`, main.rs); this field is the settings row's value for the
     /// next start.
     pub authored_materials: bool,
+    /// Full models of static scenery in the cells beyond the loaded ones, draw-only
+    /// (full_detail.rs; 7 x 7 in `enhanced`, off in vanilla) [design, #2701; maintainer
+    /// decision 2026-11-21 on #3048].
+    pub full_detail: crate::full_detail::FullDetail,
 }
 
 /// The settings key of the Authored materials row (#2981).
 pub const AUTHORED_MATERIALS_KEY: &str = "authored-materials";
 
-/// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
-/// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 20] = [
+/// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
+/// shadow-filter and full-detail choices that are not vanilla's, in the order of
+/// [`Graphics::describe`].
+pub const KEYS: [&str; 22] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -246,6 +251,8 @@ pub const KEYS: [&str; 20] = [
     "terrain-shadows",
     "heat-haze",
     "desert-haze",
+    "full-detail-7x7",
+    "full-detail-9x9",
 ];
 
 impl Graphics {
@@ -305,6 +312,10 @@ impl Graphics {
             desert_haze: false,
             // On in both looks [design, #2981]: without a pack nothing changes.
             authored_materials: true,
+            // An addition of our own for machines with GPU headroom: the 7 x 7 ring in
+            // `enhanced`, off in vanilla [design, #2701; maintainer decision 2026-11-21 on
+            // #3048].
+            full_detail: if on { crate::full_detail::FullDetail::Seven } else { crate::full_detail::FullDetail::Off },
         }
     }
 
@@ -336,7 +347,8 @@ impl Graphics {
     }
 
     /// Exactly the improvements named ([`KEYS`]) on (`--graphics-only`); of the
-    /// anti-aliasings and of the shadow filters the last named wins.
+    /// anti-aliasings, of the shadow filters and of the full-detail sizes the last named
+    /// wins.
     pub fn only(keys: &[String]) -> Result<Self, String> {
         let mut g = Graphics::preset(Preset::Vanilla);
         for k in keys.iter().map(|k| k.trim()).filter(|k| !k.is_empty()) {
@@ -346,6 +358,8 @@ impl Graphics {
                 "taa" => g.screen_aa = ScreenAa::Taa,
                 "shadow-filter-hardware" => g.shadow_filter = ShadowFilteringMethod::Hardware2x2,
                 "shadow-filter-temporal" => g.shadow_filter = ShadowFilteringMethod::Temporal,
+                "full-detail-7x7" => g.full_detail = crate::full_detail::FullDetail::Seven,
+                "full-detail-9x9" => g.full_detail = crate::full_detail::FullDetail::Nine,
                 "no-glow" => g.glow = false,
                 "no-eye-adaptation" => g.eye_adaptation = false,
                 "no-neon-glow" => g.neon_glow = false,
@@ -388,6 +402,7 @@ impl Graphics {
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
             (!self.authored_materials, "no authored materials"),
+            (self.full_detail != crate::full_detail::FullDetail::Off, self.full_detail.describe()),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -1478,8 +1493,10 @@ mod tests {
     #[test]
     fn every_key_is_a_switch_and_enhanced_leaves_taa_off() {
         let all = Graphics::only(&KEYS.map(String::from)).expect("keys");
-        // Of the three anti-aliasings and the two shadow filters the last named is on.
-        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1 - 3);
+        // Of the three anti-aliasings, the two shadow filters and the two full-detail sizes
+        // the last named is on.
+        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1 - 4);
+        assert_eq!(all.full_detail, crate::full_detail::FullDetail::Nine);
         assert_eq!((all.screen_aa, all.shadow_filter), (ScreenAa::Taa, ShadowFilteringMethod::Temporal));
         let enhanced = Graphics::preset(Preset::Enhanced);
         assert!(enhanced.screen_aa == ScreenAa::Off && enhanced.light_shafts && enhanced.water_reflections && enhanced.water_effects);

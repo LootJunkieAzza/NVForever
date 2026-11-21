@@ -59,8 +59,7 @@ use crate::activate::pick::{self, RayHit};
 use crate::phys::PhysState;
 use crate::script::{Runtime, ScriptState};
 use crate::sim::SimState;
-use crate::{space, PlayData, PlaySet, PlayState, PlayWorld, PlayerCamera, RefVisual, Travel};
-use bevy::camera::primitives::Aabb;
+use crate::{space, PlayData, PlaySet, PlayState, PlayWorld, PlayerCamera, Travel};
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -1217,7 +1216,7 @@ fn click(
     windows: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     phys: Option<ResMut<PhysState>>,
-    visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
+    visuals: crate::PickVisuals,
     sim: Res<SimState>,
     play: Res<PlayWorld>,
     mut script: Option<ResMut<ScriptState>>,
@@ -1322,7 +1321,7 @@ pub struct Under {
 /// The reference a ray from `o` along `d` (Bevy space) picks within `reach` game units:
 /// the first collision hit, else the render bounds it enters, as the console's click and
 /// the crosshair pick.
-pub fn pick_under(o: Vec3, d: Vec3, reach: f32, phys: Option<&mut PhysState>, visuals: &Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>, pickable: impl Fn(u32) -> bool + Copy) -> Under {
+pub fn pick_under(o: Vec3, d: Vec3, reach: f32, phys: Option<&mut PhysState>, visuals: &crate::PickVisuals, pickable: impl Fn(u32) -> bool + Copy) -> Under {
     let (eye, dir) = (space::to_game(o), {
         let p = space::to_game(o + d);
         let e = space::to_game(o);
@@ -1446,7 +1445,7 @@ fn draw(c: Res<Console>, mut texts: Query<(&Part, &mut Text)>, time: Res<Time<Re
 }
 
 /// A box around the selected reference's drawn parts while the console is open.
-fn outline(c: Res<Console>, visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>, mut gizmos: Gizmos) {
+fn outline(c: Res<Console>, visuals: crate::PickVisuals, mut gizmos: Gizmos) {
     let (true, Some(id)) = (c.open, c.selected) else { return };
     for (r, aabb, gt, v) in &visuals {
         if r.0 != id || !v.get() {

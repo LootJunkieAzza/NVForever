@@ -2,6 +2,7 @@
 //! simulation (forms and references in memory) and physics world (no game data).
 
 use super::*;
+use bevy::camera::primitives::Aabb;
 use crate::phys::PhysState;
 use crate::PlayData;
 use bevy::ecs::message::Messages;

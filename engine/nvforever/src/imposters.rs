@@ -77,7 +77,7 @@ pub fn update(
         let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { continue };
         let holder = commands.spawn((Name::new(format!("Imposter {r:08X}")), Transform::IDENTITY, Visibility::default())).id();
         commands.entity(root).add_child(holder);
-        spawn_model(&mut commands, holder, &world, p, *r, &base, ref_affine(p), &mut models, &mut emittance, &s.hide, &mut s.stats);
+        spawn_model(&mut commands, holder, &world, p, *r, &base, ref_affine(p), &mut models, &mut emittance, &s.hide, &mut s.stats, crate::world::SpawnMode::Full);
         state.drawn.insert(*r, holder);
         added += 1;
     }

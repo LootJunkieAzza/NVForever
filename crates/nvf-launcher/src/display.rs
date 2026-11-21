@@ -109,6 +109,8 @@ pub fn steps(key: &str) -> Option<Vec<String>> {
         "shadow-filter" => Some(["Fast", "Smooth", "Temporal"].map(String::from).to_vec()),
         "shadow-resolution" => Some(["2048", "4096"].map(String::from).to_vec()),
         "sun-shadows" => Some(["Off", "Performance", "Quality"].map(String::from).to_vec()),
+        // full_detail.rs FullDetail::CHOICES (#2701).
+        "full-detail" => Some(["Off", "7 x 7", "9 x 9"].map(String::from).to_vec()),
         // Degrees in steps of 5 (engine settings.rs FOV_MIN..FOV_MAX, VIEWMODEL_FOV_*).
         "field-of-view" => Some((0..13).map(|i| format!("{}°", 50 + 5 * i)).collect()),
         "viewmodel-field-of-view" => Some((0..13).map(|i| format!("{}°", 30 + 5 * i)).collect()),
@@ -393,6 +395,11 @@ mod tests {
         assert!(engine("shadow_rate.rs").contains("pub const SUN_SHADOW_CHOICES: [&str; 3] = [\"Off\", \"Performance\", \"Quality\"];"));
         assert!(gr.contains("pub const AA_CHOICES: [(&str, ScreenAa, Msaa); 7]") && gr.contains("pub const SHADOW_FILTERS: [(&str, ShadowFilteringMethod); 3]"));
         assert!(gr.contains("pub const SHADOW_RESOLUTIONS: [(&str, usize); 2]"));
+        let fd = engine("full_detail.rs");
+        for w in steps("full-detail").unwrap() {
+            assert!(fd.contains(&format!("(\"{w}\", FullDetail::")), "full_detail.rs: {w}");
+        }
+        assert!(fd.contains("pub const CHOICES: [(&'static str, FullDetail); 3]"));
         assert!(st.contains("pub(crate) const LEGACY_KEY: &str = \"fsr-upscaling\";") && st.contains("set_older_key(app, UPSCALER_KEY, LEGACY_KEY)"));
         assert!(st.contains("if fnv_install::ini_get(&text, section, \"display-sync\").is_some() {") && st.contains("let Some(old) = fnv_install::ini_get(&text, section, \"vsync\")"), "the old vsync key is read only without display-sync");
         let q = engine("quality.rs");

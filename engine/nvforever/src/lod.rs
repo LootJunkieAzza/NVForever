@@ -71,7 +71,7 @@
 
 use crate::fade;
 use crate::lodgen::{self, Baker, GenJob};
-use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
+use crate::world::{bevy_to_game, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::VisibilityRange;
 use bevy::image::{CompressedImageFormats, ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
@@ -583,9 +583,27 @@ fn open_edges(idx: &[u32]) -> Vec<(u32, u32)> {
     out
 }
 
+/// The masks of the level-4 squares holding `cells` (cell, fully drawn; on the grid from
+/// `o`): cells fully drawn, cells drawn at all (bit `y * 4 + x`, [`chunk_bit`]).
+pub(crate) fn block_masks(cells: &[(Grid, bool)], o: Grid) -> HashMap<Grid, (u16, u16)> {
+    let mut masks: HashMap<Grid, (u16, u16)> = HashMap::new();
+    for &(c, full) in cells {
+        let (ch, bit) = chunk_bit(c, o);
+        let m = masks.entry(ch).or_default();
+        m.1 |= bit;
+        if full {
+            m.0 |= bit;
+        }
+    }
+    masks
+}
+
+/// Distant LOD each frame. The cells it gives way to are the loaded ones and, with the
+/// full-detail ring on, the ring's (`crate::full_detail::DrawnCells`): both cut the LOD
+/// terrain out and hide their object-block segments alike.
 pub fn update_lod(
     mut commands: Commands,
-    streamer: Res<Streamer>,
+    drawn: crate::full_detail::DrawnCells,
     mut lod: ResMut<LodState>,
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
@@ -643,17 +661,10 @@ pub fn update_lod(
             }
         }
     }
-    // Which cells are loaded, and which are fully drawn, per level-4 square.
-    let full: HashSet<Grid> = streamer.loaded.keys().filter(|c| !streamer.fades.contains_key(c)).copied().collect();
-    let mut masks: HashMap<Grid, (u16, u16)> = HashMap::new();
-    for c in streamer.loaded.keys() {
-        let (ch, bit) = chunk_bit(*c, o);
-        let m = masks.entry(ch).or_default();
-        m.1 |= bit;
-        if full.contains(c) {
-            m.0 |= bit;
-        }
-    }
+    // Which cells are drawn (loaded, or the full-detail ring's), and which are fully
+    // drawn, per level-4 square.
+    let full: HashSet<Grid> = drawn.full();
+    let masks = block_masks(&drawn.cells(true), o);
     let mut changed = false;
     let started = std::time::Instant::now();
     let mut rebuilt = 0usize;
@@ -715,7 +726,7 @@ pub fn update_lod(
         let key = BlockKey { full: full_mask, present };
         let steps: [u8; CELLS] = match present {
             0 => [0; CELLS],
-            _ => std::array::from_fn(|i| fade::step(streamer.cell_level(chunk_cell(sq, i)))),
+            _ => std::array::from_fn(|i| fade::step(drawn.block_level(chunk_cell(sq, i)))),
         };
         match lod.block_entities.get_mut(&sq) {
             Some(b) if b.key == key => {

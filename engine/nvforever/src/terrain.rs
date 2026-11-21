@@ -1092,25 +1092,44 @@ pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, p
 /// drawing order, the base (folded or not) and then each blended layer drawn over it, for
 /// the bake's flat unlit copies [design]. The near draws are the same either way.
 pub(crate) fn spawn_terrain_with(commands: &mut Commands, cell: Entity, world: &WorldData, prep: TerrainPrep, tm: &mut TerrainCtx, folds: bool, capture: bool) -> (Land, Surface) {
+    spawn_terrain_as(commands, cell, world, prep, tm, folds, capture, true)
+}
+
+/// A cell's terrain drawn only, for the full-detail ring (full_detail.rs, #2701): as
+/// [`spawn_terrain`] draws it, but it adds nothing to the cache's counts (the smoothed and
+/// stored cells of the terrain summary, the layers past a folded group), captures no
+/// surface for the mesh terrain blend and is not redrawn by distance under 4 × 4 near
+/// (`crate::terrain_lod` knows the loaded cells only) [design].
+pub(crate) fn spawn_terrain_draw_only(commands: &mut Commands, cell: Entity, world: &WorldData, prep: TerrainPrep, tm: &mut TerrainCtx) -> (Land, Surface) {
+    let folds = tm.tm.folds();
+    spawn_terrain_as(commands, cell, world, prep, tm, folds, false, false)
+}
+
+/// [`spawn_terrain_with`]; `counted`: a loaded cell's terrain (counted, handed to
+/// `crate::terrain_lod`), not a draw-only one ([`spawn_terrain_draw_only`]).
+#[allow(clippy::too_many_arguments)]
+fn spawn_terrain_as(commands: &mut Commands, cell: Entity, world: &WorldData, prep: TerrainPrep, tm: &mut TerrainCtx, folds: bool, capture: bool, counted: bool) -> (Land, Surface) {
     let TerrainPrep { grid, land, surface, layers: drawn, quads, draw, origin, tile } = prep;
-    if surface.is_smoothed() {
-        tm.tm.cache.smoothed_cells += 1;
-    } else {
-        tm.tm.cache.stored_cells += 1;
+    if counted {
+        if surface.is_smoothed() {
+            tm.tm.cache.smoothed_cells += 1;
+        } else {
+            tm.tm.cache.stored_cells += 1;
+        }
     }
     let most = folded_layers(tile);
     let mut captured = capture.then(|| surface_cell(world, grid, &surface));
     let mut overflow = 0usize;
     let mut entities: [Vec<Entity>; 4] = Default::default();
     for (q, meshes) in quads.into_iter().enumerate() {
-        let near = NearDraw { commands: &mut *commands, cell, visibility: Visibility::Inherited, count: true };
+        let near = NearDraw { commands: &mut *commands, cell, visibility: Visibility::Inherited, count: counted };
         let spawned = quadrant_draws(Some(near), world, &drawn, q as u8, meshes, tile, tm, folds, captured.as_mut());
         overflow += spawned.overflow;
         entities[q] = spawned.entities;
     }
     // The first cell with layers past a folded group says how many it drew blended over
     // them (once a run; the smoke check that such layer draws exist at all).
-    if overflow > 0 {
+    if overflow > 0 && counted {
         let first = tm.tm.cache.overflow_layers == 0;
         tm.tm.cache.overflow_layers += overflow;
         if first {
@@ -1122,7 +1141,7 @@ pub(crate) fn spawn_terrain_with(commands: &mut Commands, cell: Entity, world: &
     }
     // 4 x 4 near (the run's choice, fixed before the first cell): the cell's quadrants are
     // redrawn by distance from what they were built from.
-    if let Some(rule) = nvf_play::smooth_terrain::distance_rule() {
+    if let Some(rule) = nvf_play::smooth_terrain::distance_rule().filter(|_| counted) {
         let source = TerrainSource { land: land.clone(), surface: surface.clone(), layers: drawn, origin, tile };
         tm.tm.cache.lod.get_or_insert_with(|| crate::terrain_lod::TerrainLod::new(rule)).add_cell(cell, std::sync::Arc::new(source), draw, entities);
     }

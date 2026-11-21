@@ -383,6 +383,16 @@ fn overlay_material(s: &EffectShader, color: [u8; 3], texture: Option<Handle<Ima
     m
 }
 
+/// A reference's drawn meshes an effect shader covers: not the overlays themselves, nor
+/// the full-detail ring's draw-only copies (`nvf_play::DrawOnly`, full_detail.rs, #2701):
+/// a scripted effect, its add-on models and its particles go on the loaded reference only.
+type Coverable<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static RefVisual, &'static Mesh3d, Option<&'static SkinnedMesh>, Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>),
+    (Without<Overlay>, Without<nvf_play::DrawOnly>),
+>;
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn play(
     mut commands: Commands,
@@ -391,7 +401,7 @@ fn play(
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut st: ResMut<Shaders>,
-    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, Option<&MeshMaterial3d<NifMaterial>>, Option<&crate::mesh_terrain_blend::BlendShape>), Without<Overlay>>,
+    drawn: Coverable,
     drawings: Query<&nvf_assets::nif_material::MaterialOverride>,
     (body, children, body_meshes): (
         Option<Res<crate::player_body::PlayerBody>>,
@@ -696,7 +706,7 @@ pub(crate) fn cover(
     mut st: ResMut<Shaders>,
     mut materials: ResMut<Assets<NifMaterial>>,
     script: Option<Res<ScriptState>>,
-    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, Option<&MeshMaterial3d<NifMaterial>>, Option<&crate::mesh_terrain_blend::BlendShape>), Without<Overlay>>,
+    drawn: Coverable,
     body: Option<Res<crate::player_body::PlayerBody>>,
     children: Query<&Children>,
     body_meshes: Query<(&Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), (Without<Overlay>, Without<RefVisual>)>,
@@ -1027,6 +1037,19 @@ mod tests {
     use bevy::ecs::message::Messages;
     use bevy::math::Affine2;
     use nvf_assets::nif_material::{Falloff, NO_HOLES};
+
+    /// #2701: a scripted effect never covers the full-detail ring's draw-only copy of a
+    /// reference, only the loaded reference's meshes.
+    #[test]
+    fn effects_cover_no_draw_only_meshes() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.spawn((RefVisual(5), Mesh3d(Handle::default())));
+        world.spawn((RefVisual(5), Mesh3d(Handle::default()), nvf_play::DrawOnly));
+        world.spawn((RefVisual(5), Mesh3d(Handle::default()), Overlay));
+        let n = world.run_system_once(|q: Coverable| q.iter().count()).unwrap();
+        assert_eq!(n, 1);
+    }
 
     #[test]
     fn overlays_take_the_mesh_layer_or_the_default_world_layer() {

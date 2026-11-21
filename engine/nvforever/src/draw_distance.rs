@@ -152,16 +152,22 @@ fn share_actor_distance(distances: Res<DrawDistances>, mut shared: ResMut<nvf_pl
 
 /// The class of a mesh: from its ancestors (an actor's rig, a dropped item, the cell it
 /// is in) and the reference's records, kept per reference.
-fn classify(e: Entity, r: u32, parents: &Query<&ChildOf>, marks: &Query<(Has<CellEntity>, Has<ActorRig>, Has<DroppedRoot>)>, world: Option<&WorldData>, known: &mut HashMap<u32, DrawClass>) -> DrawClass {
+fn classify(e: Entity, r: u32, parents: &Query<&ChildOf>, marks: &Query<Marks>, world: Option<&WorldData>, known: &mut HashMap<u32, DrawClass>) -> DrawClass {
     let mut in_cell = false;
     let mut at = e;
     loop {
-        if let Ok((cell, actor, dropped)) = marks.get(at) {
+        if let Ok((cell, actor, dropped, ring)) = marks.get(at) {
             if actor {
                 return DrawClass::Actor;
             }
             if dropped {
                 return DrawClass::Item;
+            }
+            // The full-detail ring's copies (full_detail.rs, #2701) are never culled by the
+            // sliders: their cell hides its LOD segment, so a culled copy would leave
+            // neither [design].
+            if ring {
+                return DrawClass::Unranged;
             }
             if cell {
                 in_cell = true;
@@ -189,6 +195,9 @@ fn classify(e: Entity, r: u32, parents: &Query<&ChildOf>, marks: &Query<(Has<Cel
     })
 }
 
+/// What [`classify`] looks for on a mesh's ancestors.
+type Marks = (Has<CellEntity>, Has<ActorRig>, Has<DroppedRoot>, Has<crate::full_detail::RingCell>);
+
 /// Give the meshes of placed references the range of their class's distance: new meshes
 /// and those whose range changed (a fade ended) each frame, every one when a slider
 /// moved (module notes).
@@ -201,7 +210,7 @@ pub(crate) fn apply_ranges(
     all: Query<Entity, (With<RefVisual>, Or<(With<MeshMaterial3d<NifMaterial>>, With<MeshMaterial3d<nvf_assets::nif_surface_blend::NifBlendMaterial>>)>)>,
     mut meshes: Query<(&RefVisual, Option<&mut MeshMaterial3d<NifMaterial>>, Option<&mut MeshMaterial3d<nvf_assets::nif_surface_blend::NifBlendMaterial>>, Option<&VisibilityRange>, Option<&DrawClass>)>,
     parents: Query<&ChildOf>,
-    marks: Query<(Has<CellEntity>, Has<ActorRig>, Has<DroppedRoot>)>,
+    marks: Query<Marks>,
     mut known: Local<HashMap<u32, DrawClass>>,
     mut work: Option<ResMut<crate::quality_probe::Work>>,
 ) {
@@ -367,6 +376,27 @@ mod tests {
 
     fn distances() -> DrawDistances {
         DrawDistances { objects: 1.0, actors: 0.5, items: 0.25, shadows: 1.0, grass: 1.0, trees: 0.32, trees_far: 125_000.0, reach: full_reach(2), shadow_full: 8000.0, grass_full: (7000.0, 1000.0) }
+    }
+
+    /// #2701: with the Object slider below 100%, a loaded cell's object is culled at the
+    /// slider's part of the loaded cells' reach (ring on, off or indoors alike), and the
+    /// full-detail ring's copy is never culled (its LOD segment is hidden).
+    #[test]
+    fn the_slider_never_culls_ring_copies() {
+        let mut app = App::new();
+        let mut d = distances();
+        d.objects = 0.5;
+        let reach = d.reach;
+        app.insert_resource(d).add_systems(Update, apply_ranges);
+        let loaded = app.world_mut().spawn((CellEntity, Transform::default())).id();
+        let ring = app.world_mut().spawn((crate::full_detail::RingCell { grid: (3, 0) }, Transform::default())).id();
+        let mesh = |cell| (RefVisual(7), MeshMaterial3d::<NifMaterial>(Handle::default()), fade::drawn(fade::STEPS), ChildOf(cell));
+        let near = app.world_mut().spawn(mesh(loaded)).id();
+        let far = app.world_mut().spawn(mesh(ring)).id();
+        app.update();
+        assert!(app.world().get::<VisibilityRange>(near).unwrap() == &fade::drawn_within(Some(reach * 0.5), FADE));
+        assert_eq!(app.world().get::<DrawClass>(far), Some(&DrawClass::Unranged));
+        assert!(app.world().get::<VisibilityRange>(far).unwrap() == &fade::drawn(fade::STEPS), "never culled");
     }
 
     #[test]

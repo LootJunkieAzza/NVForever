@@ -1155,6 +1155,24 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - Command-line switches: `--no-lod`
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `full-detail`: Full-detail scenery
+
+- On the page: Draws buildings, rocks and cliffs out to 7 x 7 or 9 x 9 cells as full models,
+  not distant forms. Costs GPU time. Not in the original.
+- In full: [design, #2701] A list: Off, 7 x 7, 9 x 9; Off by default and in the vanilla
+  preset, 7 x 7 in the enhanced preset (maintainer decision 2026-11-21, #3048).
+  Outdoors, the full models of statics, static collections, moveable statics and trees,
+  and of every other reference flagged visible when distant, are drawn in the cells 3
+  (7 x 7) or 4 (9 x 9) grid steps from yours, with their landscape at full resolution,
+  where the distant LOD blocks stood. Draw-only: the game still loads the 5 x 5 cells it
+  always does, so scripts, AI, physics, triggers and saves see no difference. Switches in
+  play: cells out of the new reach fade out to the LOD, new ones stream in. Kept in the
+  INI as `Off`, `7 x 7` or `9 x 9`.
+- Command-line switches: `--graphics-only` (`--graphics-only full-detail-7x7`,
+  `full-detail-9x9`)
+- More: docs/design/graphics-enhanced.md §3.20
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `grass`: Grass
 
 - On the page: On: grass grows on the landscape; the cells around you get theirs over the
