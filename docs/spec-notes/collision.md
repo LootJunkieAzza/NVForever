@@ -43,6 +43,16 @@ strips 7.0008 (2,300) [observed]. The engine's constant is commonly given as 7
 [hypothesis]; the 0.014 % difference is below anything an in-game measurement could
 resolve, and the conversion uses 7 (`fnv_collide::nif::HAVOK_SCALE`).
 
+**Exception: `bhkNiTriStripsShape`.** Its NiTriStripsData vertices are stored in game
+units, not Havok units: over Fallout 3's meshes as Tale of Two Wastelands packs them
+(`Fallout3 - Meshes.bsa`, 19 shape trees use it) the same ratio has a median of 1.00
+(13 meshes with bhkRigidBodyT, 2 with bhkRigidBody), where every other family there is
+7.0 [observed: `fnvtool collide survey`, 2026-11-20]. In `MegatonRampTurn90Sml` the
+railing's strips (a list of MOPP trees over two bhkNiTriStripsShape) span the same ±175
+as the ramp's own packed collision once read unscaled [observed]. The reader divides them
+by 7 so the common conversion restores them; read as Havok units the railing was seven
+times its size and walled off Megaton's deck beside it.
+
 ## 3. Shapes (stored fields → `Shape`)
 
 | Block | Stored | Conversion |

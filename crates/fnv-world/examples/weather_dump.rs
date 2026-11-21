@@ -80,7 +80,7 @@ fn main() {
     let names = ["sky-upper", "fog", "unused", "ambient", "sunlight", "sun", "stars", "sky-lower", "horizon", "effect"];
     for wc in &c.weathers {
         let Some(w) = weather(&lo, &schema, wc.weather) else { continue };
-        println!("\nweather {:?} chance {} global {:?}", w.edid, wc.chance, wc.global.map(|g| format!("{g:#010x}")));
+        println!("\nweather {:?} {:#010x} chance {} global {:?}", w.edid, wc.weather, wc.chance, wc.global.map(|g| format!("{g:#010x}")));
         println!("  max cloud layers {:?}, speeds {:?}", w.max_cloud_layers, w.cloud_speeds);
         for l in 0..4 {
             println!("  cloud layer {l}: {:?}  colours {:?}", w.cloud_textures[l], w.cloud_colors.get(l));

@@ -20,7 +20,15 @@ pub struct TraitState {
     pub ism: HashMap<(FormId, i64), u32>,
 }
 
-const SOUND: u8 = 0;
+impl TraitState {
+    /// A session override for an active image-space modifier's renderer consumer.
+    pub fn image_modifier_override(&self, form: FormId, trait_id: i64) -> Option<f64> {
+        self.values.get(&(form, IMAD, trait_id)).copied()
+    }
+}
+
+pub const SOUND_TRAIT_FAMILY: u8 = 0;
+const SOUND: u8 = SOUND_TRAIT_FAMILY;
 const WEATHER: u8 = 1;
 const COLOR: u8 = 2;
 const IMGS: u8 = 3;
@@ -46,6 +54,33 @@ impl Game<'_> {
     /// A decoded subrecord of a record (the first with that signature).
     fn sub(&self, f: FormId, sig: [u8; 4]) -> Option<&Json> {
         self.data.record_fields.get(&self.unclone(f))?.iter().find(|(s, _)| *s == sig).map(|(_, v)| v)
+    }
+
+    /// Snapshot any active session `SetSoundSourceFile` and `SetSoundTraitNumeric`
+    /// (`0..=12`) overrides from `source` onto `clone` at `TempCloneForm` creation time.
+    /// Pre-clone edits on `source` carry onto `clone`, while later edits on `source` stay
+    /// isolated from already-created clones.
+    pub(crate) fn snapshot_sound_traits(&mut self, source: FormId, clone: FormId) {
+        if let Some(path) = self.traits.sources.get(&source).cloned() {
+            self.traits.sources.insert(clone, path);
+        }
+        for slot in 0..=12 {
+            if let Some(&v) = self.traits.values.get(&(source, SOUND, slot)) {
+                self.traits.values.insert((clone, SOUND, slot), v);
+            }
+        }
+    }
+
+    /// The session `SetSoundSourceFile` override directly stored for `f` (including any
+    /// override snapshotted at `TempCloneForm` creation time).
+    pub fn sound_source_override(&self, f: FormId) -> Option<&str> {
+        self.traits.sources.get(&f).map(String::as_str)
+    }
+
+    /// The session `SetSoundTraitNumeric` override directly stored for `f` and trait `slot`
+    /// (including any override snapshotted at `TempCloneForm` creation time).
+    pub fn sound_trait_override(&self, f: FormId, slot: i64) -> Option<f64> {
+        self.traits.values.get(&(f, SOUND, slot)).copied()
     }
 }
 
@@ -148,7 +183,9 @@ fn rest_float(d: Option<&Json>, i: usize) -> f64 {
 }
 
 /// An image space modifier's trait: its first keyframe of each array [observed:
-/// FadeToBlack9sISFX, the multiply/add pairs 1/0, the tint 255]; the radial blur centre
+/// FadeToBlack9sISFX, the multiply/add pairs 1/0, the tint 255]; the tint (47–50) is
+/// 0–255 alpha included [observed: original FNV 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+/// 2026-11-20, image-modifiers.md]; the radial blur centre
 /// from DNAM's floats 49 and 50 after its first two fields [observed: both 0.5; the
 /// offset is a hypothesis]; traits 65–67 0 [hypothesis].
 fn imad_trait(g: &Game, s: FormId, t: i64) -> f64 {
@@ -168,7 +205,7 @@ fn imad_trait(g: &Game, s: FormId, t: i64) -> f64 {
         47 => key(*b"TNAM", "red") * 255.0,
         48 => key(*b"TNAM", "green") * 255.0,
         49 => key(*b"TNAM", "blue") * 255.0,
-        50 => key(*b"TNAM", "alpha"),
+        50 => key(*b"TNAM", "alpha") * 255.0,
         51 => key(*b"NAM3", "red") * 255.0,
         52 => key(*b"NAM3", "green") * 255.0,
         53 => key(*b"NAM3", "blue") * 255.0,
@@ -199,7 +236,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
     let t = num(args, 1, -1.0) as i64;
     let changed = |g: &Game, fam: u8, slot: i64| g.traits.values.get(&(x, fam, slot)).copied();
     let v = match name {
-        "getsoundtraitnumeric" => XVal::Num(if (0..=12).contains(&t) { changed(g, SOUND, t).unwrap_or_else(|| sound_trait(g, x, t)) } else { 0.0 }),
+        "getsoundtraitnumeric" => XVal::Num(if (0..=12).contains(&t) { g.sound_trait_override(x, t).unwrap_or_else(|| sound_trait(g, x, t)) } else { 0.0 }),
         // Static attenuation is kept negated and whole [observed: 7 reads -7, -26.43
         // reads -26]; the distances keep their stored steps.
         "setsoundtraitnumeric" => {
@@ -215,7 +252,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             }
             zero
         }
-        "getsoundsourcefile" => XVal::Str(g.traits.sources.get(&x).cloned().unwrap_or_else(|| g.sub(x, *b"FNAM").and_then(Json::as_str).unwrap_or("").to_string())),
+        "getsoundsourcefile" => XVal::Str(g.sound_source_override(x).map(str::to_string).unwrap_or_else(|| g.sub(x, *b"FNAM").and_then(Json::as_str).unwrap_or("").to_string())),
         "setsoundsourcefile" => {
             if let Some(XVal::Str(p)) = args.get(1) {
                 g.traits.sources.insert(x, p.clone());

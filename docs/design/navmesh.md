@@ -82,6 +82,71 @@ Depends on `fnv-esm` and `fnv-world` only.
 A path is a list of legs, one per space visited, each with its polyline, its corridor of
 triangles, its door stops and the door that ends it.
 
+[design, #2716] In-place door bounds overlap entire triangles (`doors.rs`), so only the
+original path's snapped start and goal triangles bypass door refusal when their points
+are outside every refusing door's oriented footprint (bounds edges count as inside).
+`search_path` checks both points and passes those two triangle IDs to A* across all legs;
+intermediate triangles and unrelated teleport-leg endpoints remain closed. Raycasts
+keep ordinary refusal. After funneling, shortcuts and door-stop insertion, each final
+leg is checked against refusing doors on its corridor (`door_segments_open`): any
+segment entering their oriented footprints rejects the path. This covers adjacent
+exempt endpoints on opposite sides and crossings within one triangle.
+[hypothesis, #2716] An already open in-place door refuses no triangle,
+regardless of locks or a previous script refusal (observer check 206). [design / file refs]
+`door_tri_open` reads `PathParams::open_doors`, supplied by `Ai::path_params` from live
+world state, falling back to default-open placement for untouched locked doors.
+[hypothesis, #2716] Runtime passage through an open in-place door likewise wins over
+a cached or fresh activation refusal. [design / `Ai::ask_door`] The activation attempt
+and crossing bookkeeping still run; live state after the attempt decides whether the
+refusal cancels movement. [design, #2716 / `Ai::ask_door`] If an in-place door has
+closed since planning, its live lock, inventory key and own ownership are rechecked
+after activation, honoring the configured path permission overrides. A prior open
+state grants no permission to reopen it; either a script refusal or missing lock
+permission cancels the path before movement or an opening request. Cell ownership
+does not authorize the lock. Load doors retain their existing handling.
+
+[design, #2716] `fnvtool nav path` (and shared path options for `nav walk`) accepts
+repeatable `--open-door <formid>` without granting permission to open any other lock.
+Synthetic nav tests cover overlapping start/goal triangles beside rotated bounds,
+inside/boundary endpoints, multiple refusing doors, closed locked passage and open locked
+passage; `fnv-ai/tests/carry.rs::open_locked_in_place_doors_reach_actor_path_parameters`
+covers script-opened and untouched default-open state;
+`open_locked_in_place_door_allows_arrival_despite_script_refusal` checks arrival with
+cached and fresh refusals while the door stays open and locked.
+[design / file refs] `an_open_planned_door_closed_before_arrival_rechecks_live_permissions`
+checks closure after planning, keys and ownership gained or lost, unlocks, and
+configured overrides, including cancellation before any opening request. Smoke scenarios
+`mick-secret-door-paths` and `mick-secret-door-packages` check the two routes and the
+Travel-arrival-to-secret-sales transition; record evidence is in spec-notes/navmesh.md §4.
+
+[design, #2532: `fnv_nav::PathParams::safe_drop_max`, `NavGraph::search_path`]
+AI without Allow Falls can use authored downward links within the load order's
+`fJumpFallHeightMin`, measured between `ledge_ends`' planned takeoff and landing
+(fallback 600, matching `nvf-play/src/falls.rs`). Ordinary hierarchical routing and
+path smoothing run with safe drops disabled. Only an unreachable result enables a
+retry with bounded full A* and harmless drops, including when an area/door route exists
+but its triangle search cannot reach the goal. Search-limit errors are retained.
+The navigation default remains opt-in, and unrestricted ledges and
+climbs retain their existing policy. [hypothesis, #2532] Per-link height is a provisional
+safety estimate, not a measurement of the original (observer check 214).
+
+[documented: supplied #2532 record brief, main-session fnvtool 2026-11-15]
+The showdown controller enables rangers 0x001438DA/DB; their Patrol package 0x001438E8
+has no Allow Falls and visits markers 01 0x001438D3, 02 0x001438D4, 03 0x001438D1,
+04 0x001438D2 and 05 0x001438D5. No supplied script assigns that package with
+AddScriptPackage.
+[observed: supplied main-session fnvtool nav path, FalloutNV.esm at upstream 1790ab94a]
+The approach to marker 01 works without ledges (152 units). Marker 01 to 02 is
+unreachable without ledges and 987 units with them; marker heights 5939 and 5718
+differ by about 221 units. The next two legs, 02 to 03 (517 units) and 03 to 04
+(1011 units), also work without ledges. [design, #2532] The smoke
+`legate-rangers-showdown` requires natural package selection, marker 01 arrival,
+departure to marker 02, a per-ranger drop diagnostic and marker 02 arrival, in order.
+[hypothesis, #2532] The safe-drop fallback should permit this descent; natural package
+selection and physical traversal still need the main-session smoke, and original
+behavior remains observer check 214.
+
+
 ## 4. Following
 
 - `Follower` advances past corners within 16 units (or once passed while close), uses a
@@ -250,6 +315,17 @@ Those plan new paths and, if none helps, end as before.
 
 ## 5. Tests and tools
 
+- [design, #2511] Actors use the shared `fnv_phys::character::ACTOR_MAX_SLOPE_DEG`
+  of 56° (`nvf_play::phys::npc_params`), below their cone face's roughly 57.7°
+  (`atan(1.58)`, physics.md §6.4.1/§6.9). The previous 60° was an engine choice:
+  it let actors climb thin walls higher than their 24-unit step height (issue #2511's
+  headless measurements). The 56° choice retains room above the 46–49° slopes cited
+  below. Synthetic physics test `actors_walk_navmesh_grade_slopes_below_the_cone_face_angle`
+  exercises that range with person-sized and small-creature parameters. The existing
+  `nav-walks` smoke keeps its default 45°; `nav-walks-actor-slope` repeats the seven
+  routes with `--max-slope 56` and requires every arrival. These real-route runs are
+  deferred to the main session; no game data was accessed for #2511.
+
 - Unit tests (`crates/fnv-nav/src/tests.rs`, synthetic navmeshes): internal edges and
   outline, straight paths, a wall with clearance, a seam between navmeshes whose grids
   differ, unreachable goals and opt-in ledges, doors between spaces with a walker going
@@ -413,4 +489,5 @@ by `Walker` elsewhere (the game's high and low processing levels are the model;
    waits there until the Open sequence has ended; doors stay open (they do not close by
    themselves); a door told to close while opening turns back; a swinging door's moving
    parts are not solid (owner request). How the original game does
-   each of these is not known.
+   each of these is not known, except that an inner door a follower opened stayed open
+   for the rest of one capture [observed: npc-behaviour-compare.md §15.2].

@@ -2,7 +2,7 @@
 //! damage by the level, by the player and on the player only, and kill XP follows
 //! `fDiffMultXP<level>`; on a synthetic plugin without the settings (their defaults).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

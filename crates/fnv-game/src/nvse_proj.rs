@@ -46,18 +46,36 @@ pub struct Shot {
 #[derive(Debug, Default)]
 pub struct ProjState {
     pub shots: HashMap<FormId, Shot>,
+    /// Successful script SetPos requests, consumed once by the actual flight.
+    /// Engine projectile_moved publication must not queue its own writes.
+    pub position_sets: HashMap<FormId, [f32; 3]>,
     /// Shots over: their references are no longer valid forms (IsFormValid 0).
     pub gone: std::collections::HashSet<FormId>,
 }
 
 impl Game<'_> {
+    pub(crate) fn projectile_placed_by_script(&mut self, r: FormId, at: [f32; 3]) {
+        if self.gaps.projs.shots.contains_key(&r) {
+            self.gaps.projs.position_sets.insert(r, at);
+        }
+    }
+
     /// A shot was fired: its temporary reference of the PROJ base `proj` at `at`, in the
     /// shooter's cell; `None` when none could be placed.
     pub fn projectile_fired(&mut self, proj: FormId, source: FormId, weapon: FormId, damage: f32, at: [f32; 3]) -> Option<FormId> {
         let cell = self.cell_of(source).or_else(|| self.cell_of(FormId::PLAYER_REF));
         let r = self.world.place(proj, cell, at, [0.0; 3], 1).ok()?;
+        // Not drawn or collided as a dropped item: the shot's flying model is the engine's
+        // (`RefState::shot`, #2186).
+        if let Ok(st) = self.world.get(r) {
+            st.shot = true;
+        }
         let ammo = if crate::functions::items::equipped_weapon(self, source) == Some(weapon) { self.ammo_in_use(source) } else { None };
         self.gaps.projs.shots.insert(r, Shot { source, weapon, damage, speed_mult: 1.0, age: 0.0, travelled: 0.0, left: None, impact: None, ammo });
+        // NPC shots and scripted FireWeapon shots enter `fnv-game` here rather than
+        // through `Game::weapon_fired`; same-frame deduplication prevents double-firing
+        // after `weapon_fired` or across a shotgun's pellets.
+        self.fire_weapon_jip_event(source, weapon, true);
         Some(r)
     }
 
@@ -115,10 +133,31 @@ impl Game<'_> {
     /// The shot is over: its reference goes [observed: proj1, IsFormValid 0 on the kept
     /// reference 30 frames on]. What the scripts left set on it, for the hit.
     pub fn projectile_gone(&mut self, r: FormId) -> Option<Shot> {
+        self.gaps.projs.position_sets.remove(&r);
         let s = self.gaps.projs.shots.remove(&r)?;
+        self.retire_projectile(r);
+        Some(s)
+    }
+
+    /// Retire a deleted engine shot, including its fuse if its session entry has
+    /// already gone. Ordinary references and reversible Disable are not cancellation
+    /// requests. The engine supplies only references associated with its own shots.
+    pub fn retire_deleted_projectile(&mut self, r: FormId) -> bool {
+        if !self.world.peek(r).is_some_and(|s| s.shot && s.deleted()) {
+            return false;
+        }
+        self.gaps.projs.shots.remove(&r);
+        self.retire_projectile(r);
+        true
+    }
+
+    fn retire_projectile(&mut self, r: FormId) {
+        self.gaps.projs.position_sets.remove(&r);
+        // Its fuse goes with it (`crate::nvse_jip14`, #2018).
+        self.other.jip14.fuses.remove(&r);
+        self.other.jip14.fuse_sets.retain(|&(x, _)| x != r);
         let _ = self.world.set_deleted(r, true);
         self.gaps.projs.gone.insert(r);
-        Some(s)
     }
 }
 

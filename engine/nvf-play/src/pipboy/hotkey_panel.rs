@@ -1,5 +1,7 @@
 //! The ITEMS page's hotkey panel (docs/design/weapon-wheel.md §3): hold a hotkey's key
-//! (1 to 8) and left-click an item in the list to put it in that slot.
+//! (1 to 8) and left-click an item in the list to put it in that slot [design: ?3].
+//! [design, #2312] With Controller chosen, RB opens it for the selected row;
+//! D-pad steps slots, A assigns, B cancels (observer check 211).
 //!
 //! - **The panel** [documented: menus\main\inventory_menu.xml `IM_HotKeyWheel`, 380, 52
 //!   in the menus' rectangle, 290 × 250, drawn further right ([`PANEL`]);
@@ -24,9 +26,9 @@
 //! Log lines: `pipboy hotkeys: key <n> held`, `pipboy hotkeys: let go`,
 //! `hotkeys: slot <n> holds <name> (<form>)`.
 
-use super::frame::{Align, Ctx, LINE, MAIN, TEXT, THICK};
+use super::frame::{Align, Ctx, Kit, LINE, MAIN, THICK};
 use crate::bindings::Bindings;
-use crate::hotkeys::{Hotkeys, Refused, Slot, AMMO_SWAP, SLOTS};
+use crate::hotkeys::{Hotkeys, Refused, Slot, AMMO_SWAP};
 use crate::interface::{amber, at};
 use crate::menu::model::Row;
 use crate::sim::SimState;
@@ -56,15 +58,104 @@ const TEXT_AT: Vec2 = Vec2::new(150.0, 262.0);
 const TEXT_FONT: usize = 2;
 const SWAP: &str = "Interface\\Icons\\typeicons\\hot_keys_icon_ammoswap.dds";
 
-/// Which hotkey's key is held on the ITEMS page, and what the last click there did.
+/// [design, #2312; this module] The held key or controller's chosen slot and last result.
 #[derive(Resource, Debug, Default, Clone, PartialEq)]
 pub struct HotkeyHold {
-    /// The held key's slot (0 is key 1).
+    /// [design / file refs: track, controller] The chosen slot (0 is key 1).
     pub slot: Option<usize>,
-    /// What the last assignment did, shown under the panel until the key is let go.
+    /// [design / file refs: panel_line] The last result while the panel is open.
     pub said: Option<String>,
     /// The test aid's held key, in place of the keyboard's (`super::test_aid`).
     pub aid: Option<usize>,
+    /// [design, #2312] The row RB opened the modal for; pointer/list changes cannot retarget it.
+    pub controller: Option<Row>,
+}
+
+/// [design, #2312] Provisional order until observer check 211: right/down advance,
+/// left/up go back, wrapping through all eight boxes including Ammo Swap.
+const PAD_SLOT_COUNT: usize = 8;
+
+impl HotkeyHold {
+    pub fn open_controller(&mut self, row: &Row) {
+        self.controller = Some(row.clone());
+        self.slot = Some(0);
+        self.said = None;
+        info!("pipboy hotkeys: controller opened, key 1 chosen");
+    }
+
+    fn close_controller(&mut self) {
+        self.controller = None;
+        self.slot = None;
+        self.said = None;
+        info!("pipboy hotkeys: controller closed");
+    }
+
+    fn step_controller(&mut self, forward: bool) {
+        if let Some(slot) = self.slot.as_mut().filter(|_| self.controller.is_some()) {
+            *slot = (*slot + if forward { 1 } else { PAD_SLOT_COUNT - 1 }) % PAD_SLOT_COUNT;
+            self.said = None;
+            info!("pipboy hotkeys: controller key {} chosen", *slot + 1);
+        }
+    }
+
+    fn assign_controller(&mut self, hotkeys: &mut Hotkeys, deselect: bool) {
+        let (Some(row), Some(slot)) = (self.controller.as_ref(), self.slot) else { return };
+        self.said = Some(assign_row(hotkeys, slot, row, deselect));
+        if slot != AMMO_SWAP && row.kind.is_some_and(crate::hotkeys::can_hold) {
+            self.close_controller();
+        }
+    }
+}
+
+/// [design, #2312] Read pad edges before either ITEMS input path. KeysTaken also
+/// protects the closing frame; pad::menu_keys withholds synthetic keys for this modal.
+#[allow(clippy::too_many_arguments)]
+pub fn controller(
+    pip: Res<super::PipBoy>,
+    lists: (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
+    active: Res<crate::menu::ActiveMenu>,
+    pads: crate::pad::ActionPads,
+    bindings: Option<Res<Bindings>>,
+    paused: Option<Res<crate::pause::Paused>>,
+    script: Option<Res<crate::script::ScriptState>>,
+    mut hold: ResMut<HotkeyHold>,
+    mut hotkeys: ResMut<Hotkeys>,
+    mut taken: ResMut<super::KeysTaken>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+) {
+    let model = active.0.as_ref().filter(|m| m.mode == crate::menu::model::Mode::Inventory && m.quantity.is_none());
+    let on = bindings.as_ref().is_some_and(|b| b.device == crate::bindings::InputDevice::Controller);
+    let modal = script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.top_menu()).is_some_and(|m| m != fnv_game::game::menus::INVENTORY);
+    let available = on && pip.open() && pip.page == super::Page::Items && !lists.0.is_open() && !lists.1.is_open() && model.is_some() && !paused.is_some_and(|p| p.0) && !modal;
+    if !available {
+        if hold.controller.is_some() {
+            hold.close_controller();
+        }
+        return;
+    }
+    let pressed = |b| crate::pad::menu_button(&pads, bindings.as_deref(), b);
+    if hold.controller.is_none() {
+        if pressed(GamepadButton::RightTrigger) {
+            taken.take();
+            if let Some(row) = model.and_then(|m| m.selected_row(crate::menu::model::Side::Player)).filter(|r| r.folder.is_none()) {
+                hold.open_controller(row);
+            }
+        }
+        return;
+    }
+    taken.take();
+    if pressed(GamepadButton::East) {
+        hold.close_controller();
+        return;
+    }
+    for (button, forward) in [(GamepadButton::DPadLeft, false), (GamepadButton::DPadUp, false), (GamepadButton::DPadRight, true), (GamepadButton::DPadDown, true)] {
+        if pressed(button) {
+            hold.step_controller(forward);
+        }
+    }
+    if pressed(GamepadButton::South) {
+        hold.assign_controller(&mut hotkeys, tweaks.is_some_and(|t| t.deselect_hotkeys));
+    }
 }
 
 /// A slot box's top left inside the panel [documented: hotkeys.xml's `x`/`y` traits on a
@@ -118,10 +209,14 @@ fn held_slot(bindings: &Bindings, keys: &ButtonInput<KeyCode>) -> Option<usize> 
 pub fn track(
     pip: Res<super::PipBoy>,
     (repair, modding): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     bindings: Option<Res<Bindings>>,
     mut hold: ResMut<HotkeyHold>,
 ) {
+    let keys = keys.snapshot();
+    if hold.controller.is_some() {
+        return;
+    }
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     let items = pip.open() && pip.page == super::Page::Items && !repair.is_open() && !modding.is_open();
@@ -137,8 +232,13 @@ pub fn track(
 }
 
 /// Put a row's item in the held slot; returns the line the panel then shows.
-pub fn assign_row(hotkeys: &mut Hotkeys, slot: usize, r: &Row) -> String {
+pub fn assign_row(hotkeys: &mut Hotkeys, slot: usize, r: &Row, deselect: bool) -> String {
     let s = Slot { item: r.item.0, mods: r.mods };
+    // The player's tweak: the slot it has already takes it off [design: docs/design/tweaks.md].
+    if deselect && hotkeys.clear_if_holding(slot, s) {
+        info!("hotkeys: slot {} emptied ({} was in it)", slot + 1, r.name);
+        return String::new();
+    }
     match hotkeys.assign(slot, s, r.kind) {
         Ok(from) => {
             let moved = from.map_or_else(String::new, |f| format!(" (moved from slot {})", f + 1));
@@ -158,15 +258,16 @@ pub fn assign_row(hotkeys: &mut Hotkeys, slot: usize, r: &Row) -> String {
 
 /// The panel, at the menus' rectangle's `IM_HotKeyWheel`.
 pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: &HotkeyHold, pointed: Option<&Row>, sim: &SimState, combat: Option<&crate::combat::Combat>) {
+    let pointed = hold.controller.as_ref().or(pointed);
     let o = MAIN.min + PANEL.min;
-    let (line, bright) = (amber(LINE), amber(TEXT));
+    let (line, bright) = (amber(LINE), c.bright());
     let rose = Rect::from_corners(o + ROSE_AT.min, o + ROSE_AT.max);
     c.image(p, ROSE, at(rose.min.x, rose.min.y, rose.width(), rose.height()), bright);
     if let Some(icon) = pointed.and_then(|r| icon_of(r.item, sim, combat)) {
         let r = Rect::from_corners(o + CENTRE_ICON.min, o + CENTRE_ICON.max);
         c.image(p, icon, at(r.min.x, r.min.y, r.width(), r.height()), bright);
     }
-    for slot in 0..SLOTS {
+    for (slot, &key) in hotkeys.0.iter().enumerate() {
         let b = o + box_at(slot);
         if slot == AMMO_SWAP {
             if hold.slot == Some(slot) {
@@ -180,7 +281,7 @@ pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: 
         }
         let inner = Rect::from_corners(b + Vec2::splat(INSET), b + Vec2::splat(BOX - INSET));
         c.boxed(p, inner, line, None);
-        if let Some(icon) = hotkeys.0[slot].and_then(|s| icon_of(FormId(s.item), sim, combat)) {
+        if let Some(icon) = key.and_then(|s| icon_of(FormId(s.item), sim, combat)) {
             c.image(p, icon, at(inner.min.x + THICK, inner.min.y + THICK, inner.width() - 2.0 * THICK, inner.height() - 2.0 * THICK), bright);
         }
         // The number at the box's right foot: its bottom 5 under the box's [documented:
@@ -188,21 +289,228 @@ pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: 
         let h = c.line_height(TEXT_FONT);
         c.text(p, TEXT_FONT, &(slot + 1).to_string(), b.x + BOX, b.y + BOX - h + INSET, Align::Left, bright);
     }
-    let said = hold.said.clone().or_else(|| {
+    if let Some(s) = panel_line(hotkeys, hold, sim) {
+        c.text(p, TEXT_FONT, &s, o.x + TEXT_AT.x, o.y + TEXT_AT.y, Align::Centre, bright);
+    }
+}
+
+/// Marks the panel drawn over the ITEMS page while that page is drawn from its file.
+#[derive(Component)]
+pub struct PanelOverTiles;
+
+/// The panel over the ITEMS page drawn from its file (`crate::tiles::inventory_menu`), which has no
+/// hand-built body to hold it: the same panel at the same place, the owner's [design: the file's own
+/// wheel was not captured and is not drawn]. In the Pip-Boy's image, at the page's level.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_over_tiles(
+    mut commands: Commands,
+    screen: Option<Res<super::PipBoyScreen>>,
+    tiles: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>,
+    roots: Query<Entity, With<PanelOverTiles>>,
+    (hold, hotkeys, active): (Res<HotkeyHold>, Res<Hotkeys>, Res<crate::menu::ActiveMenu>),
+    (sim, combat): (Res<SimState>, Option<Res<crate::combat::Combat>>),
+    mut kit: ResMut<Kit>,
+    data: Option<Res<nvf_assets::GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
+) {
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
+    let slot = hold.slot.filter(|_| tiles.is_some_and(|t| t.ready.is_some()));
+    let (Some(slot), Some(screen)) = (slot, screen) else {
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        return;
+    };
+    if !roots.is_empty() && !hold.is_changed() && !hotkeys.is_changed() && !active.is_changed() {
+        return;
+    }
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    info!("pipboy hotkeys: panel drawn, key {} chosen{}", slot + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
+    let pointed = active.0.as_ref().and_then(|m| m.selected_row(crate::menu::model::Side::Player));
+    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
+    let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y) };
+    commands
+        .spawn((PanelOverTiles, root, UiTargetCamera(screen.camera), GlobalZIndex(crate::tiles::draw::PIPBOY_TILES_Z), Pickable::IGNORE, Name::new("Hotkey panel over the page")))
+        .with_children(|p| draw(p, &mut c, &hotkeys, &hold, pointed, &sim, combat.as_deref()));
+}
+
+/// The line under the panel: what the last click did, else what the held slot holds.
+pub fn panel_line(hotkeys: &Hotkeys, hold: &HotkeyHold, sim: &SimState) -> Option<String> {
+    hold.said.clone().or_else(|| {
         let slot = hold.slot?;
         if slot == AMMO_SWAP {
             return Some("Ammo Swap".into());
         }
         Some(hotkeys.0[slot].map_or_else(|| "Empty".into(), |s| sim.name(FormId(s.item)).unwrap_or("?").to_string()))
-    });
-    if let Some(s) = said {
-        c.text(p, TEXT_FONT, &s, o.x + TEXT_AT.x, o.y + TEXT_AT.y, Align::Centre, bright);
-    }
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn row(kind: ItemKind) -> Row {
+        Row { item: FormId(1), at: None, name: "Test tool".into(), count: 1, weight: None, value: None, kind: Some(kind), equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 3, mods_value: 0, folder: None, reference: None, live: false }
+    }
+
+    #[test]
+    fn controller_navigation_visits_all_eight_slots_and_wraps_both_ways() {
+        let mut hold = HotkeyHold::default();
+        hold.open_controller(&row(ItemKind::Weapon));
+        for slot in (1..8).chain([0]) {
+            hold.step_controller(true);
+            assert_eq!(hold.slot, Some(slot));
+        }
+        for slot in (0..8).rev() {
+            hold.step_controller(false);
+            assert_eq!(hold.slot, Some(slot));
+        }
+    }
+
+    #[test]
+    fn controller_assignment_moves_the_same_modified_item_and_closes() {
+        let (mut hold, mut keys) = (HotkeyHold::default(), Hotkeys::default());
+        let item = row(ItemKind::Weapon);
+        hold.open_controller(&item);
+        hold.assign_controller(&mut keys, false);
+        assert_eq!(keys.0[0], Some(Slot { item: 1, mods: 3 }));
+        assert!(hold.controller.is_none());
+        hold.open_controller(&item);
+        hold.step_controller(true);
+        hold.step_controller(true);
+        hold.assign_controller(&mut keys, false);
+        assert_eq!(keys.0[0], None);
+        assert_eq!(keys.0[2], Some(Slot { item: 1, mods: 3 }));
+        assert_eq!(hold.slot, None);
+    }
+
+    #[test]
+    fn controller_refusals_and_cancel_leave_assignments_alone() {
+        let (mut hold, mut keys) = (HotkeyHold::default(), Hotkeys::default());
+        hold.open_controller(&row(ItemKind::Weapon));
+        hold.step_controller(true);
+        hold.assign_controller(&mut keys, false);
+        assert_eq!(hold.said.as_deref(), Some("Key 2 is Ammo Swap"));
+        assert!(hold.controller.is_some());
+        hold.close_controller();
+        assert_eq!(keys, Hotkeys::default());
+        hold.open_controller(&row(ItemKind::Misc));
+        hold.assign_controller(&mut keys, false);
+        assert_eq!(hold.said.as_deref(), Some("Can't hotkey Test tool"));
+        hold.close_controller();
+        assert_eq!(keys, Hotkeys::default());
+    }
+
+    #[test]
+    fn controller_assignment_honours_deselect_tweak() {
+        let (mut hold, mut keys) = (HotkeyHold::default(), Hotkeys::default());
+        let item = row(ItemKind::Armor);
+        for _ in 0..2 {
+            hold.open_controller(&item);
+            hold.assign_controller(&mut keys, true);
+            assert!(hold.controller.is_none());
+        }
+        assert_eq!(keys, Hotkeys::default());
+    }
+
+    // [design, #2312] Synthetic inventory and pad events exercise the scheduled reader
+    // followed by the ordinary ITEMS keys, checking that modal actions do not escape.
+    #[derive(Resource, Default)]
+    struct EscapedCommands(usize);
+
+    fn record_commands(mut menu: MessageReader<crate::menu::MenuInput>, mut pages: MessageReader<super::super::PipBoyInput>, mut seen: ResMut<EscapedCommands>) {
+        seen.0 += menu.read().count() + pages.read().count();
+    }
+
+    fn controller_app() -> (App, Entity) {
+        use fnv_sim::forms::{ActorBase, BaseData, BaseForm, FormStore};
+        let mut forms = FormStore::default();
+        forms.bases.insert(FormId::PLAYER_BASE, BaseForm {
+            id: FormId::PLAYER_BASE, sig: *b"NPC_", edid: None, name: None, script: None,
+            prompt: None, voice_filter: false,
+            data: BaseData::Actor(ActorBase { entries: Vec::new(), attributes: Some([5; 7]) }),
+        });
+        let refs = fnv_sim::RefTable::default();
+        let mut world = fnv_sim::World::new(&forms, &refs, fnv_sim::SimConfig::default());
+        let mut model = crate::menu::model::MenuModel::open_inventory(&mut world).unwrap();
+        model.category[crate::menu::model::Side::Player as usize] = super::super::items::TABS[0];
+        model.lists[crate::menu::model::Side::Player as usize].rows = vec![row(ItemKind::Weapon)];
+        let mut bindings = Bindings::default();
+        bindings.device = crate::bindings::InputDevice::Controller;
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin)
+            .insert_resource(bindings)
+            .insert_resource(super::super::PipBoy { phase: super::super::Phase::Up, page: super::super::Page::Items, ..default() })
+            .insert_resource(crate::menu::ActiveMenu(Some(model)))
+            .init_resource::<HotkeyHold>()
+            .init_resource::<Hotkeys>()
+            .init_resource::<super::super::KeysTaken>()
+            .init_resource::<super::super::repair::PipRepair>()
+            .init_resource::<super::super::item_mod::PipItemMod>()
+            .init_resource::<crate::menu::PromptKeys>()
+            .init_resource::<EscapedCommands>()
+            .add_message::<crate::menu::MenuInput>()
+            .add_message::<super::super::PipBoyInput>()
+            .add_systems(First, super::super::clear_keys_taken)
+            .add_systems(Update, (controller, super::super::close_keys, super::super::keys, super::super::items::keys, record_commands).chain());
+        let pad = app.world_mut().spawn(Gamepad::default()).id();
+        (app, pad)
+    }
+
+    fn press(app: &mut App, pad: Entity, button: GamepadButton) {
+        use bevy::input::gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent};
+        for down in [true, false] {
+            app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, button, if down { 1.0 } else { 0.0 })));
+            app.update();
+        }
+    }
+
+    #[test]
+    fn controller_buttons_assign_and_cancel_without_item_commands() {
+        use GamepadButton::*;
+        let (mut app, pad) = controller_app();
+        press(&mut app, pad, RightTrigger);
+        assert_eq!(app.world().resource::<HotkeyHold>().slot, Some(0));
+        press(&mut app, pad, DPadDown);
+        press(&mut app, pad, South);
+        assert!(app.world().resource::<HotkeyHold>().controller.is_some(), "Ammo Swap refuses assignment");
+        press(&mut app, pad, DPadRight);
+        press(&mut app, pad, South);
+        let assigned = app.world().resource::<Hotkeys>().clone();
+        assert_eq!(assigned.0[2], Some(Slot { item: 1, mods: 3 }));
+        assert!(app.world().resource::<HotkeyHold>().controller.is_none());
+        press(&mut app, pad, RightTrigger);
+        press(&mut app, pad, DPadLeft);
+        assert_eq!(app.world().resource::<HotkeyHold>().slot, Some(7));
+        press(&mut app, pad, DPadUp);
+        assert_eq!(app.world().resource::<HotkeyHold>().slot, Some(6));
+        press(&mut app, pad, East);
+        assert!(app.world().resource::<HotkeyHold>().controller.is_none());
+        assert_eq!(*app.world().resource::<Hotkeys>(), assigned);
+        assert_eq!(app.world().resource::<crate::menu::ActiveMenu>().0.as_ref().unwrap().navigated, 0);
+        assert_eq!(app.world().resource::<EscapedCommands>().0, 0);
+    }
+
+    #[test]
+    fn controller_panel_cancels_on_device_page_and_pause_changes() {
+        for change in 0..3 {
+            let (mut app, pad) = controller_app();
+            press(&mut app, pad, GamepadButton::RightTrigger);
+            match change {
+                0 => app.world_mut().resource_mut::<Bindings>().device = crate::bindings::InputDevice::KeyboardMouse,
+                1 => app.world_mut().resource_mut::<super::super::PipBoy>().page = super::super::Page::Stats,
+                _ => { app.insert_resource(crate::pause::Paused(true)); }
+            }
+            app.update();
+            assert!(app.world().resource::<HotkeyHold>().controller.is_none());
+            assert_eq!(*app.world().resource::<Hotkeys>(), Hotkeys::default());
+        }
+    }
 
     #[test]
     fn the_boxes_sit_as_the_file_places_them() {

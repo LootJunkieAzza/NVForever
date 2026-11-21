@@ -100,7 +100,13 @@ MapTo].
 - **Block form**: `(begin function {params} … end)` in parentheses, as an inline
   expression [documented: Lambda].
 - **One-line form**: `{params} => expr`. The expression's value is returned as if by
-  SetFunctionValue [documented: Lambda]. `({} => expr)` with no parameters.
+  SetFunctionValue [documented: Lambda]. `({} => expr)` with no parameters. The
+  expression runs to the end of what holds the lambda, an assignment included: `({} =>
+  iInventory = iRefresh = 1)` sets both when the lambda runs [observed:
+  JustAssortedMods.esp 4.6 ships that line in JLMScript, once stored in a ref and once as
+  SetEventHandler's handler, with compiled bytes; hypothesis: the original binds it so.
+  Until 2026-11-12 NVForever stopped the lambda before the `=`, which made the line an
+  assignment to the lambda itself, refused when it ran].
 - **Variables**: a lambda reads and changes every variable of the script it is written
   in; its parameters are also variables of that script, declared there [documented:
   Lambda, "access and modify all variables defined in the parent script"; the
@@ -151,6 +157,19 @@ what it does to the call: open.
   `CallAfterSeconds 0` runs next frame [documented: CallAfterSeconds; CallForSeconds].
 - **Not saved**: loading a game drops every queued call; scripts re-queue them on load
   [documented: each page]. This is a persistence rule NVForever must copy (ext-save.md).
+
+[design] `crates/fnv-game/src/delayed.rs` tracks remaining seconds (`AfterSeconds`,
+`ForSeconds`, `WhilePerSeconds`) and remaining frames (`AfterFrames`) rather than an
+absolute deadline on `Game::time` / `Game::frame`. Each eligible frame (`runs_now`)
+decrements seconds by `cfg.frame_seconds` (0 while `FreezeTime` holds) so `runWhen` 1
+and 2 count down in MenuMode as documented, while paused menus (`menus::CONSOLE` 3,
+`menus::TITLE` 4, `menus::START` 1013, and `start_frames`) hold both `runWhen == 2`
+timers and `flags & 16` (`DontRunWhilePaused`) condition callbacks without advancing
+their countdown or evaluating/dropping their condition.
+
+[hypothesis] Whether `runWhen` values above 2 behave identically to `runWhen == 2`,
+whether `FreezeTime` halts `CallAfterSeconds` in MenuMode, and the exact sub-frame
+tie-breaking at `0.0` seconds have not been observed in the original game.
 
 ## 7. Open (to observe), collected
 

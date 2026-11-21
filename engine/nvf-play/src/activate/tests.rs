@@ -2,6 +2,7 @@
 //! simulation (forms and references in memory) and physics world (no game data).
 
 use super::*;
+use bevy::camera::primitives::Aabb;
 use crate::phys::PhysState;
 use crate::PlayData;
 use bevy::ecs::message::Messages;
@@ -12,6 +13,10 @@ use fnv_sim::refs::{Lock, PlacedRef, Teleport};
 use fnv_sim::{FormStore, RefTable, SimConfig, World};
 use fnv_world::{Cell, WorldIndex};
 
+mod crosshair_prompt_tests;
+mod crosshair_sleeper_tests;
+mod crosshair_water_tests;
+
 const STIMPAK: u32 = 0x100;
 const KEY: u32 = 0x101;
 const CHEST: u32 = 0x120;
@@ -20,6 +25,8 @@ const HIDDEN_DOOR: u32 = 0x131; // no FULL, as OffDoorHidden01 (#1598)
 const TRIGGER: u32 = 0x140;
 const CHAIR: u32 = 0x150;
 const LEVER: u32 = 0x160; // a named activator with a model
+const BED: u32 = 0x152;
+const SETTLER: u32 = 0x170; // an NPC
 const CELL_EXT: u32 = 0x200;
 const CELL_INT: u32 = 0x201;
 const WORLD: u32 = 0x3C;
@@ -32,6 +39,8 @@ const TRIGGER_REF: u32 = 0x306; // unnamed activator
 const CHAIR_REF: u32 = 0x307;
 const LEVER_REF: u32 = 0x308;
 const LEVER_TRIGGER_REF: u32 = 0x309; // LEVER placed as a box primitive (a trigger)
+const BED_REF: u32 = 0x30A;
+const SETTLER_REF: u32 = 0x30B; // ACHR of SETTLER
 
 fn base(id: u32, name: Option<&str>, data: BaseData) -> BaseForm {
     BaseForm { id: FormId(id), sig: *b"MISC", edid: Some(format!("Edid{id:X}")), name: name.map(Into::into), script: None, prompt: None, voice_filter: false, data }
@@ -76,13 +85,15 @@ pub(crate) fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
         radius: None,
         encounter_zone: None,
         level_modifier: None,
+        map_marker: None,
+        radio: None,
     }
 }
 
 fn sim() -> SimState {
     let mut forms = FormStore::default();
     let chest = || BaseData::Container(Container { respawns: false, entries: Vec::new() });
-    for b in [
+    for mut b in [
         base(STIMPAK, Some("Stimpak"), item(ItemKind::Aid)),
         base(KEY, Some("Safe Key"), item(ItemKind::Key)),
         base(CHEST, Some("Chest"), chest()),
@@ -91,8 +102,15 @@ fn sim() -> SimState {
         base(TRIGGER, None, BaseData::Activator),
         base(CHAIR, Some("Chair"), BaseData::Furniture),
         base(LEVER, Some("Lever"), BaseData::Activator),
+        base(BED, Some("Bed"), BaseData::Furniture),
+        BaseForm { sig: *b"NPC_", ..base(SETTLER, Some("Settler"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })) },
         base(FormId::PLAYER_BASE.0, Some("Courier"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })),
     ] {
+        // [design, #2538] World::lock_source identifies doors through FormStore::sig.
+        if matches!(b.data, BaseData::Door(_)) {
+            b.sig = *b"DOOR";
+            forms.sigs.insert(b.id, b.sig);
+        }
         forms.bases.insert(b.id, b);
     }
     let mut refs = RefTable::default();
@@ -107,8 +125,13 @@ fn sim() -> SimState {
     let hidden = placed(0x7779, HIDDEN_DOOR, CELL_EXT);
     let hidden_travel = PlacedRef { teleport: Some(tp), ..placed(0x777A, HIDDEN_DOOR, CELL_EXT) };
     let hidden_prompted = PlacedRef { prompt: Some("Enter Hatch".into()), ..placed(0x777B, HIDDEN_DOOR, CELL_EXT) };
+    // A nameless activator with a prompt (#2160: Hoover Dam's control panel).
+    let panel = PlacedRef { prompt: Some("Activate".into()), ..placed(0x777C, TRIGGER, CELL_EXT) };
+    refs.refs.insert(panel.id, panel);
+    let settler = PlacedRef { sig: *b"ACHR", ..placed(SETTLER_REF, SETTLER, CELL_EXT) };
+    refs.refs.insert(settler.id, settler);
     let box_trigger = PlacedRef { primitive: Some(fnv_sim::refs::Primitive { sphere: false, bounds: [30.0, 25.0, 31.0] }), ..placed(LEVER_TRIGGER_REF, LEVER, CELL_EXT) };
-    for r in [stim, safe, door, sealed, prompted, hidden, hidden_travel, hidden_prompted, box_trigger, placed(LEVER_REF, LEVER, CELL_EXT), placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT)] {
+    for r in [stim, safe, door, sealed, prompted, hidden, hidden_travel, hidden_prompted, box_trigger, placed(LEVER_REF, LEVER, CELL_EXT), placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT), placed(BED_REF, BED, CELL_EXT)] {
         refs.refs.insert(r.id, r);
     }
     let forms: &'static FormStore = Box::leak(Box::new(forms));
@@ -227,6 +250,11 @@ fn describe_by_type_lock_and_destination() {
     assert_eq!(describe(&sim, ix, SAFE_REF), Some(("Chest".into(), Action::Locked { level: 50 })));
     assert_eq!(describe(&sim, ix, DOOR_REF), Some(("Door".into(), Action::Travel { to: Some("Doc Mitchell's House".into()) })));
     assert_eq!(describe(&sim, ix, TRIGGER_REF), None, "unnamed activators are not offered");
+    // With an Activation Prompt it is offered, by the prompt alone (#2160).
+    assert_eq!(describe(&sim, ix, 0x777C), Some((String::new(), Action::Activate)));
+    let t = Targeted { form_id: 0x777C, name: String::new(), action: Action::Activate, distance: 50.0, source: pick::Source::Bounds, crime: false, empty: false };
+    let p = crate::reticle::Prompt::of(&t, &sim);
+    assert_eq!((p.action.as_str(), p.name.as_str()), ("Activate", ""));
     assert_eq!(describe(&sim, ix, 0x7779), None, "nor an unnamed door leading nowhere (#1598)");
     assert!(
         matches!(describe(&sim, ix, 0x777A), Some((_, Action::Travel { .. }))),
@@ -444,4 +472,61 @@ fn e_on_a_chest_opens_the_container_menu_and_it_stays_open() {
     press_e(&mut app);
     app.update();
     assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+}
+
+#[test]
+fn a_water_prompt_carries_its_h2o() {
+    assert_eq!(water_label("Faucet", Some(-15.0)), "Faucet (H2O -15)");
+    assert_eq!(water_label("Faucet", Some(0.2)), "Faucet");
+    assert_eq!(water_label("Faucet", None), "Faucet");
+}
+
+
+#[test]
+fn switching_cancels_a_holdable_activate_tap_before_it_can_take_the_item() {
+    use crate::{bindings::{Bindings, InputDevice}, grab::{Candidate, GrabState}};
+    use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, ButtonState};
+    let mut app = scene(&[]);
+    app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, crate::pad::InputSwitchPlugin));
+    app.init_resource::<GrabState>();
+    visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.world_mut().resource_mut::<GrabState>().candidate = Some(Candidate {
+        on: fnv_phys::GripOn::Ref(STIM_REF), at: [60.0, 0.0, 100.0], distance: 60.0,
+    });
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    let e = KeyboardInput { key_code: KeyCode::KeyE, logical_key: Key::Character("e".into()), state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER };
+    app.world_mut().write_message(e.clone());
+    app.update();
+    assert!(app.world().resource::<GrabState>().tap.is_some());
+    app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::North, 1.0)));
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    assert!(app.world().resource::<GrabState>().tap.is_none());
+    assert!(drain::<RefChanged>(&mut app).is_empty());
+    app.world_mut().write_message(KeyboardInput { state: ButtonState::Released, ..e });
+    app.update();
+    assert!(app.world().resource::<ButtonInput<KeyCode>>().just_released(KeyCode::KeyE));
+    assert!(drain::<RefChanged>(&mut app).is_empty());
+    assert_eq!(app.world().resource::<SimState>().world.peek(FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()).map_or(0, |i| i.count(FormId(STIMPAK))), 0);
+}
+
+
+/// [design, #2538] Both HUD states use the same partner lock as activation.
+#[test]
+fn load_door_lock_prompt_uses_partner_level_and_key() {
+    let mut sim = sim();
+    for id in [FormId(DOOR), FormId(HIDDEN_DOOR)] {
+        assert_eq!(sim.forms.get(id).unwrap().sig, *b"DOOR");
+        assert_eq!(sim.forms.sig(id), Some(*b"DOOR"));
+    }
+    sim.world.lock(FormId(DOOR_DEST), Some(255)).unwrap();
+    assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Locked { level: 255 });
+    assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1.label(), "Locked (Requires Key)");
+    sim.world.get(FormId(DOOR_DEST)).unwrap().lock.as_mut().unwrap().key = Some(FormId(KEY));
+    sim.world.add_item(FormId::PLAYER_REF, FormId(KEY), 1).unwrap();
+    assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Unlock);
+    sim.world.unlock(FormId(DOOR_REF)).unwrap();
+    assert!(matches!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Travel { .. }));
 }

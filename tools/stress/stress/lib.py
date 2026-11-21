@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "tools" / "smoke"))
 
 from smoke.expect import clean  # noqa: E402
-from smoke.runner import Locks, aid_free_environ, default_lock_paths  # noqa: E402
+from smoke.runner import LOCKED_NOTE, Locks, aid_free_environ, default_lock_paths, session_locked  # noqa: E402
 from smoke.stacks import dump as dump_stacks  # noqa: E402
 
 EXE_NAME = "nvforever.exe" if os.name == "nt" else "nvforever"
@@ -93,10 +93,41 @@ def existing_run_folder(repo: Path, test: str, name: str) -> Path:
 
 # ---------------------------------------------------------------- memory
 
-def process_memory(pid: int) -> tuple[int, int] | None:
-    """(working set, private bytes) of a process, Windows only; None elsewhere or on error."""
-    if os.name != "nt":
+def _kb_field(text: str, key: str) -> int | None:
+    """The kB of a `/proc` line such as `VmRSS:    1234 kB`, or None."""
+    for line in text.splitlines():
+        if line.startswith(key):
+            try:
+                return int(line.split()[1])
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
+def _linux_process_memory(pid: int) -> tuple[int, int] | None:
+    """(resident, private) bytes from /proc: `VmRSS`, and `smaps_rollup`'s private pages
+    (`Private_Clean` + `Private_Dirty`), falling back to `RssAnon` where smaps is not
+    readable (hidepid)."""
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+    except OSError:
         return None
+    rss = _kb_field(status, "VmRSS:")
+    if rss is None:
+        return None
+    private = None
+    try:
+        rollup = Path(f"/proc/{pid}/smaps_rollup").read_text(encoding="utf-8")
+        private = (_kb_field(rollup, "Private_Clean:") or 0) + (_kb_field(rollup, "Private_Dirty:") or 0)
+    except OSError:
+        private = _kb_field(status, "RssAnon:")
+    return rss * 1024, (private if private is not None else rss) * 1024
+
+
+def process_memory(pid: int) -> tuple[int, int] | None:
+    """(working set, private bytes) of a process; None when it cannot be read."""
+    if os.name != "nt":
+        return _linux_process_memory(pid)
 
     class PMC(ctypes.Structure):
         _fields_ = [("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong)] + [
@@ -119,11 +150,40 @@ def process_memory(pid: int) -> tuple[int, int] | None:
         k32.CloseHandle(h)
 
 
+def _proc_cpu_busy_secs(stat: str, hz: int) -> float | None:
+    """Busy seconds from `/proc/stat`'s `cpu` line: every core's total less idle and iowait
+    (user, nice, system, irq, softirq, steal)."""
+    for line in stat.splitlines():
+        if line.startswith("cpu "):
+            try:
+                ticks = [int(t) for t in line.split()[1:9]]
+            except ValueError:
+                return None
+            idle = ticks[3] + ticks[4]
+            return max(sum(ticks) - idle, 0) / hz
+    return None
+
+
+def _proc_pid_busy_secs(stat: str, hz: int) -> float | None:
+    """Seconds a process has used, from `/proc/<pid>/stat`: `utime` + `stime` (fields 14 and
+    15). The command name in field 2 can hold spaces and brackets, so the fields are counted
+    from after the last `)`."""
+    try:
+        fields = stat[stat.rindex(")") + 1:].split()
+        return (int(fields[11]) + int(fields[12])) / hz
+    except (ValueError, IndexError):
+        return None
+
+
 def system_busy_secs() -> float | None:
     """Processor time every core has spent busy since boot (kernel less idle, plus user),
-    seconds summed over the cores; Windows only."""
+    seconds summed over the cores; Windows and Linux."""
     if os.name != "nt":
-        return None
+        try:
+            stat = Path("/proc/stat").read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return _proc_cpu_busy_secs(stat, os.sysconf("SC_CLK_TCK"))
     ft = [ctypes.c_ulonglong() for _ in range(3)]
     if not ctypes.windll.kernel32.GetSystemTimes(*(ctypes.byref(x) for x in ft)):
         return None
@@ -132,9 +192,13 @@ def system_busy_secs() -> float | None:
 
 
 def process_busy_secs(pid: int) -> float | None:
-    """Processor time a process has used (kernel and user), seconds; Windows only."""
+    """Processor time a process has used (kernel and user), seconds; Windows and Linux."""
     if os.name != "nt":
-        return None
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return _proc_pid_busy_secs(stat, os.sysconf("SC_CLK_TCK"))
     k32 = ctypes.windll.kernel32
     h = k32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
     if not h:
@@ -323,6 +387,8 @@ class Result:
     # (seconds at its end, game's share, others' share, elapsed seconds) per kept interval (CpuLoad)
     cpu: list[tuple[float, float, float, float]] = field(default_factory=list)
     cpu_skipped: int = 0  # intervals left out (impossible share)
+    # Checks of the Windows session (`session_locked`, every LOCK_EVERY s): (made, locked).
+    lock_checks: tuple[int, int] = (0, 0)
 
     def tail(self, n: int = 40) -> list[str]:
         return self.lines[-n:]
@@ -334,6 +400,19 @@ def collect_crashes(home: Path) -> list[Crash]:
     for p in sorted(logs.glob("crash-*.txt")) if logs.is_dir() else []:
         out.append(parse_crash(p.read_text(encoding="utf-8", errors="replace"), str(p)))
     return out
+
+
+LOCK_EVERY = 5.0
+
+
+def locked_report(checks: tuple[int, int] | None) -> list[str]:
+    """The report's warning when the Windows session was locked in some of the launch's
+    checks (#3277): its frame times then measure the lock screen's waits, not the engine."""
+    if not checks or not checks[1]:
+        return []
+    made, locked = checks
+    return ["", f"**Locked in {locked} of {made} checks: {LOCKED_NOTE}. Run it again with the session unlocked "
+                "before acting on its frame times.**"]
 
 
 def run(ctx: Ctx, launch: Launch) -> Result:
@@ -355,6 +434,7 @@ def run(ctx: Ctx, launch: Launch) -> Result:
     status, stacks = "ok", None
     started = time.monotonic()
     load = CpuLoad(os.cpu_count() or 1, started)
+    checks = [0, 0]  # session lock checks made, and found locked
     started_at_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     try:
         with open(log, "w", encoding="utf-8", errors="replace") as f:
@@ -372,9 +452,19 @@ def run(ctx: Ctx, launch: Launch) -> Result:
             t = threading.Thread(target=pump, daemon=True)
             t.start()
             next_mem = 0.0
+            next_lock = 0.0
             limit = launch.run_seconds * 2 + 300
             while p.poll() is None:
                 now = time.monotonic()
+                if now - started >= next_lock:
+                    locked = session_locked()
+                    if locked is not None:
+                        checks[0] += 1
+                        if locked:
+                            if not checks[1]:
+                                ctx.say(f"warning: {launch.name}: {LOCKED_NOTE}")
+                            checks[1] += 1
+                    next_lock = now - started + LOCK_EVERY
                 if launch.memory_every and now - started >= next_mem:
                     m = process_memory(p.pid)
                     if m:
@@ -414,10 +504,12 @@ def run(ctx: Ctx, launch: Launch) -> Result:
         with open(ctx.out / f"{launch.name}.cpu.csv", "w", encoding="utf-8") as c:
             c.write("seconds,game_share,others_share,elapsed\n")
             c.writelines(f"{s},{g},{o},{e}\n" for s, g, o, e in load.samples)
-    r = Result(launch.name, code, round(secs, 1), status, log, lines, crashes, memory, stacks, load.samples, load.skipped)
+    r = Result(launch.name, code, round(secs, 1), status, log, lines, crashes, memory, stacks, load.samples, load.skipped,
+               (checks[0], checks[1]))
     (ctx.out / f"{launch.name}.exit.json").write_text(json.dumps(
         {"exit": code, "status": status, "seconds": r.seconds, "crashes": [c.path for c in crashes],
-         "started_at_utc": started_at_utc, "finished_at_utc": finished_at_utc}), encoding="utf-8")
+         "started_at_utc": started_at_utc, "finished_at_utc": finished_at_utc,
+         "session_lock_checks": {"made": checks[0], "locked": checks[1]}}), encoding="utf-8")
     return r
 
 

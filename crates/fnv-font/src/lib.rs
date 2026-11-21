@@ -22,6 +22,52 @@ const GLYPH: usize = 56;
 /// The size of every font file (§2).
 pub const FILE_SIZE: usize = HEADER + NAME_ROOM + 256 * GLYPH;
 
+/// A font's picture as a `.tex` file (docs/spec-notes/fonts.md §2.2): the width and the
+/// height as little-endian u32, then four bytes a texel, rows from the top, the colour in
+/// the first three bytes and the alpha in the fourth [observed: the English and Russian
+/// installs' font `.tex` files against their `.dds`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tex {
+    pub width: u32,
+    pub height: u32,
+    /// `width * height` texels, four bytes each: red, green, blue, alpha.
+    pub rgba: Vec<u8>,
+}
+
+/// Bytes before a `.tex` file's texels.
+const TEX_HEADER: usize = 8;
+
+/// The largest side a `.tex` is read with (512 in every file seen; a larger one is a
+/// broken header).
+pub const TEX_MAX_SIDE: u32 = 8192;
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TexError {
+    #[error(".tex file is {0} bytes, shorter than its header")]
+    Short(usize),
+    #[error(".tex size {0}x{1} out of range (1 to {TEX_MAX_SIDE})")]
+    Side(u32, u32),
+    #[error(".tex file is {found} bytes, expected {expected} for its size")]
+    Size { found: usize, expected: usize },
+}
+
+impl Tex {
+    pub fn parse(bytes: &[u8]) -> Result<Tex, TexError> {
+        if bytes.len() < TEX_HEADER {
+            return Err(TexError::Short(bytes.len()));
+        }
+        let (width, height) = (u32_at(bytes, 0), u32_at(bytes, 4));
+        if width == 0 || height == 0 || width > TEX_MAX_SIDE || height > TEX_MAX_SIDE {
+            return Err(TexError::Side(width, height));
+        }
+        let expected = TEX_HEADER + width as usize * height as usize * 4;
+        if bytes.len() != expected {
+            return Err(TexError::Size { found: bytes.len(), expected });
+        }
+        Ok(Tex { width, height, rgba: bytes[TEX_HEADER..].to_vec() })
+    }
+}
+
 /// One character's picture and measures (§2).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Glyph {
@@ -56,12 +102,19 @@ pub struct Font {
     pub texture: String,
     /// By character code, 256 of them.
     pub glyphs: Vec<Glyph>,
+    /// The characters this run's code page has no code for, by character: a font drawn from a
+    /// font file of its own (the menus' sharp letters, nvf-play's `vector_font`) measures them
+    /// here, so a language the game's install was not made for still reads (Russian on an
+    /// English install); empty for the game's `.fnt` fonts, which draw such a character as `?`.
+    pub extra: std::collections::HashMap<char, Glyph>,
 }
 
-/// A character set in a line: its code and where its glyph's room starts.
+/// A character set in a line: its code, the character itself (which the code page may have
+/// no code for: `code` is then `?`) and where its glyph's room starts.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placed {
     pub code: u8,
+    pub ch: char,
     pub x: f32,
 }
 
@@ -73,15 +126,37 @@ pub struct Line {
 }
 
 impl Line {
-    /// The line's characters, its codes read back in this run's code page (the spaces it
-    /// was broken at are not in it).
+    /// The line's characters (the spaces it was broken at are not in it), as they were given,
+    /// also those this run's code page has no code for.
     pub fn text(&self) -> String {
-        self.text_in(fnv_util::text::code_page())
+        self.glyphs.iter().map(|g| g.ch).collect()
     }
 
     /// The line's characters, its codes read back in a given code page.
     pub fn text_in(&self, page: fnv_util::text::CodePage) -> String {
         self.glyphs.iter().map(|g| page.char_of(g.code)).collect()
+    }
+
+    /// [`Line::text`] with the spaces between its words put back: the line holds the words'
+    /// characters only, so a gap after a character wider than its advance in `font` is
+    /// the spaces that stood there, as many as the space's advance goes into it (at least
+    /// one). The room before the first character is the text's leading spaces, put back the
+    /// same way (MCM's suffix " seconds" stood against its value). For a stand-in drawing of
+    /// the line that sets its own letters (issue #2298: MCM's texts ran together where a
+    /// font's picture was not read).
+    pub fn text_spaced(&self, font: &Font) -> String {
+        let space = font.glyph(b' ').advance();
+        let mut out = String::new();
+        let mut end = 0.0;
+        for g in &self.glyphs {
+            if g.x - end > 0.5 {
+                let n = if space > 0.0 { ((g.x - end) / space).round().max(1.0) as usize } else { 1 };
+                out.extend(std::iter::repeat_n(' ', n));
+            }
+            out.push(g.ch);
+            end = g.x + font.glyph_of(g.ch).advance();
+        }
+        out
     }
 }
 
@@ -127,7 +202,7 @@ impl Font {
                 Glyph { uv: [f(1), f(2), f(7), f(8)], width: f(9), height: f(10), before: f(11), after: f(12), ascent: f(13) }
             })
             .collect();
-        Ok(Font { size: f32_at(bytes, 0), texture, glyphs })
+        Ok(Font { size: f32_at(bytes, 0), texture, glyphs, extra: Default::default() })
     }
 
     /// The texture's path in the game's files.
@@ -135,13 +210,28 @@ impl Font {
         format!("textures\\fonts\\{}.dds", self.texture.to_ascii_lowercase())
     }
 
+    /// The same picture as a `.tex` file ([`Tex`], fonts.md §2.2): the one whose letters
+    /// the glyph table describes, where a localized install left the English `.dds` beside it.
+    pub fn tex_path(&self) -> String {
+        format!("textures\\fonts\\{}.tex", self.texture.to_ascii_lowercase())
+    }
+
     pub fn glyph(&self, code: u8) -> &Glyph {
         &self.glyphs[code as usize]
     }
 
+    /// The glyph a character is measured with: its code's in this run's code page, else its
+    /// own in [`Font::extra`], else `?`'s (what the game's fonts draw for it).
+    pub fn glyph_of(&self, c: char) -> &Glyph {
+        match fnv_util::text::code_page().code_of(c) {
+            Some(code) => self.glyph(code),
+            None => self.extra.get(&c).unwrap_or_else(|| self.glyph(b'?')),
+        }
+    }
+
     /// The width of a text set in one line.
     pub fn width(&self, text: &str) -> f32 {
-        text.chars().map(|c| self.glyph(code_of(c)).advance()).sum()
+        text.chars().map(|c| self.glyph_of(c).advance()).sum()
     }
 
     /// Set a text in lines (§3): a line ends at a line break, and before the word that
@@ -167,9 +257,8 @@ impl Font {
                 }
                 let mut x = line.width + gap;
                 for c in word.chars() {
-                    let code = code_of(c);
-                    line.glyphs.push(Placed { code, x });
-                    x += self.glyph(code).advance();
+                    line.glyphs.push(Placed { code: code_of(c), ch: c, x });
+                    x += self.glyph_of(c).advance();
                 }
                 line.width = x;
                 gap = 0.0;
@@ -211,12 +300,42 @@ mod tests {
         assert_eq!(f.size, 31.0);
         assert_eq!(f.texture, "Test_Lod");
         assert_eq!(f.texture_path(), "textures\\fonts\\test_lod.dds");
+        assert_eq!(f.tex_path(), "textures\\fonts\\test_lod.tex");
         let a = f.glyph(b'A');
         assert_eq!(a.uv, [0.25, 0.5, 0.3, 0.6]);
         assert_eq!((a.width, a.height, a.after, a.ascent), (10.0, 26.0, 1.0, 24.0));
         assert_eq!(a.advance(), 11.0);
         assert!(a.drawn() && !f.glyph(b' ').drawn());
         assert_eq!(f.glyph(b' ').advance(), 5.0);
+    }
+
+    #[test]
+    fn characters_beyond_the_code_page_keep_their_own_glyphs() {
+        assert_eq!(fnv_util::text::code_page(), fnv_util::text::CodePage::Windows1252, "Ж has no code here");
+        let mut f = Font::parse(&file()).unwrap();
+        // The game's font draws Ж as `?` and measures it so; the line still holds Ж.
+        assert_eq!(f.width("Ж"), f.glyph(b'?').advance());
+        let line = &f.lines("Жa", None)[0];
+        assert_eq!((line.glyphs[0].code, line.text()), (b'?', "Жa".to_string()));
+        // A font with a glyph of its own for it (the menus' sharp letters) measures that.
+        f.extra.insert('Ж', Glyph { width: 20.0, ..Glyph::default() });
+        assert_eq!(f.width("Жa"), 31.0);
+        let line = &f.lines("Ж a", None)[0];
+        assert_eq!((line.glyphs[1].x, line.text_spaced(&f)), (25.0, "Ж a".to_string()));
+    }
+
+    #[test]
+    fn a_stand_in_line_keeps_its_spaces() {
+        let f = Font::parse(&file()).unwrap();
+        let lines = f.lines("Extra HUD  on", None);
+        assert_eq!(lines[0].text(), "ExtraHUDon", "the line holds the words' characters only");
+        assert_eq!(lines[0].text_spaced(&f), "Extra HUD  on");
+        // A leading space is set as room before the first letter and drawn back as a space.
+        let lead = f.lines(" seconds", None);
+        assert_eq!(lead[0].glyphs[0].x, 5.0);
+        assert_eq!(lead[0].text_spaced(&f), " seconds");
+        let wrapped = f.lines("ab cd", Some(25.0));
+        assert_eq!(wrapped.iter().map(|l| l.text_spaced(&f)).collect::<Vec<_>>(), ["ab", "cd"]);
     }
 
     #[test]
@@ -228,6 +347,23 @@ mod tests {
         let mut b = file();
         b[12] = 0;
         assert_eq!(Font::parse(&b), Err(FontError::NoTexture));
+    }
+
+    #[test]
+    fn a_tex_file_is_read() {
+        let mut b = Vec::new();
+        b.extend(2u32.to_le_bytes());
+        b.extend(1u32.to_le_bytes());
+        b.extend([255, 255, 255, 200, 0, 0, 0, 7]);
+        let t = Tex::parse(&b).unwrap();
+        assert_eq!((t.width, t.height), (2, 1));
+        assert_eq!(t.rgba, [255, 255, 255, 200, 0, 0, 0, 7]);
+        assert_eq!(Tex::parse(&b[..5]), Err(TexError::Short(5)));
+        assert_eq!(Tex::parse(&b[..12]), Err(TexError::Size { found: 12, expected: 16 }));
+        b[0..4].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(Tex::parse(&b), Err(TexError::Side(0, 1)));
+        b[0..4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(Tex::parse(&b), Err(TexError::Side(u32::MAX, 1)));
     }
 
     #[test]
@@ -244,7 +380,7 @@ mod tests {
         // Line breaks are kept, an empty line too; a word too wide is not cut.
         assert_eq!(texts(Some(30.0), "ab\n\nabcdef g"), vec![("ab".to_string(), 22.0), (String::new(), 0.0), ("abcdef".to_string(), 66.0), ("g".to_string(), 11.0)]);
         // The second word of a line starts after the space.
-        assert_eq!(f.lines("ab cd", None)[0].glyphs[2], Placed { code: b'c', x: 27.0 });
+        assert_eq!(f.lines("ab cd", None)[0].glyphs[2], Placed { code: b'c', ch: 'c', x: 27.0 });
     }
 
     #[test]
@@ -273,7 +409,7 @@ mod tests {
     #[test]
     fn a_line_reads_back_in_its_code_page() {
         use fnv_util::text::CodePage::*;
-        let line = |s: &str, page| Line { glyphs: s.chars().map(|c| Placed { code: code_in(c, page), x: 0.0 }).collect(), width: 0.0 };
+        let line = |s: &str, page| Line { glyphs: s.chars().map(|c| Placed { code: code_in(c, page), ch: c, x: 0.0 }).collect(), width: 0.0 };
         assert_eq!(line("Привет", Windows1251).text_in(Windows1251), "Привет");
         assert_eq!(line("Łódź", Windows1250).text_in(Windows1250), "Łódź");
         assert_eq!(line("café", Windows1252).text_in(Windows1252), "café");

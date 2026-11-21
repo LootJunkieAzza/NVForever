@@ -105,6 +105,11 @@ Design: docs/design/navmesh.md §6.1 (doors and actors following paths). Code:
 - Actors on paths: they stop in front of the door, open it and wait until the Open
   sequence has ended, then walk through square to the door (docs/design/navmesh.md §4,
   §6.1) [owner decision for the waiting; the rest engine choices].
+- A door a script enables at run time (directly or through its enable parent) is drawn
+  by `nvf_play::script_draw` and posed as render streaming's doors are (a `DoorRig`,
+  `nvforever::doors::script_drawn`) [design, #2420: Ranger Station Charlie's
+  OffDoorSmR02a 0x000CD068, enabled with CharlieEnableParentREF, stayed drawn shut while
+  it opened and its collision swung away].
 - `GetOpenState` still reports only 1 (open) and 3 (closed); the GECK wiki's opening
   and closing codes are not produced yet.
 
@@ -189,6 +194,93 @@ to the player.
   observer's runtime compiler does not take a quest's Editor ID. So the original moved no
   MP through a gate in these runs; whether ours would route him through depends on the
   same variable (open in observer-checks.md item 21).
+- The extender's OnActivate event (first the door, second the actor) is dispatched as the
+  actor is asked, before the block runs, at every door: without a script or block,
+  destroyed, refusing it, or with a block for the player only (#2123). The event "Runs
+  BEFORE the OnActivate block occurs. Runs even if activation will be prevented"
+  [documented: GECK wiki NVSE Event Handling, OnActivate row]; HVLevel1To2Door and
+  vCCHQDoor, where the original's events named NPCs (script-function-coverage.md §3.3),
+  have no OnActivate block (§5.1) [observed]. Once per crossing: the AI asks the
+  door on every step as the actor comes up to it, and the event goes out the first
+  time; the crossing is over on the step that goes through the door (a load door used,
+  a door that opens in place opened: the path follower records it, so an arrival on that
+  same step that plans the way straight back through the door starts a new crossing), or
+  when it is called off (the way cleared or planned without that door next, the walk
+  ended, another package taken up; not when a shorter frame leaves it just outside the
+  asking distance), and the next walk through it is dispatched again, whether the door's answer is kept or
+  not. A crossing never closed counts as a new one 10 s after it was dispatched. Not
+  handled: one update long enough to carry the actor through two doors that open in place
+  (an actor updated rarely, out of the high process) asks only the first, so the second
+  fires no event; its block is not run either, as before #2123 (the AI asks the door
+  ahead once per update) [design: crates/fnv-ai/src/carry.rs ask_door]. The
+  record is kept apart from the answers (which are as before: 10 s, 120 s for a refusal,
+  none for a door without a block) and expired entries are dropped. A block's
+  `Activate` of the door for that actor is the same activation and is not dispatched
+  again [design]. An extender handler is no
+  part of the block: its own `Activate` of the door, even one set off from inside the
+  block, is an activation of its own (dispatched, not taken as the block's). The
+  passage rules above are unchanged. Not known: whether the original fires it at doors
+  with no script at all, and whether its OnActivate block's reference (`Begin OnActivate
+  player`) is honoured at all: the GECK wiki's OnActivate page (Bugs) says the reference
+  "will be ignored entirely", which this section's player-only rule does not follow
+  [documented: GECK wiki OnActivate; left as it is, observer check 117].
 - Not saved: after a load the doors are asked again.
+- A script's direct `door.Activate npc`, outside an AI door request, places the NPC at
+  XTEL's destination and finishes the move through `Game::note_relocated`, shared with
+  MoveTo and followers brought along [design: `crates/fnv-game/src/ai.rs`,
+  `functions/refs.rs`, `followers.rs`, `game.rs`]. Scripted references enter the saved
+  `moved` set, so GameMode and OnLoad selection follows their current cell, including
+  after restoring a save. OnLoad selection already filters by current cell; this move
+  adds the registration needed when the destination has no authored entry for the NPC
+  [design: `game.rs` `scripted_refs_in`, `snapshot`, `restore`]. Placement itself is no
+  cell load and does not fire OnLoad. Non-player references enter `teleported` for the
+  walker/resident to restart there; one `Moved` event records the destination. Non-actor
+  moves also request redraw. Player cell entry and follower handling keep their own
+  path; `brought_along` remains follower-specific [design: the same files].
+  An AI-requested door's `Activate` still only grants permission: the walker makes the
+  transition, without a second teleport or relocation notification [design:
+  `crates/fnv-game/src/npc_doors.rs` `npc_door_activated`]. Tests:
+  `crates/fnv-game/tests/synthetic.rs`, `crates/fnv-ai/tests/carry.rs`; smoke:
+  `scripted-npc-door-relocation`. Whether any particular NPC previously snapped back
+  depends on which walker write-back path ran [hypothesis; design: `fnv-ai/src/social.rs`
+  and `engine/nvforever/src/residents.rs` write walker placement].
 - Open, for a capture: whether the original's NPCs wait at a refusing door, take another
   way or never plan through it; whether a refusal is remembered.
+
+## 6. A scripted load door and a player a script disabled (#2617)
+
+- **The Power Plant 01 elevator.** VHDODeckElevREF (REFR 0x0013151C, in
+  HooverDamIntODeck) is a load door (XTEL to VHDPowerPlantElev01REF 0x00130DE1 in
+  HooverDamIntPowerPlant01); its base VHDODeckElevatorDoor (DOOR 0x001465A5) carries
+  SCPT 0x0014659A, whose OnActivate sets `activatingActor` to GetActionRef, enables six
+  references and sets VHDLegionBattle's two respawners once when
+  vHDBattleController.iBattleState is 2, and ends in a bare `Activate` for anyone
+  [observed: `fnvtool script decompile --form 0014659A`, `esm decode`].
+- **Activate's rules.** With no arguments inside OnActivate, `Activate` runs the default
+  action for the action reference; "Disabled actors cannot be forced to activate objects
+  via Activate" [documented: GECK wiki Activate; Disable, Notes]. Neither page says
+  anything about disabling the player.
+- **What disabled the player.** VHDIntakeTowerLegionaryDespawnScript (SCPT 0x0013CA2C) on
+  VHDIntakeTowerLegionaryDespawnTriggerREF (REFR 0x0013CA72, a box of half extents
+  58 x 59 x 122 in an intake tower interior) runs on OnTriggerEnter; in the branch for
+  VHDLegionBattle.IntakeTowerStrategy 2 it calls `enteringactor.Disable 1` with no
+  GetIsID test, so anyone who walks in is disabled, the player too [observed: decompile,
+  `esm decode --formid 0013CA72`]. IntakeTowerStrategy is set to 2 by the result script
+  of INFO 0x0013CA26 [observed: decompile].
+- **The tester's run (2026-11-15).** After the load the player's reference was not
+  present (`reference 0x00000014 gone`); eleven presses of the elevator each ran its
+  OnActivate and played the door's sound, and none made an activation event or a travel
+  [observed: run log `nvforever-20261115-001123-20144.log`]. Smoke
+  `dam-elevator-disabled-player` on main gives the same lines: the trigger disables the
+  player (`0x00000014 disabled (fading out)`), and the elevator runs its block and stays.
+- **Ours now.** Disable (and DisableAlt) of the player does nothing and logs `Disable of
+  the player ignored`; a save that holds the player disabled loads with the player
+  enabled [hypothesis: the original's Legion route through the intake tower reaches the
+  Power Plant, which the wiki's Activate rule could not allow if the trigger disabled
+  the player; whether the original ignores Disable on the player, or its trigger never
+  fires for the player, is observer check 172; the load rule is design]. The owner's
+  ruling: owner-review item 80.
+- **Related (#2621, not changed here).** The same tester's soft lock in General Oliver's
+  room after a `coc` started from this state: a disabled player [hypothesis: not checked
+  against that run's log, which is not in hand]. A save from before this fix loads with
+  the player enabled again.

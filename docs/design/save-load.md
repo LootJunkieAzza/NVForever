@@ -32,10 +32,13 @@ apply the snapshot.
 
 ## 2. What exists today
 
-- `fnv_game::GameSnapshot` (`crates/fnv-game/src/game.rs`, format `fnv.game.state/1`) and
-  `Game::snapshot` / `Game::restore`; it contains `fnv_sim::world::Snapshot`
-  (`crates/fnv-sim/src/world.rs`, format `fnv.sim.state/1`) with `World::snapshot` /
-  `restore`. Both derive serde and are written as JSON in tests.
+- `fnv_game::GameSnapshot` (`crates/fnv-game/src/game.rs`) and `Game::snapshot` /
+  `Game::restore`. The reader accepts the baseline `fnv.game.state/1`, the retired-scene
+  format, and a separate lambda-handle format for each. See
+  [Callable identity](../spec-notes/callable-identity.md) for tags and compatibility rules.
+  The game snapshot contains `fnv_sim::world::Snapshot` (`crates/fnv-sim/src/world.rs`,
+  format `fnv.sim.state/1`) with `World::snapshot` / `restore`. Both derive serde and are
+  written as JSON in tests.
 - Round-trip tests: `crates/fnv-game/tests/dialogue.rs`, `functions.rs`, `synthetic.rs`,
   `engine/nvf-play/src/dropped/tests.rs`.
 - serde and serde_json are already dependencies of fnv-game, fnv-sim, fnv-ai, fnv-combat,
@@ -107,6 +110,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 |---|---|---|---|
 | NPC positions | written back into `RefState` through `Game::set_actor_place` | ACHR moved data | have |
 | Current package, goal met, chosen-at | `RefExtra.packages/current_package/...` | ACHR flags 18 etc. (not decoded) | have |
+| A ResetAI not yet taken by the AI | `RefExtra.ai_reset` (`Game::take_ai_reset`) | not decoded | have (since issue #2119): a save between the call and the AI's next update keeps the request, so the load cannot resume the progress it dropped |
 | Agent progress: patrol index, sandbox schedule (energy, rolled sleep/meal times), wait, furniture in use | `Agent` (`crates/fnv-ai/src/carry.rs`, `sandbox.rs`) | ACHR records change with time on every actor (§7 of the spec) | **saved since 2026-10-25** (`fnv_ai::progress`, engine save part `ai_progress`): the patrol point walked to and the sandbox's day (its random numbers, the day's sleep and meal times, energy), put back when the actor takes up the same package again; the rest rebuilt from the packages |
 | Process levels, furniture occupancy | `Ai` | none | drop |
 
@@ -122,7 +126,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 | Rounds in the clip | `Combat.cycle.magazine` | player record [hypothesis] | **yes: add** |
 | Flashlight (Pip-Boy light) | `Flashlight.on` | not found | **yes: add** |
 | Active quest in the Pip-Boy | `pipboy/data.rs` `DataState.active_quest` | global type 1 quest ref [hypothesis] | **yes: add** |
-| Sitting / lying | `PlayerSeat` | not found | rebuild: stand the player up on load (furniture stays free) |
+| Sitting / lying | `PlayerSeat`; NPCs' seats in `Furnishings`/`OnFurniture` (engine/nvforever/src/furniture.rs); the use scripts read in `RefExtra::furniture` | not found | rebuild: a load stands the player and every NPC up (furniture stays free): `Game::restore` clears each actor's saved furniture use (`Game::stand_everyone_up`), so GetSitting and its kin read 0 until the engine seats the body again and reports it (`furniture: … goes to` / `is on`) [design, #1573 for the player, #2797 for NPCs]. Whether the original puts a seated NPC straight back on its seat is observer check 220 |
 | Current sky weather and fade | `SkyState` (engine/nvforever) | global type 8: two weather refs (§5.1) | **yes: add** the current and previous weather; the fade restarts |
 | Corpse poses | `Ragdolls.rest` | REFR/ACHR moved data [hypothesis] | optional: the corpse's `RefState.pos` is enough at first |
 | Music, radio playback position | `Music`, `Radio` | global type 10 [hypothesis] | drop: start a new track |
@@ -154,6 +158,13 @@ body    u32 length + zstd(JSON or postcard) of SaveBody
   both snapshots); a change that cannot default bumps N and adds a migration function
   from N−1, so old saves stay loadable. `RefExtra::killing_hit` is one: the dead of an
   older save have no killing hit, as nothing in the save tells it [design].
+  `RefState::made_at` (where a created reference was made, its editor location, #2278;
+  saved since 0.8.0) is another, with a fill-in on the load: a created actor of an older
+  save, which has none, takes the place it was saved at (`World::made_at_from_saved_place`,
+  #3042) [decision: the nearest fact the save holds, an approximation of where it was
+  made, since combat, following or a scripted MoveTo may have moved it before the save].
+  N stays: every actor `World::place` makes has one, so a missing one marks the
+  older save; dropped items have none by design and get none.
 - Encoding: JSON keeps saves inspectable and is what the tests already use; size is the
   question. Measure a long session's snapshot first: if compressed JSON stays in the low
   megabytes (the original's 61-hour save is 8 MB uncompressed), keep JSON; otherwise
@@ -162,7 +173,12 @@ body    u32 length + zstd(JSON or postcard) of SaveBody
   added to docs/design/dependencies.md with the licence check there.
 - Writing is atomic: write `<name>.nvfsave.tmp`, flush, rename over the old file; the
   previous file of a rolling slot (quick, auto) becomes `.bak`, as the original does with
-  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs].
+  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs]. The backup
+  is made as a second name for the old file (a hard link, or a copy), so the save never
+  leaves its own name, and one save is written at a time, so two saves to one slot a
+  frame apart cannot share the `.tmp` (#1982).
+- A name the player gives is refused when it is a Windows device name (`con`, `nul`,
+  `com1` …, on every system) or a rolling slot's own name (#1983).
 
 Form IDs in the snapshot are load-order form IDs (mod index = plugin position). The
 original stores a plugin list and resolves form IDs by position in it [observed: save M,
@@ -205,7 +221,10 @@ What NVForever does (`fnv_save::PluginRemap`, `fnv_save::remap_json`,
 4. A form of a missing plugin: where it is a map key, a list entry, or in a pair or tuple
    that is a list entry, that entry is removed (a reference of the plugin's, an item in an
    inventory, a quest's state, a global, a form-list entry, a remembered pair).
-   Anywhere else (a field) it is moved to the *gone* slot `FE` with its low bytes, which no
+   A tuple that is a field's value keeps its length, or the save could not be read
+   back: one of form IDs beside other values (`package_ends`) is known by its shape, one
+   of form IDs alone by its field's name (`fnv_game::game::SAVE_PAIR_FIELDS`) (#1981).
+   Anywhere else (a field, such a tuple) it is moved to the *gone* slot `FE` with its low bytes, which no
    plugin uses; then the game layer drops what stands on one: references whose base or
    cell is gone (created ones of the plugin's bases), script instances whose key or script
    is gone, magic effects whose effect, source, target or script is gone, the radio station
@@ -241,7 +260,8 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
    reached the world, so no request a script made is still queued.
 2. **Autosaves**: after each loading screen (door travel, `coc`, a script moving the
    player) and when a script calls `Autosave` [documented: GECK wiki Autosave], each with
-   its own switch on the settings page (group Saving), both on by default. Three more
+   its own switch on the settings page (registered in group Saving, shown under
+   Gameplay › Saving: settings-page.md), both on by default. Three more
    switches there, on by default [owner request 2026-10-27]: Save on fast travel (after
    a fast travel's loading screen, in place of the travel switch), Save on wait and Save
    on sleep (when the menu closes with at least one hour passed, also after Cancel). Their timing
@@ -274,8 +294,8 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   `fnv_install::guard_write`, the save list newest first, the plugin-list check. The body
   is JSON: a short session's save is about 140 KB; measure a long game before choosing a
   binary encoding.
-- **Game layer** (`fnv_game::GameSnapshot`, same format `fnv.game.state/1`, new fields with
-  `#[serde(default)]`): terminals hacked or locked out, the Pip-Boy radio (on, station),
+- **Game layer** (fields added to the baseline `fnv.game.state/1` with `#[serde(default)]`):
+  terminals hacked or locked out, the Pip-Boy radio (on, station),
   NPC radios, the weather shown and rain, grudges and forgiveness. `Autosave` is no longer
   a stub: it asks the engine for an autosave (`UiRequests::autosaves`); nor are SystemSave
   (the one `systemsave` slot) and ForceSave (a new save as by hand)
@@ -343,7 +363,12 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   same way. If the new run ends before it is shown (it stops at the start), the screen
   comes down and the old game goes on; a new run that fails later is on its own (its
   crash report). Closing the old window while it waits ends the new run; a new run
-  still hidden after 120 s shows itself. The new run gets none of the old run's test aids
+  still hidden after 120 s shows itself. The old run never waits for ever (#1903, a
+  Linux report of two games playing from one Continue: the new run loaded with its
+  window shown and never took part): the new run writes a marker as it starts, and the
+  old run ends itself, leaving the new run to play, when the new run is running without
+  one after 30 s, or has not said it is up 135 s after it started. The old run logs the
+  new run's whole command line. The new run gets none of the old run's test aids
   (`NVF_PLAY_TEST_*`) except `NVF_PLAY_TEST_HANDOFF_EXIT=1` (end once it has taken over
   and its world or main menu is in; smoke `load-handoff`; the smoke runner waits for the
   processes a launch starts).
@@ -421,4 +446,4 @@ shown with a controller); the key, the question and its place are NVForever's]. 
 
 Not built: renaming saves from the menu, in-place loading
 without a new run (by design, see above), AI agent progress, corpse poses beyond their position, the sitting or
-lying pose (the player stands up), playback positions of music and radio.
+lying pose (the player and every NPC stand up, #1573, #2797), playback positions of music and radio.

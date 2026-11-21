@@ -24,6 +24,47 @@ pub struct ConsoleCtx {
     pub active_quest: Option<FormId>,
 }
 
+/// A bounded first-level preview. Nested arrays are labeled rather than traversed.
+pub(crate) fn expression_result(g: &Game, value: &fnv_script::vm::XVal) -> String {
+    use fnv_script::vm::{number_text, XKey, XVal};
+    use std::fmt::Write as _;
+
+    fn atom(g: &Game, line: &mut String, value: &XVal) {
+        match value {
+            XVal::Num(n) => line.push_str(&number_text(*n)),
+            XVal::Ref(0) => line.push_str("none"),
+            XVal::Ref(r) => { let _ = write!(line, "{} {}", FormId(*r), g.data.name(FormId(*r))); }
+            XVal::Str(s) => { let _ = write!(line, "{s:?}"); }
+            XVal::Array(id) => { let _ = write!(line, "array #{id}"); }
+        }
+    }
+
+    let mut line = String::new();
+    if let XVal::Array(id) = value {
+        let Some(array) = g.ext.array(*id) else { return "(no array)".into() };
+        const PREVIEW: usize = 16;
+        line.push('[');
+        for (i, (key, value)) in array.entries.iter().take(PREVIEW).enumerate() {
+            if i > 0 {
+                line.push_str(", ");
+            }
+            match key {
+                XKey::Num(n) => line.push_str(&number_text(*n)),
+                XKey::Str(s) => { let _ = write!(line, "{s:?}"); }
+            }
+            line.push_str(": ");
+            atom(g, &mut line, value);
+        }
+        if array.entries.len() > PREVIEW {
+            let _ = write!(line, ", … ({} more)", array.entries.len() - PREVIEW);
+        }
+        line.push(']');
+    } else {
+        atom(g, &mut line, value);
+    }
+    line
+}
+
 /// Something only the engine can do, asked by a console command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleRequest {
@@ -110,7 +151,7 @@ pub fn unhandled_unused(table_json: &serde_json::Value) -> (Vec<String>, Vec<Str
         if f["family"] != "vanilla" || f["script_calls"].as_u64().unwrap_or(0) > 0 {
             continue;
         }
-        if super::lookup_name(name).is_some() || lookup(name).is_some() || ENGINE_WORDS.iter().any(|w| w.eq_ignore_ascii_case(name)) {
+        if super::lookup_name(name).is_some() || lookup(name).is_some() || super::player_source::handles(name) || crate::vats::handles_area_query(name) || ENGINE_WORDS.iter().any(|w| w.eq_ignore_ascii_case(name)) {
             continue;
         }
         let in_console = f["categories"].as_array().into_iter().flatten().any(|c| c == "Console Functions");
@@ -227,10 +268,14 @@ fn quest_targets(g: &mut Game, ctx: &ConsoleCtx) -> Vec<QuestTarget> {
     out
 }
 
-/// The door outdoors into an interior cell a marker stands at, if one leads there: (its
-/// cell, position) (`quest_targets::marker_door`).
-fn door_into(g: &Game, cell: FormId, ignores_locks: bool) -> Option<(FormId, [f32; 3])> {
-    let door = crate::quest_targets::marker_door(&g.world, &g.doors_into(cell), ignores_locks)?;
+/// The door outdoors a marker for a target in an interior cell stands at, if a way leads
+/// there: (its cell, position) (`quest_targets::outdoor_marker_door`: a door straight in,
+/// else the first door outdoors of the way through other interiors, #2458).
+fn door_into(g: &mut Game, cell: FormId, ignores_locks: bool) -> Option<(FormId, [f32; 3])> {
+    let direct = g.doors_into(cell);
+    let refs = g.world.placed;
+    let graph = g.other.objective_doors.get_or_insert_with(|| crate::quest_targets::DoorGraph::build(refs));
+    let door = crate::quest_targets::outdoor_marker_door(&g.world, graph, &direct, cell, ignores_locks)?;
     let d = g.world.placed.get(door)?;
     Some((d.cell?, d.pos))
 }
@@ -624,8 +669,9 @@ fn set_mfg(m: &mut std::collections::BTreeMap<u8, f32>, id: u8, v: f32) {
 /// actor in the loaded area", "Essential actors are put into their usual temporary
 /// unconscious state rather than being killed"; hypothesis: the dead and the disabled are
 /// left alone]. Each death is `Game::kill`'s, as KillActor's.
-pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
-    let killer = a.first().map(|w| form(g, w)).transpose()?;
+/// Shared loaded-area kill pass used by both console `killall` and source-compiled
+/// `KillAllActors` / `KillAll` calls [documented: GECK wiki KillAllActors].
+pub(crate) fn kill_all_actors_in_loaded(g: &mut Game, killer: Option<FormId>) -> (usize, usize) {
     let placed = g.world.placed;
     let is_actor = |r: &FormId| placed.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
     let mut actors: std::collections::BTreeSet<FormId> = std::collections::BTreeSet::new();
@@ -646,6 +692,12 @@ pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<
             killed += 1;
         }
     }
+    (killed, knocked)
+}
+
+pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
+    let killer = a.first().map(|w| form(g, w)).transpose()?;
+    let (killed, knocked) = kill_all_actors_in_loaded(g, killer);
     Ok(vec![format!("KillAllActors >> {killed} killed, {knocked} essential knocked out")])
 }
 
@@ -728,6 +780,7 @@ pub fn persistent_ref_count(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> R
 /// [documented: the catalogue's summary, "equivalent to ShowRaceMenu"].
 pub fn test_race_sex_terminal(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
     g.race_menu = crate::game::RaceMenu::Creator;
+    g.race_menu_studio = false;
     g.open_menu(crate::game::menus::RACE);
     Ok(vec!["The race menu opens".into()])
 }
@@ -786,7 +839,8 @@ pub fn set_statement(g: &mut Game, ctx: &ConsoleCtx, words: &[String]) -> Result
     };
     if owner.is_none() {
         if let Some((id, _)) = g.world.forms.global_by_edid(var) {
-            g.world.set_global(id, v.num() as f32).map_err(|e| e.to_string())?;
+            // As a script's write: a jump of GameHour is noted for the engine (#2353).
+            g.set_global_by_script(id, v.num() as f32).map_err(|e| e.to_string())?;
             return Ok(vec![format!("{var} = {}", shown(Value::Num(g.world.global(id).map_err(|e| e.to_string())? as f64), g))]);
         }
     }
@@ -931,6 +985,39 @@ pub fn split_call(line: &str) -> Option<(Option<String>, String, Vec<String>)> {
     Some((on, func, w[1..].to_vec()))
 }
 
+/// An expression operator or parenthesis outside quoted command arguments. A word
+/// reader can reject these lines even though the statement compiler accepts them.
+pub fn has_expression_operator(line: &str) -> bool {
+    let mut quoted = false;
+    line.chars().any(|c| {
+        if c == '"' { quoted = !quoted; }
+        !quoted && "+-*/%()<>=&|".contains(c)
+    })
+}
+
+/// Decide before calling a host function. Numeric words are literals, and a
+/// string parameter retains the word reader's path/name syntax even when unquoted.
+pub fn call_has_expression(g: &Game, line: &str, func: &str, args: &[String]) -> bool {
+    let opcode = g.data.table.by_name(func);
+    // Compact assignments can contain dots in both the variable and numeric RHS;
+    // split_call's reference/function split is not their expression grammar.
+    if has_expression_operator(func) || (opcode.is_none() && words(line).first().is_some_and(|word| has_expression_operator(word))) {
+        return true;
+    }
+    args.iter().enumerate().any(|(i, word)| {
+        if word.starts_with('"') || word.parse::<f64>().is_ok() {
+            return false;
+        }
+        if opcode.is_some_and(|op| matches!(g.data.table.param_enc(op, i), fnv_script::ParamEnc::String)) {
+            return false;
+        }
+        if crate::runner::resolve(g, word).is_ok() {
+            return false;
+        }
+        has_expression_operator(word)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -943,6 +1030,15 @@ mod tests {
         assert_eq!(hex_form_id("0x00104C0C"), Some(FormId(0x0010_4C0C)));
         assert_eq!(hex_form_id("0000000F"), Some(FormId(0xF)));
         assert_eq!(hex_form_id("player"), None);
+    }
+
+    #[test]
+    fn expression_fallback_ignores_operators_in_quoted_command_arguments() {
+        assert!(has_expression_operator("OwnQuest.value = 2"));
+        assert!(has_expression_operator("player.SetAV Luck (5)"));
+        assert!(!has_expression_operator("Print \"x+=1\""));
+        assert!(!has_expression_operator("ShowMessage \"a-b\""));
+        assert!(!has_expression_operator("player.additem f 100"));
     }
 
     /// Every registered name is a console-only command of the catalogue (one numbered
@@ -970,7 +1066,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (33, 96), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (33, 87), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));
@@ -979,5 +1075,14 @@ unhandled other vanilla functions: {other:?}");
             let f = t.by_name(alias).and_then(|op| t.get(op)).unwrap_or_else(|| panic!("{alias}"));
             assert!(lookup(&f.name).is_some(), "{alias}");
         }
+    }
+
+    #[test]
+    fn named_area_source_queries_are_handled_but_unknown_vanilla_names_are_not() {
+        let rows = ["GetVATSLeftAreaFree", "getvatsrightareafree", "OwnedUnknownVanillaQuery"]
+            .map(|name| serde_json::json!({"name": name, "family": "vanilla", "script_calls": 0}));
+        let (console, other) = unhandled_unused(&serde_json::json!({"functions": rows}));
+        assert!(console.is_empty());
+        assert_eq!(other, ["OwnedUnknownVanillaQuery"]);
     }
 }

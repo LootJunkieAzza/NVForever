@@ -24,6 +24,12 @@
 //
 // Light (fragment): lit with the ground's normal (grass.rs), but with the ambient light
 // and the sun weighted by `light` (grass.md §5).
+//
+// Burning (nvf_play grass_fire, docs/design/grass-fire.md): the burn map holds a byte per
+// 64-unit patch of the ground, wrapping every 512 patches: 0 untouched, up to 0.5 while
+// the patch burns, 0.5 to 1 once it has burnt. A plant turns black over the first half
+// (its vertex colour), glows like embers while it burns (fragment), and over the second
+// half sinks into the ground the way distant grass does.
 
 import bevy_pbr::{
     render::mesh_functions,
@@ -56,6 +62,31 @@ struct GrassParams {
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> grass: GrassParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var burn_map: texture_2d<f32>;
+
+// The burn map's patch size (game units) and size (patches); nvf_play grass_fire PATCH, MAP.
+const BURN_PATCH: f32 = 64.0;
+const BURN_MAP: i32 = 512;
+// How dark burnt grass gets (a factor on its colour) [chosen].
+const CHARRED: f32 = 0.05;
+
+// A vertex's plant's foot (Bevy world space): the vertex colour's alpha holds the way
+// there, game x and y packed as (x + 1024) × 2048 + (y + 1024) (grass.rs `pack_foot`).
+fn foot_of(world: vec3<f32>, packed: f32) -> vec3<f32> {
+    let qx = floor(packed / 2048.0);
+    let qy = packed - qx * 2048.0;
+    // Game (x, y) is Bevy (x, -z).
+    return world + vec3<f32>(qx - 1024.0, 0.0, -(qy - 1024.0));
+}
+
+// The burn map's value at a point (Bevy world space): game (x, y) is Bevy (x, -z)
+// (nvforever world.rs `bevy_to_game`).
+fn burn_at(world: vec3<f32>) -> f32 {
+    // (`patch` is a reserved word in WGSL.)
+    let square = vec2<i32>(floor(vec2<f32>(world.x, -world.z) / BURN_PATCH));
+    let t = ((square % BURN_MAP) + BURN_MAP) % BURN_MAP;
+    return textureLoad(burn_map, t, 0).r;
+}
 
 // How far below the ground a plant's foot ends up once it is gone (game units).
 const SINK: f32 = 24.0;
@@ -65,7 +96,7 @@ const WAVE_ACROSS: f32 = 2300.0;
 
 // Evaluate the identical deformation at either frame's model, time and camera.
 @if(VERTEX_UVS_B)
-fn deform(base: vec3<f32>, uv_b: vec2<f32>, wind: vec4<f32>, motion: vec4<f32>, time: f32, camera: vec3<f32>) -> vec3<f32> {
+fn deform(base: vec3<f32>, uv_b: vec2<f32>, wind: vec4<f32>, motion: vec4<f32>, time: f32, camera: vec3<f32>, burn: f32) -> vec3<f32> {
     var world = base;
     let along = wind.xyz;
     let across = vec3<f32>(-along.z, 0.0, along.x);
@@ -73,7 +104,8 @@ fn deform(base: vec3<f32>, uv_b: vec2<f32>, wind: vec4<f32>, motion: vec4<f32>, 
     let t = time * motion.x;
     let swing = 0.5 + 0.35 * sin(t - phase) + 0.15 * sin(2.31 * t - 1.7 * phase);
     world += along * (wind.w * uv_b.x * swing);
-    let gone = clamp((distance(camera, world) - motion.y) / motion.z, 0.0, 1.0);
+    let far = clamp((distance(camera, world) - motion.y) / motion.z, 0.0, 1.0);
+    let gone = max(far, saturate(burn * 2.0 - 1.0));
     world.y -= gone * (uv_b.y + SINK);
     return world;
 }
@@ -84,7 +116,11 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     var world = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0)).xyz;
 
-    @if(VERTEX_UVS_B) world = deform(world, vertex.uv_b, grass.wind, grass.motion, globals.time, view.world_position.xyz);
+    // At the plant's foot, so the whole plant chars and sinks as one.
+    var foot = world;
+    @if(VERTEX_COLORS) foot = foot_of(world, vertex.color.a);
+    let burn = burn_at(foot);
+    @if(VERTEX_UVS_B) world = deform(world, vertex.uv_b, grass.wind, grass.motion, globals.time, view.world_position.xyz, burn);
     @if(VERTEX_UVS_B) out.uv_b = vertex.uv_b;
 
     out.world_position = vec4<f32>(world, 1.0);
@@ -109,13 +145,14 @@ fn vertex(vertex: Vertex) -> VertexOutput {
             let motion = select(grass.motion, grass.previous_motion, changed);
             let previous_time_unwrapped = globals.time - globals.delta_time;
             let previous_time = select(previous_time_unwrapped, previous_time_unwrapped + 3600.0, previous_time_unwrapped < 0.0);
-            previous_world = deform(previous_world, vertex.uv_b, wind, motion, previous_time, camera);
+            previous_world = deform(previous_world, vertex.uv_b, wind, motion, previous_time, camera, burn);
         }
         out.previous_world_position = vec4(previous_world, 1.0);
     }
     @if(!PREPASS_PIPELINE && VERTEX_NORMALS) out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
 
-    @if(VERTEX_COLORS) out.color = vertex.color;
+    // Opaque: the alpha held the way to the foot.
+    @if(VERTEX_COLORS) out.color = vec4<f32>(vertex.color.rgb * mix(1.0, CHARRED, saturate(burn * 2.0)), 1.0);
     @if(VERTEX_OUTPUT_INSTANCE_INDEX) out.instance_index = vertex.instance_index;
     @if(VISIBILITY_RANGE_DITHER) out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
         vertex.instance_index, world_from_local[3]);
@@ -136,7 +173,9 @@ fn fragment(
         discard;
     }
     @if(!PREPASS_PIPELINE && !GRASS_COVERAGE) let coverage = 1.0;
-    @if(!PREPASS_PIPELINE && !GRASS_COVERAGE) if alpha < cutoff {
+    // PREPASS_COVERAGE (nvf_assets `grass_edges`): the depth prepass wrote the blade on the
+    // samples it covers and the depth test is for equality: nothing to test here.
+    @if(!PREPASS_PIPELINE && !GRASS_COVERAGE && !PREPASS_COVERAGE) if alpha < cutoff {
         discard;
     }
     pbr_input.material.base_color.a = 1.0;
@@ -145,7 +184,16 @@ fn fragment(
     // (grass.md §5): the two parts of the display-value lighting sum (nvforever lights.rs
     // DISPLAY_HELPERS) are scaled, each by its factor's display value, so that either part
     // alone is scaled by the factor as light.
-    let lit = nvf_apply_pbr_lighting(pbr_input, pow(max(grass.light.xy, vec2(0.0)), vec2(1.0 / 2.2))).rgb;
+    var lit = nvf_apply_pbr_lighting(pbr_input, pow(max(grass.light.xy, vec2(0.0)), vec2(1.0 / 2.2))).rgb;
+    // Embers while the patch burns, flickering, brighter at the foot [chosen].
+    let burn = burn_at(in.world_position.xyz);
+    if burn > 0.004 && burn < 0.5 {
+        let p = in.world_position.xyz;
+        let flicker = 0.65 + 0.35 * sin(globals.time * 9.0 + p.x * 0.11 + p.z * 0.07);
+        var low = 1.0;
+        @if(VERTEX_UVS_B) low = 1.0 - saturate(in.uv_b.y / 60.0) * 0.6;
+        lit += vec3<f32>(1.0, 0.32, 0.06) * (0.9 * flicker * low);
+    }
     out.color = vec4(lit, 1.0);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     out.color.a = coverage;

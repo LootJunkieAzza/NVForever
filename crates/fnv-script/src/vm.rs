@@ -144,6 +144,9 @@ pub enum VmError {
     /// errors the extender reports [documented: NVSE Error].
     #[error("{0}")]
     Type(String),
+    /// An absent array element, separately inspectable by TypeOf (typeof-missing-key.md).
+    #[error("no element at key {0}")]
+    MissingElement(String),
     /// An extender function called on no reference: it stops the script, as no other
     /// extender error does [observed: nvse-inv foreach.read.after, "script call failed"].
     #[error("{0} called on no reference")]
@@ -166,11 +169,26 @@ pub trait Host {
     fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String>;
     /// An opcode that is not in the function table was skipped (non-strict runs).
     fn skipped(&mut self, _what: &VmError) {}
+    /// Diagnostic-only notification before a fatal no-reference call is returned.
+    /// `on` is already evaluated; implementations must not evaluate the call again.
+    /// Other hosts keep the default no-op and the original error contract.
+    fn no_reference_call(&mut self, _name: &str, _on: Option<Value>, _call: &XCall) {}
+
+    /// The statement whose run caused the skips reported since the last call: the
+    /// innermost that holds them (for the mod log, which names the line).
+    fn skipped_in(&mut self, _stmt: &Stmt) {}
     /// Whether the last call ended the run the way `Return` does (a function such as
     /// `RemoveMe`, which "acts like a return" [documented: catalogue notes]). The VM
     /// asks after every statement; answering true also clears the request.
     fn take_return(&mut self) -> bool {
         false
+    }
+    /// The step counter of the outermost run, which every run nested under it (a
+    /// user-defined function, a result script a statement started) draws on, so the
+    /// budget ([`RunOpts::max_steps`]) holds for the whole call tree [#1991]; `None`: each
+    /// run counts its own.
+    fn shared_steps(&mut self) -> Option<&mut u64> {
+        None
     }
     /// How a variable is stored (the extender's `string_var` and `array_var` hold ids).
     fn var_kind(&mut self, _var: &VarRef) -> VarKind {
@@ -186,6 +204,10 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// A script asked whether a plugin is there (IsPluginInstalled, GetPluginVersion,
+    /// GetModIndex, by the function's lower-case name) and read `answer`: for a host
+    /// that keeps what the load order's scripts look for.
+    fn plugin_asked(&mut self, _function: &str, _name: &str, _answer: f64) {}
     /// A script error worth the console's attention: a call that crashes the original
     /// game answers its default value here and says so [decision: the owner, 2026-10-26,
     /// "scripts should never crash the game; log it on the console as a script error"].
@@ -213,6 +235,11 @@ pub trait Host {
     }
     /// The name a script variable was declared with, for PrintVar.
     fn var_name(&mut self, _var: &VarRef) -> Option<String> {
+        None
+    }
+    /// A number for a variable the host can read again later, outside this run (SUP's
+    /// HudBarSetValueScriptVar); `None` when it cannot (a result script's locals).
+    fn var_place(&mut self, _var: &VarRef) -> Option<u32> {
         None
     }
     /// The UDF MessageBoxExAlt runs with the pressed button.
@@ -323,7 +350,8 @@ pub struct RunOpts {
     /// Unknown opcodes and undecodable pieces fail the run (tests) instead of being
     /// logged and skipped (the game).
     pub strict: bool,
-    /// Statements (and calls) one run may execute: a runaway loop of the extender's
+    /// Statements (and calls) one run may execute, with the runs nested under it when the
+    /// host shares its counter ([`Host::shared_steps`]): a runaway loop of the extender's
     /// (`while`, each round counted) or runaway recursion through the host (a stage that
     /// sets itself) stops there.
     pub max_steps: u64,
@@ -374,11 +402,19 @@ pub struct Vm<'t, 'h> {
     /// Inside a loop or a chain of stray markers, where a place cannot be kept: a
     /// ScriptWait there does not wait [decision: JIP's pages say nothing of loops].
     no_wait: u32,
+    /// Skips so far, and how many of them a statement was told for ([`Host::skipped_in`]).
+    skips: u64,
+    skips_told: u64,
 }
 
 impl<'t, 'h> Vm<'t, 'h> {
     pub fn new(table: &'t FunctionTable, host: &'h mut dyn Host, opts: RunOpts) -> Self {
-        Vm { table, host, opts, steps: 0, wait: None, no_wait: 0 }
+        Vm { table, host, opts, steps: 0, wait: None, no_wait: 0, skips: 0, skips_told: 0 }
+    }
+
+    fn skip(&mut self, e: &VmError) {
+        self.skips += 1;
+        self.host.skipped(e);
     }
 
     /// After a run that ended [`Exit::Waiting`]: the cycles to wait and the place to
@@ -433,7 +469,7 @@ impl<'t, 'h> Vm<'t, 'h> {
         self.list_from(stmts, in_else, i + 1)
     }
 
-    /// Statements executed so far.
+    /// Statements executed so far by this run (not counting the runs nested under it).
     pub fn steps(&self) -> u64 {
         self.steps
     }
@@ -457,8 +493,8 @@ impl<'t, 'h> Vm<'t, 'h> {
                 // stop the original's script]; strict runs stop.
                 Token::X { e } => match self.xeval(e).and_then(|v| v.value()) {
                     Ok(v) => v,
-                    Err(err @ (VmError::Type(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
-                        self.host.skipped(&err);
+                    Err(err @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                        self.skip(&err);
                         Value::ZERO
                     }
                     Err(err) => return Err(err),
@@ -479,7 +515,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     if self.opts.strict {
                         return Err(e);
                     }
-                    self.host.skipped(&e);
+                    self.skip(&e);
                     // The rest of the expression is unknown: the value is 0.
                     return Ok(Value::ZERO);
                 }
@@ -499,7 +535,14 @@ impl<'t, 'h> Vm<'t, 'h> {
 
     fn step(&mut self) -> Result<(), VmError> {
         self.steps += 1;
-        if self.steps > self.opts.max_steps {
+        let used = match self.host.shared_steps() {
+            Some(shared) => {
+                *shared += 1;
+                *shared
+            }
+            None => self.steps,
+        };
+        if used > self.opts.max_steps {
             return Err(VmError::Budget(self.opts.max_steps));
         }
         Ok(())
@@ -531,6 +574,7 @@ impl<'t, 'h> Vm<'t, 'h> {
         let mut i = start;
         while i < stmts.len() {
             self.step()?;
+            let mark = self.skips;
             match &stmts[i] {
                 Stmt::Set { target, expr } => {
                     let v = self.eval(expr)?;
@@ -584,8 +628,8 @@ impl<'t, 'h> Vm<'t, 'h> {
                 Stmt::Let { expr } | Stmt::Eval { expr } => {
                     match self.xeval(expr) {
                         Ok(_) => {}
-                        Err(e @ (VmError::Type(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
-                            self.host.skipped(&e)
+                        Err(e @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                            self.skip(&e)
                         }
                         Err(e) => return Err(e),
                     }
@@ -663,7 +707,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     if self.opts.strict {
                         return Err(e);
                     }
-                    self.host.skipped(&e);
+                    self.skip(&e);
                 }
             }
             if self.host.take_return() {
@@ -671,6 +715,10 @@ impl<'t, 'h> Vm<'t, 'h> {
             }
             if let Some(x) = self.host.ext() {
                 x.sweep();
+            }
+            if self.skips > mark && self.skips > self.skips_told {
+                self.skips_told = self.skips;
+                self.host.skipped_in(&stmts[i]);
             }
             if let Some(n) = self.host.take_wait() {
                 if self.no_wait == 0 {
@@ -731,7 +779,7 @@ impl<'t, 'h> Vm<'t, 'h> {
             if self.opts.strict {
                 return Err(e);
             }
-            self.host.skipped(&e);
+            self.skip(&e);
             return Ok(Value::ZERO);
         }
         let on = match c.on {
@@ -747,7 +795,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     if self.opts.strict {
                         return Err(e);
                     }
-                    self.host.skipped(&e);
+                    self.skip(&e);
                     return Ok(Value::ZERO);
                 }
             }
@@ -1194,6 +1242,11 @@ fn hex_prefix(h: &str) -> f64 {
 /// asks of the message formatter].
 const MAX_FORMAT_FIELD: usize = 512;
 
+/// The most elements an array function makes or grows an array to (Ar_Init, Ar_Range,
+/// Ar_Generate, Ar_Resize) [design: a bound against a runaway script, far above what a mod
+/// keeps].
+const MAX_ELEMENTS: usize = 1_000_000;
+
 /// A number by a printf-style code, as the C library writes it [observed: the game's
 /// sv_Construct, probe format1 and jip5 (#1006): `%g` 0.5 "0.5", 2.5 "2.5", 1000000
 /// "1e+06", 123.456789 "123.457", 1234567 "1.23457e+06", 10020030 "1.002e+07"; `%G`
@@ -1203,9 +1256,10 @@ const MAX_FORMAT_FIELD: usize = 512;
 /// `%.Ye`/`%.YE`; switches `+`, space, `-` (left-aligned), `0` (zero padding). The wiki's
 /// "%g as an integer, 1E+006" (String Formatting, Vanilla Game Options) differs [hypothesis:
 /// the older runtime's form]. The sign is written apart from the digits, so `+` never
-/// doubles one; -0 writes as 0, as NVForever wrote it before (the C library writes `-0`;
-/// what the game writes is not probed, and an angle of -0 reads "0" in the smoke runs)
-/// [hypothesis]; infinity and NaN write `inf` and `nan` (`INF`, `NAN`
+/// doubles one; `%f` writes -0 with its sign, as the C library does [observed: nvse.math
+/// `qtoeuler.z90`, `%.4f` of QToEuler's -0 Y angle reads "-0.0000" in the original,
+/// #1919]; `%g` and `%e` write -0 as 0, as NVForever wrote it before [hypothesis: not
+/// probed; the C library writes `-0`]; infinity and NaN write `inf` and `nan` (`INF`, `NAN`
 /// for an upper-case code) and are padded with spaces, as the C library does
 /// [hypothesis: not probed].
 fn printf_number(spec: &str, code: char, x: f64) -> String {
@@ -1217,7 +1271,7 @@ fn printf_number(spec: &str, code: char, x: f64) -> String {
     };
     let width: usize = w.parse::<usize>().unwrap_or(0).min(MAX_FORMAT_FIELD);
     let upper = code.is_ascii_uppercase();
-    let negative = x < 0.0;
+    let negative = x < 0.0 || (x == 0.0 && x.is_sign_negative() && code.eq_ignore_ascii_case(&'f'));
     let a = x.abs();
     // The C library's scientific form of a value at or above 0: the mantissa, then e (or
     // E), a sign and at least two digits.
@@ -1348,6 +1402,28 @@ fn position(i: f64, len: usize) -> Option<usize> {
     let i = i.trunc() as i64;
     let p = if i < 0 { len as i64 + i } else { i };
     (0..len as i64).contains(&p).then_some(p as usize)
+}
+
+/// A character for a search without regard to case: its lowercase when that is one
+/// character, else itself. Lowering a whole string changes its byte length for some
+/// characters (`İ` 2 → 3 bytes, the Kelvin sign 3 → 1), so a position found in a
+/// lowered copy is not one in the original; character by character it is [#1989].
+fn fold(c: char) -> char {
+    let mut l = c.to_lowercase();
+    match (l.next(), l.next()) {
+        (Some(x), None) => x,
+        _ => c,
+    }
+}
+
+/// The first `needle` in `hay` from character `from`, as a character index; `case`
+/// compares as they are, else through [`fold`]. An empty needle is found at `from`.
+fn find_chars(hay: &[char], needle: &[char], from: usize, case: bool) -> Option<usize> {
+    if needle.is_empty() {
+        return (from <= hay.len()).then_some(from);
+    }
+    let same = |a: &char, b: &char| if case { a == b } else { fold(*a) == fold(*b) };
+    (from..=hay.len().checked_sub(needle.len())?).find(|&i| hay[i..i + needle.len()].iter().zip(needle).all(|(a, b)| same(a, b)))
 }
 
 impl Vm<'_, '_> {
@@ -1601,6 +1677,25 @@ impl Vm<'_, '_> {
         })
     }
 
+    /// The string variable a function edits in place: the variable itself, or the one an
+    /// assignment in its place sets, after the assignment runs (`Sv_Replace "a|b" (sText =
+    /// $rForm)` [hypothesis: AguaFria.esm ships such lines with compiled bytes and edits
+    /// sText with the next line, #2275]).
+    fn string_var_arg(&mut self, e: Option<&XExpr>) -> Result<Option<crate::ir::VarRef>, VmError> {
+        Ok(match e {
+            Some(XExpr::Var { var, .. }) => Some(*var),
+            Some(a @ XExpr::Assign { target, .. }) => match &**target {
+                XExpr::Var { var, .. } => {
+                    let var = *var;
+                    self.xeval(a)?;
+                    Some(var)
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+    }
+
     fn xcall(&mut self, c: &XCall) -> Result<XVal, VmError> {
         let opcode = match &c.func {
             FuncId::Opcode(o) => *o,
@@ -1612,7 +1707,7 @@ impl Vm<'_, '_> {
             if self.opts.strict {
                 return Err(e);
             }
-            self.host.skipped(&e);
+            self.skip(&e);
             return Ok(XVal::Num(0.0));
         }
         let on = match &c.on {
@@ -1624,9 +1719,22 @@ impl Vm<'_, '_> {
             args.push(match a {
                 XExpr::Enum { code } => ArgValue::Enum(*code),
                 XExpr::Axis { c } => ArgValue::Axis(*c),
-                other => match self.xeval(other)? {
-                    XVal::Str(s) if self.table.param_enc(opcode, k) == crate::table::ParamEnc::String => ArgValue::Str(s),
-                    v => ArgValue::Value(v.value()?),
+                other => match (self.xeval(other)?, self.table.param_enc(opcode, k)) {
+                    (XVal::Str(s), crate::table::ParamEnc::String) => ArgValue::Str(s),
+                    // A string in an enumeration's or an axis's place is the name, in any
+                    // case; an unknown name is an error, so a `let` leaves its variable
+                    // and the script goes on [observed: GetAV ("Strength"), GetAV (s),
+                    // GetAV ($s), SetAV ("Luck") 7 and GetPos ("Z") read and set as the
+                    // bare names; GetAV ("NoSuchAV") assigned nothing, #2276 job A].
+                    (XVal::Str(s), crate::table::ParamEnc::Enum(kind)) => {
+                        let code = self.table.enums.get(&kind).and_then(|m| m.iter().find(|(_, n)| n.eq_ignore_ascii_case(&s)).map(|(&c, _)| c));
+                        ArgValue::Enum(code.ok_or_else(|| VmError::Type(format!("no {kind} named {s:?}")))?)
+                    }
+                    (XVal::Str(s), crate::table::ParamEnc::Axis) => match s.to_ascii_uppercase().as_str() {
+                        a @ ("X" | "Y" | "Z") => ArgValue::Axis(a.chars().next().unwrap_or('X')),
+                        _ => return Err(VmError::Type(format!("no axis named {s:?}"))),
+                    },
+                    (v, _) => ArgValue::Value(v.value()?),
                 },
             });
         }
@@ -1652,7 +1760,7 @@ impl Vm<'_, '_> {
         let key = self.key_for(*id, k)?;
         let store = self.store()?;
         let a = store.array(*id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
-        a.get(&key).cloned().ok_or_else(|| VmError::Type(format!("no element at key {}", key_text(&key))))
+        a.get(&key).cloned().ok_or_else(|| VmError::MissingElement(key_text(&key)))
     }
 
     /// `let a[k] := v`: replaces the element, or adds it to a map; a list takes a key up to
@@ -1662,8 +1770,12 @@ impl Vm<'_, '_> {
         let XVal::Array(id) = holder else { return Err(VmError::Type("[] of something that is not an array".into())) };
         let key = self.key_for(*id, k)?;
         let store = self.store()?;
+        // Held once the array is there: an empty array variable left `v` held for good [#1990].
+        if store.array(*id).is_none() {
+            return Err(VmError::Type("[] of an empty array variable".into()));
+        }
         store.retain(&v);
-        let a = store.array_mut(*id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
+        let a = store.array_mut(*id).expect("looked up just above");
         let old = match (a.kind, &key) {
             (ArrayKind::List, XKey::Num(x)) => {
                 let len = a.entries.len();
@@ -1733,6 +1845,24 @@ impl Vm<'_, '_> {
         format!("{kind} #{id} [{}]", parts.join(", "))
     }
 
+    /// The loop of [`Vm::foreach`] over array `id`, its source held by the caller.
+    fn foreach_array(&mut self, var: &VarRef, id: u32, body: &[Stmt]) -> Result<Flow, VmError> {
+        let mut i = 0;
+        loop {
+            self.step()?;
+            let Some((k, v)) = self.store()?.array(id).and_then(|a| a.entries.get(i).cloned()) else { return Ok(Flow::Normal) };
+            let store = self.store()?;
+            let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
+            self.write_var(var, XVal::Array(e))?;
+            match self.list(body, false)? {
+                f @ (Flow::Return | Flow::GoTo(_)) => return Ok(f),
+                Flow::Break => return Ok(Flow::Normal),
+                Flow::Normal | Flow::Leave | Flow::Continue | Flow::Wait => {}
+            }
+            i += 1;
+        }
+    }
+
     /// `foreach <var> <- <source>` … `loop`. Over an array each entry is a string map with
     /// its "key" and "value"; over a string each character [documented: ForEach]. The
     /// source is read element by element as the loop goes, so erasing during it skips
@@ -1742,23 +1872,15 @@ impl Vm<'_, '_> {
         let src = self.xeval(&head.source)?;
         match src {
             XVal::Array(id) => {
+                // The source is held for the loop and let go however it ends: an error in
+                // the body (a function on no reference, the step budget) kept it held for
+                // ever, swept never and saved [#1990].
                 self.store()?.retain(&src);
-                let mut i = 0;
-                let flow = loop {
-                    self.step()?;
-                    let Some((k, v)) = self.store()?.array(id).and_then(|a| a.entries.get(i).cloned()) else { break Flow::Normal };
-                    let store = self.store()?;
-                    let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
-                    self.write_var(var, XVal::Array(e))?;
-                    match self.list(body, false)? {
-                        f @ (Flow::Return | Flow::GoTo(_)) => break f,
-                        Flow::Break => break Flow::Normal,
-                        Flow::Normal | Flow::Leave | Flow::Continue | Flow::Wait => {}
-                    }
-                    i += 1;
-                };
-                self.store()?.release(&src);
-                Ok(flow)
+                let flow = self.foreach_array(var, id, body);
+                if let Ok(store) = self.store() {
+                    store.release(&src);
+                }
+                flow
             }
             XVal::Str(s) => {
                 for ch in s.chars() {
@@ -1970,7 +2092,8 @@ impl Vm<'_, '_> {
                 let Some(id) = array_of(&a) else { return num(0.0) };
                 let store = self.store()?;
                 let Some(arr) = store.array_mut(id).filter(|a| a.kind == ArrayKind::List && size >= 0.0) else { return num(0.0) };
-                let size = size as usize;
+                // At most as many as Ar_Init makes: `Ar_Resize a 1e12` tried to allocate that [#1991].
+                let size = (size as usize).min(MAX_ELEMENTS);
                 let cut: Vec<XVal> = if arr.entries.len() > size { arr.entries.split_off(size).into_iter().map(|e| e.1).collect() } else { Vec::new() };
                 let grow = size.saturating_sub(arr.entries.len());
                 for _ in 0..grow {
@@ -2039,6 +2162,8 @@ impl Vm<'_, '_> {
                 for i in 1..vals.len() {
                     let mut j = i;
                     while j > 0 {
+                        // Each call of the script's test is a step of this run [#1991].
+                        self.step()?;
                         let store = self.store()?;
                         let x = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j].clone())]);
                         let y = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j - 1].clone())]);
@@ -2108,7 +2233,7 @@ impl Vm<'_, '_> {
                 while (step > 0.0 && x <= b) || (step < 0.0 && x >= b) {
                     es.push((XKey::Num(es.len() as f64), XVal::Num(x)));
                     x += step;
-                    if es.len() > 1_000_000 {
+                    if es.len() > MAX_ELEMENTS {
                         break;
                     }
                 }
@@ -2116,7 +2241,7 @@ impl Vm<'_, '_> {
             }
             "ar_init" => {
                 let (count, v) = (val(self, 0)?.num()?.max(0.0) as usize, val(self, 1)?);
-                let es = (0..count.min(1_000_000)).map(|i| (XKey::Num(i as f64), v.clone())).collect();
+                let es = (0..count.min(MAX_ELEMENTS)).map(|i| (XKey::Num(i as f64), v.clone())).collect();
                 Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
             }
             // [documented: Ar Unique] the first of each value, in its place.
@@ -2159,7 +2284,11 @@ impl Vm<'_, '_> {
             }
             // [documented: TypeOf] "Number", "Form", "String", "Array", "Map", "StringMap".
             "typeof" => {
-                let v = val(self, 0)?;
+                let v = match val(self, 0) {
+                    Ok(value) => value,
+                    Err(VmError::MissingElement(_)) => return Ok(XVal::Str("NULL".into())),
+                    Err(error) => return Err(error),
+                };
                 let t = match &v {
                     XVal::Num(_) => "Number",
                     XVal::Ref(_) => "Form",
@@ -2182,6 +2311,9 @@ impl Vm<'_, '_> {
                 let entries: Vec<(XKey, XVal)> = self.store()?.array(id).map(|a| a.entries.clone()).unwrap_or_default();
                 let mut kept = Vec::new();
                 for (k, v) in entries {
+                    // Each call of the function is a step of this run: a million elements
+                    // called it a million times on no budget [#1991].
+                    self.step()?;
                     let store = self.store()?;
                     let it = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v.clone())]);
                     let r = self.host.call_function(&f, None, vec![XVal::Array(it)]).map_err(VmError::Host)?;
@@ -2207,7 +2339,8 @@ impl Vm<'_, '_> {
                 let kf = if nargs > 2 { Some(val(self, 2)?) } else { None };
                 let mut es = Vec::new();
                 let mut kind = ArrayKind::List;
-                for i in 0..count.min(1_000_000) {
+                for i in 0..count.min(MAX_ELEMENTS) {
+                    self.step()?;
                     let v = self.host.call_function(&vf, None, Vec::new()).map_err(VmError::Host)?;
                     let key = match &kf {
                         None => XKey::Num(i as f64),
@@ -2231,7 +2364,22 @@ impl Vm<'_, '_> {
                 }
                 Ok(XVal::Array(self.store()?.new_array(kind, es)))
             }
-            _ => Err(VmError::NotBuilt(format!("the extender function {n} (task D2)"))),
+            // The plugins' own array functions are the host's (JohnnyGuitar's Ar_Shuffle,
+            // Ar_SortEditor; SUP's Ar_GetRandomKey …); one that writes script variables
+            // (SUP's Ar_SetFloatsFrom) goes as the other output functions do.
+            _ => {
+                if let Some(outs) = out_params(n) {
+                    return self.out_call(n, c, outs);
+                }
+                let mut args = Vec::with_capacity(nargs);
+                for k in 0..nargs {
+                    args.push(val(self, k)?);
+                }
+                match self.host.ext_call(n, None, &args) {
+                    Some(r) => r.map_err(VmError::Host),
+                    None => Err(VmError::NotBuilt(format!("the extender function {n} (task D2)"))),
+                }
+            }
         }
     }
 
@@ -2330,7 +2478,10 @@ impl Vm<'_, '_> {
                     XVal::Str(s) => s,
                     other => self.text_of(&other)?,
                 },
-                'k' => format!("{}", next("key")?.num()? as i64),
+                // The key's name, as GetKeyName gives it [documented: String Formatting,
+                // `%k`, a key's description; hypothesis: GetKeyName's text; observed: MCM's
+                // key options print their key with `%k`, #2299].
+                'k' => crate::keys::key_name(next("key")?.num()? as i64).to_string(),
                 'c' => {
                     next("form")?;
                     next("index")?;
@@ -2423,7 +2574,12 @@ impl Vm<'_, '_> {
                 if needle.is_empty() {
                     return Ok(Some(XVal::Num(0.0)));
                 }
-                let n = if case { region.matches(needle.as_str()).count() } else { region.to_lowercase().matches(needle.to_lowercase().as_str()).count() };
+                let (region, needle): (Vec<char>, Vec<char>) = (region.chars().collect(), needle.chars().collect());
+                let (mut n, mut at) = (0usize, 0usize);
+                while let Some(i) = find_chars(&region, &needle, at, case) {
+                    n += 1;
+                    at = i + needle.len();
+                }
                 XVal::Num(n as f64)
             }
             // [documented: Sv Destruct] the variable's string goes; it reads 0 after.
@@ -2447,15 +2603,17 @@ impl Vm<'_, '_> {
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let chars: Vec<char> = hay.chars().collect();
                 let end = len.map_or(chars.len(), |l| (start + l.max(0.0) as usize).min(chars.len()));
-                let region: String = chars.get(start..end).map(|s| s.iter().collect()).unwrap_or_default();
-                let found = if case { region.find(&needle) } else { region.to_lowercase().find(&needle.to_lowercase()) };
-                XVal::Num(found.map_or(-1.0, |b| (start + region[..b].chars().count()) as f64))
+                let region = chars.get(start..end).unwrap_or_default();
+                let needle: Vec<char> = needle.chars().collect();
+                let found = find_chars(region, &needle, 0, case);
+                XVal::Num(found.map_or(-1.0, |i| (start + i) as f64))
             }
             // [documented: Sv Replace] "old|new", in place, every match without regard to
             // case by default; the number replaced.
             "sv_replace" => {
                 let (pair, k) = self.format_arg(c, 0)?;
-                let Some(XExpr::Var { var, .. }) = c.args.get(k) else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
+                let Some(var) = self.string_var_arg(c.args.get(k))? else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
+                let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
@@ -2468,21 +2626,17 @@ impl Vm<'_, '_> {
                     return Ok(Some(XVal::Num(0.0)));
                 }
                 let chars: Vec<char> = s.chars().collect();
-                let (head, tail): (String, String) = (chars[..start.min(chars.len())].iter().collect(), chars[start.min(chars.len())..].iter().collect());
-                let (mut out, mut count, mut rest) = (head, 0usize, tail.as_str());
-                loop {
-                    let at = if case { rest.find(old) } else { rest.to_lowercase().find(&old.to_lowercase()) };
-                    match at {
-                        Some(b) if max.is_none_or(|m| count < m) => {
-                            out.push_str(&rest[..b]);
-                            out.push_str(new);
-                            rest = &rest[b + old.len()..];
-                            count += 1;
-                        }
-                        _ => break,
-                    }
+                let old: Vec<char> = old.chars().collect();
+                let from = start.min(chars.len());
+                let (mut out, mut count, mut at): (String, usize, usize) = (chars[..from].iter().collect(), 0, from);
+                while max.is_none_or(|m| count < m) {
+                    let Some(i) = find_chars(&chars, &old, at, case) else { break };
+                    out.extend(&chars[at..i]);
+                    out.push_str(new);
+                    at = i + old.len();
+                    count += 1;
                 }
-                out.push_str(rest);
+                out.extend(&chars[at..]);
                 self.write_var(var, XVal::Str(out))?;
                 XVal::Num(count as f64)
             }
@@ -2490,7 +2644,8 @@ impl Vm<'_, '_> {
             // end: at the end [hypothesis]).
             "sv_insert" => {
                 let (ins, k) = self.format_arg(c, 0)?;
-                let Some(XExpr::Var { var, .. }) = c.args.get(k) else { return Err(VmError::Type("Sv_Insert needs a string variable".into())) };
+                let Some(var) = self.string_var_arg(c.args.get(k))? else { return Err(VmError::Type("Sv_Insert needs a string variable".into())) };
+                let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let at = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let chars: Vec<char> = s.chars().collect();
@@ -2506,7 +2661,8 @@ impl Vm<'_, '_> {
             // [documented: Sv Erase] `count` characters from the position, to the end when
             // left out or past it.
             "sv_erase" => {
-                let Some(XExpr::Var { var, .. }) = c.args.first() else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
+                let Some(var) = self.string_var_arg(c.args.first())? else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
+                let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
@@ -2747,7 +2903,9 @@ impl Vm<'_, '_> {
             // [documented: GetModIndex] 255 when the plugin is not loaded.
             "getmodindex" => {
                 let n = text(val(self, 0)?).unwrap_or_default();
-                XVal::Num(self.host.mod_index(&n).unwrap_or(255) as f64)
+                let index = self.host.mod_index(&n).unwrap_or(255) as f64;
+                self.host.plugin_asked("getmodindex", &n, index);
+                XVal::Num(index)
             }
             // [documented: GetSourceModIndex] the load-order index of the form's plugin: its
             // FormID's top byte here, where FormIDs are load-order FormIDs.
@@ -2832,11 +2990,13 @@ impl Vm<'_, '_> {
             "isplugininstalled" | "getpluginversion" => {
                 let p = text(val(self, 0)?).unwrap_or_default();
                 let found = jip::PLUGINS.iter().find(|(name, _)| name.eq_ignore_ascii_case(&p)).map(|(_, v)| *v);
-                XVal::Num(match (n, found) {
+                let answer = match (n, found) {
                     ("isplugininstalled", f) => f64::from(u8::from(f.is_some())),
                     (_, Some(v)) => v,
                     (_, None) => -1.0,
-                })
+                };
+                self.host.plugin_asked(n, &p, answer);
+                XVal::Num(answer)
             }
             _ => return Ok(None),
         }))
@@ -2875,6 +3035,10 @@ impl Vm<'_, '_> {
         // place (fnv_game::ui_functions).
         let format_at = match lname.as_str() {
             "addtilefromtemplate" => Some(0),
+            // [documented: ShowTextInputMenu `callback width height "title" values…`,
+            // SetTextInputString `"text" values…`] (fnv_game::nvse_jip12).
+            "settextinputstring" => Some(0),
+            "showtextinputmenu" => Some(3),
             "setuistringex" | "setuistringalt" | "injectuicomponent" | "attachuicomponent" => Some(1),
             _ => None,
         };
@@ -2888,23 +3052,62 @@ impl Vm<'_, '_> {
         // [documented: SetBipedModelPathAlt `armor slot "format" values…`; observed:
         // gaps8, "NVF\Ground%g.nif" 7 reads NVF\Ground7.nif]: the format third.
         // RunScriptSnippet `delay "format" values…` likewise [documented].
-        if lname == "setformdescription" || lname == "messageexalt" || lname == "setbipedmodelpathalt" || lname == "runscriptsnippet" {
-            let at = if lname == "setbipedmodelpathalt" { 2 } else { 1 };
+        // [documented: SetObjectiveText `quest index "format" valuesâ€¦`, WriteStringToFile
+        // `path append "format" valuesâ€¦`, ModLogPrint `indent "format" valuesâ€¦`] likewise.
+        if matches!(lname.as_str(), "setformdescription" | "messageexalt" | "setbipedmodelpathalt" | "runscriptsnippet" | "setobjectivetext" | "writestringtofile" | "modlogprint") {
+            let at = if matches!(lname.as_str(), "setbipedmodelpathalt" | "setobjectivetext" | "writestringtofile") { 2 } else { 1 };
             let mut first = Vec::new();
             for e in c.args.iter().take(at) {
                 first.push(self.xeval(e)?);
             }
-            let (t, _) = self.format_arg(c, at)?;
+            // Too few values for its specifiers: nothing happens (`formatted_host_call`).
+            let (t, _) = match self.format_arg(c, at) {
+                Err(VmError::Type(e)) if e.starts_with("the format string takes") => return Ok(XVal::Num(0.0)),
+                r => r?,
+            };
             first.push(XVal::Str(t));
             return match self.host.ext_call(&lname, None, &first) {
                 Some(r) => r.map_err(VmError::Host),
                 None => Ok(XVal::Num(0.0)),
             };
         }
+        // [documented: HudBarSetValueScriptVar `barName MyQuest.MyVariable calcMax`, the
+        // bar reading the variable later]: the variable goes to the host by its place
+        // (`Host::var_place`), as -1 - its number; anything that is no placed variable as
+        // 0, which the host refuses.
+        if lname == "hudbarsetvaluescriptvar" {
+            let mut args = Vec::with_capacity(c.args.len());
+            for (k, a) in c.args.iter().enumerate() {
+                args.push(match a {
+                    XExpr::Var { var, .. } if k == 1 => XVal::Num(self.host.var_place(var).map_or(0.0, |p| -1.0 - f64::from(p))),
+                    _ if k == 1 => XVal::Num(0.0),
+                    other => self.xeval(other)?,
+                });
+            }
+            return match self.host.ext_call(&lname, None, &args) {
+                Some(r) => r.map_err(VmError::Host),
+                None => Err(VmError::NotBuilt(format!("the extender function {name}"))),
+            };
+        }
+        // [documented: MarkScriptOnLoad, "Marks calling script"]: the host gets the
+        // running script form (0 for none) as the argument.
+        if lname == "markscriptonload" {
+            let script = XVal::Ref(self.host.current_script().unwrap_or(0));
+            return match self.host.ext_call(&lname, None, &[script]) {
+                Some(r) => r.map_err(VmError::Host),
+                None => Err(VmError::NotBuilt(format!("the extender function {name}"))),
+            };
+        }
         // Functions that give their results in script variables: the host answers with an
         // array of the return value and then each output, written to the variables here.
         if let Some(outs) = out_params(&lname) {
             return self.out_call(&lname, c, outs);
+        }
+        // ShowOff's string maps live with JIP's stores (`vm::jip`).
+        if lname.starts_with("auxstringmaparray") {
+            if let Some(v) = self.strmap_function(&lname, c)? {
+                return Ok(v);
+            }
         }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
@@ -2919,6 +3122,12 @@ impl Vm<'_, '_> {
             }
         };
         match name.to_ascii_lowercase().as_str() {
+            // `(eval Expression)` inside an expression: the expression's value [documented:
+            // Eval, an NVSE-aware command taking an expression; observed: the owner's Blue
+            // Moon list's Script Runner files write `AuxVarSetFlt "*x" (eval
+            // GetINIFloat_Cached "s:k" "f.ini" 1) 5`, and their statements were skipped as
+            // not built, #2275].
+            "eval" => arg(self, 0),
             // [documented: ToString; ToNumber] (the hex and reportError arguments of
             // ToNumber: D1).
             "tostring" => {
@@ -2938,11 +3147,15 @@ impl Vm<'_, '_> {
             n if n.starts_with("ar_") || n == "typeof" => self.array_function(n, c),
             // `[ref.]Call udf args…` [documented: Call; User Defined Function].
             "call" => {
-                let f = arg(self, 0)?;
                 let on = match &c.on {
                     Some(e) => Some(self.xeval(e)?.value()?),
                     None => None,
                 };
+                if on.is_some_and(|v| v.as_form().is_none()) {
+                    self.host.no_reference_call("call", on, c);
+                    return Err(VmError::NoReference("call".to_string()));
+                }
+                let f = arg(self, 0)?;
                 let mut args = Vec::with_capacity(c.args.len().saturating_sub(1));
                 for k in 1..c.args.len() {
                     args.push(arg(self, k)?);
@@ -3066,7 +3279,8 @@ impl Vm<'_, '_> {
             // the page names the option without showing it].
             "inttobin" => {
                 let v = arg(self, 0)?.num()? as i64 as u32;
-                let width = c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                // The width capped as the format fields are: it went straight into the padding [#1991].
+                let width = (c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize).min(MAX_FORMAT_FIELD);
                 let prefix = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_some_and(|v| v.truthy());
                 Ok(XVal::Str(format!("{}{:0width$b}", if prefix { "0b" } else { "" }, v)))
             }
@@ -3090,12 +3304,16 @@ impl Vm<'_, '_> {
             // formatted at the top (`format_at`).
             // [documented: SetMCMString `child grandchild setting "format" values…`]: the
             // format is the fourth argument.
-            "setmcmstring" => {
+            // SetMCMStringMass `child first last setting "format" values…` likewise, its
+            // format the fifth [observed: MCM 1.5's calls; job mcm976e, `"a%gb" 5` set
+            // "a5b", menu-xml.md §10.2].
+            "setmcmstring" | "setmcmstringmass" => {
+                let at = if lname == "setmcmstring" { 3 } else { 4 };
                 let mut args = Vec::new();
-                for e in c.args.iter().take(3) {
+                for e in c.args.iter().take(at) {
                     args.push(self.xeval(e)?);
                 }
-                let (t, _) = self.format_arg(c, 3)?;
+                let (t, _) = self.format_arg(c, at)?;
                 args.push(XVal::Str(t));
                 match self.host.ext_call(&lname, None, &args) {
                     Some(r) => Ok(r.map_err(VmError::Host)?),
@@ -3140,7 +3358,15 @@ impl Vm<'_, '_> {
         for e in c.args.iter().take(at) {
             args.push(self.xeval(e)?);
         }
-        let (t, k) = self.format_arg(c, at)?;
+        // A format string whose specifiers have fewer values after it than they take:
+        // the function does nothing and the script goes on [observed: #2430 probe
+        // 2026-11-14, SetFormDescription "test %.0f left" with no value left the text as
+        // it was, the script ran on; hypothesis: the same for the other functions that
+        // take a formatted string].
+        let (t, k) = match self.format_arg(c, at) {
+            Err(VmError::Type(e)) if e.starts_with("the format string takes") => return Ok(Some(XVal::Num(0.0))),
+            r => r?,
+        };
         args.push(XVal::Str(t));
         for e in c.args.iter().skip(k) {
             args.push(self.xeval(e)?);
@@ -3188,6 +3414,7 @@ impl Vm<'_, '_> {
         // Called on no reference, the function fails and stops the script [observed:
         // nvse-inv foreach.read.after, "script call failed"].
         if on.is_some_and(|v| v.as_form().is_none()) {
+            self.host.no_reference_call(lname, on, c);
             return Err(VmError::NoReference(lname.to_string()));
         }
         let mut args = Vec::with_capacity(c.args.len());
@@ -3201,7 +3428,10 @@ impl Vm<'_, '_> {
             // The host words a calling object that is no reference (a base form) as
             // NoReference does: that stops the script too [observed: jipppln clamp.base,
             // "script call failed"].
-            Some(Err(e)) if e == VmError::NoReference(lname.to_string()).to_string() => Err(VmError::NoReference(lname.to_string())),
+            Some(Err(e)) if e == VmError::NoReference(lname.to_string()).to_string() => {
+                self.host.no_reference_call(lname, on, c);
+                Err(VmError::NoReference(lname.to_string()))
+            },
             Some(r) => r.map(Some).map_err(VmError::Host),
             None => Ok(None),
         }
@@ -3213,6 +3443,11 @@ impl Vm<'_, '_> {
 fn out_params(lname: &str) -> Option<&'static [usize]> {
     Some(match lname {
         "getangleex" => &[0, 1, 2],
+        // [documented: GetActorVelocityAlt, "placed into the 3 specified Script Variables"].
+        "getactorvelocityalt" => &[0, 1, 2],
+        // JIP batch 13 (fnv_game::nvse_jip13).
+        "getangularvelocityalt" | "getlinearvelocityalt" => &[1, 2, 3],
+        "getreticleposalt" => &[0, 1, 2],
         "getanglesbetweenpoints" => &[6, 7],
         "getpointraycastpos" => &[5, 6, 7],
         "geteditorposition" => &[0, 1, 2, 3, 4, 5],
@@ -3226,6 +3461,25 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "gettfcposex" => &[0, 1, 2],
         "gettfcangleex" | "gettfcrotex" => &[0, 1],
         "getcalculatedpos" | "getcalculatedposalt" => &[2, 3],
+        // [documented: GetPosEx, GetNifBlockTranslationAlt, GetNifBlockRotationAlt, "the
+        // result XYZ are placed into the 3 specified Script Variables"].
+        "getposex" => &[0, 1, 2],
+        "getnifblocktranslationalt" | "getnifblockrotationalt" => &[1, 2, 3],
+        // [documented: GetMousePosition, GetMouseMovement, "output … to fPosX and fPosY
+        // script variables"].
+        "getmouseposition" | "getmousemovement" => &[0, 1],
+        // [documented: GetCameraTranslation and WorldToScreen, "Stores … in xOut, yOut and
+        // zOut variables"].
+        "getcameratranslation" | "worldtoscreen" => &[0, 1, 2],
+        // [documented: Ar_SetFloatsFrom, "Sets float variables from variables in array (up
+        // to 10)"].
+        "ar_setfloatsfrom" => &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        // [documented: HSVtoRGB, RGBtoHSV, three script variables in and three out].
+        "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
+        // [documented: GetSystemColorAlt and GetPixelFromBMP, three variables for R, G, B].
+        "getsystemcoloralt" | "getpixelfrombmp" => &[1, 2, 3],
+        // [documented: GetLinearVelocity and GetCurrentSkyColor, three script variables].
+        "getlinearvelocity" | "getcurrentskycolor" => &[1, 2, 3],
         _ => return None,
     })
 }

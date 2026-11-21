@@ -6,10 +6,50 @@ use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+/// xNVSE's outer list contains one path array per current objective target; each
+/// path ends with the target (GECK wiki GetCurrentQuestObjectiveTeleportLinks).
+/// SUP's Alt interface instead returns the first visible marker of each path.
+pub(crate) fn objective_teleport_links(g: &mut Game, flat: bool) -> XVal {
+    use crate::quest_targets::{DoorGraph, Place};
+    let mut paths = Vec::new();
+    if let Some(quest) = g.ui.active_quest {
+        let current = g.quest_state(quest).objectives.iter()
+            .find(|(_, o)| o.displayed && !o.completed).map(|(&i, _)| i);
+        let here = g.cell_of(FormId::PLAYER_REF).map(|c| Place::of_cell(g.world.placed, c));
+        if let (Some(current), Some(here)) = (current, here) {
+            let targets = g.check_quest_targets(quest);
+            g.other.objective_doors.get_or_insert_with(|| DoorGraph::build(g.world.placed));
+            let graph = g.other.objective_doors.as_ref().expect("initialized above");
+            for target in targets.into_iter().filter(|t| t.objective == current && t.shown) {
+                let Some(there) = g.cell_of(target.target).map(|c| Place::of_cell(g.world.placed, c)) else { continue; };
+                let Some(mut path) = graph.path(&g.world, here, there, target.ignores_locks) else { continue; };
+                path.push(target.target);
+                paths.push(path);
+            }
+        }
+    }
+    let mut entries = Vec::new();
+    for (index, path) in paths.into_iter().enumerate() {
+        let value = if flat {
+            XVal::Ref(path[0].0)
+        } else {
+            let row = path.into_iter().enumerate().map(|(i, r)| (XKey::Num(i as f64), XVal::Ref(r.0))).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, row))
+        };
+        entries.push((XKey::Num(index as f64), value));
+    }
+    XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+}
+
 /// What these functions keep for the session (none of it is saved: DisablePlayerControlsAlt
 /// "changes are NOT savebaked" [documented]; the rest [hypothesis]).
 #[derive(Debug, Default)]
 pub struct OtherState {
+    /// Bounded SetMaxAniso request; last call wins until the renderer consumes it. Not saved.
+    pub(crate) texture_filter_level: Option<u16>,
+    /// The immutable placed-door graph, built lazily; run-time lock state is read
+    /// for every route. Not persisted or rebuilt on each minimap callback.
+    pub objective_doors: Option<crate::quest_targets::DoorGraph>,
     /// The plugin and the script whose code made the extender call now running
     /// (`Exec::ext_call`); "" and `None` for the console, a query or a runtime script.
     pub plugin: String,
@@ -43,6 +83,8 @@ pub struct OtherState {
     pub package_lists: HashMap<FormId, Vec<FormId>>,
     /// SetFlagsLow/High's record flags.
     pub flags: HashMap<FormId, u32>,
+    /// SetActorBaseFlagsLow/High's 32-bit ACBS flags, by actor base form.
+    pub acbs_flags: HashMap<FormId, u32>,
     /// Con_SCOF's file name (nothing is written).
     pub scof: Option<String>,
     /// AddAnimation's and DelAnimation's lists, by actor base.
@@ -76,6 +118,9 @@ pub struct OtherState {
     /// the record's (`nvse_jg4`, read through `nvse_jg4::idle_marker` and
     /// `nvse_jg4::region_weathers`).
     pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
+    /// SetIdleMarkerTraitNumeric's flags, the whole byte as set (the collection keeps
+    /// only the two bits it plays by; `nvse_jg4`).
+    pub idle_marker_flags: HashMap<FormId, u8>,
     pub region_weathers: HashMap<FormId, crate::data::RegionWeathers>,
     /// ITR NVSE's state (`nvse_itr1`).
     pub itr: crate::nvse_itr1::ItrState,
@@ -88,8 +133,38 @@ pub struct OtherState {
     /// JIP batch 8's changes: actor effects, base effects, water effects, excluded combat
     /// actions (`nvse_jip8`).
     pub jip8: crate::nvse_jip8::Jip8State,
+    /// JIP batch 9's switches and what the engine tells: the HUD cursor, volumes, fonts,
+    /// colours, immortal mode, disabled interaction types (`nvse_jip9`).
+    pub jip9: crate::nvse_jip9::Jip9State,
+    /// JIP batch 10's objectives, added variables, disabled scripts, extra data, map
+    /// markers (`nvse_jip10`).
+    pub jip10: crate::nvse_jip10::Jip10State,
+    /// JIP batch 14's effects, primitives, models, VATS, fuses and frequencies (`nvse_jip14`).
+    pub jip14: crate::nvse_jip14::Jip14State,
+    /// The unlisted JIP commands' locks, switches and lights (`nvse_unlisted`).
+    pub unlisted: crate::nvse_unlisted::UnlistedState,
+    /// The New Game flag of the unlisted commands' batch 1 (`nvse_unlisted2`).
+    pub unlisted2: crate::nvse_unlisted2::Unlisted2State,
+    /// SUP's cached JSON files (`nvse_json`).
+    pub json: crate::nvse_json::JsonState,
+    /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
+    pub jip11: crate::nvse_jip11::Jip11State,
+    /// JIP batch 13's physics view, requests and follows (`nvse_jip13`).
+    pub jip13: crate::nvse_jip13::Jip13State,
+    /// JIP batch 12's sky, world, barter and menu state (`nvse_jip12`).
+    pub jip12: crate::nvse_jip12::Jip12State,
     /// JohnnyGuitar batch 5's record changes (`nvse_jg5`).
     pub jg5: crate::nvse_jg5::Jg5State,
+    /// JohnnyGuitar batch 6's state (`nvse_jg6`).
+    pub jg6: crate::nvse_jg6::Jg6State,
+    /// JohnnyGuitar batch 7's switches, settings and queued texts (`nvse_jg7`).
+    pub jg7: crate::nvse_jg7::Jg7State,
+    /// JohnnyGuitar batch 8's handlers, custom map marker and radio tuning (`nvse_jg8`).
+    pub jg8: crate::nvse_jg8::Jg8State,
+    /// JohnnyGuitar batch 9's sounds from files and scripted holotapes (`nvse_jg9`).
+    pub jg9: crate::nvse_jg9::Jg9State,
+    /// JohnnyGuitar batch 10's requests and switches for the engine (`nvse_jg10`).
+    pub jg10: crate::nvse_jg10::Jg10State,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
@@ -138,11 +213,16 @@ fn alt_groups(ex: bool, args: &[XVal], dflt: [bool; 7], short: [bool; 7]) -> [bo
 
 impl<'a> Game<'a> {
     /// Change a package for the session: a copy of its definition, changed, takes its
-    /// place for every reader (`Game::package_def`).
+    /// place for every reader (`Game::package_def`). A change that leaves the definition
+    /// as it is makes no copy: the copies live for the session (readers hold `&'a`), and a
+    /// mod's main-loop script may call a setter with the same values every frame (#3150).
     pub(crate) fn change_package(&mut self, p: FormId, change: impl FnOnce(&mut crate::package::PackageDef)) {
         let Some(def) = self.package_def(&p) else { return };
         let mut new = def.clone();
         change(&mut new);
+        if new == *def {
+            return;
+        }
         let leaked: &'a crate::package::PackageDef = Box::leak(Box::new(new));
         self.package_overrides.insert(p, leaked);
     }
@@ -239,6 +319,25 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
     let zero = XVal::Num(0.0);
     let v = match name {
+        // The receiver is the target; player perception and self-pairs do not count.
+        // Read the existing measured cache, without another sensing pass or expiry rule
+        // (actor-behaviour.md §2.4). Missing/nonactor zero is a selected portable
+        // convention matching neighboring queries; native invalid behavior is unknown.
+        "isactordetected" => {
+            let target = subject.filter(|&r| g.def_following(r, |_| false).is_some()
+                || matches!(g.data.sig(base(g, r)), Some(sig) if sig == *b"NPC_" || sig == *b"CREA"));
+            yes(target.is_some_and(|target| target != FormId::PLAYER_REF
+                && g.detection.pairs.iter().any(|(&(detector, seen), (d, _))|
+                    seen == target && detector != target && detector != FormId::PLAYER_REF
+                        && d.band == crate::detection::Band::Detected)))
+        }
+        // Four-character record signature, separate from GetObjectType's numeric
+        // result (docs/spec-notes/form-type-source-call.md).
+        "getisformtype" => {
+            let wanted = match args.first() { Some(XVal::Str(s)) => s.as_bytes(), _ => &[] };
+            let actual = subject.and_then(|reference| g.data.sig(base(g, reference)));
+            yes(wanted.len() == 4 && actual.is_some_and(|signature| signature.eq_ignore_ascii_case(wanted)))
+        }
         // [documented: AddItemOwnership; AddItemHealthPercentOwner] `item count [health
         // 0–1] owner rank`: the items come owned (the rank is not kept [hypothesis]), at
         // full health, not AddItem's 99.9% [observed: nvse-fifth, pistol 80 of 80, owner
@@ -302,6 +401,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // reference otherwise [observed: GetCrosshairRefEx gives 00000000].
         "getcrosshairref" => XVal::Ref(g.senses.crosshair_ref.map_or(0, |r| r.0)),
         "getcrosshairrefex" => XVal::Ref(g.senses.crosshair_far.map_or(0, |r| r.0)),
+        // `MinRange MaxRange`: the first object with collision the crosshair's ray meets
+        // between the two distances, out to 50000 units [documented: ObjectUnderReticle];
+        // the terrain is no object and no ray (a headless run) none [hypothesis].
+        "objectunderreticle" => {
+            let (min, max) = (num(args, 0, 0.0).max(0.0) as f32, (num(args, 1, 0.0) as f32).min(crate::functions::senses::RETICLE_REACH));
+            let hit = g.senses.reticle.as_ref().filter(|_| max > min).and_then(|r| {
+                let at = |d: f32| [r.start[0] + r.dir[0] * d, r.start[1] + r.dir[1] * d, r.start[2] + r.dir[2] * d];
+                crate::ray::cast_hit(at(min), at(max), crate::ray::CastKind::World)
+            });
+            XVal::Ref(hit.and_then(|h| h.form).unwrap_or(0))
+        }
         // [documented: GetCurrentObjective] the active quest's first objective shown and
         // not done [hypothesis: which objective counts as current], else -1 [hypothesis].
         "getcurrentobjective" => {
@@ -407,6 +517,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let set = name == "setscript";
             let new = if set { form(args, 0) } else { None };
             let b = form(args, usize::from(set)).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            if g.world.has_placed_temporary_base(b) {
+                return Some(Err("script changes after temporary scene placement are not supported yet".into()));
+            }
             let before = g.base_script(b);
             if before.is_some() || set {
                 g.other.scripts.insert(b, new);
@@ -459,19 +572,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let dir = crate::mod_files::data_dir().and_then(|d| d.parent().map(|p| p.to_path_buf()));
             XVal::Str(dir.map(|d| format!("{}\\", d.display().to_string().trim_end_matches('\\'))).unwrap_or_default())
         }
-        // The current objective's targets, without the doors between [documented:
-        // GetCurrentQuestObjectiveTeleportLinks; observed: one entry with the target in
-        // the player's own space; hypothesis: the door path is not built].
-        "getcurrentquestobjectiveteleportlinks" => {
-            let q = g.ui.active_quest.unwrap_or(FormId(0));
-            let st = g.quest_state(q);
-            let cur = st.objectives.iter().find(|(_, o)| o.displayed && !o.completed).map(|(&i, _)| i);
-            let targets: Vec<XVal> = cur
-                .and_then(|i| g.data.quests.get(&q)?.objectives.get(&i).map(|o| o.targets.iter().filter_map(|t| t.target).map(|t| XVal::Ref(t.0)).collect()))
-                .unwrap_or_default();
-            let entries = targets.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
-            XVal::Array(g.ext.new_array(ArrayKind::List, entries))
-        }
+        "getcurrentquestobjectiveteleportlinks" => objective_teleport_links(g, false),
         // [documented: OutputLocalMapPicturesOverride; SetOutputLocalMapPicturesGrids]
         // NVForever writes no local map pictures.
         "outputlocalmappicturesoverride" | "setoutputlocalmappicturesgrids" => zero,
@@ -502,7 +603,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        "getplayercontrolsdisabledalt" | "getplayercontrolsdisabledaltex" => {
+        // GPCDEx answers as the Ex form [observed: #2430 probe, script_functions.py].
+        "getplayercontrolsdisabledalt" | "getplayercontrolsdisabledaltex" | "gpcdex" => {
             let how = num(args, 0, 0.0) as i64;
             let which = alt_groups(name.ends_with("ex"), args.get(1..).unwrap_or(&[]), [true; 7], [false; 7]);
             let mut locked = [false; 7];
@@ -553,19 +655,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: GetOpenKey; SetOpenKey] the key of a lockable reference.
         "getopenkey" => {
             let r = subject.unwrap_or(FormId(0));
-            let key = match g.world.peek(r) {
-                Some(s) => s.lock.and_then(|l| l.key),
-                None => g.world.placed.get(r).and_then(|p| p.lock).and_then(|l| l.key),
-            };
+            let key = g.world.lock_of(r).and_then(|l| l.key);
             XVal::Ref(key.map_or(0, |k| k.0))
         }
         "setopenkey" => {
             let (Some(r), Some(k)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
-            if let Ok(s) = g.world.get(r) {
-                // A reference without a lock gets an open one with the key [hypothesis].
-                let lock = s.lock.get_or_insert(fnv_sim::world::LockState { level: 0, key: None, locked: false });
-                lock.key = Some(k);
-            }
+            let _ = g.world.set_open_key(r, k);
             zero
         }
         // Packages [documented: AddPackageAt `package [index, -1 the end] [actor]`, the
@@ -665,8 +760,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // SetModelPath(Ex), SetIconPath(Ex), SetTexturePath,
         // SetBipedModelPath(Ex), SetBipedIconPath(Ex)]: the scope model is MOD3 [observed:
         // the sniper rifle's MOD3 is interface\HUD\mildotscope.NIF]. The getters see the
-        // change; the drawn models do not [hypothesis: "If the replaced model is already
-        // loaded, then it will need to be reloaded"; NVForever reads the record's].
+        // change; the drawn models do not, but for a weapon's (weapon-mods.md §8)
+        // [hypothesis: "If the replaced model is already loaded, then it will need to be
+        // reloaded"; NVForever reads the record's].
         "getscopemodelpath" | "getbipediconpath" => {
             let (sub, at) = if name == "getscopemodelpath" {
                 ("MOD3", 0)
@@ -694,6 +790,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             };
             let f = form(args, if biped { 2 } else { 1 }).or(subject).map(|f| base(g, f));
             if let (Some(f), false) = (f, sub.is_empty()) {
+                if sub == "MODL" && g.world.has_placed_temporary_base(f) {
+                    return Some(Err("model replacement after temporary scene placement is not supported yet".into()));
+                }
                 g.field_overrides.insert((f, format!("{sub}/")), XVal::Str(path));
             }
             zero

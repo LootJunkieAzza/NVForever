@@ -90,6 +90,10 @@ pub struct ObjectAnims {
     /// object shows when it is drawn or given collision again, a group played once at its
     /// end (`nvforever` object_anims.rs, `nvf_play::phys`). Saved [design].
     asked: BTreeMap<FormId, (u16, String)>,
+    /// The group each new ask replaced in `asked`, while it is the last: put back when
+    /// the engine finds the newer one is not in the object's model
+    /// ([`ObjectAnims::not_in_model`]). Not saved.
+    replaced: HashMap<FormId, (u16, String)>,
 }
 
 impl ObjectAnims {
@@ -112,12 +116,32 @@ impl ObjectAnims {
         self.playing.remove(&on);
         self.traced.remove(&on);
         self.asked.remove(&on);
+        self.replaced.remove(&on);
         self.requests.retain(|r| r.on != on);
         if !self.resets.contains(&on) {
             if self.resets.len() >= crate::sound::MAX_PENDING {
                 self.resets.remove(0);
             }
             self.resets.push(on);
+        }
+    }
+
+    /// The engine found that `on`'s model has no sequence `name`: a group it cannot show
+    /// is not what it shows when drawn again. When `name` is the last group asked, the
+    /// one it replaced is the last again. A tripwire's script plays `Forward` and then
+    /// activates itself, which asks its "Open" sequence (`Game::set_ref_open`), a name
+    /// `tripwire01.nif` does not have: drawn again after a cell load, the sprung wire
+    /// showed whole and armed (issue #2420) [design].
+    pub fn not_in_model(&mut self, on: FormId, name: &str) {
+        if self.asked.get(&on).is_some_and(|(_, n)| n.eq_ignore_ascii_case(name)) {
+            match self.replaced.remove(&on) {
+                Some(before) => {
+                    self.asked.insert(on, before);
+                }
+                None => {
+                    self.asked.remove(&on);
+                }
+            }
         }
     }
 
@@ -134,6 +158,7 @@ impl ObjectAnims {
     /// The last groups asked, from a saved game.
     pub fn restore_asked(&mut self, asked: BTreeMap<FormId, (u16, String)>) {
         self.asked = asked;
+        self.replaced.clear();
     }
 
     /// The group `on` plays, as last told.
@@ -153,7 +178,9 @@ impl Game<'_> {
             self.anims.playing.insert(r.on, r.group);
         }
         if let Some(name) = &r.name {
-            self.anims.asked.insert(r.on, (r.group, name.clone()));
+            if let Some(before) = self.anims.asked.insert(r.on, (r.group, name.clone())).filter(|(_, n)| n != name) {
+                self.anims.replaced.insert(r.on, before);
+            }
         }
         let q = &mut self.anims.requests;
         if q.len() >= crate::sound::MAX_PENDING {
@@ -166,7 +193,48 @@ impl Game<'_> {
     pub fn anim_group_name(&self, code: u16) -> Option<String> {
         self.data.table.enum_name("anim_group", code).map(str::to_string)
     }
+
+    /// The code of the animation group spelt `name`, when the table has it.
+    fn anim_group_code(&self, name: &str) -> Option<u16> {
+        self.data.table.enums.get("anim_group")?.iter().find(|(_, n)| n.eq_ignore_ascii_case(name)).map(|(c, _)| *c)
+    }
+
+    /// Open (true) or close the reference `r`: its open flag (GetOpenState) and, for an
+    /// activator that is not a radio receiver, its "Open" or "Close" sequence, asked as
+    /// PlayGroup asks one, so the engine plays it once and holds its end, its collision
+    /// follows and it is shown so when drawn again (activators.md §5). A model without
+    /// the sequence plays nothing. Returns whether the state changed.
+    ///
+    /// [hypothesis: an activator with Open and Close sequences opens and closes like a
+    /// door; observed in the data: Fallout 3's Overseer terminal opens the tunnel with
+    /// `SetOpenState 1` on the desk activator `VRmOverseerDesk01` (Open 10 s with the
+    /// sound key OBJOverseerDeskOpen), and the vault door control pod opens the vault
+    /// door `VaultGearDoor` (Open 25 s) by activating it, whose script then runs its
+    /// default activation; issues #2231, #2232.]
+    pub fn set_ref_open(&mut self, r: FormId, open: bool) -> Result<bool, String> {
+        let was = std::mem::replace(&mut self.world.get(r).map_err(|e| e.to_string())?.open, open);
+        if was == open {
+            return Ok(false);
+        }
+        let base = crate::functions::base_of(self, r);
+        let animated = base.is_some_and(|b| self.data.sig(b).as_ref() == Some(b"ACTI") && !self.data.radio_receivers.contains(&b));
+        if animated {
+            let name = if open { "Open" } else { "Close" };
+            // A code of its own when the table has none for the name [design: the
+            // engine plays by name; IsAnimPlaying compares codes].
+            let group = self.anim_group_code(name).unwrap_or(if open { OPEN_GROUP } else { CLOSE_GROUP });
+            tracing::info!("activator: {r} {} (its {name} sequence)", if open { "opens" } else { "closes" });
+            self.ask_anim(AnimRequest { on: r, group, name: Some(name.to_string()), start: Start::Immediate });
+        }
+        Ok(true)
+    }
 }
+
+/// Group codes for an activator's Open and Close sequences when the bytecode table has
+/// no code spelt so ([`Game::set_ref_open`]) [design: out of the range of the table's
+/// codes].
+pub const OPEN_GROUP: u16 = 0xFF00;
+pub const CLOSE_GROUP: u16 = 0xFF01;
 
 /// The group parameter: a bare code (as compiled), or a number.
 fn group_code(a: &Args, i: usize) -> Option<u16> {

@@ -48,6 +48,12 @@ pub fn bright() -> Color {
     compose_screen(Color::srgb_u8(54, 252, 150), None)
 }
 
+/// An entry already read, under the Grey Read Notes tweak: the text's green at about half
+/// its strength [design: docs/design/tweaks.md].
+pub fn read_green() -> Color {
+    compose_screen(Color::srgb_u8(27, 126, 75), None)
+}
+
 /// [design] The solid fills (blocks, lit cells, the cursor, the separator, the chosen
 /// row's box) lie above the scanlines, and the text on them above the fills: on the
 /// original the fills keep their green through the scanlines' troughs (253 to 255 while
@@ -268,7 +274,7 @@ pub fn load_faces(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool)
     }
     let (text, lit) = soft.unwrap_or_else(|| {
         let hard = face(FONT, plain_font(25.0, CHAR), data, images, bc);
-        let lit = Face { font: hard.font.clone(), image: hard.image.clone() };
+        let lit = Face { font: hard.font.clone(), image: hard.image.clone(), vector: hard.vector.clone() };
         (hard, lit)
     });
     let (scanlines, scan_kept) = data.and_then(|d| scanline_image(d, images)).map_or((None, 1.0), |(image, kept)| (Some(image), kept));
@@ -418,11 +424,17 @@ fn blur(a: &mut [f32], w: usize, h: usize, sigma: f32, reach: usize) {
 /// dark text over a lit cell; the two share one layout.
 fn soft_faces(path: &str, data: &GameData, images: &mut Assets<Image>) -> Option<(Face, Face)> {
     let font = Font::parse(&data.read(&crate::interface::font_file(path))?).ok()?;
-    let bytes = data.read(&font.texture_path())?;
-    let dds = fnv_dds::Dds::parse(&bytes).ok()?;
-    let (w, h) = (dds.header.width, dds.header.height);
-    let top = dds.levels.first()?.first()?;
-    let rgba = fnv_dds::to_rgba8(dds.format, top).or_else(|| fnv_dds::decode_blocks(dds.format, w, h, top))?;
+    // The `.tex` before the `.dds`, as every font is drawn (interface::font_tex).
+    let (w, h, rgba) = match crate::interface::font_tex(&font, data) {
+        Some(t) => (t.width, t.height, t.rgba),
+        None => {
+            let bytes = data.read(&font.texture_path())?;
+            let dds = fnv_dds::Dds::parse(&bytes).ok()?;
+            let (w, h) = (dds.header.width, dds.header.height);
+            let top = dds.levels.first()?.first()?;
+            (w, h, fnv_dds::to_rgba8(dds.format, top).or_else(|| fnv_dds::decode_blocks(dds.format, w, h, top))?)
+        }
+    };
     let alpha: Vec<f32> = rgba.iter().skip(3).step_by(4).map(|&a| a as f32 / 255.0).collect();
     let mut bent = |ink: Color, under: Color| {
         let (ink, under) = (ink.to_srgba().green, under.to_srgba().green);
@@ -432,7 +444,7 @@ fn soft_faces(path: &str, data: &GameData, images: &mut Assets<Image>) -> Option
         image.asset_usage = bevy::asset::RenderAssetUsages::default();
         image.sampler = bevy::image::ImageSampler::linear();
         let size = Vec2::new(soft.width as f32, soft.height as f32);
-        Some(Face { font: soft.font, image: Some((images.add(image), size)) })
+        Some(Face { font: soft.font, image: Some((images.add(image), size)), vector: None })
     };
     let text = bent(bright(), GLASS_MIDDLE)?;
     let lit = bent(lit_text(), bright())?;
@@ -587,7 +599,8 @@ fn centred(p: &mut ChildSpawnerCommands, face: &Face, s: &str, width: f32, top: 
 
 /// Draw the screen into the picture `camera` renders; returns the menu's rows on the
 /// canvas, for the pointer.
-pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, game: &fnv_game::Game, cursor_on: bool) -> Vec<(usize, Rect)> {
+/// `read`: the entries drawn dimmer (the Grey Read Notes tweak on).
+pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, game: &fnv_game::Game, cursor_on: bool, read: Option<&super::ReadEntries>) -> Vec<(usize, Rect)> {
     let mut rows = Vec::new();
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((ScreenRoot, root, UiTargetCamera(camera), Name::new("Terminal screen"))).with_children(|c| {
@@ -602,7 +615,7 @@ pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &S
         match &session.page {
             Page::Hacking(h) => hacking_page(c, &faces.text, &faces.lit, h, cursor_on),
             Page::LockedOut(lines) => lockout_page(c, &faces.text, lines),
-            Page::Menu(m) => menu_page(c, &faces.text, &faces.lit, m, game, cursor_on, &mut rows),
+            Page::Menu(m) => menu_page(c, &faces.text, &faces.lit, m, game, cursor_on, &mut rows, read),
         }
         // [design] Over everything on the canvas, under the monitor's glare (§2, §7).
         if let Some(lines) = &faces.scanlines {
@@ -690,7 +703,8 @@ pub fn note_text(n: Option<&NoteDef>) -> String {
     }
 }
 
-fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, rows: &mut Vec<(usize, Rect)>) {
+#[allow(clippy::too_many_arguments)]
+fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, rows: &mut Vec<(usize, Rect)>, read: Option<&super::ReadEntries>) {
     let bright = bright();
     let data = game.data;
     let Some(t) = data.terminals.get(&m.terminal) else { return };
@@ -756,7 +770,8 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
                             set_marked(b, lit_face, &line, 0.0, (LIST_ROW - LINE) / 2.0 + BASE, lit_text(), ON_FILLS);
                         }
                     } else {
-                        text(b, face, &s, 0.0, (LIST_ROW - LINE) / 2.0, bright);
+                        let was_read = read.zip(m.items.get(row)).is_some_and(|(r, &item)| r.has(m.terminal, item));
+                        text(b, face, &s, 0.0, (LIST_ROW - LINE) / 2.0, if was_read { read_green() } else { bright });
                     }
                 });
             }
@@ -871,7 +886,7 @@ mod tests {
         let mut glyphs = vec![Glyph::default(); 256];
         glyphs[65] = Glyph { uv: [0.0, 0.0, 0.5, 0.5], width: 2.0, height: 2.0, before: 1.0, after: 1.0, ascent: 2.0 };
         glyphs[66] = Glyph { uv: [0.5, 0.5, 1.0, 1.0], width: 2.0, height: 2.0, before: 0.0, after: 3.0, ascent: 1.0 };
-        let font = Font { size: 4.0, texture: String::new(), glyphs };
+        let font = Font { size: 4.0, texture: String::new(), glyphs, extra: Default::default() };
         let mut alpha = vec![0.0; 16];
         for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1), (2, 2), (3, 2), (2, 3), (3, 3)] {
             alpha[y * 4 + x] = 1.0;
@@ -904,7 +919,7 @@ mod tests {
     #[test]
     fn softened_glyphs_refuse_invalid_uvs_before_rounding() {
         use fnv_font::Glyph;
-        let mut font = Font { size: 4.0, texture: String::new(), glyphs: vec![Glyph::default(); 256] };
+        let mut font = Font { size: 4.0, texture: String::new(), glyphs: vec![Glyph::default(); 256], extra: Default::default() };
         // [design] Include slight excursions that rounding would otherwise hide,
         // non-finite edges, reversed ranges, and ranges collapsed by rounding.
         for uv in [
@@ -927,7 +942,7 @@ mod tests {
         // a 2 x 3 cut-out. Non-unit metric/texel ratios must also pad proportionally.
         let original = Glyph { uv: [1.25 / 8.0, 2.25 / 8.0, 3.25 / 8.0, 5.25 / 8.0], width: 3.0, height: 6.0, before: 1.0, after: 2.0, ascent: 5.0 };
         glyphs[65] = original;
-        let font = Font { size: 8.0, texture: String::new(), glyphs };
+        let font = Font { size: 8.0, texture: String::new(), glyphs, extra: Default::default() };
         let mut alpha = vec![0.0; 64];
         for y in 2..5 {
             alpha[y * 8 + 1] = 0.25;
@@ -958,7 +973,7 @@ mod tests {
                 alpha[y * 750 + i * 250..y * 750 + (i + 1) * 250].fill(coverage);
             }
         }
-        let font = Font { size: 4.0, texture: String::new(), glyphs };
+        let font = Font { size: 4.0, texture: String::new(), glyphs, extra: Default::default() };
         let soft = soften(&font, &alpha, 750, 4, SOFT_SIGMA, |a| a).expect("wrapped shelf");
         let origins: Vec<_> = (65..68).map(|code| {
             let g = soft.font.glyphs[code];
@@ -969,8 +984,8 @@ mod tests {
         // next shelf must produce exactly the same cell, including its empty border.
         for (i, &(x0, y0)) in origins.iter().enumerate() {
             let mut solo = font.clone();
-            for code in 65..68 {
-                if code != 65 + i { solo.glyphs[code] = Glyph::default(); }
+            for (k, g) in solo.glyphs[65..68].iter_mut().enumerate() {
+                if k != i { *g = Glyph::default(); }
             }
             let single = soften(&solo, &alpha, 750, 4, SOFT_SIGMA, |a| a).unwrap();
             let height = [1, 4, 2][i] + 2 * SOFT_PAD;

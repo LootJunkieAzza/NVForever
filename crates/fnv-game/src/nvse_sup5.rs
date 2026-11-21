@@ -147,7 +147,7 @@ fn json_file(g: &Game, path: &str) -> Result<serde_json::Value, i32> {
 }
 
 /// A file's time: 0 created, 1 last read, 2 last written [documented: GetFileTime].
-fn file_time(g: &Game, path: &str, request: f64) -> Option<chrono::DateTime<chrono::Local>> {
+fn file_time(g: &Game, path: &str, request: f64) -> Option<jiff::ZonedDateTime> {
     let (_, disk) = g.mod_files.root_file(&safe_path(path)?)?;
     let m = std::fs::metadata(disk?).ok()?;
     let t = match request as i32 {
@@ -157,7 +157,7 @@ fn file_time(g: &Game, path: &str, request: f64) -> Option<chrono::DateTime<chro
         _ => return None,
     }
     .ok()?;
-    Some(t.into())
+    Some(jiff::Timestamp::try_from(t).ok()?.to_zoned_datetime(crate::local_time::system_zone()))
 }
 
 pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
@@ -177,15 +177,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(if save_book(g, &path, &b) { 1.0 } else { -1.0 })
         }
         // `file sheet row col`: the number in the cell, the text [documented:
-        // ExcelReadFloat, ExcelReadString]; -1 for a missing file [documented]; an empty
-        // cell 0 and "", a text cell's number 0 and a number cell's text "", a missing
-        // file's text "" [hypothesis].
+        // ExcelReadFloat, ExcelReadString]; -1 for a missing file [documented], the
+        // number -1 from ReadString too [observed: sup5 xl.missing.string, a runtime
+        // error where `%z` was given it]; an empty cell 0 and "" [hypothesis], a text
+        // cell's number 0 and a number cell's text "" [observed: sup5 xl.cross].
         "excelreadfloat" | "excelreadstring" | "excelgetcellvaluetype" => {
             let book = xls_path(args).ok_or(()).and_then(|p| load_book(g, &p));
             let cell = book.as_ref().ok().and_then(|b| b.sheets.get(index(args, 1)?)).and_then(|s| s.cells.get(&cell_at(args, 2)?));
             match (name, &book, cell) {
-                ("excelreadstring", _, c) => XVal::Str(c.map(Cell::text).unwrap_or_default()),
                 (_, Err(()), _) => minus,
+                ("excelreadstring", _, c) => XVal::Str(c.map(Cell::text).unwrap_or_default()),
                 ("excelreadfloat", _, c) => XVal::Num(c.map_or(0.0, Cell::number)),
                 // [documented: ExcelGetCellValueType, 0 UNDEFINED for an empty cell].
                 (_, _, c) => XVal::Num(f64::from(c.map_or(0, Cell::kind))),
@@ -221,14 +222,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `file sheet [name]`: renames the sheet, cut to 31 characters, and returns the
         // name; without a name returns it [documented: ExcelSetSheetName]. A missing file
-        // or sheet gives "" [hypothesis: the page's -1 is a number; this returns text].
+        // gives the number -1 [documented]; a missing sheet too, and a rename returns a
+        // number, 1 [hypothesis: sup5 xl.missing.sheet and xl.rename stopped at a runtime
+        // error in the original where `%z` was given the return, as xl.missing.string].
         "excelsetsheetname" => {
-            let Some(path) = xls_path(args) else { return Some(Ok(XVal::Str(String::new()))) };
-            let Ok(mut b) = load_book(g, &path) else { return Some(Ok(XVal::Str(String::new()))) };
-            let Some(i) = index(args, 1).filter(|&i| i < b.sheets.len()) else { return Some(Ok(XVal::Str(String::new()))) };
+            let Some(path) = xls_path(args) else { return Some(Ok(minus)) };
+            let Ok(mut b) = load_book(g, &path) else { return Some(Ok(minus)) };
+            let Some(i) = index(args, 1).filter(|&i| i < b.sheets.len()) else { return Some(Ok(minus)) };
             if let Some(n) = text(args, 2) {
                 b.sheets[i].name = n.chars().take(MAX_SHEET_NAME).collect();
-                save_book(g, &path, &b);
+                return Some(Ok(XVal::Num(if save_book(g, &path, &b) { 1.0 } else { -1.0 })));
             }
             XVal::Str(b.sheets[i].name.clone())
         }
@@ -290,8 +293,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `file key cached`: the key's value as an array [documented: JSONGetValue
         // "JSONValue:array_var"]: an object or list as itself, any other value in a
         // one-element list [hypothesis]. cached: the file read once and kept for later
-        // cached calls [hypothesis: the parameter's name]. No such key or file: no
-        // array [hypothesis].
+        // cached calls [hypothesis: the parameter's name]. A missing file gives a
+        // one-element list whatever the key [observed: sup5 json.name … json.missing,
+        // size 1, its element read as empty text by `%z`: ""]; a missing key in a file
+        // no array [hypothesis].
         "jsongetvalue" => {
             let path = text(args, 0).unwrap_or_default();
             let key = text(args, 1).unwrap_or_default();
@@ -301,7 +306,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 Some(v) => Some(v.clone()),
                 None => json_file(g, &path).ok(),
             };
-            let Some(root) = root else { return Some(Ok(zero)) };
+            let Some(root) = root else { return Some(Ok(list(g, vec![XVal::Str(String::new())]))) };
             if cached {
                 g.mod_files.json.insert(ck, root.clone());
             }
@@ -323,7 +328,6 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // session-only write or a request outside 0-2 gives an empty array [hypothesis].
         "getfiletime" => {
             let t = file_time(g, &text(args, 0).unwrap_or_default(), num(args, 1, 0.0));
-            use chrono::{Datelike, Timelike};
             let items = t.map(|t| [f64::from(t.year()), f64::from(t.month()), f64::from(t.day()), f64::from(t.hour()), f64::from(t.minute()), f64::from(t.second())].map(XVal::Num).to_vec()).unwrap_or_default();
             list(g, items)
         }
@@ -332,7 +336,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getfiletimestr" => {
             let t = file_time(g, &text(args, 0).unwrap_or_default(), num(args, 1, 0.0));
             let fmt = if num(args, 2, 0.0) as i32 == 1 { "%m/%d/%y %H:%M" } else { "%d/%m/%y %H:%M" };
-            XVal::Str(t.map(|t| t.format(fmt).to_string()).unwrap_or_default())
+            XVal::Str(t.map(|t| t.strftime(fmt).to_string()).unwrap_or_default())
         }
         // The load order into SUPNVSE.log in the game's folder [documented: DumpLoadOrder]
         // (NVForever's copy of it, appended to this session's lines): one line a plugin,
@@ -424,13 +428,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // design of its own; follow-up in ext-sup5.md] nothing is written.
         "drawgraphicstoddstextureandsave" => zero,
         // `file text [convert]`: a PNG of the text's QR code, "<file>.png", the folders
-        // made [documented: TextToQRCode]; under the game's folder, 10 pixels a module
-        // [hypothesis]. The text is written as UTF-8 either way (NVForever's strings are
+        // made [documented: TextToQRCode]; under the game's folder [observed: sup5
+        // qr.where], as `image_files::qr_png`. The text is written as UTF-8 either way (NVForever's strings are
         // Unicode already).
         "texttoqrcode" => {
             let (Some(file), Some(t)) = (text(args, 0).and_then(|f| safe_path(&f)), text(args, 1)) else { return Some(Ok(zero)) };
             let path = if file.to_ascii_lowercase().ends_with(".png") { file } else { format!("{file}.png") };
-            if let Some(bytes) = crate::image_files::qr_rgba(&t, 10).and_then(|(side, px)| crate::image_files::png(side, side, &px)) {
+            if let Some(bytes) = crate::image_files::qr_png(&t) {
                 g.mod_files.write_root_bytes(&path, &bytes);
             }
             zero

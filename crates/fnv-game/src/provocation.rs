@@ -39,14 +39,29 @@
 //!   itself an ally or friend of that actor. It holds a grudge as an assaulted actor does
 //!   and is alarmed at the attacker's position. Actors sharing a faction, or placed from
 //!   the same base form, count as allies [engineering choice, as `would_attack` never
-//!   lets them fight each other].
+//!   lets them fight each other]. Only a fight the ally did not start alone is taken
+//!   up: not one a script gave it (StartCombat) against a player who has not hit it and
+//!   whom it would leave alone otherwise (`Game::unprovoked_scripted_fight`; no alarm
+//!   either, `crate::combat_group`) [hypothesis: Assistance answers an ally being
+//!   attacked; the Silver Rush intro's customer is made to run out by his StartCombat and
+//!   only his OnHit player sets the Van Graffs against the player, #2520; observer-checks
+//!   question 180]. The player is helped too (#2794) [hypothesis: whether Assistance
+//!   counts the player as an ally to help is not documented; the maintainer expects it]:
+//!   whoever is in a combat state with the player on its target list is fought by a
+//!   watcher that detects the player and whose Assistance covers its reaction to the
+//!   player, with the checks above, unless it is after the player itself (a crime, a
+//!   grudge, a StartCombat, the player on its target list); the player's teammates keep their own rule
+//!   (`crate::followers`). The scripted-fight rule does not keep them out: it concerns the
+//!   allies of the actor a script set on the player, and the player is the one attacked
+//!   (the Legate's camp Securitrons, PlayerFaction allies, against General Oliver, set on
+//!   the player by `StartCombat player`; observer-checks question 217).
 //! - **Cowards stay out** [documented: GECK wiki Confidence, "Cowardly … I will always
 //!   flee from combat"; owner's playtest list 4, item 14: confidence and aggression must
 //!   override the helps-allies join]: an actor whose Confidence is Cowardly never takes up
-//!   another's fight, by assistance here or by an alarm (`crate::combat_group`); it
-//!   still fights whom its own records make it attack, and whoever attacks it. Avoiding
-//!   the fight (running from it) is not built (combat-ai.md §11, "Avoiding threats out of
-//!   combat") [design: Unaggressive alone does not keep a helper out; the wiki's
+//!   another's fight, by assistance here or by an alarm (`crate::combat_group`). In a
+//!   fight of its own it flees from the start (`Game::always_flees`, #2520). Avoiding a
+//!   fight before it starts (running from a threat out of combat) is not built
+//!   (combat-ai.md §11, "Avoiding threats out of combat") [design: Unaggressive alone does not keep a helper out; the wiki's
 //!   Unaggressive only says whom an actor might avoid].
 //! - **A danger to itself** [design: owner's playtest list 5 item 35, "Sunny and her dog
 //!   should fight as soon as the geckos aggro on the player"]: an actor that detects an
@@ -57,17 +72,38 @@
 //!   between other actors are left to assistance and alarms (above, and
 //!   `crate::combat_group`): with this rule there too, every NCR trooper near Cook-Cook's
 //!   camp took the fight up on its own and fewer alarmed the others.
-//! - **Escorts** [documented: GECK wiki Defensive Combat, "The exception is for the
-//!   Accompany, Escort and Follow packages … if the target is attacked, the actor will
-//!   join into the combat"]: an actor whose current package is Escort takes up the fight
-//!   of the one it escorts (the package's target) against everyone attacking it: actors
-//!   in a combat state with the charge on their target list, and whoever hurt it. Its
-//!   Assistance does not matter; it never fights its own allies or friends, and a coward
-//!   stays out. Choices [hypothesis]: the escort must at least notice its charge (band
-//!   Noticed or Detected); a fight the charge starts is joined only once the foe
-//!   fights back; a charge that provoked the attacker is still helped; it holds for the
-//!   whole package, also once at the destination; the player's teammates are left to
-//!   `crate::followers`. Follow and Accompany (the same exception) are not built here.
+//! - **Escorts** [documented: GECK wiki Category:Packages, Defensive Combat, "The
+//!   exception is for the Accompany, Escort and Follow packages. For these three, if the
+//!   target is attacked, the actor will join into the combat"]: an actor whose current
+//!   package is Accompany, Escort or Follow ([`CHARGE_PACKAGES`]; "escort" below for all
+//!   three) takes up the fight of its charge (the package's target) against everyone
+//!   attacking it: actors in a combat state with the charge on their target list, and
+//!   whoever hurt it. Its Assistance does not matter; it never fights its own allies or
+//!   friends, and a coward stays out. It starts no fight of its own: with Defensive
+//!   Combat it still attacks nobody on sight (`Game::hostility`). Choices [hypothesis]:
+//!   the escort must at least notice its charge (band Noticed or Detected); a fight the
+//!   charge starts is joined only once the foe fights back; a charge that provoked the
+//!   attacker is still helped; it holds for the whole package, also once at the
+//!   destination; the player's teammates are left to `crate::followers` (#2793: the
+//!   Hoover Dam escort Securitron, on a Defensive Combat Follow package, never fought the
+//!   Legion attacking the player).
+//!
+//! - **An Evil faction's area** [design: owner decision 2026-11-13 on #1538, "attacking
+//!   the fiends should alert all fiends in the area that you are to be attacked";
+//!   docs/design/combat-ai.md §10.3.1]: when the player attacks (hits or kills) a member of
+//!   a faction flagged Evil, every member of that faction in the area turns on the
+//!   player at once, whether or not it saw the attack: it holds a grudge against the
+//!   player and is alarmed at the player's position. The area is the loaded cells: the
+//!   victim's own cell when that is an interior, else the exterior within
+//!   [`crate::combat_group::ALARM_RADIUS`] of the victim. A faction that tracks crime
+//!   also makes the player its enemy from then on (`Game::crime_enemy`), so its members
+//!   elsewhere are hostile too. Before this an ally's first hits were tolerated,
+//!   assistance never fought the helper's own ally, and an Evil victim's kill was no
+//!   murder for witnesses (`crate::crime`), so the Fiends of Vault 3, allied by its
+//!   door script's SetAlly, never turned [observed: FalloutNV.esm SCPT 0x000F2DF5;
+//!   FiendsFactionNV flagged Hidden, Evil, Track Crime]. Not when the victim is already
+//!   fighting someone else (a stray hit in a shared fight, as the owner's exception
+//!   above), and not the player's teammates.
 //!
 //! A grudge ends when its holder goes back to Normal, on StopCombat, and on an accepted
 //! yield. Hits by actors other than the player go to `Game::attacked_by_actor`
@@ -75,8 +111,9 @@
 
 use crate::awareness::{Cause, State};
 use crate::detection::Band;
-use crate::functions::actor::{actor_value, faction_relation};
+use crate::functions::actor::{actor_value, faction_relation, factions_of};
 use crate::game::Game;
+use crate::package::PackageType;
 use fnv_sim::FormId;
 use std::collections::{BTreeMap, HashMap};
 
@@ -84,6 +121,10 @@ const ASSISTANCE: u16 = crate::actor_values::ASSISTANCE;
 
 /// Whom an actor fights, and where each was last known to be.
 type Foes = Vec<(FormId, [f32; 3])>;
+
+/// The package types whose actor takes up its target's fights (module notes, "Escorts")
+/// [documented: GECK wiki Category:Packages, Defensive Combat].
+pub const CHARGE_PACKAGES: [PackageType; 3] = [PackageType::Accompany, PackageType::Escort, PackageType::Follow];
 
 /// Faction combat reactions [documented: GECK wiki GetFactionCombatReaction].
 pub const NEUTRAL: i64 = 0;
@@ -182,6 +223,16 @@ pub enum Note {
     AggroAttacks { actor: FormId, distance: f64, radius: f64 },
     /// `helper` stays out of `victim`'s fight: its confidence is Cowardly (module notes).
     StaysOut { helper: FormId, victim: FormId },
+    /// The player attacked `victim`, of the Evil faction `faction`: `alerted` of its
+    /// members in the area turn on the player (module notes, "An Evil faction's area"),
+    /// each noted before as [`Note::Alerted`].
+    AreaAlert { victim: FormId, faction: FormId, alerted: u32 },
+    /// `actor` turns on the player, who attacked `victim` of its Evil faction.
+    Alerted { actor: FormId, victim: FormId },
+    /// `victim`'s allies stay out of its fight against `foe`: a script gave it the fight
+    /// and `foe` (the player) did not provoke it (module notes, "Assistance"); noted once
+    /// per pair.
+    Unprovoked { victim: FormId, foe: FormId },
 }
 
 /// The grudges, friendly hits and forgiveness of every actor. The grudges and the
@@ -206,6 +257,9 @@ pub struct Provocations {
     pub aggro_inside: std::collections::BTreeSet<FormId>,
     /// (helper, victim) pairs whose staying out was noted ([`Note::StaysOut`], once).
     pub stayed_out: std::collections::BTreeSet<(FormId, FormId)>,
+    /// (victim, foe) pairs whose unprovoked scripted fight was noted ([`Note::Unprovoked`],
+    /// once).
+    pub unprovoked: std::collections::BTreeSet<(FormId, FormId)>,
 }
 
 impl Provocations {
@@ -290,6 +344,17 @@ impl Game<'_> {
         cowardly
     }
 
+    /// Whether `victim`'s allies leave its fight against `foe` alone (module notes,
+    /// "Assistance": a scripted fight against a player who did not provoke it); the first
+    /// time for the pair it is noted ([`Note::Unprovoked`]).
+    pub fn allies_stay_out(&mut self, victim: FormId, foe: FormId) -> bool {
+        let out = self.unprovoked_scripted_fight(victim, foe);
+        if out && self.provocations.unprovoked.insert((victim, foe)) {
+            self.provocations.notes.push(Note::Unprovoked { victim, foe });
+        }
+        out
+    }
+
     /// `actor` was hit by `by` (and lives): it may turn on `by` (module notes). Returns
     /// whether it now holds a grudge it did not hold before. The engine calls this for
     /// every hit before [`Game::hurt_by`], which then alarms the actor.
@@ -310,7 +375,9 @@ impl Game<'_> {
         let state = self.awareness.state(actor);
         let in_combat = state.in_combat();
         let relation = self.reaction_to(actor, by);
+        let area = self.evil_area_alert(actor);
         let hits = match relation {
+            _ if area => 1,
             ALLY | FRIEND => {
                 if self.extra.get(&actor).is_some_and(|e| e.ignore_friendly_hits) {
                     self.provocations.notes.push(Note::Ignored { actor, by, why: "it ignores friendly hits" });
@@ -348,6 +415,55 @@ impl Game<'_> {
         self.provocations.notes.push(Note::Assaulted { actor, by, relation, hits });
         self.player_assaulted(actor);
         self.detection_bark(actor, Some(by), "Assault");
+        true
+    }
+
+    /// The player attacked `victim` (a hit, or the kill, `Game::player_kills`): when it is
+    /// in a faction flagged Evil, every member of that faction in the area turns on the
+    /// player (module notes, "An Evil faction's area"). Returns whether the rule applied
+    /// (the victim is such a member and was not fighting someone else).
+    pub fn evil_area_alert(&mut self, victim: FormId) -> bool {
+        use crate::crime::faction_flags::{EVIL, TRACK_CRIME};
+        let flags = |g: &Game, f: FormId| g.data.faction_flags.get(&f).copied().unwrap_or(0);
+        let evil: Vec<FormId> = factions_of(self, victim).into_iter().filter(|&f| flags(self, f) & EVIL != 0).collect();
+        if evil.is_empty() || self.is_teammate(victim) {
+            return false;
+        }
+        // A stray hit in a fight the victim has with someone else.
+        if self.awareness.get(victim).is_some_and(|a| a.state == State::Combat && a.combat_target().is_some_and(|(t, _)| t != FormId::PLAYER_REF)) {
+            return false;
+        }
+        let cell = self.cell_of(victim);
+        let indoors = cell.is_some_and(|c| !crate::functions::fo3::exterior(self, c));
+        let hearers = self.alarm_hearers(&BTreeMap::new());
+        let victim_at = hearers.get(&victim).copied().or_else(|| self.world.peek(victim).map(|s| s.pos)).unwrap_or_default();
+        let player_at = self.world.peek(FormId::PLAYER_REF).map_or(victim_at, |s| s.pos);
+        let now = self.time;
+        let t = self.awareness.timers.unwrap_or_default();
+        for faction in evil {
+            let mut alerted = 0;
+            for (&m, &at) in &hearers {
+                if m == FormId::PLAYER_REF || m == victim || self.is_dead(m) || !self.present(m) || self.is_teammate(m) || self.combat_disabled(m) {
+                    continue;
+                }
+                let near = if indoors {
+                    self.cell_of(m) == cell
+                } else {
+                    self.cell_of(m).is_some_and(|c| crate::functions::fo3::exterior(self, c)) && (at[0] - victim_at[0]).hypot(at[1] - victim_at[1]) <= crate::combat_group::ALARM_RADIUS
+                };
+                if !near || !factions_of(self, m).contains(&faction) || self.provocations.holds(m, FormId::PLAYER_REF) {
+                    continue;
+                }
+                self.provocations.grudges.insert((m, FormId::PLAYER_REF), Grudge { why: Why::Assist { victim }, since: now });
+                self.awareness.actors.entry(m).or_default().alarm(FormId::PLAYER_REF, player_at, 0.0, Cause::Ally, now, &t);
+                self.provocations.notes.push(Note::Alerted { actor: m, victim });
+                alerted += 1;
+            }
+            if flags(self, faction) & TRACK_CRIME != 0 {
+                self.make_player_enemy_of(faction);
+            }
+            self.provocations.notes.push(Note::AreaAlert { victim, faction, alerted });
+        }
         true
     }
 
@@ -390,7 +506,7 @@ impl Game<'_> {
     /// Allies of actors in a fight take it up (module notes): called after a round of
     /// measurements, before [`Game::settle_awareness`]. Returns how many joined.
     pub fn call_allies(&mut self) -> usize {
-        let fights: Vec<(FormId, Foes)> = self
+        let mut fights: Vec<(FormId, Foes)> = self
             .awareness
             .actors
             .iter()
@@ -406,6 +522,20 @@ impl Game<'_> {
             })
             .filter(|(_, f)| !f.is_empty())
             .collect();
+        // The player as the one attacked (module notes, "Assistance", #2794): it has no
+        // entry above, so its foes are gathered as `Game::teammates_assist` gathers them,
+        // at their positions.
+        let pos = |g: &Game, r: FormId| g.world.peek(r).map(|s| s.pos).or_else(|| g.world.placed.get(r).map(|p| p.pos));
+        let player_foes: Foes = self
+            .awareness
+            .actors
+            .iter()
+            .filter(|(id, a)| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF) && !self.is_teammate(**id))
+            .filter_map(|(id, _)| pos(self, *id).map(|p| (*id, p)))
+            .collect();
+        if !player_foes.is_empty() {
+            fights.push((FormId::PLAYER_REF, player_foes));
+        }
         let mut joined = 0;
         // Who perceives whom (detected, seen or heard), in one pass over the pairs, each
         // victim's watchers in the pairs' order [engineering choice: one scan per victim
@@ -424,10 +554,26 @@ impl Game<'_> {
         // a 50-a-side battle's measurement: ~12,000 asks for ~2,500 pairs [observed
         // 2026-11-07, #1799].
         let mut attacks: HashMap<(FormId, FormId), bool> = HashMap::new();
-        for (victim, foes) in fights {
+        for (victim, mut foes) in fights {
+            foes.retain(|&(foe, _)| !self.allies_stay_out(victim, foe));
+            if foes.is_empty() {
+                continue;
+            }
             let watchers = watching.get(&victim).cloned().unwrap_or_default();
             for helper in watchers {
-                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) {
+                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.combat_disabled(helper) {
+                    continue;
+                }
+                // The player's teammates take up its fights by their own rule
+                // (`Game::teammates_assist`).
+                if victim == FormId::PLAYER_REF && self.is_teammate(helper) {
+                    continue;
+                }
+                // Nobody helps the player while it is after the player itself: a crime of
+                // the player's against it, a grudge, a StartCombat on the player
+                // (`Game::would_attack`), or the player on its own target list; its faction
+                // reaction may still say Ally or Friend [design, #2794].
+                if victim == FormId::PLAYER_REF && (self.would_attack(helper, FormId::PLAYER_REF) || self.awareness.get(helper).is_some_and(|a| a.targets.contains_key(&FormId::PLAYER_REF))) {
                     continue;
                 }
                 let assistance = match assistance_of.get(&helper) {
@@ -480,8 +626,9 @@ impl Game<'_> {
         joined + self.teammates_assist()
     }
 
-    /// An actor running an Escort package takes up its charge's fights (module notes,
-    /// "Escorts"; docs/spec-notes/packages.md §3.1): for each actor attacking the charge
+    /// An actor running an Accompany, Escort or Follow package ([`CHARGE_PACKAGES`]) takes
+    /// up its charge's fights (module notes, "Escorts"; docs/spec-notes/packages.md §3.1):
+    /// for each actor attacking the charge
     /// (in a combat state with the charge on its target list, or having hurt it), the
     /// escort holds a grudge and is alarmed at the attacker's position, as an assisting
     /// ally is. Returns how many joined.
@@ -491,14 +638,14 @@ impl Game<'_> {
             .iter()
             .filter_map(|(id, e)| {
                 let def = self.package_def(&e.current_package?)?;
-                (def.ty == crate::package::PackageType::Escort).then_some((*id, def))
+                CHARGE_PACKAGES.contains(&def.ty).then_some((*id, def))
             })
             .filter_map(|(id, def)| self.package_target(id, def).map(|t| (id, t)))
             .filter(|(id, charge)| id != charge)
             .collect();
         let mut joined = 0;
         for (escort, charge) in escorts {
-            if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) {
+            if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) || self.combat_disabled(escort) {
                 continue;
             }
             // It must at least notice its charge [hypothesis: an escort keeps track of the
@@ -588,7 +735,7 @@ impl Game<'_> {
                 if victim != FormId::PLAYER_REF && helper != victim {
                     continue;
                 }
-                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat {
+                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat || self.combat_disabled(helper) {
                     continue;
                 }
                 if self.provocations.holds(helper, attacker) || self.would_attack(helper, attacker) || !self.would_attack(attacker, helper) {
@@ -615,9 +762,25 @@ impl Game<'_> {
 
 /// `actor.GetFriendHit target`: the friendly hits `target` made on the actor that still
 /// count [documented: GECK wiki GetFriendHit, Friendly Fire].
+///
+/// In a parameterless CTDA condition (function index 288, empty CTDA parameter list in
+/// `FalloutNV.esm`, e.g. dialogue INFOs with `GetFriendHit > 0`), the implicit attacker
+/// is the condition's target (`Game::condition_target`, or `0` when absent) [hypothesis:
+/// `eval_conditions` supplies the conversation/interaction target in `condition_target`,
+/// matching `Exists` in `functions::fighting`; native behavior when `target` is absent
+/// or differs from the player is unobserved]. Ordinary script calls still require an
+/// explicit actor argument (`a.form(0)?`).
 pub fn get_friend_hit(g: &mut Game, ctx: &crate::functions::Ctx, a: &crate::functions::Args) -> Result<fnv_script::vm::Value, String> {
     let r = ctx.subject()?;
-    Ok(fnv_script::vm::Value::Num(g.friend_hits(r, a.form(0)?) as f64))
+    let by = if ctx.in_condition && a.0.is_empty() {
+        let Some(target) = g.condition_target else {
+            return Ok(fnv_script::vm::Value::ZERO);
+        };
+        target
+    } else {
+        a.form(0)?
+    };
+    Ok(fnv_script::vm::Value::Num(g.friend_hits(r, by) as f64))
 }
 
 /// `actor.GetAttacked`: 1 once someone attacked the actor, cleared when it drops out of

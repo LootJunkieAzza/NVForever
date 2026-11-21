@@ -50,10 +50,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `flags [npc]`: the ACBS flags' high 16 bits, the low ones kept [documented:
         // SetActorBaseFlagsHigh; GetActorBaseFlagsHigh reads the same bits].
         "setactorbaseflagshigh" => {
-            if let Some(b) = form(args, 1).or(subject).map(|f| base(g, f)) {
-                let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
-                let new = (flags & 0xFFFF) | ((num(args, 0, 0.0).max(0.0) as u64 & 0xFFFF) << 16);
-                g.field_overrides.insert((b, "ACBS/flags".into()), XVal::Num(new as f64));
+            if let Some(b) = form(args, 1).or(subject).map(|f| g.actor_flags_target(f)) {
+                g.set_actor_base_flags(b, true, (num(args, 0, 0.0).max(0.0) as u64 & 0xFFFF) as u16);
             }
             zero
         }
@@ -117,6 +115,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if let Some(q) = form(args, 0).filter(|q| g.data.quests.contains_key(q)) {
                 g.ui.active_quest = Some(q);
                 g.ui.active_quest_count += 1;
+            }
+            zero
+        }
+        // Two typed strings; preserve the text rather than parsing console tokens
+        // (docs/spec-notes/string-settings.md).
+        "setstringsetting" => {
+            let (Some(XVal::Str(name)), Some(XVal::Str(value))) = (args.first(), args.get(1)) else {
+                return Some(Err("SetStringSetting requires a setting name and string value".into()));
+            };
+            match g.world.setting_value(name) {
+                Some(fnv_sim::settings::Setting::Str(_)) => {
+                    if let Err(e) = g.world.change_setting(name, fnv_sim::settings::Setting::Str(value.clone())) {
+                        return Some(Err(e.to_string()));
+                    }
+                }
+                Some(_) => return Some(Err(format!("{name} is not a string setting"))),
+                None => return Some(Err(format!("No game setting {name}"))),
             }
             zero
         }

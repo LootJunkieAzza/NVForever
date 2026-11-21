@@ -21,10 +21,24 @@
 //! The render world answers through [`PipelineGate`], shared with the main world, so what
 //! the main world reads may be a frame or two old; a loading screen's settle time
 //! (`nvf_play::loading::SETTLE_SECS`) covers that, and pipelines asked for late.
+//! The pause menu uses the same counts through `pause_sample`, with its own fresh-frame
+//! settling and cap [design: nvf-play/graphics_resume.rs; pipeline portion of #1820].
 //!
 //! Test aid `NVF_PLAY_TEST_PIPELINE_LOG=1`: one log line for each pipeline when it is asked
 //! for and when it is ready or has failed for good, with its label and the time between.
-//! The sun's shadow pipelines ([`sun_shadow`]) say so in their `asked` line.
+//! The vendored bevy_render adds a `pipeline timing:` line for each, with where its time went
+//! (vendor/README.md; `pipeline_disk_cache.rs` has what they showed).
+//! `NVF_PLAY_TEST_PIPELINE_DEFS=1` adds a few fragment definitions to the `asked` line's
+//! pipeline, and `=all` every definition of both stages, the colour targets, the depth state
+//! and the sample count, to tell apart variants of one label.
+//! The sun's shadow pipelines ([`sun_shadow`]) say so in their `asked` line. A pipeline
+//! whose fragment stage has terrain height blending on (`TERRAIN_HEIGHT_BLEND`, terrain.rs
+//! "Height blending") also logs `terrain height blending pipeline <n> ready` (or `failed`)
+//! when it is done, for the smoke check that the variant compiled [design, #2550]. One
+//! with terrain anti-tiling (`TERRAIN_ANTI_TILING`, terrain.rs "Anti-tiling") logs
+//! `terrain anti-tiling pipeline <n> ready|failed: path=folded|separate height=on|off
+//! blend=on|off`, read from its own fragment definitions and colour
+//! targets (blend on: an alpha-blended layer draw) [design, #2551].
 //!
 //! **A travel's screen and the sun's shadows** (#1732). Twelve trips through new places took
 //! 15.4 s of screens with this wait against about 10 s without [observed: one launch], and
@@ -47,7 +61,7 @@ use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::shader::{ShaderCacheError, ShaderDefVal};
 use nvf_play::loading::PIPELINE_CAP_SECS;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::{Acquire, Relaxed, Release}};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -90,7 +104,7 @@ impl PipelineGate {
 
     /// Render frames finished so far. Before the first, nothing has asked for a pipeline.
     pub fn frames(&self) -> u32 {
-        self.0.frames.load(Relaxed)
+        self.0.frames.load(Acquire)
     }
 
     /// Have the next render frame log the labels of those still busy.
@@ -105,6 +119,8 @@ impl Plugin for PipelineGatePlugin {
     fn build(&self, app: &mut App) {
         let gate = PipelineGate::default();
         app.insert_resource(gate.clone());
+        app.init_resource::<nvf_play::graphics_resume::GraphicsResume>()
+            .add_systems(PreUpdate, pause_sample);
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.insert_resource(gate).add_systems(Render, count.in_set(RenderSystems::Cleanup));
             if std::env::var("NVF_PLAY_TEST_TRAVEL_SKIP_SUN_SHADOWS").is_ok_and(|v| v == "1") {
@@ -117,6 +133,11 @@ impl Plugin for PipelineGatePlugin {
             }
         }
     }
+}
+
+/// Pause resumes always include shadows, even under the travel-only test aid [design].
+fn pause_sample(gate: Res<PipelineGate>, mut resume: ResMut<nvf_play::graphics_resume::GraphicsResume>) {
+    resume.sample(gate.frames(), gate.busy(), gate.asked());
 }
 
 /// A pipeline the screen waits for: compiling, or to be tried again.
@@ -196,7 +217,8 @@ fn count(gate: Res<PipelineGate>, cache: Res<PipelineCache>, mut failed: Local<H
     gate.0.busy.store(busy, Relaxed);
     gate.0.asked.store(asked.len() as u32, Relaxed);
     gate.0.screen_busy.store(screen_busy, Relaxed);
-    gate.0.frames.fetch_add(1, Relaxed);
+    // Publish the counts before a reader accepts this as a fresh render frame [design].
+    gate.0.frames.fetch_add(1, Release);
     if gate.0.list_next.swap(false, Relaxed) {
         let waiting = cache.pipelines().enumerate().filter(|(i, p)| waited_for(&p.state) && !failed.contains(i));
         let mut labels: Vec<&str> = waiting.map(|(_, p)| label(&p.descriptor)).collect();
@@ -243,10 +265,24 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
                         let name: &str = match s {
                             bevy::shader::ShaderDefVal::Bool(s, _) | bevy::shader::ShaderDefVal::Int(s, _) | bevy::shader::ShaderDefVal::UInt(s, _) => s,
                         };
-                        matches!(name, "PIPBOY_SCREEN" | "ADD_LINEAR" | "FIRST_PERSON_DEPTH" | "HAS_PREVIOUS_SKIN" | "PREPASS_PIPELINE") || name.starts_with("BLEND_")
+                        matches!(name, "PIPBOY_SCREEN" | "ADD_LINEAR" | "FIRST_PERSON_DEPTH" | "HAS_PREVIOUS_SKIN" | "PREPASS_PIPELINE" | "TERRAIN_HEIGHT_BLEND" | "TERRAIN_ANTI_TILING" | "TERRAIN_SEPARATE") || name.starts_with("BLEND_")
                     };
                     let fragment: Vec<_> = d.fragment.iter().flat_map(|f| f.shader_defs.iter()).filter(interesting).collect();
                     info!("pipeline {i} shader-defs: {fragment:?}: {}", label(&p.descriptor));
+                    if std::env::var_os("NVF_PLAY_TEST_PIPELINE_DEFS").is_some_and(|v| v == "all") {
+                        let vertex: Vec<_> = d.vertex.shader_defs.iter().map(|s| format!("{s:?}")).collect();
+                        let fragment: Vec<_> = d.fragment.iter().flat_map(|f| f.shader_defs.iter()).map(|s| format!("{s:?}")).collect();
+                        info!(
+                            "pipeline {i} all: vertex {} fragment {} targets {:?} depth {:?} samples {} buffers {}: {}",
+                            vertex.join(","),
+                            fragment.join(","),
+                            d.fragment.as_ref().map(|f| &f.targets),
+                            d.depth_stencil,
+                            d.multisample.count,
+                            d.vertex.buffers.len(),
+                            label(&p.descriptor)
+                        );
+                    }
                 }
             }
         }
@@ -254,13 +290,84 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
             seen[i].1 = true;
             let how = if matches!(p.state, CachedPipelineState::Ok(_)) { "ready" } else { "failed" };
             info!("pipeline {i} {how} after {:.0} ms: {}", now.duration_since(seen[i].0).as_secs_f64() * 1000.0, label(&p.descriptor));
+            if height_blend_variant(&p.descriptor) {
+                info!("terrain height blending pipeline {i} {how}: {}", label(&p.descriptor));
+            }
+            if let Some(variant) = anti_tiling_variant(&p.descriptor) {
+                info!("terrain anti-tiling pipeline {i} {how}: {variant}: {}", label(&p.descriptor));
+            }
         }
     }
+}
+
+/// Whether a pipeline is a terrain height blending variant: its fragment stage has
+/// `TERRAIN_HEIGHT_BLEND` (terrain.rs `height_blend_def`).
+fn height_blend_variant(descriptor: &PipelineDescriptor) -> bool {
+    let PipelineDescriptor::RenderPipelineDescriptor(d) = descriptor else { return false };
+    d.fragment.iter().flat_map(|f| f.shader_defs.iter()).any(|s| matches!(s, ShaderDefVal::Bool(name, true) if name == "TERRAIN_HEIGHT_BLEND"))
+}
+
+/// For a terrain anti-tiling pipeline (its fragment stage has `TERRAIN_ANTI_TILING`,
+/// nvf_assets `terrain_sampling::anti_tiling_defs`), which one it is, from the same
+/// definitions: `path=folded|separate height=on|off`, and from its colour
+/// targets `blend=on|off` (on: a blended draw, a landscape layer over what lies under it).
+fn anti_tiling_variant(descriptor: &PipelineDescriptor) -> Option<String> {
+    let PipelineDescriptor::RenderPipelineDescriptor(d) = descriptor else { return None };
+    let has = |want: &str| d.fragment.iter().flat_map(|f| f.shader_defs.iter()).any(|s| matches!(s, ShaderDefVal::Bool(name, true) if name == want));
+    if !has("TERRAIN_ANTI_TILING") {
+        return None;
+    }
+    let blend = d.fragment.iter().flat_map(|f| f.targets.iter().flatten()).any(|t| t.blend.is_some());
+    Some(format!(
+        "path={} height={} blend={}",
+        if has("TERRAIN_SEPARATE") { "separate" } else { "folded" },
+        if has("TERRAIN_HEIGHT_BLEND") { "on" } else { "off" },
+        if blend { "on" } else { "off" }
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pause_bridge_requires_fresh_quiet_samples_and_includes_shadows() {
+        use nvf_play::graphics_resume::GraphicsResume;
+        let mut app = App::new();
+        let gate = PipelineGate::default();
+        app.insert_resource(gate.clone()).init_resource::<GraphicsResume>().add_systems(PreUpdate, pause_sample);
+        gate.0.frames.store(10, Relaxed);
+        gate.0.asked.store(20, Relaxed);
+        app.update();
+        let mut resume = app.world_mut().resource_mut::<GraphicsResume>();
+        resume.changed();
+        assert!(!resume.request(1.0));
+        assert!(resume.poll(2.0).is_none(), "the initial zero is stale");
+        gate.0.busy.store(2, Relaxed);
+        gate.0.skipped.store(2, Relaxed);
+        gate.0.asked.store(22, Relaxed);
+        gate.0.frames.store(11, Relaxed);
+        app.update();
+        assert_eq!(gate.busy_for_travel(), 0);
+        assert!(app.world_mut().resource_mut::<GraphicsResume>().poll(3.0).is_none());
+        gate.0.busy.store(0, Relaxed);
+        gate.0.frames.store(12, Relaxed);
+        app.update();
+        assert!(app.world_mut().resource_mut::<GraphicsResume>().poll(3.1).is_none());
+        gate.0.frames.store(15, Relaxed);
+        app.update();
+        let done = app.world_mut().resource_mut::<GraphicsResume>().poll(3.5).unwrap();
+        assert_eq!(done.pending, 0);
+        assert!(!done.capped);
+        app.world_mut().resource_mut::<GraphicsResume>().changed();
+        app.world_mut().resource_mut::<GraphicsResume>().request(4.0);
+        gate.0.busy.store(2, Relaxed);
+        gate.0.frames.store(16, Relaxed);
+        app.update();
+        let done = app.world_mut().resource_mut::<GraphicsResume>().poll(19.0).unwrap();
+        assert_eq!(done.pending, 2, "shadow pipelines count at the pause cap");
+        assert!(done.capped);
+    }
 
     #[test]
     fn asked_is_shared_with_the_main_world() {
@@ -300,6 +407,56 @@ mod tests {
         // What draws the scene or the screen, whatever its definitions.
         assert!(!sun_shadow(&prepass("pbr_opaque_mesh_pipeline", &ortho)));
         assert!(!sun_shadow(&prepass("ui_pipeline", &ortho)));
+    }
+
+    #[test]
+    fn a_height_blend_variant_is_known_by_its_fragment_definition() {
+        let main = |defs: &[&'static str]| {
+            PipelineDescriptor::RenderPipelineDescriptor(Box::new(bevy::render::render_resource::RenderPipelineDescriptor {
+                label: Some("pbr_opaque_mesh_pipeline".into()),
+                fragment: Some(bevy::render::render_resource::FragmentState { shader_defs: defs.iter().map(|d| ShaderDefVal::from(*d)).collect(), ..default() }),
+                ..default()
+            }))
+        };
+        assert!(height_blend_variant(&main(&["VERTEX_UVS_A", "TERRAIN_HEIGHT_BLEND"])));
+        assert!(!height_blend_variant(&main(&["VERTEX_UVS_A"])));
+        // In the vertex stage only (not where terrain.rs puts it): not one.
+        assert!(!height_blend_variant(&prepass("pbr_opaque_mesh_pipeline", &["TERRAIN_HEIGHT_BLEND"])));
+    }
+
+    #[test]
+    fn an_anti_tiling_variant_says_its_path_and_height_from_its_definitions() {
+        let main = |defs: &[&'static str]| {
+            PipelineDescriptor::RenderPipelineDescriptor(Box::new(bevy::render::render_resource::RenderPipelineDescriptor {
+                label: Some("pbr_opaque_mesh_pipeline".into()),
+                fragment: Some(bevy::render::render_resource::FragmentState { shader_defs: defs.iter().map(|d| ShaderDefVal::from(*d)).collect(), ..default() }),
+                ..default()
+            }))
+        };
+        assert_eq!(anti_tiling_variant(&main(&["VERTEX_UVS_A"])), None);
+        assert_eq!(anti_tiling_variant(&main(&["TERRAIN_HEIGHT_BLEND"])), None);
+        assert_eq!(anti_tiling_variant(&main(&["VERTEX_UVS_A", "TERRAIN_ANTI_TILING"])).as_deref(), Some("path=folded height=off blend=off"));
+        assert_eq!(anti_tiling_variant(&main(&["TERRAIN_HEIGHT_BLEND", "TERRAIN_ANTI_TILING"])).as_deref(), Some("path=folded height=on blend=off"));
+        assert_eq!(anti_tiling_variant(&main(&["TERRAIN_ANTI_TILING", "TERRAIN_SEPARATE"])).as_deref(), Some("path=separate height=off blend=off"));
+        // A blended layer draw says so (its colour target blends).
+        let blended = PipelineDescriptor::RenderPipelineDescriptor(Box::new(bevy::render::render_resource::RenderPipelineDescriptor {
+            label: Some("alpha_blend_mesh_pipeline".into()),
+            fragment: Some(bevy::render::render_resource::FragmentState {
+                shader_defs: ["TERRAIN_ANTI_TILING", "TERRAIN_SEPARATE"].iter().map(|d| ShaderDefVal::from(*d)).collect(),
+                targets: vec![Some(bevy::render::render_resource::ColorTargetState {
+                    format: bevy::render::render_resource::TextureFormat::Rgba16Float,
+                    blend: Some(bevy::render::render_resource::BlendState::ALPHA_BLENDING),
+                    write_mask: bevy::render::render_resource::ColorWrites::ALL,
+                })],
+                ..default()
+            }),
+            ..default()
+        }));
+        assert_eq!(anti_tiling_variant(&blended).as_deref(), Some("path=separate height=off blend=on"));
+        // Both on in one folded pipeline is also a height blending variant.
+        assert!(height_blend_variant(&main(&["TERRAIN_HEIGHT_BLEND", "TERRAIN_ANTI_TILING"])));
+        // In the vertex stage only: not one.
+        assert_eq!(anti_tiling_variant(&prepass("pbr_opaque_mesh_pipeline", &["TERRAIN_ANTI_TILING"])), None);
     }
 
     #[test]

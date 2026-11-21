@@ -73,8 +73,17 @@ impl AfterCombat {
 
 /// Whether a drawn, living actor in a combat state hunts the player.
 pub fn player_in_combat(g: &fnv_game::Game, living: &[(u32, [f32; 3])]) -> bool {
+    drawn_hunters(g, living) > 0
+}
+
+/// The drawn, living actors in a combat state that hunt the player (their target, or an
+/// alarm the player raised). An actor left in a cell that is no longer loaded keeps its
+/// combat state in the game's awareness table, so the whole table
+/// (`fnv_game::experience::hunters`) can count fighters the player left far behind; they
+/// would hold the level-up menu shut for good (#3030).
+pub fn drawn_hunters(g: &fnv_game::Game, living: &[(u32, [f32; 3])]) -> usize {
     let player = FormId::PLAYER_REF;
-    living.iter().any(|&(a, _)| g.awareness.get(FormId(a)).is_some_and(|w| w.state.in_combat() && (w.targets.contains_key(&player) || w.alarms.iter().any(|x| x.owner == player))))
+    living.iter().filter(|&&(a, _)| g.awareness.get(FormId(a)).is_some_and(|w| w.state.in_combat() && (w.targets.contains_key(&player) || w.alarms.iter().any(|x| x.owner == player)))).count()
 }
 
 fn watch(time: Res<Time>, state: Res<State<PlayState>>, script: Option<Res<ScriptState>>, actors: Option<Res<crate::hitvol::HitVolumes>>, mut after: ResMut<AfterCombat>) {

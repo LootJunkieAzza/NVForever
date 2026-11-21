@@ -53,6 +53,17 @@ impl SoundState {
         self.next_id
     }
 
+    /// A sound the game played itself at `source` in `frame`, for `seconds`: IsSoundPlaying
+    /// with that reference (or none) reads it as it reads a script's [observed: in-game
+    /// probe 2026-11-14 (#2541), `IsSoundPlaying FSTConcSolidWalkR <actor>` and
+    /// `FSTArmorPowerR` read 1 on walking actors' footfalls; the earlier hypothesis that
+    /// the game's own sounds are not counted is wrong for footsteps].
+    pub fn engine_played(&mut self, sound: FormId, source: FormId, frame: u64, seconds: f64) {
+        self.next_id = self.next_id.wrapping_add(1);
+        let until = Some(self.clock + seconds);
+        self.played.push(Played { id: self.next_id, sound, source: Some(source), frame, until, looping: false, stopped: None });
+    }
+
     /// The engine's word on sound `id`: it lasts `seconds`, or (`None`) it loops.
     pub fn heard(&mut self, id: u32, seconds: Option<f32>) {
         let clock = self.clock;
@@ -92,6 +103,11 @@ impl SoundState {
     /// the next and 1 from the one after; 1 in StopSound's frame, 0 from the next].
     fn playing(&self, p: &Played, frame: u64) -> bool {
         p.frame + 1 < frame && p.stopped.is_none_or(|f| f == frame) && p.until.is_none_or(|u| self.clock < u)
+    }
+
+    /// Whether any playing of `sound` counts as playing in `frame` ([`SoundState::playing`]).
+    pub fn is_playing(&self, sound: FormId, frame: u64) -> bool {
+        self.played.iter().any(|p| p.sound == sound && self.playing(p, frame))
     }
 }
 

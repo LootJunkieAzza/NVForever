@@ -23,6 +23,16 @@
 //!   at every distance. A fighter whose weapon does not work at its target's distance
 //!   holds the best weapon of its own class it carries that does. The weapon's own
 //!   projectile is read (an ammunition's projectile is not).
+//! - **Too close for its blast** (#2745: Boomers in the Nellis barracks stood with their
+//!   grenade launchers and let the player kill them): a fighter whose explosive weapon
+//!   does not fire because its target is inside the blast, with no weapon of its own
+//!   class that does, first steps back (the combat AI's own rule). Still too close after
+//!   [`CORNERED_SECONDS`] (the room left it no way back), it holds the best weapon of any
+//!   class it carries that fires there; with none, it puts the explosive weapon away and
+//!   fights with its fists. Once the target is clear of the blast again (by
+//!   [`RANGE_SLACK`], after [`RANGE_SWAP_SECONDS`]), or the fight is over, it holds the
+//!   explosive weapon again. A combat style with Ignore Damaging Self fires it anyway, so
+//!   it keeps it.
 //! - **Taking** ([`Game::take_leg`]): a weapon on the ground is picked up, one carried by
 //!   a dead actor taken from it (condition kept); ammunition is copied, one round, and
 //!   the source keeps its own ("npcs clone the ammo too, they dont take it from the
@@ -58,6 +68,20 @@ pub const RANGE_SLACK: f32 = 64.0;
 
 /// At least this long between two swaps for the target's distance, seconds [design].
 pub const RANGE_SWAP_SECONDS: f64 = 3.0;
+
+/// A fighter whose target stays inside its explosive weapon's blast this long, though it
+/// steps back, takes up another way to attack (module notes, "Too close"), seconds
+/// [design].
+pub const CORNERED_SECONDS: f64 = 2.0;
+
+/// What [`Game::take_up_for_distance`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeSwap {
+    /// It holds this weapon now.
+    Took(FormId),
+    /// It put this explosive weapon away and fights with its fists.
+    PutAway(FormId),
+}
 
 /// Copied ammunition: this many rounds [design: enough to make the gun usable, as NPCs
 /// spend none].
@@ -164,6 +188,12 @@ pub struct Rearms {
     pub next_look: BTreeMap<FormId, f64>,
     /// When each actor last swapped weapons for its target's distance (game time).
     pub range_swapped: BTreeMap<FormId, f64>,
+    /// Since when each actor's target has been inside its explosive weapon's blast, with
+    /// no weapon of its own class that fires there (game time; module notes, "Too close").
+    pub too_close_since: BTreeMap<FormId, f64>,
+    /// The explosive weapon each actor put away to fight with its fists, until its target
+    /// is clear of the blast or the fight is over.
+    pub put_away: BTreeMap<FormId, FormId>,
 }
 
 impl Rearms {
@@ -178,6 +208,7 @@ impl Rearms {
         self.given_up.remove(&actor);
         self.next_look.remove(&actor);
         self.range_swapped.remove(&actor);
+        self.too_close_since.remove(&actor);
     }
 }
 
@@ -266,8 +297,9 @@ impl Game<'_> {
         let units: Vec<(FormId, f32)> = {
             let inv = self.world.peek(actor).and_then(|s| s.inventory.as_ref())?;
             let mut best: BTreeMap<FormId, f32> = BTreeMap::new();
+            // A live unit (a planted explosive, `Extra::live`) is not its to hold (#1640).
             for (item, extra, n) in inv.groups() {
-                if n > 0 && !extra.broken() {
+                if n > 0 && !extra.broken() && !extra.live {
                     let c = best.entry(item).or_insert(0.0);
                     *c = c.max(extra.condition_or_whole());
                 }
@@ -292,7 +324,8 @@ impl Game<'_> {
     /// against its other carried weapons (Cook-Cook keeps his Incinerator over his Flamer,
     /// observed in the original, actors.md §9.3). Returns the weapon put in its hands.
     pub fn take_up_best_carried(&mut self, actor: FormId) -> Option<FormId> {
-        if self.held_rank(actor).is_some() {
+        // Fists by choice (module notes, "Too close"): not an empty hand to fill.
+        if self.held_rank(actor).is_some() || self.rearms.put_away.contains_key(&actor) {
             return None;
         }
         let (w, condition, _) = self.best_carried(actor)?;
@@ -310,7 +343,7 @@ impl Game<'_> {
     fn best_carried_unit(&mut self, actor: FormId, weapon: FormId) -> Option<(f32, Rank)> {
         let condition = {
             let inv = self.world.peek(actor).and_then(|s| s.inventory.as_ref())?;
-            inv.groups().filter(|(i, e, n)| *i == weapon && *n > 0 && !e.broken()).map(|(_, e, _)| e.condition_or_whole()).fold(None, |m: Option<f32>, c| Some(m.map_or(c, |m| m.max(c))))?
+            inv.groups().filter(|(i, e, n)| *i == weapon && *n > 0 && !e.broken() && !e.live).map(|(_, e, _)| e.condition_or_whole()).fold(None, |m: Option<f32>, c| Some(m.map_or(c, |m| m.max(c))))?
         };
         let ammo = self.accepted_ammo(weapon);
         let found = ammo.is_empty() || self.carries_any(actor, &ammo);
@@ -353,23 +386,74 @@ impl Game<'_> {
     /// `actor` fights a target `distance` away with a weapon that does not fire at that
     /// distance (a flamer at a far target, an incinerator at a near one): it holds the
     /// best weapon of its own class it carries that does, by [`RANGE_SLACK`], at most
-    /// every [`RANGE_SWAP_SECONDS`]. Returns the weapon put in its hands.
-    pub fn take_up_for_distance(&mut self, actor: FormId, distance: f32) -> Option<FormId> {
-        let (held, _) = self.held_weapon(actor)?;
-        if self.works_at(actor, held, distance, 0.0) || self.rearms.range_swapped.get(&actor).is_some_and(|t| self.time - t < RANGE_SWAP_SECONDS) {
+    /// every [`RANGE_SWAP_SECONDS`]. An explosive weapon with its target inside the blast
+    /// gives way to one of any class, or to the fists, after [`CORNERED_SECONDS`]; the
+    /// fists give way to it again once the target is clear (module notes, "Too close").
+    pub fn take_up_for_distance(&mut self, actor: FormId, distance: f32) -> Option<RangeSwap> {
+        let recently = self.rearms.range_swapped.get(&actor).is_some_and(|t| self.time - t < RANGE_SWAP_SECONDS);
+        let Some((held, _)) = self.held_weapon(actor) else {
+            // Its fists, for an explosive weapon put away: that again once it fires here.
+            let put = *self.rearms.put_away.get(&actor)?;
+            if recently || !self.works_at(actor, put, distance, RANGE_SLACK) {
+                return None;
+            }
+            self.rearms.put_away.remove(&actor);
+            let (condition, _) = self.best_carried_unit(actor, put)?;
+            return self.hold(actor, put, condition).then(|| {
+                self.rearms.range_swapped.insert(actor, self.time);
+                RangeSwap::Took(put)
+            });
+        };
+        if self.works_at(actor, held, distance, 0.0) {
+            self.rearms.too_close_since.remove(&actor);
+            return None;
+        }
+        if recently {
             return None;
         }
         let class = match self.actor_class(actor) {
             Some(c) => c,
             None => weapon_class(self.world.forms.item(held)?),
         };
+        if let Some(w) = self.best_working_carried(actor, held, distance, Some(class)) {
+            self.rearms.too_close_since.remove(&actor);
+            return Some(RangeSwap::Took(w));
+        }
+        // Too close for its explosive weapon's blast (not too far for its reach), with a
+        // style that minds its own blast.
+        let too_close = self.firing_band(actor, held).is_some_and(|(near, _)| near > 0.0 && distance < near)
+            && !self.combat_style(actor).is_some_and(|s| s.ignore_damaging_self);
+        if !too_close {
+            self.rearms.too_close_since.remove(&actor);
+            return None;
+        }
+        let now = self.time;
+        let since = *self.rearms.too_close_since.entry(actor).or_insert(now);
+        if now - since < CORNERED_SECONDS {
+            return None;
+        }
+        self.rearms.too_close_since.remove(&actor);
+        if let Some(w) = self.best_working_carried(actor, held, distance, None) {
+            return Some(RangeSwap::Took(w));
+        }
+        if !self.world.unequip(actor, held).unwrap_or(false) {
+            return None;
+        }
+        self.rearms.put_away.insert(actor, held);
+        self.rearms.range_swapped.insert(actor, now);
+        Some(RangeSwap::PutAway(held))
+    }
+
+    /// `actor` holds the best weapon it carries other than `held` that fires at
+    /// `distance` by [`RANGE_SLACK`], of `class` when given. Returns it.
+    fn best_working_carried(&mut self, actor: FormId, held: FormId, distance: f32, class: Option<Class>) -> Option<FormId> {
         let carried: Vec<FormId> = {
             let inv = self.world.peek(actor).and_then(|s| s.inventory.as_ref())?;
-            inv.iter().filter(|(i, n)| *n > 0 && *i != held).map(|(i, _)| i).collect()
+            inv.free_iter().filter(|(i, n)| *n > 0 && *i != held).map(|(i, _)| i).collect()
         };
         let mut best: Option<(FormId, f32, Rank)> = None;
         for w in carried {
-            if self.world.forms.item(w).is_none_or(|it| it.kind != ItemKind::Weapon || weapon_class(it) != class) || !self.works_at(actor, w, distance, RANGE_SLACK) {
+            if self.world.forms.item(w).is_none_or(|it| it.kind != ItemKind::Weapon || class.is_some_and(|c| weapon_class(it) != c)) || !self.works_at(actor, w, distance, RANGE_SLACK) {
                 continue;
             }
             let Some((condition, rank)) = self.best_carried_unit(actor, w) else { continue };
@@ -382,6 +466,19 @@ impl Game<'_> {
             self.rearms.range_swapped.insert(actor, self.time);
             w
         })
+    }
+
+    /// `actor`'s fight is over (or a package holds it): it forgets what re-arming kept
+    /// ([`Rearms::calm`]) and holds again an explosive weapon it put away for its fists.
+    pub fn calm_rearm(&mut self, actor: FormId) {
+        if let Some(put) = self.rearms.put_away.remove(&actor) {
+            if self.held_weapon(actor).is_none() {
+                if let Some((condition, _)) = self.best_carried_unit(actor, put) {
+                    self.hold(actor, put, condition);
+                }
+            }
+        }
+        self.rearms.calm(actor);
     }
 
     /// The pick-up idle for `actor` (module notes), when the records have it.

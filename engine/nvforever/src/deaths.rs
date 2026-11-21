@@ -13,7 +13,8 @@
 //! ground under it is not loaded, or it was dead when drawn), and for skeletons without a
 //! ragdoll, the earlier presentation holds: the death pose (played once, or straight at
 //! its end for an actor that is dead when it is drawn); without a death pose the pose
-//! freezes and the body is laid on its back about its feet [design].
+//! freezes and the body is laid on its back about its feet [design]. A corpse whose
+//! ragdoll then fails to build is shown the same way (`ragdoll::unbuilt`, #2347).
 //!
 //! A corpse laid out by a new game (`Game::starts_dead`) whose reference stores the pose
 //! its designer left it in (`XRGD`, `authored_pose.rs`) is put in that pose at rest
@@ -34,12 +35,26 @@ pub struct DeathsPlugin;
 
 impl Plugin for DeathsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, show_hits_and_deaths.after(nvf_play::PlaySet::Activation));
+        // [design, #2531] Consume test kills this frame so PostUpdate can start their
+        // ragdolls before the next Physics volume sync and Activation dismemberment.
+        app.add_systems(Update, show_hits_and_deaths.after(nvf_play::PlaySet::Activation).after(nvf_play::knockouts::TestHitSet));
     }
 }
 
 /// Seconds that count as "the end" of any death pose (it is clamped to the clip).
-const END: f32 = 1.0e6;
+pub(crate) const END: f32 = 1.0e6;
+
+/// The death pose of an actor shown dead without a ragdoll, if its clips have one; it
+/// varies by reference [design].
+pub(crate) fn death_clip(lo: Option<&Locomotion>, form_id: u32) -> Option<std::sync::Arc<nvf_assets::anim_play::BoundClip>> {
+    lo.filter(|lo| !lo.set.death.is_empty()).map(|lo| lo.set.death[(form_id as usize) % lo.set.death.len()].clone())
+}
+
+/// An actor shown dead without a ragdoll or a death pose: its body is laid on its back
+/// about its feet [design].
+pub(crate) fn lay_on_back(t: &mut Transform) {
+    t.rotate_local_x(-std::f32::consts::FRAC_PI_2);
+}
 
 /// What [`show_hits_and_deaths`] reads of an actor that is not yet shown dead.
 type Living = (
@@ -59,7 +74,7 @@ fn show_hits_and_deaths(
     combat: Option<Res<Combat>>,
     mut commands: Commands,
     (mut hits, mut forced): (MessageReader<ActorHit>, MessageReader<ForcedHitReaction>),
-    script: Option<Res<ScriptState>>,
+    mut script: Option<ResMut<ScriptState>>,
     data: Option<Res<GameData>>,
     phys: Option<Res<PhysState>>,
     mut ragdolls: ResMut<Ragdolls>,
@@ -72,7 +87,6 @@ fn show_hits_and_deaths(
     let now = time.elapsed_secs();
     let tuning = combat.map(|c| c.tuning.clone()).unwrap_or_default();
     for (e, r, rig, lo, flinch, mut t, gt, dressed) in &mut actors {
-        let hit = fresh.iter().rev().find(|h| h.form_id == r.0);
         let dead = is_dead(script.as_deref(), r.0);
         if dead {
             let templates = crate::ragdoll::worn_templates(actor_world.as_deref(), dressed.map_or(&[][..], |d| &d.worn));
@@ -80,23 +94,41 @@ fn show_hits_and_deaths(
             if lo.is_none() && corpse.is_none() {
                 continue;
             }
-            let died_now = hit.is_some_and(|h| h.died);
+            // Killed by any of this frame's hits on it: a blast kill sends more than one (the
+            // round's impact and its blast, or several blasts), and those after the killing
+            // hit landed on the corpse (`died` false) (#2218).
+            let died_now = died_this_frame(&fresh, r.0);
+            // Pushed and killed by the same script (`PushActorAway` then `KillActor`: the
+            // Legion sniper and the Ranger on Hoover Dam's tower): it was never shown
+            // knocked down, so `knockouts.rs` did not take the push's shove. The body
+            // falls as a ragdoll thrown with it, though no hit killed it (#2749).
+            let shove = script.as_deref_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| rt.game.take_shove(fnv_sim::FormId(r.0)));
             // Killed in sight on loaded ground: the ragdoll takes the pose as it is.
-            let falls = died_now && corpse.is_some() && phys.as_deref().is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
+            let falls = (died_now || shove.is_some()) && corpse.is_some() && phys.as_deref().is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
+            let mut corpse = corpse;
+            if let Some(v) = shove {
+                if let Some(c) = corpse.as_mut().filter(|_| falls) {
+                    c.velocity = v;
+                }
+                info!("knockout: {:08X} thrown at ({:.0}, {:.0}, {:.0}) units/s as it dies{}", r.0, v[0], v[1], v[2], if falls { "" } else { " (no ragdoll here: the shove is lost)" });
+            }
             // The death pose varies by reference [design].
-            let clip = lo.filter(|lo| !falls && !lo.set.death.is_empty()).map(|lo| lo.set.death[(r.0 as usize) % lo.set.death.len()].clone());
+            let clip = death_clip(lo.filter(|_| !falls), r.0);
             if clip.is_none() && !falls {
-                t.rotate_local_x(-std::f32::consts::FRAC_PI_2);
+                lay_on_back(&mut t);
             }
             // Laid out by a new game, with the pose its designer left it in: at rest in it.
             if let (false, Some(c), Some(w)) = (died_now, corpse.as_ref(), world.as_deref()) {
                 authored(&mut ragdolls, script.as_deref(), w, c, rig, gt);
             }
-            let start = if died_now { 0.0 } else { END };
+            let start = if died_now || (falls && shove.is_some()) { 0.0 } else { END };
             let mut ec = commands.entity(e);
             ec.insert(Dying { clip, t: start });
             ec.remove::<Flinch>();
-            if let Some(c) = corpse {
+            if let Some(mut c) = corpse {
+                // Not falling, it is shown dead without its ragdoll already: a build that
+                // fails later leaves it so (`ragdoll::unbuilt`).
+                c.laid_out = !falls;
                 ec.insert(c);
             }
         } else if let Some(lo) = lo {
@@ -139,6 +171,11 @@ fn show_hits_and_deaths(
     }
 }
 
+/// Whether one of the frame's hits killed the actor `form_id`.
+fn died_this_frame(hits: &[ActorHit], form_id: u32) -> bool {
+    hits.iter().any(|h| h.form_id == form_id && h.died)
+}
+
 /// Put the pose its reference stores (`XRGD`) where `ragdoll.rs` takes a corpse's resting
 /// pose from, for a corpse a new game laid out that has no resting pose yet.
 fn authored(ragdolls: &mut Ragdolls, script: Option<&ScriptState>, world: &WorldData, c: &crate::ragdoll::Corpse, rig: &ActorRig, gt: &GlobalTransform) {
@@ -167,5 +204,60 @@ fn authored(ragdolls: &mut Ragdolls, script: Option<&ScriptState>, world: &World
             ragdolls.authored_skipped += 1;
             debug!("ragdoll: actor {r:08X}: its stored pose is not used ({e})");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kills_reach_death_handling_before_the_next_volume_sync_and_dismemberment() {
+        use bevy::ecs::schedule::{NodeId, Schedules};
+        use nvf_play::knockouts::{KnockoutsPlugin, TestHitSet};
+        use nvf_play::PlaySet;
+
+        let mut app = App::new();
+        app.add_plugins((DeathsPlugin, KnockoutsPlugin, nvf_play::hitvol::HitVolumePlugin, crate::ragdoll::RagdollPlugin));
+        let mut update = app.world_mut().resource_mut::<Schedules>().remove(Update).unwrap();
+        // [design: nvf-play/src/lib.rs::PlayPlugin and combat.rs::CombatPlugin]
+        update.configure_sets((PlaySet::Physics, PlaySet::Activation).chain());
+        update.add_systems(nvf_play::dismember::resolve.in_set(PlaySet::Activation));
+        update.initialize(app.world_mut()).unwrap();
+        let systems: Vec<_> = update.systems().unwrap().map(|(key, s)| (key, s.name().to_string())).collect();
+        let at = |suffix: &str| systems.iter().position(|(_, n)| n.ends_with(suffix)).unwrap();
+        let producer = at("knockouts::test_hits");
+        let death = at("deaths::show_hits_and_deaths");
+        let sync = systems.iter().position(|(_, n)| n.contains("hitvol::sync_volumes")).unwrap();
+        let resolve = at("dismember::resolve");
+        assert!(sync < resolve && resolve < producer && producer < death, "{systems:?}");
+
+        // [design, #2531] Require a real dependency, so a coincidental topological
+        // order cannot hide the race; also verify the actual producer belongs to it.
+        let graph = update.graph();
+        let hits = graph.system_sets.get_key(TestHitSet.intern()).unwrap();
+        assert!(graph.systems_in_set(TestHitSet.intern()).unwrap().contains(&systems[producer].0));
+        assert!(graph.dependency().graph().contains_edge(NodeId::Set(hits), NodeId::System(systems[death].0)));
+
+        // [design: ragdoll.rs::RagdollPlugin] Ragdoll creation runs after this
+        // Update's death handling, before the next Update's sync then resolve.
+        let mut post = app.world_mut().resource_mut::<Schedules>().remove(PostUpdate).unwrap();
+        post.initialize(app.world_mut()).unwrap();
+        assert!(post.systems().unwrap().any(|(_, s)| s.name().ends_with("ragdoll::start")));
+    }
+
+    fn hit(form_id: u32, died: bool) -> ActorHit {
+        ActorHit { form_id, died, knocked_out: false, location: 0, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 0.5, guard_broken: false, weapon: None }
+    }
+
+    /// A grenade rifle round's impact kills and its blast lands on the corpse in the same
+    /// frame: the death is fresh, whichever hit came last (#2218).
+    #[test]
+    fn a_kill_followed_by_a_hit_on_the_corpse_is_a_fresh_death() {
+        let hits = [hit(7, true), hit(7, false), hit(9, false)];
+        assert!(died_this_frame(&hits, 7));
+        assert!(!died_this_frame(&hits, 9));
+        assert!(died_this_frame(&[hit(7, false), hit(7, true)], 7));
+        assert!(!died_this_frame(&[], 7));
     }
 }

@@ -112,6 +112,25 @@ Editor ID names its form. In an enum position (actor values, animation groups) a
 spelling from encodings.json `enums`. `Head.var` is variable `var` of the script that
 `Head` runs: a quest's script, or a reference's base form's script.
 
+[observed: original installed plugin records, inspected through SCVR declarations
+and each plugin's master table] A master script can declare a variable which a later
+override omits, while a third plugin depends on the master and does not list that
+override as a master.
+
+[design] The running engine indexes every standalone script record's variable
+metadata for this lookup, including overridden master versions. Execution still
+uses the winning script. An empty script override supplies an empty variable list,
+so it cannot expose declarations from an older version when that override is visible.
+
+Implementation validation: four synthetic `source_metadata::` integration tests run
+through ordinary Auto selection and `GameData::build`. The identical-fixture baseline
+had one passing control and three assertion failures; source commit `9948cf526` passed
+all four, with zero ignored and 917 other integration tests filtered out. The controls
+check quest and placed-reference indices/types, visible replacement variables,
+nonvisible and missing names, empty overrides, unchanged execution winners and retained
+compiled bytes on source failure. These are compiler tests, not original-game gameplay
+or complete mod compatibility evidence.
+
 - **Seeded** (the default for `fnvtool script compile`, and what a running engine should
   use for a unit that has lists): the unit's own variable and reference lists start the
   compiler, so every index stays the same. This matters because other scripts' bytes
@@ -120,6 +139,22 @@ spelling from encodings.json `enums`. `Head.var` is variable `var` of the script
 - **Fresh** (`--fresh`): empty lists. Variables get indices 1, 2, … in declaration order,
   and references are added in order of first use. This mode tests name resolution
   through the load order.
+
+[observed: original installed SCTX, SCRO and compiled vanilla call] A source command
+uses a bare five-digit hexadecimal receiver; its compiled `StartConversation` call
+names the corresponding placed actor through the reference list. The same source
+uses a six-digit topic argument, which is evidence for an argument, not for a
+six-digit receiver.
+
+[design] Source recompilation also admits a known file-local form for a bare
+five-digit receiver, using the existing short-form argument lookup. The rule follows
+`Seed::unknown_calls`, which mod runtime compilation (`compile_mod_runtime`) also
+enables. The shared receiver lookup serves direct, inline, Set and extended calls;
+Auto selection is one entry point. A local variable and then an Editor ID still take
+precedence. Strict fresh compilation, eight-digit
+and quoted receiver lookup, and bytecode fallback on source failure keep their
+existing rules. Other bare short receiver widths remain open for a GECK compilation
+probe; no new native byte encoding is introduced.
 
 ## 5. Parity (`L5.script.compile.vanilla`, `fnvtool script compile`)
 
@@ -205,6 +240,52 @@ another script's variable that is gone. The headless intro walkthrough
 gives a trace byte-identical to the one from the bytes. Smoke `scripts-from-source`
 starts the game this way.
 
+**What a mod's source may hold that nothing here knows** (2026-11-12). The catalogue is the
+wiki's function pages, and mods call plugin functions that have no page. One such name
+used to fail the whole unit, which then kept bytes NVForever cannot run [observed:
+`fnvtool ext report` over The Mod Configuration Menu 1.5 and JustAssortedMods.esp 4.6, 8 of
+63 picked units kept their bytes: MCM's main menu script, and JAM's sprint, bullet-time
+and loot-menu handlers]. In the game's compile of a unit's source (`Seed::unknown_calls`;
+the editor-parity and runtime compiles keep their errors) [decision]:
+
+- **A function nothing knows** compiles, with a warning, as a call by its name with every
+  argument that follows, wherever a call can stand: at a line's start, as an operand of
+  `let`, `eval`, `if` or `set … to`, after a reference (`rRef.Name`), after a quest's ref
+  variable (`Quest.rRef.Name`) or after an element (`aItem[0].Name`). A vanilla `if` or
+  `set` holding such a name is read with the extender's grammar. Run, the call reports
+  "not built", which skips the statement or reads 0, and the script goes on. As a
+  function's argument an unknown bare word stays its own text, as before, except in
+  parentheses with an operand right after it, where text would leave two operands side
+  by side: there it is the call [observed: JIP Companions Command & Control 2.60,
+  `SetFunctionValue (CCCInFaction <faction> == 0)`].
+- **A variable with an extender function's name** (`short break`) is a warning there, not
+  the editor's error: the unit shipped with compiled bytes, and a local is read before a
+  function of its name [observed: Project Nevada - Core.esm 2.5, a stage's result script].
+- **A form of the game itself that no plugin defines**, named by a script: `MapMarker` is
+  0x00000010 (`compile::env::BUILT_IN`) [observed: CASM with MCM 1.8's compiled script
+  lists that form where its source says `rRef.gbo == MapMarker`]. Until then the name
+  compiled as an unknown function and the line was skipped every frame (256,575 skips in
+  the owner's eight-minute run of 2026-11-12). Only forms read this way are listed.
+- **An enumeration name the table lacks** (an animation group, an actor value, a
+  statistic) compiles, with a warning, to code 65535, which no entry has. The table holds
+  only the names seen in compiled scripts (scripts.md §2).
+
+What a load order's units came to is kept (`GameData::source_units`): the game's log
+names the functions not in NVForever (`scripts: N functions the plugins' scripts call are
+not in NVForever … `), and `fnvtool ext report <Data> <plugins…> --schema schemas/fnv`
+prints, per plugin, the units run from source, the units that kept their bytes with the
+line and kind of their first error, and those functions with the number of units calling
+each (fnv.ext.report/1; `--detail` adds the compiler's words, which may quote the mod's
+script and so stay private). A plugin outside the Data folder is given by its full path.
+
+For a played run, the test aid `NVF_PLAY_TEST_MOD_LOG=1` (`nvf_play::mod_log`) writes the
+same per plugin into the game's log in lines that start with `mods:` [design]: the load
+order; each mod's scripts (how many use the extender and run from source, which do not
+compile, the functions and names not in NVForever); then, each once, what a mod's scripts
+ask about plugins and read (IsPluginInstalled, GetPluginVersion, IsDLLLoaded, IsModLoaded,
+GetModIndex: `fnv_game::plugin_questions`, kept only under the aid) and the first of each
+failure in a mod's script; at exit the counts per mod. The lines quote no script text.
+
 **At the console** (docs/design/console.md): a statement the console's own reader does
 not take goes through the compiler and runs as a one-line result script
 (`Game::run_source`), on the selected reference. That covers a `set` whose value is an
@@ -241,8 +322,11 @@ expression parser), `vm.rs` (`xeval`).
   variable. Lambdas: `(begin function {params} … end)`, which may span lines, and
   `{params} => expr` [documented: Lambda], both an `XExpr::Lambda` whose parameters and
   variables are the enclosing script's; the block form's statements are compiled with the
-  unit's own lists. Running them (calls, the 30-call nesting limit, SetFunctionValue) is
-  B7/B8.
+  unit's own lists. [design, #2985] The block lambda's `(` may directly follow the command
+  name: `Call(begin function {params} … end) args` in NVForever has the same argument
+  structure as `Call (begin function {params} … end) args`.
+  [hypothesis] The original extender parses the joined form the same way; this has not been observed.
+  Running them (calls, the 30-call nesting limit, SetFunctionValue) is B7/B8.
 - **Compiler-override blocks** (A12): `Begin _GameMode` (any block name after `_`) is that
   block, and inside it `if`, `elseif` and `set` take extended expressions too, with the
   argument rule above [documented: Script Compiler Override].
@@ -312,6 +396,155 @@ the shipped bytes use only the statements of scripts.md §2.2.
 The If chain keeps its ordinary skip counts, so the decoder's nesting rules (scripts.md
 §2.6) apply unchanged. A JSON body that does not parse is a Raw statement or token, and a
 unit with one runs from source (§7).
+
+### 8.1 What mods' sources write and the GECK with xNVSE took (#2275)
+
+The units of the owner's 211-plugin Blue Moon list that the engine compiles from source
+(`fnvtool ext report … --mo2-profile …`, smoke scenario `modlist-blue-moon`) failed 66
+times; each failing unit ships compiled bytes the editor wrote from that source, so the
+bytes say what the editor made of the line [observed, each rule; decompiled with `fnvtool
+script decompile`]. "Mod source" below means the engine's compile (`Seed::unknown_calls`).
+
+- `x := v` on a line of its own is a `let`, as `x = v` is (thirteen units).
+- `Let r : = …`, the colon and the equals apart, is `:=`.
+- A declaration takes any assignment: `float f += rand a, b` declares `f` alone and adds.
+- `(begin function{} =>` ends its parameters at the brace; the arrow is no parameter.
+- `({params} =>` with nothing after the arrow opens a lambda whose body is the next lines,
+  closed by a line starting with `)`; the rest of that line goes on with the call.
+- An `if`/`elseif` whose parentheses are open at the line's end takes the following lines
+  that start with `||`, `&&` or `)` [hypothesis: only those].
+- In mod source, a vanilla function's argument in parentheses is an inline expression
+  (`RestoreAv Health (player.getav Survival)`), as in a unit of the extender's grammar.
+- Inside parentheses, what is left before the `)` once the expression is whole and ends in
+  a call, or from a comma on, is dropped: `(ar_size (GetActiveObjectives Q))` gives
+  GetActiveObjectives no argument, `((GetFormDescription X), y)` the description alone.
+- A call line followed by an operator (`DebugPrint "t= " + $f`) keeps the call; the rest
+  of the line is dropped.
+- In mod source, a `:` right after a vanilla call's argument ends its arguments
+  (`player.say Hit:Ugh! || …` says `Hit`).
+- In mod source, a vanilla parameter's name nothing has that is a short hex number names
+  that FormID when the load order has it (`AddItem f n`: the caps).
+- `GetIsAlignment` takes Good 0, Neutral 1, Evil 2, VeryGood 3, VeryEvil 4.
+- `SetEventHandlerAlt` takes up to 16 filters and a priority, all pairs (`a::b`).
+- A game setting's name given alone to a plugin function's string parameter is text.
+- `SetStringSetting` is LU's two-parameter function; the catalogue's console row of that
+  name (from another page) gave way to it.
+- A plugin can hold two records under one FormID (oHUD.esm: QUST `aHUD` and MESG
+  `iHUDMainMenu`, both 0x01000801). A name resolves through whichever of the winning
+  plugin's records carries it, and a quest variable through the one with a script
+  [observed: oHUD's shipped bytes write `0x…801.f19` where the source says
+  `set aHUD.mcmVersion`].
+- Inside an expression (an `if eval` or `let` line, another call's arguments,
+  parentheses) an NVSE-aware function's argument stops at a comparison or logical
+  operator, which then applies to the call's result: `if eval Ar_HasKey aConvo,
+  "Conditions" == 1` compares the call with 1, `GetINIFloatOrDefault_Cached "S:k" "f.ini"
+  == 1` likewise [observed: Party Banter 2.esm SCPT 0x0701D892 and mil_Add-On.esp SCPT
+  0x07002549 ship such lines with compiled bytes]. Arithmetic stays in the argument and a
+  range or pair (`1:2`, `"k"::v`) continues it [hypothesis, as in an override block].
+  A call that is its own line, a parameter documented as a whole expression (`eval`,
+  `TestExpr`, `Print`, `while`, `ToString`) and `let` keep whole expressions
+  (`eval x && let s += "+"`, JustAssortedMods.esp). On Blue Moon this changes 14 units
+  (LifeAfterDeath, Another Millenia, Party Banter, WeaponModMod, Immersive Fast Travel
+  Encounters) and MCM Extender's Script Runner file, all toward the shipped reading.
+
+The owner's 232-plugin High and Dry list (smoke scenario `modlist-high-dry`) added:
+
+- A `&` after a comma boxes the argument: `Call Fn, &rRef, 0` passes the boxed reference
+  [documented: NVSE Expressions, unary `&`; observed: Famine.esp's bytes hold the variable
+  and the box operator].
+- `{expr}` not followed by `=>` is the expression: `call Fn {(BuildRef 0 n)}` and `call Fn
+  {Quest.var}` pass the value as one argument [observed: Animated Ingestibles.esp].
+- Inside parentheses an operand that meets the whole expression without an operator is
+  dropped with the rest before the `)`: `("…" + $sv ".nif")` is `"…" + $sv` [observed:
+  MrShersh Functional Backpack.esp].
+- `GetRefsInCell` takes a sixth argument, which its page does not list [observed: JAM Misc
+  Tweaks.esp, `GetRefsInCell (Player.GPC) 28 2 0 2000 45` compiled with all six; what it
+  does is not known, and the VM does not read it]. The VM reads the fifth, `maxDistance`,
+  for GetRefs and GetRefsInCell: references farther than it are left out [documented:
+  their pages], measured from the calling reference, else the player [hypothesis: as
+  CallPerRef's distance, documented, ext-jg6.md]; it was ignored before.
+- On a `set` line the editor drops parentheses (§3), so a call the `)` closes before it has
+  all its arguments takes the ones after it: `set t to 1 + (GetVariable (…)) Quest` reads
+  the quest's variable [observed: Animated Ingestibles.esp].
+
+From the Begin Again list (Tale of Two Wastelands, 203 plugins, smoke scenario
+`modlist-begin-again`, #2335):
+
+- A quoted name right before a dot is the call's reference (`"E32A9".GetItemCount X`),
+  and a quoted hex FormID of any length names that form when the load order has it
+  [observed: Veronica Outfit Replacer.esp's bytes call both lines on 0x000E32A9; YUP's
+  and YUPTTW's units that write quoted Editor IDs that way became byte-equal too;
+  hypothesis: an Editor ID is tried first].
+- `Ref.Set x to v` is a set of the script's own `x` with the reference as its
+  calling-reference prefix, `1C 00 <ref> 15 00 …` [observed: Fallout3.esm's, TTW's and
+  RAD.esp's MS14PowerArmorScript]. The decoder reads it as the set [hypothesis: the
+  reference does nothing in the original].
+- `MoveToMarker` is MoveTo, 0x109E [observed: TTW No Hardcore Sacrifice.esp's bytes].
+- In an extender function's form parameter, a bare word or number of hex digits that
+  names nothing is the form with that FormID, when the load order has one: `f` is the
+  caps (0xF), `a` the bobby pin (0xA), `14` the player's reference [observed 2026-11-14,
+  the stock game's runtime compiler: `AuxVarSetFlt "*_q" 7 0 f` read back 7 under
+  Caps001; `g` and `FFFFFF` (no form) did not compile, nor did `let rX := f`; Armor
+  Damage Fix's gr_CondDamFix.txt ships `… 0 f`]. Any other undeclared word there failed
+  the whole script's compile in the original (`AuxVarSetRef "*_r" BobbyPin -1`; MCM
+  Extender's gr_MCMExtender.txt line 76, and no plugin of the list has that Editor ID).
+  NVForever keeps it as its own text, so only that statement is skipped (#2275).
+
+Left with their bytes, as the source cannot be compiled to them: five result scripts whose
+classic `if` has a surplus argument (`GetObjectiveDisplayed Q 30 1 && …`), which stop the
+script in the original as in the VM (observer-checks.md check 32); and three units whose
+source names forms renamed or replaced since their bytes were written. On High
+and Dry the same five result scripts (shared with Blue Moon) and four more:
+three whose source names references renamed since their bytes were written
+(RG_PrimmPlayerHome.esm's `RGGeneratorPower` is `RGGeneratorPowerREF` in its own records,
+ICE.esp's `rActorRef` is declared nowhere), and Leveled DLC Delay.esm, whose
+`WeapNVDLC00Faderator` is a record each DLC master defines, which the list's "Fixed ESM's
+Remastered" masters rename `WeapNVDLC01Faderator` and so on, so no master of this load
+order has the name; its bytes name DeadMoney.esm's record by FormID.
+
+### 8.2 NVSEScript, the extender's second language
+
+xNVSE 6.3.6 added a second compiler for a C-like language [documented: NVSEScript; Lambda;
+User Defined Function]. A unit whose first statement is `name X;` is in it. The compiler
+(`compile/nvsescript.rs`) reads it and writes the same unit in the first grammar, which
+§1–§8 build; each line it writes keeps the number of the source line it came from, so
+diagnostics name the source's lines. What it reads, all [documented: NVSEScript] unless
+tagged:
+
+- `name X;` → `scn X`; declarations at the root → the script's variables (`string` →
+  `string_var`, `array` → `array_var`, `double` → `float`). A value given there is dropped
+  with a warning (`nvsescript_initializer_dropped`) [hypothesis: the second compiler runs
+  it at the script's first run]. Every variable, in any block, is the script's.
+- `fn (int a) { … }` at the root is the unit's user-defined function (`begin function
+  {a}`) [documented: Lambda's `name OnKeyDownUDF;` example]; `GameMode { … }` and
+  `OnEquip::Player { … }` are event blocks.
+- Statements end in `;`. `x = e`, `x += e`, `x++` → `let`; any other expression → `eval`.
+  `F(a, b)` → `(F a, b)`, each argument parenthesised when it is not one word or literal;
+  a variable called (`rCallback(10)`) → `Call` [documented: Lambda].
+- `if (c) {…} else if (c) {…} else {…}` → `if eval`/`elseif eval`/`else`/`endif`;
+  `while (c)` → `while … loop`; `for (init; cond; inc)` → the init, a `while` on the
+  condition, the body and the increment, and `continue` runs the increment first;
+  `for (array a in e)` → `foreach`; `for ([T v] in e)` and `for ([T k, T v] in e)` take
+  the iterator's `value`, or `key` and `value`, with `_` for one not wanted [documented:
+  NVSEScript; ForEach]. One variable takes the value [documented for arrays; the page
+  gives a map's key there; decision: the value until a map case is met].
+- `match (e) { a -> {…} _ -> {…} }` → an `if eval (e == a)` chain [decision: the subject
+  is read again for each arm].
+- `return e;` → `SetFunctionValue e` and `return` [documented: User Defined Function].
+- `[a, b]` → `Ar_List`, `{k::v}` → `Ar_Map` [documented: Array/Map literals]; `"…${e}…"`
+  → a sum of the pieces with `$(e)`; a `;`, `"` or line break in a string is written as
+  `AsciiToChar` of its code (a `;` would start a comment in the first grammar, §1).
+  `
+`, `	`, `\"` are the C escapes [hypothesis: the page shows none; the mod lists'
+  scripts write `
+`].
+- `fn (params) { … }` and `fn (params) -> e` in an expression are lambdas [documented:
+  Lambda]. `x++` inside an expression gives the new value [hypothesis].
+- The variable list the second compiler writes holds its own iterators and renames block
+  locals `__temp_<name>_<n>`, and types them 2 string, 3 array, 4 ref (the schema's SLSD
+  enumeration) [observed: WeaponModCraftInfo.esp]. The reader takes those types as
+  `string_var`, `array_var` and ref; compiled from source, a declared type wins over the
+  seeded slot's, at the same index.
 
 ## 9. Values in the VM (tasks B1, B3, B7, B8)
 
@@ -504,6 +737,56 @@ rules; what NVForever decides where they are open is tagged here.
   GetNumItems]; the entry here is the item's base form, where the original gives a
   temporary reference to the stack that stops being valid the next frame [hypothesis
   until B5 builds inventory references].
+
+### Inline surplus operands in mod expressions
+
+[documented: [IsAnimPlayingEx](https://geckwiki.com/index.php/IsAnimPlayingEx)]
+The command has one required category and two optional integer parameters. The
+catalogue keeps that signature. [observed: an installed B42 Optics Script Runner
+source file, read locally on 2026-11-17; no mod text is copied here] It supplies a
+fourth operand inside a negated boolean condition. The original runtime behavior
+and any fourth native parameter or byte encoding remain unverified.
+
+[implementation evidence: public source 98fb59a9] Standalone extender calls
+already discard surplus operands with a diagnostic, but an unparenthesized
+condition leaves the operand behind and fails syntax checking. A lambda body's
+expression has its own token stream even while the containing handler call is
+parsing an argument.
+
+[design] Engine design choice, not a claim about the original runtime (see the
+`[hypothesis]` below). In mod-source mode only, a bounded-arity call at the current whole
+expression's root applies the existing surplus policy: parse and discard extra
+operands, emit `surplus_arguments`, then leave enclosing operators in place.
+Parsing a discarded operand retains no references, locals, lambda identities or
+incidental diagnostics. An unreadable operand remains a syntax error. The next
+argument of an enclosing call and existing parenthesized/braced/indexed expression
+boundaries retain their previous consumers. Strict runtime/editor compilation,
+catalogue signatures, native encodings and API implementations are unchanged.
+
+[implementation evidence: Linux CI on source eb9bfef2, 2026-11-17] The nine
+shared-target controls compiled: three passed and six stopped at diagnostic
+assertions that incorrectly treated legacy non-error `variable_added` and
+`reference_added` information as semantic warnings. The fixture correction
+retains those informational entries explicitly and checks all other diagnostics;
+VM values, reference/local rollback, strict refusal and byte oracles are retained.
+Assertions after the failed checks were not reached in that run. All nine
+corrected controls passed in Linux CI for `ae6c1110` at checkout `50231146`.
+The Main integration at `abb5f67f` (hosted merge `22dc2e5` with Main `5fbad071`,
+run 44298689511) passed all seven hosted checks, with all nine controls passing once.
+
+The shared `compile` test target's `inline_surplus_operands::` cases compile an
+independent handler-shaped condition
+through `compile_mod_runtime`, decode its bytes, and exercise call arguments and
+boolean behavior through the VM. Controls cover optional arguments, enclosing
+calls/operators, short circuiting, strict admission, explicit parentheses,
+discarded references/lambdas and unreadable operands. The actual installed file,
+controlled baseline/candidate comparison and game-load acceptance remain UNRUN
+for this source candidate. No installed mod text is included in the tests.
+
+[hypothesis] Whether the original extender runtime drops these inline operands,
+or the caller intended another behavior, remains open. Extend the owning surplus
+argument observer check with a query-only condition before claiming original-game
+parity; parsing this caller does not establish B42 Optics compatibility.
 
 ## 10. Open
 

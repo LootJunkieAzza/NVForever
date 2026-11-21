@@ -1,6 +1,9 @@
 # What is left (2026-10-18, brought up to main 2026-10-25)
 
-> Rows below are struck or marked as later PRs closed them, up to #800 (2026-10-25). The concrete
+> **A snapshot**: rows below are struck or marked as later PRs closed them up to #800
+> (2026-10-25) and are not kept up after that. The state of each system now is in
+> [status.md](status.md), whose rows each pull request edits, and the open work in the
+> repository's GitHub issues (#2005). The concrete
 > whole-project picture is [outstanding-audit-2026-10-23](handoff/archive/outstanding-audit-2026-10-23.md)
 > and [project-audit-2026-10-23](handoff/project-audit-2026-10-23.md); what ESM data is still
 > unused is [esm-audit-2026-10-25](handoff/esm-audit-2026-10-25.md).

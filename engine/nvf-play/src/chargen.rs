@@ -134,6 +134,22 @@ pub struct TraitsOpen<'a> {
 }
 
 impl ChargenMenus {
+    /// [design, #2403 / file refs] Edited text or allocation sheet and list position;
+    /// excludes hover, redraw flags and attempted-navigation counters.
+    pub fn progress(&self) -> Option<(u16, impl std::fmt::Debug + '_)> {
+        self.open.as_ref().map(|o| {
+            (
+                o.code(),
+                (
+                    self.answered,
+                    match o {
+                        OpenMenu::Name(m) => (Some(m.text.as_str()), None),
+                        OpenMenu::List(m) => (None, Some((&m.sheet, m.selected, m.scroll))),
+                    },
+                ),
+            )
+        })
+    }
     /// [design] The requested selection page, from the sheet already opened by sync.
     /// SpecialSheet uses menu 1048 too and deliberately stays with its hand-built drawing.
     pub fn list_open(&self, code: u16) -> Option<TraitsOpen<'_>> {
@@ -257,6 +273,23 @@ pub struct ChargenSet;
 
 fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>) {
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
+    // SetTextInputString on a script's text input menu (`fnv_game::nvse_jip12`).
+    if matches!(&st.open, Some(OpenMenu::Name(n)) if n.script.is_some()) {
+        if let Some(t) = with_game(&mut script, &mut sim, |g| g.take_text_input_string()).flatten() {
+            if let Some(OpenMenu::Name(m)) = st.open.as_mut() {
+                m.set_text(&t);
+            }
+            st.dirty = true;
+        }
+        // SetTextInputExtendedProps on a later frame reaches the open box (#2018).
+        if let Some(OpenMenu::Name(m)) = st.open.as_mut() {
+            let changed = with_game(&mut script, &mut sim, |g| g.text_input().is_some_and(|t| m.update_rules(t))).unwrap_or(false);
+            if changed {
+                info!("script: text input menu rules changed");
+                st.dirty = true;
+            }
+        }
+    }
     let code = open_code(&script).filter(|&c| has_own_menu(c) && c != menus::LOVE_TESTER);
     if st.open.as_ref().map(OpenMenu::code) == code {
         return;
@@ -270,7 +303,11 @@ fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: 
     st.generation = st.generation.wrapping_add(1);
     let Some(code) = code else { return };
     st.open = with_game(&mut script, &mut sim, |g| {
-        if code == menus::NAME {
+        if let Some(t) = g.text_input().filter(|_| code == menus::NAME) {
+            let m = NameMenu::script(t, Some(g));
+            info!("script: text input menu open, \"{}\" ({} to {} characters)", m.prompt, t.min, t.max);
+            OpenMenu::Name(m)
+        } else if code == menus::NAME {
             let m = NameMenu::open(rules::name_offered(g), Some(g));
             info!("chargen: name menu open, offering \"{}\"", m.text);
             OpenMenu::Name(m)
@@ -306,8 +343,8 @@ fn input(
     mut st: ResMut<ChargenMenus>,
     mut aid: ResMut<ChargenAid>,
     time: AidTime,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut typed: MessageReader<KeyboardInput>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
     mut wheel: MessageReader<MouseWheel>,
     rows: Query<(&PointerState, &ListRow), Changed<PointerState>>,
     buttons: Query<(&PointerState, &ListButton), Changed<PointerState>>,
@@ -318,8 +355,9 @@ fn input(
     mut traits: Option<ResMut<crate::tiles::trait_menu::TraitTiles>>,
     mut tags: Option<ResMut<crate::tiles::tag_menu::TagTiles>>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
-    let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let typed: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     let wheel: f32 = wheel.read().map(|w| if w.unit == MouseScrollUnit::Line { w.y } else { w.y / 40.0 }).sum();
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     if st.open.is_none() || st.answered {
@@ -341,11 +379,15 @@ fn input(
     let mut hover_ok = None;
     let mut hover_button = Vec::new();
     match st.open.as_ref() {
-        Some(OpenMenu::Name(_)) => {
+        Some(OpenMenu::Name(m)) => {
+            // A script's menu takes Enter as Done only when it says so [documented:
+            // SetTextInputExtendedProps switch 2; decision: a new line is not typed].
+            let enter_done = m.script.as_ref().is_none_or(|s| s.enter_closes);
             for k in typed.iter().filter(|k| k.state.is_pressed()) {
                 match &k.logical_key {
                     Key::Backspace => ops.push((Op::Backspace, "key")),
-                    Key::Enter => ops.push((Op::Done, "Enter")),
+                    Key::Enter if enter_done => ops.push((Op::Done, "Enter")),
+                    Key::Enter => {}
                     _ => {
                         if let Some(t) = k.text.as_deref().filter(|t| !t.is_empty() && t.chars().all(|c| !c.is_control()) && fnv_util::text::encodable(t)) {
                             ops.push((Op::Type(t.to_string()), "key"));
@@ -391,12 +433,10 @@ fn input(
                 }
             }
             if m.attributes() {
-                for k in typed.iter().filter(|k| k.state.is_pressed()) {
-                    match k.logical_key {
-                        Key::ArrowRight => ops.push((Op::Adjust(None, true), "key")),
-                        Key::ArrowLeft => ops.push((Op::Adjust(None, false), "key")),
-                        _ => {}
-                    }
+                // The keyboard's Left and Right and the controller's D-pad (issue #1910) and
+                // left stick (issue #2313, `pad::menu_stick`).
+                for right in crate::pad::sideways(&typed, &keys) {
+                    ops.push((Op::Adjust(None, right), "key"));
                 }
             }
             for (k, op) in [
@@ -494,6 +534,24 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
     let open = st.open.as_mut()?;
     let code = open.code();
     match open {
+        OpenMenu::Name(m) if m.script.is_some() => {
+            let changed = match op {
+                Op::Type(t) => m.type_text(&t),
+                Op::Backspace => m.backspace(),
+                Op::Clear => !std::mem::take(&mut m.text).is_empty(),
+                Op::Done if m.can_finish() => {
+                    let text = m.text.clone();
+                    if with_game(script, sim, |g| g.finish_text_input(text.clone())).is_some() {
+                        info!("script: text input menu done ({how}): \"{text}\"");
+                        st.answered = true;
+                    }
+                    false
+                }
+                _ => false,
+            };
+            st.dirty |= changed;
+            None
+        }
         OpenMenu::Name(m) => {
             let changed = match op {
                 Op::Type(t) => m.type_text(&t),
@@ -647,6 +705,7 @@ fn draw_menus(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     traits: Option<Res<crate::tiles::trait_menu::TraitTiles>>,
     tags: Option<Res<crate::tiles::tag_menu::TagTiles>>,
 ) {
@@ -688,7 +747,7 @@ fn draw_menus(
     let bc = crate::interface::bc_supported(formats.as_deref());
     let st = st.into_inner();
     let kit = st.kit.get_or_insert_with(|| draw::Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = draw::Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = draw::Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     let root = Node {
         position_type: PositionType::Absolute,
         width: Val::Percent(100.0),
@@ -701,6 +760,73 @@ fn draw_menus(
         View::Name(m) => name::spawn(r, m, &mut c),
         View::List(v) => lists::spawn(r, v, &mut c),
     });
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> ChargenMenus {
+    ChargenMenus {
+        open: Some(OpenMenu::Name(NameMenu {
+            text: if step >= 1 { "Synthetic name".into() } else { String::new() },
+            hover_ok: step >= 2,
+            prompt: String::new(),
+            ok: String::new(),
+            script: None,
+            limit: 30,
+        })),
+        navigated: step as u32,
+        ..Default::default()
+    }
+}
+
+/// [design, #2403] Synthetic allocation sheet for each script character list.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_list_progress_fixture(code: u16, step: usize) -> ChargenMenus {
+    let sheet = match code {
+        menus::TRAITS => {
+            let start = rules::TraitSheet { traits: vec![FormId(42), FormId(43)], chosen: Default::default(), max: 2, free: None };
+            let mut now = start.clone();
+            if step >= 3 {
+                now.chosen.insert(FormId(42));
+            }
+            lists::Sheet::Traits { now, start, allowed: vec![true; 2] }
+        }
+        menus::TAG_SKILLS => {
+            let start = rules::TagSheet { skills: vec![32, 33], tagged: Default::default(), count: 2, locked: Default::default() };
+            let mut now = start.clone();
+            if step >= 3 {
+                now.tagged.insert(32);
+            }
+            lists::Sheet::Tags { now, start }
+        }
+        _ => {
+            let start = rules::SpecialSheet::new([5; 7]);
+            let mut now = start;
+            if step >= 3 {
+                now.values[0] += 1;
+            }
+            lists::Sheet::Special { now, start }
+        }
+    };
+    ChargenMenus {
+        open: Some(OpenMenu::List(ListMenu { code, sheet, selected: usize::from(step >= 1), scroll: usize::from(step >= 2), hover: (step >= 4).then_some(ListButton::Done) })),
+        navigated: step as u32,
+        dirty: step >= 4,
+        ..Default::default()
+    }
+}
+
+/// [design, #2403] AddSPECIALPoints uses the tag-skill menu's attribute sheet.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_special_progress_fixture(step: usize) -> ChargenMenus {
+    let mut c = report_list_progress_fixture(menus::LOVE_TESTER, step);
+    if let Some(OpenMenu::List(m)) = &mut c.open {
+        m.code = menus::TAG_SKILLS;
+    }
+    c
 }
 
 #[cfg(test)]
@@ -720,7 +846,7 @@ mod tests {
     #[test]
     fn a_tile_act_names_its_row_by_its_trait() {
         use fnv_game::chargen::TraitSheet;
-        let sheet = TraitSheet { traits: vec![FormId(7), FormId(9)], chosen: Default::default(), max: 2 };
+        let sheet = TraitSheet { traits: vec![FormId(7), FormId(9)], chosen: Default::default(), max: 2, free: None };
         let m = ListMenu { code: menus::TRAITS, sheet: lists::Sheet::Traits { now: sheet.clone(), start: sheet, allowed: vec![true, true] }, selected: 0, scroll: 0, hover: None };
         assert_eq!(tile_ops(&m, TileAct::Hover(FormId(9))), vec![(Op::Select(1), "pointer")]);
         assert_eq!(tile_ops(&m, TileAct::Click(FormId(9))), vec![(Op::Select(1), "pointer"), (Op::Click, "click")]);

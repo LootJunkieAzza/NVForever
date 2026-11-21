@@ -90,6 +90,6 @@ a save and a reload, so it waits for the J5 implementation.
 
 ## 4. Not covered
 
-GetStringHash has a page with no content (JIP 57.30) [documented: GetStringHash]. It is
-left out until its behaviour can be observed. AuxiliaryVariable…String and
+GetStringHash has a page with no content (JIP 57.30) [documented: GetStringHash]. It
+returns 0 by decision (jip-world-12.md §2): the hash the original gives is unknown. AuxiliaryVariable…String and
 RefMapArray…String belong to JIP's variable stores and go in the arrays note.

@@ -35,8 +35,12 @@ optional caller-supplied `--build-label TEXT`. Repetitions run serially in `run-
 - **Watched for progress.** Each test says which log lines count as progress. When no
   such line comes for `--hang` seconds, the run counts as hung: every thread's stack goes
   to `<launch>.stacks.txt` (tools/smoke `stacks.py`), and the process tree is killed.
-- **Memory.** On Windows, the runner reads the process's working set and private bytes
-  every few seconds (`<launch>.memory.csv`).
+- **Memory.** The runner reads the process's working set and private bytes every few
+  seconds (`<launch>.memory.csv`): on Windows through `K32GetProcessMemoryInfo`, elsewhere
+  from `/proc/<pid>/status` (`VmRSS`) and `smaps_rollup` (`Private_Clean` +
+  `Private_Dirty`, or `RssAnon` where smaps is not readable). CPU-busy seconds come from
+  `GetSystemTimes`/`GetProcessTimes` on Windows and `/proc/stat`/`/proc/<pid>/stat`
+  elsewhere.
 - **Status.** A launch ends `ok`, `crashed` (a crash report was written), `hung`, or
   `failed` (a non-zero exit with no report: a native crash, which no Rust hook sees).
 - **Shared code.** The locks (`Locks`, `default_lock_paths`), the aid-free environment
@@ -376,7 +380,7 @@ fighters at once (`ai::draw_and_place`, about 130 ms), which play does not.
 
 ### 6.2 Comparing two builds
 
-[design] `compare tour`, `compare battle` and `compare soak` use four measured launches per side in ABBA order after one discarded warm-up each, with separate homes, metadata, early frame captures and retained coarse metrics (`tools/stress/stress/comparison.py:1`). The versioned `comparison.json` and `comparison.md` retain every launch and explain exclusions, spread and verdicts. See [reproducible stress comparisons](stress-comparisons.md) for the ten-second settle, thirty-second window, validation rules, accepted thresholds and the pending scene and continuous-movement coverage; captures cover only the first sixty seconds, so later laps retain coarse results.
+[design] `compare tour`, `compare battle` and `compare soak` use four measured launches per side in ABBA order after one discarded warm-up each, with separate homes, metadata, early frame captures and retained coarse metrics (`tools/stress/stress/comparison.py:1`). The versioned `comparison.json` and `comparison.md` retain every launch and explain exclusions, spread and verdicts. See [reproducible stress comparisons](stress-comparisons.md) for the ten-second settle, thirty-second window, validation rules, accepted thresholds and the pending scene and continuous-movement coverage; captures cover only the first sixty seconds, so later laps retain coarse results. `compare soak` refuses before launching when `--event-every` is not above the settle plus the measurement (the defaults, 20 s against 10 + 30 s): its events interrupt the gameplay, so no launch would have a window [observed: #3276, all eight launches excluded].
 
 ```powershell
 python tools/stress compare battle --exe-base '<base.exe>' --exe-candidate '<candidate.exe>' --base-label base --candidate-label candidate --data '<Data>' --ini '<NVForever.ini>' --name battle-abba --per-side 10 --seconds 90 --repetitions 4 --order ABBA --warmup 1 --settle-seconds 10 --measure-seconds 30 --telemetry-seconds 60

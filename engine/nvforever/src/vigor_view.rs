@@ -13,8 +13,9 @@
 //!   draws into an image the size of the window, clear where nothing is drawn, shown as a
 //!   full-screen image under every other UI node. Being drawn after the main camera's image
 //!   space, the machine stays sharp over the blurred room with no depth rule (the Pip-Boy's
-//!   `sharp` is not needed). As with those menus' cameras, systems asking for the one
-//!   `Camera3d` (level of detail, grass, streaming) wait while the menu is open.
+//!   `sharp` is not needed). The world's systems find the main camera by its marker
+//!   (`fly::WorldCamera`), so level of detail, grass and streaming keep running behind
+//!   this camera as behind those menus' [design: issue #1753].
 //! - **The light** [design: tuned by eye against the original's shots, which show a warm
 //!   shaded machine: cream poster, dark wood, brass]: a warm key above and to the left of the
 //!   eye, a dimmer fill low to the right, a warm ambient light. Bevy's sum applies (the view

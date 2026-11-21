@@ -3,7 +3,7 @@
 //! template; once per death; owed to a corpse whose inventory is not read yet.
 //! docs/spec-notes/death-items.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

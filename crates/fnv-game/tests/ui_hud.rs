@@ -3,7 +3,7 @@
 use fnv_game::ui_hud::{self, Shown, Texts};
 use fnv_ui::{MemSource, Ui, Value};
 
-mod common;
+use crate::common;
 
 // Columns are 4:3, 16:10 and 16:9. The half-unit reticle offset follows the
 // truncated middle [hypothesis: hud.md §14, its child's 607.5/735.5/820.5].
@@ -850,18 +850,24 @@ fn prompt_item_empty_and_lock_copies_match_the_captured_paths() {
 }
 
 #[test]
-fn enemy_ticks_colour_and_full_health_suppression() {
+fn enemy_ticks_colour_and_engine_visibility() {
     let mut ui = copy_tree(&[]);
     let mut input = texts();
     for (health, width) in [(7.01 / 45.0, 32.0), (8.01 / 45.0, 32.0), (0.5, 112.0), (1.0, 240.0)] {
         for hostile in [false, true] {
             input.frame.enemy = Some(ui_hud::Enemy { name: "Actor".into(), health, hostile });
-            ui_hud::write(&mut ui, all_shown(), &input);
+            // [design, #2659] The engine suppresses full health outside classic VATS.
+            ui_hud::write(&mut ui, Shown { enemy: health < 1.0, ..all_shown() }, &input);
             assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/*:1/width"), Some(width));
             assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/*:1/x"), Some(171.0 - width / 2.0));
             assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/systemcolor"), Some(if hostile { 2.0 } else { 1.0 }));
             for i in 0..3 {
                 assert_eq!(ui.get_float(&format!("HUDMainMenu/EnemyHealth/*:{i}/visible")), Some(f64::from(health < 1.0)));
+            }
+            // [design, #2659] Classic explicitly shows the selected target at full health.
+            ui_hud::write(&mut ui, all_shown(), &input);
+            for i in 0..3 {
+                assert_eq!(ui.get_float(&format!("HUDMainMenu/EnemyHealth/*:{i}/visible")), Some(1.0));
             }
         }
     }

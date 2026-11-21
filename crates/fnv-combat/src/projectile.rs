@@ -9,7 +9,8 @@
 //! the explosion goes off on impact, or with Alt. Trigger on a timer or proximity, or on
 //! detonation for Detonates. A mine (`crate::mine::is_mine`) does not trigger itself in
 //! flight: once it comes to rest it is [`ProjEvent::Settled`] and the engine places it
-//! as a mine in the world (`nvf_play::mines`), armed at once [owner 2026-10-19: "your own
+//! as a mine in the world (`nvf_play::mines`), armed at once; a Detonates charge (C-4)
+//! settles the same way and waits there for its detonator (#1986) [owner 2026-10-19: "your own
 //! mines arm immediately after leaving the player hand"]. How gravity scales is a hypothesis: the PROJ value
 //! multiplies the world's gravity (9.81 m/s² at 70 units per metre, `fnv-phys`).
 //!
@@ -53,6 +54,18 @@ pub trait CombatWorld {
     fn ray(&self, from: V3, to: V3, ignore: &[ActorId]) -> Option<WorldHit>;
     /// Actors whose centre lies within `radius` of `point`, with that centre.
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)>;
+    /// Ground-reach candidates and their body margins [design, #2535]. The caller
+    /// supplies reach plus vertical search allowance; each body's margin expands
+    /// the search too. Ordinary bodies retain the fixed margin.
+    fn melee_targets_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3, f32)> {
+        self.actors_near(point, radius + SWING_BODY_MARGIN).into_iter().map(|(a, c)| (a, c, SWING_BODY_MARGIN)).collect()
+    }
+    /// The bodies a blast at `point` may catch: [`CombatWorld::actors_near`]'s, and corpses
+    /// that have no hit volume of their own (a ragdoll's), each once (#2346) [design]. Only
+    /// blasts ask: proximity fuses and swings still go by `actors_near`. By default the same.
+    fn blast_targets_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
+        self.actors_near(point, radius)
+    }
     /// Points on an actor's body to aim a blow at, the likeliest first (the centres of
     /// its body part capsules, widest first). None by default: the centre is aimed at.
     fn aim_points(&self, _actor: ActorId) -> Vec<V3> {
@@ -112,8 +125,8 @@ pub enum Motion {
 pub enum ProjEvent {
     /// A hit to apply after `delay` seconds (hitscan: distance ÷ speed).
     Hit { actor: Option<ActorId>, part: Option<u8>, object: Option<u64>, point: V3, normal: V3, material: Option<u32>, delay: f32 },
-    /// The projectile's explosion goes off here.
-    Explode { explosion: FormId, point: V3 },
+    /// The projectile's explosion goes off here, with a contact normal on impact.
+    Explode { explosion: FormId, point: V3, normal: Option<V3> },
     /// Out of range or out of time without a hit.
     Expired { point: V3 },
     /// A mine came to rest here, on a surface with this normal: it leaves flight.
@@ -305,7 +318,7 @@ impl Projectile {
                     let delay = if self.motion == Motion::Beam || self.speed <= 0.0 { 0.0 } else { h.distance / self.speed };
                     out.push(ProjEvent::Hit { actor: h.actor, part: h.part, object: h.object, point: h.point, normal: h.normal, material: h.material, delay });
                     if let Some(e) = self.impact_explosion() {
-                        out.push(ProjEvent::Explode { explosion: e, point: h.point });
+                        out.push(ProjEvent::Explode { explosion: e, point: h.point, normal: Some(h.normal) });
                     }
                 }
                 None => out.push(ProjEvent::Expired { point: end }),
@@ -318,12 +331,12 @@ impl Projectile {
             if self.proximity > 0.0 {
                 if armed && world.actors_near(self.pos, self.proximity).iter().any(|(a, _)| Some(*a) != self.shooter) {
                     self.alive = false;
-                    out.push(ProjEvent::Explode { explosion: e, point: self.pos });
+                    out.push(ProjEvent::Explode { explosion: e, point: self.pos, normal: None });
                     return out;
                 }
             } else if self.timer > 0.0 && armed && !self.detonates {
                 self.alive = false;
-                out.push(ProjEvent::Explode { explosion: e, point: self.pos });
+                out.push(ProjEvent::Explode { explosion: e, point: self.pos, normal: None });
                 return out;
             }
         }
@@ -424,7 +437,10 @@ impl Projectile {
                     if vec::len(self.vel) < REST_SPEED {
                         self.vel = [0.0; 3];
                         self.landed = true;
-                        if self.mine {
+                        // A mine, and a charge that waits for its detonator (C-4), leave
+                        // flight at rest: the engine places them as references, which are
+                        // saved and belong to a cell (#1986) [design].
+                        if self.mine || self.detonates {
                             self.alive = false;
                             out.push(ProjEvent::Settled { point: self.pos, normal: n });
                         }
@@ -438,7 +454,7 @@ impl Projectile {
                     self.pos = h.point;
                     out.push(ProjEvent::Hit { actor: h.actor, part: h.part, object: h.object, point: h.point, normal: h.normal, material: h.material, delay: 0.0 });
                     if let Some(e) = self.impact_explosion() {
-                        out.push(ProjEvent::Explode { explosion: e, point: h.point });
+                        out.push(ProjEvent::Explode { explosion: e, point: h.point, normal: Some(h.normal) });
                     }
                     return out;
                 }
@@ -459,7 +475,7 @@ impl Projectile {
             return None;
         }
         self.alive = false;
-        self.explosion.map(|e| ProjEvent::Explode { explosion: e, point: self.pos })
+        self.explosion.map(|e| ProjEvent::Explode { explosion: e, point: self.pos, normal: None })
     }
 }
 
@@ -494,7 +510,8 @@ pub const SWING_ABOVE_EYES: f32 = 48.0;
 
 /// The actors a melee swing touches, low or high: [`swing`]'s fan of rays from the eye,
 /// and besides it every actor whose centre is within the reach across the ground from the
-/// attacker's body (plus [`SWING_BODY_MARGIN`]), inside the swing's arc either side of
+/// attacker's body (plus the target margin from [`CombatWorld::melee_targets_near`],
+/// ordinarily [`SWING_BODY_MARGIN`]), inside the swing's arc either side of
 /// where it faces, between its feet and above its eyes (`feet_z`, [`SWING_BELOW_FEET`],
 /// [`SWING_ABOVE_EYES`]), and that a ray from the eye to that centre meets first
 /// [design; playtest 2026-10-11: a machete never hit a gecko, whose body is below the
@@ -511,15 +528,15 @@ pub fn swing_reaching(world: &dyn CombatWorld, t: &CombatTuning, eye: V3, feet_z
     let flat = vec::normalize(flat);
     let height = (eye[2] - feet_z).max(0.0);
     let middle = [eye[0], eye[1], feet_z + height / 2.0];
-    let mut near = world.actors_near(middle, reach + SWING_BODY_MARGIN + height);
+    let mut near = world.melee_targets_near(middle, reach + height);
     near.sort_by(|a, b| vec::len(vec::sub(a.1, eye)).total_cmp(&vec::len(vec::sub(b.1, eye))));
-    for (a, c) in near {
+    for (a, c, margin) in near {
         if a == attacker || out.iter().any(|(x, _)| *x == a) {
             continue;
         }
         let across = [c[0] - eye[0], c[1] - eye[1], 0.0];
         let d = vec::len(across);
-        if d > reach + SWING_BODY_MARGIN || c[2] < feet_z - SWING_BELOW_FEET || c[2] > eye[2] + SWING_ABOVE_EYES {
+        if d > reach + margin || c[2] < feet_z - SWING_BELOW_FEET || c[2] > eye[2] + SWING_ABOVE_EYES {
             continue;
         }
         if d > 1e-3 && vec::dot(vec::scale(across, 1.0 / d), flat).clamp(-1.0, 1.0).acos().to_degrees() > t.melee_arc_deg {
@@ -561,6 +578,8 @@ pub struct BlastHit {
 /// at once [design].
 const BLAST_LIFT: f32 = 16.0;
 
+/// `contact_normal`, when finite and nonzero, clears the visibility origins 0.5 units
+/// outward from an impact; `None` preserves explosions without a known contact [design].
 /// The actors an explosion at `center` reaches: every one whose body lies within its
 /// radius, and in line of sight of the centre unless the EXPL ignores it [documented:
 /// GECK wiki Explosion]; damage falls off with distance [design]. Only the world shields:
@@ -571,17 +590,23 @@ const BLAST_LIFT: f32 = 16.0;
 /// with every part beyond it takes the edge's damage. Grenades beside a giant radscorpion
 /// did it no harm: the centre of its bounds lay past the radius, or out of sight under
 /// the ground the line from the blast ran along (the owner, 2026-10-27) [design].
-pub fn blast(world: &dyn CombatWorld, t: &CombatTuning, e: &ExplosionStats, center: V3) -> Vec<BlastHit> {
+pub fn blast(world: &dyn CombatWorld, t: &CombatTuning, e: &ExplosionStats, center: V3, contact_normal: Option<V3>) -> Vec<BlastHit> {
     let los = !e.flags.iter().any(|f| f == "Ignore LOS Check");
-    let lifted = [center[0], center[1], center[2] + BLAST_LIFT];
+    // Clear only a known contact, by the same bounded distance as a bouncing shot.
+    // The physical centre still controls radius, falloff and push [design: combat-rules.md section 11].
+    let origin = contact_normal.filter(|n| n.iter().all(|v| v.is_finite())).and_then(|n| {
+        let len = vec::len(n);
+        (len.is_finite() && len > 1e-6).then(|| vec::add(center, vec::scale(n, NUDGE / len)))
+    }).unwrap_or(center);
+    let lifted = [origin[0], origin[1], origin[2] + BLAST_LIFT];
     // Not from above a ceiling or a floor it went off under.
-    let origins: Vec<V3> = if world.cover_ray(center, lifted).is_some() { vec![center] } else { vec![center, lifted] };
+    let origins: Vec<V3> = if world.cover_ray(origin, lifted).is_some() { vec![origin] } else { vec![origin, lifted] };
     let seen = |from: V3, to: V3| {
         let d = vec::len(vec::sub(to, from));
         !world.cover_ray(from, to).is_some_and(|h| h.distance + NUDGE < d)
     };
     let mut out = Vec::new();
-    for (a, at) in world.actors_near(center, e.radius) {
+    for (a, at) in world.blast_targets_near(center, e.radius) {
         let points: Vec<V3> = std::iter::once(at).chain(world.aim_points(a)).collect();
         if los && !points.iter().any(|&p| origins.iter().any(|&o| seen(o, p))) {
             continue;

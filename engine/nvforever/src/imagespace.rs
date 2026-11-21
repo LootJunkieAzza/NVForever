@@ -81,6 +81,10 @@ pub struct ImageSpaceGrade {
     /// VATS mode: the swipe's edge (a share of the screen width, graded to its left), the
     /// band on the edge, the wash over the screen, the grade's strength (all 0: none).
     pub vats: Vec4,
+    /// VATS mode: the grade's colour ([`vats_tint`]), what a picture's lightness is
+    /// multiplied by (rgb); and, above 0, that the picture is darkened to this part of
+    /// its brightness instead of graded (the classic style).
+    pub vats_tint: Vec4,
     /// Depth of field: strength, distance, range (game units), the target's distance
     /// along the view (below 0: the point under the screen's centre).
     pub dof: Vec4,
@@ -93,6 +97,22 @@ pub struct ImageSpaceGrade {
     pub motion: Vec4,
     /// Clip space of this frame to clip space of the last one (`update_motion`).
     pub reproject: Mat4,
+}
+
+/// VATS mode's grade for the interface's colour `rgb` (the settings page's HUD colour):
+/// the amber's own figures for amber (docs/design/vats-mode.md §5), and for another
+/// colour that colour with its strongest channel lifted as far as amber's red is, so the
+/// picture is as bright [design: the fork owner 2026-11-10, the VATS colour "should follow
+/// the UI color selected in the menu like the rest of the HUD"].
+pub fn vats_tint(rgb: [u8; 3]) -> Vec4 {
+    const AMBER: [f32; 3] = [1.45, 0.92, 0.42];
+    if rgb == nvf_play::interface::AMBER_RGB {
+        return Vec4::new(AMBER[0], AMBER[1], AMBER[2], 0.0);
+    }
+    let c = rgb.map(|v| f32::from(v) / 255.0);
+    let most = c[0].max(c[1]).max(c[2]).max(1e-3);
+    let k = AMBER[0] / most;
+    Vec4::new(c[0] * k, c[1] * k, c[2] * k, 0.0)
 }
 
 impl Default for ImageSpaceGrade {
@@ -110,6 +130,7 @@ impl Default for ImageSpaceGrade {
             time: 0.0,
             sharp: 0.0,
             vats: Vec4::ZERO,
+            vats_tint: vats_tint(nvf_play::interface::AMBER_RGB),
             dof: Vec4::new(0.0, 0.0, 0.0, -1.0),
             dof_mode: Vec4::ZERO,
             motion: Vec4::ZERO,
@@ -223,6 +244,35 @@ impl ScreenModifiers {
     }
 }
 
+/// Current assigned cinematic values for nonanimated records (image-modifiers.md).
+/// Keep the decoded record immutable: another session/lens must not inherit edits.
+fn live_modifier_effect(m: &ImageModifier, seconds: f32, game: Option<&fnv_game::Game<'_>>) -> ScreenEffect {
+    let mut effect = m.at(seconds);
+    let Some(game) = game.filter(|_| !m.animatable) else { return effect };
+    for trait_id in 37..=50 {
+        let Some(value) = game.traits.image_modifier_override(fnv_sim::FormId(m.form_id), trait_id) else { continue };
+        let value = value as f32;
+        if !value.is_finite() { continue; }
+        match trait_id {
+            37 => effect.cinematic.saturation.mult = value,
+            38 => effect.cinematic.saturation.add = value,
+            // Match the IMAD getter's IAD signatures and the record decoder's field order.
+            39 => effect.cinematic.contrast_avg_lum.mult = value,
+            40 => effect.cinematic.contrast_avg_lum.add = value,
+            41 => effect.cinematic.contrast.mult = value,
+            42 => effect.cinematic.contrast.add = value,
+            43 => effect.cinematic.brightness.mult = value,
+            44 => effect.cinematic.brightness.add = value,
+            45 => effect.blur_radius = value,
+            46 => effect.double_vision = value,
+            // Tint RGBA are all 0–255, alpha included (image-modifiers.md).
+            47..=50 => effect.tint[(trait_id - 47) as usize] = value / 255.0,
+            _ => unreachable!(),
+        }
+    }
+    effect
+}
+
 /// `--imod <Editor ID or 0xFormID>[@seconds]`.
 pub fn parse_forced(world: &WorldData, arg: &str) -> Result<Forced, String> {
     let (name, at) = match arg.split_once('@') {
@@ -296,7 +346,7 @@ fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&
         if m.finished(seconds) {
             continue;
         }
-        effects.push(m.at(seconds));
+        effects.push(live_modifier_effect(m, seconds, script.and_then(|s| s.rt.as_ref()).map(|rt| &rt.game)));
         forms.push(form);
     }
     // The strongest depth of field and motion blur are the ones shown (`combine`).
@@ -501,6 +551,9 @@ const WAIT_MENU_BLUR: f32 = 3.0;
 /// wait menu's [design: the original's shots show the world blurred behind the tutorial and
 /// container menus (docs/spec-notes/tutorial-menu.md §5), not how strongly or how fast].
 const TILE_MENU_BLUR: f32 = 3.0;
+/// The blur behind the pause menu: a third of a tile menu's [design: owner 2026-11-15, "the
+/// bluring of the box behind the whole menu is way too strong" at 3].
+const PAUSE_MENU_BLUR: f32 = 1.0;
 
 /// The blur of the world behind the Pip-Boy, in the same units [documented:
 /// `Fallout_default.ini` `[Pipboy] fBlurRadiusPipboy=3.5`; hypothesis: the same units as
@@ -540,7 +593,7 @@ fn update_grade(
         Option<Res<crate::death_cam::DeathCam>>,
         Option<Res<nvf_play::vats_mode::VatsMode>>,
     ),
-    (sim, aim, wheel, talk): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::dialogue_zoom::DialogueZoom>>),
+    (sim, aim, wheel, talk, creator): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::dialogue_zoom::DialogueZoom>>, Option<Res<nvf_play::creator::CreatorMenu>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<(&mut ImageSpaceGrade, Has<LensGrade>)>,
     sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>,
@@ -550,6 +603,15 @@ fn update_grade(
         Some(w) => screen_effect(&mut mods, w, script.as_deref(), now),
         None => (ScreenEffect::default(), Vec::new(), String::new(), String::new()),
     };
+    // The gene projector's studio (`creator_view.rs`) is a picture of its own, not the
+    // scene: the scene's modifiers are left off it (they go on playing and come back when
+    // it closes) [design: owner 2026-11-08, the studio was pure black in Tale of Two
+    // Wastelands' birth scene, where CG00BirthBaseISFX (Bright Scale x2, Bright Clamp
+    // x0.2) and the eye adaptation it drives left the player a silhouette on black]. The
+    // cell's own grade stays.
+    if creator.as_deref().is_some_and(nvf_play::creator::CreatorMenu::in_studio) {
+        effect = ScreenEffect::default();
+    }
     // A new game shows nothing of the world before its opening runs: until the scripts
     // have started the screen is white, as the opening's first modifier then holds it
     // [engineering choice: the script data loads while the room is already drawn].
@@ -631,6 +693,12 @@ fn update_grade(
         time: now,
         sharp,
         vats: Vec4::from_array(vats_look),
+        // The mode's own amber, whatever the HUD's colour [design: the fork owner
+        // 2026-11-10, after trying it with a white HUD: "revert ... back to the previous
+        // orange"]: Dead Eye's grade. The classic style has no colour over the picture:
+        // the fourth figure is how dark it goes instead (`vats_classic::DARKEN`; 0 for
+        // the grade).
+        vats_tint: vats_tint(nvf_play::interface::AMBER_RGB).with_w(if vats.as_deref().is_some_and(|v| v.style() == nvf_play::vats_classic::VatsStyle::Classic) { nvf_play::vats_classic::DARKEN } else { 0.0 }),
         dof: Vec4::new(dof.strength, dof.distance, dof.range, focus),
         dof_mode: Vec4::new(if dof.use_target { 1.0 } else { 0.0 }, f32::from(dof.flags), near.unwrap_or(1.0), 0.0),
         motion: Vec4::new(motion, near.map_or(0.0, |n| n / MOTION_SHARP), MOTION_MAX_REACH, 0.0),
@@ -639,7 +707,8 @@ fn update_grade(
     // A 3D scope's lens: a neutral grade with only the lens's modifiers on it.
     let lens = match &world {
         Some(w) if !mods.lens_held.is_empty() => {
-            let effects: Vec<ScreenEffect> = mods.lens_held.clone().into_iter().filter_map(|f| mods.record(w, f).map(|m| m.at(0.0))).collect();
+            let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+            let effects: Vec<ScreenEffect> = mods.lens_held.clone().into_iter().filter_map(|f| mods.record(w, f).map(|m| live_modifier_effect(m, 0.0, game))).collect();
             let e = combine(&effects);
             let c = graded(&fnv_world::imagespace::Cinematic::default(), &e);
             let r = &e.radial;
@@ -665,7 +734,8 @@ fn update_grade(
 
 /// What [`tile_menu_blur`] tells of a state: this contribution, not the screen's whole blur.
 fn tile_menu_blur_text(now: TileMenuBlur) -> String {
-    let names: Vec<&str> = [(now.tutorial, nvf_play::tiles::tutorial_menu::TUTORIAL_MENU), (now.container, "ContainerMenu"), (now.barter, nvf_play::tiles::barter_menu::BARTER_MENU), (now.traits, nvf_play::tiles::trait_menu::TRAIT_MENU), (now.tags, nvf_play::tiles::tag_menu::TAG_MENU)].into_iter().filter(|m| m.0).map(|m| m.1).collect();
+    let names: Vec<&str> = [(now.tutorial, nvf_play::tiles::tutorial_menu::TUTORIAL_MENU), (now.container, "ContainerMenu"), (now.barter, nvf_play::tiles::barter_menu::BARTER_MENU), (now.recipe, nvf_play::tiles::recipe_menu::RECIPE_MENU), (now.traits, nvf_play::tiles::trait_menu::TRAIT_MENU), (now.tags, nvf_play::tiles::tag_menu::TAG_MENU)].into_iter().filter(|m| m.0).map(|m| m.1).collect();
+    let names: Vec<&str> = names.into_iter().chain(now.repair_services.then_some(nvf_play::tiles::repair_services_menu::REPAIR_SERVICES_MENU)).collect();
     if names.is_empty() {
         "off".to_string()
     } else {
@@ -681,7 +751,24 @@ fn tile_menu_blur_text(now: TileMenuBlur) -> String {
 /// afresh each frame, so nothing stays when the menu goes. A 3D scope's lens has its own
 /// grade, which holds only the lens's modifiers, and `sharp`, what the Pip-Boy keeps sharp, is
 /// left alone. With nothing drawn from tiles no grade is touched.
-fn tile_menu_blur(drawing: Option<Res<TileMenuBlur>>, mut last: Local<TileMenuBlur>, mut grades: Query<&mut ImageSpaceGrade, Without<LensGrade>>) {
+fn tile_menu_blur(
+    drawing: Option<Res<TileMenuBlur>>,
+    mut last: Local<TileMenuBlur>,
+    mut grades: Query<&mut ImageSpaceGrade, Without<LensGrade>>,
+    (paused, main_menu, mut was_paused): (Option<Res<nvf_play::pause::Paused>>, Option<Res<nvf_play::main_menu::MainMenu>>, Local<bool>),
+) {
+    // The pause menu over a game blurs the world behind it as a tile menu does, so its text
+    // reads over a busy picture [design: owner 2026-11-15, the menu overhaul].
+    let pause = paused.is_some_and(|p| p.0) && !main_menu.is_some_and(|m| m.open);
+    if pause != *was_paused {
+        info!("pause menu blur: {}", if pause { format!("radius {PAUSE_MENU_BLUR}") } else { "off".to_string() });
+        *was_paused = pause;
+    }
+    if pause {
+        for mut grade in &mut grades {
+            grade.blur = grade.blur.max(PAUSE_MENU_BLUR);
+        }
+    }
     let now = drawing.as_deref().copied().unwrap_or_default();
     if now != *last {
         info!("tile menu blur: {}", tile_menu_blur_text(now));
@@ -904,6 +991,8 @@ mod tests {
         assert_eq!(tile_menu_blur_text(tutorial), "TutorialMenu radius 3");
         assert_eq!(tile_menu_blur_text(container), "ContainerMenu radius 3");
         assert_eq!(tile_menu_blur_text(TileMenuBlur { barter: true, ..Default::default() }), "BarterMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { recipe: true, ..Default::default() }), "RecipeMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { repair_services: true, ..Default::default() }), "RepairServicesMenu radius 3");
         assert_eq!(tile_menu_blur_text(TileMenuBlur { tutorial: true, container: true, ..Default::default() }), "TutorialMenu, ContainerMenu radius 3");
         assert_eq!(tile_menu_blur_text(TileMenuBlur { traits: true, ..Default::default() }), "TraitMenu radius 3");
         assert_eq!(tile_menu_blur_text(TileMenuBlur { tags: true, ..Default::default() }), "CharGenMenu radius 3");
@@ -981,3 +1070,7 @@ mod tests {
         assert!((a - 0.75).abs() < 1e-6 && (r - 1.0 / 3.0).abs() < 1e-6, "{r} {a}");
     }
 }
+
+#[cfg(test)]
+#[path = "imagespace_live_trait_tests.rs"]
+mod live_trait_tests;

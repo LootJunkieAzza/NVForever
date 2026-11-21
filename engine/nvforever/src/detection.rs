@@ -38,6 +38,13 @@
 //!   camera is, along where it looks (`Situation::camera_sight`) [documented: same page,
 //!   "the *camera*"; observed: same capture, 0 at 90° left but 1 to 110° right, the
 //!   third-person camera being off to one side].
+//! - **Bodies**: dying and dead actors are in no pair (they detect no one and are not
+//!   detected), but the player's camera measures the drawn ones for GetLineOfSight: the
+//!   same ±95° and wall check aimed at where the body lies (`body_point`: its ragdoll's
+//!   trunk), told to the game as `Game::set_camera_sights` [documented: GECK wiki
+//!   GetLineOfSight, on the player any object can be the target; Fallout3.esm's
+//!   MS04Script advances on `Player.GetLOS FredWilksRef == 1` with Fred Wilks lying
+//!   dead, #3232].
 //! - **The player as a detector**: measured like an actor, its Perception against the
 //!   target's Sneak [observed: player.GetDetected Ringo and Chet 1 in the original,
 //!   function probes fp1/fp2 2026-10-17, also with `tdetect` on, so the toggle and
@@ -66,8 +73,10 @@
 //!   LIGH; hypothesis: the penalty is that light in the light level, docs/design/detection.md §9].
 //!   Our own flashlight cone is not counted: it is not the game's light.
 //! - **Moving and running**: from how far an actor went since the last measurement
-//!   [engineering choice]; the player runs when moving at the run gait (not holding Walk)
-//!   [hypothesis: a sneaking run counts as running]. Other actors sneak while
+//!   [engineering choice]; the player moves only while its movement controls are held (a
+//!   placement settling, a push or a slide makes no footsteps; #2286) and runs when
+//!   moving at the run gait (not holding Walk) [hypothesis: a sneaking run counts as
+//!   running]. Other actors sneak while
 //!   `Game::sneaks` says so (SetForceSneak, a package's Always Sneak; `sneaking.rs`).
 //! - **Turning** (IsTurning): the heading changed by more than [`TURN_RATE`] per second
 //!   since the last measurement, left or right [hypothesis: the game's threshold is not
@@ -77,7 +86,9 @@
 //! - **Action sound**: an actor's (or the player's) loudest shot since the last
 //!   measurement, at the
 //!   weapon's sound level (WEAP VNAM: iSoundLevelLoud, Normal, Silent) [documented:
-//!   GECK wiki Category:Detection].
+//!   GECK wiki Category:Detection], of the weapon as it was fired: the mod flags on the
+//!   shot's message, a Silence mod's Silent level ("Sets the weapon's Sound Detection
+//!   Level to Silent" [documented: GECK wiki Weapons, mod effects]; `hear_shot`).
 //! - **Detector state**: asleep when lying on a bed; alert in a combat state, busy when
 //!   in Combat with someone other than the target (`fnv_game::awareness`).
 //!
@@ -104,6 +115,7 @@ use crate::sky::SkyState;
 use crate::world::{bevy_to_game, WorldData};
 use bevy::prelude::*;
 use bevy::tasks::{ComputeTaskPool, ParallelSlice};
+use fnv_combat::data::WeaponStats;
 use fnv_game::awareness::{Change, DetectionEvent, EventType, State};
 use fnv_game::detection::{Band, Settings, Situation};
 use fnv_game::sight::in_view;
@@ -207,6 +219,9 @@ struct Stats {
 pub struct DetectionState {
     settings: Option<Settings>,
     next: f32,
+    /// Whether the player's noise was under the sound cover at the last measurement
+    /// (#2688): told in the log when it changes.
+    covered: bool,
     /// Where each actor was at the last measurement, and when (elapsed seconds).
     last: HashMap<u32, ([f32; 3], f32)>,
     /// Each actor's compass heading at the last measurement, and when.
@@ -236,24 +251,24 @@ pub struct DetectionState {
     stats: Stats,
 }
 
-/// The heights of each exterior cell's LAND record, read when first needed (worldspace,
-/// grid square → heights; `None` for a square without land).
+/// The landscape surface of each exterior cell (smoothed or stored, as drawn), read when
+/// first needed (worldspace, grid square → surface; `None` for a square without land).
 #[derive(Default)]
 struct LandCache {
-    cells: HashMap<(u32, i32, i32), Option<Vec<f32>>>,
+    cells: HashMap<(u32, i32, i32), Option<fnv_world::land_surface::Surface>>,
 }
 
 impl LandCache {
     /// The land's height at game (x, y) in worldspace `ws`.
     fn height(&mut self, world: &WorldData, ws: u32, x: f32, y: f32) -> Option<f32> {
         let g = fnv_world::cell_of(x, y);
-        let h = self.cells.entry((ws, g.0, g.1)).or_insert_with(|| {
+        let s = self.cells.entry((ws, g.0, g.1)).or_insert_with(|| {
             let w = world.index.worldspaces.get(&ws)?;
-            let land = world.index.cells.get(w.grid.get(&g)?)?.land?;
-            fnv_world::land::load_land(world.lo, world.schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights
+            let ids = fnv_world::land_surface::land_ids(g, |n| w.grid.get(&n).and_then(|c| world.index.cells.get(c)).and_then(|c| c.land));
+            fnv_world::land_surface::load_surface(world.lo, world.schema, &ids, nvf_play::smooth_terrain::spec())
         });
         let (ox, oy) = (g.0 as f32 * fnv_world::CELL_SIZE, g.1 as f32 * fnv_world::CELL_SIZE);
-        h.as_deref().map(|h| fnv_world::grass::height_at(h, x - ox, y - oy))
+        s.as_ref().map(|s| s.height_at_clamped(x - ox, y - oy))
     }
 }
 
@@ -358,6 +373,37 @@ pub(crate) fn eyes_of(phys: Option<&PhysState>, id: u32, feet: [f32; 3], eye: f3
 /// How far above its origin a body must start to have its eyes on it, game units
 /// [design: the ceiling turret's starts 47 up; feet and a crouch start at 0].
 const LIFTED: f32 = 16.0;
+
+/// Where the player's camera looks for a dead or dying actor, game space: its ragdoll's
+/// trunk (the heaviest body's mass centre) where it has one, else the middle of its hit
+/// volume as drawn (its widest part: a body lying in its death pose is low), else
+/// [`BODY_LIFT`] above its origin. Not the eye or chest height of a standing actor:
+/// Fred Wilks' body lay at z 454 with the player's feet at 449 (#3232) [observed: the
+/// report's log, `ragdoll: actor 060393EA at rest at (1896, -1574, 454)`].
+fn body_point(phys: Option<&PhysState>, id: u32, feet: [f32; 3]) -> [f32; 3] {
+    let world = phys.map(|p| &p.world);
+    world.and_then(|w| w.ragdoll_center(id)).or_else(|| world.and_then(|w| w.actor_aim_point(id))).unwrap_or([feet[0], feet[1], feet[2] + BODY_LIFT])
+}
+
+/// [`body_point`] of a body the physics knows nothing of, units above its origin
+/// [design: about a lying body's thickness].
+const BODY_LIFT: f32 = 12.0;
+
+/// The bodies (`(reference, point)`) the player's camera sees, for GetLineOfSight
+/// (#3232): within the camera's ±95° about where it looks and with nothing solid
+/// between it and the point (`clear`, which answers each (from, [point, point]) at once
+/// as [`sights`] does; actors and the corpses' own ragdolls do not block). Bodies are in
+/// no detection pair, so this is their only measurement; the player sees drawn actors at
+/// any distance, bodies too (the module notes). Without a camera nothing is seen.
+fn bodies_seen(camera: Option<([f32; 3], [f32; 2])>, bodies: &[(u32, [f32; 3])], clear: impl FnOnce(&[([f32; 3], [[f32; 3]; 2])]) -> Vec<bool>) -> Vec<FormId> {
+    let Some((at, ahead)) = camera else { return Vec::new() };
+    let asked: Vec<(u32, [f32; 3])> = bodies.iter().copied().filter(|&(_, p)| in_view(at, ahead, p)).collect();
+    if asked.is_empty() {
+        return Vec::new();
+    }
+    let asks: Vec<_> = asked.iter().map(|&(_, p)| (at, [p, p])).collect();
+    asked.iter().zip(clear(&asks)).filter(|(_, c)| *c).map(|(&(id, _), _)| FormId(id)).collect()
+}
 
 /// Whether the collision world lets `from` see `to` (also the combat AI's cover test,
 /// `combat_tactics`).
@@ -695,6 +741,34 @@ type Inputs<'w> = (
     Option<Res<'w, Flashlight>>,
 );
 
+/// A shot, heard at the next measurement: its loudness is the sound level of the weapon
+/// as it was fired, the mods on the message on (`WeaponStats::modded`: a Silence mod
+/// makes it Silent), not of whatever is equipped when the shot is measured; no weapon
+/// data, or no level, is silent. The shooter's loudest shot since the last measurement
+/// is its action sound (`shots`); its last shot's level is what its impacts sound like
+/// (`shot_levels`).
+fn hear_shot(state: &mut DetectionState, weapon: Option<&WeaponStats>, s: &ShotFired) {
+    let fired = weapon.map(|w| if s.mods == 0 { w.sound_level.clone() } else { w.modded(s.mods).sound_level });
+    let loud = fired.flatten().map_or(0.0, |l| state.settings.unwrap_or_default().firing_sound(&l));
+    let heard = state.shots.entry(s.shooter.0).or_default();
+    *heard = heard.max(loud);
+    state.shot_levels.insert(s.shooter.0, loud);
+}
+
+/// Whether the player moves, for its footstep sound and IsMoving: faster than
+/// [`MOVING_SPEED`] with its movement controls held (`intent`; without one, by speed
+/// alone) (the comment at the call, #2286).
+fn player_moving(speed: f32, intent: Option<&MoveIntent>) -> bool {
+    speed > MOVING_SPEED && intent.is_none_or(|i| i.forward != 0.0 || i.right != 0.0)
+}
+
+/// fSneakCombatMod distracts a fighter only from actors outside its target list
+/// [observed: captures run15b_t1 and run15b_t2, 2026-11-15;
+/// docs/spec-notes/actor-behaviour.md §2.1a]. Lost keeps 1.2 [design: detection.md §9].
+fn in_combat_with_someone_else(aware: Option<&fnv_game::awareness::Awareness>, target: FormId) -> bool {
+    aware.is_some_and(|a| a.state == State::Combat && !a.targets.contains_key(&target))
+}
+
 /// Measure every pair (the module notes).
 #[allow(clippy::too_many_arguments)]
 fn measure(
@@ -710,15 +784,12 @@ fn measure(
     actors: Query<Watched>,
     (point_lights, spot_lights, camera, world): Scene,
     mut gauges: Option<ResMut<nvf_play::sneak_gauges::SneakGauges>>,
+    mut cover: Option<ResMut<nvf_play::sound_cover::SoundCover>>,
 ) {
     let state = &mut *state;
     // Shots, heard at the next measurement.
     for s in shots.read() {
-        let level = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)).and_then(|w| w.sound_level.as_deref());
-        let loud = level.map_or(0.0, |l| state.settings.unwrap_or_default().firing_sound(l));
-        let heard = state.shots.entry(s.shooter.0).or_default();
-        *heard = heard.max(loud);
-        state.shot_levels.insert(s.shooter.0, loud);
+        hear_shot(state, combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)), s);
     }
     let settings_now = state.settings.unwrap_or_default();
     let level = |l: Option<&str>| l.map(|l| settings_now.firing_sound(l));
@@ -801,7 +872,12 @@ fn measure(
     let mut people = Vec::new();
     let player_run_mode = !intent.as_deref().is_some_and(|i| i.walk);
     let pspeed = motion(FormId::PLAYER_REF.0, player.feet, &mut state.last);
-    let pmoving = pspeed > MOVING_SPEED;
+    // The player moves (footsteps, for the sound term and IsMoving) only while it walks or
+    // runs by its own controls: being set down, settling on the floor after a placement or
+    // a load, a push or a slide is no footstep [hypothesis, #2286: placed at HELIOS One's
+    // stasis pods, our player drifted 4 units while its capsule settled, read as running,
+    // and two protectrons the original leaves undetected noticed it by that sound].
+    let pmoving = player_moving(pspeed, intent.as_deref());
     // The player detects from its eyes along its heading; GetLineOfSight is the camera's,
     // first or third person [documented: GECK wiki GetLineOfSight; observed: capture
     // detection-2 det4, the detection's edge symmetric about the facing, the line of
@@ -825,8 +901,16 @@ fn measure(
         turning: turning(FormId::PLAYER_REF.0, player.heading, &mut state.headings),
         swimming: phys.as_deref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming),
     });
+    // The drawn bodies (dying or dead), measured from the player's camera alone for
+    // GetLineOfSight ([`bodies_seen`]), at the point the camera looks for.
+    let mut bodies: Vec<(u32, [f32; 3])> = Vec::new();
     for (rig, g, vis, dying, corpse, name) in &actors {
-        if !vis.get() || dying || corpse || rt.game.is_dead(FormId(rig.reference)) {
+        if !vis.get() {
+            continue;
+        }
+        if dying || corpse || rt.game.is_dead(FormId(rig.reference)) {
+            let feet = bevy_to_game(g.translation()).to_array();
+            bodies.push((rig.reference, body_point(phys.as_deref(), rig.reference, feet)));
             continue;
         }
         let feet = bevy_to_game(g.translation()).to_array();
@@ -911,6 +995,20 @@ fn measure(
         state.stats.pip_light_on += 1;
         state.stats.pip_light_most = state.stats.pip_light_most.max(light.first().copied().unwrap_or(0.0));
     }
+    // GetLightAmountAtPoint (`fnv_game::nvse_jip12`): this round's lights and base light,
+    // for a point measured as [`light_at`] measures an actor (in the sun outdoors while
+    // it is up).
+    {
+        use fnv_world::sky::ColorType;
+        let bytes = |c: [f32; 3]| strength(c) / 255.0;
+        let s = sky.as_deref();
+        let outdoors = s.filter(|s| s.interior.is_none()).map(|s| {
+            let shade = bytes(s.color_bytes(ColorType::Ambient));
+            (if sun.is_some() { bytes(s.color_bytes(ColorType::Sunlight)) } else { shade }, shade)
+        });
+        let interior = s.and_then(|s| s.interior.as_ref()).map_or(0.5, |c| bytes(c.ambient.map(f32::from)));
+        rt.game.set_light_field(fnv_game::nvse_jip12::LightField { outdoors, interior, lights: lights.clone() });
+    }
 
     // Every detector against every target within reach.
     let shots = std::mem::take(&mut state.shots);
@@ -944,11 +1042,15 @@ fn measure(
     let mut heard: Vec<(String, DetectionEvent, f64, f32)> = Vec::new();
     let player_shot = shots.get(&FormId::PLAYER_REF.0).copied().unwrap_or(0.0);
     let mut player_noise = 0.0;
+    let mut player_cover = 0.0;
     let (alert_changes, barks, held) = with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         // The player's own noise, for the sneak gauges (nvf_play::sneak_gauges).
         let me = &people[0];
         player_noise = settings.noise(&g.detection_pair(FormId::PLAYER_REF, FormId::PLAYER_REF), me.moving, me.running, player_shot);
+        // The loudest sound of the world heard at the player: a noise under it is not
+        // heard (`nvf_play::sound_cover`, #2688).
+        player_cover = cover.as_deref_mut().map_or(0.0, |c| f64::from(c.cover(std::time::Instant::now(), player_noise)));
         // What the scripts read of movement, sneaking and swimming (IsMoving, IsRunning,
         // IsSneaking, IsSwimming): the people measured now; the others are forgotten.
         g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
@@ -1066,13 +1168,15 @@ fn measure(
             .collect();
         let mut camera_sight = vec![false; ordered.len()];
         look(camera_asks, &mut camera_sight);
+        // The bodies the camera sees: player.GetLineOfSight on a dead actor (#3232).
+        let seen = bodies_seen(people[0].camera, &bodies, |asks| sights(phys.as_deref_mut(), land, world, exterior, asks, &mut counts));
+        g.set_camera_sights(seen);
         for (k, &(i, j)) in ordered.iter().enumerate() {
             let (d, t) = (&people[i], &people[j]);
             let by_player = i == 0;
             let aware = g.awareness.get(FormId(d.id));
             let alert = aware.is_some_and(|a| a.state.in_combat());
-            // IsCombatTarget, in Combat only: a Lost fighter searches at 1.2 (§9 of the design).
-            let combat_target = aware.is_some_and(|a| a.state == State::Combat && a.targets.contains_key(&FormId(t.id)));
+            let in_combat_with_someone_else = in_combat_with_someone_else(aware, FormId(t.id));
             let dist = distance(d.feet, t.feet);
             let target = t.chest();
             let sit = Situation {
@@ -1085,9 +1189,10 @@ fn measure(
                 running: t.running,
                 sneaking: t.sneaking,
                 action_sound: shots.get(&t.id).copied().unwrap_or(0.0),
+                sound_cover: if j == 0 { player_cover } else { 0.0 },
                 detector_alert: alert,
                 detector_asleep: !by_player && g.asleep(FormId(d.id)),
-                combat_target,
+                in_combat_with_someone_else,
                 camera_sight: d.camera.map(|_| camera_sight[k]),
             };
             let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
@@ -1192,6 +1297,16 @@ fn measure(
     });
     if let Some(g) = gauges.as_deref_mut() {
         g.noise = player_noise as f32;
+        g.cover = player_cover as f32;
+    }
+    let covered = fnv_game::detection::masked(player_noise, player_cover);
+    if covered != state.covered {
+        state.covered = covered;
+        if covered {
+            info!("sound cover: the player's noise {player_noise:.0} is under the world's {player_cover:.0}: not heard");
+        } else {
+            info!("sound cover: the player's noise {player_noise:.0} is heard again (cover {player_cover:.0})");
+        }
     }
 
     // The log and the counts.
@@ -1393,6 +1508,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn combat_distraction_excludes_own_targets_and_lost_detectors() {
+        use fnv_game::awareness::{Awareness, Target};
+
+        let foe = FormId(1);
+        let bystander = FormId(2);
+        let mut aware = Awareness::default();
+        aware.targets.insert(foe, Target { band: Band::Detected, value: 10.0, at: [0.0; 3], detected: Some(0.0), hidden_since: None });
+        assert!(!in_combat_with_someone_else(None, bystander));
+        for state in [State::Normal, State::Alert, State::Combat, State::Lost] {
+            aware.state = state;
+            assert!(!in_combat_with_someone_else(Some(&aware), foe), "{state:?}: own foe");
+            assert_eq!(in_combat_with_someone_else(Some(&aware), bystander), state == State::Combat, "{state:?}: bystander");
+        }
+        // An unseen foe still on the list is not a bystander [design: detection.md §9].
+        aware.state = State::Combat;
+        aware.targets.get_mut(&foe).unwrap().band = Band::Hidden;
+        assert!(!in_combat_with_someone_else(Some(&aware), foe));
+        aware.targets.remove(&foe);
+        assert!(in_combat_with_someone_else(Some(&aware), foe));
+    }
+
+    /// A player drifting while its capsule settles makes no footsteps; one walking does,
+    /// and so does one stuck to a wall only when it gets anywhere (#2286).
+    #[test]
+    fn the_player_moves_only_by_its_own_controls() {
+        let still = MoveIntent::default();
+        let walking = MoveIntent { forward: 1.0, ..MoveIntent::default() };
+        let strafing = MoveIntent { right: -1.0, ..MoveIntent::default() };
+        assert!(!player_moving(16.0, Some(&still)), "a settle drift of 4 units in 0.25 s");
+        assert!(player_moving(16.0, Some(&walking)));
+        assert!(player_moving(344.0, Some(&strafing)));
+        assert!(!player_moving(5.0, Some(&walking)), "held against a wall");
+        assert!(player_moving(16.0, None), "no controls: by speed alone, as before");
+    }
+
+    #[test]
     fn light_adds_point_lights_with_the_game_falloff_and_caps_at_100() {
         let lamp = ([0.0, 0.0, 0.0], 200.0, 1.0);
         assert!((light_at(None, &[], [0.0; 3], true) - 50.0).abs() < 1e-6);
@@ -1425,5 +1576,68 @@ mod tests {
         // The ceiling turret: body 47-93 over its origin [observed, #1537], eyes halfway up.
         phys.world.set_actor_volume(6, fnv_phys::HitVolume { feet: [0.0, 0.0, 7807.0], radius: 20.0, height: 46.0, dead: false });
         assert_eq!(eyes_of(Some(&phys), 6, [0.0, 0.0, 7760.0], EYE_HEIGHT), [0.0, 0.0, 7830.0]);
+    }
+
+    /// #3232: the bodies the player's camera sees, for player.GetLineOfSight on a dead
+    /// actor. In front of the camera and clear: seen; behind it: not asked; in view but
+    /// behind a wall (the line answered blocked): not seen; no camera: nothing.
+    #[test]
+    fn the_camera_sees_bodies_in_view_and_clear() {
+        // Fred Wilks' body 193 units ahead of the camera, as in the report; one behind
+        // the camera; one in view with a wall between.
+        let eye = [1964.0, -1393.0, 570.0];
+        let camera = Some((eye, [0.0, -1.0]));
+        let fred = (0x060393EA, [1896.0, -1574.0, 454.0]);
+        let behind = (2, [1964.0, -1200.0, 460.0]);
+        let walled = (3, [2100.0, -1600.0, 460.0]);
+        let mut asked = Vec::new();
+        let seen = bodies_seen(camera, &[fred, behind, walled], |asks| {
+            asked = asks.to_vec();
+            asks.iter().map(|(_, [p, _])| *p != walled.1).collect()
+        });
+        assert_eq!(seen, vec![FormId(fred.0)]);
+        // The line is cast from the camera to where the body lies, not to a standing
+        // actor's chest; the body behind the camera is never asked.
+        assert_eq!(asked, vec![(eye, [fred.1, fred.1]), (eye, [walled.1, walled.1])]);
+        assert!(bodies_seen(None, &[fred], |_| panic!("no camera, no rays")).is_empty());
+        // Where the physics knows nothing of the body: a little above its origin.
+        assert_eq!(body_point(None, 7, [10.0, 20.0, 30.0]), [10.0, 20.0, 30.0 + BODY_LIFT]);
+    }
+
+    /// #2117: a shot is heard at the loudness of the weapon as fired, its mod flags on
+    /// the message: a Normal weapon with a Silence mod in slot 3 is Normal without the
+    /// mod and Silent with it, in the action sound and in the level its impacts get; a
+    /// mod that is not a silencer changes nothing, a naturally silent weapon stays
+    /// silent, and the loudest shot since the last measurement is kept.
+    #[test]
+    fn a_shot_is_heard_at_the_modded_weapons_level() {
+        use fnv_combat::data::WeaponMod;
+        let slot = |slot: u8, effect: &str| WeaponMod { slot, item: Some(FormId(0x100 + slot as u32)), effect: Some(effect.into()), value_a: 4.0, value_b: 0.0 };
+        let pistol = WeaponStats { sound_level: Some("Normal".into()), mods: vec![slot(1, "Increase Clip Capacity"), slot(3, "Silence")], ..Default::default() };
+        let quiet = WeaponStats { sound_level: Some("Silent".into()), mods: vec![slot(1, "Increase Clip Capacity")], ..Default::default() };
+        let d = Settings::default();
+        let (normal, silent) = (d.firing_sound("Normal"), d.firing_sound("Silent"));
+        assert!(silent < normal);
+        let shot = |shooter: u32, mods: u8| ShotFired { projectile: FormId(1), weapon: FormId(2), mods, shooter: FormId(shooter), at: None, dir: None };
+        let heard = |w: &WeaponStats, mods: u8| {
+            let mut state = DetectionState::default();
+            hear_shot(&mut state, Some(w), &shot(7, mods));
+            (state.shots[&7], state.shot_levels[&7])
+        };
+        assert_eq!(heard(&pistol, 0), (normal, normal), "no mods: the base level");
+        assert_eq!(heard(&pistol, 4), (silent, silent), "the Silence slot's flag");
+        assert_eq!(heard(&pistol, 5), (silent, silent), "the Silence slot among others");
+        assert_eq!(heard(&pistol, 1), (normal, normal), "an unrelated mod");
+        assert_eq!(heard(&quiet, 0), (silent, silent), "a naturally silent weapon");
+        assert_eq!(heard(&quiet, 1), (silent, silent), "a naturally silent weapon, modded");
+        // A weapon without data is not heard.
+        let mut state = DetectionState::default();
+        hear_shot(&mut state, None, &shot(8, 4));
+        assert_eq!((state.shots[&8], state.shot_levels[&8]), (0.0, 0.0));
+        // Loud then silenced: the action sound keeps the loudest, the impacts the last.
+        let mut state = DetectionState::default();
+        hear_shot(&mut state, Some(&pistol), &shot(9, 0));
+        hear_shot(&mut state, Some(&pistol), &shot(9, 4));
+        assert_eq!((state.shots[&9], state.shot_levels[&9]), (normal, silent));
     }
 }

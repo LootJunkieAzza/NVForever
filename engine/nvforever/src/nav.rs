@@ -40,7 +40,7 @@ pub struct Traveller {
     pub target_label: String,
     pub walker: Walker,
     /// Drawn while its space is the one drawn: spawned (`true` once asked), and the
-    /// actor's root entity once found.
+    /// actor's root entity (the body spawned, `show_actor`).
     spawned: bool,
     root: Option<Entity>,
     pub started: Option<f32>,
@@ -295,7 +295,7 @@ pub fn drive(
                 Space::World(w) => (Some(w), None),
                 Space::Interior(c) => (None, Some(c)),
             };
-            travel.write(nvf_play::Travel { world: w, interior, feet: lead.feet, heading_deg: lead.heading.to_degrees() });
+            travel.write(nvf_play::Travel { world: w, interior, feet: lead.feet, heading_deg: lead.heading.to_degrees(), pitch_deg: None });
             nav.travel_asked = true;
             nav.cam = None;
         }
@@ -403,7 +403,7 @@ pub fn drive(
         let moving = ev == WalkEvent::Moved;
         let stage = (&mut tr.spawned, &mut tr.root);
         let air = tr.walker.air.is_some();
-        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air, jumped: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
+        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air, jumped: false, at_once: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
             warn!("nav: {} could not be drawn", tr.label);
             tr.failed = Some(e.into());
         }
@@ -429,6 +429,10 @@ pub(crate) struct Who {
     /// Put somewhere this frame rather than walked there (a script's MoveTo or
     /// MoveToMarkerWithFade): the jump is no step of its gait ([`JUMP_STEP`]).
     pub jumped: bool,
+    /// Drawn in this frame, its parts read now if they are not yet, not once the
+    /// read-ahead has them: an actor a script just created beside the player, whose 3D
+    /// the original has within five frames [observed: nif-blocks.md; #2133].
+    pub at_once: bool,
 }
 
 /// A drawn actor's move in one frame longer than this (units) is a jump, not a step:
@@ -442,9 +446,9 @@ pub(crate) struct Who {
 pub const JUMP_STEP: f32 = 512.0;
 
 /// Keep the visual of an actor that a walker moves in step with it: drawn while
-/// `visible` (its space is the one drawn), spawned on demand (`spawned`, and `root` once
-/// its entity is found), placed at the walker's feet and heading, its locomotion fed the
-/// speed and turn rate. An error: the actor cannot be drawn.
+/// `visible` (its space is the one drawn), spawned on demand (`spawned`, and `root` the
+/// body spawned), placed at the walker's feet and heading, its locomotion fed the speed
+/// and turn rate. An error: the actor cannot be drawn.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn show_actor(
     commands: &mut Commands,
@@ -464,15 +468,29 @@ pub(crate) fn show_actor(
     moving: bool,
     dt: f32,
 ) -> Result<(), &'static str> {
-    let Who { reference, base, creature, scale, strafe, air, jumped } = who;
+    let Who { reference, base, creature, scale, strafe, air, jumped, at_once } = who;
     if !visible {
         if let Some(e) = root.take() {
             commands.entity(e).despawn();
+        } else if *spawned {
+            // Spawned, its root not found yet: nothing here takes that body away
+            // (diagnostic for #2461, a body left standing where it was spawned).
+            warn!("actor {reference:08X}: out of view before its body spawned earlier was found: that body is not taken away");
         }
         *spawned = false;
         return Ok(());
     }
     let Some(aw) = actor_world else { return Ok(()) };
+    // Its body gone (despawned) or handed off (its `RefVisual` taken: the body left at a
+    // load door, `residents::hand_off_body`): that root is let go and the body looked for
+    // again below; none found, it is drawn anew [design, #2461: a root left on a faded
+    // body that `door_fade.rs` despawned had no body follow the walker any more]. Looked
+    // up in `roots`, which a body on furniture is in too (`actors` leaves it out).
+    let lost = root.is_some_and(|e| !roots.get(e).is_ok_and(|(_, v, _)| v.0 == reference));
+    if lost {
+        warn!("actor {reference:08X}: the body it was drawn by is gone: looked for again");
+        *root = None;
+    }
     if !*spawned {
         let at = Vec3::from_array(feet);
         let rt = bevy::math::Affine3A::from_scale_rotation_translation(Vec3::splat(scale), Quat::from_rotation_z(-heading), at);
@@ -481,7 +499,7 @@ pub(crate) fn show_actor(
         // the frame it comes into view (`readahead::ready_to_draw`) [engineering choice: it
         // appears a few frames later, out at the edge of the loaded cells].
         let ready_span = info_span!("ai::ready_to_draw").entered();
-        let ready = crate::readahead::ready_to_draw(aw, sim, &mut ctx, ahead, reference, base, creature);
+        let ready = at_once || crate::readahead::ready_to_draw(aw, sim, &mut ctx, ahead, reference, base, creature);
         drop(ready_span);
         if !ready {
             return Ok(());
@@ -490,31 +508,53 @@ pub(crate) fn show_actor(
         let spawn_span = info_span!("ai::spawn_actor").entered();
         let drawn = crate::readahead::clocked(|| {
             if creature {
-                crate::actors::spawn_creature(commands, world_root, rt, reference, base, aw, &mut ctx, stats, false)
+                crate::actors::spawn_creature_body(commands, world_root, rt, reference, base, aw, &mut ctx, stats, false)
             } else {
-                crate::actors::spawn(commands, world_root, rt, at, reference, base, aw, sim, &mut ctx, stats, false)
+                crate::actors::spawn_body(commands, world_root, rt, at, reference, base, aw, sim, &mut ctx, stats, false)
             }
         });
         drop(spawn_span);
-        if !drawn {
+        let Some(body) = drawn else {
             return Err("not drawn");
-        }
+        };
         *spawned = true;
+        // Its root is the body just spawned, not one looked for under the world root: in
+        // the frame a load door hands it over, the body left at the door still carries
+        // its `RefVisual` until this frame's commands are applied, and a scan took that
+        // one, leaving the new body standing undriven at the door's far side [design,
+        // #2461: Lt. Boyd drawn twice at Camp McCarran]. It is placed from the next frame
+        // (its entity is there once the commands are applied).
+        *root = Some(body);
+        return Ok(());
     }
-    // The actor's root: the entity of its reference placed directly under the world
-    // root (spawned last frame; its parts sit below it). Found now, it still stands
-    // where it was spawned, maybe frames ago (its parts read meanwhile): the step from
-    // there is no step of its gait either [observed: VStreetGamblerBREF, drawn anew
-    // after a MoveToMarkerWithFade, ran 14 of its first 28 frames drawn though its
-    // package walks, smoke strip-fade-in-walk 2026-11-06].
-    let found_now = root.is_none();
-    if found_now {
+    // Spawned and its root not known (its body was gone, above): the entity of its
+    // reference placed directly under the world root (its parts sit below it).
+    let mut found_now = false;
+    if root.is_none() {
         crate::profile::ai_count(crate::profile::AiCount::RootScans, 1);
         let _span = info_span!("ai::find_root").entered();
-        *root = roots.iter().find(|(_, v, p)| v.0 == reference && p.parent() == world_root).map(|(e, _, _)| e);
+        let mut found = roots.iter().filter(|(_, v, p)| v.0 == reference && p.parent() == world_root).map(|(e, _, _)| e);
+        *root = found.next();
+        // More than one body of the reference under the world root: the first is
+        // driven, the others stand where they were left (diagnostic for #2461).
+        let others = found.count();
+        if others > 0 {
+            warn!("actor {reference:08X}: {} bodies under the world root when its body was looked for: one is driven, {others} left standing", others + 1);
+        }
+        found_now = root.is_some();
+        if lost && !found_now {
+            // No other body of it: drawn anew in the next call.
+            *spawned = false;
+        }
     }
     let Some(e) = *root else { return Ok(()) };
     let Ok((mut t, lo)) = actors.get_mut(e) else { return Ok(()) };
+    // Placed for the first time (spawned last frame: its transform added since this
+    // system last ran; or found just now), it still stands where it was spawned: the step
+    // from there is no step of its gait [observed: VStreetGamblerBREF, drawn anew after a
+    // MoveToMarkerWithFade, ran 14 of its first 28 frames drawn though its package walks,
+    // smoke strip-fade-in-walk 2026-11-06].
+    let found_now = found_now || t.is_added();
     let before = (t.translation, tr_heading(&t));
     t.translation = Vec3::from_array(feet);
     t.rotation = Quat::from_rotation_z(-heading);
@@ -585,7 +625,7 @@ pub fn draw(
     nav: Res<NavState>,
     world: Res<WorldData>,
     streamer: Res<Streamer>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut gizmos: Gizmos,
 ) {
     use fnv_nav::record::tri_flags;
@@ -596,7 +636,9 @@ pub fn draw(
     let space = drawn_space(&world, &streamer);
     let at = crate::world::bevy_to_game(cam.translation());
     let g = &nav.graph;
-    let lift = Vec3::Z * 3.0;
+    // Above the ground it lies on, and above a smoothed landscape, which can rise up to its
+    // bound over the stored triangles the navmesh was made on [design, #2149].
+    let lift = Vec3::Z * (3.0 + nvf_play::smooth_terrain::spec().bound());
     let p = |q: [f32; 3]| to_bevy(Vec3::from_array(q) + lift);
     for t in g.triangles_near(space, at.x, at.y, 3000.0) {
         let tri = &g.tris[t as usize];

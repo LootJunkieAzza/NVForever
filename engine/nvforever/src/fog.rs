@@ -26,9 +26,23 @@ const BEVY_ATMOSPHERIC: &str = "    let extinction_factor = 1.0 - 1.0 / exp(dist
 
 /// The game's fog: near, far and power in `be` (the atmospheric fog's extinction). With
 /// `bi.x` 1 the colour is blended in display values (gamma 2.2), else in linear light.
+/// Outdoors the desert haze (haze.rs, an enhanced-look switch) arrives as `scattering`
+/// (x its share, y its sun weight; Bevy's own use of the argument needs a directional light
+/// alpha above 0, which is never set): the two are blended once, as transmittances, the
+/// haze seen through the weather's fog. Without haze (`scattering.x` 0) the old two lines
+/// run unchanged [design, #2675].
 const GAME_FOG: &str = "    let fog_t = clamp((distance - fog_params.be.x) / max(fog_params.be.y - fog_params.be.x, 1.0), 0.0, 1.0);
     let fog_share = select(0.0, pow(fog_t, fog_params.be.z), fog_t > 0.0) * fog_color.a;
     if fog_params.bi.x > 0.5 {
+        if scattering.x > 0.0 && fog_params.directional_light_color.a <= 0.0 {
+            // NVForever desert haze (haze.rs): total share 1 - (1 - fog)(1 - haze), one blend.
+            let haze_share = clamp(scattering.x, 0.0, 1.0);
+            let haze_colour = mix(fog_color.rgb, fog_params.directional_light_color.rgb, clamp(scattering.y, 0.0, 1.0));
+            let veil_share = 1.0 - (1.0 - fog_share) * (1.0 - haze_share);
+            let veil = (pow(max(fog_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)) * fog_share + pow(max(haze_colour, vec3(0.0)), vec3(1.0 / 2.2)) * (haze_share * (1.0 - fog_share))) / max(veil_share, 1e-6);
+            let hazy = mix(pow(max(input_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)), veil, veil_share);
+            return vec4<f32>(pow(hazy, vec3(2.2)), input_color.a);
+        }
         let shown = mix(pow(max(input_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)), pow(max(fog_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)), fog_share);
         return vec4<f32>(pow(shown, vec3(2.2)), input_color.a);
     }
@@ -37,6 +51,12 @@ const GAME_FOG: &str = "    let fog_t = clamp((distance - fog_params.be.x) / max
 /// Set once the patched shader is in place; until then (or if Bevy's shader changed)
 /// [`falloff`] gives Bevy's linear fog.
 static INSTALLED: AtomicBool = AtomicBool::new(false);
+
+/// Whether the game's fog curve is in place (the fog uniform then carries its numbers and
+/// the desert haze's, haze.rs).
+pub fn installed() -> bool {
+    INSTALLED.load(Ordering::Relaxed)
+}
 
 pub struct FogPlugin;
 
@@ -109,9 +129,30 @@ pub fn share(near: f32, far: f32, power: f32, distance: f32) -> f32 {
     if t > 0.0 { t.powf(power) } else { 0.0 }
 }
 
+/// The vendored bevy_pbr `fog.wesl` with [`GAME_FOG`] in place, as [`patch_fog`] makes it
+/// (for the shader tests here and in haze.rs).
+#[cfg(test)]
+pub(crate) fn patched_vendored_fog() -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/bevy_pbr/src/render/fog.wesl");
+    let source = crate::lights::unix_lines(&std::fs::read_to_string(path).expect("vendored fog.wesl"));
+    assert_eq!(source.matches(BEVY_ATMOSPHERIC).count(), 1, "the atmospheric fog's body, once");
+    source.replace(BEVY_ATMOSPHERIC, GAME_FOG)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_game_fog_replaces_bevys_atmospheric_fog_once() {
+        let patched = patched_vendored_fog();
+        assert_eq!(patched.matches("let fog_share = ").count(), 1);
+        assert!(!patched.contains("extinction_factor"));
+        // The haze's branch comes first and the old display-value lines stay as they were.
+        let haze = patched.find("if scattering.x > 0.0").expect("the haze branch");
+        let old = patched.find("        let shown = mix(pow(max(input_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)), pow(max(fog_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)), fog_share);").expect("the old blend");
+        assert!(haze < old);
+    }
 
     #[test]
     fn share_follows_the_power() {

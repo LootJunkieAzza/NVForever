@@ -81,14 +81,43 @@ documented** in our sources. What the data shows:
   shared lines, 59 and 7 remain [observed: the scratch survey; the real-data test
   asserts 7,325 / 257 / 7].
 
-The runtime counts a shared line as a line of the topic that lists it
-(`GameData::lines_tried`): the topic's own lines with each shared line put in at its
-Info Index (a negative index or one past the end puts it last), then sorted by quest
-priority as in §4 [hypothesis, from the data above: otherwise those 257 lines would
-offer nothing they link to; the place given by the index is a hypothesis too]. A
-listing topic's line is said under that topic (the event's `topic`); the line keeps its
-own Choices, Add Topics and result scripts. GREETING shares five lines, four of them
-`VMS07Greeting`'s at indices 11–14, so those can now greet. Capture question 9 stays
+[hypothesis] Info Index is a position among the **listing quest's** lines for this
+topic, rather than among all the topic's lines. xEdit's per-added-quest grouping is
+documented above; the behavioral interpretation is not established vanilla behavior.
+The supplied data survey in [issue #1895](https://github.com/LootJunkieAzza/NVForever/issues/1895)
+reports HELLO sharing 223 pairs from 14 quests, with indices restarting per quest;
+38 indices are used by multiple quests. Its Powder Ganger indices 5–24 follow their
+GREETING order: the eligible Random lines `00151A7B`, `00151A7A`, `0015694C`,
+`0015694D` precede the plain `00151A7C`. Topic-wide insertion instead placed the plain
+line first [observed: fnvtool dialogue topics/lines over FalloutNV.esm, issue #1895].
+
+[design: `crates/fnv-game/src/data.rs`, `shared_lines` / `GameData::lines_tried`]
+The topic's own lines keep their stored order (§3.1); no line of them moves. Each
+listing QSTI quest's list is its own lines of this topic, in stored order, with its
+shared lines inserted at their Info Index in index order (a negative, missing or
+out-of-range index puts the line last in that list). In the topic's list a shared line
+goes just before the quest's own line that follows it in the quest's list, or right
+after the quest's last own line when none follows; shared lines that meet at one place
+keep index order, then QSTI order. A quest with no own line in the topic (Powder
+Gangers in HELLO) has its shared lines appended after all own lines, quests in QSTI
+order, each quest's lines in index order, so the Powder Ganger Random pool still comes
+before their plain line. The list then gets the stable priority sort of §4, using each
+INFO's **owning** quest, even when that differs from the listing quest. Since the own
+lines never move, own lines of equal priority are tried in the same order as in a
+topic without shared lines (`GameData::lines_by_priority`, "within one priority the
+stored order", §4), also when two quests' own lines are interleaved. Hash-map
+iteration never decides the order. Missing INFOs are skipped; an INFO already present
+is not inserted again (the first pair in stable index order wins). If a valid pair
+lacks QSTI, the entire topic retains the previous topic-wide merge as a malformed-data
+fallback, including equal-index insertion order. This avoids guessing a listing quest
+from INFO ownership or changing the malformed topic's interleaving.
+
+[design: `crates/fnv-game/src/dialogue.rs`, `Game::select_line`, `Game::say_line`]
+A shared line counts as a line of the listing topic and is said under that topic
+(the event's `topic`); it retains its own conditions, Choices, Add Topics and result
+scripts. GREETING's four `VMS07Greeting` shared lines at indices 11–14 therefore remain
+available through GREETING. Synthetic and optional real-data regressions live in
+`crates/fnv-game/tests/dialogue.rs` and `dialogue_data.rs`. Capture question 9 stays
 open for the in-game check.
 
 ### 1.3 Counts [observed: the summary]
@@ -433,7 +462,17 @@ A speaker **can say** a line when:
   unless the line has its own GetIsID condition on the speaker, which then decides
   [observed 2026-10-31: the Lucky 38 elevator Victor said 0x00165102, whose fixed
   speaker is the entrance Victor and whose condition is GetIsID the elevator Victor;
-  observer check 29];
+  observer check 29]. A condition on the speaker naming a group (GetInFaction,
+  GetIsClass, GetIsRace, GetIsVoiceType, IsInList) decides as well [hypothesis, #2548,
+  observer check 162]: Cottonwood Cove's "Halt!" greeting 0x0013AC97 names the AAM
+  explorer and tests VCaesarsLegionCCoveExplorerFaction, which all four explorers are
+  in, and the other three have GREETING force-greet packages of their own
+  (0x001789B6-B8) that would end on the generic "Move along." otherwise. 19 lines of
+  FalloutNV.esm have a fixed speaker and such a condition without GetIsID [observed]:
+  the Cottonwood Cove explorer lines (7), the Tops' random bartender (3) and the
+  Strip's Securitron messenger (9 with VVictorFaction, said by the messenger itself).
+  Such a line said by another actor plays the fixed speaker's voice file when the
+  actor's own voice has none (voice.rs, as for a GetIsID line);
   - **a script's Say or SayTo** whose topic has no line passing this check, judged from
     the data alone (every line names another fixed speaker and has no own-ID condition;
     a line the speaker passes the check for but cannot say now, because it was said
@@ -534,6 +573,12 @@ All of it is in `GameSnapshot`.
   within 300 units of the player, never from afar; out of the loaded area (the low
   process) the walk-up waits. Without the AI (headless runners) the
   conversation opens at once, as before [design: the distances and the run].
+  [design, #2724] Any successful opening of a player conversation consumes that
+  speaker's pending walk-up, before the first line's result scripts run
+  (`Game::open_dialogue`). A repeated StartConversation that opens within 300 units,
+  another force greet, or the player's own opener therefore cannot leave an old
+  walk-up to greet again after the conversation. Refused opens and greetings that
+  do not open a conversation leave it pending; other speakers' walks are unchanged.
   [observed 2026-11-05] The Legion explorers about Nelson (nvNelsonExplorerBarkSCRIPT
   calls StartConversation Player once its GameMode runs) greeted from 10,099 units off.
   Now explorer 01 runs over and greets from 147 units (smoke
@@ -579,11 +624,24 @@ All of it is in `GameSnapshot`.
   lines, e.g. Anders' thanks in VMS46, INFO 0x00142A9C; the other 4 lines have neither
   the flag nor choices [observed: `fnvtool dialogue lines --all`]; observer check 39]. A
   conversation the end script ends some other way does not start it [design].
-- **A Goodbye line the player chooses ends the conversation at once** (`Game::choose`,
-  issue #1606): the dialogue menu closes as the line starts, the game is no longer
+- **A chosen line with the Goodbye flag holds the player until it is said**, like the
+  lines before it, and ends the conversation when it is over (`Game::finish_line`)
+  [owner statement 2026-11-11, issue #2157: the last line of a conversation must hold
+  the player like the rest; said in the world, a quest's line can be interrupted in
+  play]. From 2026-11-05 (#1606) until then every chosen Goodbye line closed its
+  conversation at once, a topic's last line with its quest stage as much as "Goodbye.".
+  One rule for all of them: the data does not tell a plain goodbye from a quest's last
+  line, since actors' own "Goodbye." lines are ordinary topics (Chet's is
+  VFreeformGoodspringsGoodspringsChetTopic001, not the GOODBYE topic [observed: the
+  `goodbye-choice-holds` smoke log]).
+- **Kept behind a switch, off by default** (`GameConfig::goodbye_at_once`; nothing in
+  the engine sets it): a chosen Goodbye line ends the conversation at once
+  (`Game::choose`, `Game::say_farewell`, issue #1606). The dialogue menu closes as the
+  line starts, the game is no longer
   paused, and the actor finishes the line in the world, said at the player
   [observed: owner's playtest 2026-11-05, against the original: choosing a Goodbye
-  closes the menu at once and the actor finishes the line as the player walks away].
+  closes the menu at once and the actor finishes the line as the player walks away;
+  which lines the original does this for is open, §7 item 18].
   In the runtime the line moves to `Game::speech` as a farewell (`Speech::farewell`)
   with the time it has left (the rest of the response being said and the responses
   after it), and `dialogue_ended` (`goodbye`, the line counted) comes before its
@@ -600,7 +658,7 @@ All of it is in `GameSnapshot`.
   Goodbye greeting at the player [hypothesis: a Goodbye line's end result sets quest
   stages and must not be lost; the owner's catch-all statement of 2026-10-27 was about
   the greeting]. Game time and GameMode scripts run while it is said, as for any line
-  said in the world. Not changed, as they are not chosen: a Goodbye greeting that opens
+  said in the world. Not moved, as they are not chosen: a Goodbye greeting that opens
   a conversation (a force greet, above), a Goodbye line of a topic named by
   StartConversation, and a Goodbye follow-up; each ends its conversation when it is
   over. Nor does a chosen Goodbye line whose begin result made the actor say another
@@ -726,8 +784,18 @@ Joe Cobb and Trudy (below).
   Stations]. Tests: `dialogue.rs`
   `a_conversation_uses_a_topic_once_unless_its_quest_allows_repeats`,
   `a_follow_up_between_actors_keeps_the_topics_of_the_conversation`.
+- **A talking activator** can take part (issue #2451): it says its talking actor's
+  lines, chosen with that actor as the speaker and IsActorTalkingThroughActivator 1
+  (`Game::talker`), and the line is said by that actor through it (`Speech::through`),
+  so the other side's next line is said to the activator. Veronica's package at Hidden
+  Valley talks to HVIntercomREF, which speaks for Ramos.
 - **The next line** (`Game::next_conversation_line`), when a line has ended and its end
-  result has run: a Goodbye line ends the conversation [documented]; so does either
+  result has run: a Goodbye line ends the conversation [documented] unless it links on
+  (Link To or follow-ups), when it goes on [hypothesis from the data: 19 Conversation
+  lines of FalloutNV.esm are Goodbye with links; Jason Bright's speech is started at its
+  first part only (SCPT 0008D41A) and its Goodbye part 4 links to parts 5-9; Veronica's
+  exchange with Ramos (HVVeronicaEnter, four Goodbye lines) opens the bunker only at its
+  third line; observer check 139]; so does either
   side being gone [hypothesis]. Otherwise the line's next speaker says the next line:
   Target is the other actor, Self the same one, Either the other and else the same one
   [documented: xEdit wbNextSpeaker, the names; hypothesis: what they mean]. It says the
@@ -768,6 +836,18 @@ Cobb's line (8.80 s, its voice file's length), Trudy's answer (3.85 s), bArgumen
 package 0010663E chosen, the conversation ended `no_links` after 2 lines. Before this
 section StartConversation with an actor was a stub, so the argument was never heard.
 
+**A Dialogue package's Say To line to another actor leads on** (issue #2229,
+`Game::say_package_line`): when the line is a Conversation line, once it ends and its
+SayToDone blocks ran the two go on as above (`Game::next_conversation_line`: its next
+speaker, follow-ups, Link To and choice topics, until a Goodbye line or none). A
+scripted SayTo stays one line: scripts chain those themselves through SayToDone
+[hypothesis, from the data: TTW's CG04MaryHoldenTalkToTom (Say To, topic
+CG04AtriumConv1) says "We should just go back to our quarters" to Tom (INFO 0A0574FC:
+Conversation, next speaker Target, its choice CG04AtriumConv1, begin script atrium
+stage +1), and only Tom's answer from that topic (INFO 0A0574FE, Goodbye, at atrium
+stage 1) sets the stage 3 his CG04TomHoldenDeathRun needs; before, Tom never answered
+and never ran].
+
 ### 5.2 Actors who talk on their own (`fnv_ai::social`)
 
 Two behaviours, each allowed by the actor's current package ("Enable Fallout Behavior":
@@ -799,9 +879,19 @@ a five-line exchange at Nellis. 1,065 have Link From blank, so can start one
   forth; the fiend just goes back to what he was doing" [owner statement 2026-10-11].
   In the engine in Vault 3 (Vault3a, 200 s, the player put by a Fiend) 6 hellos were
   said, among them GenericFiend's openers 00175369 and 0017536A, and one random
-  conversation started (a one-line remark, 00175374, which links nowhere). When: the player within 300 units; again only
-  after the player has gone beyond 600; one hello at a time [stand-ins: no distance or
-  timer for hellos is documented, and none is set in the masters].
+  conversation started (a one-line remark, 00175374, which links nowhere). When: the player within 200 units
+  (300 until 2026-11-11) with nothing solid between the two (the engine's measurement
+  that a force greet uses, `Game::greet_sight`); again only after the player has gone
+  beyond 600 [stand-ins: no distance or timer for hellos is documented, and none is set
+  in the masters]. Since 2026-11-11 idle lines (hellos and idle chatter) keep apart
+  [design: owner's playtest, #2156: NPCs "way too talkative", everyone in the Legion's
+  Fort saying the same line, idle lines through walls, "the proximity cut down 33%"]:
+  after one, nobody in the loaded area says another for 20 s and the same actor none
+  for 60 s; an actor the player comes up to during the area's wait has missed its hello;
+  and a line said within the last 180 s is not said again by anyone
+  (`Game::say_hello_fresh`): a Random pool picks among its other lines, and an actor
+  whose plain line, or whose whole pool, was said of late says nothing rather than a
+  line stored further down (`crates/fnv-ai/src/social.rs`).
 - **Which lines**: a hello to the player may be a Topic or a Conversation line (the
   Fiends' openers are Conversation lines, owner statement above); a random
   conversation uses Conversation lines only (§5.1). In the engine in Vault 3 (200 s)
@@ -894,7 +984,19 @@ lines --all` against `fnvtool script coverage`, 2026-10-24].
 **To confirm** (owner statements of 2026-10-10, the rules the runtime follows):
 
 - A. Greeting choice when lines of several quests qualify: rules 1–3 of §4, including
-  equal priorities and the stored order of §3.1.
+  equal priorities and the stored order of §3.1. Two counter-examples to "equal priority:
+  stored order" are in the data, where the shipped quests need the line stored later
+  [observed; observer check 248]: Hoover Dam's control panel in All or Nothing (House's
+  generic greeting 0x00125EBD, VDialogueMrHouse, stored before the panel's 0x001554D8,
+  VHDHouseBattle, the only line that sets its stage 20; #3199) and Doctor Zimmer in TTW
+  (MS08Fin's goodbye 0x0A0C84FF stored before MS08's hire line 0x0A02026A; #3061). Both
+  pairs are of priority-50/55 quests with no other condition between them. One rule fits
+  both and FormID or start order does not: the line that wins is the Say Once one
+  [hypothesis]. Applied to every line it would reorder lines inside 112 of the 228
+  quests with GREETING lines in the New Vegas masters (a plain line stored before one of
+  the quest's own Say Once lines) [observed: `fnvtool dialogue lines --topic GREETING`],
+  so if it holds it is a rule between quests, not inside one. Not changed in the runtime
+  until the original answers.
 - B. A conversation with the player pauses the game (GameMode, game time); SayTo and Say
   lines do not (§5, §6). Game time and an attacker were seen to hold while the menu is
   open [observed 2026-10-19, owner-decision-captures.md §7].
@@ -965,7 +1067,9 @@ up to C and F):
     they talk from; how long the starter tries); whether the player's presence matters for
     random conversations; general bit 12 as the switch between the default and the
     package's own Fallout behaviour (packages.md §1).
-18. A chosen Goodbye line said on in the world (§5, issue #1606): whether the original
+18. A chosen Goodbye line said on in the world (§5, issues #1606 and #2157): which
+    chosen Goodbye lines close the menu at once in the original, if any (the runtime:
+    none, every one holds the player until it is said; the switch closes all); whether it
     closes the menu at once also for a conversation through a talking activator; whether
     the end result runs when the line ends or as the menu closes; whether the actor stops
     to finish the line or walks on; what ends the line early (another line, a fight, the
@@ -1053,16 +1157,16 @@ gains `dialogue`.
   85 at its end. 15 lines; tag skills Guns, Science, Sneak as before. The test up to
   the last answer happens in paused time (real time passes for the lines, script time
   does not). That last line is the fourteenth `choose` (15 lines: the opening line and
-  fourteen answers), a chosen Goodbye line, so since issue #1606 it closes the
-  conversation at once (§5) and Doc finishes it in the world, in game time. VCG01Test's
-  quest script does the tag-skill calculation in GameMode once `bDoFinalCalculation`
-  is 1, which that line's begin script sets: the calculation runs in the first GameMode
-  frames while Doc finishes the line, and stage 85 is set by its end script when the
-  line ends, still before stage 90 opens the tag-skill menu 1 s later [design; the
-  real-data test `dialogue_data.rs` checks the tag skills and stages]. (While the
-  conversation paused the game up to its end, before #1606, the calculation ran in the
-  first GameMode frames after the line; as long as conversations did not pause, while
-  it was being said. The result is the same.)
+  fourteen answers), a chosen Goodbye line: it
+  holds the player until it is said (§5, issue #2157) and stage 85 is set by its end
+  script as the conversation ends. VCG01Test's quest script does the tag-skill
+  calculation in GameMode once `bDoFinalCalculation` is 1, which that line's begin
+  script sets: the calculation runs in the first GameMode frames after the line, still
+  before stage 90 opens the tag-skill menu 1 s later [design; the real-data test
+  `dialogue_data.rs` checks the tag skills and stages]. (Between #1606 and #2157 the
+  line closed the conversation at once and the calculation ran while Doc finished it in
+  the world; as long as conversations did not pause, while it was being said. The
+  result is the same.)
 - **The farewell.** Stand-in: `talk` for Doc's dialogue package after stage 115 (and 4 s
   for his walk). Then the game's: the greeting that returns the player's things,
   two follow-up lines (the Pip-Boy with its message, the suit by the player's sex), the

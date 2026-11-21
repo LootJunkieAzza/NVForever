@@ -58,6 +58,11 @@ pub struct CellBuffer {
 }
 
 impl CellBuffer {
+    /// The cells kept: exterior grid squares by worldspace, and interiors.
+    pub fn cells(&self) -> (impl Iterator<Item = (u32, (i32, i32))> + '_, impl Iterator<Item = u32> + '_) {
+        (self.exterior.keys().copied(), self.interior.keys().copied())
+    }
+
     /// The cells drawn in this frame: an interior, or the exterior grid squares of
     /// worldspace `world`.
     pub fn remember(&mut self, world: u32, interior: Option<u32>, exterior: impl Iterator<Item = (i32, i32)>) {
@@ -168,6 +173,28 @@ pub fn remember(mut streamer: ResMut<Streamer>, world: Res<WorldData>, sim: Opti
     }
     let drawn: Vec<(i32, i32)> = drawn().collect();
     s.buffer.remember(world.world, s.interior, drawn.into_iter());
+}
+
+/// Tell the scripts' game the cells kept, when they change (GetBufferedCells,
+/// GetCellBuffered; `fnv_game::nvse_jip12`): the exterior squares as their cells.
+pub fn tell_game(streamer: Res<Streamer>, script: Option<ResMut<nvf_play::script::ScriptState>>, mut told: Local<Vec<(u32, (i32, i32))>>, mut told_in: Local<Vec<u32>>) {
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    let (ext, int) = streamer.buffer.cells();
+    let (mut ext, mut int): (Vec<_>, Vec<_>) = (ext.collect(), int.collect());
+    ext.sort_unstable();
+    int.sort_unstable();
+    if *told == ext && *told_in == int {
+        return;
+    }
+    let g = &mut rt.game;
+    let mut cells: std::collections::BTreeSet<fnv_sim::FormId> = int.iter().map(|&c| fnv_sim::FormId(c)).collect();
+    for &(w, xy) in &ext {
+        if let Some(c) = g.world.placed.world_grid.get(&fnv_sim::FormId(w)).and_then(|grid| grid.get(&xy)) {
+            cells.insert(*c);
+        }
+    }
+    g.set_buffered_cells(cells);
+    (*told, *told_in) = (ext, int);
 }
 
 #[cfg(test)]

@@ -104,12 +104,18 @@ impl GameData {
     /// The actor base `id` stands for: itself, or the entry picked from a leveled actor
     /// list, through nested lists. `None` for a form that is neither, and for a list with
     /// no entry at the level.
-    pub fn actor_base(&self, mut id: FormId, picks: &mut Picks) -> Option<FormId> {
+    pub fn actor_base(&self, id: FormId, picks: &mut Picks) -> Option<FormId> {
+        self.actor_base_with(id, picks, &|_| None)
+    }
+
+    /// Existing selection with optional runtime actor-list definitions.
+    pub fn actor_base_with(&self, mut id: FormId, picks: &mut Picks, lists: &impl Fn(FormId) -> Option<LeveledActorDef>) -> Option<FormId> {
         for _ in 0..MAX_DEPTH {
             if self.actors.contains_key(&id) {
                 return Some(id);
             }
-            id = picks.pick(id, self.leveled_actors.get(&id)?)?;
+            let edited = lists(id);
+            id = picks.pick(id, edited.as_ref().or_else(|| self.leveled_actors.get(&id))?)?;
         }
         None
     }
@@ -125,11 +131,17 @@ impl GameData {
     /// [`GameData::template_source`] with leveled lists read at `at` (the reference's
     /// level in a game, [`crate::game::Game::leveled_at`]).
     pub fn template_source_at(&self, base: FormId, reference: FormId, at: LevelAt, from_template: fn(&ActorDef) -> bool) -> Option<(FormId, &ActorDef)> {
+        self.template_source_at_with(base, reference, at, from_template, &|_| None)
+    }
+
+    /// Runtime variant of template selection; actor definitions remain borrowed
+    /// from the load order, while list edits affect the existing seeded choices.
+    pub fn template_source_at_with(&self, base: FormId, reference: FormId, at: LevelAt, from_template: fn(&ActorDef) -> bool, lists: &impl Fn(FormId) -> Option<LeveledActorDef>) -> Option<(FormId, &ActorDef)> {
         let mut picks = Picks::at(reference, at);
-        let mut id = self.actor_base(base, &mut picks)?;
+        let mut id = self.actor_base_with(base, &mut picks, lists)?;
         let mut def = self.actors.get(&id)?;
         for _ in 0..MAX_DEPTH {
-            let next = def.template.filter(|_| from_template(def)).and_then(|t| self.actor_base(t, &mut picks));
+            let next = def.template.filter(|_| from_template(def)).and_then(|t| self.actor_base_with(t, &mut picks, lists));
             match next {
                 Some(t) => (id, def) = (t, &self.actors[&t]),
                 None => break,

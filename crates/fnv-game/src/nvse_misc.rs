@@ -42,6 +42,20 @@ fn text(args: &[XVal], k: usize) -> String {
     }
 }
 
+/// A game setting's name, as a setting function's first argument: the text, or, written
+/// without quotes, the setting's own record, whose Editor ID is the name. The compiler
+/// reads a bare word that is an Editor ID as that form, and every setting of the load
+/// order is a GMST record named for itself [observed: JustAssortedMods.esp 4.6 writes
+/// `GetNumericGameSetting fVATSShotLongBurstTime` and its like 17 times, and divides by
+/// the result; `fnvtool ext queries` read 1.75 quoted and 0 unquoted until this].
+pub(crate) fn setting_name(g: &Game, args: &[XVal], k: usize) -> String {
+    match args.get(k) {
+        Some(XVal::Str(s)) => s.clone(),
+        Some(XVal::Ref(f)) if g.data.sig(FormId(*f)) == Some(*b"GMST") => g.data.edid_of.get(&FormId(*f)).cloned().unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
 fn yes(b: bool) -> XVal {
     XVal::Num(f64::from(u8::from(b)))
 }
@@ -60,7 +74,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "isquestitem" => yes(g.world.is_quest_item(item(g, 0))),
         "isplayable" => {
             let it = item(g, 0);
-            yes(g.playable_overrides.get(&it).copied().unwrap_or_else(|| g.world.forms.item(it).is_some_and(|i| !i.non_playable)))
+            yes(g.is_item_playable(it))
         }
         "ispowerarmor" => {
             let f = item(g, 0);
@@ -87,6 +101,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // fontfile.2 "Textures\Fonts\Monofonto_Large.fnt", fontfile.9 ""].
         "getfontfile" => {
             let n = int(args, 0, 0);
+            // SetFontFile's file first (`crate::nvse_jip9`).
+            if let Some(f) = g.font_file(n) {
+                return Some(Ok(XVal::Str(f.to_string())));
+            }
             let from_ini = match crate::nvse_settings::call(g, "getstringinisetting", &[XVal::Str(format!("sFontFile_{n}:Fonts"))]) {
                 Some(Ok(XVal::Str(s))) if !s.is_empty() => Some(s),
                 _ => None,
@@ -108,14 +126,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
         )),
         // [documented: GetNumericGameSetting; GetStringGameSetting; SetNumericGameSetting].
-        "getnumericgamesetting" => XVal::Num(g.world.setting_f32(&text(args, 0)).map_or(0.0, f64::from)),
-        "getstringgamesetting" => XVal::Str(match g.world.setting_value(&text(args, 0)) {
+        "getnumericgamesetting" => XVal::Num(g.world.setting_f32(&setting_name(g, args, 0)).map_or(0.0, f64::from)),
+        "getstringgamesetting" => XVal::Str(match g.world.setting_value(&setting_name(g, args, 0)) {
             Some(fnv_sim::settings::Setting::Str(s)) => s.clone(),
             _ => String::new(),
         }),
         "setnumericgamesetting" => {
             use fnv_sim::settings::Setting;
-            let n = text(args, 0);
+            let n = setting_name(g, args, 0);
             let x = match args.get(1) {
                 Some(XVal::Num(x)) => *x,
                 _ => 0.0,
@@ -125,6 +143,22 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // [documented: GetClass] the actor's class (`Game::traits_class`).
         "getclass" => XVal::Ref(form(args, 0).or(subject).and_then(|f| g.traits_class(f)).map_or(0, |c| c.0)),
+        // `actor.SetClass class` (a base-game function scripts reach by name: the
+        // catalogue has no opcode for it): the actor's base takes the class, kept in the
+        // save (`FormChanges::classes`) [documented: SetClass, "Changes the class of the
+        // actor to the parameter"; hypothesis: on the base form, as SetEssential]. The
+        // autocalc the page names for actors with autocalc on is not run: NVForever reads
+        // the record's stats. A form that is no class changes nothing.
+        "setclass" => {
+            let (Some(r), Some(class)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Num(0.0))) };
+            let b = crate::functions::base_of(g, r).unwrap_or(r);
+            // Class changes belong to actors, including the actor selected for a
+            // placed leveled list; a carrier's signature alone does not classify it.
+            if g.data.sig(class) == Some(*b"CLAS") && g.template_source(b, r, |_| false).is_some() {
+                g.forms.classes.insert(b, class);
+            }
+            XVal::Num(0.0)
+        }
         // [documented: GetRefCount] the count of a stacked reference (1 without one).
         "getrefcount" => {
             let r = subject.unwrap_or(FormId(0));

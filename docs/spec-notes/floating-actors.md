@@ -164,3 +164,33 @@ after it 8387.1; screenshots `pete_porch.png`]. Its twin `pete-terrain` puts him
 bare landscape in front of the steps at the terrain rest height and expects his root on
 the drawn landscape (0.0 above it after the fix; the terrain shots before and after are
 alike). `feet-on-ground` and `floating-troopers` pass with the change.
+
+## 8. Turned 90° by the same holster clips (#2246, 2026-11-12)
+
+In Tale of Two Wastelands Lucas Simms greeted the player at Megaton's gate with his head
+and eyes past them [owner report, #2246]. He carries a holstered `2ha` rifle. While he
+stood in his idle the `2ha` `Holster` clip's `Bip01` track (priority 5) won over the
+identity the idle gives the root (lowest priority), so `Bip01` took the clip's 90° turn
+about z; `mtidle`'s `Bip01 NonAccum` carries that same pelvis turn, so the body stood
+turned 90° from the actor's heading: the chest −89° off the player whom the root faced,
+and a head limited to 60° from the chest stopped 29° short of them [observed in
+NVForever, `--play` on TTW data, a debug log of the bones' yaws and blend layers].
+
+The data [observed: `fnvtool nif decode` of the base `Fallout - Meshes.bsa`]: of the
+2,024 KF files under `meshes\characters\_male\`, four sequences drive `Bip01` with no
+`Bip01 NonAccum` track: `2haholster`, `2hhholster`, `pa2haholster` and
+`pasneak2haholster` (`Holster`), each a static `Bip01` 66.6–67.8 up and turned 90° about
+z (quaternion w 0.707, z 0.707). `2hrholster` puts the same transform on
+`Bip01 NonAccum` instead, which is why NPCs with holstered `2hr` rifles (Sunny Smiles)
+were not turned. Not TTW's own: TTW ships no `_male\*holster.kf`; every NPC with a
+holstered automatic rifle or heavy weapon was turned the same way.
+
+Rule (engine): a clip with no `Bip01 NonAccum` track turns its accumulation root only
+relative to the track's start rotation, as its height counts from the start (§3)
+[hypothesis: the root's track stands in for the pelvis's in these clips, and the
+accumulated motion of a clip counts from its start]. A clip that drives
+`Bip01 NonAccum` keeps its root's turn as it is (`BoundClip::root_track`,
+`nvf-assets` tests `root_turn_counts_from_the_track_start_without_a_pelvis_track`,
+`a_clip_with_a_pelvis_track_keeps_its_root_turn`). After the fix the same TTW run logs
+Simms's head 0° off the player at the end of his first line (−37° before) and the
+conversation frames show him square to the camera, looking at it [observed].

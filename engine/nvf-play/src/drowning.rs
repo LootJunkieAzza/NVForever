@@ -123,6 +123,12 @@ fn breathe(
     }
     let (was_under, had) = (pb.breath.under, pb.breath.left);
     let dmg = pb.breath.step(&pb.rules, under, breathes, time.delta_secs());
+    // GetActorDiveBreath and SetActorDiveBreath (`fnv_game::nvse_jip11`).
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        if let Some(left) = rt.game.sync_player_breath(pb.breath.left, under) {
+            pb.breath.left = left.min(pb.rules.seconds);
+        }
+    }
     if under && !was_under {
         info!(
             "drowning: head under water ({:.1} below the surface), breath {:.1} of {:.1} s, {:.1} health a second without{}",
@@ -167,6 +173,15 @@ fn breathe(
         if crate::combat::god_mode() {
             info!("drowning: {hit:.1} damage (immune: god mode)");
             continue;
+        }
+        // The player's tweak: Action Points go before health [design: docs/design/tweaks.md].
+        if rt.game.tweaks.drowning_drains_ap {
+            let ap = with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ACTION_POINTS).unwrap_or(0.0));
+            if ap > 0.0 {
+                with_world(rt, &mut sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ACTION_POINTS, (hit as f64).min(ap)));
+                info!("drowning: {hit:.1} taken from Action Points ({ap:.0} left before, tweak)");
+                continue;
+            }
         }
         let r = with_world(rt, &mut sim, |rt| rt.game.hit_without_lines(FormId::PLAYER_REF, hit as f64, info));
         stats.player_damage += r.dealt as f32;

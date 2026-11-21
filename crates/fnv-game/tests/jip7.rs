@@ -2,7 +2,7 @@
 //! ammunition, ammo effects, projectiles, explosions, impact data, weathers and climates,
 //! armour.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -32,6 +32,12 @@ const WTHR2: u32 = 0x90F;
 const CLMT: u32 = 0x910;
 const GLOB: u32 = 0x911;
 const ARMO: u32 = 0x912;
+const IPCT_BARE: u32 = 0x913;
+const IPCT_NONE: u32 = 0x914;
+const TXST_DECAL: u32 = 0x915;
+const TXST_LAND: u32 = 0x916;
+const TXST_FLAG: u32 = 0x917;
+const LTEX: u32 = 0x918;
 
 fn f32b(v: f32) -> Vec<u8> {
     v.to_le_bytes().to_vec()
@@ -86,7 +92,24 @@ fn plugin_bytes() -> Vec<u8> {
         "TestImpact",
         &[sub(b"DATA", [f32b(2.0), u32s(&[1]), f32b(15.0), f32b(4.0), u32s(&[1, 0])].concat()), sub(b"DODT", dodt), sub(b"DNAM", u32s(&[TXST])), sub(b"SNAM", u32s(&[SOUN]))],
     );
-    let txst = edid(b"TXST", TXST, "TestDecal", &[]);
+    let ipct = [
+        ipct,
+        // Without decal data: one with a texture set whose DODT colour bytes are 64 00 34 00,
+        // one with no texture set (jip-records-7.md, the colour's packing).
+        edid(b"IPCT", IPCT_BARE, "TestImpactBare", &[sub(b"DATA", [f32b(2.0), u32s(&[1]), f32b(15.0), f32b(4.0), u32s(&[1, 0])].concat()), sub(b"DNAM", u32s(&[TXST_DECAL]))]),
+        edid(b"IPCT", IPCT_NONE, "TestImpactNone", &[sub(b"DATA", [f32b(2.0), u32s(&[1]), f32b(15.0), f32b(4.0), u32s(&[1, 0])].concat())]),
+    ]
+    .concat();
+    let decal = [f32b(8.0), f32b(16.0), f32b(8.0), f32b(16.0), f32b(4.0), f32b(0.5), f32b(0.04), vec![4, 0, 0, 0, 0x64, 0, 0x34, 0]].concat();
+    let txst = [
+        edid(b"TXST", TXST, "TestDecal", &[]),
+        edid(b"TXST", TXST_DECAL, "TestDecalColoured", &[sub(b"DODT", decal)]),
+        // A landscape texture's set with DNAM 0, and another set with DNAM 1 (jip-records-5.md).
+        edid(b"TXST", TXST_LAND, "TestLandSet", &[sub(b"DNAM", vec![0, 0])]),
+        edid(b"TXST", TXST_FLAG, "TestFlaggedSet", &[sub(b"DNAM", vec![1, 0])]),
+    ]
+    .concat();
+    let ltex = edid(b"LTEX", LTEX, "TestLand", &[sub(b"TNAM", u32s(&[TXST_LAND]))]);
     let soun = edid(b"SOUN", SOUN, "TestSound", &[]);
     let ipds = edid(b"IPDS", IPDS, "TestImpactSet", &[]);
     let weap = edid(b"WEAP", WEAP, "TestGun", &[]);
@@ -112,6 +135,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"EXPL", &expl),
         top(b"IPCT", &ipct),
         top(b"TXST", &txst),
+        top(b"LTEX", &ltex),
         top(b"SOUN", &soun),
         top(b"IPDS", &ipds),
         top(b"WEAP", &weap),
@@ -204,6 +228,49 @@ fn ammunition_and_its_effects() {
 }
 
 #[test]
+fn cloned_projectile_numeric_traits_keep_the_clone_and_original_independent() {
+    let f = fixture();
+    let mut g = game(&f);
+    let XVal::Ref(clone) = q(&mut g, "ref ownClone\nlet ownClone := TempCloneForm TestProjectile 1\nSetFunctionValue ownClone") else { panic!("clone reference") };
+    assert_eq!(g.num_field(FormId(clone), "DATA", "speed"), 1000.0);
+    assert_eq!(n(&mut g, &format!("GetProjectileTraitNumeric {clone:#010X} 2")), 1000.0);
+    q(&mut g, &format!("SetProjectileTraitNumeric {clone:#010X} 2 0"));
+    assert_eq!(g.num_field(FormId(clone), "DATA", "speed"), 0.0);
+    assert_eq!(n(&mut g, &format!("GetProjectileTraitNumeric {clone:#010X} 2")), 0.0);
+    assert_eq!(g.num_field(FormId(PROJ), "DATA", "speed"), 1000.0);
+    // Wrong signature and out-of-range trait IDs still change nothing.
+    q(&mut g, "SetProjectileTraitNumeric TestAmmo 2 17");
+    q(&mut g, &format!("SetProjectileTraitNumeric {clone:#010X} 99 17"));
+    assert_eq!(g.num_field(FormId(clone), "DATA", "speed"), 0.0);
+    let next = game(&f);
+    assert_eq!(next.num_field(FormId(PROJ), "DATA", "speed"), 1000.0);
+}
+
+#[test]
+fn cloned_projectile_light_edits_keep_the_original_independent() {
+    let f = fixture();
+    let mut g = game(&f);
+    let XVal::Ref(clone) = q(&mut g, "ref ownClone\nlet ownClone := TempCloneForm TestProjectile 1\nSetFunctionValue ownClone") else { panic!("clone reference") };
+    q(&mut g, &format!("SetProjectileLight {clone:#010X} TestLight"));
+    assert_eq!(g.num_field(FormId(clone), "DATA", "light"), f64::from(LIGH));
+    assert_eq!(n(&mut g, &format!("GetProjectileLight {clone:#010X}")), f64::from(LIGH));
+    assert_eq!(g.num_field(FormId(PROJ), "DATA", "light"), 0.0);
+    q(&mut g, &format!("SetProjectileLight {clone:#010X}"));
+    assert_eq!(g.num_field(FormId(clone), "DATA", "light"), 0.0);
+}
+
+#[test]
+fn cloned_projectile_muzzle_flash_edits_keep_the_original_independent() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(s(&mut g, "GetProjectileMuzzleFlash TestProjectile"), "flash.nif");
+    let XVal::Ref(clone) = q(&mut g, "ref ownClone\nlet ownClone := TempCloneForm TestProjectile 1\nSetFunctionValue ownClone") else { panic!("clone reference") };
+    q(&mut g, &format!(r#"SetProjectileMuzzleFlash {clone:#010X} "owned\clone-flash.nif""#));
+    assert_eq!(s(&mut g, &format!("GetProjectileMuzzleFlash {clone:#010X}")), "owned\\clone-flash.nif");
+    assert_eq!(s(&mut g, "GetProjectileMuzzleFlash TestProjectile"), "flash.nif");
+}
+
+#[test]
 fn projectiles_explosions_and_impact_data() {
     let f = fixture();
     let mut g = game(&f);
@@ -239,6 +306,37 @@ fn projectiles_explosions_and_impact_data() {
     assert_eq!(n(&mut g, "GetImpactMaterialType TestCreature"), 10.0);
     q(&mut g, "SetImpactMaterialType 12 TestCreature");
     assert_eq!(n(&mut g, "GetImpactMaterialType TestCreature"), 10.0, "12 is past the table");
+}
+
+/// The impact colour's packing and the texture-set flag 0 (jip-records-7.md and
+/// jip-records-5.md, #2039).
+#[test]
+fn impact_colour_packing_and_texture_set_flag() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Set as R + G × 256 + B × 65536, carries included; read B as the upper 16 bits.
+    for (set, read) in [(256_000.0, 1.0), (999_000.0, 231_003.0), (254_999_999.0, 254_232_002.0), (16_777_215.0, 16_009_218.0), (300.0, 300.0), (1256.0, 1256.0), (65535.0, 65535.0), (65536.0, 65536.0), (255_255_255.0, 255_255_255.0)] {
+        q(&mut g, &format!("SetImpactDataTraitNumeric TestImpact 14 {set}"));
+        assert_eq!(n(&mut g, "GetImpactDataTrait TestImpact 17"), read, "set {set}");
+    }
+    // Past 255255255 or below 0 nothing is set.
+    for bad in ["255255256", "-1"] {
+        q(&mut g, &format!("SetImpactDataTraitNumeric TestImpact 14 {bad}"));
+        assert_eq!(n(&mut g, "GetImpactDataTrait TestImpact 17"), 255_255_255.0, "set {bad}");
+    }
+    // No DODT: the texture set's colour (64 00 34 00), or all FF without a texture set.
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactBare 17"), 100_000_052.0);
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactNone 17"), 255_320_535.0);
+    q(&mut g, "SetImpactDataTraitNumeric TestImpactNone 14 300300300");
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactNone 17"), 255_320_535.0, "past 255255255");
+    q(&mut g, "SetImpactDataTraitNumeric TestImpactNone 14 10020030");
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactNone 17"), 10_020_030.0);
+    // Flag 0: 1 for a texture set a landscape texture names, whatever its DNAM; DNAM bit 0
+    // for the others, 0 without DNAM.
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestLandSet 0"), 1.0);
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestFlaggedSet 0"), 1.0);
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestDecalColoured 0"), 0.0);
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestDecal 0"), 0.0);
 }
 
 #[test]
@@ -341,4 +439,62 @@ fn setters_keep_their_fields_in_range() {
     // A climate chance that is NaN adds nothing.
     assert_eq!(n(&mut g, &format!("ClimateAddWeatherType TestClimate TestWeather2 {NAN}")), 0.0);
     assert_eq!(n(&mut g, "GetClimateNumWeatherTypes TestClimate"), 1.0);
+}
+
+#[test]
+fn projectile_flag_overrides_reach_launch_traits_and_clones() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+
+    let proj = FormId(PROJ);
+    assert_eq!(g.projectile_flags_override(proj), None);
+    assert_eq!(g.projectile_flags(proj), Some(0));
+    assert!(!g.projectile_can_be_disabled(proj));
+    assert_eq!(g.projectile_launch_traits(proj).unwrap().flags, None);
+
+    // Toggle Hitscan (0), Explosion (1), Can Be Disabled (5), Supersonic (7).
+    q(&mut g, "SetProjectileFlag TestProjectile 0 1");
+    q(&mut g, "SetProjectileFlag TestProjectile 1 1");
+    q(&mut g, "SetProjectileFlag TestProjectile 5 1");
+    q(&mut g, "SetProjectileFlag TestProjectile 7 1");
+    let want = (1u16 << 0) | (1u16 << 1) | (1u16 << 5) | (1u16 << 7);
+    assert_eq!(n(&mut g, "GetProjectileFlag TestProjectile 0"), 1.0);
+    assert_eq!(n(&mut g, "GetProjectileFlag TestProjectile 5"), 1.0);
+    assert_eq!(n(&mut g, "GetProjectileFlag TestProjectile 7"), 1.0);
+    assert_eq!(g.projectile_flags_override(proj), Some(want));
+    assert_eq!(g.projectile_flags(proj), Some(want));
+    assert!(g.projectile_can_be_disabled(proj));
+    assert_eq!(g.projectile_launch_traits(proj).unwrap().flags, Some(want));
+
+    // Clear Hitscan (0) (e.g. Bullet Drop) and Can Be Disabled (5).
+    q(&mut g, "SetProjectileFlag TestProjectile 0 0");
+    q(&mut g, "SetProjectileFlag TestProjectile 5 0");
+    let after = (1u16 << 1) | (1u16 << 7);
+    assert_eq!(n(&mut g, "GetProjectileFlag TestProjectile 0"), 0.0);
+    assert_eq!(g.projectile_flags_override(proj), Some(after));
+    assert!(!g.projectile_can_be_disabled(proj));
+    assert_eq!(g.projectile_launch_traits(proj).unwrap().flags, Some(after));
+
+    // TempCloneForm inherits original overrides and isolates clone-specific edits.
+    let clone_inherited = match q(&mut g, "SetFunctionValue (TempCloneForm TestProjectile)") {
+        XVal::Ref(r) => FormId(r),
+        v => panic!("TempCloneForm: {v:?}"),
+    };
+    assert_eq!(g.projectile_launch_traits(clone_inherited).unwrap().original, proj);
+    assert_eq!(g.projectile_launch_traits(clone_inherited).unwrap().flags, Some(after));
+    let clone_edited = match q(&mut g, "ref c\nlet c := TempCloneForm TestProjectile\nSetProjectileFlag c 10 1\nSetFunctionValue c") {
+        XVal::Ref(r) => FormId(r),
+        v => panic!("TempCloneForm edit: {v:?}"),
+    };
+    assert_eq!(g.projectile_flags_override(clone_edited), Some(after | (1u16 << 10)));
+    assert_eq!(g.projectile_flags_override(proj), Some(after), "clone edit does not mutate original");
+    assert_eq!(g.projectile_launch_traits(clone_edited).unwrap().flags, Some(after | (1u16 << 10)));
+
+    // Non-projectile forms are refused without polluting field_overrides.
+    q(&mut g, "SetProjectileFlag TestGun 0 1");
+    assert_eq!(n(&mut g, "GetProjectileFlag TestGun 0"), 0.0);
+    assert_eq!(g.projectile_flags_override(FormId(WEAP)), None);
+    assert_eq!(g.projectile_flags(FormId(WEAP)), None);
+    assert_eq!(g.num_field(FormId(WEAP), "DATA", "flags"), 0.0);
 }

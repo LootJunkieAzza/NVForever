@@ -564,6 +564,8 @@ impl Drag {
 /// time the keys say on; empty keys: always on.
 #[derive(Debug, Clone, Default)]
 pub struct ModifierActive {
+    /// [design, #2685] Authored modifier name for binding an external KF controller ID.
+    pub name: String,
     pub keys: Vec<(f32, bool)>,
     /// The keys each sequence of the model gives it, by the sequence's index among the
     /// file's sequences ([`SequenceEmission::index`]), for particles born while a drawn
@@ -600,6 +602,8 @@ pub struct ParticleSystemDef {
     /// The most particles alive at once (the data block's vertex count).
     pub max: usize,
     pub material: Handle<NifMaterial>,
+    /// [design, #2685] Stored material values for external KF animation slots.
+    pub look: crate::material_anim::Look,
     pub emitter: Emitter,
     /// Particles born per second while the emitter is on (the emitter controller's
     /// float interpolator).
@@ -721,6 +725,60 @@ fn mover_of(file: &NifFile, dec: &Decoded, by_block: &HashMap<usize, &SceneObjec
 }
 
 impl ParticleSystemDef {
+    /// [design, #2685] Only systems named by KF material tracks own material slots.
+    pub fn idle_materials(&self, entity: Entity, clip: &crate::anim_play::Clip) -> Option<crate::material_anim::RigMaterials> {
+        use crate::material_anim::{MaterialSlot, RigMaterials};
+        let tracks: Vec<_> = clip.materials.iter().filter(|t| t.shape == self.name).cloned().collect();
+        if tracks.is_empty() { return None }
+        Some(RigMaterials {
+            slots: vec![MaterialSlot::new(self.name.clone(), entity, self.material.clone(), self.look.colour, self.look.mult, self.look.alpha)],
+            idle: std::sync::Arc::new(tracks), dark: false, fade: 1.0,
+        })
+    }
+
+    /// [design, #2685] Bind an actor idle KF to this instance using the same sequence
+    /// representation as placed objects; cached model definitions remain untouched.
+    pub fn bind_idle(&mut self, clip: &crate::anim_play::Clip) {
+        let matching: Vec<_> = clip.emitters.iter().filter(|t| t.system == self.name).collect();
+        if matching.is_empty() { return }
+        let rate_track = matching.iter().filter(|t| t.rate.is_some()).max_by_key(|t| t.priority);
+        let active_track = matching.iter().filter(|t| t.active.is_some()).max_by_key(|t| t.priority);
+        let cycle = OwnCycle { start: clip.start, stop: clip.stop, frequency: 1.0, phase: clip.start, cycle_type: clip.cycle_type };
+        let keys = |t: &fnv_nif::anim::BoolTrack| {
+            if t.keys.is_empty() {
+                t.value.map(|v| vec![(0.0, v)]).unwrap_or_default()
+            } else {
+                t.keys.iter().map(|(at, on)| (*at - clip.start, *on)).collect()
+            }
+        };
+        // [design, #2685] Embedded IDs are indices before per-system filtering;
+        // modifier-only sequences can reserve IDs absent from the emission table.
+        let used: std::collections::HashSet<_> = self.sequences.iter().map(|s| s.index)
+            .chain(self.gravity.iter().map(|g| &g.active)
+                .chain(self.drag.iter().map(|d| &d.active))
+                .chain(self.bombs.iter().map(|b| &b.active))
+                .flat_map(|a| a.by_sequence.iter().map(|(i, _)| *i))).collect();
+        let index = (0..).find(|i| !used.contains(i)).unwrap();
+        self.sequences.push(SequenceEmission {
+            sequence: clip.name.clone(), index,
+            rate: self.rate,
+            rate_keys: rate_track.and_then(|t| t.rate.as_deref()).and_then(|v| match v {
+                fnv_nif::anim::ValueTrack::Float(channel) => Some(FloatKeys { channel: channel.clone(), cycle }),
+                _ => None,
+            }),
+            active: active_track.and_then(|t| t.active.as_ref()).map(keys).unwrap_or_else(|| self.active.clone()),
+            period: clip.length(), loops: clip.cycle_type == 0, keyed: Vec::new(),
+        });
+        for active in self.gravity.iter_mut().map(|g| &mut g.active)
+            .chain(self.drag.iter_mut().map(|d| &mut d.active))
+            .chain(self.bombs.iter_mut().map(|b| &mut b.active)) {
+            if let Some((_, track)) = matching.iter().flat_map(|t| t.modifiers.iter().map(move |m| (t.priority, m)))
+                .filter(|(_, (name, _))| name == &active.name).max_by_key(|(priority, _)| *priority).map(|(_, m)| m) {
+                active.by_sequence.push((index, keys(track)));
+            }
+        }
+    }
+
     /// How the file's places have moved at the emitter's time `t` (identity without a
     /// [`Mover`]).
     pub fn moved(&self, t: f32) -> Affine3A {
@@ -1272,6 +1330,9 @@ impl ModelCtx<'_> {
             if alpha_keys.is_some() {
                 props.material_alpha = Some(1.0);
             }
+            // Particles take no authored set (#2981): they inherit their node's properties,
+            // and a pack's maps are for surfaces.
+            props.no_authored = true;
             let mut template = particle_mesh();
             // Its soft distance is set once its emitter's radius is read (below).
             let (mut material, _missing) = shape_material(&props, &mut template, &mut self.textures, &self.data, &mut self.images, self.formats.as_deref());
@@ -1280,6 +1341,10 @@ impl ModelCtx<'_> {
                 name: ps.text("name").unwrap_or_default().to_string(),
                 max: (data.and_then(|d| d.int("bs_max_vertices")).unwrap_or(0).max(0) as usize).min(MAX_PARTICLES),
                 material: Handle::default(),
+                look: {
+                    let (emissive, mult) = props.emissive_parts();
+                    crate::material_anim::Look::stored(emissive, mult, props.alpha_part())
+                },
                 emitter: Emitter::blank(),
                 rate: 0.0,
                 rate_keys: None,
@@ -1332,7 +1397,7 @@ impl ModelCtx<'_> {
                             let own = ctl.block_ref("interpolator").and_then(|r| fnv_nif::anim::bool_track(&dec, r)).map(|t| t.keys).unwrap_or_default();
                             let keys = if own.is_empty() { sequence_modifier_active(&file, &dec, &system_name, &name).unwrap_or_default() } else { own };
                             let by_sequence = sequence_modifier_actives(&file, &dec, &system_name, &name);
-                            switched.insert(name, ModifierActive { keys, by_sequence });
+                            switched.insert(name.clone(), ModifierActive { name, keys, by_sequence });
                         }
                     } else if ty == "NiPSysGravityStrengthCtlr" || EmitterParam::of_controller(ty).is_some() {
                         if let Some(name) = ctl.text("modifier_name").map(str::to_string) {
@@ -1349,20 +1414,35 @@ impl ModelCtx<'_> {
                     }
                 }
             }
-            let modifier_active = |m: &Struct| m.text("name").and_then(|n| switched.get(n)).cloned().unwrap_or_default();
+            let modifier_active = |m: &Struct| {
+                let name = m.text("name").unwrap_or_default().to_string();
+                let mut active = switched.get(&name).cloned().unwrap_or_else(|| ModifierActive { name, ..Default::default() });
+                // [design, #2685] Retain inactive modifiers for external KF switches,
+                // while keeping their authored state when no sequence supplies keys.
+                if active.keys.is_empty() && matches!(m.get("active"), Some(fnv_nif::value::Value::Bool(false))) {
+                    active.keys.push((0.0, false));
+                }
+                active
+            };
             let mut has_emitter = false;
+            let mut emitter_stored_active = true;
             let mut emitter_name = String::new();
             // The block the emitter starts particles from (its object, or its first mesh).
             let mut anchor = -1;
             for &r in ps.refs("modifiers").unwrap_or_default() {
                 let (Some(ty), Some(m)) = (type_of(r), dec.get(r)) else { continue };
                 let f = |key: &str| m.float(key).unwrap_or(0.0);
-                if m.get("active").is_some_and(|v| matches!(v, fnv_nif::value::Value::Bool(false))) {
+                // [design, #2685] These modifiers can be enabled by an external KF;
+                // their stored off value is retained by modifier_active above.
+                if m.get("active").is_some_and(|v| matches!(v, fnv_nif::value::Value::Bool(false)))
+                    && !matches!(ty, "NiPSysGravityModifier" | "NiPSysDragModifier" | "NiPSysBombModifier"
+                        | "NiPSysBoxEmitter" | "NiPSysSphereEmitter" | "NiPSysCylinderEmitter" | "NiPSysMeshEmitter") {
                     continue;
                 }
                 match ty {
                     "NiPSysBoxEmitter" | "NiPSysSphereEmitter" | "NiPSysCylinderEmitter" => {
                         has_emitter = true;
+                        emitter_stored_active = !matches!(m.get("active"), Some(fnv_nif::value::Value::Bool(false)));
                         emitter_name = m.text("name").unwrap_or_default().to_string();
                         let round = ty != "NiPSysBoxEmitter";
                         anchor = m.block_ref("emitter_object").unwrap_or(-1);
@@ -1388,6 +1468,7 @@ impl ModelCtx<'_> {
                     }
                     "NiPSysMeshEmitter" => {
                         has_emitter = true;
+                        emitter_stored_active = !matches!(m.get("active"), Some(fnv_nif::value::Value::Bool(false)));
                         emitter_name = m.text("name").unwrap_or_default().to_string();
                         anchor = m.refs("emitter_meshes").and_then(|r| r.first().copied()).unwrap_or(parent.map_or(-1, |p| p as i32));
                         let meshes: Vec<EmitterMesh> = m
@@ -1577,7 +1658,7 @@ impl ModelCtx<'_> {
                         def.rate = if rate.is_finite() && rate > -1e30 { rate.max(0.0) } else { 0.0 };
                         // Keys over the controller's time (the gore sprays, particles.md §6.6).
                         def.rate_keys = float_keys(&file, &dec, interp, controller_cycle(ctl)).filter(|k| matches!(k.channel, Channel::Keys(_)));
-                        def.active = ctl.block_ref("visibility_interpolator").and_then(|r| fnv_nif::anim::bool_track(&dec, r)).map(|t| t.keys).unwrap_or_default();
+                        def.active = ctl.block_ref("visibility_interpolator").map(|r| bool_keys(&dec, r)).unwrap_or_default();
                         def.period = ctl.float("stop_time").unwrap_or(0.0);
                         // TimeController flags bits 1–2: the cycle type, 0 loops.
                         def.loops = (ctl.int("flags").unwrap_or(0) >> 1) & 3 == 0;
@@ -1597,6 +1678,11 @@ impl ModelCtx<'_> {
                 if steps > 64 {
                     break;
                 }
+            }
+            // [design, #2685] An inactive emitter stays available to a KF's on/off
+            // track; without keys, its authored off default still suppresses births.
+            if !emitter_stored_active && def.active.is_empty() {
+                def.active.push((0.0, false));
             }
             // How each of the model's sequences drives it, for a drawn model playing one
             // (particles.md §6.7); a sequence that gives no birth rate leaves the
@@ -1654,6 +1740,103 @@ mod tests {
     use super::*;
 
     #[test]
+    fn external_idle_material_application_preserves_untargeted_members() {
+        use crate::anim_play::{Clip, MaterialTarget, MaterialTrack, Playing};
+        use crate::material_anim::{animate_rig_materials, bind_rig_materials, RigMaterials};
+        use bevy::math::Affine2;
+        use fnv_nif::anim::ValueTrack;
+        let track = |shape: &str, target, value| MaterialTrack {
+            shape: shape.into(), target, values: std::sync::Arc::new(ValueTrack::Float(Channel::Static(Some([value])))), cycle: None, priority: 0,
+        };
+        let clip = Clip::from_controllers(vec![track("Glow", MaterialTarget::EmissiveMult, 4.0), track("Fade", MaterialTarget::Alpha, 0.25)], Vec::new(), Vec::new());
+        let mut app = App::new();
+        app.init_resource::<Assets<NifMaterial>>()
+            .add_systems(Update, (bind_rig_materials, animate_rig_materials).chain());
+        let mut material = NifMaterial::default();
+        material.base.unlit = true;
+        material.base.alpha_mode = AlphaMode::Blend;
+        material.base.base_color = Color::linear_rgba(0.7, 0.8, 0.9, 0.6);
+        // [design, #2685] Synthetic normalized builder output differs from stored look.
+        material.base.emissive = LinearRgba::WHITE;
+        material.base.uv_transform = Affine2::from_translation(Vec2::new(0.2, 0.3));
+        material.extension.refract = true;
+        material.extension.refraction = 0.4;
+        let shared = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(material.clone());
+        let mut spawn = |name: &str| {
+            let entity = app.world_mut().spawn(MeshMaterial3d(shared.clone())).id();
+            let d = ParticleSystemDef { name: name.into(), material: shared.clone(),
+                look: crate::material_anim::Look::stored([0.1; 3], 1.0, 1.0), ..def() };
+            if let Some(materials) = d.idle_materials(entity, &clip) {
+                assert!(materials.idle.iter().all(|t| t.shape == name));
+                app.world_mut().entity_mut(entity).insert((Playing::new("owned.kf", &clip, |_| None), materials));
+            }
+            entity
+        };
+        let untouched = spawn("Untouched");
+        let fade = spawn("Fade");
+        let glow = spawn("Glow");
+        app.update();
+        app.update();
+        assert!(app.world().get::<RigMaterials>(untouched).is_none());
+        assert_eq!(app.world().get::<MeshMaterial3d<NifMaterial>>(untouched).unwrap().0, shared);
+        let materials = app.world().resource::<Assets<NifMaterial>>();
+        let drawn = |entity| materials.get(&app.world().get::<MeshMaterial3d<NifMaterial>>(entity).unwrap().0).unwrap();
+        assert_eq!(drawn(untouched).base.emissive, LinearRgba::WHITE);
+        assert_eq!(drawn(fade).base.emissive, LinearRgba::WHITE);
+        assert_eq!(drawn(fade).base.base_color.alpha(), 0.25);
+        assert_eq!(drawn(glow).base.emissive, LinearRgba::rgb(0.4, 0.4, 0.4));
+        assert_eq!(drawn(glow).base.base_color, material.base.base_color);
+        for entity in [untouched, fade, glow] {
+            assert_eq!(drawn(entity).base.uv_transform, material.base.uv_transform);
+            assert_eq!(drawn(entity).extension.refraction, 0.4);
+        }
+        assert_eq!(materials.get(&shared).unwrap().base.base_color, material.base.base_color);
+    }
+
+    #[test]
+    fn external_idle_kf_reaches_named_emitter_and_modifier_tracks() {
+        use fnv_nif::anim::{BoolTrack, Sequence, Track, ValueTrack};
+        let track = |system: &str, controller: &str, id: Option<&str>, interp: Option<&str>, values, bools| Track {
+            node_name: Some(system.into()), controller_type: Some(controller.into()),
+            controller_id: id.map(str::to_string), interpolator_id: interp.map(str::to_string),
+            priority: Some(12), data: TrackData::Other("OwnedSynthetic".into()), values, bools,
+        };
+        let seq = Sequence { block: 0, name: Some("OwnedIdle".into()), start_time: 1.0,
+            stop_time: 3.0, frequency: 1.0, cycle_type: 2, accum_root_name: None, text_keys: Vec::new(),
+            tracks: vec![
+                track("OwnedSystem", "NiPSysEmitterCtlr", Some("OwnedEmitter"), Some("BirthRate"), Some(ValueTrack::Float(Channel::Static(Some([40.0])))), None),
+                track("OwnedSystem", "NiPSysEmitterCtlr", Some("OwnedEmitter"), Some("EmitterActive"), None, Some(BoolTrack { value: None, keys: vec![(1.0, true), (2.0, false)] })),
+                track("OwnedSystem", "NiPSysModifierActiveCtlr", Some("OwnedDrag"), None, None, Some(BoolTrack { value: None, keys: vec![(1.0, false), (1.5, true)] })),
+            ],
+        };
+        let clip = crate::anim_play::Clip::from_sequence(&seq);
+        let mut d = def();
+        d.name = "OwnedSystem".into();
+        d.drag.push(Drag { axis: Vec3::Z, percentage: 0.1, origin: Vec3::ZERO, range: 0.0, range_falloff: 0.0,
+            active: ModifierActive { name: "OwnedDrag".into(), keys: vec![(0.0, false)],
+                by_sequence: vec![(0, vec![(0.0, false)]), (1, vec![(0.0, false)])] } });
+        // [design, #2685] Sparse embedded emission ID and modifier-only ID collide
+        // with both the old len() allocator and a search of emission IDs alone.
+        d.sequences.push(emission("Embedded", 1, vec![(0.0, true)], 9.0));
+        d.bind_idle(&clip);
+        let emission = d.sequence("OwnedIdle").unwrap();
+        assert_eq!(emission.index, 2);
+        assert_eq!(d.sequences.iter().find(|s| s.index == emission.index).unwrap().sequence, "OwnedIdle");
+        assert_eq!(emission.period, 2.0);
+        assert!(!emission.loops);
+        assert_eq!(emission.rate_at(0.25), 40.0);
+        assert_eq!(emission.on_time(0.0, 2.0), 1.0);
+        assert_eq!(emission.on_time(2.0, 100.0), 0.0);
+        assert!(!d.drag[0].active.on_in(Some(emission.index), 0.25, 2.0, false));
+        assert!(d.drag[0].active.on_in(Some(emission.index), 0.75, 2.0, false));
+        assert!(!d.drag[0].active.on_in(None, 0.25, 2.0, false));
+        let mut other = def();
+        other.name = "OtherSystem".into();
+        other.bind_idle(&clip);
+        assert!(other.sequences.is_empty());
+    }
+
+    #[test]
     fn idle_then_special_idle_key_placed_emitters() {
         let mut names = ["forward", "specialidle", "idle", "backward"].map(|n| (sequence_rank(n), n));
         names.sort();
@@ -1665,6 +1848,7 @@ mod tests {
             name: String::new(),
             max: 8,
             material: Handle::default(),
+            look: crate::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
             emitter: Emitter::blank(),
             rate: 10.0,
             rate_keys: None,
@@ -1747,7 +1931,7 @@ mod tests {
 
     #[test]
     fn a_modifier_follows_the_sequence_a_particle_was_born_under() {
-        let bomb = ModifierActive { keys: vec![(0.0, true)], by_sequence: vec![(1, vec![(0.0, false), (2.0, true)])] };
+        let bomb = ModifierActive { keys: vec![(0.0, true)], by_sequence: vec![(1, vec![(0.0, false), (2.0, true)])], ..Default::default() };
         assert!(!bomb.on_in(Some(1), 1.0, 23.3, false));
         assert!(bomb.on_in(Some(1), 3.0, 23.3, false));
         // Another sequence (no keys of its own) or none: the modifier's own keys.

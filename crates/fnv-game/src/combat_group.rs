@@ -28,6 +28,9 @@
 //! - an actor that **notices** a hostile (Normal → Alert) alarms its allies near it too,
 //!   so a camp wakes as one (the owner's list 2: "alerting their friends when they sense
 //!   an enemy presence");
+//! - an actor whose current package skips Fallout behaviour without Observe Combat
+//!   Behavior takes no alarm [observed: HELIOS One's stasis protectrons on
+//!   ProtectronNotActive stay on their pods while one of them fights, #1977];
 //! - **NPC against NPC** hits ([`Game::attacked_by_actor`]): a hit by an actor the victim
 //!   would leave alone starts a grudge as the player's hits do (`crate::provocation`),
 //!   except a stray hit between allies or friends, or between two actors both fighting
@@ -398,7 +401,37 @@ impl Game<'_> {
         let survival = self.combat_style(actor).is_some_and(|s| s.flee_personal_survival);
         let by_group = group_ratio.is_some_and(|r| flees(r, threshold, modifier));
         let by_self = !by_group && survival && personal_ratio.is_some_and(|r| flees(r, threshold, modifier));
-        FleeCheck { group_ratio, personal_ratio, threshold, rating, flees: !frenzied && (by_group || by_self), personal: by_self }
+        // Cowardly, its confidence not raised in this fight: it flees whatever the ratios
+        // (`Game::always_flees`).
+        let coward = rating <= 0;
+        // A child always flees, frenzied or not (`Game::never_fights`).
+        let child = self.never_fights(actor);
+        FleeCheck { group_ratio, personal_ratio, threshold, rating, flees: child || (!frenzied && (coward || by_group || by_self)), personal: by_self }
+    }
+
+    /// Whether `actor` flees from every fight from its start, hurt or not: its confidence
+    /// is Cowardly and was not raised in this fight (at a flee spot), and it is not
+    /// frenzied [documented: GECK wiki Confidence, "Cowardly … I will always flee from
+    /// combat"; hypothesis: from the start, not only once hurt and checked as other
+    /// ratings are; a foe with no damage made the ratio infinite, so the Silver Rush
+    /// customer given StartCombat swung at the player instead, #2520].
+    pub fn always_flees(&mut self, actor: FormId) -> bool {
+        let base = actor_value(self, actor, crate::actor_values::CONFIDENCE).unwrap_or(2.0).round() as i64;
+        let rating = base + self.awareness.tactics.boosts.get(&actor).copied().unwrap_or(0) as i64;
+        rating <= 0 && actor_value(self, actor, crate::actor_values::AGGRESSION).unwrap_or(0.0) < 3.0
+    }
+
+    /// Whether `actor` never fights: a child, an actor whose race has the Child flag
+    /// [documented: xEdit RACE DATA flags; the flag also makes it take no damage,
+    /// `Game::is_immune`]. Whatever its confidence, aggression or combat style, a child
+    /// in a fight only flees: its flee check always fails ([`Game::flee_check`]), it
+    /// starts fleeing at once, unhurt (nvforever `npc_combat`), never attacks and keeps
+    /// its weapon away ([`Game::wants_weapon_out`]). It still turns hostile, so crime,
+    /// faction and reputation rules are unchanged [owner decision 2026-11-13, #2438:
+    /// "Children never fight. They always run away"; whether the original does the same
+    /// is observer-checks.md check 178].
+    pub fn never_fights(&self, actor: FormId) -> bool {
+        actor != FormId::PLAYER_REF && self.actor_race(actor).is_some_and(|race| self.data.child_races.contains(&race))
     }
 
     /// `actor` starts fleeing from `from`, at `at` (again, from its flee spot, when it
@@ -457,7 +490,7 @@ impl Game<'_> {
     /// the other actors of the loaded cells where the world has them (not drawn yet, or
     /// out of the high process) [design: #972, the original's allies reached past the
     /// actors near the player; docs/spec-notes/combat-groups.md §1].
-    fn alarm_hearers(&self, near: &BTreeMap<FormId, [f32; 3]>) -> BTreeMap<FormId, [f32; 3]> {
+    pub(crate) fn alarm_hearers(&self, near: &BTreeMap<FormId, [f32; 3]>) -> BTreeMap<FormId, [f32; 3]> {
         let mut out = near.clone();
         for r in self.package_actors() {
             if out.contains_key(&r) || !self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
@@ -536,6 +569,11 @@ impl Game<'_> {
         let hearers = self.alarm_hearers(near);
         for c in changes {
             let (Some(about), Some(from)) = (c.about, near.get(&c.actor).copied()) else { continue };
+            // A fight a script gave it against a player who did not provoke it: its allies
+            // stay out (`crate::provocation`, "Assistance").
+            if self.allies_stay_out(c.actor, about) {
+                continue;
+            }
             let at = c.at.or_else(|| near.get(&about).copied()).unwrap_or(from);
             let starter = self.first_starter(about);
             let starter_at = hearers.get(&starter).copied().unwrap_or(at);
@@ -560,7 +598,15 @@ impl Game<'_> {
                 if receiver == c.actor || receiver == about || receiver == FormId::PLAYER_REF || (where_[0] - from[0]).hypot(where_[1] - from[1]) > ALARM_RADIUS {
                     continue;
                 }
-                if self.is_dead(receiver) || !self.present(receiver) || self.awareness.state(receiver) == State::Combat {
+                if self.is_dead(receiver) || !self.present(receiver) || self.awareness.state(receiver) == State::Combat || self.combat_disabled(receiver) {
+                    continue;
+                }
+                // A package that skips Fallout behaviour without Observe Combat Behavior
+                // keeps its actor out of its allies' fights: it takes no alarm (it still
+                // detects and fights for itself). [observed: HELIOS One's stasis
+                // protectrons on ProtectronNotActive 0x0003BEB4 stay on their pods while
+                // the fifth fights 200-500 units off, #1977 probe 3, 2026-11-10]
+                if !self.package_allows(receiver, crate::package::fallout::OBSERVE_COMBAT) {
                     continue;
                 }
                 // The foe's first starter, unless that is this receiver or its comrade; the
@@ -654,14 +700,46 @@ impl Game<'_> {
     /// being refreshed now (a hostile still noticed keeps its alarm) [documented: Combat
     /// Search, "N complete searches … before dropping out of combat (assuming the player
     /// remains below the detection threshold)"]. Returns whether it dropped them.
+    /// [design, #2010] Lost members wait for every member's shares and a hidden target;
+    /// a finished member may call again to check completion without adding a share.
     pub fn searched_once(&mut self, actor: FormId, about: FormId) -> bool {
         let needed = self.group_settings().remove_search_count;
+        let lost = self.awareness.state(actor) == State::Lost;
         let n = self.awareness.tactics.searched.entry((actor, about)).or_default();
-        *n += 1;
+        let progressed = !lost || *n < needed;
+        if progressed {
+            *n = n.saturating_add(1);
+        }
         let count = *n;
-        self.awareness.tactics.notes.push(GroupNote::Searched { actor, about, count, needed });
+        if progressed {
+            self.awareness.tactics.notes.push(GroupNote::Searched { actor, about, count, needed });
+        }
         if count < needed {
+            self.renew_lost_search(actor, about);
             return false;
+        }
+        // [design, #2010; documented: GECK wiki Combat Search] A Lost party finishes
+        // together: every member must finish its shares, with the target hidden.
+        let lost_party: Vec<FormId> = self.awareness.actors.iter()
+            .filter(|(id, a)| {
+                a.state == State::Lost && self.comrades(actor, **id)
+                    && a.alarms.iter().any(|x| x.owner == about && x.cause == Cause::LostTarget)
+            })
+            .map(|(id, _)| *id).collect();
+        if lost_party.contains(&actor) {
+            if progressed {
+                self.renew_lost_search(actor, about);
+            }
+            if lost_party.iter().any(|id| self.searches_done(*id, about) < needed
+                || self.awareness.actors[id].targets.get(&about).is_some_and(|t| t.band != crate::detection::Band::Hidden)) {
+                return false;
+            }
+            for id in lost_party {
+                let a = self.awareness.actors.get_mut(&id).expect("listed");
+                a.forget(about);
+                self.awareness.tactics.searched.remove(&(id, about));
+            }
+            return true;
         }
         let now = self.time;
         if let Some(a) = self.awareness.actors.get_mut(&actor) {
@@ -672,6 +750,18 @@ impl Game<'_> {
         }
         self.awareness.tactics.searched.remove(&(actor, about));
         true
+    }
+
+    /// [design, #2010] A completed share renews only the stall deadline, not an alarm
+    /// timeout. An actor whose AI cannot complete a share still has a finite search.
+    fn renew_lost_search(&mut self, actor: FormId, about: FormId) {
+        if let Some(a) = self.awareness.actors.get_mut(&actor) {
+            for alarm in &mut a.alarms {
+                if alarm.owner == about && alarm.cause == Cause::LostTarget {
+                    alarm.expires = self.time + crate::awareness::LOST_SEARCH_STALL_SECONDS;
+                }
+            }
+        }
     }
 }
 

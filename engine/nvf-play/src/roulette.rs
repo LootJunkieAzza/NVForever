@@ -42,6 +42,7 @@ use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
 use crate::ui_pointer::{Button, PointerState};
 use fnv_game::casino;
+use fnv_util::words::{tr, trf};
 use fnv_game::roulette::{self as rules, Refusal, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -153,8 +154,8 @@ impl Session {
     /// The "Bet:" and "Payout:" lines for the bet point under the marker.
     pub fn bet_lines(&self) -> [String; 2] {
         match rules::spot(&self.cursor) {
-            Some(s) => [format!("Bet: {}", s.label()), format!("Payout: {} to 1", s.payout())],
-            None => ["Bet:".into(), "Payout:".into()],
+            Some(s) => [trf("Bet: {bet}", &[("bet", &s.label_with(&|w| tr(w)))]), trf("Payout: {n} to 1", &[("n", &s.payout())])],
+            None => [tr("Bet:").into(), tr("Payout:").into()],
         }
     }
 }
@@ -417,7 +418,9 @@ fn open(
 }
 
 /// The keys.
-fn keys(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>, screen: Res<RouletteScreen>, pointer: Res<RoulettePointer>, over_button: Query<&PointerState, With<Button>>, mut out: MessageWriter<RouletteInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, mouse: crate::pad::ActionButtons<MouseButton>, screen: Res<RouletteScreen>, pointer: Res<RoulettePointer>, over_button: Query<&PointerState, With<Button>>, mut out: MessageWriter<RouletteInput>) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.help.is_some() {
         if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
@@ -487,13 +490,14 @@ fn pointer(pointer: Res<RoulettePointer>, mut seen: Local<u32>, mut out: Message
 }
 
 fn refusal_line(r: Refusal) -> &'static str {
-    // [hypothesis: the original's words are not in the plugins; these are NVForever's]
+    // [hypothesis: the original's words are not in the plugins; these are NVForever's],
+    // in the chosen language (`lang/*.toml`, #3146)
     match r {
-        Refusal::NoSpot => "No bet can go there.",
-        Refusal::Chips => "You do not have enough chips.",
-        Refusal::Limit => "That is over the table's limit.",
-        Refusal::NoBet => "There is no bet there.",
-        Refusal::NoBets => "Place a bet first.",
+        Refusal::NoSpot => tr("No bet can go there."),
+        Refusal::Chips => tr("You do not have enough chips."),
+        Refusal::Limit => tr("That is over the table's limit."),
+        Refusal::NoBet => tr("There is no bet there."),
+        Refusal::NoBets => tr("Place a bet first."),
     }
 }
 
@@ -617,9 +621,9 @@ fn step(time: AidTime, mut screen: ResMut<RouletteScreen>, mut next: ResMut<Next
             }
             let name = format!("{} {}", rules::pocket_name(pocket), rules::colour(pocket).name());
             let result = match net {
-                n if n > 0 => format!("You win {n} chips."),
-                0 if back > 0 => "You break even.".to_string(),
-                n => format!("You lose {} chips.", -n),
+                n if n > 0 => trf("You win {n} chips.", &[("n", &n)]),
+                0 if back > 0 => tr("You break even.").to_string(),
+                n => trf("You lose {n} chips.", &[("n", &-n)]),
             };
             info!(
                 "roulette: the ball stops in {name}: {} of {} bets win, {back} chips back of {staked}, net {net}; earnings {} of {} (level {}){}",
@@ -630,7 +634,9 @@ fn step(time: AidTime, mut screen: ResMut<RouletteScreen>, mut next: ResMut<Next
                 casino::winnings_level(s.earnings, s.max_winnings),
                 if s.banned { "; banned" } else { "" }
             );
-            s.status = Some([name.clone(), if s.banned { format!("{result} You have been banned from {}.", s.casino_name) } else { result }]);
+            // The log's line names the pocket in English; the screen's in the chosen language.
+            let shown = format!("{} {}", rules::pocket_name(pocket), tr(rules::colour(pocket).name()));
+            s.status = Some([shown, if s.banned { trf("{result} You have been banned from {casino}.", &[("result", &result), ("casino", &s.casino_name)]) } else { result }]);
             s.last = Some(pocket);
             s.phase = Phase::Paid { until: now + RESULT_SECONDS, since, clip, pocket };
         }
@@ -671,6 +677,35 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<RouletteStats>) {
         "roulette summary: {} asked, {} opened ({} refused); {} bets placed, {} refused; {} spins, {} chips won, {} lost; {} bans",
         s.asked, s.opened, s.refused, s.placed, s.refused_bets, s.spins, s.won, s.lost, s.bans
     );
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> RouletteScreen {
+    let mut table = Table::default();
+    if step >= 3 {
+        table.bets.push((rules::spot("S01").unwrap(), 1));
+    }
+    RouletteScreen(Some(Session {
+        casino: FormId(42),
+        casino_name: String::new(),
+        chip: FormId(43),
+        model: None,
+        max_winnings: 1000,
+        table,
+        bet: if step >= 1 { 2 } else { 1 },
+        cursor: if step >= 2 { "S01".into() } else { "S02".into() },
+        phase: if step >= 4 { Phase::Spinning { since: step as f32, clip: 1, pocket: 1 } } else { Phase::Betting },
+        chips: 100,
+        earnings: 0,
+        status: None,
+        help: None,
+        last: None,
+        banned: false,
+        forced: None,
+        rng: ChaCha8Rng::seed_from_u64(step as u64),
+    }))
 }
 
 #[cfg(test)]

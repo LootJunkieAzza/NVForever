@@ -2,7 +2,7 @@
 //! effect shaders' traits and textures, media sets' traits, casinos' chips and winnings,
 //! terminals' menu items, and the quest script delay.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -38,11 +38,14 @@ fn edid(sig: &[u8; 4], fid: u32, name: &str, rest: &[fnv_esm::raw::Subrecord]) -
 
 /// EFSH DATA: 308 bytes [documented: schemas/fnv/effects.json EFSH DATA, from xEdit]:
 /// flags 9 (No Membrane Shader, No Particle Shader), membrane source blend 5, fill alpha
-/// fade in 0.25 s, edge fall off 1.5, particle lifetime 3, scale key 2 time 0.75.
+/// fade in 0.25 s, edge fall off 1.5, particle lifetime 3, scale key 2 time 0.75, fill
+/// colour (1, 2, 3), colour key 1 (4, 5, 6).
 fn efsh_data() -> Vec<u8> {
     let mut d = vec![0u8; 308];
     d[0] = 9;
     d[4..8].copy_from_slice(&5u32.to_le_bytes());
+    d[16..19].copy_from_slice(&[1, 2, 3]);
+    d[188..191].copy_from_slice(&[4, 5, 6]);
     for (at, v) in [(20, 0.25f32), (52, 1.5), (132, 3.0), (184, 0.75)] {
         d[at..at + 4].copy_from_slice(&v.to_le_bytes());
     }
@@ -66,7 +69,7 @@ fn plugin_bytes() -> Vec<u8> {
         "TestMediaSet",
         &[
             sub(b"NAM1", 3i32.to_le_bytes().to_vec()),
-            sub(b"NAM2", z("Data\\Music\\day.wav")),
+            sub(b"NAM2", z("day.wav")),
             sub(b"NAM8", f32b(-6.0)),
             sub(b"PNAM", vec![5]),
             sub(b"DNAM", f32b(20.0)),
@@ -167,15 +170,20 @@ fn effect_shader_traits_and_textures() {
     for (t, want) in [(0, 9.0), (1, 5.0), (5, 0.25), (13, 1.5), (33, 3.0), (46, 0.75), (2, 0.0)] {
         assert_eq!(n(&mut g, &format!("GetEffectShaderTraitNumeric TestShader {t}")), want, "trait {t}");
     }
-    // The colours and a trait past the table read 0.
-    for t in [4, 14, 47, -1] {
-        assert_eq!(n(&mut g, &format!("GetEffectShaderTraitNumeric TestShader {t}")), 0.0, "trait {t}");
-    }
-    // The setter returns 1, takes the traits its page lists (0-42) and nothing past them.
+    // The colours as one number (red × 65536 + green × 256 + blue); 47 is colour key 1;
+    // past it 0 [observed: jg3].
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 4"), 66051.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 14"), 0.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 47"), 263430.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader -1"), 0.0);
+    // The setter returns 1 and takes every trait the getter reads, past 42 too.
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 13 2.5"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 13"), 2.5);
-    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 46 9"), 0.0);
-    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 46"), 0.75);
+    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 46 9"), 1.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 46"), 9.0);
+    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 4 255"), 1.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 4"), 255.0);
+    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 48 1"), 0.0);
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 1 7.9"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 1"), 7.0, "an enum keeps a whole number");
     // Textures: 0 fill (ICON), 1 particle (ICO2, none here), 2 holes (NAM7).
@@ -184,6 +192,8 @@ fn effect_shader_traits_and_textures() {
     assert_eq!(s(&mut g, "GetEffectShaderTexturePath TestShader 2"), "effects\\holes.dds");
     q(&mut g, "SetEffectShaderTexturePath TestShader 1 \"effects\\new.dds\"");
     assert_eq!(s(&mut g, "GetEffectShaderTexturePath TestShader 1"), "effects\\new.dds");
+    // An id past the table fails the call [observed: jg3].
+    assert!(g.run_query("Begin Function { }\nstring_var sOut\nlet sOut := GetEffectShaderTexturePath TestShader 3\nEnd\n", RunCtx::default()).is_err());
 }
 
 #[test]
@@ -196,16 +206,20 @@ fn media_set_traits() {
     }
     q(&mut g, "SetMediaSetTraitNumeric TestMediaSet 14 30");
     assert_eq!(n(&mut g, "GetMediaSetTraitNumeric TestMediaSet 14"), 30.0);
+    // The record's path under Data\Music\; a set one as given [observed: jg3].
     assert_eq!(s(&mut g, "GetMediaSetTraitString TestMediaSet 0"), "Data\\Music\\day.wav");
     assert_eq!(s(&mut g, "GetMediaSetTraitString TestMediaSet 5"), "");
-    q(&mut g, "SetMediaSetTraitString TestMediaSet 3 \"Data\\Music\\night.wav\"");
-    assert_eq!(s(&mut g, "GetMediaSetTraitString TestMediaSet 3"), "Data\\Music\\night.wav");
+    q(&mut g, "SetMediaSetTraitString TestMediaSet 3 \"night.wav\"");
+    assert_eq!(s(&mut g, "GetMediaSetTraitString TestMediaSet 3"), "night.wav");
+    assert!(g.run_query("Begin Function { }\nstring_var sOut\nlet sOut := GetMediaSetTraitString TestMediaSet 6\nEnd\n", RunCtx::default()).is_err());
     assert_eq!(n(&mut g, "GetMediaSetTraitSound TestMediaSet 0"), f64::from(SOUN));
     assert_eq!(n(&mut g, "GetMediaSetTraitSound TestMediaSet 1"), 0.0);
     q(&mut g, "SetMediaSetTraitSound TestMediaSet 1 TestSound2");
     assert_eq!(n(&mut g, "GetMediaSetTraitSound TestMediaSet 1"), f64::from(SOUN2));
-    // Not a sound: refused.
+    // Not a sound, or none: refused [observed: jg3].
     q(&mut g, "SetMediaSetTraitSound TestMediaSet 1 TestNote");
+    assert_eq!(n(&mut g, "GetMediaSetTraitSound TestMediaSet 1"), f64::from(SOUN2));
+    q(&mut g, "ref rNone\nSetMediaSetTraitSound TestMediaSet 1 rNone");
     assert_eq!(n(&mut g, "GetMediaSetTraitSound TestMediaSet 1"), f64::from(SOUN2));
 }
 
@@ -234,6 +248,132 @@ fn casino_chip_and_winnings() {
 }
 
 #[test]
+fn casino_level_source_reaches_the_table_ban_and_saved_standing_without_changing_earnings() {
+    use fnv_game::casino::{opening, Closed};
+    let f = fixture(); let mut g = game(&f);
+    g.player.casino_levels.insert(FormId(0xABC), 2);
+    for level in 0..=4 {
+        q(&mut g, &format!("SetCasinoWinningsLevel TestCasino {level}"));
+        assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), f64::from(level));
+        assert_eq!(opening(&g, FormId(CSNO), 10, 1000), if level == 4 { Err(Closed::Banned) } else { Ok(()) });
+        assert_eq!(g.player.casino_earnings.get(&FormId(CSNO)), None);
+        assert_eq!(g.player.casino_levels[&FormId(0xABC)], 2);
+    }
+    let saved = g.checked_snapshot().unwrap();
+    let world = World::restore(&f.forms, &f.refs, &saved.sim).unwrap();
+    let mut back = Game::restore(&f.data, world, g.cfg, &saved).unwrap();
+    assert_eq!(n(&mut back, "GetCasinoWinningsLevel TestCasino"), 4.0);
+    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Err(Closed::Banned));
+    q(&mut back, "SetCasinoWinningsLevel TestCasino 1");
+    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Ok(()));
+    fnv_game::casino::add_earnings(&mut back, FormId(CSNO), 1000, 1000);
+    q(&mut back, "SetCasinoWinningsLevel TestCasino 0");
+    assert_eq!(back.player.casino_earnings[&FormId(CSNO)], 1000);
+    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Err(Closed::Banned), "earnings ban remains");
+    back.tweaks.no_casino_bans = true;
+    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Ok(()));
+}
+
+#[test]
+fn casino_level_source_rejects_invalid_forms_and_levels_without_mutating_standing() {
+    let f = fixture(); let mut g = game(&f);
+    q(&mut g, "SetCasinoWinningsLevel TestCasino 2");
+    for args in ["TestNote 4", "0 4", "TestCasino -1", "TestCasino 5", "TestCasino 1.5", "TestCasino (Pow10 400)", "TestCasino"] {
+        let before = g.checked_snapshot().unwrap();
+        let result = g.run_query(&format!("Begin Function {{ }}\nSetCasinoWinningsLevel {args}\nEnd\n"), RunCtx::default());
+        assert!(result.is_err(), "{args}");
+        assert_eq!(g.player.casino_levels, before.player.casino_levels);
+        assert_eq!(g.player.casino_earnings, before.player.casino_earnings);
+    }
+}
+
+fn casino_banned_condition(g: &Game<'_>) -> fnv_game::cond::Condition {
+    use fnv_game::cond::{Cmp, Condition, Operand, RunOn};
+    use fnv_script::vm::{ArgValue, Value};
+    // Exercise the existing condition API/registration, not a new native encoding.
+    Condition {
+        cmp: Cmp::Eq,
+        or: false,
+        run_on: RunOn::Subject,
+        function: g.data.table.by_name("GetCasinoWinningStage").unwrap() - 0x1000,
+        params: vec![ArgValue::Value(Value::Ref(CSNO))],
+        rhs: Operand::Value(4.0),
+    }
+}
+
+#[test]
+fn no_casino_bans_source_and_actual_dialogue_condition_follow_the_table_opening_policy() {
+    use fnv_game::casino::{opening, Closed};
+    let f = fixture();
+    let mut g = game(&f);
+    fnv_game::casino::add_earnings(&mut g, FormId(CSNO), 1000, 1000);
+    let condition = casino_banned_condition(&g);
+    for enabled in [false, true, false] {
+        g.tweaks.no_casino_bans = enabled;
+        let expected = if enabled { 3.0 } else { 4.0 };
+        assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), expected);
+        assert_eq!(n(&mut g, "GetCasinoWinningStage TestCasino"), expected);
+        assert_eq!(g.eval_conditions(std::slice::from_ref(&condition), Some(FormId::PLAYER_REF), None, "owned casino ban")[0].value, expected);
+        assert_eq!(g.conditions_pass(std::slice::from_ref(&condition), Some(FormId::PLAYER_REF), None, "owned casino ban"), !enabled);
+        assert_eq!(opening(&g, FormId(CSNO), 1, 1000), if enabled { Ok(()) } else { Err(Closed::Banned) });
+        assert_eq!(g.player.casino_levels[&FormId(CSNO)], 4, "the query does not rewrite earned standing");
+        assert_eq!(g.player.casino_earnings[&FormId(CSNO)], 1000);
+    }
+}
+
+#[test]
+fn no_casino_bans_preserves_reward_stages_and_existing_missing_entry_behavior() {
+    let f = fixture();
+    let mut g = game(&f);
+    for enabled in [false, true] {
+        g.tweaks.no_casino_bans = enabled;
+        for stage in 0..=3 {
+            q(&mut g, &format!("SetCasinoWinningsLevel TestCasino {stage}"));
+            assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), f64::from(stage));
+            assert_eq!(n(&mut g, "GetCasinoWinningStage TestCasino"), f64::from(stage));
+            assert_eq!(g.player.casino_levels[&FormId(CSNO)], stage);
+        }
+        let before = g.player.casino_levels.clone();
+        assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestNote"), 0.0);
+        assert_eq!(g.player.casino_levels, before);
+    }
+}
+
+#[test]
+fn no_casino_bans_changes_real_source_reward_and_ban_branch_outputs_without_version_spoofing() {
+    let f = fixture();
+    for enabled in [false, true] {
+        let mut g = game(&f);
+        g.tweaks.no_casino_bans = enabled;
+        fnv_game::casino::add_earnings(&mut g, FormId(CSNO), 1000, 1000);
+        q(&mut g, "if (GetCasinoWinningsLevel TestCasino) == 4\nPlayerREF.AddItem TestChip 1\nelseif (GetCasinoWinningsLevel TestCasino) == 3\nPlayerREF.AddItem TestChip2 1\nendif");
+        assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), if enabled { 0 } else { 1 });
+        assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP2)).unwrap(), if enabled { 1 } else { 0 });
+        assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+        assert_eq!(g.player.casino_earnings[&FormId(CSNO)], 1000);
+    }
+}
+
+#[test]
+fn no_casino_bans_restore_keeps_raw_standing_and_reapplies_only_the_existing_option_view() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.tweaks.no_casino_bans = true;
+    fnv_game::casino::add_earnings(&mut g, FormId(CSNO), 1000, 1000);
+    assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), 3.0);
+    let saved: fnv_game::game::GameSnapshot = serde_json::from_slice(&serde_json::to_vec(&g.checked_snapshot().unwrap()).unwrap()).unwrap();
+    assert_eq!(saved.player.casino_levels[&FormId(CSNO)], 4);
+    let world = World::restore(&f.forms, &f.refs, &saved.sim).unwrap();
+    let mut back = Game::restore(&f.data, world, g.cfg, &saved).unwrap();
+    // Settings already copy this option into Game; no new saved preference is inferred.
+    back.tweaks.no_casino_bans = true;
+    assert_eq!(n(&mut back, "GetCasinoWinningStage TestCasino"), 3.0);
+    back.tweaks.no_casino_bans = false;
+    assert_eq!(n(&mut back, "GetCasinoWinningsLevel TestCasino"), 4.0);
+    assert_eq!(back.player.casino_earnings[&FormId(CSNO)], 1000);
+}
+
+#[test]
 fn terminal_menu_items() {
     let f = fixture();
     let mut g = game(&f);
@@ -242,6 +382,8 @@ fn terminal_menu_items() {
     assert_eq!(s(&mut g, "GetTerminalMenuItemText TestTerminal 1 0"), "Read the log");
     assert_eq!(s(&mut g, "GetTerminalMenuItemText TestTerminal 2 0"), "Done.");
     assert_eq!(s(&mut g, "GetTerminalMenuItemText TestTerminal 1 2"), "", "no item 2");
+    // textID 0 fails the call [observed: jg3].
+    assert!(g.run_query("Begin Function { }\nstring_var sOut\nlet sOut := GetTerminalMenuItemText TestTerminal 0 0\nEnd\n", RunCtx::default()).is_err());
     assert_eq!(n(&mut g, "GetTerminalMenuItemNote TestTerminal 0"), f64::from(NOTE));
     assert_eq!(n(&mut g, "GetTerminalMenuItemSubmenu TestTerminal 1"), f64::from(TERM2));
     assert_eq!(n(&mut g, "GetTerminalMenuItemFlags TestTerminal 0"), 1.0);
@@ -253,7 +395,7 @@ fn terminal_menu_items() {
     assert_eq!(s(&mut g, "GetTerminalMenuItemText TestTerminal 1 0"), "Read it again");
     assert_eq!(n(&mut g, "GetTerminalMenuItemNote TestTerminal 0"), f64::from(NOTE2));
     assert_eq!(n(&mut g, "GetTerminalMenuItemSubmenu TestTerminal 1"), 0.0);
-    assert_eq!(n(&mut g, "GetTerminalMenuItemFlags TestTerminal 0"), 2.0, "the two flag bits kept");
+    assert_eq!(n(&mut g, "GetTerminalMenuItemFlags TestTerminal 0"), 6.0, "the flags kept whole");
     // Choosing the item shows the changes.
     let chosen = fnv_game::terminal::choose(&mut g, FormId(TERM), FormId(TERM), 0).unwrap();
     assert_eq!((chosen.result.as_str(), chosen.note), ("Again.", Some(FormId(NOTE2))));
@@ -261,11 +403,48 @@ fn terminal_menu_items() {
 }
 
 #[test]
+fn casino_menu_close_events_fire_on_documented_menu_codes_1080_1081_1082() {
+    assert_eq!(fnv_game::slots::MENU_CODE, 1080);
+    assert_eq!(fnv_game::blackjack::MENU_CODE, 1081);
+    assert_eq!(fnv_game::roulette::MENU_CODE, 1082);
+    let f = fixture();
+    let mut g = game(&f);
+    g.tweaks.no_casino_bans = true;
+    fnv_game::casino::add_earnings(&mut g, FormId(CSNO), 1000, 1000);
+    for menu_code in [1080u16, 1081, 1082] {
+        q(
+            &mut g,
+            &format!(
+                "SetOnMenuCloseEventHandler (begin function {{int iMenu}}\n\
+                 if (GetCasinoWinningsLevel TestCasino) == 3\n\
+                   PlayerREF.AddItem TestChip iMenu\n\
+                 endif\n\
+                 end) 1 {menu_code}"
+            ),
+        );
+    }
+    for (menu_code, expected_total) in [
+        (fnv_game::slots::MENU_CODE, 1080i32),
+        (fnv_game::blackjack::MENU_CODE, 1080 + 1081),
+        (fnv_game::roulette::MENU_CODE, 1080 + 1081 + 1082),
+    ] {
+        g.open_menu(menu_code);
+        assert_eq!(g.close_menu(), Some(menu_code));
+        assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), expected_total);
+    }
+    // Unregistered menu does not trigger the casino close handlers.
+    g.open_menu(fnv_game::caravan::MENU_CODE);
+    assert_eq!(g.close_menu(), Some(fnv_game::caravan::MENU_CODE));
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), 1080 + 1081 + 1082);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+}
+
+#[test]
 fn quest_delay() {
     let f = fixture();
     let mut g = game(&f);
     assert_eq!(n(&mut g, "GetQuestDelay TestQuest"), 0.5);
-    assert_eq!(n(&mut g, "GetQuestDelay TestQuestNoDelay"), 5.0);
+    assert_eq!(n(&mut g, "GetQuestDelay TestQuestNoDelay"), 0.0, "the record's, not the 5 s default");
     q(&mut g, "SetQuestDelay TestQuest 2");
     assert_eq!(n(&mut g, "GetQuestDelay TestQuest"), 2.0);
 }

@@ -172,7 +172,13 @@ census of the winning REFR records]:
 walls; the name suggests it], and leaves portals, rooms, occlusion planes and trigger
 activators out (they are culling volumes and script triggers by their bases [hypothesis];
 triggers will become sensors when scripts need them, Layer 5). A primitive without XTRI
-gets layer 0.
+is an Invisible Wall (#1545, #1665): it stops actors, and shots pass it
+(`layers::shot_ignores`). So is one whose XTRI is **Transparent** (#2223): TTW's load
+order has 277 references with XTRI, Transparent the commonest (96, then Invisible Wall
+60, Actor Zone 57, Static 31) [observed: `fnvtool esm fields`, 2026-11-12], and its
+Vault 101 BB gun range has a Transparent Portal Box marker across the hall between the
+player and the targets the birthday quest needs hit [hypothesis: the original lets
+shots through such a marker]. Other XTRI layers are kept as stored.
 
 **Bounds are read as half extents** (sphere: the first value is the radius). Evidence
 [observed]: for the 3,007 exterior CollisionMarker boxes without x/y rotation, the box
@@ -186,8 +192,9 @@ under. Still a [hypothesis] until checked in game (§6). Reproduce:
 CollisionMarker primitive without XTRI is on the **Invisible Wall** layer (27), not
 Unidentified (0). Characters collide with it, as before. Shots, VATS mode's line of fire
 and the aim ray pass it (`layers::shot_ignores`, the character's layers plus Invisible
-Wall), and so do sight (`detection.rs` `see_through`) and blast cover lines, which already
-passed layer 27. Before the change, a 10mm round fired at the box 0x00176AD0 in Goodsprings
+Wall and, since #2340, Transparent; melee swings take `layers::melee_ignores`, without
+Transparent: docs/spec-notes/combat-rules.md), and so do sight (`detection.rs`
+`see_through`) and blast cover lines, which already passed layer 27. Before the change, a 10mm round fired at the box 0x00176AD0 in Goodsprings
 stopped on it (smoke `shot-passes-collision-marker`).
 
 ### 4.2 Collision layer matrix (B11): design and predictions
@@ -535,7 +542,9 @@ NVGSCrateContainer (one stacked on the other) and an NVWoodBarrel were all awake
 them, 2 did not]. With the wider distance all were asleep within 2 s, 3.5 units higher
 than without the skin. Why a skin wider than the prediction distance keeps bodies moving
 is not known (rapier's narrow phase) [hypothesis: contacts dropping in and out of the
-solver at the skin's edge]. Test `clutter_on_the_terrain_shell_falls_asleep`.
+solver at the skin's edge]. Test `clutter_on_the_terrain_shell_falls_asleep`. Since
+2026-11-13 the distance is widened only while the world holds terrain: indoors the wider
+one kept clutter trembling awake (§5.5).
 
 In our engine [observed, `nvforever --play`, 2026-10-08]: a stimpak (one dynamic Clutter
 object) dropped 30 units above Doc Mitchell's floor (z 7360) came to rest on its side at
@@ -544,6 +553,69 @@ z 7360.97, 29.7 lower and 8.7 units from the drop point, 1.58 s after the menu c
 for the same spot within 0.3 units, simulation.md §5) it came to rest on the ground at
 8692.71, 30.9 lower. Repeated runs came to rest within 0.1 units of each other (the steps
 are fixed, but how many run per frame depends on frame times).
+
+**Sinking through the terrain (#2753: the corpses' cause found, the weapons' open).** Players' logs show weapons dropped by dying
+NPCs and corpses at rest on the terrain in exteriors going through it, the same creatures at
+the same spots on many installs [observed: player reports, build 0.7.0, issue #2753]; the
+safety nets (`dropped 0x… fell through the world`, 10,000 units under the drop point, and
+the ragdoll's `fell through at`, 150 under the terrain under its first bone) put them back.
+Synthetic fnv-phys experiments did not reproduce it (square reloads, waking, the contact
+shell, characters, slow motion, shots, blasts). Diagnostic lines (`engine/nvf-play`
+`phys/sinking.rs` [design, #2753]): `dropped 0x… woke after resting S s … touching …` when a
+resting drop moves again, with what its colliders touch; `dropped 0x… sank: …` and `ragdoll:
+actor … sank: bone …` once, the first frame a body's centre is more than 20 units under the
+terrain at its own x, y, with its speed, its rest or settle state, every collider a ray finds
+straight down there (whether the terrain collider is in place where the surface says) and,
+for a drop, what it touches. A ragdoll `fell through` line with no `sank` line before it is
+the guard's reading on a slope (it measures under the first bone), not a body under the
+ground. Smoke probes `sinking-drop-*-spot` and `sinking-corpse-*-spot` run at the reported
+spots.
+
+What the probes found [observed: smoke runs of 241f1581d, 2026-11-18, logs in the session's
+notes]:
+
+- **The corpses** of the reports (Bighorner 001710BB, Radscorpion 0015A0C4, Mole rat
+  00161732) are leveled spawns (`VSpawnTier2BigHornerMed75` …) whose leveled choice in those
+  runs was the invisible `nvvoid` placeholder (scale 0.1, no shapes; actors.md §10): with
+  Health 0 a new game lays it out dead (dead-on-spawn.md) where its reference is placed,
+  and its two-body ragdoll starts when the cell loads. 001710BB's root started about 3 units
+  under the terrain and fell straight down (0.2 s later 20 under at 158 units/s, then caught
+  152 under the terrain, the reports' figure); 0015A0C4's started 360 under (the reports'
+  355), where a terrain-layer rock (001613EC) stands 49 over the heightfield; 001710B3 nearby
+  did as 001710BB. A body whose centre starts under the two-sided terrain mesh is pushed
+  down and falls through it. Players see nothing of these (the model has no shapes); the
+  fall-through warnings and the lifts were all there was.
+- **The dropped weapons** did not reproduce: the settler of the drop probes held its weapon
+  holstered (SetRestrained, no combat), so it dropped nothing (combat.rs `death_drops` takes
+  the weapon in the hand); the player's own drops came to rest. An NPC's death drop is
+  placed 50 units in front of it and 30 over its feet (`fnv_sim::world::DROP_AHEAD`,
+  `DROP_ABOVE`): on a slope rising more than 0.6 ahead of it, or under feet drawn below the
+  surface, it starts in the ground, and the reports' weapons first sank slowly (8 to 24
+  units/s) and then fell, as a body pushed out downwards does [hypothesis].
+
+So [design, #2753]:
+
+- A ragdoll about to start with a body's centre under the terrain at its own x, y is lifted
+  whole until every such centre is 5 units over what stands there: the first collision a ray
+  finds coming down from 100 units over the terrain, so a rock or foundation on the terrain
+  rather than the heightfield inside it (`ragdoll: actor … starts with bone … under the
+  terrain: lifted N units onto …`). It is left as it is when anything other than the terrain
+  lies within 100 units under any such body or under its lowest body (a floor built below
+  the surface, a tunnel). A saved pose (`XRGD`, or where it lay before) is lifted only past
+  20 units under, since it was authored on the stored ground and the smoothed terrain
+  (#2149) lies up to 8 units off it; lifted, it starts awake and comes down, instead of
+  hovering at rest.
+- A dropped item whose centre of mass starts under the terrain at its own x, y, with nothing
+  other than the terrain under it, is lifted onto the contact shell of what stands there
+  (`collision of dropped 0x… started with its centre … under the terrain …: lifted … onto …`).
+  One at rest on a slope has its centre over the terrain, however low its downhill end
+  reaches, so the reloads of its cell leave it alone.
+- The safety nets stay. The drop probes were set up again (the settler fights the player,
+  its weapon drawn, and dies about 2 s later on the spot); a fifth runs at the shotgun's spot
+  (WastelandNVmini, 10798, 17343, flat at z 9920). Their lift line is marked known failing
+  until a run shows it: the weapons' cause stays a hypothesis until then.
+- Whether a shapeless `nvvoid` placeholder laid out dead should get a ragdoll at all is a
+  question for the owner (owner-review.md).
 
 ### 4.3.1 Clutter at cell load: asleep, jointed objects held (`engine/nvf-play`, 2026-10-11)
 
@@ -634,7 +706,12 @@ playtest list 5 item 59]. The tumbleweeds roll with the weather's wind: [wind](w
 ## 5. Determinism and precision
 
 - The world advances only in fixed steps of `PhysParams::dt`; `Stepper` turns frame time
-  into whole steps and carries the remainder (at most `max_substeps` per call).
+  into whole steps and carries the remainder (at most `max_substeps` per call), in `f64`
+  so it does not drift over hours [design]. `Stepper::alpha` is the one place the share of
+  a step the remainder stands for is worked out: whatever is drawn between the last two
+  steps blends by it. How many steps a second play takes is a setting (§5.4); the tools,
+  the tests and the parity lab step at 60 unless told otherwise (`fnvtool phys walk`'s
+  `hz`).
 - Two worlds built the same way and stepped the same way are bit-identical, with and
   without a character moving and jumping among a dozen tumbling boxes (`state_digest`
   over every body's position and velocity bits, every step) [observed: tests, same
@@ -664,6 +741,18 @@ playtest list 5 item 59]. The tumbleweeds roll with the weather's wind: [wind](w
   moves, since `move_character` updates queries first) never moved [observed: test
   `bodies_added_then_queried_still_simulate`, rapier 0.36.0]. `update_queries` flags such
   bodies changed again so the next step registers them. Re-check when upgrading rapier.
+  This rearm must also keep a kinematic body's queued next pose. `set_position`
+  replaces both its current and next pose; `character::apply_move` has already queued
+  the next translation before the fixed step [documented: rapier3d 0.36.0,
+  `dynamics/rigid_body.rs`, `set_position` and `set_next_kinematic_position`;
+  `crates/fnv-phys/src/character.rs`, `apply_move`]. Copy the next pose before rearming
+  and restore it afterward for kinematic bodies [hypothesis: engineering policy]. This leaves registration
+  deferred until the real step. The library's `world::query_motion_tests` compare the
+  queried world with a direct step of the same snapshot: position- and velocity-driven
+  motion, an unrelated body's queued force and torque, and a real `move_character`
+  followed by an unrelated insertion and query. The query must not advance time or
+  erase the movement that the next step consumes. These are authored implementation
+  controls, not measurements of the original game.
   The same query loses the wake-up of a sleeping kinematic body that is teleported
   (`place_character` on a character that was not moved for a few seconds): the body
   stayed where it was put while the character walked on, so rays and other characters
@@ -675,6 +764,24 @@ playtest list 5 item 59]. The tumbleweeds roll with the weather's wind: [wind](w
   `a_sleeping_body_struck_then_queried_still_moves`; in play, a bottle shot off a fence
   stayed put]. `update_queries` puts such a body to sleep and wakes it with its velocity
   again.
+  The list of struck bodies missed one: a sleeping corpse struck by a shot or a VATS hit
+  (`push_ragdoll`). The bone woken was left in its sleeping set: the corpse froze, and once
+  a piece landed on it its island held bodies of both the awake set and a sleeping one.
+  When that island fell asleep rapier panicked [observed: the owner's crash of
+  2026-11-11, `extract_sleeping_sub_island` island.rs:54, after a VATS head kill; tests
+  `a_sleeping_corpse_struck_before_a_query_wakes_whole` and
+  `rapiers_islands_hold_under_random_play` (seed 4) in `tests/islands.rs`]. So after every
+  refresh `fnv_phys::islands` checks rapier's islands whatever made the change: a body awake
+  outside the awake set, or one in a sleeping set whose island has a body in the awake set,
+  is woken with its island; a fixed body still listed in an island has its type told again
+  for the next step. The exit log's "island repairs after query refreshes" line counts them.
+- **Drawing is not stepping**: frames come at their own rate, between the fixed steps;
+  what physics moves is drawn between its last two steps (§5.2), which reads the world
+  and never writes it. Everything the simulation sees (the poses written back to the
+  simulation, GetPos, saves, queries, the corpses' rest rule) stays on the stepped pose
+  [observed: test `drawing_leaves_the_steps_bit_identical`].
+- **NaN or infinite state** is taken out of the simulation by rapier and dealt with after
+  each step (§5.3).
 - **f32 range**: a ray–sphere test from about 10,000 units away was off by about one unit
   (cancellation in the quadratic), from 100 units by under 0.01 [observed: tests]. Probes
   and activation rays should start near what they test; `fnvtool phys` starts ground rays
@@ -814,6 +921,388 @@ decides what the next query refresh costs.
     overlapping parts to the lower part index (then the earlier segment), always. Before,
     either could win depending on the tree.
 
+### 5.2 Drawing between steps (2026-11-11)
+
+The world steps at the physics rate, 60 times a second of the game's clock by default (`PhysParams::dt`, §5.4), the frames come
+at whatever rate the machine and the screen give (up to 152 a second on the owner's
+variable-refresh screen). On a frame between two steps, a body drawn at its last step's
+pose moves in uneven jumps: at 152 frames a second a step lands every 2 or 3 frames
+(152 / 60 = 2.53). The player, the walked
+actors and the corpses were already drawn between their last two steps; everything else
+physics moves was not (knocked clutter, dropped items, the item the grab holds, gore,
+wreck parts, swing traps, tumbleweeds). Now every one is [design, the usual answer for a
+fixed step at any frame rate; rapier's own Bevy plugin does the same with its
+`TimestepMode::Interpolated` [documented: bevy_rapier in rapier's repository]]:
+
+- **The pose before the step** (`fnv_phys::drawn`). At the start of every
+  `PhysWorld::step` the world keeps the pose of each body that can move in it: the
+  dynamic bodies awake (rapier's active set), those added, struck or woken since the last
+  step and the held body. Bodies asleep, fixed or kinematic are not kept (nothing to
+  blend). The table is refilled each step in the same storage; reading it allocates
+  nothing but the lists the readers return.
+- **The share of a step** (`PhysState::draw_alpha` in `engine/nvf-play`): the stepper's
+  remainder over the step, in [0, 1], the one place it is worked out. 0 draws the pose
+  before the last step, 1 the pose after it.
+- **Blending**: translations linearly, rotations by slerp the short way round. The readers
+  mirror the stepped ones: `drawn_ref_bodies` / `drawn_ref_body` (`ref_bodies`),
+  `drawn_ragdoll_nodes` (`ragdoll_nodes`), `drawn_gore_state` (`gore_state`); `drawn_refs`
+  lists the references with a body drawn between steps.
+- **Not across a jump.** A body added, placed by hand (`body_placed`, `place_character`,
+  `pose_ref_object`), built again (a ragdoll set at rest, roused or lifted; a reference's
+  collision built again for a script's SetPos, a new body) or frozen after NaN state (§5.3)
+  since the last step has no pose kept: it is drawn where it is until the next step. A
+  body that went more than `DRAWN_JUMP` (100 units) along an axis in one step was put
+  somewhere, not moved, and is drawn where it is too (the corpses' old guard, now for
+  every body).
+- **Woken by a contact** during a step (asleep at its start), a body has no pose kept for
+  that step and is drawn where it is until the next. It starts from rest, so that step
+  moves it little [hypothesis: not measured].
+- **Who draws what** (`engine/`):
+  - placed clutter physics has moved (`PhysState::placed_dynamic`, tumbleweeds and the
+    held item included) and dropped items with one dynamic body (`PhysState::created`):
+    `PhysState::drawn_ref_pose` turns the drawn body into the reference pose;
+    `PhysState::between` lists them every frame while they move and once after (drawn
+    where they came to rest). `moved.rs`, `dropped.rs` and `script_draw.rs` draw them
+    there; `settle_placed` and `settle_created` still write the stepped pose to the
+    simulation. `moved.rs` keeps the entities of each reference it moves, so a reference
+    drawn every frame is not looked for among every drawn entity each frame;
+  - corpses (`nvforever` `ragdoll.rs`): the kept poses, exact however many steps the
+    frame ran (before, the pose before the last step was estimated from the last frame's,
+    off when a frame ran several steps); the corpse the grab drags too;
+  - gore pieces (`dismember.rs`), wreck parts (`wrecks.rs`) and swing traps
+    (`swing_traps.rs`): drawn poses for the drawing, the stepped ones for their rest and
+    hit rules.
+- The exit report says how much was drawn between steps: `physics: drawn between steps: N
+  references at most in a frame, over F frames; B bodies at most kept before a step; …`.
+- **Cost**: one pose copy per moving body per step, and for drawing a lookup and a blend
+  per drawn body per frame. Steps and their results are unchanged: the steps never read
+  the kept poses (test `drawing_leaves_the_steps_bit_identical`, the digests and traces of
+  the other tests unchanged).
+- **Latency** is unchanged: what a frame draws is up to one step behind the newest step,
+  as the player's camera already was.
+
+### 5.3 NaN or infinite state: rapier's quarantine (2026-11-11)
+
+rapier 0.35 and later check each step for state that went NaN or infinite: such a body is
+rolled back to its last finite pose (when it has one), its velocities and forces zeroed
+and the body disabled; a collider whose own geometry went non-finite is disabled; both are
+listed for that step in `PhysicsWorld::quarantine()` [documented: rapier3d 0.36.1
+`src/pipeline/physics_pipeline/quarantine.rs`]. After each step `PhysWorld::step` reads
+the list (`fnv_phys::quarantine`):
+
+- **Reported once**: each body or collider is logged the first time
+  (`physics: quarantined the body of reference 0001E9F2 object 0 (layer 4) at step N: …`),
+  with what it belongs to, listed in `PhysWorld::quarantined` and counted in
+  `Stats::quarantined_bodies` / `quarantined_colliders`; the engine's exit report repeats
+  the counts.
+- **Not left disabled out of sight** [design]: a disabled body has no contacts and no
+  query finds it, while the engine would still draw its object: an item nothing could
+  touch.
+  - A reference's dynamic body (clutter, a dropped item) or a gore piece is made a fixed
+    body where it was rolled back to and switched on again: drawn where it was, solid and
+    found by rays and the crosshair, never simulated again. Simulating it again could meet
+    the same NaN every step; taking it out of the world would make the item vanish (a
+    quest item too) and leave the engine's tables (references, write-back, the grab)
+    naming a body that is gone. The grab lets go of it.
+  - A ragdoll body takes its whole ragdoll to rest where it lies
+    (`set_ragdoll_at_rest`), the grab letting go first.
+  - A kinematic body (a character, a hit volume) is switched on again: its owner places it
+    before every step.
+  - A body with no finite pose to go back to, and a collider with bad geometry, stay
+    disabled (nothing sensible to draw or collide); the report says so.
+- Nothing NVForever does is known to make NaN state; the reports are there so that one
+  would be seen [observed: tests `a_body_gone_nan_is_reported_once_and_frozen_in_place`,
+  `a_corpse_gone_nan_is_held_at_rest`, `a_collider_gone_nan_is_reported_once`, NaN set by
+  hand].
+
+### 5.4 The physics rate (2026-11-11)
+
+How many fixed steps a second play takes [design: the owner's approved plan,
+`dev/plans/physics-timestep-and-rapier.md` §5 phase 2; `engine/nvf-play/src/phys_rate.rs`].
+
+- **The choice**: the settings page's Physics rate (Display > Screen, `physics-rate` in
+  `[Settings]` of NVForever.ini): 60 (the default, the rate the captures and the parity
+  lab's goldens were taken at), 120, 144, 160, or Match FPS (the owner's name,
+  2026-11-11; Match display before): the frame rate the game holds, from 60 up to a
+  ceiling, the frame rate the display's pace allows. The ceiling is the cap in effect (the
+  page's limit, variable refresh's, frame generation's real-frame cap, the lowest), no
+  more than the refresh rate with vsync; with no cap, the display's refresh rate
+  (`display_hz`); at most 160. `--physics-hz <60..160|fps>` sets it for one run, over the
+  setting (the row then says so and cannot be changed); it is kept across a load's
+  restart. `fps` is stored; `display` (the INI of a build before the rename) is read as it.
+- **240 was taken out** (2026-11-11) [design: the owner, "remove the 240hz option if it
+  would cause issues"]: in battle-50 its steps took 17.8 ms of a 39.5 ms frame (45 %, just
+  under the cost guard's half, so the guard would not step down), pushed objects slid
+  farthest there (+34 %, below) and it gives nothing on a 160 Hz screen. An INI of an older
+  build with `physics-rate=240` (any rate over 160 up to 240) loads as 160 without a
+  complaint and is saved as 160 (`RateChoice::parse_stored`). The measurements at 240
+  below are kept for the record. The slow-motion floor stays 1/240 s (below).
+- **Match FPS follows the frame rate** (`phys_rate::FpsFollow`) [design: the owner's
+  example, 144 fps dropping to 80 in an intense scene, and the coordinator's spec]:
+  - It counts the main world's updates over whole real seconds (`Time<Real>`; under
+    frame generation the rendered frames, not the presented ones), only frames that are
+    played (not a menu, a conversation, a loading screen, a cell not loaded yet), not
+    paused, not under a slowed or sped-up clock (VATS, kill cameras) and not within 3 s
+    of a cell coming into the physics world.
+  - Its target is that frame rate rounded down to tens, between 60 and the ceiling (80
+    fps: 80 Hz; 147: 140; at or over a ceiling of 152: 152).
+  - Down when each of the last 2 seconds ran at least 10 % under the rate in effect, to
+    their target; up when each of the last 5 seconds (the cost guard's wait, doubled by a
+    fall within 30 s of a rise, up to 80) has a target above it, to the lowest of their
+    targets. Rounding down to tens leaves a rise at least 10 % over the target before a
+    fall.
+  - The cost guard stays on top: the rate in effect is the lower of Match FPS's and the
+    guard's limit, never under 60. Each switch goes through `Stepper::rescale` and is
+    logged (`phys: physics rate 152 Hz -> 80 Hz: the frame rate held 84 fps over 2 s
+    (Match FPS, up to 152 Hz)`); the exit line counts the guard's and Match FPS's
+    switches. Smoke `physics-rate-fps` holds the frames down with the test aid
+    `NVF_PLAY_TEST_SLOW_FRAMES` and checks the step down and back up.
+- **The INI and older builds**: the key is read only by builds that know it. The settings
+  reader looks up the keys it registered and leaves every other line of the file as it is
+  when it writes (`settings::write`, `fnv_install::ini_set`), so an older build sharing
+  the INI ignores `physics-rate=` and keeps it, and this build reads an INI without it as
+  60 [observed: the code]. Nothing about the rate is in a save: a save loads the same
+  whatever the rate, in either build.
+- **Fixed steps at every rate**: each step is `1/rate` s of the game's clock, so each rate
+  is reproducible on its own. While the clock runs slow (VATS, a kill camera) the step
+  shrinks with it, `1/rate × speed` down to `SLOWEST_PACED` (2 %) and never under 1/240 s (below), so the steps a real
+  second stay the rate's; faster than `FASTEST_PACED` (4×, a script's
+  SetGlobalTimeMultiplier) the step grows instead of the steps a real second, which are
+  thus never more than four times the rate [design; before 2026-11-11 a faster clock kept
+  the step at any speed]. A frame runs at most a quarter second of steps at the rate
+  (`catch_up_steps`: 15 at 60, 38 at 152, 40 at 160), what the virtual clock passes on in
+  its longest frame; time beyond it is dropped, so a slow moment cannot grow a backlog
+  (no "spiral of death": the game slows down instead).
+- **Slow motion (VATS, kill cameras)** [observed and design, 2026-11-11]:
+  - The step never goes below 1/240 s (`phys::SHORTEST_STEP`), whatever the rate and the
+    clock (240 is no longer a menu rate; the floor is the step of the slowed clock). rapier keeps positions in f32 metres from the worldspace's origin, and a
+    shorter step moved a slow body by less than its position can show: at Goodsprings a
+    body at 5-20 units/s stood still over steps of 1/3000 s (the step of a 2 % clock at
+    60 Hz, and of a 5 % one at 152 Hz), 150,000 units out everything under 200 units/s
+    did [observed: `slow_bodies_far_from_the_origin_move_at_the_shortest_step` and the
+    ignored `probe_slow_steps_far_from_the_origin` in crates/fnv-phys/tests/synthetic.rs].
+    So under a clock slower than a quarter there are fewer steps a real second than the
+    rate (a kill camera at 0.25: 60; VATS marking at 0.05: 12); what moves is drawn
+    between steps (§5.2), so it still moves smoothly. Moving everything relative to an
+    origin near the player would let shorter steps resolve [hypothesis: not done].
+  - Every timer that judges a body counts the game time stepped
+    (`PhysWorld::stepped_secs`, or the steps since the last frame times their step): the
+    corpses' calm and awake timers, the wrecks' calm and fall timers (they counted the
+    frames' time until 2026-11-11), the dropped items' log marks (they counted the steps
+    times the step now). rapier's own sleep compares a body's motion per step with
+    0.05 m/s times the step and counts the steps' time [documented: rapier3d 0.36.1
+    `RigidBodyActivation::update_energy`], so it holds under any step.
+  - The corpses' awake guard (`ragdoll::MAX_AWAKE`) counts full-speed time only: a
+    corpse is not held at rest while the clock is slowed, and moves on, slowed, until
+    the clock is back [design: the owner, 2026-11-11; a kill camera of 8 real seconds at
+    half speed had held its corpse at rest 3 game seconds in].
+  - The cost guard leaves out the frames of a slowed or sped-up clock.
+  - The kill camera logs how its target's drawn place moved over the camera and in the
+    frame after it (`kill camera: the target's drawn place moved …`); smoke
+    `vats-kill-cam-slowed-60`, `-120`, `-144`, `-152`, `-160` and `-display` check that it moves, never jumps
+    and is not set at rest before the camera ends.
+- **A change of rate in play** (the page, Match FPS, the guard)
+  keeps the share of a step the clock is into (`Stepper::rescale`), so nothing drawn
+  between steps jumps; the remainder's game time changes by less than a step, once.
+  While not playing (a menu, a conversation, a loading screen, a cell still loading) no
+  time reaches the stepper and its remainder is kept, so the blend (§5.2) holds and
+  nothing shifts when a menu opens or closes; until 2026-11-11 the remainder was zeroed
+  there, which drew everything at its pose before the last step under a menu.
+- **The cost guard** (`phys_rate::Guard`): the time in the player's `step` system (the
+  steps and what runs between them) is read every played frame (two `Instant`s). Over half
+  the frame time over 2 s, the rate goes down a notch of 60/120/144/160 (never under
+  60); under a quarter for 5 s, and foreseen under 40 % at the next notch, it goes back up
+  towards the chosen rate. A fall within 30 s of a rise doubles the wait before the next
+  rise (up to 80 s), so the rate does not flap. Every switch is logged (`phys: physics rate
+  160 Hz -> 144 Hz: ...`); the `--log-frame-times` physics line names the rate
+  (frame-rate-audit.md), and the exit report says how many switches there were.
+- **Rules that counted steps now count seconds**, so they last as long at any rate and as
+  long as before at 60:
+  - a pushed player held by something is not pushed again for `blocking::HELD_SECS`
+    (0.5 s, was 30 steps);
+  - a stuck character's full move comes `character::STUCK_RETRY_SECS` (1/3 s, was every
+    20th step) after the move that held it;
+  - the drawn-height roughness tally counts walking as over 30 units/s (was half a unit a
+    step; a report figure only).
+  A duration summed from steps is reached on the step that brings the sum within half a
+  step of it (`secs_reached`), so the sum's rounding never adds or drops a step: at 60 the
+  rules act on the same steps as before [observed: tests]. These are game seconds: under
+  VATS slow motion they last longer in real time than the 30 or 20 steps did (each step is
+  shorter there). Checked and already in seconds or distances: the lunge's carry and a
+  knockback (exact over any step), the swim stroke cycle, the air control gain and the
+  landing table (`air.rs`), the jump and an actor's jump (taken on the first step after the
+  press, kept through frames with no step), fall damage (`PLACED_JUMP` is a jump between
+  steps, not a speed), pushes (`blocking::clip`, distances over `dt`), the grab and
+  buoyancy (rates over `dt`), the drawn height's spring (exact over `dt`), the ragdolls'
+  and wrecks' calm rules (seconds), the residents' stuck rule (frame seconds). The step
+  counts left (`steps_blocked`, `held_steps`, the status line's) are report tallies.
+- **What changes with the rate** [observed: `fnvtool phys walk` with the
+  `parity-lab/inputs/layer4/move_*.walk.json` scripts scaled to the same seconds at each
+  rate, and `character_rules_hold_at_every_physics_rate` in
+  `crates/fnv-phys/tests/synthetic.rs`; with the exact gravity below, 2026-11-11; the air
+  time is the airborne steps over the rate]:
+
+  | | 60 | 120 | 144 | 152 | 240 |
+  |---|---|---|---|---|---|
+  | jump apex (units) | 61.58 | 61.60 | 61.60 | 61.60 | 61.60 |
+  | running jump: air time (s) | 0.833 | 0.842 | 0.840 | 0.842 | 0.842 |
+  | running jump: landing speed (units/s) | 290.9 | 290.9 | 290.9 | 290.9 | 290.9 |
+  | a box pushed for 1 s at 120 units/s (units) | 33.8 | 45.5 | 42.2 | 38.9 | 37.5 |
+  | 60° ramp, how high a walker gets (units) | 3.1 | 4.0 | 3.9 | 3.9 | 4.2 |
+  | portal wall walk: end vs 60 (units) | 0 | 1.19 | 1.19 | 1.27 | 1.17 |
+
+  - **The jump and falls are the same at every rate** since 2026-11-11: gravity is exact
+    over a step (`character::gravity_step`: the feet move `v·dt − ½·g·dt²`, then the speed
+    drops by `g·dt`). The apex is the jump height, 61.6, within `g·dt²/8` (0.024 at 60),
+    and the air time is within a step of `2·v0/g` (0.847 s): the original's standing jump
+    rose 61.6 and took 0.845 s (§6.3). Before, the speed was lowered first and the feet
+    moved at the new speed (semi-implicit Euler). That undershot the apex by about
+    `v0·dt/2`: 59.20, 60.39, 60.59, 60.65 and 61.00 at the five rates, with air times of
+    0.817-0.838 s and landings at 281.4-287.4 units/s. A fall went `½·g·t·dt` farther
+    than gravity takes it (5.7 units after 1 s at 60).
+  - **The touchdown speed** (`CharacterStep::landed_speed`) is the speed at the height where
+    the feet rest on the support. A fall keeps `v² + 2·g·z`, so it follows from the step's
+    starting speed and height. The speed at the step's end came up to `g·dt` later, and
+    where a step's end fell in rapier's grounded band depended on the step. A walked-off
+    character's step down (§6.4.2) is not a fall and adds no speed. A running jump lands
+    at its take-off speed (290.9); a 300-unit fall lands at 641.9, which is `sqrt(2·g·300)`,
+    at every rate (639-641.5 before).
+  - **A fall onto a static floor** lands up to about 3.4 units above where the feet rest,
+    because rapier calls the capsule grounded that far beyond the small gap kept over
+    statics. The next step puts it on the floor. Before, it sank by a step's gravity from
+    rest each step: about 0.2 s to settle at 60 Hz and 0.8 s at 240. The exact gravity
+    would have halved that speed again [observed: tests].
+  - **Pushes differ the most**: a pushed box goes 12-34 % farther at 120-240 than at 60,
+    and not in proportion to the rate (rapier's character impulses per step,
+    `solve_character_collision_impulses`) [hypothesis].
+  - Unchanged within 0.05 units at every rate: rest heights on terrain (3.5) and on a
+    static box (0.5 above it), a 300-unit fall's time (within a step of 0.935 s),
+    step-ups (0.6 step heights) and the REPCONN stairs, the 25° ramp climbed and the 60°
+    one refused, a level run's distance.
+  - The walk traces stay within 0.5 units of 60's on the fence and hill runs, and the
+    porch's 0.25 s observations within 0.9. The portal-wall run down a mountainside ends
+    1.2-1.3 units from 60's (1.7-2.8 before the exact gravity) and no longer loses the
+    ground at 152. All of these are inside the parity lab's 10-unit tolerance, which
+    judges 60 only. The running jump's observations agree within 2 units at every rate.
+  - Whether a character in a crease runs out of the controller's sweeps (and is held,
+    above) depends on the step: in the groove test fewer walks stick at 120 than at 60
+    [observed: `a_held_character_waits_the_same_seconds_at_any_step_rate`]. With the
+    exact gravity a standing character presses into a crease by `½·g·dt²` a step, half as
+    far as before (0.095 units at 60, 0.006 at 240), so fewer walks stick. At 240 almost
+    none do: one walk along the 50° crease, after 1.9 s. Walks into the 70° and 80° walls
+    ride a couple of units up them and creep 0.01 units a step instead. In a probe test
+    (not committed), the held walks in the groove cost the same CPU as before: 0.41 s at
+    60 (0.45 before), 1.21 at 152 (1.13), 1.84 at 240 (1.88) [observed].
+  - The drawn-height roughness in the exit report (`vertical acceleration ... units/s2`)
+    divides each step's change by dt², so it grows with the rate (5538 units/s² of the
+    feet at 144 against hundreds at 60 on similar ground) [observed: smoke
+    `physics-rate-setting`]; compare it only at one rate.
+- **What it costs** [observed: release build, `--log-frame-times 5`, the guard off
+  (`NVF_PHYS_RATE_GUARD=0`), 1920×1080, uncapped, one launch each through tools/stress's
+  launcher, the first two periods left out; 2026-11-11, the owner's machine, other
+  sessions' games sometimes running]:
+
+  | | ticks a frame | ms a frame in `player::step` | ms a tick | frame (ms) | share |
+  |---|---|---|---|---|---|
+  | Goodsprings, running, 60 Hz | 0.38 | 0.15 | 0.38 | 6.44 | 2 % |
+  | Goodsprings, 120 Hz | 0.77 | 0.26 | 0.32 | 6.44 | 4 % |
+  | Goodsprings, 152 Hz | 0.97 | 0.29 | 0.29 | 6.39 | 5 % |
+  | Goodsprings, 240 Hz | 1.56 | 0.44 | 0.27 | 6.50 | 7 % |
+  | battle-50, 60 Hz | 1.68 | 9.7 | 5.5 | 28.0 | 35 % |
+  | battle-50, 120 Hz | 4.07 | 14.4 | 2.7 | 33.9 | 42 % |
+  | battle-50, 152 Hz | 3.93 | 7.7 | 1.9 | 25.8 | 30 % |
+  | battle-50, 240 Hz | 9.49 | 17.8 | 1.8 | 39.5 | 45 % |
+
+  - In Goodsprings 152 Hz fits easily: 0.3 ms of a 6.4 ms frame.
+  - In battle-50 a tick costs less the shorter it is (5.5 ms at 60, 1.9 at 152): each
+    step's character moves and contacts are shorter [hypothesis]. The frame's physics
+    grows less than the rate: 9.7 ms at 60, 7.7-17.8 above. The battle differs from launch
+    to launch (who fights whom, when they fall), so one launch per rate is a rough
+    figure (three launches at 152 gave 1.75-2.16 ms a tick, 7.7-13.3 ms a frame). At its
+    26-40 ms frames none of the rates matches the frame rate: the frame is the problem
+    there, not the step (#2081, #1426).
+  - rapier's `parallel` feature with a configured thread pool, battle-50 at 152 Hz: 2.20
+    ms a tick on the global pool, 1.90 with 4 threads, 2.11 with 8, all within the plain
+    build's 1.75-2.16 [observed: a probe build, not committed]. No gain, as upstream PR
+    #1801 found; not adopted.
+  - `Stats::solver_us[4]` (rapier's `ccd_time`) reads 0 in rapier 0.36.0 whatever CCD
+    costs (its timer is never started); CCD's work is in `counters.ccd` (#1798).
+
+### 5.5 Loose clutter at rest (2026-11-13)
+
+Clutter knocked about indoors stayed awake, trembling, some of it sunk into tables
+(the owner's report of 2026-11-11: "clutter stuck in geometry, twitching and never
+sleeping"). Two causes, both in how rapier picks a contact's points.
+
+- **rapier's sleep rule**: a body sleeps once its farthest point has moved slower than
+  twice its threshold (0.05 m/s: 7 units/s) at every step for 0.5 s, and only with every
+  body it touches (islands sleep whole) [documented: rapier3d 0.36.1
+  `RigidBodyActivation::update_energy`, `IslandManager::update_islands`].
+- **The prediction distance indoors**: rapier keeps at most four points of a contact,
+  the deepest and then those spread farthest from it among the points within the
+  prediction distance [documented: rapier3d 0.36.1 `reduce_manifold_naive`]. Raised by
+  the terrain's 3.5-unit shell everywhere (§5, `PhysWorld::new`, for clutter creeping on
+  the terrain), it let points of a surface a unit or two below the one a body lies on (a
+  shelf board's lower edge) displace the points it lies on: books, pots and bottles shook
+  at 10-15 units/s from step to step while staying within about a unit of where they lay,
+  and kept their neighbours awake. Since 2026-11-13 it is raised only while the world
+  holds terrain (`PhysWorld::fit_prediction`); interiors use rapier's own (0.02 m, 1.4
+  units). Test `a_book_over_a_lower_lip_falls_asleep_indoors`.
+  **`NVF_PHYS_INDOOR_PREDICTION=0`** (a test aid, read once) keeps it raised everywhere.
+  Exteriors keep the raised distance, so clutter on an outdoor shelf can still tremble
+  [hypothesis: not measured outdoors].
+- **Large hull faces**: parry gives rapier only the first four corners of a convex hull's
+  face, whatever its size [documented: parry3d 0.31.1
+  `ConvexPolyhedron::local_support_feature`, a TODO says the four should span the most
+  area]. A hull merges coplanar triangles into one face, so a table top of 11 corners
+  became a sliver along one edge; a body lying on the rest of it kept one contact point,
+  sank into the table and rocked there awake. `fnv_phys::hull` gives the four corners
+  that span the most of such a face (or, for a contact outside them, the most with the
+  corner nearest it). Test `a_stone_on_a_table_top_of_many_corners_rests_on_it`.
+  **`NVF_PHYS_HULL_FACES=0`** (a test aid, read once) builds parry's plain hull.
+- **Creased ground (#2663)**: rapier merges the contacts of one pair whose normals lie
+  within about 5° into one cluster and solves it with one normal [documented: rapier3d
+  0.36.1 `contact_clustering.rs`, `COS_MERGE_ANGLE` 0.996; `contact_clustering` on by
+  default]. LAND's heights come in 8-unit steps over 128 units (world.md §3), so two
+  neighbouring terrain triangles often meet at 3.6°; a flat body lying across them got
+  one normal for both, tipped one way, then the other (two tilts about 0.4° apart), its
+  farthest point moving at 10-27 units/s and its centre creeping about 0.3 units/s, and
+  never slept, on the stored landscape and the smoothed one alike [observed: issue #2663].
+  The contact skin, the prediction distance, `FIX_INTERNAL_EDGES`, contact recycling,
+  solver iterations, friction and restitution made no real difference; clustering off
+  for the whole world rests them, but changes the contacts of every compound and
+  triangle-mesh pair and rapier has no per-pair switch [observed: issue #2663]. Instead
+  placed dynamic bodies (references' bodies, not ragdolls, gore, characters or bodies
+  the wind blows) sleep once their farthest point moves slower than
+  **`PLACED_SLEEP_SPEED` = 21 units/s** for 0.5 s, three times rapier's 7 [design,
+  #2663]. It changes only when such a body may sleep, not how it moves awake; a body
+  sliding or rolling slower than that for half a second stops a little sooner, and one
+  asleep wakes as before when struck, pushed, grabbed or touched by a moving body. Tests
+  `placed_clutter_on_creased_ground_falls_asleep` (64 drops each of a garment, a folded
+  cloth, a box and a stone on a stepped and a smoothed hill, 60 and 160 Hz: all asleep on
+  the ground after 12 s; with rapier's threshold 3-8 of the 256 stayed awake in each
+  set-up, creeping at 0.2-4 units/s [observed: that set-up, 2026-11-17]) and
+  `a_ball_rolling_slowly_stays_awake` (started at 40 and at 21 units/s, still rolling 3 s
+  later; the slower one's centre rolls under 21, its top at twice that, and rapier
+  measures the farthest point).
+- **Measured** [observed: a probe of `fnvtool phys cell`, not committed, 2026-11-13:
+  every dynamic reference of the cell added awake where it is placed, 20 s of settling,
+  then a kick from below at 400 units/s and 20 s more; bodies awake at the end of each,
+  and the deepest overlap with static geometry]:
+
+  | cell, rate | before | prediction only | hull only | both |
+  |---|---|---|---|---|
+  | GSDocMitchellHouse (169), 60 Hz | 32 / 18, 12.7 deep | 6 / 3 | 38 / 16 | 1 / 4, 2.3 deep |
+  | GSDocMitchellHouse, 160 Hz | 40 / 15, 8.3 deep | 4 / 2 | 34 / 8 | 1 / 2, 2.4 deep |
+  | GSGeneralStore (68), 60 Hz | 7 / 11 | 4 / 2 | 4 / 5 | 1 / 2 |
+  | GSGeneralStore, 160 Hz | 4 / 4 | 3 / 3 | 4 / 2 | 1 / 1 |
+  | GSProspectorSaloonInterior (110), 60 Hz | 11 / 13 | 6 / 6 | 8 / 9 | 2 / 1 |
+  | GSProspectorSaloonInterior, 160 Hz | 13 / 12 | 4 / 7 | 9 / 2 | 2 / 4 |
+
+  With both, what is still awake at the end is rolling (Doc Mitchell's two globes) or
+  thrown far by the kick. A small item fell through a floor after the kick in 5 of the
+  24 kicked runs (3 before, 2 with both), not this change's doing.
+
 ## 6. Character controller and capture questions
 
 A kinematic vertical body standing on its feet point, over rapier's
@@ -933,7 +1422,8 @@ it adds:
 
 Engineering choices, not game values: mouse look 0.0025 rad per mouse count, pitch
 limited to ±89°; physics loads the 3×3 exterior cells around the player (one more ring
-before unloading) or the one interior, at most one cell per frame, the player's own cell
+before unloading) or the one interior, each exterior square with the references placed in
+other squares whose bounds reach into it (below), at most one cell per frame, the player's own cell
 first, and the character waits while its cell is not loaded; the start drops the
 character on whatever a downward ray from the start eye finds (outdoors from far above if
 nothing; indoors the start moves to a door arrival, §6.7), on the hit's contact shell (§6.2); `Travel` puts the character where the arrival rule of
@@ -951,6 +1441,25 @@ Goodsprings' 3×3 that gives 839
 references with collision against `fnvtool phys cell`'s 849 [observed: `nvforever --play`
 debug log: 18 references not in the world, the 8 that `fnvtool` also counts as Initially
 Disabled and 10 that the simulation disables through their enable parents].
+
+An exterior square holds the references its cell record lists, the worldspace's persistent
+references standing in it, and the references placed in another square whose bounds reach
+into it: the base record's OBND box, scaled, turned by the reference's rotation and moved
+to its position, against the 4,096-unit grid (`fnv_world::reach`, built once per
+worldspace, used by `fnvtool phys cell` too) [design, #2795]. HeliosPowerPlant (REFR
+0x000B0A0E, placed in square 5,-1) is HELIOS One's front plaza down to y -8801, in square
+5,-3; with only the references placed in the 3×3 a player in 5,-3 stood on the terrain
+under the plaza (z 5435-5464 against the plaza's 5476) [observed: `fnvtool phys cell`
+rays at radius 1 and 2, #2795]. A reference held by several loaded squares is in the world
+once, added with the first and removed with the last. That a base's OBND covers its
+model's collision is [hypothesis] (true of HeliosPowerPlant [observed: #2795]). Every
+square a box covers lists the reference, with a cell record there or not (physics loads
+squares without one too); nothing is cut. A box reaching more than 32 squares from its
+own (more likely a broken record: the largest buildings reach two or three) is kept as
+a rectangle the squares check by containment, and logged as a warning naming the
+reference and its squares [design, #2795]. The index's
+build time and size are logged (`physics: worldspace …: N references reach beyond their own
+square`) and not measured yet [hypothesis: well under a second for WastelandNV].
 
 Seen in NVForever, not in the game [observed]: walking east into the rock 0x000EDE82
 (layer Terrain) at about (-31043, -18055) the capsule jittered in place (about 85 units/s
@@ -2124,9 +2633,9 @@ rule above would replace it (left to the Layer 5 owner).
 
 ### 6.8 Actors in the player's way (`engine/nvf-play`, `blocking.rs`)
 
-How the game keeps characters apart is not captured [hypothesis: every actor has a
-character controller of its own on the Char Controller layer, 30; nothing here depends
-on it]. What the engine does is [design]:
+The original's collision shape is unseen [hypothesis: every actor has a character
+controller of its own on the Char Controller layer, 30; nothing here depends on it].
+Large-creature spacing is measured below (#2535). What the engine does is [design]:
 
 - Each frame, every drawn, living actor has a **block** where its body is now: the line
   on the ground under its torso's bones (pelvis to neck, from the posed skeleton that
@@ -2166,6 +2675,82 @@ on it]. What the engine does is [design]:
   walk took the standing player with him at his own speed, from 3.5 units away, all
   the way to the saloon door [observed: `--play --npc-packages EasyPeteRef --hour 12`
   with the player put on his way, 163 units, rapier 0.36.0].
+
+**Walking creatures' widths (#2535).** [hypothesis: fits the observed spacing; the
+original's shape was not seen] A creature with a skeleton `BSBound` extra named
+`BBX` blocks other walking actors and the player with a circle of radius at least
+its BBX half-width x × Base Scale × reference scale. The existing character radius
+wins when larger; NPC_ people and creatures without BBX keep their existing radii.
+The radius is used for both the walker and its block, including carried lunges and
+steps while the player is on furniture or has collision off [design: `player.rs`,
+`blocking::walking_radius`]. It changes neither the world capsule nor navmesh paths:
+larger world capsules would not fit the doors and paths actors walk [design:
+`phys::npc_params`]. `actor_block_radii` is refreshed beside `actor_heights` from
+visible living creature roots; their transforms already include both scales
+[design: `actors::spawn_creature`, `hitvol::sync_volumes`].
+
+[design: `residents::think`, `hitvol::sync_volumes`, #2535] A stopped fighter
+loses its walking character. Its standing block keeps the scaled BBX circle at
+the creature root's feet when wider than the existing drawn block, including
+while an attack holds the block in place. This preserves both creatures' widths
+when either stops to fight; the posed torso's narrower block cannot replace one
+side of the pair. Standing pushes and attack anchoring retain their existing rules.
+
+[observed: the main session's runs of NVForever, 2026-11-15, reproduction on
+Searchlight Airport's runway: the Radscorpion + Giant Radscorpion pair against
+a god-mode player who backs away from 16 s to 28 s; pair distance read once
+a second; three runs of upstream main 99faa23b7 and six of this branch]
+Standing and fighting, the pair stays 66–84 units apart on upstream main and
+113 on this branch (the designed sum). Chasing, both builds stay mostly
+62–64 units apart. On this branch, in four of six runs one reading late in
+the chase, as the pair comes back to a stop, fell to 7–39 units for about a
+second. Upstream main showed no such dip in its runs.
+[design, #2535] The widened block keeps standing creatures apart but not
+moving ones, and the change from walking to standing can let one creature
+pass briefly into the other. Both are left for the follow-up on the character
+controller's movement path.
+
+[observed: FalloutNV.esm and Fallout - Meshes.bsa, fnvtool esm decode / nif decode,
+main session 2026-11-15] The radscorpion skeleton's BBX centre is (0, 0, 30.21),
+half sizes (70.56, 125.84, 30.21). Other skeleton half sizes: `characters\_male`
+(23.10, 17.64, 66.22), centre (0, 0, 66.22); deathclaw (50.00, 95.14, 76.18);
+dog (29.56, 62.75, 35.51); brahmin (40, 80, 40). The pair in combat-rules.md §10
+has base scales 0.6 and 1.0, giving radii 42.336 and 70.56, sum 112.896 (about
+113). Before #2535 NVForever's pair settled only 62–84 units centre to centre,
+despite drawn widths 85/141 [observed: main session's measured Searchlight runway
+run on 63db0209c, 2026-11-15].
+
+[observed: capture run15b_b2, 2026-11-15; xNVSE 6.4.9, JIP LN 57.30] The same
+pair against a standing god-mode player on Searchlight Airport's runway, sampled
+at 30 Hz for 17 s: while both were within 300 units of the player (452 samples),
+GetDistance between them had median 131, tenth percentile 93, ninetieth 283 and
+minimum 32 briefly. This measures spacing, not a rigid non-overlap invariant.
+
+[design: `npc_combat::creature_spacing`, `Fighters::lunge_room`, `attack_anims::carry`]
+Combat body gaps and lunge stopping use the walking block's radius too. Creature
+reach remains centre to centre, (RNAM + body reach) × scale: for this pair,
+(64 + 124) × 0.6 = 112.8 and × 1.0 = 188, beyond their respective blocks plus
+the player's radius (64.336/92.56). People count melee reach beyond body radii.
+[design: `npc_combat::CombatBodies`, `use_weapon::melee_range`, #2535] Ordinary
+combat and scripted melee share the body lookup. When either participant has
+a widened block, combat also supplies the other participant's ordinary character
+block if absent from the drawn list. Both attack directions therefore have a body
+gap and summed radii, including a walking humanoid against a walking or standing
+creature. Widened eligibility uses the published BBX width against the character's
+capsule radius (or `phys::npc_params` from its height once the character is removed),
+so stopping does not remove the ordinary walker's body gap.
+Pairs without a widened participant keep the existing drawn-block lookup.
+[design: `nvf_play::combat::PhysView::melee_targets_near`,
+`fnv_combat::projectile::swing_reaching`, #2535] The player's ground-reach fallback
+uses max(24, the target's published scaled BBX radius) in place of the fixed
+24-unit target margin. The player's own capsule radius remains part of its reach.
+Thus a short weapon still reaches a low creature at its widened blocking stop,
+looking level or down; ordinary targets keep their existing reach. The same
+per-target margin expands candidate lookup, and the obstruction rays still must
+meet the target first.
+The separate navmesh `fnv_ai::Ai::keep_apart` still uses 18 per actor; it does
+not read these blocks. The original's transient overlap, unseen shape, extra
+attack pause and backing-away cadence remain open in observer check 244.
 
 **Pushing** (2026-10-10, owner request: "the player or npc moving needs to be able to
 push another actor if they are stood still"). What the game does when one character
@@ -2316,6 +2901,122 @@ z 506) are hard to walk up and usually need a jump.
   at (847, 4060, −127) with and without the fix: its path cuts under the stairs and never
   reaches them (NPC path following, not this controller).
 
+### 6.9.2 Caravan thresholds: lips with no top and ramp crests (issue #2494, 2026-11-14)
+
+Players reported that walking out of the wrecked caravans (STAT `MobileHomeASNV`
+0x000928F3, placed 46 times in WastelandNV) stops at the door: the player stands on the
+threshold or sits in its gap until a jump.
+
+- **The threshold** [observed: `fnvtool phys cell --ray` and the mesh's collision, issue
+  #2494]: the floor inside ends at the door, where the inner skin rises past it as a
+  zero-thickness lip 10.3 above the floor (no top face); between the inner and the outer
+  skin the space is open down to the terrain, about 10-22 wide and about 50 deep. At
+  0x001070C1 (cell −17, −1) the floor ends at y −2385.7 and the terrain outside lies 48
+  below it. Where a plank ramp stands at the door (0x00137E77, cell −8, −25, ramp
+  0x00177D7C) the ramp's upper end hangs over the gap about 17.5 above the floor and slopes
+  down outwards at about 24°.
+- **The original** [observed: capture of the original, 2026-11-14; the player placed on
+  the floor, facing out, Forward held, positions every 10 loops]: walks out of both
+  caravans without a jump at walk and at run pace. At 0x001070C1 the feet pass y −2384 at
+  z 8159 and peak at 8166.5 running (+14.2 over the floor at 8152.3) and 8167.6 walking
+  (+15.3), then drop to the terrain (8107.8) and walk on. At 0x00137E77 the feet peak at
+  6856.4 running (+8.7 over the floor at 6847.7) and 6863.7 walking (+16.0), then go down
+  the ramp to the terrain (6804). The feet rise about 9-16 over the floor while crossing.
+- **Cause** [observed: `fnvtool phys walk` and a debug trace of `move_character`]:
+  rapier's autostep refuses the lip (the cone meets its edge with its own 57.7° face,
+  §6.9), and the step-up (§6.9) climbs only onto a walkable top within 4 below to 26
+  above the feet under the axis or 19 ahead. Perched on the lip's edge the floor under the
+  axis lies more than 4 below the feet and 19 ahead is the gap; perched in the gap the
+  ramp 19 ahead lies more than 4 lower. So the cone rested on the lip's edge (0 of 30
+  walks out at 0x001070C1, 2 of 30 at 0x00137E77). Walking along a door jamb into the
+  corner it makes with the lip, the wedge rule (§6.1) also stopped the step's motion
+  before the step-up was tried.
+- **Fix** (`fnv_phys::character::on_crest`, `step_up_move`) [design]: the shape the
+  step-up puts down may also rest on a **crest**: the contact it came down on holds it up
+  (its normal points up), lies at most `step_height` above a base height
+  (`crest_base`), and 2 units beyond it along the motion the surface falls away by more
+  than 2 (steeper than 45°) or is walkable and no higher than the edge. A lip with no top,
+  the top edge of a thin board and a ramp's upper end count; a steep slope does not (it
+  goes on rising beyond the contact, and across it sideways the surface stays about as
+  high and is not walkable), nor a thin wall higher than `step_height`.
+  - **The base**: during a run of step-ups (`Character::perch_base`) the height the run
+    started from (or the feet less the gap, when lower), so feet that earlier steps of the
+    run raised onto an edge do not raise the limit. The run starts with the first step-up
+    taken and ends when a step starts on walkable ground, in the air or with a jump, or
+    with a placement. Outside a run: the walkable surface straight under the feet within
+    `step_height` (the floor under a cone placed, dropped or walked onto an edge), or,
+    with none so near, the feet less the gap (a cone that jumped or fell onto an edge high
+    above the ground steps on from where it rests).
+  - Measured from the step's own feet (the first version of this fix), a slow approach to
+    a 25-unit thin wall first perched 2-4 above the ground through the walkable top 19
+    ahead (the ground beyond the wall) and then climbed it; measured from the last walkable
+    support (the second version) the same climb remained after a placement or a drop onto
+    a low perch beside a 26-unit wall, and a jump onto an edge far above the ground
+    counted from the ground it left (reviews of the fix; tests
+    `thin_walls_are_stepped_over_up_to_the_step_height`, walls of 24, 25, 26 and 28 at 30,
+    115.5 and 344 units/s, `a_thin_wall_too_high_blocks_after_a_placement_or_a_drop_onto_its_edge`
+    and `a_jump_onto_a_high_edge_steps_on_over_it`).
+- **Edges a little lower, wedges** [design]: an edge met by the cone's face (off the
+  flat tip by more than 0.5) that is a crest counts even when the shape comes down up to 2
+  lower than it was held: crossing the gap onto a ramp's end it sinks a little. A step the
+  wedge rule stopped is tried by the step-up too. The cone stays (§6.4.1's fence-edge fit),
+  as do the step height (24) and the other rules of §6.9. All of this applies to actors
+  and creatures as well: they walk with the same controller (`plan_move`) and
+  `npc_params` keeps the step height of 24 (§6.8, §6.8.1).
+- **Actors' slope limit (#2511)** [design]: `fnv_phys::character::ACTOR_MAX_SLOPE_DEG`
+  is 56°, shared by `nvf_play::phys::npc_params` and the synthetic tests. The cone's
+  `bottom_slope = 1.58` gives a face about 57.7° from level (§6.4.1/§6.9); the roughly
+  1.7° margin prevents the controller treating an edge against that face as a walkable
+  slope, while admitting the 46–49° paths cited in design/navmesh.md §5. The old 60°
+  limit was an engine choice, not the maintainer's or an original-game measurement.
+  [observed: headless runs reported in issue #2511] At 60°, a person-sized actor crossed
+  24–28-unit thin walls, and a radius-10 creature crossed 24–26 but stopped at 28,
+  before and without the step-up. [design: synthetic.rs]
+  `thin_walls_are_stepped_over_up_to_the_step_height` now requires the player, person
+  and small creatures to cross 24 and block 25/26/28 at 30/115.5/344 units/s,
+  on both terrain and a static floor;
+  `actors_walk_navmesh_grade_slopes_below_the_cone_face_angle` covers 46/47/48/49°
+  ramps at walk/run speeds. Original actors blocking these walls remains [hypothesis];
+  observer check 166 asks for that measurement.
+- **Step-up clearance (#2511)** [design: `step_up_move`]: when the bare downward cast
+  misses or only finds level ground without a rise, retry with the horizontal sweep's
+  wall gap (at least the numerical skin). This fallback must meet a crest off the flat
+  tip, and its rise check subtracts that clearance so flat ground alone is not a step. A slow small
+  creature can approach an edge while still outside its bare shape; a zero-clearance
+  cast refused its 24-unit wall after lowering the slope limit [observed: synthetic
+  controller run for #2511, radius 10, height 30, speed 30, stopped at x = 87.324
+  before the wall at x = 100]. The crest's height limit remains `step_height` above
+  `crest_base`; the clearance does not raise that limit.
+- **Checked** [observed: `fnvtool phys walk`, `CharacterParams::default()`, 5 offsets
+  across the door (−15 to +15) × 3 headings (−10°, 0, +10°), 6 s at walk (115.5) and run
+  (344) from the floor]:
+
+  | Run | Before | After | Peak over the floor (after) |
+  |---|---|---|---|
+  | 0x001070C1, walk | 0/15 out | 15/15 | 11.3-13.7 (straight 11.4) |
+  | 0x001070C1, run | 0/15 out | 15/15 | 11.3-14.8 (straight 11.4) |
+  | 0x001070C1, from the gap (3 offsets), walk and run | 0/6 out | 6/6 | |
+  | 0x00137E77 with the ramp, walk | 0/15 out | 15/15 | 15.4-17.7 (straight 17.5) |
+  | 0x00137E77 with the ramp, run | 2/15 out | 15/15 | 15.3-17.7 (straight 17.5) |
+
+  The peaks lie within the original's 9-16 at 0x001070C1 and up to 1.7 above it at the
+  ramp. At the time of #2494, with `npc_params` for a person (slope limit 60°), all 66
+  walks got out before and after, the same peaks; for a creature drawn 30 tall
+  (radius 10, `step_width` 10) 56 of
+  66 before and 65 after (the one left ran along the inside wall past the door at 10°). Unchanged: the parity lab's ten `L4.phys.walk.*` scripts and the `diag_fence_edge`
+  / `diag_fence_low` drops give byte-identical traces before and after; the camper's door
+  steps (§6.9) from x −53760 end at the same place, and from 5 starts further east the
+  player now steps over the corner of the floor mattress `BedMattress01FloorL` 0x0010771B
+  (13.6 high) inside the camper instead of stopping at it. Tests
+  `character_walks_out_over_a_threshold_lip` (fails before the fix; the player's, an
+  actor's and two small creatures' parameters) and
+  `thin_walls_are_stepped_over_up_to_the_step_height`,
+  `a_thin_wall_too_high_blocks_after_a_placement_or_a_drop_onto_its_edge` (fails on the
+  second version) and `a_jump_onto_a_high_edge_steps_on_over_it` (passes on the second
+  version too: in the landings built for it rapier's controller or the walkable floor
+  beyond the lip carried the character over, so it guards the rule without having failed);
+  smoke scenario `caravan-door-walk-out`.
+
 ### 6.8.1 Dead actors' characters, small actors' characters (playtest list 7 items 14 and 35, 2026-10-23)
 
 - **Item 14** [observed: owner, "bodies glide along the floor ... like they are still
@@ -2414,7 +3115,10 @@ into the lift with the opposite sign; the prediction is the vertical speed on th
 filtered over 0.2 s, each sample kept within 0.4 × the distance walked of the prediction,
 so a step does not feed it and is not overshot. A change of the drawn ground is taken in
 whole. The lift goes back to 0 as a critically damped spring, ω = 8/s for a small lift
-and stiffer the larger it is (ω × (1 + |lift| / 6)), at most 24 units either way; a
+and stiffer the larger it is (ω × (1 + |lift| / 6)), at most 48 units either way (24,
+the step height, until 2026-11-17: a 27-unit let-down off a road piece's edge after a
+crouched jump, on top of 12 still being eased, went past it and the view dropped the
+excess in one frame; `step_lift::MAX_LIFT`); a
 change over 48 units in a step (a placement), the air and swimming take nothing in and
 restart the prediction from 0. The feet, the capsule, the reference's position and every
 query stay where the controller has them; the player's body, its first- and third-person
@@ -2452,6 +3156,63 @@ overshoot (4.8 / 2.7) but doubled the drawn height's RMS on the broken road lane
 (426 → 826 units/s², drawn/feet 0.20 → 0.40); smoother damping of the prediction
 (shorter filter while the body is ahead of the feet) cost rough ground as much for less.
 With the bound alone the road run gave 2086 / 426 (0.20), as before.
+
+**Easing onto curbs** (2026-11-12, player feedback that walking onto obstacles of
+varying height "seems a bit jarring") [design; `step_lift.rs`]: the spring started the
+lift back towards 0 at full acceleration in the very step a curb was climbed or dropped
+off, so the view went from still to about 50 units/s within one fixed step. The lift now
+goes back through three first-order stages of rate 22/s one after the other (a triple
+critically damped pole; the change beyond the prediction is taken into all three), so
+after a curb the drawn height starts with no vertical speed and no vertical acceleration
+and is within a tenth of the step after about 0.24 s. The stiffening with the size of the
+lift is gone; the prediction, its bounds, the air, swimming and placements are as
+before. Replayed [observed: synthetic replays in the module's tests, 2026-11-12;
+before / now]: on a 10-unit curb the largest change of the drawn vertical speed from one
+step to the next is 0.66 / 0.34 units a step at a walk and 0.73 / 0.42 at a run, and
+the first step on it moves the drawn height 0.5 / 0.06 units; over the top of a flight
+of stairs the body is drawn 4.2 / 2.6 units over the top step running, 1.2 / 0.5
+walking. The cost: running onto and over a 30° slope the body lags and then overshoots
+by up to 13.3 units (9.9 before), walking 6.6 (6.1). A rate of 18/s was gentler
+still on a curb but made a run up the stairs far rougher (RMS vertical acceleration of
+the drawn height 356 → 1838 units/s² in the replay); 22/s also kept the replayed road
+ripples a little smoother than before (218 → 205). In game on the broken road lane
+[observed: smoke `road-run-smooth`, 2026-11-12] the exit report gave 2083 for the feet and
+365 for the drawn height over 596 steps (427 before, drawn/feet 0.21 → 0.18), largest lift
+14.3 units; `camper-steps`, `repconn-catwalk-stairs`, `pete-porch` and `pete-terrain`
+pass.
+
+**Small drops count as the ground** (2026-11-12, the same feedback, narrowed to walking
+off a road onto the terrain and over small rock clusters) [design; `step_lift::footing`]:
+running over rocks the controller leaves the ground for 2-4 fixed steps each time the feet
+come off one, dropping 16-20 units [observed: `fnvtool phys walk` running south-east over
+the desert south of Goodsprings, from (−70500, −2500) at (250, −150) units/s,
+2026-11-12]; drawn as a fall, the view dropped with the feet and stopped dead on landing.
+The lift now takes in a step in the air too while the character walked off an edge (the
+controller's `walked_off_z`, not set by a jump) and its feet are no more than the step
+height (24) below where it left the ground; a jump, swimming and any drop deeper than that
+are the air as before, so a real fall is not slowed. Replayed on that trace the drawn
+height's RMS vertical acceleration while moving fell from 7409 to 549 units/s² and its
+largest from 66 218 to 2712 (the feet 8153 / 68 609); walks along and across the road
+that never leave the ground are unchanged.
+
+**The view and walking pace** (2026-11-12, the owner's video and save walking west over
+Novac's broken road, cell −13,−13, from (−52595, −52475) facing 269°) [design;
+`step_lift.rs`, `player_body.rs`]: two things still moved the view there. (1) The body is
+drawn on the drawn ground (`drawn_sink`) and the eye counts from the feet, but a change of
+the drawn ground went whole into the lift, which the eye includes: a crack in the road
+model's drawn floor moved the view at once and eased it back. The lift now keeps the
+drawn ground's share apart (`StepLift::ground_at`, eased the same way), and the eye, the
+first-person rig and the third-person pivot leave it out. (2) The feet drop off the
+broken road pieces' edges in quick 8-10 unit drops [observed: `fnvtool phys walk` on
+that line at 75 units/s, 2026-11-12]; eased in 0.24 s at a walk they showed as a dip.
+The stages' rate now follows the horizontal speed: 22/s at 250 units/s and faster, in
+proportion below, at least 10/s, so a step is eased over about the same distance walked.
+In game on that line at a walk [observed: smoke `novac-broken-road-walk`, 2026-11-12]
+the RMS vertical acceleration of the view fell from 203 to 61 units/s² (the body 203 →
+70, the feet 2534); replayed, a walk along the Goodsprings road 102 → 82, the broken lane
+walked 145 → 88. Runs are unchanged (the road run's view 290 for the body's 363). The
+cost: walking, the body is drawn up to 22 units off the feet for a moment after those
+drops, and 9.1 over the top of a 30° slope (6.6).
 
 ### 6.12 Fall damage (playtest list 7 item 21, 2026-10-23; `engine/nvf-play/src/falls.rs`)
 
@@ -2707,3 +3468,46 @@ A self-consistency check of the terrain colliders against the LAND data (no orac
   `fnvtool phys cell` calls it per model (fnv-phys itself reads no NIF blocks).
 - Open: whether mesh collision objects use the XTRI layer numbering (§4), and which
   layers the original lets the player pass.
+
+## 9. Collision view (`tcg`, 2026-11-11)
+
+A developer view of what physics sees: every collider's outline drawn in the world as
+lines, coloured by what it belongs to, within a radius of the camera (default 3000
+units). Code: `crates/fnv-phys/src/debug_lines.rs` (the segments, feature `debug-lines`,
+on by default), `engine/nvf-play/src/collision_view.rs` (drawing, Bevy gizmos).
+
+- **Switch**: the console's `tcg` (ToggleCollisionGeometry), the original's console
+  command for a colour-coded view of collision geometry [documented: Fallout Wiki,
+  "Fallout: New Vegas console commands", `tcg`; GECK wiki ToggleCollisionGeometry, seen in
+  search summaries; the command is not in our function catalogue]. `tcg <radius>` switches
+  it on with that radius. At start: `NVF_COLLISION_VIEW=1` (default radius) or
+  `=<radius>` (game units, above 1). The original colours by the layer a modeller gave a
+  shape; ours by what the shape is in our physics [design]:
+
+  | Colour | What |
+  |---|---|
+  | brown | terrain heightfields |
+  | light grey | static collision of references |
+  | cyan | keyframed parts (doors, animated collision) |
+  | bright green / dark green | dynamic bodies awake / asleep |
+  | yellow | character controllers (player, walking NPCs) |
+  | orange | actor hit volumes (whole or part capsules) |
+  | magenta | ragdoll bones |
+  | red | gore pieces |
+  | blue | volumes the character passes (the trigger-like layers of `layers::character_ignores` less small debris and shell casings), rapier sensors, and the script trigger volumes (`script_trigger`, which physics does not hold) |
+
+- **How**: rapier's debug-render pipeline outlines the colliders (heightfields and
+  meshes triangle by triangle, hulls by their edges, boxes, balls and capsules by
+  rapier's outlines); a collider whose bounding box misses the sphere is skipped, and of
+  the rest only segments passing within the radius are kept, at most 200,000. A character
+  whose bounding box holds the camera (the player's own capsule in first person) is left
+  out [design]. It only
+  reads the world: `state_digest` and traces are unchanged (unit test). The poses are the
+  last step's, so a moving body's outline can trail its interpolated model by up to a
+  step.
+- **Cost**: off, a run condition a frame and a disabled gizmo group. On, terrain and static
+  outlines are a retained gizmo, gathered and rebuilt only when the camera moved 32 units,
+  a collider came or went, or every 2 s; the rest are gathered after each physics step and
+  drawn each frame. The log line `collision view: <n> segments within <r> units …` (at the first
+  draw, then every 10 s) gives the counts per kind and the mean gather time.
+- Smoke: `collision-view` in `tools/smoke/scenarios.toml`.

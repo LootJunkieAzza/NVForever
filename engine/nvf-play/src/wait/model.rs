@@ -112,6 +112,16 @@ impl Model {
         true
     }
 
+    /// The hours still to pass, all at once (behind a trip's loading screen): the hour
+    /// numbers they are, in order, from the first still to pass to the last asked; `None`
+    /// when nothing passes.
+    pub fn take_left(&mut self) -> Option<std::ops::RangeInclusive<u32>> {
+        let p = self.passing.as_mut().filter(|p| p.left > 0)?;
+        let first = p.asked - p.left + 1;
+        p.left = 0;
+        Some(first..=p.asked)
+    }
+
     /// The hours the slider shows: those chosen, or those left while they pass.
     pub fn marker(&self) -> u32 {
         self.passing.map_or(self.hours, |p| p.left)
@@ -226,14 +236,36 @@ impl Words {
     /// screenshot; the month is GameMonth + 1 (GameMonth 9 is October, simulation.md
     /// §5b), the year its last two digits (hypothesis)].
     pub fn date_line(&self, c: &Calendar) -> String {
-        format!(
-            "{}, {}.{}.{:02}, {}",
-            self.weekdays[weekday(c) as usize],
-            c.day as i64,
-            c.month as i64 + 1,
-            (c.year as i64).rem_euclid(100),
-            clock(minute_of_day(c))
-        )
+        let date = styled_date(c).unwrap_or_else(|| format!("{}.{}.{:02}", c.day as i64, c.month as i64 + 1, (c.year as i64).rem_euclid(100)));
+        format!("{}, {date}, {}", self.weekdays[weekday(c) as usize], clock(minute_of_day(c)))
+    }
+}
+
+/// The player's iDateFormat tweak [design: docs/design/tweaks.md]: 0 as the game writes each date, 1 day first
+/// (19.10.81), 2 month first (10.19.81), 3 year first (2281-10-19). Set by
+/// `crate::tweaks::sync`; read by the wait menu and the Pip-Boy's heading.
+static DATE_STYLE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// The names of the date styles, in their order.
+pub const DATE_STYLES: [&str; 4] = ["As the game", "Day first (19.10.81)", "Month first (10.19.81)", "Year first (2281-10-19)"];
+
+pub fn set_date_style(style: u8) {
+    DATE_STYLE.store(style, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The date in the chosen style, or `None` to write it as the game does there.
+pub fn styled_date(c: &Calendar) -> Option<String> {
+    date_in(c, DATE_STYLE.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The date in `style` ([`DATE_STYLES`]); `None` for the game's own.
+pub fn date_in(c: &Calendar, style: u8) -> Option<String> {
+    let (d, m, y) = (c.day as i64, c.month as i64 + 1, c.year as i64);
+    match style {
+        1 => Some(format!("{d}.{m}.{:02}", y.rem_euclid(100))),
+        2 => Some(format!("{m}.{d}.{:02}", y.rem_euclid(100))),
+        3 => Some(format!("{y}-{m:02}-{d:02}")),
+        _ => None,
     }
 }
 
@@ -275,10 +307,12 @@ pub enum Refusal {
     Trespassing,
     /// Sleeping only: the bed is someone else's.
     OwnedBed,
+    /// The player's Wait Only Seated tweak, and the player does not sit [design: docs/design/tweaks.md].
+    NotSeated,
 }
 
 impl Refusal {
-    pub const COUNT: usize = 8;
+    pub const COUNT: usize = 9;
     pub const ALL: [Refusal; Refusal::COUNT] = [
         Refusal::Forbidden,
         Refusal::UnderWater,
@@ -288,6 +322,7 @@ impl Refusal {
         Refusal::HostilesNear,
         Refusal::Trespassing,
         Refusal::OwnedBed,
+        Refusal::NotSeated,
     ];
 
     /// For the log.
@@ -301,6 +336,7 @@ impl Refusal {
             Refusal::HostilesNear => "enemies near",
             Refusal::Trespassing => "trespassing",
             Refusal::OwnedBed => "someone else's bed",
+            Refusal::NotSeated => "not seated (tweak)",
         }
     }
 }
@@ -324,6 +360,8 @@ pub struct RefusalWords {
     pub hostiles_wait: String,
     pub hostiles_sleep: String,
     pub owned_bed: String,
+    /// NVForever's own: no setting exists for the tweak's refusal.
+    pub not_seated: String,
 }
 
 impl Default for RefusalWords {
@@ -340,6 +378,7 @@ impl Default for RefusalWords {
             hostiles_wait: s("You cannot wait with enemies close by."),
             hostiles_sleep: s("You cannot sleep with enemies close by."),
             owned_bed: s("This bed belongs to someone else."),
+            not_seated: s("You can only wait while sitting down."),
         }
     }
 }
@@ -376,6 +415,7 @@ impl RefusalWords {
             (Refusal::HostilesNear, false) => &self.hostiles_wait,
             (Refusal::HostilesNear, true) => &self.hostiles_sleep,
             (Refusal::OwnedBed, _) => &self.owned_bed,
+            (Refusal::NotSeated, _) => &self.not_seated,
         }
     }
 }
@@ -482,6 +522,9 @@ mod tests {
         }
         assert_eq!(w.date_line(&d), "Friday, 1.11.81, 23:30");
         assert_eq!(w.date_line(&cal(31.0, 9.0, 23.5)), "Thursday, 31.10.81, 23:30");
+        // The iDateFormat tweak's styles.
+        let c = cal(19.0, 9.0, 10.5);
+        assert_eq!([0, 1, 2, 3].map(|s| date_in(&c, s)), [None, Some("19.10.81".into()), Some("10.19.81".into()), Some("2281-10-19".into())]);
         // Over the year's end: no leap days, the week goes on.
         let eve = Calendar { year: 2281.0, month: 11.0, day: 31.0, hour: 23.0, days_passed: 79.0 };
         let (a, b) = (weekday(&eve), weekday(&eve.advance(2.0)));
@@ -504,6 +547,20 @@ mod tests {
         let mut m = Model::open(false);
         m.sleep_for(0);
         assert_eq!((m.sleep, m.hours, m.passing), (true, 1, None));
+    }
+
+    #[test]
+    fn the_hours_left_can_pass_at_once() {
+        let mut m = Model::open(false);
+        m.sleep_for(3);
+        assert!(m.tick(0.5, 0.5));
+        // Hour 1 has passed: 2 and 3 are left, and then none.
+        assert_eq!(m.take_left(), Some(2..=3));
+        assert_eq!(m.passing.map(|p| (p.asked, p.left)), Some((3, 0)));
+        assert_eq!(m.take_left(), None);
+        assert!(!m.tick(0.5, 0.5));
+        // Nothing passing: nothing to take.
+        assert_eq!(Model::open(true).take_left(), None);
     }
 
     #[test]

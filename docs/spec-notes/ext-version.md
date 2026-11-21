@@ -167,10 +167,48 @@ low.
   implements that plugin's functions (C2's per-plugin modules), with the version that
   module claims; otherwise 0 and -1 [decision: claiming a plugin whose functions are
   missing would let mods take paths that then fail]. The names in §2 are the keys.
+  Reported (`fnv_script::vm::jip::PLUGINS`): JIP LN 57.3, ShowOff 184, kNVSE 37,
+  JohnnyGuitar 528, MCM Extensions 1 [observed: the owner's install], and since
+  2026-11-08 `"lStewieAl's Tweaks"` 941 and `"ttw_nvse"` 1 [design, owner: "technically
+  the dll is present, just in engine"]: Tale of Two Wastelands' start-up checks
+  (`TTWGenericHandlerScript`, TTW 3.4) show a "missing" message for Stewie's Tweaks
+  below 941 and for `IsPluginInstalled ttw_nvse` 0, while NVForever runs the functions
+  TTW calls from both (`TTW_*`, StewieGetValue, `fnv_game::nvse_small`). Neither plugin
+  is on the owner's install, so neither version was read: 941 is the lowest TTW accepts,
+  and TTW never asks ttw_nvse's. Most of Stewie's tweaks are not built (ext-small.md).
+- **The other plugins the engine builds** (2026-11-12): until then a mod asking
+  `IsPluginInstalled "SUP NVSE Plugin"` got 0 and `GetPluginVersion` -1 for every plugin
+  outside the list above, though all of that plugin's catalogue functions run here
+  [observed: `fnvtool ext queries`, 0 and -1 for the seven names below], so its start-up
+  check stopped it. Now reported as installed, under §2a's names:
+  - `"CUI"` (CacheUI) and `"hNVSE"` at 120: the highest version their function pages name
+    (1.2, the catalogue's `origin_version`), times 100 [documented: those pages;
+    GetPluginVersion, "usually the version times 100"]. For the plugins read on the owner's
+    install that figure is at or under the number the game gave (JIP 57.30, JohnnyGuitar
+    5.28 → 528, ShowOff 1.83 → 184 read, kNVSE 30 → 37 read), so it is a floor.
+  - `"SUP NVSE Plugin"`, `"JIP PP LN"`, `"AnhNVSE"`, `"Extensions for NVSE"` (NX) and
+    `"UI Organizer Plugin"` at 9999 [design: no page names a version and none was read;
+    §4, too high is safer than too low; `fnv_script::vm::jip::UNOBSERVED_VERSION`], to be
+    replaced by the numbers read in the original (observer check 118). UIO has no script
+    functions; the engine reads its `uio\public` lists itself (menu-xml.md), which is
+    what a mod asking for it needs.
+  - Still not reported: `"yUI"` (its two ySI trait functions are built, its menus are
+    not; a mod that finds it goes on to read its tiles [observed: JustAssortedMods.esp
+    4.6 asks `IsPluginInstalled "yUI"` and then reads `HUDMainMenu/ySI/_ySI`]), and the
+    plugins whose registered name no page gives (ITR, One111, ppNVSE, vheyes-nvse, the
+    smaller ones; §6).
+- **GetIsLAA** (the 4 GB patch): 1 [design, 2026-11-08: NVForever is a 64-bit program with
+  no 2 GB limit; the unpatched original answers 0, observed in the gaps4 set; TTW's check
+  showed "4GB patch missing"].
+- Left as it is: TTW's `GetNumericIniSetting "bBackgroundLoadLipFiles:BackgroundLoad"`
+  check reads the game's INI as NVForever reads it; its message ("bad INI") shows only
+  when that setting is off or missing there.
 - **GetNVSEVersionFull**: a JIP function; answer only once JIP's module exists.
 - **GetLNVersion**: 0, as documented.
 
 ## 6. Open (to observe)
 
 The version/revision/beta split of 6.4.9; GetPluginVersion's name matching (case,
-spaces); plugins newer than the wiki's list.
+spaces); plugins newer than the wiki's list; the versions of SUP, JIP PP LN, AnhNVSE, NX,
+UIO, CacheUI and hNVSE, the registered names and versions of ITR, One111, ppNVSE and
+vheyes-nvse, and IsDLLLoaded's file names for all of them (observer check 118).

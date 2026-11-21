@@ -16,8 +16,9 @@ FFX_FSR3UPSCALER_OPTION_UPSAMPLE_USE_LANCZOS_TYPE = 2
 FFX_SPD_NO_WAVE_OPERATIONS = 1
 
 [permutations]
-# Shaders currently require u16 support to use f16
-FFX_HALF = [0]
+# The FP16 variants use 16-bit floats and integers: the device needs wgpu's SHADER_F16 and
+# SHADER_I16 (NVForever, 2026-11-08: `FsrContextFlags::ALLOW_FP16`).
+FFX_HALF = [0, 1]
 # No way for subgroup size control currently.
 FFX_WAVE64 = [0]
 

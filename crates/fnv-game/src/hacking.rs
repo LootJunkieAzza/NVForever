@@ -292,6 +292,50 @@ pub struct Puzzle {
     /// The log at the right, oldest first, each line with its `>`.
     pub log: Vec<String>,
     pub state: State,
+    /// The player's hacking tweaks, set by whoever opens the game.
+    pub rules: HackRules,
+    /// Words already tried and denied (for [`HackRules`]).
+    pub guessed: Vec<usize>,
+}
+
+/// The player's hacking tweaks (Stewie's Tweaks bImprovedHacking's options) [design: docs/design/tweaks.md].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct HackRules {
+    /// A lone symbol does nothing and prints nothing.
+    pub no_single_chars: bool,
+    /// A word already tried does nothing and costs nothing.
+    pub no_repeat_words: bool,
+    /// A bracket pair with the attempts full removes a dud instead.
+    pub dud_when_full: bool,
+    /// Removing a dud spares the words already tried, unless only they are left.
+    pub spare_guessed: bool,
+    /// Turn incorrect guesses into `.` in the dump and mark them removed (`bMarkGuessesAsDuds`).
+    pub mark_guesses_as_duds: bool,
+    /// Keep matching characters when marking incorrect guesses as duds
+    /// (`bMarkGuessesAsDudsKeepMatchingCharacters`, Stewie 9.50).
+    pub keep_matching_chars: bool,
+    /// Print incorrect guesses on one line as `>WORD (n/len)` without the denied line
+    /// (`bCompactGuesses`).
+    pub compact_guesses: bool,
+    /// Bonus attempts added on Replenished instead of resetting to [`ATTEMPTS`]; 0 resets
+    /// to [`ATTEMPTS`] (`iAllowanceReplenishedBonus`).
+    pub replenish_bonus: u8,
+}
+
+impl HackRules {
+    /// Build hacking rules from the game's active tweak settings.
+    pub fn from_tweaks(t: &crate::tweaks::Tweaks) -> HackRules {
+        HackRules {
+            no_single_chars: t.hack_no_single_chars,
+            no_repeat_words: t.hack_no_repeat_words,
+            dud_when_full: t.hack_dud_when_full,
+            spare_guessed: t.hack_spare_guessed,
+            mark_guesses_as_duds: t.hack_mark_guesses_as_duds,
+            keep_matching_chars: t.hack_keep_matching_chars,
+            compact_guesses: t.hack_compact_guesses,
+            replenish_bonus: t.hack_replenish_bonus,
+        }
+    }
 }
 
 fn below(rng: &mut impl RngCore, n: usize) -> usize {
@@ -359,7 +403,7 @@ impl Puzzle {
         let password = words.iter().position(|w| w.text == password)?;
         // [design] A four-digit address that the whole dump stays within.
         let address = 0x1000 + below(rng, 0xF000 - DUMP_CHARS) as u16;
-        Some(Puzzle { chars, address, words, password, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: State::Guessing })
+        Some(Puzzle { chars, address, words, password, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: State::Guessing, rules: HackRules::default(), guessed: Vec::new() })
     }
 
     /// The address shown before a row.
@@ -387,8 +431,8 @@ impl Puzzle {
     pub fn pair_at(&self, index: usize) -> Option<usize> {
         let close = closing(*self.chars.get(index)?)?;
         let row_end = (index / ROW_CHARS + 1) * ROW_CHARS;
-        for j in index + 1..row_end {
-            let c = self.chars[j];
+        for (k, &c) in self.chars[index + 1..row_end].iter().enumerate() {
+            let j = index + 1 + k;
             if c.is_alphabetic() {
                 return None;
             }
@@ -446,20 +490,52 @@ impl Puzzle {
             return Outcome::Ignored;
         }
         let t = self.target(index);
+        // The player's tweaks: a lone symbol, or a word tried before, does nothing.
+        match t {
+            Target::Char(_) if self.rules.no_single_chars => return Outcome::Ignored,
+            Target::Word(w) if self.rules.no_repeat_words && self.guessed.contains(&w) => return Outcome::Ignored,
+            _ => {}
+        }
         let entered = self.text(t);
-        self.say(&entered);
         match t {
             Target::Word(w) if w == self.password => {
+                self.say(&entered);
                 self.state = State::Granted;
                 self.say_own(words::GRANTED);
                 self.say_own(words::WAIT);
                 Outcome::Granted
             }
             Target::Word(w) => {
+                let len = self.words[self.password].len;
                 let n = likeness(&self.words[w].text, self.password());
+                if !self.guessed.contains(&w) {
+                    self.guessed.push(w);
+                }
+                if self.rules.mark_guesses_as_duds {
+                    self.words[w].removed = true;
+                    let range = self.words[w].range();
+                    if self.rules.keep_matching_chars {
+                        let guess: Vec<char> = self.words[w].text.chars().collect();
+                        let pass: Vec<char> = self.password().chars().collect();
+                        for (i, (g, p)) in range.zip(guess.into_iter().zip(pass)) {
+                            if g != p {
+                                self.chars[i] = REMOVED;
+                            }
+                        }
+                    } else {
+                        for i in range {
+                            self.chars[i] = REMOVED;
+                        }
+                    }
+                }
                 self.attempts -= 1;
-                self.say_own(words::DENIED);
-                self.say(&words::likeness(n, self.words[self.password].len));
+                if self.rules.compact_guesses {
+                    self.log.push(format!(">{entered} ({n}/{len})"));
+                } else {
+                    self.say(&entered);
+                    self.say_own(words::DENIED);
+                    self.say(&words::likeness(n, len));
+                }
                 if self.attempts == 0 {
                     self.state = State::LockedOut;
                     Outcome::LockedOut
@@ -468,12 +544,23 @@ impl Puzzle {
                 }
             }
             Target::Brackets { start, .. } => {
+                self.say(&entered);
                 self.used.push(start);
-                let duds: Vec<usize> = (0..self.words.len()).filter(|&w| w != self.password && !self.words[w].removed).collect();
+                let mut duds: Vec<usize> = (0..self.words.len()).filter(|&w| w != self.password && !self.words[w].removed).collect();
+                // The player's tweak spares the words tried, unless only they are left.
+                if self.rules.spare_guessed && duds.iter().any(|w| !self.guessed.contains(w)) {
+                    duds.retain(|w| !self.guessed.contains(w));
+                }
                 // [hypothesis, hacking.md §5] One pair in five gives the attempts back;
                 // the others remove a dud, or give the attempts back once no dud is left.
-                if duds.is_empty() || below(rng, 5) == 0 {
-                    self.attempts = ATTEMPTS;
+                // The player's tweak removes a dud instead when the attempts are full.
+                let replenish = duds.is_empty() || below(rng, 5) == 0;
+                if replenish && !(self.rules.dud_when_full && self.attempts >= ATTEMPTS && !duds.is_empty()) {
+                    if self.rules.replenish_bonus > 0 {
+                        self.attempts = self.attempts.saturating_add(self.rules.replenish_bonus);
+                    } else {
+                        self.attempts = ATTEMPTS;
+                    }
                     self.say_own(words::REPLENISHED);
                     Outcome::Replenished
                 } else {
@@ -487,6 +574,7 @@ impl Puzzle {
                 }
             }
             Target::Char(_) => {
+                self.say(&entered);
                 self.say_own(words::ERROR);
                 Outcome::Error
             }
@@ -623,6 +711,115 @@ mod tests {
     }
 
     #[test]
+    fn the_players_hacking_rules() {
+        // A lone symbol and a repeated word do nothing.
+        let mut p = by_hand();
+        p.rules = HackRules { no_single_chars: true, no_repeat_words: true, ..HackRules::default() };
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        assert_eq!(p.choose(0, &mut rng), Outcome::Ignored);
+        assert!(p.log.is_empty());
+        assert!(matches!(p.choose(14, &mut rng), Outcome::Denied { .. }));
+        assert_eq!(p.choose(14, &mut rng), Outcome::Ignored);
+        assert_eq!(p.attempts, ATTEMPTS - 1);
+        // With the attempts full, a pair removes a dud whatever the roll; the dud spares
+        // LOOTING, tried already, while GETTING is left.
+        for seed in 0..20 {
+            let mut p = by_hand();
+            p.rules = HackRules { dud_when_full: true, spare_guessed: true, ..HackRules::default() };
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            p.choose(14, &mut rng);
+            p.attempts = ATTEMPTS;
+            assert_eq!(p.choose(7, &mut rng), Outcome::DudRemoved);
+            assert!(!p.words[0].removed && p.words[2].removed);
+        }
+    }
+
+    #[test]
+    fn improved_hacking_marks_guesses_keeps_matching_compacts_log_and_adds_bonus_attempts() {
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        // bMarkGuessesAsDuds without keep_matching_chars blanks the whole denied word.
+        let mut p = by_hand();
+        p.rules = HackRules { mark_guesses_as_duds: true, ..HackRules::default() };
+        assert_eq!(p.choose(14, &mut rng), Outcome::Denied { likeness: 4 });
+        assert!(p.words[0].removed);
+        assert_eq!(p.chars[p.words[0].range()].iter().collect::<String>(), ".......");
+        assert!(matches!(p.target(14), Target::Char(14)));
+
+        // bMarkGuessesAsDudsKeepMatchingCharacters (Stewie 9.50) keeps letters matching
+        // MEETING at the same positions: LOOTING -> ...TING, GETTING -> .E.TING.
+        let mut p = by_hand();
+        p.rules = HackRules { mark_guesses_as_duds: true, keep_matching_chars: true, compact_guesses: true, ..HackRules::default() };
+        assert_eq!(p.choose(14, &mut rng), Outcome::Denied { likeness: 4 });
+        assert!(p.words[0].removed);
+        assert_eq!(p.chars[p.words[0].range()].iter().collect::<String>(), "...TING");
+        assert_eq!(p.log, vec![">LOOTING (4/7)"]);
+        // Clicking a retained matching letter is a single Char, not a re-selectable Word.
+        assert!(matches!(p.target(14 + 3), Target::Char(17)));
+
+        let getting_start = p.words[2].start;
+        assert_eq!(p.choose(getting_start, &mut rng), Outcome::Denied { likeness: 5 });
+        assert!(p.words[2].removed);
+        assert_eq!(p.chars[p.words[2].range()].iter().collect::<String>(), ".E.TING");
+        assert_eq!(p.log, vec![">LOOTING (4/7)", ">GETTING (5/7)"]);
+
+        // keep_matching_chars alone has no effect when mark_guesses_as_duds is off.
+        let mut p = by_hand();
+        p.rules = HackRules { keep_matching_chars: true, ..HackRules::default() };
+        assert_eq!(p.choose(14, &mut rng), Outcome::Denied { likeness: 4 });
+        assert!(!p.words[0].removed);
+        assert_eq!(p.chars[p.words[0].range()].iter().collect::<String>(), "LOOTING");
+
+        // iAllowanceReplenishedBonus adds bonus attempts instead of resetting to ATTEMPTS.
+        let mut p = by_hand();
+        p.rules = HackRules { replenish_bonus: 2, ..HackRules::default() };
+        // Remove all duds so the bracket pair deterministically replenishes.
+        p.words[0].removed = true;
+        p.words[2].removed = true;
+        p.attempts = 3;
+        assert_eq!(p.choose(7, &mut rng), Outcome::Replenished);
+        assert_eq!(p.attempts, 5);
+
+        // With dud_when_full enabled and attempts already above ATTEMPTS (from bonus),
+        // a bracket pair removes a dud instead of replenishing further.
+        for seed in 0..20 {
+            let mut p = by_hand();
+            p.rules = HackRules { dud_when_full: true, replenish_bonus: 2, ..HackRules::default() };
+            p.attempts = ATTEMPTS + 1;
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            assert_eq!(p.choose(7, &mut rng), Outcome::DudRemoved);
+            assert_eq!(p.attempts, ATTEMPTS + 1);
+        }
+
+        // HackRules::from_tweaks copies all 8 fields from Tweaks cleanly.
+        let tweaks = crate::tweaks::Tweaks {
+            hack_no_single_chars: true,
+            hack_no_repeat_words: true,
+            hack_dud_when_full: true,
+            hack_spare_guessed: true,
+            hack_mark_guesses_as_duds: true,
+            hack_keep_matching_chars: true,
+            hack_compact_guesses: true,
+            hack_replenish_bonus: 3,
+            ..Default::default()
+        };
+        assert_eq!(
+            HackRules::from_tweaks(&tweaks),
+            HackRules {
+                no_single_chars: true,
+                no_repeat_words: true,
+                dud_when_full: true,
+                spare_guessed: true,
+                mark_guesses_as_duds: true,
+                keep_matching_chars: true,
+                compact_guesses: true,
+                replenish_bonus: 3,
+            }
+        );
+        assert_eq!(HackRules::from_tweaks(&crate::tweaks::Tweaks::default()), HackRules::default());
+    }
+
+    #[test]
     fn log_lines_wrap_as_the_screenshot() {
         assert_eq!(log_lines(words::WAIT), vec![">Opening the", ">terminal..."]);
         assert_eq!(log_lines(&words::likeness(4, 7)), vec![">4 of 7 right"]);
@@ -689,7 +886,7 @@ mod tests {
             Word { text: "MEETING".into(), len: 7, start: 26, removed: false },
             Word { text: "GETTING".into(), len: 7, start: 38, removed: false },
         ];
-        Puzzle { chars, address: 0xF6EC, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: State::Guessing }
+        Puzzle { chars, address: 0xF6EC, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: State::Guessing, rules: HackRules::default(), guessed: Vec::new() }
     }
 
     #[test]

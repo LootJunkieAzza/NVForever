@@ -5,24 +5,35 @@
 pub mod actor;
 pub mod anim_blend;
 pub mod anim_play;
+pub mod authored;
+mod bc5_field;
 pub mod camera_shot;
 pub mod data;
 pub mod guard;
+pub mod load_times;
 pub mod material_anim;
 pub mod model;
 pub mod model_light;
 pub mod morph;
 pub mod particles;
+mod pbr_field;
 pub mod read_pool;
+pub mod reflection_cube;
 pub mod release;
 pub mod nif_material;
 pub mod nif_spawn;
+pub mod tangents;
+pub mod terrain_sampling;
 pub mod texture;
 
 pub use data::{ArchivePlugin, GameData};
 pub use particles::{ParticleSystemDef, PreparedParticles};
 pub use model::{ModelCache, PreparedModel, PreparedShape};
-pub use nif_material::{fade_prepass, nif_material, soft_edges, NifMaterial, NifMaterialPlugin};
+pub use nif_material::{ambient_occlusion_opt_in, ambient_occlusion_opt_out, depth_equal, fade_prepass, grass_edges, nif_material, soft_edges, NifMaterial, NifMaterialPlugin, AMBIENT_OCCLUSION_DEF};
 pub use nif_spawn::{NifHidden, NifRoot, SpawnCtx, SpawnReport};
 pub use release::{AssetReleasePlugin, KeepLimits};
+/// The reflections' mount-pack test aid (pbr_field/reflect.rs).
+pub use pbr_field::reflect::{mount_pack_requested, seed_mount_pack, MOUNT_PACK_ENV};
 pub use texture::TextureCache;
+
+pub mod nif_surface_blend;

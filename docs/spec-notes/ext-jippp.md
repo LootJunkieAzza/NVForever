@@ -16,6 +16,14 @@ call (`crate::nif_blocks`) adds its `"Target|Name"` spec, and removes it with mo
 script called. A spec without `|` is refused (0) and not kept. The scene mirror adds the
 node only with modes 1 and 3; a remove leaves the mirror as it is (mode 0 waits for the
 3D to load again; mode 2's instant removal of an inserted node is a follow-up).
+A reference's InsertNode entries go into each of its drawn models that has the target
+and lacks the node, each frame (`Game::insert_runtime_nodes`): a model drawn after the
+call (a Script Runner file runs at a load before the player's 3D is told) and one drawn
+anew (the player's body rebuilt) get them, once per drawn model [hypothesis: the list's
+nodes are part of the 3D whenever it is built]. On the player one call goes into both
+models, third and first person [hypothesis: B42 True Leaning inserts under `Camera1st`,
+a node of the first-person skeleton only, and names no model; observed: its
+`ln_B42Leaning.txt`].
 
 | Function | NVForever |
 |---|---|
@@ -24,8 +32,11 @@ node only with modes 1 and 3; a remove leaves the mirror as it is (mode 0 waits 
 | ClearRuntimeNodes `object` | the calling plugin's entries dropped, the others kept; the number dropped [documented: "Nodes created by other mods are left intact", the `> 0` example]. A script of no plugin clears nothing and gives 0, even right after its own InsertNode [observed: jipppln; hypothesis: its entries count as no mod's]. A reference's inserted nodes go from its drawn tree at once [hypothesis] |
 | AttachFormModel `target form mode "node\|suffix"` | `form`'s model (MODL) as an entry under `node` (the root without one), and `form`'s own entries after it, the suffix kept on them; modes 1/3 attach, 0/2 remove; mode 3 on a drawn reference attaches at once (`SceneEdit::Attach`); 1 on success [documented]. Success is the form having a model; a remove gives 1 whether or not the entry was there [observed: jipppln, a second remove gives 1 again] |
 
-Follow-up: the engine does not yet rename attached blocks with the suffix, or rebuild a
-base form's references from the list on their next 3D load.
+The reference AttachModel producer applies suffixes to its own source nodes and
+implements modes 0/1/2/3 with exact instance ownership
+([nif-attachments](nif-attachments.md)). Base-form-wide replay,
+CopyRuntimeNodes/ClearRuntimeNodes attachment ownership, and AttachFormModel
+removal/replay remain follow-ups; list operations alone do not qualify drawing.
 
 ## 2. The rest
 

@@ -5,13 +5,18 @@ import glob
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .expect import Outcome, check_forbid, check_one, check_order, clean
+from .front import Front
 from .plan import Launch, fmt
 from .scenarios import GAME, Scenario
 from .stacks import dump as dump_stacks
@@ -65,6 +70,56 @@ def process_times(pid: int) -> tuple[int, int] | None:
     ok = k32.GetProcessTimes(wintypes.HANDLE(h), *[ctypes.byref(x) for x in t])
     k32.CloseHandle(wintypes.HANDLE(h))
     return (t[0].value, t[1].value) if ok else None
+
+
+def process_birth(pid: int) -> int | None:
+    """When a process was made, as a number that stays the same for its whole life (Windows:
+    its creation FILETIME; Linux: its start time in clock ticks from /proc), None when it
+    cannot be read. With the pid it names one process, so a pid used again by a new
+    process is told apart from the one that wrote an owner file (#2004)."""
+    if os.name == "nt":
+        t = process_times(pid)
+        return t[0] if t else None
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        # Field 22, counting from 1; the name (field 2) is in brackets and may hold spaces.
+        return int(stat.rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def owner_line(pid: int | None = None) -> str:
+    """The owner file's text for a smoke runner's lock: the pid first (what older runners
+    read), and `born=` its birth from [`process_birth`] when it can be read."""
+    pid = os.getpid() if pid is None else pid
+    born = process_birth(pid)
+    tail = f" born={born}" if born is not None else ""
+    return f"{pid} smoke runner {time.strftime('%Y-%m-%d %H:%M:%S')}{tail}\n"
+
+
+def owner_gone(text: str) -> bool:
+    """Whether the runner an owner file names has ended: its process is gone, or the pid
+    now belongs to a process made at another time. A file without `born=` (an older
+    runner's, or one whose birth could not be read) is judged by the pid alone."""
+    words = text.split()
+    try:
+        pid = int(words[0])
+    except (ValueError, IndexError):
+        return False
+    if not pid_alive(pid):
+        return True
+    born = next((w[5:] for w in words if w.startswith("born=")), None)
+    if born is None:
+        return False
+    now = process_birth(pid)
+    return now is not None and str(now) != born
+
+
+def write_owner(lock: Path, text: str) -> None:
+    """Write the owner file whole (a reader never sees half a pid)."""
+    tmp = lock / (OWNER + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, lock / OWNER)
 
 
 def child_pids(pid: int, born: tuple[int, int] | None, exe: str) -> list[int]:
@@ -136,6 +191,46 @@ def wait_for_children(pid: int, children: list[int], deadline: float) -> str:
         except OSError:
             pass
     return f"a process it started (pid {', '.join(map(str, children))}) ran past the time limit"
+
+
+def group_alive(pgid: int) -> bool:
+    """POSIX: whether any process of the process group `pgid` still runs."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def wait_for_group(pgid: int, deadline: float) -> str:
+    """POSIX: wait for the rest of a launch's process group (a load's new run is started
+    into it: engine/nvforever/src/handoff.rs sets no group of its own) until `deadline`;
+    past it, end the group. An error text when it had to be ended."""
+    while group_alive(pgid) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    if not group_alive(pgid):
+        return ""
+    try:
+        os.killpg(pgid, signal.SIGKILL)  # POSIX only: Windows has no SIGKILL
+    except OSError:
+        pass
+    return f"a process it started (process group {pgid}) ran past the time limit"
+
+
+def launch_popen_kw() -> dict:
+    """Off Windows a game launch gets a process group of its own, so the runner can wait
+    for (and stop) a load's new run with it. Windows finds them by parent ([`child_pids`])."""
+    return {} if os.name == "nt" else {"start_new_session": True}
+
+
+def wait_rest(p: subprocess.Popen, exe: str, deadline: float) -> str:
+    """After `p` ended: wait for the processes it started (their output is the launch's
+    too) until `deadline`, ending them past it. An error text when they had to be ended."""
+    if os.name == "nt":
+        return wait_for_children(p.pid, child_pids(p.pid, own_times(p), exe), deadline)
+    return wait_for_group(p.pid, deadline)
 
 
 GAME_PROCESSES = ("nvforever", "falloutnv")
@@ -247,13 +342,38 @@ class Locks:
                  f"({time.strftime('%H:%M', time.localtime(made))}) and no nvforever or FalloutNV runs. "
                  f"Not removed: ask the session that made it, or remove it if that session is gone.")
 
-    def _stale(self, p: Path) -> bool:
-        f = p / OWNER
+    @staticmethod
+    def _stale(p: Path) -> bool:
+        """A lock whose owner file names a smoke runner that has ended."""
         try:
-            pid = int(f.read_text().split()[0])
-        except (OSError, ValueError, IndexError):
-            return False
-        return not pid_alive(pid)
+            return owner_gone((p / OWNER).read_text())
+        except OSError:
+            return False  # a plain mkdir lock, or one whose owner is still being written
+
+    def _replace_gone(self, p: Path) -> bool:
+        """Take over `p` when it was left by a smoke runner that ended, or is the slot
+        runners' shared lock with no slot taken (#1933); whether it is now this runner's.
+        The judging, removing, making and owner file all happen under the slots' mutex
+        beside the lock (`smoke-slots/mutex.lock`), so two runners that both saw it left
+        cannot both take it, and one cannot remove the lock the other just made (#2004)."""
+        from .slots import FileLock, unused_shared  # slots imports this module
+
+        mutex = FileLock(p.parent / "smoke-slots" / "mutex.lock")
+        if not mutex.try_lock():
+            return False  # another runner is changing it now: look again next time
+        try:
+            if not (self._stale(p) or unused_shared(p)):
+                return False
+            self.say(f"lock {p}: left by a smoke runner that is gone; cleared")
+            shutil.rmtree(p, ignore_errors=True)
+            try:
+                p.mkdir()
+            except FileExistsError:
+                return False  # a plain mkdir locker took it in between
+            write_owner(p, owner_line())
+            return True
+        finally:
+            mutex.unlock()
 
     @staticmethod
     def holder(p: Path) -> str:
@@ -275,18 +395,11 @@ class Locks:
             try:
                 p.mkdir()
             except FileExistsError:
-                if self._stale(p):
-                    self.say(f"lock {p}: left by a smoke runner that is gone; cleared")
-                    shutil.rmtree(p, ignore_errors=True)
-                    try:
-                        p.mkdir()
-                    except FileExistsError:
-                        self.release()
-                        return p
-                else:
+                if not self._replace_gone(p):
                     self.release()
                     return p
-            (p / OWNER).write_text(f"{os.getpid()} smoke runner {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            else:
+                write_owner(p, owner_line())
             self.held.append(p)
         return None
 
@@ -337,13 +450,14 @@ class Locks:
 
 
 def default_lock_paths(repo: Path) -> list[Path]:
-    """NVF_SMOKE_LOCKS (paths separated by os.pathsep) or this machine's two locks."""
+    """NVF_SMOKE_LOCKS (paths separated by os.pathsep) or this machine's two locks: the
+    capture lock (Windows, where the owner's captures run) and the main checkout's."""
     env = os.environ.get("NVF_SMOKE_LOCKS")
     if env is not None:
         return [Path(p) for p in env.split(os.pathsep) if p.strip()]
     out = []
     cap = Path(r"C:\fnv-private\capture")
-    if cap.is_dir():
+    if os.name == "nt" and cap.is_dir():
         out.append(cap / "run.lock")
     out.append(main_checkout(repo) / ".claude" / "smoke.lock")
     return out
@@ -371,17 +485,18 @@ class Verdict:
     reason: str = ""  # for SKIP / launch errors
 
 
-def judge(s: Scenario, lines: list[str], exit_code: int | None, launch_error: str = "") -> Verdict:
+def judge(s: Scenario, lines: list[str], exit_code: int | None, launch_error: str = "",
+          platform: str | None = None) -> Verdict:
     outs: list[Outcome] = []
     if launch_error:
         outs.append(Outcome(False, None, "launch", launch_error))
     elif exit_code != s.exit:
         outs.append(Outcome(False, None, "exit", f"exit code {exit_code}, want {s.exit}",
                             context=[ln for ln in lines if "error" in ln.lower() or "panicked" in ln][-3:]))
-    outs += [check_one(e, lines) for e in s.expect]
+    outs += [check_one(e, lines, platform) for e in s.expect]
     for seq in s.order:
-        outs += check_order(seq, lines)
-    outs += [check_forbid(e, lines) for e in s.forbid]
+        outs += check_order(seq, lines, platform)
+    outs += [check_forbid(e, lines, platform) for e in s.forbid]
     hard = [o for o in outs if not o.ok and not o.known]
     known = [o for o in outs if not o.ok and o.known]
     xpass = [o.label for o in outs if o.ok and o.known]
@@ -405,6 +520,26 @@ class Env:
     fnvtool: Path | None
     say: object = print
     masters: list[str] = field(default_factory=list)
+
+
+LOCKED_NOTE = ("the Windows session was locked (LogonUI.exe running): frames wait 300-500 ms to be shown "
+               "then, so frame times and timed expectations do not measure the engine (#3277)")
+
+
+def session_locked() -> bool | None:
+    """Whether the Windows session is locked: LogonUI.exe, the lock screen, is running
+    [observed #3277: frames wait 300 to 500 ms in `window::prepare_windows` while it runs,
+    also with display-sync off]. `None`: not Windows, or the process list could not be read."""
+    if os.name != "nt":
+        return None
+    try:
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq LogonUI.exe", "/FO", "CSV", "/NH"],
+                           capture_output=True, text=True, timeout=10, errors="replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return "logonui.exe" in r.stdout.lower()
 
 
 def aid_free_environ(extra: dict[str, str]) -> dict[str, str]:
@@ -447,42 +582,123 @@ def expand(arg: str, ctx: dict[str, str], masters: list[str] = ()) -> list[str] 
     return [out]
 
 
+def expand_game_value(value: str) -> str | None:
+    """Substitute invoking-process env variables in one scalar, without re-expanding data."""
+    parts = []
+    while "{env:" in value:
+        i = value.index("{env:")
+        j = value.find("}", i)
+        if j < 0:
+            return None
+        replacement = os.environ.get(value[i + 5:j])
+        if not replacement:
+            return None
+        parts.extend((value[:i], replacement))
+        value = value[j + 1:]
+    return "".join(parts) + value
+
+
+def launch_serve(launch: Launch) -> dict:
+    """The `serve` table of a launch's members (load_text checked they agree), or {}."""
+    return next((s.serve for s in launch.scenarios if s.serve), {})
+
+
+@contextmanager
+def serving(serve: dict):
+    """A loopback HTTP server answering every request with `serve`'s status and body, for
+    one launch; yields its address (`http://127.0.0.1:<port>`), or None without `serve`."""
+    if not serve:
+        yield None
+        return
+    status, body = serve["status"], serve.get("body", "").encode("utf-8")
+
+    class Answer(BaseHTTPRequestHandler):
+        def _answer(self, with_body: bool) -> None:
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if with_body:
+                self.wfile.write(body)
+
+        def do_GET(self):  # noqa: N802 (the handler's names)
+            self._answer(True)
+
+        def do_HEAD(self):  # noqa: N802
+            self._answer(False)
+
+        def log_message(self, *_args):  # quiet: the game's log is the record
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Answer)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever, name="smoke-serve", daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | None, str, float]:
     """Run one launch; its log goes to out/<name>.log. (exit code, error, seconds)."""
     log = env.out / f"{launch.name}.log"
     started = time.monotonic()
     if launch.kind == GAME:
-        cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
-        # `{repo}` in a value: the repository (a fixture's path).
-        aids = {k: v.replace("{repo}", str(env.repo)) for k, v in game_env(launch).items()}
-        (env.out / f"{launch.name}.cmd.txt").write_text(
-            "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")
-        (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
-        held = locks.acquire() if locks else None  # a smoke slot, or None for the old locks
-        started = time.monotonic()  # the launch's own time, without waiting for the locks
-        try:
-            with open(log, "w", encoding="utf-8", errors="replace") as f:
-                p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,
-                                     env=aid_free_environ(aids))
-                exe = Path(env.exe).name
-                try:
-                    code = p.wait(timeout=launch_timeout(launch))
-                    # A load hands over to a new run that goes on writing to this log.
-                    born = own_times(p)
-                    err = wait_for_children(p.pid, child_pids(p.pid, born, exe), started + launch_timeout(launch))
-                except subprocess.TimeoutExpired:
-                    # Where it stopped, before it goes: every thread's stack.
-                    stacks = env.out / f"{launch.name}.stacks.txt"
-                    stacks.write_text(dump_stacks(p.pid, Path(env.exe).parent), encoding="utf-8")
-                    born = own_times(p)
-                    p.kill()
-                    p.wait()
-                    # A new run it started goes too: it is this launch's.
-                    wait_for_children(p.pid, child_pids(p.pid, born, exe), time.monotonic())
-                    code, err = None, f"timed out after {launch_timeout(launch):.0f} s; thread stacks in {stacks}"
-        finally:
-            if locks:
-                locks.release(held)
+        aids = {}
+        for key, value in game_env(launch).items():
+            expanded = expand_game_value(value)
+            if expanded is None:
+                return None, f"{key}: needs {value}", 0.0
+            aids[key] = expanded.replace("{repo}", str(env.repo))
+        with serving(launch_serve(launch)) as served:
+            cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
+            # Environment values stay scalar: filenames, XML and script source are not
+            # tool arguments, so they must not be split or globbed by expand().
+            if served:
+                aids = {k: v.replace("{serve}", served) for k, v in aids.items()}
+            (env.out / f"{launch.name}.cmd.txt").write_text(
+                "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")
+            (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
+            (env.out / f"{launch.name}.front.txt").unlink(missing_ok=True)
+            held = locks.acquire() if locks else None  # a smoke slot, or None for the old locks
+            started = time.monotonic()  # the launch's own time, without waiting for the locks
+            locked = session_locked()
+            try:
+                with open(log, "w", encoding="utf-8", errors="replace") as f:
+                    p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,
+                                         env=aid_free_environ(aids), **launch_popen_kw())
+                    exe = Path(env.exe).name
+                    # `front = true`: the launch's own window held in front until it ends.
+                    front = Front(p.pid, log=env.out / f"{launch.name}.front.txt").start() if launch.front else None
+                    try:
+                        code = p.wait(timeout=launch_timeout(launch))
+                        # A load hands over to a new run that goes on writing to this log.
+                        err = wait_rest(p, exe, started + launch_timeout(launch))
+                    except subprocess.TimeoutExpired:
+                        # Where it stopped, before it goes: every thread's stack.
+                        stacks = env.out / f"{launch.name}.stacks.txt"
+                        stacks.write_text(dump_stacks(p.pid, Path(env.exe).parent), encoding="utf-8")
+                        born = own_times(p)
+                        p.kill()
+                        p.wait()
+                        # A new run it started goes too: it is this launch's.
+                        if os.name == "nt":
+                            wait_for_children(p.pid, child_pids(p.pid, born, exe), time.monotonic())
+                        else:
+                            wait_for_group(p.pid, time.monotonic())
+                        code, err = None, f"timed out after {launch_timeout(launch):.0f} s; thread stacks in {stacks}"
+                    finally:
+                        if front:
+                            front.stop()
+            finally:
+                if locks:
+                    locks.release(held)
+            locked = bool(locked) or bool(session_locked())
+            if locked:
+                env.say(f"warning: {launch.name}: {LOCKED_NOTE}")
     else:
         s = launch.scenarios[0]
         ctx = {"data": str(env.data), "repo": str(env.repo)}
@@ -510,12 +726,30 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                     break
         (env.out / f"{launch.name}.cmd.txt").write_text("\n".join(cmds) + "\n")
     secs = time.monotonic() - started
-    (env.out / f"{launch.name}.exit").write_text(json.dumps({"exit": code, "error": err, "seconds": round(secs, 1)}))
+    meta = {"exit": code, "error": err, "seconds": round(secs, 1)}
+    if launch.kind == GAME and locked:
+        meta["session_locked"] = True
+    (env.out / f"{launch.name}.exit").write_text(json.dumps(meta))
     return code, err, secs
 
 
 def missing_requirements(s: Scenario) -> list[str]:
     return [r for r in s.requires if not os.environ.get(r)]
+
+
+def platform_name() -> str:
+    """The system this runner is on, as a scenario's `platforms` names it."""
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
+
+
+def unmet_platforms(s: Scenario, here: str | None = None) -> list[str]:
+    """`platforms` this scenario asks for that this system is not (empty: it runs anywhere)."""
+    here = here or platform_name()
+    return [p for p in s.platforms if p != here]
 
 
 def report(v: Verdict, launch: Launch, secs: float | None, log: Path, say=print, context: int = 3) -> None:

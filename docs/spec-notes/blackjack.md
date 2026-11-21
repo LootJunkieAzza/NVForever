@@ -27,10 +27,8 @@ privately). Nothing here comes from the executable.
 - A `maxWinnings` of 0 means the casino's own (§2) [hypothesis: every script passes 0,
   and the casinos' records hold the caps the bans are known for].
 - It is a menu: the world and the game clock stand still (`PlayState::Menu`), menu code
-  1102 to scripts [hypothesis: the menu's `&BlackJackMenu;` class number is not in the
-  menu files; NVForever's own code, unused by any script, next to roulette's 1101. It was
-  1035 until 2026-10-18, which is the Pip-Boy's repair list (documented: GECK wiki
-  GetSelectedItemRef)].
+  1081 to scripts (`BlackJackMenu` in `fnv_ui::value::MENU_CLASSES`) [documented: GECK wiki
+  MenuMode].
 
 ## 2. The casino record (CSNO)
 
@@ -101,6 +99,55 @@ Laid out in `schemas/fnv/objects.json` [documented: xEdit wbDefinitionsFNV.pas]:
   push; lower loses.
 
 ## 4. Winnings and bans
+
+[documented] GetCasinoWinningsLevel reports the player's casino level to scripts,
+and GetCasinoWinningStage supplies the same value to dialogue conditions
+([GECK](https://geckwiki.com/index.php/GetCasinoWinningsLevel)). The public
+[Stewie changelog](https://www.nexusmods.com/newvegas/mods/66347?tab=logs) documents
+a 9.45 correction so No Casino Bans does not report the banned stage through
+GetCasinoWinningStage. That behavior is distinct from a provider version number.
+
+[hypothesis] With No Casino Bans enabled, the shared readers report the last reward
+stage (3) in place of the banned stage (4). The changelog above says the banned stage
+is not reported; the replacement number 3 is not documented and the original game's
+exact numeric replacement has not been captured.
+
+[design] Engine design choice: the replacement is a read view. Stored levels,
+earnings, earned chips and rewards remain unchanged. Turning the option off exposes
+the saved stage again, and the existing table opening check continues to enforce its
+earnings and saved-level ban. Stages 0..3 retain their existing results. The option
+is applied by the existing settings consumer after restore; this change does not add
+preference persistence.
+
+[hypothesis] Source-compiled reward/ban branches, the actual condition evaluator,
+table opening and save/restore controls exercise this shared view. Public source
+`c8221af1`, executed as merge `aeefed23` with the same tree, passed all seven
+selected controls exactly once. Hosted core tests passed 3,460 with five ignored;
+engine tests passed 3,409 with three ignored. Both strict Clippy checks and all
+seven required checks passed. The identical-fixture baseline `026ed`, which
+already includes the same setter, remains UNRUN; no paired outcome is inferred.
+This later documentation-only successor changes no executable/fixture bytes and
+has no additional runtime result. Native calibration, original startup/callback
+execution and complete Casino Rewards Fix compatibility remain separate open checks.
+
+[documented] `SetCasinoWinningsLevel casino level` sets a casino's winnings
+level, with an integer parameter in 0..4. Source:
+[GECK](https://geckwiki.com/index.php?title=SetCasinoWinningsLevel).
+
+[design] Engine design choice: source-name calls replace the existing saved
+per-casino level read by GetCasinoWinningsLevel and the casino opening/ban consumer,
+and return 0. Subsequent rounds retain the existing monotonic advancement rule.
+Other casinos and the no-casino-bans option retain their existing behavior.
+
+[hypothesis] The setter leaves net earnings unchanged, so lowering a level does not
+bypass an earnings-based ban. The documentation does not say whether the original
+setter touches earnings; this is unobserved.
+
+[design] Engine design choice: invalid casino forms, missing arguments, nonfinite
+numbers and nonintegral/out-of-range levels fail with an engine error without
+changing casino state. Native invalid-input behavior and interaction with the
+original game's quest scripts remain unobserved. Source-name admission does not
+admit native numeric encoding.
 
 - The player's earnings at each casino are kept with the game: the net chips won there
   over every round [documented: GECK wiki SetCasinoBan, GetCasinoWinnings].

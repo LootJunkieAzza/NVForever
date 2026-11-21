@@ -245,12 +245,28 @@ pub fn swing_action(t: f32, hit: f32, len: f32) -> Option<AnimAction> {
     }
 }
 
+fn is_reload_action(action: Option<AnimAction>) -> bool {
+    matches!(action, Some(AnimAction::Reload | AnimAction::ReloadOpen))
+}
+
 impl Game<'_> {
     /// The engine tells what an actor's body does now (every frame, for the actors it
-    /// draws and the player).
+    /// draws and the player). Entering a reload action (`Reload` or `ReloadOpen`) from a
+    /// non-reload action fires JIP's `SetOnReloadWeaponEventHandler` event once per
+    /// reload with the actor's equipped or held weapon [documented:
+    /// SetOnReloadWeaponEventHandler; hypothesis: `ReloadOpen` -> `Reload` is one reload].
     pub fn set_anim_state(&mut self, actor: FormId, mut s: AnimState) {
+        let was_reloading = self.senses.anim.get(&actor).is_some_and(|a| is_reload_action(a.action));
+        let now_reloading = is_reload_action(s.action);
         s.at = self.time;
         self.senses.anim.insert(actor, s);
+        if !was_reloading && now_reloading {
+            let weapon = crate::functions::items::equipped_weapon(self, actor)
+                .or_else(|| self.extra.get(&actor).and_then(|e| e.held_weapon));
+            if let Some(weapon) = weapon {
+                self.weapon_reloaded(actor, weapon);
+            }
+        }
     }
 
     /// The actor left the engine's view: forget its body's state.

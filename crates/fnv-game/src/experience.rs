@@ -45,6 +45,10 @@ pub enum Source {
     Discovery,
     /// `RewardXP` (quests, challenges, dialogue result scripts).
     Script,
+    /// A Pip-Boy repair (the Repairs Give XP tweak, `crate::tweaks`).
+    Repair,
+    /// A pocket picked (the Pickpocket Overhaul tweak's Reward XP, `crate::pickpocket`).
+    Pickpocket,
 }
 
 impl Source {
@@ -57,6 +61,8 @@ impl Source {
             Source::SpeechChallenge => "a speech challenge",
             Source::Discovery => "a place found",
             Source::Script => "a script",
+            Source::Repair => "a repair",
+            Source::Pickpocket => "a pocket picked",
         }
     }
 }
@@ -79,6 +85,8 @@ pub fn award(g: &mut Game, source: Source, amount: f64) -> f64 {
     }
     let (gained, by) = if amount > 0.0 {
         let (v, by) = g.entry_point(FormId::PLAYER_REF, crate::perks::ADJUST_EXPERIENCE_POINTS, amount);
+        // The player's XP tweak, after the perks [design: docs/design/tweaks.md].
+        let v = v * g.tweaks.xp_multiplier;
         // The factors are 32-bit (1.3 is 1.2999999523): to thousandths first, so that
         // 100 × 1.3 is 130, not 129.
         (((v.max(0.0) * 1000.0).round() / 1000.0).trunc(), by)
@@ -161,6 +169,10 @@ pub fn xp_for_level(g: &Game, level: i32) -> f64 {
 
 /// The highest level the player can reach in this load order.
 pub fn max_level(g: &Game) -> i32 {
+    // The player's tweak: a cap of its own, with no levels added for the add-ons [design: docs/design/tweaks.md].
+    if g.tweaks.max_level > 0 {
+        return g.tweaks.max_level as i32;
+    }
     let base = setting(g, "iMaxCharacterLevel", DEFAULT_MAX_LEVEL as f64) as i32;
     level_cap(base, &g.data.load_order)
 }
@@ -207,12 +219,13 @@ pub fn standing(g: &Game) -> Standing {
     Standing { xp: g.player.xp, level, max: max_level(g), this: total_for(level, base, bump), next: total_for(level + 1, base, bump) }
 }
 
-/// Whether the player has the experience for the next level and is under the cap, and
-/// is not in character generation: there "the player will not level up (although XP will
-/// accumulate" [documented: GECK wiki SetInCharGen]; after `SetInCharGen 0` the levels
-/// earned meanwhile come one after another.
+/// Whether the player has the experience for the next level and is under the cap, is
+/// not in character generation (`SetInCharGen 1` [documented: GECK wiki SetInCharGen]),
+/// and has not had the level-up menu disabled by `ToggleLevelUpMenu 0` [documented:
+/// GECK wiki ToggleLevelUpMenu]. After re-enabling, levels earned meanwhile come one
+/// after another.
 pub fn level_up_due(g: &Game) -> bool {
-    !g.player.in_chargen && standing(g).due()
+    !g.player.in_chargen && g.level_up_menu_enabled() && standing(g).due()
 }
 
 /// The living actors that keep the level-up menu shut: those fighting the player

@@ -12,7 +12,7 @@ over all of them. Works with a default release build or a `profile` build.
 
 `--placement off` passes `--cpu-cache-placement off` (cpu_placement.rs) to every launch, to
 measure the whole processor on a machine where the game would otherwise restrict itself.
-Runs land in target/profile-campaign/compute-sweep-<n>-r<round>/ (game-derived logs: keep
+Runs land in target/profile-campaign/compute-sweep-<id>-<n>-r<round>/ (game-derived logs: keep
 them out of the repository); the table at the end gives, per size and scenario, the mean
 frame, the slowest frame, the frames over the scenario's slow limit and the CPU time a frame
 over every thread, averaged over the rounds.
@@ -24,8 +24,10 @@ import argparse
 import json
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
+from statistics import mean
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
@@ -68,6 +70,23 @@ def sweep_campaign(src: dict, names: list[str], threads: int, placement_off: boo
     return "\n".join(out)
 
 
+def round_order(threads: list[int], round_number: int) -> list[int]:
+    """Alternate the order so neither end always runs first."""
+    return threads if round_number % 2 else list(reversed(threads))
+
+
+def format_mean(values, width: int, precision: int) -> str:
+    observed = [value for value in values if value is not None]
+    return f"{mean(observed):{width}.{precision}f}" if observed else f"{'-':>{width}}"
+
+
+def read_scenarios(folder: Path) -> list[dict]:
+    path = folder / "results.json"
+    if not path.is_file():
+        return []
+    return json.loads(path.read_text(encoding="utf-8")).get("scenarios", [])
+
+
 def summarise(runs: dict[int, list[Path]], names: list[str]) -> str:
     """The table: per size and scenario, means over the rounds that finished."""
     lines = ["threads  scenario              frame ms  slowest ms  slow frames  CPU ms/frame"]
@@ -75,20 +94,18 @@ def summarise(runs: dict[int, list[Path]], names: list[str]) -> str:
         for name in names:
             rows = []
             for folder in runs[n]:
-                path = folder / "results.json"
-                if not path.is_file():
-                    continue
-                for s in json.loads(path.read_text(encoding="utf-8")).get("scenarios", []):
+                for s in read_scenarios(folder):
                     if s.get("name") == name and s.get("status") == "ok":
-                        h = s.get("hitches")
-                        h = h if isinstance(h, (int, float)) else len(h or [])
-                        rows.append((s["frame_mean"], s["slowest_frame"], h, s.get("cpu_ms") or 0.0))
+                        hitches = s.get("hitches")
+                        rows.append((s.get("frame_mean"), s.get("slowest_frame"),
+                                     len(hitches) if hitches is not None else None, s.get("cpu_ms")))
             if not rows:
                 lines.append(f"{n:>7}  {name:<20}  (no finished run)")
                 continue
-            k = len(rows)
-            mean = [sum(r[i] for r in rows) / k for i in range(4)]
-            lines.append(f"{n:>7}  {name:<20}  {mean[0]:8.2f}  {mean[1]:10.1f}  {mean[2]:11.1f}  {mean[3]:12.1f}")
+            frame, slowest, hitches, cpu = zip(*rows)
+            metrics = (format_mean(frame, 8, 2), format_mean(slowest, 10, 1),
+                       format_mean(hitches, 11, 1), format_mean(cpu, 12, 1))
+            lines.append(f"{n:>7}  {name:<20}  " + "  ".join(metrics))
     return "\n".join(lines)
 
 
@@ -105,23 +122,33 @@ def main(argv=None) -> int:
 
     src = tomllib.loads(args.campaign.read_text(encoding="utf-8"))
     out_dir = ROOT / "target" / "profile-campaign"
-    cfg_dir = out_dir / "compute-sweep-configs"
-    cfg_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cfg_dir = Path(tempfile.mkdtemp(prefix="compute-sweep-", dir=out_dir))
     runs: dict[int, list[Path]] = {n: [] for n in args.threads}
+    failed = False
     for r in range(1, args.rounds + 1):
-        # Alternate the order each round so neither end of the list always runs first.
-        order = args.threads if r % 2 else list(reversed(args.threads))
-        for n in order:
+        for n in round_order(args.threads, r):
             cfg = cfg_dir / f"compute-{n}.toml"
             cfg.write_text(sweep_campaign(src, args.only, n, args.placement == "off"), encoding="utf-8")
-            name = f"compute-sweep-{n}-r{r}"
+            name = f"{cfg_dir.name}-{n}-r{r}"
             print(f"round {r}: compute pool {n}", flush=True)
-            subprocess.call([sys.executable, str(HERE / "campaign.py"), "run", "--exe", args.exe, "--data", args.data,
-                             "--campaign", str(cfg), "--name", name])
-            runs[n].append(out_dir / name)
+            result = subprocess.run([sys.executable, str(HERE / "campaign.py"), "run", "--exe", args.exe, "--data", args.data,
+                                     "--campaign", str(cfg), "--name", name], check=False)
+            if result.returncode:
+                print(f"round {r}: compute pool {n} failed (exit {result.returncode})", file=sys.stderr)
+                failed = True
+                continue
+            folder = out_dir / name
+            statuses = {s["name"]: s["status"] for s in read_scenarios(folder)}
+            for scenario in args.only:
+                status = statuses.get(scenario, "no result")
+                if status != "ok":
+                    print(f"round {r}: compute pool {n}, {scenario}: {status}", file=sys.stderr)
+                    failed = True
+            runs[n].append(folder)
     print()
     print(summarise(runs, args.only))
-    return 0
+    return int(failed)
 
 
 if __name__ == "__main__":

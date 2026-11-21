@@ -70,6 +70,9 @@ pub struct FrameLoop {
 /// The session state of the plugins of this file.
 #[derive(Debug, Default)]
 pub struct SmallState {
+    /// Loaded application settings are authoritative after engine handoff.
+    /// Session-only: a restored Game must be rebound before startup scripts.
+    pub(crate) stewie_stat_settings_loaded: bool,
     /// Seconds of play, menus included: each frame's own length added up (the engine
     /// changes `frame_seconds` every frame, so the frame count times it is no clock).
     pub real_seconds: f64,
@@ -97,6 +100,11 @@ pub struct SmallState {
     pub ysi_tag: HashMap<FormId, String>,
     pub ysi_icon_by_tag: HashMap<String, String>,
     pub ysi_icon: HashMap<FormId, String>,
+    /// TTW_EnableRadioFix: radios are received in child worldspaces too (the engine's
+    /// radio reads it). Not saved: TTW's handler script sets it again on every load, beside
+    /// INI settings that last a session [observed: TaleOfTwoWastelands.esm
+    /// TTWGenericHandlerScript, `TTW_EnableRadioFix 1` next to SetNumericINISetting].
+    pub ttw_radio_fix: bool,
 }
 
 /// CRC-32 (the IEEE polynomial, reflected, as zip and PNG use) [decision: the page's
@@ -256,13 +264,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     let v = match name {
         // ---- Anh ----
-        // `1stPersonFOV`: the field of view the last SetCameraFOV gave, else the INI's
-        // default (fDefaultWorldFOV, fDefault1stPersonFOV) [documented: GetCameraFOV,
-        // "Returns the FOV value for the camera"; hypothesis: 75 and 55 when the INI
-        // names none, the shipped Fallout_default.ini's values].
+        // `1stPersonFOV`: the field of view the last SetCameraFOV gave, else the one the
+        // player set on the engine's settings page, else the INI's default
+        // (fDefaultWorldFOV, fDefault1stPersonFOV) [documented: GetCameraFOV, "Returns
+        // the FOV value for the camera"; decision: the settings page stands for the
+        // original's INI values, which its own FOV setting writes; hypothesis: 75 and 55
+        // when the INI names none, the shipped Fallout_default.ini's values].
         "getcamerafov" => {
             let first = num(args, 0, 0.0) != 0.0;
-            let set = if first { g.ui.camera.fov_set.1 } else { g.ui.camera.fov_set.0 };
+            let c = &g.ui.camera;
+            let set = if first { c.fov_set.1.or(c.settings_fov.1) } else { c.fov_set.0.or(c.settings_fov.0) };
             match set {
                 Some(v) => XVal::Num(f64::from(v)),
                 None => {
@@ -419,7 +430,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 XVal::Num(f64::from(v))
             } else {
                 let status = g.world.lock_status(r).unwrap_or(0);
-                XVal::Num(if status == 1 && g.locks.broken.contains(&r) { 2.0 } else { f64::from(status) })
+                XVal::Num(if status == 1 && g.locks.broken.contains(&g.world.lock_source(r)) { 2.0 } else { f64::from(status) })
             }
         }
         // [documented: GetQuestFailedAlt, "Alternate version of GetQuestFailed"].
@@ -537,14 +548,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let skill = w.and_then(|w| crate::nvse::record_value(g, w, "DNAM", "skill"));
             yes(matches!(skill, Some(XVal::Num(s)) if s == num(args, 0, -1.0)))
         }
-        // Each loaded plugin as [name, version, description] [documented: TTW_GetPlugins;
-        // decision: version 0 and an empty description, NVForever keeps no plugin
-        // header's version or description].
+        // Each loaded plugin as [name, version, description] [documented: TTW_GetPlugins]:
+        // the version is the TES4 HEDR version, as GetPluginHeaderVersion gives it
+        // (`GameData::plugin_versions`); the description is empty [decision: no plugin
+        // header's description is kept]. TTW's start-up check (`TTWGenericHandlerScript`)
+        // calls a plugin below 1.3 an unconverted Fallout 3 mod (Fallout 3's plugins are
+        // 0.94 [observed: Fallout3.esm as TTW converts it is 1.34]); with version 0 it
+        // showed "you have Fallout 3 mods installed" for every load order.
         "ttw_getplugins" => {
-            let names = g.data.load_order.clone();
+            let plugins: Vec<(String, f32)> = g.data.load_order.iter().cloned().zip(g.data.plugin_versions.iter().copied()).collect();
             let mut rows = Vec::new();
-            for n in names {
-                rows.push(list(g, vec![XVal::Str(n), XVal::Num(0.0), XVal::Str(String::new())]));
+            for (n, v) in plugins {
+                rows.push(list(g, vec![XVal::Str(n), XVal::Num(f64::from(v)), XVal::Str(String::new())]));
             }
             list(g, rows)
         }
@@ -554,19 +569,32 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Fallout 3's calls ShowRaceMenu]. It opens NVForever's character creator as
         // ShowRaceMenu does [design: owner 2026-11-02, "can we reuse our character
         // creator"; before, nothing opened and the birth scene went on without it].
+        // `0/1`: radios work in child worldspaces, or not [documented: the TTW NVSE mod
+        // page, "toggle radios working in child worldspaces on/off"]; TTW turns it on in
+        // the Capital Wasteland and off in the Mojave [observed: TaleOfTwoWastelands.esm
+        // TTWFNEnableDCWasteland and TTWFNEnableNVWasteland].
+        "ttw_enableradiofix" => {
+            g.small.ttw_radio_fix = num(args, 0, 0.0) != 0.0;
+            zero
+        }
         "ttw_showgeneprojector" => {
             g.race_menu = crate::game::RaceMenu::Creator;
+            g.race_menu_studio = true;
             g.open_menu(crate::game::menus::RACE);
             zero
         }
         // ---- Stewie's Tweaks ----
-        // `"key:section"` (StewVal): the value in the plugin's INI, a number when it reads
-        // as one [documented: StewieGetValue; hypothesis: the INI is
-        // Data\NVSE\Plugins\nvse_stewie_tweaks.ini]; 0 when there is none (the plugin is
-        // not installed).
+        // Recognized loaded settings follow their actual engine consumers;
+        // unbound games and other keys retain their existing layered-file query.
         "stewiegetvalue" | "stewval" => {
             let ks = text(args, 0);
             let Some((key, section)) = ks.split_once(':') else { return Some(Ok(zero)) };
+            if let Some(value) = g.loaded_stewie_stat_value(key, section) {
+                return Some(Ok(XVal::Num(value)));
+            }
+            if let Some(value) = g.loaded_stewie_inventory_value(key, section) {
+                return Some(Ok(XVal::Num(value)));
+            }
             let ini = g.mod_files.read_text("NVSE\\Plugins\\nvse_stewie_tweaks.ini");
             match ini.and_then(|t| crate::mod_files::ini_get(&t, &section.trim().to_ascii_lowercase(), key.trim())) {
                 Some(v) => v.parse::<f64>().map(XVal::Num).unwrap_or(XVal::Str(v.trim_matches('"').to_string())),

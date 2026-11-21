@@ -603,7 +603,7 @@ mod tests {
             controller_id: None,
             values: None,
             interpolator_id: None,
-            data: TrackData::Transform(TransformTrack { translation, rotation, euler: None, scale: Channel::Static(Some([1.0])) }),
+            data: TrackData::Transform(TransformTrack { translation, rotation, euler: None, scale: Channel::Static(Some([1.0])), per_cycle: None }),
         }
     }
 

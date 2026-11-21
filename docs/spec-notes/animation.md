@@ -438,6 +438,22 @@ the Aim group, whose level clip's weight falls as the view pitches (§9.6): the 
 which only the level clip drives for rifles, slid to the idle pose. Nothing here was
 compared with the game frame by frame; §7 lists the captures that could.
 
+**An idle over a standing actor's base idle** (issue #2425). A special or dynamic idle
+of an actor standing still shows on every bone it drives, whatever the priorities of
+its tracks against the movement clip's (the base idle, `mtidle.kf`); bones it does not
+drive keep the base idle, and slots above the movement (a drawn weapon's, an attack's)
+keep their own priorities (`BlendPlayer::over_movement`). Over a walk the priorities
+decide as before. [hypothesis, from the data and the owner's sight of the original:
+Mr. House's chamber (`creatures/nvmrhouse`) is closed by `DynamicIdle_Sleeping.kf`
+(its tracks at priority 40, `Bip01 Shell` turned about 126 degrees about x over him,
+`Bip01 Yaw` 0) and opened by `WakeUp.kf` (30), both under his `mtidle.kf` (50), whose
+pose is the open pod (shell at about 25 degrees, Yaw 90); the original shows the chamber
+sealed until the terminal opens it [observed: the owner, #2425]. By priority alone the
+pod stood open throughout. In the base archive 129 of the 556 idle files under an
+`IdleAnims` folder have some tracks under their base idle's priority (Protectron,
+Robobrain and the penthouse screens among them) [observed: survey 2026-11-14]; those
+tracks now show too. Observer check 182.]
+
 ### 9.6 Aiming up and down [observed unless tagged]
 
 Measured with the diagnostic `crates/fnv-nif/examples/kf_pose_compare.rs` (clips side by
@@ -635,6 +651,49 @@ tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
   still on the back. Before, the holstered flamer hung whole, tank included, from the
   hand bone (the `2hh` holster bone is `Bip01 R Hand`) [observed in NVForever: owner,
   2026-10-16].
+- The round seen in the weapon, `##NifRound` [observed: `fnvtool nif nodes` over the
+  game's and the DLCs' archives; `fnvtool nif decode` of the clips, 2026-11-14, #2470]:
+  - seven models have the node: `missilelauncher.nif` (with its guidance-system and
+    unique forms), `fatman.nif`, `fatmanlittleboy.nif`, the Gun Runners' Arsenal unique
+    Fat Man and `dartgun.nif`; in `missilelauncher.nif` it holds a copy of the missile's
+    shape (the mesh of `projectiles\mlprojectile.nif`, 444 vertices) in the tube. The
+    world models (`missilelaunchergo.nif`) have none.
+  - its `NiVisController` tracks: `2hlattackright.kf` and `2hlattackleft.kf` show it to
+    0.033 s and hide it from 0.067 s (the `Hit` key) to their end, in `_1stperson`
+    (priority 55) and `_male` (57); `2hlreloada.kf` hides it until 0.867 s and
+    `2hlreloade.kf` until 1.833 s (`_male` 1.867 s), then shows it; `2hlattack3.kf`,
+    the equip, unequip, holster and jam clips have no track for it. `_1stperson\2hlaim.kf`
+    shows it throughout (an interpolator value of true, no keys, priority 45);
+    `_male\2hlaim.kf` has no track. The `1hp` clips do the same for the dart gun
+    (`1hpattackright.kf` hides it from 0.033 s; `_1stperson\1hpaim.kf` shows it, 55;
+    `1hpreloadb.kf` shows it from 1.333 s, `_male` 1.0 s).
+  - Reading [hypothesis]: the round is shown while one is loaded; the first-person aim
+    clip's track would show it again in an empty launcher once the attack clip ends,
+    unless a reload follows the shot at once. How the original hides it in an empty
+    weapon is not known.
+  - Engine: the round is drawn as the clips say; an empty weapon's round is not hidden
+    [design]. It is not seen from the player's cameras [observed: NVForever on main,
+    2026-11-14, pictures kept privately: first person after the shot, third person after
+    the shot and an empty launcher drawn in third person, the back of the tube dark].
+  - NPC rule [design, #2512, owner decision]: `nvforever::weapons::reparent` applies
+    the current attack/reload clip's visibility tracks to matching targets in the
+    held weapon model, with the advanced time supplied by `attack_anims::CombatPose`.
+    A frame crossing the clip's end samples its exact end, including a final show key.
+    A missing track (the `_male` aim clip's round track, as documented above) keeps
+    the last state. Entering equip, unequip or holster restores the model default
+    before applying that stage's visibility tracks. `PreparedPart` omits model-hidden
+    geometry (`nvf-assets/src/actor.rs::prepare_part`), so all retained shapes start
+    shown. Visibility of every named ancestor and the shape itself is combined; shared
+    nodes change all their shapes together. Package hiding masks this combined state
+    without changing the retained clip state, including for parts on separate back
+    bones [design, #2512]. `alert::show` runs before `weapons::reparent`, which reads
+    its package-hidden marker and writes the final model-shape visibility; clearing
+    the marker restores the retained clip state. No attack/reload transform tracks are
+    applied to NPC weapon parts. A state change logs `npc weapon part: <actor> <node>
+    hidden/shown` once per model target, independent of the number of shapes below it.
+    Original-game parity of the persistent state and reset rule is [hypothesis];
+    observer check 167 covers it. Synthetic regressions are in `weapons.rs` and
+    `attack_anims.rs`, with the game smoke `npc-launcher-round`.
 
 ### 9.8 The moving parts of a weapon [observed unless tagged]
 
@@ -976,6 +1035,53 @@ with `minefrag.nif` under `Weapon`.
 - The plasma (0x433D), pulse (0x433E) and powder charge (0x109A0B) mines are also
   "Land Mine" and get the same; they were not compared with the game.
 
+### 9.12 Rotation that adds up: `BSRotAccumTransfInterpolator` [observed unless tagged]
+
+Sources: `fnvtool nif stats` over every mesh archive of the base game and the add-ons
+(block types per file), `fnvtool nif decode` of the files named below.
+
+- The block is an NiTransformInterpolator with no fields of its own [documented:
+  nif.xml, schemas/nif/anim.json]. 21 `.kf` files in `Fallout - Meshes.bsa` use it, none
+  in `Update.bsa` or the add-on archives: 17 of Anchorage's chimera tank (no creature
+  of FalloutNV.esm uses that skeleton, actors.md §8.11's table), the first-person
+  `_1stperson\2hmattackspin.kf` and `2hmattackspin2.kf` and the third-person
+  `_male\idleanims\vats2hmattackpower_attackspin.kf` (node `##SawBlade`), and the
+  Securitron's walk `creatures\nvsecuritron\locomotion\mtforward.kf` (node `Bip01
+  Wheel`). Until 2026-11-09 NVForever played none of them [design:
+  `fnv_nif::anim::transform_track` had no case for the type, so its tracks became
+  `TrackData::Other` and were skipped], so a walking Securitron's wheel stood still
+  (Victor's, seen in a playthrough of NVForever).
+- **The Securitron's wheel.** `mtforward.kf` (Forward, 2.67 s, loops) keys `Bip01 Wheel`
+  with 81 quaternion keys a frame apart. Each key is the first key followed by a turn
+  about the node's own X axis (`conj(first) · key` is a pure X turn at every key), 8.2–8.3°
+  a frame, 661° backwards over the cycle; so the last key is 59° on from the first, not
+  back where it started. The run (`mtfastforward.kf`), `mtbackward.kf`, the turns and every
+  limping clip key the wheel with ordinary interpolators (B-spline, or 81 plain
+  quaternion keys sweeping 773° in the limping walk and run), interpolators NVForever
+  already played [design].
+  At the walk's ground speed (120.2 units a second, actors.md §8.10) 661° in 2.67 s is a
+  wheel about 28 units in radius rolling without slipping.
+- **The saw blade.** The three `attackspin` clips are played once (cycle type 2, clamp)
+  and key `##SawBlade` with Euler XYZ keys: Z from 0 to −53.8 radians (about 8.5 turns)
+  over the first person's 1.53 s clips. Euler angles are interpolated angle by angle, so
+  the turns come out whole within the one play.
+- **What NVForever does** [design, `crates/fnv-nif/src/anim.rs`,
+  `engine/nvf-assets/src/anim_play.rs`, `anim_blend.rs`; hypothesis for the adding up:
+  from the name and from the wheel's keys, whose last key is where a further cycle would
+  go on from without a seam; not compared with the original]: it reads the block as an NiTransformInterpolator and
+  keeps the turn one cycle makes, `conj(first key) · last key`
+  (`fnv_nif::anim::TransformTrack::per_cycle`). A looping clip that has played `n`
+  whole cycles gives the keyed rotation followed by that turn `n` times
+  (`TransformTrack::rotation_after`), so the wheel keeps rolling instead of jumping back
+  59° every 2.67 s. Actors and creatures (`anim_play::BlendPlayer`) count a slot's cycles
+  from its phase wrapping (a clip moved to another slot, as the walk is when it fades
+  out, keeps its count; a clip new to every slot counts from none); the player's body
+  (`anim_blend::Animator`) counts them from a looping layer's time; clamped clips count
+  none, which is all the saw blade needs.
+- Not handled [design]: `BSTreadTransfInterpolator` (the Ripper's chain in `1hmidle.kf` and
+  `sneak1hmidle.kf`, Liberty Prime's `1gtequip.kf`), whose formula is not known
+  (nif-engine-gap-audit.md §3.4).
+
 ### 9.5 The first-person rig [observed unless tagged]
 
 - `meshes\characters\_1stperson\skeleton.nif` is the only non-`.kf` file of its folder
@@ -1018,3 +1124,67 @@ with `minefrag.nif` under `Weapon`.
 - Weapons: WEAP `WNAM` "1st Person Model" names a STAT [documented: xEdit]; the 9mm
   pistol's is `1stPerson9mm` (0x000E7653), whose model is the same `9mm.NIF` with
   texture swaps (`MODS`).
+
+### 9.13 NPC turn clips and the accumulation-root basis
+
+- [observed: contributor's 2026-11-17 TTW playtest, #2859] A Brotherhood knight's model tips over
+  when it turns to speak. The recorded activation says its greeting without opening
+  a conversation; the AI owns its heading and the armed locomotion consumer selects
+  `locomotion\2haturnright.kf` and then `2haturnleft.kf`. This reaches the ordinary
+  NPC movement binder, rather than the dialogue camera or dialogue-only head turn.
+- [observed: the loaded KF files' `NiControllerSequence` and
+  `NiTransformInterpolator` data, 2026-11-17] Both turn files name `Bip01` as the
+  accumulation root, contain a `Bip01 NonAccum` track, and give `Bip01` a static
+  rotation that takes its up axis almost horizontal. The loaded unarmed
+  `mtturnleft.kf` and `mtturnright.kf` have the same static root orientation;
+  `2haforward.kf` and `2habackward.kf` instead start with an almost identity root.
+  These are asset observations, not an original-game playback capture.
+- [design] An NPC turn played in place starts its accumulation-root rotation at
+  the identity: `BoundClip::turn_in_place` takes the basis from that clip's own
+  starting rotation, and the existing pose sampler removes that basis. Relative
+  keyed rotation and every child-bone pose are retained. `locomotion::bind_move`
+  applies this only to `Move::TurnLeft` and `Move::TurnRight`, including weapon,
+  crouched, hurt and replacement movement sets. Other movement and generic clip
+  binding keep their existing policy; there is no actor ID or corrective angle.
+- [hypothesis] The original game plays these turn clips with the actor upright,
+  keeping only the root rotation relative to each clip's start; how it treats the
+  exported static root orientation has not been observed in its playback. The
+  same is assumed, unobserved, for every turn clip of the weapon, crouched, hurt
+  and replacement movement sets, which the design above covers beyond the four
+  files inspected.
+- [implementation validation] `anim_play::tests::turn_in_place_…` exercises the real
+  `BlendPlayer::sample` consumer with a tilted static root plus NonAccum, phase
+  wrap/release, relative keyed rotation and absent root/rotation controls.
+  `locomotion::tests::turn_moves_remove_exported_root_basis_at_the_pose_consumer`
+  calls the production move binder and sampler for both turns, idle, forward and
+  backward. These four portable controls and the three retained generic root
+  height/rotation controls each passed once in hosted CI for implementation head
+  `8548f552`. The same consumer fixture is prepared against the previous production
+  interface for an unchanged-expectation baseline comparison; that baseline is
+  still unrun.
+- [implementation validation] The local-data fixture
+  `locomotion::tests::loaded_turn_assets_keep_accumulation_root_upright` was ignored
+  in the hosted run. A later Windows Rust 1.99 CPU application-test run on integrated
+  source `01fb825f` (tree `d8190206`) executed it with `NVF_TURN_CLIP_DIR`,
+  `NVF_NIF_SCHEMA` and `--ignored --exact`: one aggregate test passed once, with no
+  failures or ignores. All four pinned armed/unarmed left/right files reached the
+  NIF parser, clip conversion, production move binder and pose sampler; root-up
+  assertions completed at phases 0, .25, .5, .75 and 0 for each file. The portable
+  binder/sampler control also passed once. Both complete Knight runtime/test files,
+  NIF decoder sources and five schemas match public `4d4b353a` byte for byte. This
+  QA opt-level 0/debug 0 CPU result is separate from the hosted graph/profile;
+  compiler exit zero retained a descendant-shutdown warning, and all owned Jobs
+  ended with unchanged source seals. No Game/GPU or native playback was run, and no
+  game files are included in the source.
+- [implementation validation] The [hosted CI run](https://github.com/LootJunkieAzza/NVForever/actions/runs/44024337735)
+  and [game-data guard](https://github.com/LootJunkieAzza/NVForever/actions/runs/44024337705)
+  passed all seven checks for `8548f552`, using Rust 1.100.0. Actual checkout
+  `d2226113` has parents main `a0ebe1c5` and that head, with the same complete tree:
+  core 3,444 passed/0 failed/5 ignored; engine 3,413 passed/0 failed/4 ignored.
+  Root/engine strict Clippy, dependency and tools checks passed. These results
+  qualify that implementation revision; later heads retain their own check status.
+- [open] Same-fixture baseline failure/corrected success and the installed-mod
+  knight's rendered greeting still require execution. Original-game playback and
+  parity of relative root rotation remain unobserved; the executed actual-KF CPU
+  consumer does not qualify performance, all animation or dialogue behavior, or
+  full installed-mod acceptance.

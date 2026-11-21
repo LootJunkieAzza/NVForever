@@ -230,6 +230,14 @@ every PACK and IDLM subrecord of the six masters decodes with nothing left over
 - A script package (`AddScriptPackage`) takes precedence over all other packages until
   it is done; an actor has one at a time; without Must Complete / Must Reach Location it
   is removed at the next evaluation; it is saved with the game.
+- The same package added again while it is still the actor's current one and its goal
+  was met (no choice has dropped it yet) begins afresh: the goal is forgotten and the AI
+  takes it up anew, as after ResetAI; added while it still runs, nothing changes
+  [hypothesis: the GECK wiki's "until it is done" read per call; observer check 183].
+  The Lucky 38 elevator Victor needs it: his OnActivate adds his Dialogue package on
+  every talk and waits for the conversation before showing the floor box, and a second
+  talk soon after Stay Here otherwise opened none, for good [observed:
+  Lucky38VictorElevatorScript, SCPT 0x0015725D in FalloutNV.esm; issue #2424].
 - `EvaluatePackage` drops even a Must Complete / Must Reach Location package and chooses
   again.
 - Flags that shape choosing: **Must Complete** (does not end until its conditions are met:
@@ -256,12 +264,93 @@ location, in cell (radius ignored), near reference; the radius is editable.
 - **Travel**: go to the destination, using navmesh preferred triangles "but not in
   interiors"; stop at the edge of the destination radius; the destination must be on the
   navmesh. Package idles play at the destination.
+  - **At an xMarkerHeading** (built 2026-11-08) [documented: GECK wiki, NPC population,
+    level-design.md: the heading version "shows which way an actor standing there will
+    face"]: an actor whose package location resolves to a placed xMarkerHeading (the
+    engine's base 0x34) turns, once there, to the marker's heading at the standing turn
+    rate (`fnv_ai` `marker_heading`, set in `settle`, for every package type that
+    settles there; a sandbox keeps its own). Owner report (TTW, the G.O.A.T.): Mr.
+    Brotch at `CG03MrBrotchTeachMarker` (heading 22°, towards the desks) faced the lab
+    bench, the heading he walked in with. Whether the original turns for a radius other
+    than 0 (his `CG03MrBrotchGiveGOAT` has 20) is not known; ours turns for any.
+    [design, #2526: `fnv_ai::goal::location_reference`, `carry::marker_heading`]
+    Near reference, near linked reference, near object ID and near object type share
+    the destination-reference resolver. `Goal::Near` retains the selected reference
+    alongside the travel position; arrival facing reads it without repeating the
+    nearest-object search from the actor's new position. Guard with Remain Near
+    Reference to Guard retains its effective target, so an unrelated location marker
+    cannot supply its heading. Plain XMarkers
+    keep the walker's arrival heading; furniture, sandbox and guard-wander handling
+    retain precedence. [documented: #2526 writer brief, main session's fnvtool esm
+    decode / ai show of FalloutNV.esm] Kimball's guards `VHDRangerKimballGuard01REF`
+    (0012FCD4) and `02REF` (0012FCD5) use Travel `VHDKimballGuardSpeechIdlePackage`
+    (00131F13), near linked reference, radius 0; their linked stage markers 00131F0E/F
+    are xMarkerHeading base 00000034, z rotation 3.3832 rad.
+  - **At the editor position** [hypothesis, #2526, observer check 213]: Travel and
+    standing Guard with a near-editor location radius below `GUARD_WANDER_MIN_RADIUS`
+    (16 units, the existing #2027 cutoff) face the actor's placed editor z rotation.
+    [design: `carry::settle`, `marker_heading`] This excludes sandbox/wander and Guard
+    remaining near its target; it turns at the existing standing rate. A runtime-created
+    actor without a placed editor rotation has no arrival heading supplied by this rule.
+    [documented: #2526 supplied ai-show evidence] The speech crowd's
+    `VHDCivilianIdlePackage` (00133EC3) is Travel near editor location, radius 0.
+  - **Guard package selection audit** [documented: #2526 supplied `2526-ai.json`,
+    `2526-guard-packages.json` and w2 brief; main-session fnvtool ai show and quest-script
+    SLSD/SCVR decode of FalloutNV.esm, 2026-11-15]: both guards' list order is StageFront
+    (00135004), KimballDead (00134B20), SpeechIdle (00131F13), Saferoom01/02
+    (00133EB6/7), then Follow01/02 (0013259E / 00131F12). All conditions are AND,
+    run on subject. VMQ03a (00131F08, script 00131F0A) variable indices are
+    `iKimballFlee` 2, `bKimballSaferoom` 3, `AssassinAttack` 5,
+    `iVertibirdBombActive` 9, `iDetonatorFound` 11, `bKimballDead` 26;
+    VHDKimballSpeech (00130C78, script 00130C77) `iKimballStage` is index 4.
+    With `iKimballStage = 2` and these VMQ03a variables at 0:
+    - StageFront requires flee != 1, detonator < 2, bomb < 3, attack == 2 and
+      GetIsReference(guard02) == 1. It fails attack == 2 for both, and the reference
+      condition also excludes guard01.
+    - KimballDead requires dead == 1 and fails; SpeechIdle requires dead == 0,
+      flee == 0 and speech stage == 2, so passes for both and wins before the rest.
+    - Saferoom packages require saferoom == 1, flee == 1 and their own guard reference;
+      Follow packages require only their own guard reference. Neither can displace a
+      valid earlier SpeechIdle. During attack == 2, StageFront can win for guard02
+      when its other conjuncts pass; it never wins for guard01.
+    [documented: supplied `2526-records.md`, SCPT 00145EC2] Moore's introduction sets
+    the speech variable to 2 and reevaluates both guards. [design: `fnv_game::ai`
+    `select_package`, `check_package`; `game::eval_conditions`; `functions::quest`
+    `get_quest_variable`; `functions::refs::get_is_reference`] The evaluator reads
+    quest instance variables by index, compares the subject for GetIsReference and
+    chooses the first valid package. Synthetic `fnv-ai/tests/carry.rs` coverage checks
+    the supplied conjunctions/order for both guards, including attack, death, flee and
+    saferoom transitions: no condition-evaluation bug is established. The selected
+    SpeechIdle destination is each guard's linked stage marker; retaining its heading
+    fixes the demonstrated facing defect. [design: tools/smoke/scenarios.toml]
+    `scene-kimball-guard-natural-heading` stages these quest variables and asserts both
+    natural SpeechIdle selections and arrival headings without AddScriptPackage;
+    `scene-kimball-guard-heading` remains the focused forced-package arrival check.
 - **Sandbox**: ambient behaviour within the location radius: it scores nearby objects
   (food, furniture, idle markers, other actors), weights them by a per-kind probability
   that drops to zero for the kind just chosen and rises for the others; sleep start
   19:00–01:00 and duration 6–10 h rolled when the package starts; breakfast 6–9, lunch
   11–14, dinner 17–20, meals 0.5–2 h (defaults of the fSandbox… settings); a sandbox
   near the start of a linked patrol route sandboxes at each point for its idle time.
+  Repeating an action: the setting `iSandBoxPreventRepeatedActionTime` (default 30)
+  keeps a sandboxing NPC from repeating an action on the same object until that many
+  seconds have passed [documented: GECK wiki, iSandBoxPreventRepeatedActionTime]. The
+  page does not say when the seconds start (the action's start or its end) or what the
+  NPC does in the meantime when nothing else is open. NVForever does not read this
+  setting: its own rule for the object just used, and for the only object open
+  (60 s, issue #1505), is a design choice under the maintainer's review
+  (docs/design/actor-behaviour.md §5.5, docs/owner-review.md; observer check 114 asks the original).
+  The action-type rule permits repetition “unless it has no other options”
+  [documented: GECK wiki, [Sandbox Package, Action Selection](https://geckwiki.com/index.php?title=Sandbox_Package),
+  offline revision 32636]. An idle-marker-only package with just its last marker open
+  reuses that marker at expiry without Standing [design, #2715:
+  `fnv_ai::sandbox::Allowed::only_idle_markers`, `Sandbox::next`]. All five other
+  behaviours must be disabled; permitting one retains the default even when it has
+  no available choices [design, #2715: `Sandbox::next`]. Pacer's cower package permits only idle markers and names
+  VFSNCRFightPacerMarkerREF (REFR 0x001293EC), DefaultCowerIdleMarker (IDLM 0x000C47CC,
+  timer 0), with LooseCowerIdles (0x000C0A9A, looping 3rdP_Cowering.kf)
+  [documented: #2715 issue comment, supplied record findings]. That he stays cowering
+  throughout the original's staged fight is unmeasured [hypothesis; observer check 208].
 - **Patrol**: walk the chain of linked references; repeatable patrols loop (or go back
   and forth) and start at the nearest point; non-repeatable ones start at the first point
   and are done at the last; data on the points (Idle Markers, XMarkerHeading: idle time,
@@ -284,7 +373,18 @@ location, in cell (radius ignored), near reference; the radius is editable.
   DefaultGuardNPC (Strip securitrons, super mutant guards; 128), the Nellis Boomer tower
   guards (256 around a tower marker), PowderGangerGuardMixedPackage (linked reference,
   distance 0, radius 256 around the editor location) and V22MantisFemaleEggGuardPackage
-  (300) [observed: `fnvtool ai show`].
+  (300) [observed: `fnvtool ai show`]. **The wander, built 2026-11-11 (#2027)**: "If it
+  has a radius greater than 0, the actor will wander within that radius" [documented:
+  GECK wiki, Guard Package, Guard Location]; the location's radius, not the guarded
+  reference's guard radius (Count / Distance, for intruders). Of FalloutNV.esm's Guard
+  packages 115 have a location radius, used by 149 actor bases and 430 placed actors
+  [observed: the issue's census]. In the original two settlers on
+  DefaultGuardStayAtPosition01 (near editor location, 128) kept moving inside an area of
+  about that size, procedure 44 GUARD throughout [observed: AI observer 2026-11-10, issue
+  #2027]. Here (`fnv_ai::carry::guard_wander_radius`, `Sandbox::guard`) a guard that has
+  arrived wanders as a sandbox with only wandering on (actor-behaviour.md §5.5); a radius
+  of 0, and a Guard with Remain Near Reference to Guard (§7.7), stand as before
+  [design, #2027]. How often and how far it moves is ours (observer check 115).
 - **Follow / Accompany / Escort**: keep a distance to a target actor (follow walks
   behind it; accompany paths to its destination; escort leads it to a destination);
   follow can have start and end locations.
@@ -313,10 +413,36 @@ location, in cell (radius ignored), near reference; the radius is editable.
     the activate distance.
   - **Do Not Control Target Movement** off: with a trigger location the target "will
     walk towards that location when the dialogue package starts", without one it "will
-    stand still and wait for the actor to reach the activation distance". **No
+    stand still and wait for the actor to reach the activation distance". NVForever
+    walks the player for case 2 (a wait location of radius 0) with the flag off and
+    the player as the target: once the player is within the activate distance and in
+    the actor's sight but outside the trigger location (a box or a radius), the player
+    walks, at walking pace and with the movement keys set aside, to the nearest point
+    48 units inside the box (or within three quarters of the radius), and the
+    conversation opens there (`fnv_ai` `lead_player`, `Game::player_lead`, nvf-play
+    `dialogue_lead_walks`) [hypothesis: when the walk starts, its pace and where it
+    ends; observer check 186]. A walk that gets no nearer its point (8 units) for 1.5 s,
+    something solid in the way, ends and the actor talks where the player stands
+    (`fnv_ai::carry::LEAD_STUCK_SECONDS`) [our choice: the player is never held walking
+    into a wall]. A trigger location that is a cell, or a reference with
+    neither radius nor box, keeps the plain case 2. Scripts count on it: Paladin Ramos's "Follow me" (INFO
+    000A3CE0, HVRamosEntryDialogPackage, activate distance 300) disables the controls
+    and leaves the escort to the OnTrigger block of HVRamosTargetDialogTrigger, which
+    moves Ramos and the player to HiddenValley02 and gives the controls back only
+    while the player is inside the box; the box ends 218 units from Ramos's wait
+    marker, so a player greeted at 296 units stood outside it for good (issue #2453)
+    [observed: the scripts, `fnvtool script decompile --form 15E57A`]. **No
     HeadTracking**: speaker and target "will not be forced to look at each other by the
     package". FOV: the dialogue menu's zoom when the target is the player. Topic: the
     first topic of a conversation between two NPCs, or the Say To line.
+  - **A target other than the player** (an actor, or a talking activator, which speaks
+    for its talking actor): the actor goes up to it as to the player and starts a
+    conversation between actors (`Game::start_actor_conversation`, dialogue.md §5.1);
+    the package lasts while the two talk (issue #2451: Veronica's
+    FollowersVeronicaForceGreetIntercom, target HVIntercomREF). Only the player is
+    measured for a clear line. Before, such packages were parked "not carried out"; the
+    masters' others are the Strip's VStripSS1* street scenes and
+    CaptainParkerArrestKeith [observed: `fnvtool ai show`].
   - Must Complete: the package "will not reevaluate until actor has engaged in
     dialogue with the target".
   - **A wait location that is furniture**: the actor sits on it and talks from its
@@ -396,10 +522,16 @@ not work" on Escort]:
   player followed led the player to its location; our choice: the 64]. At the destination its goal is met. A target that is gone or dead
   is not waited for [our choice]. Without PKE2, 200 [our choice: the most common value].
   The target's own count / distance (256, 800) is not used [hypothesis: unknown meaning].
-- **Joining the target's fights** (since 2026-10-20, `Game::escorts_assist` in
-  `fnv_game::provocation`, called with `Game::call_allies`) [documented: Defensive Combat,
-  "if the target is attacked, the actor will join into the combat"]: while its current
-  package is Escort, the actor takes up its charge's fight against each actor attacking
+- **Joining the target's fights** (since 2026-10-20 for Escort, since 2026-11-16 for
+  Follow and Accompany too, #2793; `Game::escorts_assist` in `fnv_game::provocation`,
+  called with `Game::call_allies`) [documented: Category:Packages, Defensive Combat, "The
+  exception is for the Accompany, Escort and Follow packages. For these three, if the
+  target is attacked, the actor will join into the combat"]: while its current package is
+  Accompany, Escort or Follow (`provocation::CHARGE_PACKAGES`; the charge is the package
+  target, PTDT, a specific reference or the linked reference, the same field for all
+  three [documented: Follow Package and Accompany Package, "Specific Reference: actors
+  only", "Standard Reference selector, filtered to actors"]), the actor takes up its
+  charge's fight against each actor attacking
   the charge (in a combat state with the charge on its target list, or having hurt it):
   it holds a grudge against the attacker and is alarmed at its position, as an assisting
   ally (combat-ai.md §10.3), whatever its Assistance and whether or not the package is
@@ -412,8 +544,12 @@ not work" on Escort]:
   once the other side fights back (then it attacks the charge); a charge that provoked
   the attacker is helped all the same; it holds from the package's start to its end, also
   once the destination is reached; an escort that is the player's teammate is left to
-  the teammate rule (followers.md §3). Follow and Accompany share the documented
-  exception and are not built. No placed actor runs an Escort package without a quest
+  the teammate rule (followers.md §3). A Defensive Combat actor still starts no fight of
+  its own (`Game::hostility`): it only joins its charge's. Before #2793 only Escort was
+  built, so the Hoover Dam escort Securitron (`VHDSecuritronEscort01REF` 0x001554DB on
+  `DefaultFollowPlayerFar` 0x001554DC: Follow, target the player, Defensive Combat)
+  never fought the Legion attacking the player [observed: a tester's events file, issue
+  #2793]; smoke scenario `house-escort-assist`. No placed actor runs an Escort package without a quest
   stage (NellisRaquelIntroEscortAIPackage, GomezEscortTo*), so the smoke scenario
   `package-escort-fights` gives one by script. Log: `provocation: <escort> helps <charge>
   against <attacker>`.
@@ -434,6 +570,24 @@ normal package behavior"]:
     CMNY): it picks it up (the default activation); flora: it harvests it; furniture: it
     sits (or lies) on it; an actor, a container or anything else: it goes up to it (for a
     specific reference, within the target's distance);
+  - furniture another actor sits on, or is on its way to, is passed over, and the
+    furniture it sets off to is kept for it, as for Use Item At (since 2026-11-08)
+    [hypothesis, from an owner report: in Tale of Two Wastelands nobody looked to sit at
+    the school desks in the G.O.A.T.]. Fallout 3's classroom (CG03, `Fallout3.esm`) seats
+    its students by Find packages (`CG03AmataTakeTest`, `CG03ButchTakeTest`,
+    `CG03PaulTakeTest`, `CG03WallyTakeTest`, `CG03SusieMackTakeTest`,
+    `CG03FreddieTakeTest`, `CG03ChristineKendallTakeTest`; target object type Furniture,
+    search near `CG03ClassroomMarker` radius 350, Run In Sequence `LooseSitTakingTest*`
+    idles) [observed: `fnvtool ai show`, TTW 3.4 load order]. Before, Amata and Wally both
+    went to Christine Kendall's desk and Butch and Paul to Susie Mack's, each pair beside
+    one already seated ("cannot use …: in use"), and only three students sat [observed in
+    ours]. Furniture the player or any other actor the engine seats is on is not free
+    either (`Game::furniture_used_by_other`, also for Use Item At): the player has no
+    desk of their own in the data (eight desks, seven students; the classroom trigger
+    `CG03ClassroomTriggerSCRIPT` sets stage 50 once the player sits and stage 60, the
+    test, only once all seven students report `GetSitting` 3), and Paul went to the desk
+    the player sat at and stood by it, so the test never began [observed in ours]. The 16
+    Find packages of the New Vegas masters that look for furniture follow the same rule;
   - a dead actor carrying what it looks for: it takes one from the body;
   - **Allow Killing**: it attacks a living actor it looks for, or one carrying what it
     looks for (the geckos' and stalkers' "Find Food" packages with object type Food and
@@ -495,6 +649,10 @@ ambush location, then will drop out of combat and perform the normal package beh
   reference, always; a base form or faction: its members) or, with no target, an actor it
   would attack (`Game::would_attack`) [hypothesis]. Without a location 2, within 1,024 of
   where it waits [our choice; every master Ambush has one].
+- In the original an ambusher on QJDeathclawAmbushPackage did not spring on the player
+  hidden inside its ambush location, nor on the player detected outside it; it sprang
+  when the player was both detected and inside [observed: npc-behaviour-compare.md
+  §16.2]. The rule above has no detection test.
 - **Hide While Ambushing** does not make it sneak [observed: §4, IsSneaking 0 in every
   sample of GoodspringsSettler04Ref waiting under GSSettlerAmbushPackage, which sets
   it]; what it does is not known, and here it is only reported.
@@ -526,8 +684,15 @@ different thing: `fnv_ai::alert`); ForceFlee]:
   way on land (it is still taken when there is no other) [our choice]; with it 3 times,
   as before.
 - **Allow Falls**: "Actors will not jump off of an elevation that will cause damage
-  unless this flag is set" [documented]: with it the way may use the navmesh's ledge links
-  [hypothesis: ledge links are those drops].
+  unless this flag is set" [documented: GECK wiki Category:Packages, Flags Tab].
+  [design, #2532: `fnv_ai::Ai::path_params`, `fnv_nav::PathParams::safe_drop_max`]
+  With it the existing unrestricted ledge policy applies. Without it, an authored
+  downward link may connect an otherwise unreachable route when its planned takeoff
+  to landing is no higher than `fJumpFallHeightMin` (fallback `SAFE_DROP_HEIGHT`, 600,
+  following `engine/nvf-play/src/falls.rs`; physics.md section 6.10).
+  [hypothesis, #2532] This individual-link height predicts a harmless fall; original
+  scene parity, collision along the arc and cumulative falls remain unverified
+  (observer check 214). No new links or ranger-specific package overrides are created.
 - **No Warn/Attack Behavior** (4 Ambush, 18 Dialogue, 6 Eat and others): no aggro-radius
   warnings or attack (`fnv_game::aggro`) [hypothesis: the flag's name, xEdit; no page
   describes it].
@@ -650,7 +815,9 @@ different thing: `fnv_ai::alert`); ForceFlee]:
     (§1: Find's code, not known before), procedure 7 WANDER, package target none. She
     wandered about the saloon (1,400 units in 0.3 game hours) and did not go to the
     meat. Here the actor goes straight to the nearest object it looks for (§3.1): the
-    original's searching by wandering, and when it then finds, are open (§6).
+    original's searching by wandering, and when it then finds, are open (§6). In the open,
+    a settler and a copy of Cheyenne went straight to the meat (5 to 9 s) [observed
+    2026-11-10: npc-behaviour-compare.md §15.3].
   - **Use Item At** (DefaultUseNearbyFurniturePackage on GoodspringsSettler04Ref, at his
     editor location, a stool 46 units off): type 16 USEITEMAT, procedure 17 DONE at once,
     standing, not sitting, for 0.12 game hours; then the script package was gone and his
@@ -707,6 +874,22 @@ different thing: `fnv_ai::alert`); ForceFlee]:
   (walking to a spot of the sandbox 7, to an object 0; the getting-up 21 held until the
   next thing begins) [hypothesis for the split between 7 and 0 while walking, which the
   samples do not tell apart by destination].
+
+  Types with no done state. Sandbox, Sleep, Eat, Guard, Wander, Follow and Accompany
+  never read 17 above; Travel, Patrol, Dialogue, Use Item At, Flee Not Combat (and Find,
+  Escort, Ambush and Use Weapon, which finish at their goal) do. A script-added Sandbox
+  package is not done on arrival [observed: issue #2012, the original's GSChetRef given
+  DefaultSandboxEditorLocation256 by AddScriptPackage kept it for 1.5 game hours, 1,290
+  samples, with no OnPackageStart, OnPackageChange or OnPackageDone], and "On End idle
+  only works for packages which have a 'done' state" [documented: GECK wiki,
+  Category:Packages]. In NVForever (`PackageType::has_done_state`,
+  `Game::package_goal_met`) a package of those types never meets its goal:
+  - no end script or OnPackageDone on arrival;
+  - a script package of that type stays until it is removed or replaced;
+  - Must Complete keeps holding it.
+
+  A schedule duration still ends one of them on time, with its change script and no end
+  script [design: the original's end of a timed Sandbox is not captured].
 
 ## 5. The reader and the CLI contract
 
@@ -931,6 +1114,18 @@ listed record data the engine ignored. What each piece means, and what is built:
   - Immobile: the AI keeps the creature where it is, as one without movement clips
     (nvforever `residents`, log `ai: <name> cannot move (no movement animations, or
     flagged Immobile)`).
+  - Immobile with a Turning Speed (CREA TNAM) of 0: the creature never turns either, not
+    for a conversation, a line it says to someone, a script's Look or a combat target,
+    and the engine does not draw it aimed at a target (fnv-ai `Ai::fix_heading`,
+    nvforever `residents` `never_turns`, log `ai: <name> never turns`). In FalloutNV.esm
+    4 of the 50 Immobile creatures have 0: MrHouse, MrHouseOFFLINE and YesManMainframe
+    (the penthouse and basement screens) and CRVoid; the 46 others (turrets, spore
+    plants, Festus, NVCRMrHouse, NVCRPenthousemaincomputer) have 30 to 300 [observed:
+    the master's records]. An Immobile creature with a Turning Speed above 0 turns in
+    place to its combat target (a turret). [hypothesis: that the original reads the two
+    fields so; the owner saw the screen stay still in the original and turn here after a
+    conversation and in a fight, issues #1543 and #2150.] Whether the original's screen
+    enters combat at all is not observed (observer-checks.md).
   - The flags come through a template with "Use Model/Animation" [hypothesis: the
     Animation tab goes with the model]; Immobile is read off the base record only.
 - Not built: a creature that swims but neither walks nor flies keeping to water (none in
@@ -983,7 +1178,8 @@ listed record data the engine ignored. What each piece means, and what is built:
   combat target. If the owning actor is the player, the target may also be any actor the
   player is currently aiming at, even outside of combat" [documented: GECK wiki
   Category:Conditions, Run On]. A condition run on it is evaluated on the subject's
-  combat target as GetCombatTarget gives it; with none (out of combat, or the player,
+  combat target as GetCombatTarget gives it (kept while out of sight, through Lost,
+  docs/design/alert.md §6); with none (out of combat, or the player,
   whose aim the engine does not hand to the conditions) the condition is run on nothing,
   as before.
 
@@ -1011,8 +1207,9 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   [documented: Category:Packages]; "said by actors on a random basis who aren't in
   combat" [documented: Conversation Tab]): one timer for the loaded area, drawn between
   `fIdleChatterCommentTimer` and `…Max` (15 and 60) [hypothesis: the settings'
-  meaning]; when due, an actor within 300 units of the player (the random conversations'
-  distance) is drawn and says its line. Log `ai … <actor>: chatters (<d> units from the
+  meaning]; when due, an actor within 200 units of the player (the hello distance) with a
+  clear line to it is drawn and says its line, under the waits and the memory of lines
+  that hellos have (dialogue.md §5.2; 300 units and neither until 2026-11-11, #2156). Log `ai … <actor>: chatters (<d> units from the
   player), line <info>`.
 - **Reaction To Player Actions** (the Topics Tab's "special topics used to get actors
   responding to player actions" [documented]): when the player's body starts a gun's
@@ -1071,6 +1268,14 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   LilyPsychoticBreakPACKAGE (a reference, 1,500), VHDMPStageGuardPackage (linked
   reference, 512) and VHDOliverNCRHeavyTrooperFireSupportHuntPlayerPackage (object type
   None: no reference, so its location stands) [observed: PKDT/PTDT of FalloutNV.esm].
+- **Guard type-specific flags, the unnamed bits**: of the 175 Guard packages in
+  FalloutNV.esm the raw value is 0 in 110, 2 in 31, 6 in 10, 4 in 9, 1 in 7 and 5, 16,
+  18, 21, 29 (twice) and 59 in the rest [observed: PKDT]. xEdit names bit 3 only. In the
+  original, of five Guard packages with Continue During Combat given to a knife trooper,
+  the two with raw value 2 held it inside the guard radius and the three with bit 2 set
+  (raw 6, 6, 4) did not [observed: AI observer 2026-11-12, observer-checks.md check 108;
+  that bit 2 is the cause is a hypothesis]. A spawned actor's editor location is the
+  spot PlaceAtMe put it at [observed, the same check].
 - **Stay-at locations by Object ID, Object Type, "At package location"**: the Standard
   Location page names only Near Editor Location, Near Current Location, In Cell and Near
   Reference; how the other kinds choose a place is undocumented. Built (#961)
@@ -1134,3 +1339,264 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   actor exactly at the walk's end or somewhere part-way / within the package's radius;
   whether a short fast travel inside the loaded area moves anybody (ours: nobody,
   [design]); whether the hours a fast travel passes matter beyond choosing the package.
+
+## 9. A script moving the clock (issue #2353)
+
+- **The case** [documented: `fnvtool script decompile`, FalloutNV.esm]: Doc Mitchell's last
+  line (INFO 0x001057E7) ends by showing the Hardcore box (activating 0x0011F293, whose
+  script shows the message and reads the button in GameMode), giving the controls back and
+  starting the quest VGenericTimer (0x00168A86) with a 0.1 s timer counted with
+  GetSecondsPassed; at its end VGenericTimerSCRIPT sets VCG01 to stage 200, whose script
+  does `set GameHour to 8`. A player who answers the box and goes straight out of the door
+  arrives in Goodsprings before that stage runs, so the residents are placed on arrival
+  (§8) for the chargen clock's early morning (Easy Pete in his bed: EasyPeteSleepPackage,
+  00:00-08:00, in GSHouseInterior03 [documented: `fnvtool ai day`, `ai show`]), and then
+  the clock jumps to 08:00. A write to GameHour only stores the value
+  (`fnv_sim::World::set_global`); before #2353 nobody chose again until its periodic turn
+  (§3, up to 10 s on) and then walked from its night place [hypothesis from the code:
+  the issue's chain, not seen in a run; players reported Easy Pete out of place].
+- **What the original does**: not known. The GECK wiki's "How Are Packages Evaluated"
+  lists the periodic choice, EvaluatePackage, ResetAI and the end of a wait, and says
+  nothing about a script setting GameHour [documented: GECK wiki]. Observer check 132.
+- **What is built** [design, #2353]: a script's write to GameHour (`set GameHour to`, the
+  console's `set`, JIP's SetGameHour) that moves the clock face by more than
+  `fnv_game::ai::SCRIPT_HOUR_JUMP` (1 game hour; 23:00 to 01:00 is 2) is noted for the
+  engine (`Game::set_global_by_script`, `Game::take_hour_jump`; several writes before the
+  engine looks are one jump, from the first hour to the last). The engine handles it like
+  the end of a wait: every actor the periodic choice covers chooses its package now
+  (`Game::choose_packages_now`), and every resident the player cannot see (in the cell
+  buffer or an interior behind a door of the loaded cells, not in a drawn cell) is put
+  where its new package's walk ends, on its furniture, by §8's rule (`fnv_ai::Ai::hour_jumped`,
+  engine `residents.rs` `Core::after_hour_jump`). Residents in view are not moved: they set
+  off for their new packages in sight; a walk that would start in view is not skipped
+  either. Those left alone by §8 (dead, in combat, just moved by a script, …) are left
+  alone here too.
+- **Not changed**: a package's schedule duration ends by GameDaysPassed
+  (`Game::end_timed_packages`), which a GameHour write does not move, and a held package
+  (Must Complete, Must Reach Location until its goal) stays through the new choice. So the
+  Goodsprings night stalkers of #2279 are not obviously fixed by this.
+
+## 10. A Find package for the player: Cachino in Gomorrah (issue #2473)
+
+- **The data** [observed: `fnvtool ai show --actor VMS21CachinoREF`, `script decompile`,
+  `dialogue lines`, `world refs --cell Gomorrah01`, FalloutNV.esm]:
+  - Cachino (`VMS21CachinoREF` 0x0011118D, base `VMS21Cachino` 0x0010C6F5) is placed
+    initially disabled in Gomorrah01 ("Gomorrah Main Level") at (7159, 1281, 6400).
+  - The lines where the player asks Gomorrah's people about him enable him: the end
+    scripts of INFO 0x001750C7 / 0x001750A9 (topics `vDialogueGomorrahGenericTopic003` /
+    `005`, the player's two prompts asking where Cachino is), 0x001750CD (`Topic007`), 0x001750B4, 0x0016318A, 0x0016318B, 0x0011663F
+    (`Topic006`) and the receptionist's 0x001537FF all run `0x0011118D.enable` (and
+    `setobjectivedisplayed 0x00136166 27 0`; 0x001750C7 also sets VMS21's
+    `icachinoquestions` to 1, 0x001537FF sets VMS21's objectives 1 done, 10 shown). Two of
+    those lines tell the player that Cachino will come to them: 0x001750CD (he will be sent
+    to the player, who should wait at Brimstone, the bar of the main level) and 0x001750B4
+    (he will find the player).
+    No quest stage is set and no script calls StartConversation, EvaluatePackage or
+    AddScriptPackage on him at that point.
+  - His package list, in order: `VMS21CachinoNeroSit`, `VMS21CachinoSalSit`,
+    `VMS21CachinoDialoguePackage2` (a Dialogue package of the boss-room scene, VMS21
+    variables 5 >= 2 and 28 == 0), `VMS21CachinoBossRoomTravelWait`, then
+    **`vGomorrahCachinoDialoguePackage`** (PACK 0x00119485), then
+    `DefaultSandboxLinkedMarker256NoSleepNoWander`. The first four read quest variables
+    of the later scenes; the fifth is the one for this moment.
+  - `vGomorrahCachinoDialoguePackage` is a **Find** package (type 0, not Dialogue), no
+    flags, schedule any time, location "near editor location" radius 0, target the
+    specific reference PlayerRef with count / distance 0, no begin / end / change topic
+    or script. Conditions: `GetTalkedToPC == 0` (subject) AND (target `GetInCell
+    Gomorrah00 == 1` OR `Gomorrah01` OR `Gomorrah02` OR `Gomorrah03`): valid while he has
+    not talked to the player and the player is in any of the four Gomorrah cells.
+  - His GREETING lines (quest `vDialogueGomorrah`) start, for VMS21 before stage 10 and
+    objective 31 not shown, with the Say Once INFO 0x001133A0 (about the player asking
+    questions about him), then 0x001164B1 (for meeting the player again).
+- **What follows from it** [hypothesis]: nothing but the package can bring him to the
+  player, and nothing but a conversation ends it (GetTalkedToPC turns 1 only once he has
+  talked to the player). So the original's Find, for a living actor named as its target,
+  goes to that actor where it is, and on reaching the player it talks: the documented
+  "Find: Idles play when 'activating' the target of the find" (Category:Packages) reads
+  as the actor activating its target, and an actor activated is talked to. The owner saw
+  it in the original: he walks up soon after the player asks and asks why they are
+  asking about the family [owner statement 2026-11-14, issue #2473]. The masters'
+  `DefaultFindPlayerPackage` (0x00140D3E) has the same shape (near editor location,
+  radius 0, PlayerRef), named for finding the player wherever they are.
+- **Before #2473** [observed in ours, smoke `cachino-find-greet` on main]: a radius 0
+  search area was 512 units around the location (§3.1, our choice), for a named
+  reference too; the player asking at the bar or the floor, farther than 512 from his
+  spot, was not in the area, so he found nothing and stood still ("finds nothing more"),
+  looking again every 10 s. Reaching the player only stood him there.
+- **What is built** [design, #2473]: a Find whose target is one reference and whose
+  location has no radius (0) has no search area: it goes after that reference wherever it
+  is (another cell too, over the navmeshes and through doors). A location with a radius
+  keeps its area (`VMS18HeadWaiterGetFood` 128 around the pie, `NellisFindJanet` 128).
+  A Find that reaches **the player**, without Allow Killing and not in combat, starts a
+  conversation as a force greet (`Game::force_greet`, its GREETING; a clear line to the
+  player as for Dialogue packages, `Game::greet_sight`, and held while a menu or a
+  loading screen is up). With nothing to say the package is over as before. Of the 14
+  Find packages of FalloutNV.esm with a specific reference target, five name the player:
+  this one, `DefaultFindPlayerPackage`, `BMTabithaPissedFindPackage` (Weapon Drawn; no
+  actor lists it and no script adds it) and Fallout 3's `FFEU02/05GreetPlayer`, named
+  for the greeting.
+- **Open**: how near the original's actor comes before it talks, how long it takes to set
+  off, and whether a Weapon Drawn Find to the player talks too (observer check 176).
+
+## 11. Package places no walk reaches: the five actors of issue #2405
+
+Players' reports of build 0.7.0 had five named actors log "cannot reach the place of …:
+the goal cannot be reached (0 triangles searched)" every game hour. That text is
+`fnv_nav::PathError::Unreachable` with nothing searched: the door search
+(`NavGraph::door_route`) found no chain of usable doors between the two walkable areas,
+so no triangle was searched; both places were on the navmesh [observed: the code,
+`crates/fnv-nav/src/path.rs`]. Per actor [observed: `fnvtool ai show`, `ai run`, `nav path`,
+`esm decode`, `script decompile`, `world refs`, FalloutNV.esm]:
+
+- **GomezREF** (0x0015A02E, SafehouseNCRINT). Placed in a hidden side room at (7691, 742,
+  6127), on a navmesh island of two triangles. `SafehouseNCRRangerLeave` (Travel, near
+  `GomezDoor` 0x0015A02B at (2811, 951, 6438), by the cave exit, another island of the
+  same cell) is valid while `vSafehouse` variable 10 is 1; that variable is
+  `GomezGoToSleep` (SCRI 0x00159A99, SLSD index 10). No door joins the islands; the data
+  moves him between them only by scripts (the side room's trigger `MoveTo GomezDoor` when
+  his Enter patrol walks into it; the door trigger `MoveTo GomezSleep` and
+  `SetUnconscious 1` while `GomezGoToSleep` is 1). So whenever Leave is chosen while he
+  stands in the side room, no walk gets him there.
+- **AtticusREF** (0x0015A04E, SafehouseLegionINT): built the same way
+  (`SafehouseLegionVeteranLeave` to `AtticusDoor`; `AtticusGoToSleep` is variable 14).
+  His base `SafehouseLegionVeteran` (0x0015A029) has "No Low Level Processing", so out of
+  the loaded area he is never updated (`fnv_ai::process`): his reports can only come
+  from the high process, with the player in the safehouse.
+- **SSHQMalcolmHolmesREF** (0x0010651A). `SSHQMalcolmHolmesWaitsPackage` travels to his
+  editor location in the holding cell `RandomEncounterNPCs` while `VFreeformSSHQ`
+  variable 34 is 0 and the player (run on reference 0x14) is not in WastelandNV
+  (GetInWorldspace != 1). The holding cell has no door. So once he has met the player in
+  the wasteland, the player going into any interior or other worldspace (the reports:
+  SLJeanSkyDivingINT, SLniptonRoadMarketINT) sends him to a place no door leads to; he
+  is then out of the loaded area.
+- **GibsonDogReyRef** (0x00084204, GibsonScrapYardInterior). `DefaultFollowLinkedClose`
+  follows his linked reference `OldLadyGibsonRef`, whose day packages
+  (OldLadyGibsonPackageSit) take her out of the shack's door (0x000841F5) to her chair in
+  WastelandNV. His base `GibsonDogRey` (0x000CD230) has "Can't Open Doors" (and "No Low
+  Level Processing"), so by §7.1 no load door is open to him: reproduced headless, an
+  Unreachable at every hour she sits outside.
+- **Ghoul5** (0x00087AEF) and the other REPCONN ghouls in RocketLabTop.
+  `REPCONGhoulRocketWalkPACKAGE` (valid at VMS01 variable 25 == 3) travels to
+  `JasonBrightDialogMarker` (0x0008D47A) in RocketLabBasement. The way is Top → Mid
+  (0x000829EB) → Basement through `REPCONMidToBasementDoor` (0x000840AC), which is locked
+  (level 25, key `REPCONLowerKey` 0x000810E8, which no script gives to the ghouls; the
+  only AddItem of it is to the player). No script unlocks that door. But the trigger
+  `REPCONTopIntercomTrigger` (0x000CD683, script 0x000CE1BB) stands at (512, 2734) in
+  RocketLabTop, just in front of the door to Mid at (512, 2940): while VMS01
+  `nightkinquest` is 3, any actor but the player and teammates entering it is moved on
+  by its script (Chris Haversam to 0x000CE1C5 and disabled; Jason Bright `MoveTo
+  JasonBrightDialogMarker`; the rest given clothes and `MoveToMarkerWithFade
+  REPCONRocketPadDestinationMarker` 0x000CE1B1, all in the basement). So the data expects
+  the ghouls to *start* their walk and be taken off it by the trigger, two doors short
+  of the lock; ours never starts a walk whose whole way is not open.
+
+**What is built** (#2405):
+
+- **Out of sight, no door at all** [hypothesis: the data moves such actors only by
+  scripts or not at all; observer check 145 asks the original]: an actor out of the
+  high process (no body drawn) whose walk to its package's own place (a Travel's, a
+  Sleep's, a Sandbox's centre; not a patrol point, not a walk of its own) has no way, and
+  between whose place and that place there is no door at all, locked and disabled ones
+  counted (`NavGraph::joined_by_doors`), is put at the place and has arrived
+  (`AiEvent::PutThere`, engine log "put at the place of … out of sight, no door joining
+  the two"). Gomez out of sight lands at GomezDoor, inside the door trigger that puts him
+  to sleep when the player comes in and the cell loads (`script_trigger`: an actor
+  touching a trigger in a loaded cell fires OnTriggerEnter); Holmes goes back to his
+  holding cell. A disabled door between the two still joins them, so Loyal behind the
+  B-29 hangar's disabled doors (#2566, check 160) is not moved. In the loaded area
+  nothing changed: the package is set aside as before.
+- **A creature that cannot open doors** whose way (to its package's place, or after
+  the one it follows or goes up to talk to) needs a load door stays, and the package is
+  set aside as for no way, but it is told apart (`AiEvent::DoorsClosedToIt`, engine log
+  "stays: the way to the place of … needs a load door, and it cannot open doors"), not
+  reported as a path failure: Rey stays in the shack while Old Lady Gibson sits outside.
+- `fnvtool ai run --out-of-sight` runs the named actors at the Low level; smoke
+  `ai-no-door-out-of-sight` (headless) and `ai-no-door-out-of-sight-game`.
+- `ai reach` is unchanged: it answers whether an actor can walk there, and its verdicts
+  ("no way there", "only through a door the creature cannot open") are as before.
+
+**Left open**:
+
+- Gomez and Atticus with the player in their safehouse (the high process): still set
+  aside and reported every hour. Putting a drawn actor somewhere needs its body moved
+  as a MoveTo does; not built, pending check 145. Atticus, with No Low Level
+  Processing, is only ever in that case.
+- The REPCONN ghouls: a way closed only by a locked door is still no way, so the walk
+  that would take them into the intercom trigger never starts. Walking as far as the
+  locked door would change what every actor behind a locked door does (54 actor-package
+  pairs in FalloutNV.esm, `ai reach` "only through a locked door the actor has no key
+  for") and the engine's settled rule (tests in `fnv-ai/tests/carry.rs`); observer check
+  204 asks the original first.
+
+### 11.1 The quest pilot's cases: Yes Man, Desmond, Sally (2026-11-19)
+
+The quest pilot's sweep (PR #2401) logged the same "0 triangles searched" for three
+quest actors. "0" did not mean what §11 says: `NavGraph::search_path` dropped the
+triangles of a walk leg whose search failed, so a way inside one area closed by a door
+that opens in place also read "0 triangles searched" [observed: the code; headless
+`fnvtool ai run --actor DLC04DesmondREF` said 186 where `nav path` said 0 for the same
+way]. Per actor [observed: `fnvtool ai show`, `nav path`, `nav graph`, `esm decode`,
+`script decompile`, the pilot's logs under `target/pilot-rerun-*/logs`]:
+
+- **Yes Man, `VMQTopsYesManREF2`** (dam-panel, the Independent ending). Stage 90 of
+  `VHDIndependentBattle` gives him `VHDYesManEndDialogue` (Dialogue, Must Reach Location,
+  Must Complete, target PlayerRef). He stands at the Legate's camp in WastelandNV
+  (102641, 18724), beside `vHDGeneralOliverRef2` (0x001483F1, at (103040, 18736)). The
+  pilot had the player talk to the other placed Oliver, `VHDGeneralOliverRef`
+  (0x00134DB4, same base `VHDGeneralOliver`), in `HooverDamIntOliverArea`, putting the
+  player there as a fast travel would because no navmesh way leads in. No door chain joins
+  that cell to WastelandNV, locked or disabled doors counted: its one door
+  `VHDOliverIntDoorREF` leads to `VHDOliverDoorREF` in `HooverDamIntPowerPlant04` (locked
+  255), which no way from Yes Man reaches either. So the engine was right that he cannot
+  walk to the player there. The Oliver of this ending is the one at the camp
+  [hypothesis: from the placements; the scene's lines are the base's, so either reference
+  says them]. **A pilot chain fix, not an engine one**: talk to `vHDGeneralOliverRef2`.
+- **Desmond, `DLC04DesmondREF`** (The Local Flavor; TTW). His waits and greetings lie
+  beyond a doorway of `DLC04Mansion01` with two doors in it, one of them initially
+  disabled and locked (navmesh.md, "In-place doors not in the world"). Our graph counted
+  the disabled one as a barrier and a door stop. In the game its lock was already left out
+  (`Ai::apply_door_locks` withholds a disabled door's lock), so the stop was the only live
+  effect. The pilot's run still reports the place unreachable after the spawn door opened
+  (`target/pilot-rerun-1/logs/ttw-dlc04mq01-the-local-flavor.log`, 10:11), and the logs
+  do not say which door closed it [observed]. With the reports below, the next run
+  will say.
+- **Sally, `DLC05SallyREF`** (Mothership Zeta 1 and 2; TTW). In MZ2 the force field
+  `0x0F00C8C8` (`DLC05MZDoorSmFieldDown`) refused her by its script, and its door
+  opened in the same moment; her package was set aside for a game hour all the same
+  [observed: rerun-0 log, 04:09:46]. In MZ1 the holding cell's door `0F0068DE` stays
+  locked because the chain's `DLC05MZ1SallyDoor` variable never got to 2
+  (pilot divergence at step 56): quest state, not navigation.
+
+**What is built** (#2405, 2026-11-19):
+
+- The count of a failed search includes the leg that failed: "0 triangles searched" again
+  means no search ran (no chain of doors, a refusing door at an endpoint, a goal in water)
+  [design].
+- An unreachable report says why [design]: `fnv_nav::NavGraph::doors_closing` looks for a
+  way with every door open (locked, opening in place, refused by a script; not doors that
+  are not in the world). The doors on it that are closed to the actor are named, each with
+  its lock ("the way is closed by door 0x0E0035BB (locked, level 255)", "… (its script
+  refused it)"). With no way even then, and no door at all between the two places, the
+  report says "no door at all joins the two places".
+- A door that opens in place and is not in the world bars nothing and gets no stop
+  (navmesh.md).
+- **A genuinely unreachable place** [hypothesis: the original's handling is not
+  documented; docs/design/actor-behaviour.md, "No way there"]: as before, the package is
+  set aside for a game hour and the actor takes the next valid package of its list (§11
+  keeps its out-of-sight rule). Its actor need not wait out the hour when the way opens
+  sooner: a door unlocked, or a door enabled or disabled, already brought the package back
+  (`Ai::apply_door_locks`, `Ai::apply_door_presence`). Now a door that opens in place,
+  named by the report and then opened (by a script's SetOpenState or OnActivate, the player,
+  another actor), does too (`Ai::apply_doors_opened`) [design]. Sally behind the force
+  field is the case. A Dialogue package whose target the actor cannot reach is not
+  carried out from afar: no observation says the original talks across spaces, and the
+  one case (Yes Man) was the chain's [design]. StartConversation from afar keeps its own
+  rule (dialogue.md).
+- Tests: `fnv-nav` `a_door_that_opens_in_place_and_is_not_in_the_world_bars_nothing`;
+  `fnv-ai` `a_door_that_opens_in_place_bars_the_way_only_while_it_is_in_the_world`,
+  `a_door_that_closed_the_way_opening_brings_the_package_back`. `ai reach` over the ten
+  base-game masters gives the same verdicts as main (16,935 pairs).
+
+**Left open**: what closed Desmond's way at 10:11 in the pilot's run (rerun the chain
+and read the named door); whether the original's actors wait at a refusing door or set
+the package aside; the REPCONN ghouls (§11, observer check 204).

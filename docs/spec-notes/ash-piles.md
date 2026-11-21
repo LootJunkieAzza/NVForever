@@ -4,7 +4,7 @@ What an energy weapon's critical kill leaves of a body: the body is turned to as
 alien weapons) or green goo (plasma) and a pile lies where it fell, searched as the body
 was. Code: `crates/fnv-game/src/ash_piles.rs`, `engine/nvf-play/src/combat.rs`
 (`crit_effect`, `apply_hit`), `engine/nvf-play/src/script.rs` (`by_hand`),
-`engine/nvf-play/src/activate.rs`. Smoke: `ash-pile-chet`.
+`engine/nvf-play/src/activate.rs`. Smoke: `ash-pile-chet`, `goo-pile-roach`.
 
 ## 1. A weapon's critical effect
 
@@ -77,6 +77,18 @@ FalloutNV.esm, read with `fnvtool esm decode`]:
 - Where the body lies: the pile goes to the actor reference's position, which is where it
   stood when it died; the ragdoll's drift in the 0.5–1.4 s before is not followed
   [hypothesis: small].
+- Physics: both pile models carry one rigid body, motion system 4, mass 5, layer 19
+  (Debris Small) [observed: `fnvtool nif decode` of `meshes\effects\ashpile01.nif` and
+  `goopile01.nif`], so the pile is a dynamic created reference (`dropped.rs`) that drops
+  onto the ground or floor and comes to rest. It is made inside its source's ragdoll, which
+  stays in the physics world until the critical stage culls it (0.5 s later for the
+  lasers, at once for plasma). The pile passes through that ragdoll (`fnv_phys`
+  `set_ref_passes_ragdoll`, `nvf_play::phys::piles_pass_their_corpses`), so the body
+  neither shoves it aside nor down through the floor (issue #2030) [design]. Whether
+  the original moves the pile at all is not captured.
+- A moving dynamic created reference logs its pose 1, 3 and 10 s after its collision is
+  added (`dropped 0x… N s after its collision was added`); `ash-pile-chet` and
+  `goo-pile-roach` check the pile is at rest and still in the world.
 
 ## 4. Not built
 

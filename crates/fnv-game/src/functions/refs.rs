@@ -16,7 +16,12 @@ pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if has_enable_parent(g, r) {
         return none();
     }
-    let fade = a.num_or(0, 1.0) != 0.0;
+    enable_ref(g, r, a.num_or(0, 1.0) != 0.0)
+}
+
+/// Enable `r` (its own flag), fading in or not: Enable without the enable-parent test
+/// (ShowOff's EnableAlt, `nvse_showoff4`).
+pub fn enable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String> {
     if g.script_looks.fading_out.remove(&r).is_some() {
         g.emit(EventKind::RefEnabled { reference: r, fade });
         return none();
@@ -52,7 +57,22 @@ pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if has_enable_parent(g, r) {
         return none();
     }
-    let fade = a.num_or(0, 0.0) != 0.0;
+    disable_ref(g, r, a.num_or(0, 0.0) != 0.0)
+}
+
+/// Disable `r` (its own flag), fading out or not: Disable without the enable-parent test
+/// (ShowOff's DisableAlt, `nvse_showoff4`).
+///
+/// The player is never disabled: a script's Disable of the player does nothing
+/// [hypothesis: VHDIntakeTowerLegionaryDespawnScript disables whoever enters its trigger,
+/// the player too, and the original's Legion route still takes the player through the
+/// Power Plant 01 elevator, whose bare `Activate` a disabled actor cannot make;
+/// docs/spec-notes/doors.md §6, #2617, observer check 172].
+pub fn disable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String> {
+    if r == FormId::PLAYER_REF {
+        tracing::info!("script: Disable of the player ignored: the player stays enabled (doors.md §6)");
+        return none();
+    }
     let held = g.script_looks.fading_out.contains_key(&r);
     if fade && held {
         return none();
@@ -79,7 +99,7 @@ pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// does not exist leaves the reference its own state (`World::is_enabled`), so it does
 /// not count.
 fn has_enable_parent(g: &Game, r: FormId) -> bool {
-    g.world.placed.get(r).and_then(|p| p.enable_parent).is_some_and(|ep| g.world.is_enabled(ep.reference).is_ok())
+    !g.world.keeps_own_enable(r) && g.world.enable_parent(r).is_some_and(|ep| g.world.is_enabled(ep.reference).is_ok())
 }
 
 pub fn get_disabled(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
@@ -127,6 +147,17 @@ pub fn move_to_marker_with_fade(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Val
         move_ref(g, r, marker, offset)?;
         return none();
     }
+    start_fade_move(g, r, marker, offset);
+    none()
+}
+
+/// The fade out and the wait of a [`move_to_marker_with_fade`] move (also JIP's
+/// MoveToFadeDelay, `crate::nvse_jip13`); the player and a reference not drawn move at once.
+pub(crate) fn start_fade_move(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]) {
+    if r == FormId::PLAYER_REF || !g.present(r) {
+        let _ = move_ref(g, r, marker, offset);
+        return;
+    }
     let at = match g.script_looks.fade_moves.get(&r) {
         Some(m) => m.at,
         None => {
@@ -135,7 +166,34 @@ pub fn move_to_marker_with_fade(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Val
         }
     };
     g.script_looks.fade_moves.insert(r, super::misc::FadeMove { marker, offset, at });
-    none()
+}
+
+/// Put `r` at `pos` in `cell` (with `angles` in radians, else its own), told as MoveTo
+/// tells a move ([`move_ref`]); JIP's moves and rotations (`crate::nvse_jip13`).
+pub(crate) fn put_ref(g: &mut Game, r: FormId, cell: Option<FormId>, pos: [f32; 3], angles: Option<[f32; 3]>) {
+    let from = (r == FormId::PLAYER_REF).then(|| g.world.peek(r).map(|p| (p.cell, p.pos))).flatten();
+    let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
+    let Ok(s) = g.world.get(r) else { return };
+    let moved_cell = s.cell != cell;
+    s.cell = cell;
+    s.pos = pos;
+    if let Some(a) = angles {
+        s.rot = a;
+    }
+    if g.ref_script(r).is_some() {
+        g.moved.insert(r);
+    }
+    if r != FormId::PLAYER_REF {
+        g.teleported.insert(r);
+        if !crate::ai::is_actor_base(g.world.forms, base_of(g, r).unwrap_or(FormId(0))) {
+            g.turned.insert(r);
+        }
+    }
+    g.emit(EventKind::Moved { reference: r, cell, pos });
+    if r == FormId::PLAYER_REF && moved_cell {
+        g.player_entered(cell);
+        g.bring_teammates(from);
+    }
 }
 
 /// Make the `MoveToMarkerWithFade` moves whose wait has ended (`Game::tick`) and ask the
@@ -172,19 +230,28 @@ pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]
         s.pos = pos;
         if r != FormId::PLAYER_REF {
             s.rot = rot;
+        } else if marker != FormId::PLAYER_REF {
+            // The player turns to the marker's heading: the ending moves the player to an
+            // XMarkerHeading (0x001639F6, heading 0) whose heading faces the slide
+            // (0x001680A7, straight ahead along +Y) [observed: the slide room's
+            // references, fnvtool world refs; the owner's playtest 2026-11-12, issue
+            // #2226: ours faced 90 degrees away while the original faces the slide]. The
+            // GECK wiki's MoveTo page does not say [hypothesis: MoveTo to any reference
+            // turns the player to its heading].
+            //
+            // The view's pitch (its X angle) is the marker's too: both slide markers
+            // (the ending's, Honest Hearts' NVDLC02SlideShowMarkerREF 0x0101012F) are
+            // level, with the slide's centre 118-121 units over the feet and 118 ahead,
+            // and the scripts hold the player's looking there (DisablePlayerControls),
+            // so a pitch kept from before left the slide tilted off the screen
+            // [observed: the owner's playtest 2026-11-15, #2710: Honest Hearts' intro
+            // looked down at the slide; fnvtool world refs of both rooms]
+            // [hypothesis: the original levels the view on any MoveTo of the player].
+            s.rot[2] = rot[2];
+            s.rot[0] = rot[0];
         }
     }
-    if g.ref_script(r).is_some() {
-        g.moved.insert(r);
-    }
-    if r != FormId::PLAYER_REF {
-        g.teleported.insert(r);
-        // A drawn object (not an actor) is drawn at its new place, as after SetPos.
-        if !crate::ai::is_actor_base(g.world.forms, base_of(g, r).unwrap_or(FormId(0))) {
-            g.turned.insert(r);
-        }
-    }
-    g.emit(EventKind::Moved { reference: r, cell, pos });
+    g.note_relocated(r, cell, pos);
     if r == FormId::PLAYER_REF {
         g.player_entered(cell);
         g.bring_teammates(from);
@@ -291,6 +358,7 @@ pub fn set_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
     g.world.get(r).map_err(|e| e.to_string())?.cell = cell;
     placed_by_script(g, r, true);
+    g.projectile_placed_by_script(r, pos);
     none()
 }
 
@@ -380,7 +448,7 @@ pub fn get_linked_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
 
 pub fn get_parent_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(g.world.placed.get(r).and_then(|p| p.enable_parent).map(|e| Value::Ref(e.reference.0)).unwrap_or(Value::NONE))
+    Ok(g.world.enable_parent(r).map(|e| Value::Ref(e.reference.0)).unwrap_or(Value::NONE))
 }
 
 /// The reference is removed (the engine removes it a few frames later; here at once
@@ -447,14 +515,14 @@ pub fn get_locked(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
         return Ok(Value::Num(if in_loaded_cell(g, r) { crate::terminal::locked(g, r) as f64 } else { 0.0 }));
     }
     let status = g.world.lock_status(r).map_err(|e| e.to_string())?;
-    Ok(Value::Num(if status == 1 && g.locks.broken.contains(&r) { 2.0 } else { status as f64 }))
+    Ok(Value::Num(if status == 1 && g.locks.broken.contains(&g.world.lock_source(r)) { 2.0 } else { status as f64 }))
 }
 
 /// 1 for a lock broken by forcing it (`crate::lockpick`) [documented: GECK wiki
 /// GetIsLockBroken].
 pub fn get_is_lock_broken(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(Value::bool(g.locks.broken.contains(&r)))
+    Ok(Value::bool(g.locks.broken.contains(&g.world.lock_source(r))))
 }
 
 /// `Ref.Activate [actor] [flag]`: with no actor the calling reference's action reference
@@ -559,10 +627,11 @@ pub fn add_form_to_form_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value
     none()
 }
 
-/// Opens (1) or closes (0) a door [documented: GECK wiki SetOpenState].
+/// Opens (1) or closes (0) a door [documented: GECK wiki SetOpenState], or an activator
+/// with Open and Close sequences, which plays them (`Game::set_ref_open`).
 pub fn set_open_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.world.get(r).map_err(|e| e.to_string())?.open = a.num(0)? != 0.0;
+    g.set_ref_open(r, a.num(0)? != 0.0)?;
     none()
 }
 

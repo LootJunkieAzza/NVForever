@@ -323,9 +323,11 @@ with JIP on a footlocker; interface units; parts a to g, with their shots in the
   | 15 | 885 | 365 | 10 | 57.78 | 6 | 33.30, 33.30 |
   | 16 | 937 | 365 | 11 | 57.20 | 6 | 32, 30.10 |
 
-  [hypothesis] That is: the value's range is the rows less those that fit whole from the top
-  (6 here), and `_scroll_delta` what is left over by that range, so a value's move is not a
-  row's. A row's `y` is `_y` less value x `_scroll_delta` (-231.11 at value 4 of 57.78), by
+  [hypothesis] That is: the value's range is what overflows the list over the rows' average
+  height, rounded up (885 less 365 over 59 is 8.8, so 9), and `_scroll_delta` what overflows by
+  that range, so a value's move is not a row's. It fits all 15 lists read in five menus, which a test in `tiles/list.rs` holds; the
+  rows that fit whole from the top, the first reading here, give these two as well but one
+  too few on a list with a row of two lines in the Pip-Boy's inventory. A row's `y` is `_y` less value x `_scroll_delta` (-231.11 at value 4 of 57.78), by
   the file [documented].
 - **What moves it**: `ClickMenuTile` on the down arrow: +1, kept every frame after; on a page
   area: 6 up to the end (4 to 9, 8 to 2). The rows move under a resting pointer, and the row
@@ -559,7 +561,8 @@ explicit QuantityMenu switch still works independently.
 [design: LEGAL.md, `tiles/barter_menu.rs`, `tiles/item_card.rs`] String audit:
 
 - All-items heading: `sInventoryItems` through `ui_loading::game_string`, with the
-  load order's GMST winning over `fnv_ui::strings`. Merchant heading: the model's
+  load order's GMST winning over `fnv_ui::strings` (whose label reads "ITEMS", in capitals
+  as NVForever's own hand-built Pip-Boy headings, menu-xml.md §2.4, #2212). Merchant heading: the model's
   record or script name. Filtered categories use our own words: Weapons, Clothing,
   Consumables, Other items, Ammunition. `look::half_title`'s transcribed uppercase
   headings are replaced before anything is written.

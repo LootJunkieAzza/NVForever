@@ -14,6 +14,8 @@ use nvf_assets::GameData;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+mod tga;
+
 /// The interface's colour [observed: the brightest text of the owner's screenshot,
 /// message-menu.md §3].
 pub const AMBER: [f32; 3] = [1.0, 182.0 / 255.0, 66.0 / 255.0];
@@ -125,17 +127,41 @@ pub fn fit_ui_scale(s: f32) -> f32 {
 /// The settings page's UI scale choices: [`UI_SCALE_RANGE`] in steps of 5% [design].
 pub const UI_SCALE_CHOICES: usize = 21;
 
-/// The settings page's UI scale row, `ui-scale` in `NVForever.ini` (kept as the slider's
-/// part, [`ui_scale_part`]: `ui-scale=0.25` is 75%), under `group` (the renderer lists it
-/// with the Display rows) [design: #1631].
-pub fn ui_scale_row(group: &'static str) -> crate::settings::Setting {
-    crate::settings::Setting::slider(
-        "ui-scale",
-        group,
-        "UI scale",
-        "The size of the HUD and the menus, as a part of the original's (100%): smaller leaves more of the picture free, each HUD piece kept at its edge of the screen and each menu in the middle. Above 100% only the HUD grows: the menus stay at the original's size, so they keep on the screen. Takes effect at the next start (loading a save starts the game again). Not in the original.",
-        crate::settings::Slider::choice(UI_SCALE_CHOICES, |_| ui_scale_part(ui_scale_setting()), |_, v| set_ui_scale_setting(ui_scale_of_part(v)), |v| format!("{:.0}%", ui_scale_of_part(v) * 100.0)),
+/// The HUD Scale row's choices: 50% to 100% in steps of 10% [design: the menu overhaul,
+/// owner 2026-11-15; #1631's slider went to 150% in 5% steps].
+pub const UI_SCALE_LIST: [f32; 6] = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+
+/// The settings page's UI scale row, `ui-scale` in `NVForever.ini` (its choice's name,
+/// "80%"; an older slider's part, [`ui_scale_part`], still loads as the choice nearest it),
+/// under `group` (the renderer lists it with the Display rows) [design: #1631, the menu
+/// overhaul].
+pub fn ui_scale_row(group: &'static str) -> (crate::settings::Setting, crate::settings::ChoiceList) {
+    (
+        crate::settings::Setting { key: "ui-scale", group, label: "HUD scale", note: "Size of the in-game HUD, independent of menu scale. Takes effect at the next start.", switches: "", get: |_| false, set: |_, _| {}, slider: None },
+        crate::settings::ChoiceList {
+            names: |_| ui_scale_names(),
+            chosen: |_| ui_scale_names()[crate::settings::nearest(&UI_SCALE_LIST, ui_scale_setting())].clone(),
+            pick: |_, n| take_ui_scale(n),
+            save: |_| ui_scale_names()[crate::settings::nearest(&UI_SCALE_LIST, ui_scale_setting())].clone(),
+            load: |_, t| take_ui_scale(t),
+            ask_keep: false,
+        },
     )
+}
+
+fn ui_scale_names() -> Vec<String> {
+    UI_SCALE_LIST.iter().map(|s| format!("{:.0}%", s * 100.0)).collect()
+}
+
+/// The HUD scale `text` names (or an older slider's part stands for: past 100%, 100%).
+fn take_ui_scale(text: &str) -> bool {
+    match crate::settings::choice_of(text, &ui_scale_names(), |v| crate::settings::nearest(&UI_SCALE_LIST, ui_scale_of_part(v))) {
+        Some(i) => {
+            set_ui_scale_setting(UI_SCALE_LIST[i]);
+            true
+        }
+        None => false,
+    }
 }
 
 /// A UI scale as the settings slider's part (0 at 50%, 0.5 at 100%, 1 at 150%), to the
@@ -167,16 +193,16 @@ pub fn ui_scale() -> f32 {
     f32::from_bits(UI_SCALE.load(Ordering::Relaxed))
 }
 
-/// The scale the menus are drawn at: the UI scale, but never above the original's size.
+/// The independent menu scale this run draws at (#2519), at most the original's size.
 /// A menu is laid out for the whole view (its buttons and columns reach close to the
 /// view's edges, the pause menu's Back row 882 of 960 units down), so drawn larger in a
 /// frame kept to the middle it would run off the screen; it may shrink, not grow
-/// [design: #1631]. The HUD, whose pieces keep to their edges, takes the whole scale.
+/// [design: #1631, retained by #2519]. HUD scale is independent.
 pub fn menu_scale() -> f32 {
-    menu_scale_of(ui_scale())
+    crate::menu_scale::drawing()
 }
 
-/// [`menu_scale`] for a UI scale `ui`.
+/// The legacy shared-setting menu scale, used to migrate a missing menu key (#2519).
 pub fn menu_scale_of(ui: f32) -> f32 {
     ui.min(1.0)
 }
@@ -187,7 +213,7 @@ pub fn menu_scale_of(ui: f32) -> f32 {
 pub fn fix_ui_scale() {
     let s = ui_scale_setting();
     UI_SCALE.store(s.to_bits(), Ordering::Relaxed);
-    info!("interface: UI scale {:.0}% (the HUD drawn at {:.0}%, the menus at {:.0}% of the original's size)", s * 100.0, s * 100.0, s.min(1.0) * 100.0);
+    info!("interface: UI scale {:.0}% (the HUD drawn at {:.0}%, the menus at {:.0}% of the original's size)", s * 100.0, s * 100.0, menu_scale() * 100.0);
 }
 
 std::thread_local! {
@@ -198,8 +224,8 @@ std::thread_local! {
 
 /// While alive, [`u`] (and so [`at`], the text and picture helpers) on this thread draw
 /// at the scale it was made with; dropped, they go back to what they drew at before.
-/// Outside every scope they draw at the menus' scale ([`menu_scale`]: the UI scale, at
-/// most 100%) [design: #1631]; the HUD's systems take [`hud_units`], the whole scale. The screens drawn into a texture (the Pip-Boy's pages,
+/// Outside every scope they draw at the independent menus' scale ([`menu_scale`], at
+/// most 100%) [design: #2519]; the HUD's systems take [`hud_units`]. The screens drawn into a texture (the Pip-Boy's pages,
 /// the terminal's) take [`original_units`]: their texture keeps its size, the picture of
 /// it on the window is what scales.
 #[must_use]
@@ -298,6 +324,63 @@ pub fn menu_frame(anchor: Vec2) -> Option<Node> {
     })
 }
 
+/// How much of the room a smaller menu scale leaves the pause menu takes back, each way:
+/// its frame is `s × (1 + MENU_SPREAD × (1 − s))` of the view at menu scale `s` (25% more
+/// room at 50%, none at 100%) [design: owner 2026-11-15, the menu overhaul: "when the hud is
+/// scaled down at 50% ... extend the vertical/horizontal space by 25%"]. Only the pause
+/// menu's pages lay themselves out for it ([`menu_room`]); the other menus keep
+/// [`menu_frame`].
+pub const MENU_SPREAD: f32 = 0.5;
+
+/// The share of the view a spread frame takes (module notes of [`MENU_SPREAD`]).
+fn spread_share() -> f32 {
+    let s = unit_scale();
+    (s * (1.0 + MENU_SPREAD * (1.0 - s))).min(1.0)
+}
+
+/// How many times the original's 960 units each way a spread frame holds at the scale
+/// [`u`] applies (1 at 100%, 1.25 at 50%).
+pub fn menu_room() -> f32 {
+    spread_share() / unit_scale()
+}
+
+/// [`menu_frame`] for a page that spreads into the room a smaller scale leaves
+/// ([`MENU_SPREAD`]).
+pub fn spread_frame(anchor: Vec2) -> Option<Node> {
+    let f = spread_share();
+    (f != 1.0).then(|| Node {
+        position_type: PositionType::Absolute,
+        left: Val::Percent(anchor.x * 100.0 * (1.0 - f)),
+        top: Val::Percent(anchor.y * 100.0 * (1.0 - f)),
+        width: Val::Percent(100.0 * f),
+        height: Val::Percent(100.0 * f),
+        ..default()
+    })
+}
+
+/// [`in_menu_frame`] in a [`spread_frame`].
+pub fn in_spread_frame(p: &mut ChildSpawnerCommands, anchor: Vec2, content: impl FnOnce(&mut ChildSpawnerCommands)) {
+    match spread_frame(anchor) {
+        Some(frame) => {
+            p.spawn((frame, Pickable::IGNORE)).with_children(content);
+        }
+        None => content(p),
+    }
+}
+
+/// [`over_view`] for a piece of a [`spread_frame`].
+pub fn over_spread_view(node: Node, anchor: Vec2, across: bool) -> Node {
+    let f = spread_share();
+    if f == 1.0 {
+        return node;
+    }
+    let mut node = Node { top: Val::Percent(-anchor.y * 100.0 * (1.0 - f) / f), height: Val::Percent(100.0 / f), bottom: Val::Auto, ..node };
+    if across {
+        node = Node { left: Val::Percent(-anchor.x * 100.0 * (1.0 - f) / f), width: Val::Percent(100.0 / f), right: Val::Auto, margin: UiRect::default(), ..node };
+    }
+    node
+}
+
 /// Spawn a menu's pieces (`content`) under `p` in its [`menu_frame`] kept at `anchor`; at
 /// the original's size straight under `p`.
 pub fn in_menu_frame(p: &mut ChildSpawnerCommands, anchor: Vec2, content: impl FnOnce(&mut ChildSpawnerCommands)) {
@@ -386,10 +469,57 @@ pub struct Set {
 }
 
 /// A font and its texture (the picture and its size in texels); without the texture the
-/// text is drawn with Bevy's font.
+/// text is drawn with Bevy's font; with `vector`, with a vector font at the screen's own
+/// resolution (`crate::vector_font`), measured by `font` as ever.
+#[derive(Clone)]
 pub struct Face {
     pub font: Font,
     pub image: Option<(Handle<Image>, Vec2)>,
+    pub vector: Option<VectorFace>,
+}
+
+/// A vector font for a [`Face`] (`crate::vector_font`): the font, its size (the em), its
+/// weight and where its baseline lies below the top of the text Bevy lays out, in interface
+/// units.
+#[derive(Clone, Debug)]
+pub struct VectorFace {
+    pub font: Handle<bevy::text::Font>,
+    pub em: f32,
+    pub weight: u16,
+    pub base: f32,
+}
+
+/// **The vector letters' dark glow** [design: owner 2026-11-15, second test: "the vanilla font
+/// has a slight dark glow effect with a drop shadow effect behind it so it is more visible on
+/// the background"; the game's fonts have it in their pictures, observed]: under each line two
+/// rings of eight dark copies each ([`GLOW_RINGS`]: so far off it as a part of the em, so dark;
+/// four copies a ring, each with a shadow on its other side), the outer one fainter so the
+/// glow fades out, and a drop shadow down and right ([`DROP`]), their darkness a part of the
+/// words' alpha. Third test: "blur the text drop shadow glow a little bit more and decrease
+/// its opacity by 10%": two rings for the one (0.07 of the em, 0.24 a copy), about a tenth less
+/// dark where they meet the letters, and the drop shadow a tenth lighter.
+pub const GLOW_RINGS: [(f32, f32); 2] = [(0.045, 0.13), (0.095, 0.08)];
+pub const DROP: Vec2 = Vec2::new(0.045, 0.065);
+pub const DROP_ALPHA: f32 = 0.5;
+
+/// A dark copy of a vector line under it (its glow); recolouring passes it over.
+#[derive(Component)]
+pub struct Halo;
+
+/// A vector line's [`TextShadow`] offset as a part of its em; [`glow_offsets`] turns it into
+/// the logical pixels the shadow takes.
+#[derive(Component, Clone, Copy)]
+pub struct TextGlow(pub Vec2);
+
+/// Set each glowing line's shadow offset from its laid-out height (one em, its line height
+/// being the font's size). After the UI's layout.
+pub fn glow_offsets(mut lines: Query<(&TextGlow, &bevy::ui::ComputedNode, &mut bevy::ui::widget::TextShadow), Changed<bevy::ui::ComputedNode>>) {
+    for (g, node, mut shadow) in &mut lines {
+        let offset = g.0 * node.size().y * node.inverse_scale_factor();
+        if shadow.offset != offset {
+            shadow.offset = offset;
+        }
+    }
 }
 
 /// A game texture for the interface: not repeated, so that a stretched picture's two
@@ -412,7 +542,51 @@ fn texture_read(
     decode: fn(&[u8], bool, bool) -> Result<Image, String>,
 ) -> Option<(Handle<Image>, Vec2)> {
     let bytes = data.read(path)?;
-    match decode(&bytes, true, bc) {
+    match decode_texture(&bytes, bc, decode) {
+        Ok(mut image) => {
+            image.sampler = ImageSampler::linear();
+            let size = image.size().as_vec2();
+            Some((images.add(image), size))
+        }
+        Err(e) => {
+            warn!("interface: {path}: {e}");
+            None
+        }
+    }
+}
+
+fn decode_texture(bytes: &[u8], bc: bool, decode_dds: fn(&[u8], bool, bool) -> Result<Image, String>) -> Result<Image, String> {
+    if bytes.starts_with(b"DDS ") || !tga::recognizable(bytes) {
+        return decode_dds(bytes, true, bc);
+    }
+    let decoded = tga::decode(bytes)?;
+    nvf_assets::texture::checked_image(decoded.width, decoded.height, 1, bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb, decoded.rgba)
+}
+
+/// A font's picture from its `.tex` file, read before the `.dds` (docs/spec-notes/fonts.md
+/// §2.2): a Russian install's fonts describe the letters of their `.tex`, while the `.dds`
+/// beside it is the English one [observed: #1439]; in an English install the two are the
+/// same picture. Only where the `.dds` is there too, so a font with a `.tex` alone (font 9)
+/// still draws nothing, as in the original (§3.1). None, with a warning for a broken file,
+/// when there is none.
+pub fn font_tex(font: &Font, data: &GameData) -> Option<fnv_font::Tex> {
+    if !data.vfs.exists(&font.texture_path()) {
+        return None;
+    }
+    let path = font.tex_path();
+    match fnv_font::Tex::parse(&data.read(&path)?) {
+        Ok(t) => Some(t),
+        Err(e) => {
+            warn!("interface: {path}: {e}; the .dds is drawn instead");
+            None
+        }
+    }
+}
+
+/// A `.tex` picture as an interface image, made as [`font_texture`] makes a `.dds` one.
+fn tex_image(path: &str, tex: fnv_font::Tex, images: &mut Assets<Image>) -> Option<(Handle<Image>, Vec2)> {
+    let format = bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb;
+    match nvf_assets::texture::checked_image(tex.width, tex.height, 1, format, tex.rgba) {
         Ok(mut image) => {
             image.sampler = ImageSampler::linear();
             let size = image.size().as_vec2();
@@ -429,7 +603,7 @@ fn texture_read(
 /// as the next.
 pub fn plain_font(size: f32, advance: f32) -> Font {
     let glyph = Glyph { after: advance, ..default() };
-    Font { size, texture: String::new(), glyphs: vec![glyph; 256] }
+    Font { size, texture: String::new(), glyphs: vec![glyph; 256], extra: Default::default() }
 }
 
 /// The install's own font files, by number (`None`: the default, [`FONT_FILES`]); set once
@@ -480,12 +654,12 @@ pub fn face(path: &str, stand_in: Font, data: Option<&GameData>, images: &mut As
                 return None;
             }
         };
-        let image = font_texture(&font.texture_path(), d, images, bc)?;
-        Some(Face { font, image: Some(image) })
+        let image = font_tex(&font, d).and_then(|t| tex_image(&font.tex_path(), t, images)).or_else(|| font_texture(&font.texture_path(), d, images, bc))?;
+        Some(Face { font, image: Some(image), vector: None })
     });
     read.unwrap_or_else(|| {
         warn!("interface: drawn without the game's font {path}");
-        Face { font: stand_in, image: None }
+        Face { font: stand_in, image: None, vector: None }
     })
 }
 
@@ -508,6 +682,26 @@ pub fn line_base(face: &Face) -> f32 {
     face.font.glyphs.iter().skip(0x20).take(0x5F).filter(|g| g.drawn()).map(|g| g.ascent).fold(0.0, f32::max).max(face.font.size * 0.75)
 }
 
+/// The font's x-height: the rise of its typical lowercase letter, the band the eye centres
+/// on for mixed-case text (so a button glyph next to "Yes" sits on it, not on the cap
+/// height) [design]. The median of the lowercase letters, so the ascenders in the range
+/// (`b`, `d`, `f`, `h`, `k`, `l`, `t`) do not pull it up to their own or the capitals'
+/// rise. A font with no lowercase letters at all — its text is all capitals — centres on
+/// its capitals instead ([`line_base`]).
+pub fn x_height(face: &Face) -> f32 {
+    let mut rises = [0.0f32; 0x1A];
+    let mut n = 0;
+    for g in face.font.glyphs.iter().skip(0x61).take(0x1A).filter(|g| g.drawn()) {
+        rises[n] = g.ascent;
+        n += 1;
+    }
+    if n == 0 {
+        return line_base(face);
+    }
+    rises[..n].sort_by(f32::total_cmp);
+    rises[n / 2]
+}
+
 /// Draw a line of text at `origin` (what its `x` and `base` are measured from). Every
 /// node that carries the colour also gets `mark`.
 pub fn set_text(p: &mut ChildSpawnerCommands, face: &Face, set: &Set, origin: Vec2, color: Color, mark: impl Bundle + Clone) {
@@ -522,9 +716,42 @@ pub fn set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
 
 /// [`set_line`] with `mark` on every coloured node (each glyph, or the stand-in text).
 pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color, mark: impl Bundle + Clone) {
+    if let Some(v) = &face.vector {
+        // The line's text in the vector font, its baseline on `base`: Bevy lays it out at the
+        // screen's resolution, without kerning or ligatures so it is as wide as `face.font`
+        // measured it (`crate::vector_font`), in one line.
+        let text = line.text_spaced(&face.font);
+        let font = TextFont { font_size: font_units(v.em), weight: bevy::text::FontWeight(v.weight), font_features: crate::vector_font::features(), ..TextFont::default().with_font(v.font.clone()) };
+        let layout = (bevy::text::LineHeight::RelativeToFont(1.0), TextLayout::new(Justify::Left, LineBreak::NoWrap));
+        let shadow = |part: Vec2, alpha: f32| (TextGlow(part), bevy::ui::widget::TextShadow { offset: Vec2::ZERO, color: Color::BLACK.with_alpha(alpha) });
+        let ink = color.alpha();
+        p.spawn((Node { position_type: PositionType::Absolute, left: u(x), top: u(base - v.base), ..default() }, Pickable::IGNORE)).with_children(|n| {
+            // The glow (module notes of `GLOW_RINGS`): each copy off one way, its shadow the
+            // other way; the outer ring first, under the inner.
+            for (r, alpha) in GLOW_RINGS.into_iter().rev() {
+                let d = r * std::f32::consts::FRAC_1_SQRT_2;
+                let dark = Color::BLACK.with_alpha(alpha * ink);
+                for at in [Vec2::new(-r, 0.0), Vec2::new(0.0, -r), Vec2::new(-d, -d), Vec2::new(d, -d)] {
+                    n.spawn((
+                        Node { position_type: PositionType::Absolute, left: u(at.x * v.em), top: u(at.y * v.em), ..default() },
+                        Text::new(text.clone()),
+                        font.clone(),
+                        layout,
+                        TextColor(dark),
+                        shadow(-2.0 * at, alpha * ink),
+                        Halo,
+                        Pickable::IGNORE,
+                    ));
+                }
+            }
+            n.spawn((Text::new(text), font, layout, TextColor(color), shadow(DROP, DROP_ALPHA * ink), mark));
+        });
+        return;
+    }
     let Some((image, size)) = &face.image else {
-        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251).
-        let text = line.text();
+        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251);
+        // the spaces between the words are put back (#2298).
+        let text = line.text_spaced(&face.font);
         let size = face.font.size * 0.75;
         p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(base - size), ..default() }).with_children(|n| {
             n.spawn((Text::new(text), TextFont { font_size: font_units(size), ..default() }, TextColor(color), mark));
@@ -717,8 +944,23 @@ fn own_texture(path: &str) -> String {
 mod layout_tests;
 
 #[cfg(test)]
-mod tests {
+#[path = "interface/tga_consumer_tests.rs"]
+mod tga_consumer_tests;
+
+#[cfg(test)]
+pub(crate) mod tests {
     use super::*;
+
+    pub(crate) fn authored_rgba_dds(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = vec![0; 128 + width as usize * height as usize * 4];
+        bytes[..4].copy_from_slice(b"DDS ");
+        for (at, value) in [(4, 124), (8, 0x100f), (12, height), (16, width),
+            (76, 32), (80, 0x41), (88, 32), (92, 0xff0000), (96, 0xff00),
+            (100, 0xff), (104, 0xff000000), (108, 0x1000)] {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes
+    }
 
     #[test]
     fn an_atlas_index_is_read() {
@@ -801,11 +1043,18 @@ mod tests {
         }
         assert_eq!((fit_ui_scale(0.1), fit_ui_scale(9.0), fit_ui_scale(f32::NAN), fit_ui_scale(0.876)), (0.5, 1.5, 1.0, 0.88));
         assert_eq!((ui_scale_of_part(-3.0), ui_scale_of_part(7.0), ui_scale_of_part(f32::NAN)), (0.5, 1.5, 1.0));
-        let row = ui_scale_row("Display");
-        let slider = row.slider.unwrap();
-        assert_eq!((slider.text(0.5), slider.text(0.25), slider.text(1.0)), ("100%".to_string(), "75%".to_string(), "150%".to_string()));
-        // Out of range from the INI: the slider's fit brings it to an end.
-        assert_eq!((slider.fit(-1.0), slider.fit(2.0), slider.fit(0.26)), (0.0, 1.0, 0.25));
+        // The row is a list of 50% to 100% (the menu overhaul); an older slider's part loads
+        // as the nearest choice, past 100% as 100%.
+        let (row, list) = ui_scale_row("Display");
+        assert!(row.slider.is_none());
+        let w = World::new();
+        assert_eq!((list.names)(&w), ["50%", "60%", "70%", "80%", "90%", "100%"]);
+        // (The setting itself is set by settings.rs' test only: one global, tests in parallel.)
+        let of = |t: &str| crate::settings::choice_of(t, &ui_scale_names(), |v| crate::settings::nearest(&UI_SCALE_LIST, ui_scale_of_part(v))).map(|i| UI_SCALE_LIST[i]);
+        assert_eq!(of("0.3"), Some(0.8), "0.3 was 80%");
+        assert_eq!(of("1"), Some(1.0), "150%: 100%");
+        assert_eq!(of("60%"), Some(0.6));
+        assert_eq!(of("big"), None);
     }
 
     fn pct(v: Val) -> f32 {
@@ -921,5 +1170,45 @@ mod tests {
                 None => assert_eq!(ui, 1.0),
             }
         }
+    }
+
+    /// A font whose capitals and lowercase ascenders rise `24`, other lowercase letters
+    /// `17`, and whose `drawn` letters carry a picture. `lowercase_off`: those letters
+    /// have no picture, as in the caps-only title font.
+    fn measured_font(lowercase_off: bool) -> Face {
+        let mut glyphs = vec![Glyph::default(); 256];
+        let mut put = |code: u8, ascent: f32| {
+            glyphs[code as usize] = Glyph { width: 10.0, height: 10.0, ascent, ..Glyph::default() };
+        };
+        for code in 0x20..0x7Fu8 {
+            let c = code as char;
+            let ascender = matches!(c, 'b' | 'd' | 'f' | 'h' | 'k' | 'l' | 't');
+            let ascent = if c.is_ascii_uppercase() || ascender { 24.0 } else { 17.0 };
+            put(code, ascent);
+        }
+        if lowercase_off {
+            for code in 0x61..=0x7Au8 {
+                glyphs[code as usize] = Glyph::default();
+            }
+        }
+        Face { font: Font { size: 31.0, texture: String::new(), glyphs, extra: Default::default() }, image: None, vector: None }
+    }
+
+    /// #1829: the hint glyphs sit on the x-height band, not the cap-height middle. The
+    /// lowercase ascenders (`b`, `d`, `f`, `h`, `k`, `l`, `t`) are in the lowercase range,
+    /// so taking their tallest rise would return the cap height and change nothing.
+    #[test]
+    fn the_x_height_is_the_lowercase_band_not_the_cap_height() {
+        let face = measured_font(false);
+        assert_eq!(line_base(&face), 24.0);
+        assert_eq!(x_height(&face), 17.0);
+    }
+
+    /// A font with no lowercase picture has no x-height band to centre on: all its text is
+    /// capitals, so the glyphs centre on those.
+    #[test]
+    fn a_caps_only_font_centres_its_glyphs_on_the_cap_height() {
+        let face = measured_font(true);
+        assert_eq!(x_height(&face), line_base(&face));
     }
 }

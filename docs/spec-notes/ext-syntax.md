@@ -28,7 +28,12 @@ Expression]. It is used:
   [documented: TestExpr; While];
 - **inside parentheses passed as a function argument** (inline expressions, xNVSE
   6.1.0): `Player.SetActorValue Health (Player.GetActorValue Health + 50)` compiles
-  from then on and did not before [documented: Inline Expression];
+  from then on and did not before [documented: Inline Expression]. A string there, in
+  an actor value's or an axis's place, is the name in any case: `GetAV ("Strength")`,
+  `GetAV (s)` and `GetAV ($s)` read Strength, `SetAV ("Luck") 7` sets Luck, `GetPos
+  ("Z")` is `GetPos Z`; an unknown name (`GetAV ("NoSuchAV")`) raises no error the
+  script stops on, but a `let` assigns nothing; a bare `GetAV s` does not compile
+  [observed: #2276 job A, save nvfairport];
 - **in a whole block whose type has a leading underscore** (the compiler override,
   deprecated): see §8.
 
@@ -122,8 +127,10 @@ A function returning a string or array, or a user-defined function's result, mus
 assigned with `let`, not `set` [documented: Let; SetFunctionValue; Ar List].
 
 **The let macro** (xNVSE 6.1.0): a line `x = 10`, `x += 10`, `x -= 5`, `x *= 5` with no
-keyword is a `let` [documented: Let Macro]. Which other compound operators the macro
-takes: open (the page lists those four).
+keyword is a `let` [documented: Let Macro]. `x /= 5` is taken too [observed:
+JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting …` in JBTOnFireWeaponUDF with
+compiled bytes, so the original's compiler takes it]. The remaining compound operators
+(`^=`, `%=`, `|=`, `&=`) as a macro: open (the page lists the first four).
 
 **eval / if eval** `if eval expr`, `elseif eval expr`: the condition is compiled as an
 extender expression and reduced to true or false. It is needed when the condition uses
@@ -131,6 +138,15 @@ a string, an array or a user-defined function, which the base compiler misreads;
 plain condition it is harmless but slightly slower, and a failing call then reports an
 error instead of failing silently [documented: Eval]. `while` does not need it
 [documented: Eval].
+
+**eval on a line of its own** `eval expr`: the expression is run for what it does. Mods
+write it before a call that needs the extender's reading of its arguments (`eval
+Quest.rRef.Activate PlayerRef 1`) and before an assignment (`eval iTemp = iTemp * (1 -
+Quest.rRef.GetAV Invisibility)`), which then assigns as a `let` does [documented: Eval, an
+NVSE-aware command taking an expression; observed: JustAssortedMods.esp 4.6 ships 32 such
+lines with compiled bytes, two of them assignments; hypothesis: the value the original's
+eval returns for an assignment, which a line of its own drops]. `fnv_script::compile`
+reads the tokens after `eval` as one expression (`Kw::Eval`).
 
 **TestExpr** `TestExpr expr` (NVSE 4.1): evaluates the expression, side effects
 included, and returns 1 if it ran without an extender error, 0 if it raised one; the
@@ -157,7 +173,10 @@ time: open.
   function (`GetSelf.SetActorValue …`), on another quest's or reference's ref variable
   (`Quest.rVar.Func`) and on an array element holding a reference
   (`a[100].GetBaseObject`); before, only on a local ref variable or a reference form
-  [documented: Chained dot syntax].
+  [documented: Chained dot syntax]. A head that names no variable or form but a
+  function (`GetSelf.GetProjectileRefDamage`) compiles as that function called with no
+  arguments, the tail called on its result [observed: projectile set rows proj.reg and
+  proj.reg2 compile in the original, #2036]; a head naming nothing is still refused.
 - **Binary literals**: `0b` followed by bits, highest first, wherever extender
   expressions are allowed [documented: Binary Notation]. The page's own example says
   `0b101010` equals 52; by its stated rule (bits highest first) it is 42, so the
@@ -180,7 +199,21 @@ becomes false hangs the game (a crash in the original) [documented: While].
 **foreach** `foreach entry <- source` … `loop`: over arrays, strings, containers and
 form lists (xNVSE 6.2.5); the entry for each kind is ext-arrays.md §3 [documented:
 ForEach]. The type may be given on each name (`e:array <- src:array`, `item:tempref <-
-container:ref`).
+container:ref`). The whole head may stand in one pair of parentheses, `foreach (entry <-
+source)` [observed: Unofficial Patch NVSE Plus and JSawyer Ultimate ship such lines with
+compiled bytes, the source a variable, a call and an `ar_List 0, 1, …`].
+
+**A comma after a function's name.** `rForm = ListGetNthForm, SomeList, iPos`: a comma
+between the name and a first argument the function cannot go without separates as a
+space does [observed: Unofficial Patch NVSE Plus ships that line with compiled bytes;
+hypothesis: the original's compiler takes commas as spaces there]. After a function that
+takes no argument, or can go without its first, the comma belongs to what the call stands
+in (`ar_List GetSelf, 2` is two elements) [design].
+
+**GetFactionRank in an extender expression** takes its faction, though the catalogue's
+row has no parameter list: a numbered function with no listed parameters takes its
+condition's [documented: the xEdit definitions give `ptFaction`; observed: JIP Companions
+Command & Control 2.60, `(rRef.GetFactionRank <faction> > 9)` beside an extender call].
 
 **break** leaves the innermost while or foreach at once; **continue** skips to the next
 test (while) or entry (foreach). Both are only allowed inside such a loop
@@ -250,6 +283,44 @@ apart; `&&` against the compound assignments at the same level; short-circuit ou
 `eval`; the let macro's other operators; inline-declared variable scope; `Return` in a
 loop; hex digit case; nested and unclosed block comments; break/continue in nested loops;
 GoTo across blocks.
+
+## 11. Refused at run time (#2037)
+
+xNVSE 6.4.9's runtime compiler (the console, CompileScript, the Script Runner's files,
+nvf_capture's query steps) refuses forms that NVForever's compiler took. The owner ruled on
+2026-11-10 that NVForever refuses them too ("Yes, refuse them", #2037), so
+`fnv_script::compile::compile_runtime` adds these errors on top of `compile`. Scripts the
+editor compiled keep their bytes, and the source a plugin carries is compiled by `compile`
+with a seed (`fnv_game::source_compile`), so neither meets them [decision].
+
+- **A fractional number literal for an int parameter of a plugin function** does not
+  compile [observed: no golden row for jip.n7 karma.set (`SetBaseKarma 37.5 rBase`), jip6
+  dest.settrait.1.1.3.5 (`SetNthDestructionStageTrait rObj 1 1 3.5`), showoff3
+  so3.ease.badcode (`ApplyEasingAlt 0.5 1.5 0`) and so3.seed.range.fraction
+  (`RandSeeded 1.7 3.2`), jg3 casino.setwin.tops.frac (2.7), jg4 regn.setpriority.gs.frac
+  (20.6), sup1 roundalt.flag2 (`RoundAlt 37.66 2.7 1`) and words.7p9 (`NumberToWords
+  7.9`); the whole-number rows beside each compiled]. A fraction for a float parameter
+  compiles (so3.ease.outside, `ApplyEasingAlt 1.5 1 0`; lutana1 radius.set.base.frac), and
+  so does a float variable for an int parameter (jip6's put-back step, `… fSave`). "Int"
+  is the catalogue's kind, plus SetBaseKarma's karma, which the wiki types float
+  [observed: karma.set against karma.set.int]. A literal with nothing after the point
+  (`37.0`) is not refused [hypothesis: no row]. Functions of the base game are not checked
+  [hypothesis: no row].
+- **The result of a command registered without a return type, given to a form parameter**,
+  does not compile [observed: nvse.misc pkg.nth0.location, `GetFormIDString
+  (GetPackageLocation rG)`; nvse-seventh pkg.removeat0, `GetFormIDString (rDoc.RemovePackageAt
+  0)`; ext-jg6.md, `GetFormIDString (rP.GetCurrentFurnitureRef)`]. Through a variable it
+  compiles (jg6 furniture.player). The catalogue's return types do not tell these commands
+  apart (GetPackageLocation's page says it returns a ref), so the three are listed by name
+  (`UNTYPED_RESULTS`, compile/gen/x.rs); other form parameters than GetFormIDString's
+  [hypothesis].
+- **Not pinned, kept compiling** [decision: #2037, the owner's ruling applies only where
+  the data gives a rule]: jg8 shuffle (`Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)` then
+  `aOut[0] + aOut[1] + …`, refused both as a sum inside sv_Construct and summed with `let`;
+  an inline `ar_List` argument compiles for ShowOff's matrix functions and string `+` with
+  an element compiles (nvse.n9 files.plugins), so either Ar_Shuffle's parameter or numeric
+  element arithmetic could be the cause, ext-jg8.md) and showoff3 so3.jumping
+  (`rP.IsJumping`: not registered under that name, or no calling reference, ext-showoff.md).
 
 ## Observed in the original game (2026-10-26)
 

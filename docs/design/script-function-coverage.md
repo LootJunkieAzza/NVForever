@@ -8,6 +8,19 @@ quests depend on them. It builds on the audit of 2026-10-16
 (docs/design/script-function-audit.md, which reads every registered function's code) and
 on a second round of captures in the original game, made with a new probe generator.
 
+## Source-only player command followup (#2271)
+
+AdvancePCLevel/AdvLevel, ModPCAttribute and RemoveReputationExact now have named
+source handlers over the existing engine consumers. Their native encoding remains
+unmeasured; the three catalogue rows remain unnumbered. The focused portable census
+in `tests/player_source_commands.rs` passed for c4 in hosted composite `23388a32d`
+with Main `be6db0948`; revision-specific results are recorded in PR #2772. The existing broad
+`NVF_CENSUS_FAMILY=vanilla` census remains UNRUN. No shipped-script, stub-use or native parity
+total changes are claimed. The separate unused-console consumer now recognizes these
+source commands: AdvancePCLevel was already an engine word, so the two additional
+handlers change the expected count from 33/92 to 33/90. Qualification is
+revision-specific as above. See [the contract and capture gaps](../spec-notes/player-source-commands.md).
+
 ## 1. Method
 
 - **Which functions**: `fnvtool script coverage` over the ten masters: every opcode the
@@ -166,7 +179,10 @@ plugin version 9 (ai-observer.md §12) in the original game [observed unless sai
   doors (HVLevel1To2Door, vCCHQDoor) all over the world while the player stood on the
   Strip, in unloaded cells too. Since 2026-10-25 NVForever runs the door's OnActivate for
   an NPC walking through it, with the NPC as the action reference, and lets it through
-  only when the block activates the door (doors.md §5).
+  only when the block activates the door (doors.md §5). Those two doors' scripts have no
+  OnActivate block [observed: the door survey, doors.md §5.1], so the event does not
+  depend on a block calling `Activate`; since #2123 NVForever dispatches it as the NPC is
+  asked, before any block runs, at every door it walks through (doors.md §5.2).
 - **Not readable**: whether cashing chips counts for GetCasinoWinningsLevel, and GetSleeping
   while the player sleeps: both need a menu entry chosen (the cashier's dialogue, the
   sleep menu's hours), which the plugin cannot do: it taps controls and keys, but has no

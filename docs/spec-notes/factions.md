@@ -105,6 +105,13 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
   "will be attacked by Very Aggressive actors"; Friends and Allies cannot attack each
   other. Aggression codes: 0 Unaggressive, 1 Aggressive, 2 Very Aggressive, 3 Frenzied
   [documented: xEdit].
+- Ours bounds the Neutral rule by the aggro radius [hypothesis, #2547; observer checks
+  144 and 163]: a Very Aggressive actor whose AI data turns on Aggro Radius Behavior
+  (and whose package allows it) attacks a Neutral actor it detects only inside its
+  aggro radius; a fight once begun, a hit (a grudge) and an Enemy are not bounded, and
+  the player is left to the aggro radius rules (combat-ai.md §13). HELIOS One's guard
+  dogs (CrDogNCRAggressive, radius 2,000) no longer go for the troopers 2,800 units
+  west of their yard (`crates/fnv-game/src/awareness.rs` neutral_out_of_reach).
 - The two lists of a pair often differ [observed]: of the 975 entries naming another
   faction, Enemy is answered by Enemy 178 times, by Neutral 5 times and by no entry 81
   times; Ally by Friend 21 times. One-way enemies include `CentaurFaction → PlayerFaction`,
@@ -115,8 +122,22 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
   with the documentation above. For the player it never matters in FalloutNV.esm: no
   placed actor is named an enemy by the player's factions without naming the player's
   factions an enemy itself [observed: 0].
-- `GetFactionRelation` for actors in several factions (enemy first, then friend, then
-  ally) stays a [hypothesis] (actor-behaviour.md §3).
+- `GetFactionRelation` for actors in several factions: any Friend or Ally reaction of
+  the first actor's factions towards the second's wins over an Enemy pair, since Allies and Friends "cannot
+  attack each other under any circumstances" [documented: wiki
+  GetFactionCombatReaction]; Friend before Ally stays a [hypothesis]. The data is built
+  for this rule [observed, FalloutNV.esm]: FortVulpesInculta is in VCaesarsLegionFaction
+  (which names itself an Ally) and in ArmorNCRFactionNVEnemy (which VCaesarsLegionFaction
+  names an Enemy), and he lives among the Legion in the original (#2560, owner); he and
+  VLegionaryVulpesInculta are in VCrVoidCritterFaction, a faction that names 31
+  factions Friend (animals, raiders, Vipers, Jackals, super mutants, nightkin, feral
+  ghouls; DogFaction among those naming it Friend back) and does nothing else; 188GeneralFaction (Ally to itself and to
+  NCRFactionNV) is shared by the 188 Trading Post's troopers and BattlegearLegionary.
+  Under the earlier enemy-first rule (2026-10 to 2026-11-15) the Legion in Caesar's tent
+  killed Vulpes on sight. The player's crime enemies still come first (§5).
+- The player's faction enemy flags (SetPCEnemyOfFaction, a witnessed crime) make the
+  player an enemy of a flagged faction's members unless another of the member's factions
+  is the player's ally or friend: a faction disguise (disguises.md §3) [hypothesis, #2611].
 
 ## 5. The player, and why a Fiend reads as neutral
 
@@ -189,5 +210,60 @@ and compare with the figures above; explain any change.
 
 - The game's own leveled pick (player level, encounter zone, level modifier) and when it
   is redone.
-- Disposition modifiers of `XNAM`. (Assistance: combat-ai.md §10.3; the aggro radius,
+- Applying `XNAM` disposition modifiers to NPC disposition; source modifier queries
+  and bounded integer edits are separate (§8). (Assistance: combat-ai.md §10.3; the aggro radius,
   cowards and every template group through leveled lists: combat-ai.md §13, 2026-10-13.)
+
+## 8. Source disposition-modifier queries and integer changes
+
+[documented] [GetFactionReaction](https://geckwiki.com/index.php/GetFactionReaction)
+returns the disposition modifier between two factions.
+[ModFactionReaction](https://geckwiki.com/index.php/ModFactionReaction) changes the
+first faction's reaction towards the second by an amount; its example uses an
+integer delta, while the parameter is documented as float.
+[SetFactionReaction](https://geckwiki.com/index.php?title=SetFactionReaction) assigns
+an integer value. These are distinct from
+[GetFactionCombatReaction](https://geckwiki.com/index.php/GetFactionCombatReaction),
+which returns neutral/enemy/ally/friend codes.
+
+[hypothesis] GetFactionReaction reports a value set by SetFactionReaction or
+ModFactionReaction in place of the record's XNAM modifier, otherwise the winning
+record's XNAM modifier, and a pair with no XNAM entry reads zero. The pages above do
+not state this precedence or the missing-pair value; neither is observed.
+
+[design] Engine design choice: invalid/non-FACT getter inputs read zero as a source
+mapping; native failure/default semantics are open. No new raw record decoder or
+native numeric opcode is introduced.
+
+[design] Engine design choice: ModFactionReaction currently maps only finite
+integer-valued deltas representable in the existing signed 64-bit modifier storage.
+It adds with checked integer arithmetic, refusing invalid factions, fractional/
+nonfinite/out-of-range deltas or overflow before mutation with an engine error. Zero
+adds nothing and creates no override. This is an explicit partial mapping, not a
+native range or rounding rule. The documented float parameter alone does not settle
+native fractional storage, result precision or rounding; those require a permitted
+original-game probe. Source void calls return the engine's ordinary zero value;
+native return semantics are open.
+
+The existing setter remains authoritative for its pair, and existing JSON snapshot
+and restore carry the same integer map. Reverse directions remain independent.
+This gives compiled source a real numeric predicate for inventory/quest branches;
+it does not implement faction-modifier aggregation in GetDisposition or NPC AI.
+Combat reactions, SetAlly/SetEnemy, faction relations and actor-specific disposition
+overrides retain their existing consumers and behavior. No complete function,
+native, installed-mod or NPC disposition acceptance is claimed.
+
+Seven authored library controls exercise compiled modifier queries/changes leading
+to a real World inventory branch; setter/zero/negative precedence; ordinary combat
+and NPC disposition preservation; explicit-empty receiver and invalid-form stop/no-
+mutation; unsupported numeric values and actual storage overflow; real JSON save/
+restore and new sessions; and independent modifier/combat fields from a winning
+record. The fixture-only baseline and candidate retain identical assertions.
+Hosted checkout `9f79eec1` (parents `72b385a5`, `ba9145af`) has the exact
+`ba9145af` tree. All seven library controls passed once; full root tests reported
+3,470 passed, zero failed and five ignored, and engine tests reported 3,421 passed,
+zero failed and three ignored. Both strict Clippy checks and all seven hosted
+checks passed ([run](https://github.com/LootJunkieAzza/NVForever/actions/runs/44172574256)).
+These results qualify that source tree; the identical-fixture baseline outcomes and
+native/installed-mod checks remain **UNRUN**. Ignored checks receive no execution
+credit. Earlier failure history remains recorded in PR #2888.

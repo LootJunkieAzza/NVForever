@@ -10,12 +10,15 @@
 //! - [`inventory`]: per-plugin record inventory (the Layer 1 parity scenario)
 
 pub mod decode;
+pub mod edit;
+pub mod encode;
 pub mod inventory;
 pub mod loadorder;
 pub mod plugin;
 pub mod raw;
 pub mod schema;
 pub mod survey;
+pub mod text_guess;
 
 pub use loadorder::LoadOrder;
 pub use plugin::{Plugin, PluginHeader};

@@ -343,6 +343,27 @@ impl Game<'_> {
         out
     }
 
+    /// The base effects of an ingestible shown by their name alone
+    /// ([`crate::data::MagicEffectDef::shows_name`]) whose conditions pass for `actor` now,
+    /// once each in the order the item names them: for the item's EFFECTS figure beside
+    /// [`Game::aid_preview`]'s values (#3119) [hypothesis: the original lists the name;
+    /// its layout is not captured].
+    pub fn aid_preview_names(&mut self, actor: FormId, item: FormId) -> Vec<FormId> {
+        let data = self.data;
+        let Some(items) = data.effect_items.get(&item) else { return Vec::new() };
+        let mut out: Vec<FormId> = Vec::new();
+        for (index, e) in items.iter().enumerate() {
+            if out.contains(&e.effect) || !data.magic_effects.get(&e.effect).is_some_and(|m| m.shows_name()) {
+                continue;
+            }
+            let label = format!("{} effect {index} (preview)", data.name(item));
+            if self.conditions_pass(&e.conditions, Some(actor), Some(actor), &label) {
+                out.push(e.effect);
+            }
+        }
+        out
+    }
+
     /// An actor uses an ingestible (the caller has taken it from the inventory): its
     /// effects apply with the item's potency, its usage monitor counts the use, and the
     /// addiction roll is made. docs/spec-notes/aid-items.md §4–§5.
@@ -356,7 +377,11 @@ impl Game<'_> {
     pub fn ingest_on(&mut self, actor: FormId, item: FormId, limb: Option<u16>) -> Ingested {
         // [documented: SetOnUseAidItemEventHandler] this = the actor, the item.
         self.jip_event("useaiditem", Some(actor), vec![fnv_script::vm::XVal::Ref(item.0)]);
-        let def = self.data.ingestibles.get(&item).cloned().unwrap_or_default();
+        let mut def = self.data.ingestibles.get(&item).cloned().unwrap_or_default();
+        // LU's SetIngestibleFlag (`nvse_lu2`).
+        if let Some(f) = crate::nvse::record_value(self, item, "ENIT", "flags").and_then(|v| v.num().ok()) {
+            def.flags = f as u8;
+        }
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
@@ -387,6 +412,10 @@ impl Game<'_> {
         let usage = has_monitor.then(|| self.spell_usage(actor, item));
         let threshold = self.aid_setting("fAddictionUsageMonitorThreshold");
         let mut chance = addiction_chance(&def, usage, threshold);
+        // The player's tweak: only the player gets addicted [design: docs/design/tweaks.md].
+        if self.tweaks.no_npc_addiction && actor != FormId::PLAYER_REF {
+            chance = 0.0;
+        }
         // "Addiction Chance accounts for the Modify Addiction Chance Perk Entry Point"
         // [documented: GECK wiki Addiction Formula].
         if chance > 0.0 {
@@ -418,7 +447,12 @@ impl Game<'_> {
             return false;
         }
         e.spells.push(spell);
+        // Conditions may read actor values, which sync listed abilities. The new
+        // spell is already listed but has no ActiveEffect until admission completes.
+        let syncing = self.syncing_effects;
+        self.syncing_effects = true;
         self.apply_magic_item(actor, spell, None, true);
+        self.syncing_effects = syncing;
         true
     }
 
@@ -455,6 +489,18 @@ impl Game<'_> {
     fn change_value(&mut self, actor: FormId, code: u16, amount: f64, parts: bool, limb: Option<u16>, caster: Option<FormId>) {
         if amount < 0.0 && actor == FormId::PLAYER_REF && self.toggles.god_mode {
             return;
+        }
+        // ToggleImmortalMode (`crate::nvse_jip9`): 2 no Health damage, 1 none below 1 HP.
+        let mut amount = amount;
+        if actor == FormId::PLAYER_REF && code == crate::actor_values::HEALTH && amount < 0.0 {
+            match self.immortal_mode() {
+                2 => return,
+                1 => {
+                    let now = fa::actor_value(self, actor, code).unwrap_or(0.0);
+                    amount = amount.max(-(now - 1.0).max(0.0));
+                }
+                _ => {}
+            }
         }
         if code == crate::actor_values::HEALTH && amount < 0.0 {
             // Health damage can kill (a burn, a poison; hit-effects.md §4).

@@ -61,6 +61,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
 
+mod death_recovery;
+
 pub const BODY_FORMAT: &str = "nvf.save.body/1";
 pub const ENGINE_FORMAT: &str = "nvf.engine.state/1";
 
@@ -355,23 +357,25 @@ impl Plugin for SavePlugin {
             .init_resource::<SaveWrites>()
             .init_resource::<CoopEngineState>()
             .init_resource::<FastTravelLanding>()
+            .init_resource::<death_recovery::RecoveryPolicy>()
+            .init_resource::<death_recovery::DeathRecovery>()
             .add_message::<crate::wait::RestEnded>()
             .add_message::<SaveRequest>()
             .add_message::<SaveDone>()
             .add_message::<LoadRequest>()
             .add_message::<LoadRefused>()
             .add_systems(Update, (requests, autosaves).in_set(PlaySet::Ui))
-            .add_systems(Update, (write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
+            .add_systems(Update, (death_recovery::update, write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
             .add_systems(Last, flush_on_exit);
         if let Some(p) = app.world_mut().remove_resource::<PendingLoad>() {
             let PendingLoad { path, body, order } = p;
             app.insert_resource(PendingEngine(body.engine, path.clone(), order));
             app.insert_resource(crate::script::PendingGame(Box::new(body.game), path));
         }
-        let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, get, set, slider: None };
+        let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, switches: "", get, set, slider: None };
         crate::settings::add_setting(
             app,
-            setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving the player); fast travel has its own switch.", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
+            setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving you); fast travel has its own row.", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
         );
         crate::settings::add_setting(
             app,
@@ -387,7 +391,7 @@ impl Plugin for SavePlugin {
         );
         crate::settings::add_setting(
             app,
-            setting("autosave-scripts", "Save when a script asks", "On: a script's Autosave saves to the autosave slot, as quests do at their milestones; SystemSave to the system slot; ForceSave as a new save.", |w| w.resource::<SaveConfig>().autosave_scripts, |w, on| w.resource_mut::<SaveConfig>().autosave_scripts = on),
+            setting("autosave-scripts", "Save when a script asks", "On: a script's Autosave saves to the autosave slot (quest milestones), SystemSave to the system slot, ForceSave as a new save.", |w| w.resource::<SaveConfig>().autosave_scripts, |w, on| w.resource_mut::<SaveConfig>().autosave_scripts = on),
         );
     }
 }
@@ -395,12 +399,15 @@ impl Plugin for SavePlugin {
 const GROUP: &str = "Saving";
 
 /// The QuickSave and QuickLoad keys and the [`SaveRequest`]s.
-fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, mut asked: MessageReader<SaveRequest>, mut queue: ResMut<SaveQueue>, cfg: Res<SaveConfig>, mut load: MessageWriter<LoadRequest>, mut log: ResMut<SaveLog>) {
+#[allow(clippy::too_many_arguments)]
+fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, mut asked: MessageReader<SaveRequest>, mut queue: ResMut<SaveQueue>, cfg: Res<SaveConfig>, mut load: MessageWriter<LoadRequest>, mut log: ResMut<SaveLog>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     queue.0.extend(asked.read().cloned());
-    if *state.get() != PlayState::Playing {
+    // The player's tweak: QuickLoad works in the main and pause menus too [design: docs/design/tweaks.md].
+    let menu_load = tweaks.is_some_and(|t| t.quick_load_in_menus) && *state.get() == PlayState::Menu;
+    if *state.get() != PlayState::Playing && !menu_load {
         return;
     }
-    if input.just_pressed(crate::bindings::Control::QuickSave) {
+    if !menu_load && input.just_pressed(crate::bindings::Control::QuickSave) {
         info!("save: QuickSave key");
         queue.0.push(SaveRequest { name: fnv_save::QUICK_NAME.into(), kind: SaveKind::Quick });
     }
@@ -491,6 +498,11 @@ fn not_now(world: &World) -> Option<String> {
     if player_dead(world) {
         return Some(DEAD.into());
     }
+    // ToggleDisableSaves 1 (`fnv_game::nvse_jg7`): until every plugin that disabled saving
+    // enables it again or a save is loaded [documented: ToggleDisableSaves].
+    if rt.game.saves_disabled() {
+        return Some("a script disabled saving".into());
+    }
     if rt.game.dialogue.is_some() {
         return Some("in a conversation".into());
     }
@@ -533,6 +545,7 @@ fn write_saves(world: &mut World) {
             let line = format!("Cannot save {:?} now: {why}", r.name);
             info!("save: not now: {why}");
             world.resource_mut::<SaveLog>().0.push(line);
+            say_in_the_corner(world, format!("Cannot save now: {why}"));
             // The pause menu's status line says it too, instead of "Saving..." for good.
             let path = world.resource::<SaveConfig>().path_of(&r.name).unwrap_or_default();
             world.write_message(SaveDone { path, result: Err(format!("not now: {why}")) });
@@ -550,6 +563,7 @@ fn write_saves(world: &mut World) {
         done.push(key);
         if let Err(e) = save_now(world, &r) {
             warn!("save: failed: {e}");
+            say_in_the_corner(world, failed_note(r.kind, &e));
             world.resource_mut::<SaveLog>().0.push(format!("Save failed: {e}"));
             let path = world.resource::<SaveConfig>().path_of(&r.name).unwrap_or_default();
             world.write_message(SaveDone { path, result: Err(e) });
@@ -582,10 +596,10 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
         let rt = st.rt.as_mut().ok_or("the scripts are not running")?;
         // The extender's SaveGame event, with the save's name [documented: NVSE Event
         // Handling], before the state is taken.
-        Ok::<_, String>(crate::script::with_world(rt, &mut sim, |rt| {
+        crate::script::with_world(rt, &mut sim, |rt| {
             rt.game.dispatch_event("SaveGame", vec![fnv_script::vm::XVal::Str(name.to_string())], None);
-            rt.game.snapshot()
-        }))
+            rt.game.checked_snapshot()
+        })
     })?;
     // Test aid: this save reads as one from a later version (smoke `save-refused-load`).
     if std::env::var("NVF_PLAY_TEST_SAVE_UNKNOWN_FORMAT").is_ok_and(|n| n == name) {
@@ -674,6 +688,37 @@ fn start_writer(w: &mut SaveWrites, batch: Vec<Unwritten>, shot: Option<Shot>) {
     }));
 }
 
+/// The corner message for a save that failed: which kind and a short reason, in
+/// NVForever's own words. Without it a quicksave or an autosave that failed showed
+/// nothing, and the player believed the game was saved (#3147). The reason is the
+/// error's first line, cut at [`REASON_CHARS`] characters (the log has all of it).
+fn failed_note(kind: SaveKind, error: &str) -> String {
+    let what = match kind {
+        SaveKind::Auto => "Autosave failed",
+        SaveKind::Quick => "Quicksave failed",
+        SaveKind::Manual | SaveKind::System => "Save failed",
+    };
+    let line = error.lines().next().unwrap_or("").trim();
+    let mut reason: String = line.chars().take(REASON_CHARS).collect();
+    if reason.len() < line.len() {
+        reason.push_str("...");
+    }
+    if reason.is_empty() {
+        format!("{what}.")
+    } else {
+        format!("{what}: {reason}")
+    }
+}
+
+/// The characters of an error a corner message shows.
+const REASON_CHARS: usize = 120;
+
+fn say_in_the_corner(world: &mut World, text: String) {
+    if let Some(mut c) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
+        c.push(text.into());
+    }
+}
+
 /// Log the files the writer thread finished, for the console, the corner and the pause menu.
 fn report_written(world: &mut World) {
     let done: Vec<Written> = {
@@ -688,6 +733,12 @@ fn report_written(world: &mut World) {
                 let kind = format!("{:?}", d.kind).to_lowercase();
                 let thumb = if *shot > 0 { format!("thumbnail {THUMB_W}x{THUMB_H} ({shot} bytes PNG)") } else { "no thumbnail".into() };
                 info!("save: wrote {} ({kind}, {bytes} bytes, {} changed references), {thumb} in {:.0} ms (snapshot {:.0} ms)", d.path.display(), d.refs, d.t0.elapsed().as_secs_f64() * 1e3, d.snapshot_ms);
+                // SUP's GetSaveName and GetSavedSaveSize read the last save written
+                // (`fnv_game::nvse_sup4`).
+                if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+                    let name = d.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    rt.game.save_files.saved = Some(fnv_game::nvse_sup4::SaveFile { name, bytes: *bytes as u64 });
+                }
                 if let Some(mut c) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
                     c.push(if d.kind == SaveKind::Auto { "Autosaved".to_string() } else { "Game saved".to_string() }.into());
                 }
@@ -695,6 +746,7 @@ fn report_written(world: &mut World) {
             }
             Err(e) => {
                 warn!("save: failed: {e}");
+                say_in_the_corner(world, failed_note(d.kind, e));
                 format!("Save failed: {e}")
             }
         };
@@ -854,6 +906,19 @@ fn apply_engine(world: &mut World) {
         return;
     }
     let Some(PendingEngine(e, path, order)) = world.remove_resource::<PendingEngine>() else { return };
+    // The player's tweak: a load turns god mode off [design: docs/design/tweaks.md].
+    if world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.game.god_mode_off_on_load) && crate::combat::god_mode() {
+        crate::combat::set_god_mode(false);
+        if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+            rt.game.toggles.god_mode = false;
+        }
+        info!("save: god mode off after the load (tweak)");
+    }
+    // GetLoadOrderChanged (`fnv_game::nvse_jip12`): the save's plugins moved or are gone
+    // [hypothesis: plugins only added after the save's own do not count].
+    if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+        rt.game.set_load_order_changed(order.is_some());
+    }
     world.insert_resource(CoopEngineState(e.coop.clone()));
     if let Some(mut c) = world.get_resource_mut::<crate::control::PlayerControl>() {
         c.pov = if e.third_person { crate::control::Pov::Third } else { crate::control::Pov::First };
@@ -905,8 +970,9 @@ pub fn missing_content_text(missing: &[String]) -> String {
 /// refused here when the runtime could not restore it ([`SaveBody::check`]), before anything
 /// starts from it. A save made with another load order is remapped by plugin name (design §4.1): every
 /// FormID's mod index moves to its plugin's place now; what came from plugins no longer
-/// loaded is dropped and reported. Called before the log is set up: its lines go straight
-/// to the output, as nvforever's first `load:` line.
+/// loaded is dropped and reported. A save carrying runtime lambda definitions is refused
+/// when the remap would move its lambda index (callable-identity.md). Called before the log
+/// is set up: its lines go straight to the output, as nvforever's first `load:` line.
 pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<(SaveHeader, SaveBody, Option<OrderChange>), String> {
     let f = fnv_save::read(path).map_err(|e| e.to_string())?;
     let remap = fnv_save::PluginRemap::new(&f.header.plugins, current);
@@ -922,6 +988,22 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
         }
         return Ok((f.header, body_of(raw)?, None));
     }
+    // Retired aliases are reserved identities, not plugin-indexed records. This
+    // first persistence format supports identical/appended load orders only;
+    // refuse before the generic walker can remap or discard their provenance.
+    if raw.get("game").and_then(|g| g.get("retired_scene_bases")).is_some_and(|v| v.as_object().is_none_or(|m| !m.is_empty())) {
+        return Err(format!("{} contains retired temporary scene identities and cannot be loaded with a reordered or missing plugin list", path.display()));
+    }
+    // Lambda handles and their saved `ref` tokens all have index FE. The walker keeps
+    // those numbers unless the save had a plugin at FE that now sits elsewhere; then it
+    // would move the tokens but not the handles, and cannot tell a lambda token from that
+    // plugin's record. Refuse that case (explicit or legacy positional handles).
+    let lambda = fnv_game::game::LAMBDA_BASE;
+    if matches!(remap.form(lambda), fnv_save::Remapped::Kept(n) if n != lambda)
+        && raw.get("game").and_then(|g| g.get("lambdas")).and_then(|v| v.as_array()).is_some_and(|l| !l.is_empty())
+    {
+        return Err(format!("{} contains runtime lambda definitions and cannot be loaded while its plugin at index FE moves", path.display()));
+    }
     let missing = remap.missing();
     if !missing.is_empty() && current.len() > fnv_save::GONE_INDEX as usize {
         return Err(format!("{} was made with plugins that are not loaded now ({missing:?}) and the load order has 255 plugins: unload one to load it", path.display()));
@@ -929,7 +1011,7 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     let added: Vec<&str> = current.iter().filter(|c| !f.header.plugins.iter().any(|p| p.name.eq_ignore_ascii_case(&c.name))).map(|c| c.name.as_str()).collect();
     let moved = remap.moved().iter().map(|(n, a, b)| format!("{n} {a:02X}->{b:02X}")).collect::<Vec<_>>();
     let mut raw = raw;
-    let report = fnv_save::remap_json(&mut raw, &remap);
+    let report = fnv_save::remap_json_with(&mut raw, &remap, &fnv_game::game::SAVE_PAIR_FIELDS);
     let mut body = body_of(raw)?;
     let gone = |id: fnv_sim::FormId| fnv_save::is_gone(id.0);
     let dropped_game = body.game.drop_gone(gone);
@@ -959,8 +1041,172 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
 }
 
 #[cfg(test)]
+#[path = "save/retired_scene_tests.rs"]
+mod retired_scene_tests;
+
+#[cfg(test)]
+#[path = "save/lambda_remap_tests.rs"]
+mod lambda_remap_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A failed save says so in the corner, by kind, with a short reason (#3147).
+    #[test]
+    fn a_failed_save_has_a_corner_message() {
+        assert_eq!(failed_note(SaveKind::Quick, "disk full"), "Quicksave failed: disk full");
+        assert_eq!(failed_note(SaveKind::Auto, "disk full\nmore"), "Autosave failed: disk full");
+        assert_eq!(failed_note(SaveKind::Manual, ""), "Save failed.");
+        assert_eq!(failed_note(SaveKind::System, " x "), "Save failed: x");
+        let long = failed_note(SaveKind::Quick, &"é".repeat(500));
+        assert_eq!(long.chars().count(), "Quicksave failed: ".len() + REASON_CHARS + 3);
+        assert!(long.ends_with("..."));
+        // It reaches the corner messages, once for the same text.
+        let mut world = World::new();
+        say_in_the_corner(&mut world, "nothing to hold it".into());
+        world.init_resource::<crate::corner_messages::CornerMessages>();
+        say_in_the_corner(&mut world, failed_note(SaveKind::Quick, "disk full"));
+        say_in_the_corner(&mut world, failed_note(SaveKind::Quick, "disk full"));
+        let mut c = world.resource_mut::<crate::corner_messages::CornerMessages>();
+        assert_eq!(c.waiting(), 1);
+        c.step(0.0);
+        assert_eq!(c.showing().map(|n| n.text.as_str()), Some("Quicksave failed: disk full"));
+    }
+
+    fn csty_save_world(name: &str, callback_body: &str) -> (World, PathBuf, Vec<u8>) {
+        use crate::script_draw::tests::{play_over, record, sub, top};
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let string = |sig: &[u8; 4], text: &str| sub(sig, [text.as_bytes(), &[0]].concat());
+        let play = play_over(&[
+            top(b"NPC_", &record(b"NPC_", 0, 7, &[string(b"EDID", "Player"), sub(b"ZNAM", 0xD20u32.to_le_bytes().to_vec())])),
+            top(b"CSTY", &record(b"CSTY", 0, 0xD20, &[string(b"EDID", "OwnedSaveStyle")])),
+        ]);
+        // The assigned and unused cases may run concurrently in the same binary.
+        let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("nvf-csty-save-{}-{serial}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{name}.nvfsave"));
+        let previous = b"authored previous save bytes, not a player save".to_vec();
+        std::fs::write(&path, &previous).unwrap();
+        let mut scripts = ScriptState::over_plugins(play.lo.plugins);
+        let game = &mut scripts.rt.as_mut().unwrap().game;
+        game.run_source(&format!("SetEventHandler \"SaveGame\" (begin function {{string_var ownName}}\nSetModLocalData \"owned.callback\" 1\n{callback_body}\nend)"), Default::default()).unwrap();
+        game.checked_snapshot().unwrap();
+        let sim = SimState::new(play.lo, play.schema, play.index);
+        let mut world = World::new();
+        world.insert_resource(play);
+        world.insert_resource(sim);
+        world.insert_resource(scripts);
+        world.insert_resource(SaveConfig::with_dir(Some(dir)));
+        world.init_resource::<SaveHooks>();
+        world.init_resource::<SaveWrites>();
+        (world, path, previous)
+    }
+
+    fn csty_save_query(world: &mut World, expression: &str) -> fnv_script::vm::XVal {
+        world.resource_mut::<ScriptState>().rt.as_mut().unwrap().game.run_query(
+            &format!("Begin Function {{ }}\nSetFunctionValue ({expression})\nEnd\n"), Default::default(),
+        ).unwrap()
+    }
+
+    fn assert_csty_callback_save_keeps_main_degradation(assign: bool) {
+        use fnv_sim::FormId;
+        for (kind, name) in [(SaveKind::Manual, "clone"), (SaveKind::Auto, fnv_save::AUTO_NAME)] {
+            let mut callback = "SetModLocalData \"owned.clone\" (TempCloneForm OwnedSaveStyle 0)".to_string();
+            if assign { callback.push_str("\nSetCombatStyleTraitNumeric (GetModLocalData \"owned.clone\") 42 7\nplayer.SetCombatStyle (GetModLocalData \"owned.clone\")"); }
+            let (mut world, path, previous) = csty_save_world(name, &callback);
+            save_now(&mut world, &SaveRequest { name: name.into(), kind }).unwrap();
+            assert_eq!(csty_save_query(&mut world, "GetModLocalData \"owned.callback\""), fnv_script::vm::XVal::Num(1.0));
+            let fnv_script::vm::XVal::Ref(alias) = csty_save_query(&mut world, "GetModLocalData \"owned.clone\"") else { panic!("SaveGame must create an actual alias") };
+            assert_ne!(alias, 0);
+            let game = &world.resource::<ScriptState>().rt.as_ref().unwrap().game;
+            assert_eq!(game.combat_style(FormId::PLAYER_REF).unwrap().rushing_attack_distance_mult, if assign { 7.0 } else { 0.0 }, "the callback's assignment must be observable");
+            let writes = world.resource::<SaveWrites>();
+            assert_eq!(writes.waiting.len(), 1);
+            assert!(writes.busy());
+            assert_eq!(writes.waiting[0].path, path);
+            let body: SaveBody = serde_json::from_slice(&writes.waiting[0].body).unwrap();
+            let saved_style = body.game.extra.get(&FormId::PLAYER_REF).and_then(|extra| extra.combat_style);
+            assert_eq!(saved_style, assign.then_some(FormId(alias)), "save preserves the carrier without silently dropping/remapping it");
+            let sim = fnv_sim::World::restore(game.world.forms, game.world.placed, &body.game.sim).unwrap();
+            let back = fnv_game::Game::restore(game.data, sim, game.cfg, &body.game).unwrap();
+            assert_eq!(back.extra.get(&FormId::PLAYER_REF).and_then(|extra| extra.combat_style), saved_style);
+            assert_eq!(back.combat_style_id(FormId::PLAYER_REF), Some(FormId(0xD20)));
+            assert_eq!(back.combat_style(FormId::PLAYER_REF).unwrap().rushing_attack_distance_mult, 0.0, "loading uses the original authored style, not the session copy");
+            assert_eq!(std::fs::read(&path).unwrap(), previous, "enqueueing alone must not overwrite the previous file");
+            drop(back);
+            drop(world);
+            std::fs::remove_file(&path).unwrap();
+            std::fs::remove_dir(path.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn an_unused_csty_clone_created_by_savegame_still_enqueues_manual_and_auto_saves() {
+        assert_csty_callback_save_keeps_main_degradation(false);
+    }
+
+    #[test]
+    fn an_assigned_csty_clone_created_by_savegame_loads_with_authored_fallback() {
+        assert_csty_callback_save_keeps_main_degradation(true);
+    }
+
+    #[test]
+    fn an_authored_style_edit_from_savegame_still_enqueues_without_overwriting_early() {
+        let (mut world, path, previous) = csty_save_world("authored", "SetCombatStyleTraitNumeric OwnedSaveStyle 42 2");
+        save_now(&mut world, &SaveRequest { name: "authored".into(), kind: SaveKind::Manual }).unwrap();
+        assert_eq!(csty_save_query(&mut world, "GetModLocalData \"owned.callback\""), fnv_script::vm::XVal::Num(1.0));
+        assert_eq!(csty_save_query(&mut world, "GetCombatStyleTraitNumeric OwnedSaveStyle 42"), fnv_script::vm::XVal::Num(2.0));
+        assert_eq!(world.resource::<SaveWrites>().waiting.len(), 1);
+        assert_eq!(std::fs::read(&path).unwrap(), previous, "enqueueing alone must not overwrite the existing owned file");
+        drop(world);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(path.parent().unwrap()).unwrap();
+    }
+
+    /// Exercise the real save entry point, including its SaveGame callback. A
+    /// callback can introduce unsupported state after a preflight check.
+    #[test]
+    fn a_scene_clone_created_by_savegame_refuses_before_enqueue_or_overwrite() {
+        use crate::script_draw::tests::{play_over, record, sub, top};
+        let string = |sig: &[u8; 4], s: &str| sub(sig, [s.as_bytes(), &[0]].concat());
+        let play = play_over(&[top(b"NPC_", &record(b"NPC_", 0, 7, &[string(b"EDID", "Player")])), top(b"STAT", &record(b"STAT", 0, 0xD10, &[string(b"EDID", "OwnedSceneBase"), string(b"MODL", "owned\\original.nif")]))]);
+        let dir = std::env::temp_dir().join(format!("nvf-scene-save-callback-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for temporary in [false, true] {
+            let name = if temporary { "clone" } else { "ordinary" };
+            let path = dir.join(format!("{name}.nvfsave"));
+            let previous = b"owned previous save, must survive refusal";
+            std::fs::write(&path, previous).unwrap();
+            let mut scripts = ScriptState::over_plugins(play.lo.plugins);
+            let target = if temporary { "(TempCloneForm OwnedSceneBase 1)" } else { "OwnedSceneBase" };
+            let handler = format!("SetEventHandler \"SaveGame\" (begin function {{string_var ownName}}\nplayer.PlaceAtMe {target}\nend)");
+            scripts.rt.as_mut().unwrap().game.run_source(&handler, Default::default()).unwrap();
+            let sim = SimState::new(play.lo, play.schema, play.index);
+            let mut world = World::new();
+            world.insert_resource(play);
+            world.insert_resource(sim);
+            world.insert_resource(scripts);
+            world.insert_resource(SaveConfig::with_dir(Some(dir.clone())));
+            world.init_resource::<SaveHooks>();
+            world.init_resource::<SaveWrites>();
+            let result = save_now(&mut world, &SaveRequest { name: name.into(), kind: SaveKind::Manual });
+            let created = world.resource::<SimState>().world.created().count();
+            assert_eq!(created, 1, "the SaveGame handler must actually place its reference");
+            if temporary {
+                assert!(result.unwrap_err().contains("temporary cloned base"));
+                assert!(world.resource::<SaveWrites>().waiting.is_empty());
+                assert!(!world.resource::<SaveWrites>().busy());
+            } else {
+                result.unwrap();
+                assert_eq!(world.resource::<SaveWrites>().waiting.len(), 1);
+            }
+            assert_eq!(std::fs::read(&path).unwrap(), previous, "snapshotting alone must never overwrite the existing file");
+            std::fs::remove_file(&path).unwrap();
+        }
+        std::fs::remove_dir(&dir).unwrap();
+    }
 
     #[test]
     fn an_engine_snapshot_without_new_fields_still_reads() {
@@ -1060,5 +1306,26 @@ mod tests {
         assert!(world.resource::<SaveLog>().0.is_empty());
         assert_eq!(world.resource::<SaveQueue>().0.len(), 1);
         assert!(!world.resource::<SaveWrites>().busy());
+    }
+
+    /// The player's stored autosave switches reach `SaveConfig`: `SavePlugin` starts every
+    /// switch on and `settings::apply_stored` (`PostStartup`) sets the ones in
+    /// `NVForever.ini`. Nothing may replace `SaveConfig` after registration (#3010 review).
+    #[test]
+    fn stored_autosave_switches_are_applied_to_the_save_config() {
+        let dir = std::env::temp_dir().join(format!("nvf-autosave-settings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ini = dir.join("NVForever.ini");
+        std::fs::write(&ini, "[Settings]\nautosave-travel=0\nautosave-fast-travel=0\nautosave-wait=0\nautosave-sleep=0\nautosave-scripts=0\n").unwrap();
+        let mut app = App::new();
+        app.add_plugins(SavePlugin);
+        app.insert_resource(crate::settings::SettingsFile(Some(ini)));
+        crate::settings::apply_stored(app.world_mut());
+        let cfg = app.world().resource::<SaveConfig>();
+        assert!(
+            !cfg.autosave_travel && !cfg.autosave_fast_travel && !cfg.autosave_wait && !cfg.autosave_sleep && !cfg.autosave_scripts,
+            "the INI's switches were not applied: {cfg:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

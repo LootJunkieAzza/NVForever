@@ -2,6 +2,9 @@
 //! repository schemas (no game data). The builders follow
 //! crates/fnv-sim/tests/synthetic.rs.
 
+#[path = "search_tests.rs"]
+mod search_tests;
+
 use super::*;
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -80,6 +83,7 @@ const KEY_B: u32 = 0x181; // KEYM "Vault Key"
 const SKILL_BOOK: u32 = 0x182; // BOOK "Big Book of Science", teaches Science
 const PLAIN_BOOK: u32 = 0x183; // BOOK "Paradise Lost", teaches nothing
 const CARD: u32 = 0x184; // CCRD "Ace of Hearts" (no DATA here)
+const VEST: u32 = 0x185; // ARMO "Leather Vest", upper body
 const CELL: u32 = 0x200;
 const BOX_REF: u32 = 0x300;
 const CAN_REF: u32 = 0x301;
@@ -140,6 +144,9 @@ fn plugin_bytes() -> Vec<u8> {
     let books = cat(&[&book(SKILL_BOOK, "TestSkillBook", "Big Book of Science", 10), &book(PLAIN_BOOK, "TestPlainBook", "Paradise Lost", -1)]);
     let [e, f] = named("TestCard", "Ace of Hearts");
     let card = record(b"CCRD", 0, CARD, &[e, f]);
+    // ARMO BMDT: biped flags (upper body), general flags; DATA: value, health, weight.
+    let [e, f] = named("TestVest", "Leather Vest");
+    let vest = record(b"ARMO", 0, VEST, &[e, f, sub(b"BMDT", cat(&[&0x4u32.to_le_bytes(), &[0u8, 0, 0, 0]])), sub(b"DATA", cat(&[&10i32.to_le_bytes(), &50i32.to_le_bytes(), &3f32.to_le_bytes()]))]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let label = CELL.to_le_bytes();
     let children = group(label, 6, &group(label, 9, &cat(&[&refr(BOX_REF, BOX), &refr(CAN_REF, CAN)])));
@@ -156,6 +163,7 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"KEYM", &keys),
         &top(b"BOOK", &books),
         &top(b"CCRD", &card),
+        &top(b"ARMO", &vest),
         &top(b"NPC_", &npc),
         &cells,
     ])
@@ -260,6 +268,108 @@ fn take_all_and_encumbrance() {
     m.apply(&mut w, Command::Down);
     assert_eq!(m.selected, [0, m.selected[1]]);
     assert!(m.apply(&mut w, Command::Close).close);
+}
+
+#[test]
+fn a_live_explosive_is_a_row_of_its_own_that_stays() {
+    // #1640: a planted explosive's unit (`Extra::live`) is listed apart, marked, and no
+    // command takes it; the ordinary units of the same item are taken as usual.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let inv = w.inventory_mut(FormId(BOX_REF)).unwrap();
+    inv.add(FormId(RIFLE), 1);
+    assert!(inv.mark_live(FormId(RIFLE)));
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    let armed = super::live_name("Varmint Rifle".into());
+    assert_eq!(armed, format!("Varmint Rifle ({})", super::LIVE_NOTE));
+    assert_eq!(names(m.list(Side::Container)), vec![("Bottle Cap", 200), ("Varmint Rifle", 1), (armed.as_str(), 1), ("anvil", 1), ("tin can", 2)]);
+    assert!(m.list(Side::Container).rows[2].live && !m.list(Side::Container).rows[1].live);
+    // Refused, nothing moves; the selection stays on it.
+    select(&mut m, Side::Container, &armed);
+    let a = m.apply(&mut w, Command::Stack);
+    assert!(!a.changed && a.taken.is_empty());
+    assert_eq!(m.status.as_deref(), Some(super::live_refusal(&armed).as_str()));
+    assert_eq!((count(&mut w, BOX_REF, RIFLE), count(&mut w, 0x14, RIFLE)), (2, 0));
+    assert_eq!(m.selected_row(Side::Container).unwrap().name, armed);
+    // The ordinary rifle is taken; Take All leaves the live one.
+    select(&mut m, Side::Container, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert_eq!((count(&mut w, BOX_REF, RIFLE), count(&mut w, 0x14, RIFLE)), (1, 1));
+    m.apply(&mut w, Command::TakeAll);
+    assert_eq!(names(m.list(Side::Container)), vec![(armed.as_str(), 1)]);
+    assert_eq!(count(&mut w, BOX_REF, RIFLE), 1);
+    // Storing the player's rifle back adds an ordinary row beside it.
+    m.apply(&mut w, Command::Focus(Side::Player));
+    select(&mut m, Side::Player, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert_eq!(names(m.list(Side::Container)), vec![("Varmint Rifle", 1), (armed.as_str(), 1)]);
+}
+
+/// A pocket menu on the box (steal mode) whose rolls always go unnoticed (`sure`) or are
+/// always caught.
+fn pocket(world: &mut World<'_>, sure: bool) -> MenuModel {
+    let mut m = MenuModel::open_container(world, FormId(BOX_REF)).unwrap();
+    m.steal = Some(Steal::new(FormId(BOX_REF), rolls(sure), 0.0, 0.0, 7));
+    m
+}
+
+fn rolls(sure: bool) -> fnv_game::pickpocket::Rules {
+    let c = if sure { 100.0 } else { 0.0 };
+    fnv_game::pickpocket::Rules { min_chance: c, max_chance: c, ..Default::default() }
+}
+
+#[test]
+fn an_explosive_armed_in_the_open_pocket_is_listed_and_refused_at_once() {
+    // #1640 (review): the menu moves the item as an ordinary one; arming it
+    // (`pickpocket::arm_given`, as `menu::apply_input` runs it right after the command)
+    // lists the pocket again, so the next command sees the "(Armed)" row and a take of it
+    // is refused before any roll.
+    let f: &'static Fixture = Box::leak(Box::new(fixture()));
+    let plugins = vec![Plugin::parse(&plugin_bytes(), "Test.esm".into()).unwrap()];
+    let mut script = crate::script::ScriptState::over_plugins(&plugins);
+    let rt = script.rt.as_mut().unwrap();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut sim = crate::sim::SimState { forms: &f.forms, refs: &f.refs, world };
+    let mut m = pocket(&mut sim.world, true);
+    m.apply(&mut sim.world, Command::Focus(Side::Player));
+    select(&mut m, Side::Player, "Pistol");
+    let a = m.apply(&mut sim.world, Command::One);
+    assert_eq!(a.given, vec![(FormId(PISTOL), 1)]);
+    assert!(names(m.list(Side::Container)).contains(&("Pistol", 1)), "listed as an ordinary item first");
+    let blast = fnv_game::pickpocket::Explosive { damage: 50.0, ..Default::default() };
+    let explosion = FormId(0x999);
+    let placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut m), |item| (item == FormId(PISTOL)).then_some((explosion, blast)), FormId(BOX_REF), &a.given);
+    assert_eq!(placed, vec![crate::pickpocket::Placed::Live(explosion)]);
+    assert_eq!(rt.game.pickpocket.planted.len(), 1);
+    let armed = super::live_name("Pistol".into());
+    let listed = names(m.list(Side::Container));
+    assert!(listed.contains(&(armed.as_str(), 1)) && !listed.contains(&("Pistol", 1)), "{listed:?}");
+    // Taking it back: refused with no roll (every roll would be caught now).
+    m.steal.as_mut().unwrap().rules = rolls(false);
+    m.apply(&mut sim.world, Command::Focus(Side::Container));
+    select(&mut m, Side::Container, &armed);
+    let a = m.apply(&mut sim.world, Command::One);
+    assert!(a.caught.is_none() && !a.close && a.taken.is_empty(), "{a:?}");
+    assert_eq!(m.status.as_deref(), Some(super::live_refusal(&armed).as_str()));
+    assert_eq!(count(&mut sim.world, BOX_REF, PISTOL), 1);
+    // A placement that is no explosive is listed as before.
+    let placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut m), |_| None, FormId(BOX_REF), &[(FormId(CAN), 1)]);
+    assert_eq!(placed, vec![crate::pickpocket::Placed::Plain]);
+}
+
+#[test]
+fn a_pocket_row_listed_before_its_arming_is_not_rolled_for() {
+    // A row the menu listed as ordinary, its unit since reserved: nothing to move, so no
+    // roll and no catch.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = pocket(&mut w, false);
+    assert!(w.inventory_mut(FormId(BOX_REF)).unwrap().mark_live(FormId(RIFLE)));
+    select(&mut m, Side::Container, "Varmint Rifle");
+    let a = m.apply(&mut w, Command::One);
+    assert!(a.caught.is_none() && !a.close && a.taken.is_empty(), "{a:?}");
+    assert_eq!(m.status.as_deref(), Some(super::live_refusal(&super::live_name("Varmint Rifle".into())).as_str()));
+    assert_eq!(count(&mut w, BOX_REF, RIFLE), 1);
 }
 
 #[test]
@@ -920,6 +1030,55 @@ fn misc_folders_and_skill_books() {
     assert_eq!(count(&mut w, 0x14, KEY_A), 1);
 }
 
+/// The Pip-Boy's equip hint is bright exactly when Enter does something (#1896): it reads
+/// the game's own checks (`enter_acts`: `World::equip_check`, which `World::equip_at` runs),
+/// not what a hotkey can hold. A book that teaches nothing and a broken weapon are dim and
+/// Enter leaves them be; a weapon, armour and an aid item are bright and Enter takes them.
+#[test]
+fn the_equip_hint_is_bright_when_enter_does_something() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    assert!(f.forms.issues.is_empty(), "{:?}", f.forms.issues.to_json());
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item(PLAYER, FormId(PLAIN_BOOK), 1).unwrap();
+    w.add_item(PLAYER, FormId(VEST), 1).unwrap();
+    w.add_item_extra(PLAYER, FormId(RIFLE), 1, Extra { condition: Some(0.0), ..Extra::default() }).unwrap();
+    let mut m = MenuModel::open_inventory(&mut w).unwrap();
+    m.apply(&mut w, Command::SetCategory(Side::Player, Category::All));
+    // The equip hint (shown with a controller, the first as the original's order puts it):
+    // its word and whether dim.
+    let equip_hint = |m: &MenuModel, w: &World<'_>, name: &str| -> (&'static str, bool) {
+        let r = m.list(Side::Player).rows.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("no row {name}"));
+        crate::pad::set_labels(crate::pad::Labels::Xbox);
+        let h = crate::pipboy::items::page_hints(Category::All, Some(r), ("Repair", false), false, enter_acts(w, r));
+        crate::pad::set_labels(crate::pad::Labels::Keys);
+        (h[0].word, h[0].dim)
+    };
+    let equip = crate::pipboy::labels::built_in_label("sInventoryEquip");
+    assert_eq!(equip_hint(&m, &w, "Paradise Lost"), ("Use", true));
+    assert_eq!(equip_hint(&m, &w, "Varmint Rifle"), (equip, true));
+    assert_eq!(equip_hint(&m, &w, "Pistol"), (equip, false));
+    assert_eq!(equip_hint(&m, &w, "Leather Vest"), (equip, false));
+    assert_eq!(equip_hint(&m, &w, "Aid"), ("Use", false));
+    // Enter agrees: the dim ones are refused, the bright ones taken.
+    select(&mut m, Side::Player, "Paradise Lost");
+    m.apply(&mut w, Command::One);
+    assert_eq!(count(&mut w, 0x14, PLAIN_BOOK), 1);
+    select(&mut m, Side::Player, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert!(!w.get(PLAYER).unwrap().inventory.as_ref().unwrap().is_equipped(FormId(RIFLE)));
+    for name in ["Pistol", "Leather Vest"] {
+        select(&mut m, Side::Player, name);
+        m.apply(&mut w, Command::One);
+        assert_eq!(m.status.as_deref(), Some(format!("Equipped {name}").as_str()));
+    }
+    // Worn, the hint takes it off; Enter does.
+    assert_eq!(equip_hint(&m, &w, "Pistol"), ("Unequip", false));
+    select(&mut m, Side::Player, "Aid");
+    m.apply(&mut w, Command::One);
+    assert_eq!(count(&mut w, 0x14, AID), 1);
+}
+
 #[test]
 fn a_list_kept_in_view_moves_only_for_a_choice_out_of_it() {
     // 20 rows, 7 shown from the 6th: any row in view (one the pointer can be over) keeps it.
@@ -1069,4 +1228,165 @@ fn a_modded_weapon_is_worth_its_mods_on_top() {
     // Slot 1 is empty: its flag adds nothing.
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 1), 0);
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 3), 125);
+}
+
+#[test]
+fn barter_kind_mults_pick_the_side_and_kind() {
+    let k = BarterKindMults { sell: [0.5, 0.6, 0.7, 0.8, 0.9, 1.1], buy: [2.0, 2.1, 2.2, 2.3, 2.4, 2.5], water_unscaled: true };
+    assert_eq!(k.of(false, Some(ItemKind::Weapon), false), 0.6);
+    assert_eq!(k.of(true, Some(ItemKind::ItemMod), false), 2.5);
+    assert_eq!(k.of(true, Some(ItemKind::Book), false), 2.4);
+    assert_eq!(k.of(true, Some(ItemKind::Aid), true), 1.0);
+    assert_eq!(BarterKindMults { water_unscaled: false, ..k }.of(true, Some(ItemKind::Aid), true), 2.2);
+}
+
+/// Take All Confirmation: the first Take All asks, the next takes.
+#[test]
+fn take_all_asks_first_under_the_tweak() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    m.take_all_confirm = Some(1);
+    let a = m.apply(&mut w, Command::TakeAll);
+    assert!(!a.changed && m.confirming_take_all(), "{:?}", m.status);
+    let a = m.apply(&mut w, Command::TakeAll);
+    assert!(a.changed);
+    assert!(m.list(Side::Container).rows.is_empty());
+}
+
+/// The Clicking the Tab Sorts tweak's orders: value, then weight, the most first, name
+/// order kept between equals; name brings the usual order back.
+#[test]
+fn the_player_list_sorts_by_value_or_weight() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let m = MenuModel::open_inventory(&mut w).unwrap();
+    let row = m.list(Side::Player).rows[0].clone();
+    let mk = |name: &str, value, weight| Row { name: name.into(), value: Some(value), weight: Some(weight), ..row.clone() };
+    let base = vec![mk("a", 5, 1.0), mk("b", 20, 0.5), mk("c", 5, 9.0)];
+    let names = |rows: &[Row]| rows.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+    let mut rows = base.clone();
+    SortBy::Value.apply(&mut rows);
+    assert_eq!(names(&rows), ["b", "a", "c"]);
+    let mut rows = base.clone();
+    SortBy::Weight.apply(&mut rows);
+    assert_eq!(names(&rows), ["c", "a", "b"]);
+    let mut rows = base.clone();
+    SortBy::Name.apply(&mut rows);
+    assert_eq!(names(&rows), ["a", "b", "c"]);
+    assert_eq!(SortBy::Name.next().next().next(), SortBy::Name);
+}
+
+/// The Quantity Menu Respects Companion Carry Cap tweak: what fits, at least one.
+#[test]
+fn a_companion_takes_no_more_than_it_can_carry() {
+    assert_eq!(carry_cap(10, 2.0, 7.0), 3);
+    assert_eq!(carry_cap(10, 2.0, 100.0), 10);
+    assert_eq!(carry_cap(10, 2.0, 1.0), 1);
+    assert_eq!(carry_cap(10, 2.0, -5.0), 1);
+    assert_eq!(carry_cap(10, 0.0, 0.0), 10);
+}
+
+
+#[test]
+fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {
+    use bevy::prelude::*;
+    use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput, ButtonState};
+    use crate::{bindings::{Bindings, InputDevice}, menu::{ActiveMenu, AmountMeter, MenuInput, quantity_mouse}, ui_pointer::{PointerState, UiPointerPlugin}};
+    let mut model = MenuModel::empty(Mode::Inventory, "Synthetic inventory".into());
+    model.quantity = Some(Quantity { cmd: crate::menu::model::Command::One, side: Side::Player, row: 0, max: 10, amount: 1 });
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, crate::pad::InputSwitchPlugin, UiPointerPlugin))
+        .init_resource::<Bindings>().init_resource::<bevy::ui::UiStack>()
+        .insert_resource(ActiveMenu(Some(model)))
+        .add_message::<MenuInput>().add_systems(Update, quantity_mouse);
+    let meter = app.world_mut().spawn((AmountMeter, PointerState::Pressed,
+        bevy::ui::RelativeCursorPosition { normalized: Some(Vec2::ZERO), ..default() })).id();
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window: Entity::PLACEHOLDER });
+    app.update();
+    assert_eq!(app.world().resource::<Messages<MenuInput>>().len(), 1, "the real quantity reader sees the initial drag");
+    app.world_mut().resource_mut::<Messages<MenuInput>>().clear();
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::South, 1.0)));
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    assert_ne!(app.world().get::<PointerState>(meter), Some(&PointerState::Pressed));
+    app.world_mut().write_message(KeyboardInput { key_code: KeyCode::KeyX, logical_key: Key::Character("x".into()), state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER });
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    crate::bindings::set_device(app.world_mut(), InputDevice::KeyboardMouse);
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window: Entity::PLACEHOLDER });
+    app.update();
+    assert!(app.world().resource::<ButtonInput<MouseButton>>().just_released(MouseButton::Left));
+    assert_ne!(app.world().get::<PointerState>(meter), Some(&PointerState::Pressed));
+    // Isolate post-release travel from buffered commands from earlier drag frames
+    // [design, #2200; menu::quantity_mouse, bevy::ecs::message::Messages].
+    app.world_mut().resource_mut::<Messages<MenuInput>>().clear();
+    app.world_mut().get_mut::<bevy::ui::RelativeCursorPosition>(meter).unwrap().normalized = Some(Vec2::splat(0.4));
+    app.update();
+    assert!(app.world().resource::<Messages<MenuInput>>().is_empty(), "pointer travel after release cannot change the quantity");
+}
+
+/// #2751: two openings of one victim's pocket do not roll the same; with the test aid's
+/// number they do; and over many openings a first take at 85% goes unnoticed about 85%
+/// of the time (seeded by the victim alone, the Legion assassin's first roll was 90.79
+/// at every opening: caught every time).
+#[test]
+fn every_opening_of_a_pocket_rolls_afresh() {
+    let victim = FormId(0x0013_4FF6);
+    let rolls_of = |seed: u64| {
+        let mut st = Steal::new(victim, rolls(true), 100.0, 15.0, seed);
+        (0..4).map(|_| st.rng.next_f32()).collect::<Vec<f32>>()
+    };
+    let clock = 1_763_000_000_000_000_000u64;
+    // The same instant, the next opening: other rolls.
+    assert_ne!(rolls_of(steal_seed(victim, None, clock, 0)), rolls_of(steal_seed(victim, None, clock, 1)));
+    // A later instant, the same count (another session after a reload): other rolls.
+    assert_ne!(rolls_of(steal_seed(victim, None, clock, 0)), rolls_of(steal_seed(victim, None, clock + 1_000_000, 0)));
+    // The test aid: the same at every opening, and what the fixed seed gave.
+    assert_eq!(steal_seed(victim, Some(0x5EED), clock, 0), steal_seed(victim, Some(0x5EED), clock + 77, 9));
+    assert_eq!(steal_seed(victim, Some(0x5EED), clock, 0), u64::from(victim.0) ^ 0x5EED);
+    let fixed = rolls_of(steal_seed(victim, Some(0x5EED), 0, 0));
+    assert!(fixed[0] * 100.0 > 85.0, "the old seed's first roll on the assassin was over the cap: {}", fixed[0] * 100.0);
+    // 10,000 openings, a few milliseconds apart: the first take at 85%.
+    let mut unseen = 0;
+    for i in 0..10_000u64 {
+        let mut st = Steal::new(victim, rolls(true), 100.0, 15.0, steal_seed(victim, None, clock + i * 3_141_593, i));
+        unseen += u32::from(st.unnoticed(85));
+    }
+    assert!((8_300..=8_700).contains(&unseen), "{unseen} of 10,000 first takes at 85% went unnoticed");
+}
+
+#[test]
+fn hide_item_barter_ex_filters_vendor_player_and_both_sides() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    // Give both sides CAN, PISTOL, and RIFLE so each side flag is exercised distinctly.
+    w.inventory_mut(FormId(0x14)).unwrap().add(FormId(CAN), 1);
+    w.inventory_mut(FormId(0x14)).unwrap().add(FormId(RIFLE), 1);
+    w.inventory_mut(FormId(BOX_REF)).unwrap().add(FormId(PISTOL), 1);
+
+    let mut m = MenuModel::open_barter(&mut w, FormId(BOX_REF), FormId(BOX_REF), FormId(CAPS), 50.0, 0).unwrap();
+    let has = |m: &MenuModel, side: Side, item: u32| m.list(side).rows.iter().any(|r| r.item == FormId(item));
+    assert!(has(&m, Side::Container, CAN) && has(&m, Side::Player, CAN));
+    assert!(has(&m, Side::Container, PISTOL) && has(&m, Side::Player, PISTOL));
+    assert!(has(&m, Side::Container, RIFLE) && has(&m, Side::Player, RIFLE));
+
+    // Flag 1: shown on player's side only (hidden on vendor's side).
+    // Flag 2: shown on vendor's side only (hidden on player's side).
+    // Flag 3: hidden on both sides.
+    let hidden = BTreeMap::from([(FormId(CAN), 1), (FormId(PISTOL), 2), (FormId(RIFLE), 3)]);
+    m.set_barter_hidden(&mut w, hidden).unwrap();
+    assert!(!has(&m, Side::Container, CAN) && has(&m, Side::Player, CAN), "flag 1 hides vendor side only");
+    assert!(has(&m, Side::Container, PISTOL) && !has(&m, Side::Player, PISTOL), "flag 2 hides player side only");
+    assert!(!has(&m, Side::Container, RIFLE) && !has(&m, Side::Player, RIFLE), "flag 3 hides both sides");
+
+    // Clearing the script overrides restores all items on both sides.
+    m.set_barter_hidden(&mut w, BTreeMap::new()).unwrap();
+    assert!(has(&m, Side::Container, CAN) && has(&m, Side::Player, CAN));
+    assert!(has(&m, Side::Container, PISTOL) && has(&m, Side::Player, PISTOL));
+    assert!(has(&m, Side::Container, RIFLE) && has(&m, Side::Player, RIFLE));
 }

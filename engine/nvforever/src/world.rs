@@ -2,8 +2,8 @@
 //! references; unload cells that fall out of range.
 
 use crate::fade::CellFade;
-use crate::terrain::{prepare_terrain, spawn_terrain, TerrainCtx, TerrainMaterials, TerrainPrep};
-use crate::water::{water_material, WaterCtx};
+use crate::terrain::{prepare_terrain, TerrainCtx, TerrainMaterials, TerrainPrep};
+use crate::water::{cell_water_center, water_material, WaterCtx};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use bevy::tasks::{futures::check_ready, Task};
@@ -19,7 +19,7 @@ use nvf_assets::{nif_material, NifMaterial};
 use nvf_play::{RefVisual, RenderCell};
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Base object types drawn as static models. NPCs and creatures are assembled from parts
 /// (`actors.rs`); sounds and idle markers have no model. PROJ: placed mines and charges
@@ -53,18 +53,19 @@ pub struct OpenedPlugins {
     pub dropped: Vec<String>,
 }
 
-/// Open the plugins `names` (load order) in `data_dir` for the game. A plugin that cannot
+/// Open the plugins `names` (load order) for the game: from the mods folder `mods` when it
+/// has the file, else from `data_dir` (`fnv_install::plugins::plugin_path`). A plugin that cannot
 /// be read or parsed (a truncated or broken mod) is left out, and then every plugin the
 /// load order would refuse: a missing master, a master that loads after it, a second
 /// copy, past the 255th (`fnv_esm::loadorder::drop_unloadable`). The game goes on without
 /// them; a line for each is printed now (the log is not up yet) and kept for the log.
-pub fn open_plugins(data_dir: &Path, names: &[String]) -> OpenedPlugins {
+pub fn open_plugins(data_dir: &Path, mods: &[PathBuf], names: &[String]) -> OpenedPlugins {
     let mut dropped = Vec::new();
     let mut plugins = Vec::with_capacity(names.len());
     for n in names {
         // The file whatever its case on disk (a case-sensitive copy may hold
         // `deadmoney.esm`; #995); the plugin keeps the name the load order gives it.
-        let path = fnv_install::child_ci(data_dir, n).unwrap_or_else(|| data_dir.join(n));
+        let path = fnv_install::plugins::plugin_path_in(data_dir, mods, n);
         match EsmPlugin::open(path) {
             Ok(mut p) => {
                 p.name = n.clone();
@@ -112,6 +113,20 @@ impl WorldData {
     pub fn grid_cell(&self, g: (i32, i32)) -> Option<&fnv_world::Cell> {
         let w = self.index.worldspaces.get(&self.world)?;
         self.index.cells.get(w.grid.get(&g)?)
+    }
+
+    /// The LAND of grid square `g` and of the eight around it
+    /// (`fnv_world::land_surface::LandIds`): a cell's texture layers are stitched to its
+    /// side neighbours' ([`crate::terrain::NEIGHBOURS`]) and its smoothed surface reads
+    /// their heights along its edges (#2149).
+    pub fn land_ids(&self, g: (i32, i32)) -> fnv_world::land_surface::LandIds {
+        fnv_world::land_surface::land_ids(g, |n| self.grid_cell(n).and_then(|c| c.land))
+    }
+
+    /// The landscape surface of grid square `g` as this run draws and collides it (smoothed
+    /// or as stored, `nvf_play::smooth_terrain::spec`); `None` without landscape.
+    pub fn land_surface(&self, g: (i32, i32)) -> Option<fnv_world::land_surface::Surface> {
+        fnv_world::land_surface::load_surface(self.lo, self.schema, &self.land_ids(g), nvf_play::smooth_terrain::spec())
     }
 
     /// Whether a reference is enabled at the start of a game: not deleted, and its enable
@@ -201,6 +216,9 @@ pub struct Streamer {
     /// Destroyed references drawn with their destruction stage's replacement model
     /// (`destroyed.rs`): kept here so a cell drawn again draws them so.
     pub model_overrides: HashMap<u32, String>,
+    /// Door travels so far ([`travel`]): what drew the place left must go (the full-detail
+    /// ring, full_detail.rs, clears itself when it changes).
+    pub travels: u64,
 }
 
 /// `base` drawn with the model `path` (a DMDL replacement model) instead of its own.
@@ -239,6 +257,10 @@ pub enum CellKey {
 
 #[derive(Debug, Default, Clone)]
 pub struct StreamStats {
+    /// Cumulative cell construction and reference spawn attempts, including work that
+    /// produces no visual [design, #2248: begin_cell, spawn_ref; quality_probe.rs].
+    pub cell_starts: u64,
+    pub reference_attempts: u64,
     pub cells_loaded: usize,
     pub refs_drawn: usize,
     pub refs_skipped_disabled: usize,
@@ -256,8 +278,12 @@ pub struct StreamStats {
     pub refs_doors: usize,
     /// Drawn references whose model has named sequences scripts can play (object_anims.rs).
     pub refs_group_rigs: usize,
-    /// References drawn in the pose their `XRGD` stores (clutter skeletons, clutter_pose.rs).
+    /// References drawn in the pose their `XRGD` stores (clutter skeletons, `nvf_play::clutter_pose`).
     pub refs_posed: usize,
+    /// `NiBillboardNode`s of placed models drawn turning to the camera (`face_camera`,
+    /// #2549), on both paths, and the references they belong to.
+    pub billboards: usize,
+    pub refs_billboards: usize,
     /// Imposters met in loaded cells, left to `crate::imposters`.
     pub refs_imposters: usize,
     pub water_planes: usize,
@@ -273,6 +299,9 @@ pub struct StreamStats {
     pub cells_waited: usize,
     pub cells_forced: usize,
     pub skipped_types: HashMap<String, usize>,
+    /// Frames [`stream`] found the main view's camera and the world root and went on
+    /// ([`note_other_cameras`] reads it).
+    pub frames: u64,
 }
 
 /// Game space → Bevy space.
@@ -285,9 +314,23 @@ pub fn bevy_to_game(p: Vec3) -> Vec3 {
     Vec3::new(p.x, -p.z, p.y)
 }
 
+/// `World`, with a parent above it (issue #1387). Bevy assigns the `GlobalTransform` of a root
+/// whose tree is dirty, which marks it changed even with the same value, and then has to
+/// recompute every direct child; a child's goes through `set_if_neq`, so with this parent
+/// `World`'s stays unchanged when only something under it moves, and its clean direct
+/// children stop at their test [design: bevy_transform 0.20.1 `src/systems.rs` :529, :707-718].
+///
+/// The parent has only `World` under it and stays identity: particles.rs and shot_fx.rs read
+/// `World`'s local matrix as the game-to-Bevy conversion. What is directly under `World` stays
+/// so (nav.rs `show_actor` finds a driven body by its parent being `World`).
 pub fn setup_root(mut commands: Commands) {
-    commands.spawn((Name::new("World"), WorldRoot, game_to_bevy(), Visibility::default()));
+    let parent = commands.spawn((Name::new("World parent"), Transform::IDENTITY, Visibility::default())).id();
+    commands.spawn((Name::new("World"), WorldRoot, game_to_bevy(), Visibility::default(), ChildOf(parent)));
 }
+
+/// [`stream`]'s actor resources and the frame's pace, as one parameter (a system takes at
+/// most 16).
+type StreamActors<'w> = (Option<Res<'w, crate::actors::ActorWorld>>, Option<Res<'w, nvf_play::sim::SimState>>, ResMut<'w, crate::readahead::ReadAhead>, Res<'w, crate::stream_pace::StreamPace>);
 
 #[allow(clippy::too_many_arguments)]
 pub fn stream(
@@ -295,7 +338,7 @@ pub fn stream(
     world: Res<WorldData>,
     mut streamer: ResMut<Streamer>,
     root: Query<Entity, With<WorldRoot>>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
     mut terrain: TerrainMaterials,
     mut water: WaterCtx,
@@ -303,17 +346,24 @@ pub fn stream(
     mut grass: crate::grass::GrassCtx,
     mut emittance: ResMut<crate::emittance::EmittanceState>,
     time: Res<Time>,
-    (actor_world, sim, mut ahead): (Option<Res<crate::actors::ActorWorld>>, Option<Res<nvf_play::sim::SimState>>, ResMut<crate::readahead::ReadAhead>),
+    (actor_world, sim, mut ahead, pace): StreamActors,
     mut actor_parts: ResMut<ActorParts>,
     loading: Option<Res<nvf_play::loading::Loading>>,
     children: Query<&Children>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
+    streamer.stats.frames += 1;
     let before = (streamer.stats.actors.equipment_spawns, streamer.stats.actors.record_spawns);
     let frame_start = std::time::Instant::now();
+    // Under the start's screen the cells wait for their read-ahead on the read pool
+    // ([`start_pool_prep`]), unless a travel has gone out under it ([`start_pool_cells`]).
+    let pool_prep = start_pool_prep();
+    let pool_start = loading.as_deref().is_some_and(|l| start_pool_cells(pool_prep, l.starting(), l.travelling()));
     let behind_screen = loading.is_some_and(|l| l.unseen_frames());
     let mut actors = actor_world.as_deref().map(|w| (w, &mut *actor_parts, sim.as_deref().map(|s| &s.world), &mut *ahead));
-    despawn_dying(&mut commands, &mut streamer.dying, &children);
+    // Before the start square is in, and behind a loading screen, the budgets are whole.
+    let paced = streamer.settled && !behind_screen;
+    despawn_dying_up_to(&mut commands, &mut streamer.dying, &children, if paced { pace.count(DESPAWN_PER_FRAME) } else { DESPAWN_PER_FRAME });
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {
             let t0 = std::time::Instant::now();
@@ -379,13 +429,16 @@ pub fn stream(
     // Read ahead the cells up to one step beyond the loaded ones (worker threads).
     let now = time.elapsed_secs_f64();
     let tile = terrain.settings.tile;
-    read_ahead(&world, &mut streamer, centre, r + 1, tile, &mut models);
+    {
+        let _span = info_span!("world::cell_read_ahead").entered();
+        read_ahead(&world, &mut streamer, centre, r + 1, tile, &mut models);
+    }
 
     // Before the start square is in (or behind a loading screen) cells are drawn whole in
     // the frame they load, as before; after it, over frames within a time budget, hidden
     // until all their references are in, then faded in (module docs of `CellSpawn`).
     let budgeted = streamer.settled && !behind_screen;
-    let deadline = frame_start + if budgeted { SPAWN_BUDGET } else { LOADING_SCREEN_FRAME };
+    let deadline = frame_start + if budgeted { pace.time(SPAWN_BUDGET) } else { LOADING_SCREEN_FRAME };
     // Cells under way first, nearest first.
     let mut order: Vec<(i32, i32)> = streamer.spawning.keys().copied().collect();
     order.sort_by_key(|c| steps(c) * 1000 + (c.0 - centre.0).abs() + (c.1 - centre.1).abs());
@@ -396,14 +449,20 @@ pub fn stream(
         let Some(mut sp) = streamer.spawning.remove(&c) else { continue };
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
-        while sp.next < sp.refs.len() && !(budgeted && std::time::Instant::now() >= deadline) {
-            let r = sp.refs[sp.next];
-            sp.next += 1;
-            spawn_ref(&mut commands, &world, sp.entity, sp.origin, r, &mut models, &mut water, &mut trees, &mut emittance, &mut actors, s);
+        // What is left of its start first (terrain quadrants, grass), then its references.
+        let started = sp.start(&mut commands, &world, &mut models, &mut terrain, &mut grass, budgeted, || budgeted && std::time::Instant::now() >= deadline);
+        if started {
+            let _span = info_span!("world::cell_refs").entered();
+            let (e, origin) = (sp.entity, sp.origin);
+            spawn_until(&sp.refs, &mut sp.next, budgeted.then_some(deadline), |r| {
+                spawn_ref(&mut commands, &world, e, origin, r, &mut models, &mut water, &mut trees, &mut emittance, &mut actors, s)
+            });
         }
+        // All in but its grass, still on a read thread: the cell waits for it.
+        let done = started && sp.next >= sp.refs.len() && sp.grown(&mut commands, &mut grass, &mut models);
         sp.ms += t0.elapsed().as_secs_f64() * 1000.0;
         sp.frames += 1;
-        if sp.next < sp.refs.len() {
+        if !done {
             streamer.spawning.insert(c, sp);
         } else {
             finish_cell(&mut commands, &mut streamer, c, sp, fading);
@@ -424,10 +483,14 @@ pub fn stream(
         // Drawn once its models are prepared (read ahead), or after waiting long enough.
         let ready = cell_ready(&world, &mut streamer.ahead, c, &mut models);
         let since = *streamer.ahead.waiting.entry(c).or_insert(now);
-        let forced = !ready && (!budgeted || now - since >= MAX_WAIT_SECS);
+        let pool_wait = (pool_start && !budgeted).then(|| streamer.ahead.start.waited(frame_start));
+        let forced = !ready && wait_over(budgeted, now - since, pool_wait);
         if !ready && !forced {
             // Nearer cells first: a farther one does not jump the queue.
             break;
+        }
+        if pool_wait.is_some() {
+            streamer.ahead.start.drawn(ready);
         }
         streamer.ahead.waiting.remove(&c);
         streamer.stats.cells_waited += usize::from(now > since);
@@ -435,16 +498,22 @@ pub fn stream(
         let t0 = std::time::Instant::now();
         let prep = streamer.ahead.listed.remove(&c).and_then(|a| a.terrain);
         let s = &mut *streamer;
-        let (e, refs, origin) = begin_cell(&mut commands, &world, CellKey::Exterior(c), prep, tile, &mut models, &mut terrain, &mut water, &mut grass, budgeted, s);
+        let (e, refs, origin, start) = {
+            let _span = info_span!("world::cell_start").entered();
+            begin_cell(&mut commands, &world, CellKey::Exterior(c), prep, tile, &mut models, &mut terrain, &mut water, budgeted, s)
+        };
         commands.entity(root).add_child(e);
-        let mut sp = CellSpawn { entity: e, refs, next: 0, origin, ms: 0.0, frames: 1 };
-        while sp.next < sp.refs.len() && !(budgeted && std::time::Instant::now() >= deadline) {
-            let r = sp.refs[sp.next];
-            sp.next += 1;
-            spawn_ref(&mut commands, &world, e, origin, r, &mut models, &mut water, &mut trees, &mut emittance, &mut actors, s);
+        let mut sp = CellSpawn { entity: e, refs, next: 0, origin, ms: 0.0, frames: 1, start, grass: None };
+        let started = sp.start(&mut commands, &world, &mut models, &mut terrain, &mut grass, budgeted, || budgeted && std::time::Instant::now() >= deadline);
+        if started {
+            let _span = info_span!("world::cell_refs").entered();
+            spawn_until(&sp.refs, &mut sp.next, budgeted.then_some(deadline), |r| {
+                spawn_ref(&mut commands, &world, e, origin, r, &mut models, &mut water, &mut trees, &mut emittance, &mut actors, s)
+            });
         }
+        let done = started && sp.next >= sp.refs.len() && sp.grown(&mut commands, &mut grass, &mut models);
         sp.ms = t0.elapsed().as_secs_f64() * 1000.0;
-        if sp.next < sp.refs.len() {
+        if !done {
             streamer.spawning.insert(c, sp);
         } else {
             finish_cell(&mut commands, &mut streamer, c, sp, fading);
@@ -453,18 +522,59 @@ pub fn stream(
     if !streamer.settled && want.iter().all(|c| streamer.loaded.contains_key(c)) {
         streamer.settled = true;
         streamer.arrival = None;
+        if let Some(line) = streamer.ahead.start.settled_line() {
+            info!("{line}");
+        }
+    }
+    if budgeted {
+        pace.spent(frame_start.elapsed());
     }
     crate::profile::actor_spawns(streamer.stats.actors.equipment_spawns - before.0, streamer.stats.actors.record_spawns - before.1);
+}
+
+/// Spawn the references `refs[*next..]` one at a time with `spawn`, until all are in or,
+/// with a `deadline`, the deadline has passed (checked before each one).
+pub(crate) fn spawn_until(refs: &[u32], next: &mut usize, deadline: Option<std::time::Instant>, mut spawn: impl FnMut(u32)) {
+    while *next < refs.len() && !deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+        let r = refs[*next];
+        *next += 1;
+        spawn(r);
+    }
 }
 
 /// Main-thread time a frame spends spawning cells once the start square is in
 /// [engineering choice: about a fifth of a 60 fps frame; a town cell's few thousand
 /// references take a few frames, which the cell fade and the read-ahead ring cover].
+/// Above 60 fps a frame gets the same share of itself (stream_pace.rs), as it does of
+/// [`DESPAWN_PER_FRAME`] and [`TAKE_IN_BUDGET`].
 const SPAWN_BUDGET: std::time::Duration = std::time::Duration::from_millis(3);
 
 /// Seconds a cell waits for its read-ahead before it is drawn anyway, preparing what is
 /// missing on the main thread [engineering choice].
 const MAX_WAIT_SECS: f64 = 1.5;
+
+/// Whether a cell whose models are not all prepared is drawn now, the rest prepared on the
+/// main thread: in play once it has waited [`MAX_WAIT_SECS`] (`waited`, game seconds);
+/// before the start square is in or behind a screen at once, except under the start's
+/// screen ([`start_pool_prep`]: `pool_wait`, the real seconds the start's cells have
+/// waited for the read pool so far), where the cells wait for the pool up to
+/// [`MAX_WAIT_SECS`] too. The start's screen stays up until they are all drawn either way.
+fn wait_over(budgeted: bool, waited: f64, pool_wait: Option<f64>) -> bool {
+    if budgeted {
+        waited >= MAX_WAIT_SECS
+    } else {
+        pool_wait.is_none_or(|w| w >= MAX_WAIT_SECS)
+    }
+}
+
+/// Whether the cells asked for this frame are the start's, which wait for the read pool
+/// ([`wait_over`]) and are counted in the start's line ([`StartPrep`]): with the pool
+/// preparation `on` ([`start_pool_prep`]), under the start's screen, and not for a travel
+/// that went out under it, whose cells are drawn at once as behind any travel's screen and
+/// would otherwise share the start's `StartPrep::since` and counts.
+fn start_pool_cells(on: bool, starting: bool, travelling: bool) -> bool {
+    on && starting && !travelling
+}
 
 /// Direct children of retired cells despawned per frame (each with everything below it)
 /// [engineering choice: a town cell's references go in a few frames].
@@ -476,7 +586,8 @@ const DESPAWN_PER_FRAME: usize = 400;
 /// half drawn (the LOD stands in for it meanwhile).
 #[derive(Debug)]
 pub struct CellSpawn {
-    entity: Entity,
+    /// The cell's entity (also read by terrain_lod.rs: a cell being spawned is alive).
+    pub entity: Entity,
     refs: Vec<u32>,
     /// Index of the next reference to spawn.
     next: usize,
@@ -485,6 +596,106 @@ pub struct CellSpawn {
     /// Main-thread time spent on it so far, and the frames it took.
     ms: f64,
     frames: u32,
+    /// What is left of its start (terrain, grass) before its references.
+    start: Option<CellStart>,
+    /// Its grass being grown on a read thread (grass.rs `GrassCtx::begin`); the cell is
+    /// shown once it is in ([`CellSpawn::grown`]), so the grass appears with it.
+    grass: Option<crate::grass::GrassGrowth>,
+}
+
+/// [design] What is left of a cell's start before its references are spawned
+/// (docs/design/streaming-hitches.md §3.4). A cell's terrain and grass used to be spawned in
+/// one piece when the cell was begun, whatever was left of the frame's spawn budget (up to
+/// 4.6 ms against a budget of 1.5 ms at 120 fps [observed 2026-11-20]). They are steps now:
+/// each of the terrain's four quadrants, then the grass, and [`stream`] stops between two of
+/// them when its budget is spent. The cell is hidden until its last reference is in, so a
+/// cell part-way through its start is not seen; a cell loaded whole (the start's square,
+/// behind a loading screen) takes every step at once, as before.
+enum CellStart {
+    Terrain { spawn: Box<crate::terrain::TerrainSpawn>, land_id: u32, water: Option<f32> },
+    Grass { land: Box<fnv_world::land::Land>, surface: Box<fnv_world::land_surface::Surface>, land_id: u32, grid: (i32, i32), water: Option<f32> },
+}
+
+impl std::fmt::Debug for CellStart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Terrain { .. } => "CellStart::Terrain",
+            Self::Grass { .. } => "CellStart::Grass",
+        })
+    }
+}
+
+impl CellStart {
+    /// Take the next step; `None` when the start is done. With `growth` the grass is grown
+    /// on a read thread and left there to be taken in ([`CellSpawn::grown`]); without, it
+    /// is grown here.
+    #[allow(clippy::too_many_arguments)]
+    fn step(self, commands: &mut Commands, cell: Entity, world: &WorldData, models: &mut ModelCtx, terrain: &mut TerrainMaterials, grass: &mut crate::grass::GrassCtx, growth: Option<&mut Option<crate::grass::GrassGrowth>>) -> Option<Self> {
+        match self {
+            Self::Terrain { mut spawn, land_id, water } => {
+                let _span = info_span!("world::cell_terrain").entered();
+                let tm = &mut TerrainCtx { tm: terrain, assets: models };
+                if !spawn.step(commands, cell, world, tm) {
+                    return Some(Self::Terrain { spawn, land_id, water });
+                }
+                let grid = spawn.grid();
+                let (land, surface) = spawn.finish(commands, cell, tm);
+                Some(Self::Grass { land: Box::new(land), surface: Box::new(surface), land_id, grid, water })
+            }
+            Self::Grass { land, surface, land_id, grid, water } => {
+                let _span = info_span!("world::cell_grass").entered();
+                match growth {
+                    Some(growth) => *growth = grass.begin(commands, cell, world, land_id, *land, *surface, grid, water, models),
+                    None => grass.spawn(commands, cell, world, land_id, &land, &surface, grid, water, models),
+                }
+                None
+            }
+        }
+    }
+}
+
+/// Whether a cell's start is taken in steps (`NVF_CELL_START_STEPS=0`: whole, in the frame
+/// the cell is begun, as before; to compare).
+fn start_in_steps() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !std::env::var("NVF_CELL_START_STEPS").is_ok_and(|v| v.trim() == "0"))
+}
+
+impl CellSpawn {
+    /// The cell's start, as far as `stop` allows (asked before each step); `true` when it
+    /// is done and the references can follow. `over_frames`: the cell is spawned over
+    /// frames (hidden meanwhile), so its grass can be grown on a read thread; a cell
+    /// loaded whole grows it here.
+    #[allow(clippy::too_many_arguments)]
+    fn start(&mut self, commands: &mut Commands, world: &WorldData, models: &mut ModelCtx, terrain: &mut TerrainMaterials, grass: &mut crate::grass::GrassCtx, over_frames: bool, stop: impl Fn() -> bool) -> bool {
+        let steps = start_in_steps();
+        let apart = over_frames && crate::stream_pace::on_read_threads();
+        while let Some(start) = self.start.take() {
+            if steps && stop() {
+                self.start = Some(start);
+                return false;
+            }
+            self.start = start.step(commands, self.entity, world, models, terrain, grass, apart.then_some(&mut self.grass));
+        }
+        true
+    }
+
+    /// Whether the cell's grass is in: taken in now if the read thread is done with it
+    /// (`true` also when none is being grown).
+    fn grown(&mut self, commands: &mut Commands, grass: &mut crate::grass::GrassCtx, models: &mut ModelCtx) -> bool {
+        let Some(mut growth) = self.grass.take() else { return true };
+        match growth.ready() {
+            Some(grown) => {
+                let _span = info_span!("world::cell_grass").entered();
+                grass.finish(commands, self.entity, growth.grid, grown, models);
+                true
+            }
+            None => {
+                self.grass = Some(growth);
+                false
+            }
+        }
+    }
 }
 
 /// The cell `c` is all in: shown, loaded, faded in.
@@ -512,8 +723,14 @@ fn retire(commands: &mut Commands, dying: &mut Vec<Entity>, e: Entity) {
 
 /// Despawn up to [`DESPAWN_PER_FRAME`] children of retired cells, and the cells left
 /// empty.
-fn despawn_dying(commands: &mut Commands, dying: &mut Vec<Entity>, children: &Query<&Children>) {
-    let mut left = DESPAWN_PER_FRAME;
+pub(crate) fn despawn_dying(commands: &mut Commands, dying: &mut Vec<Entity>, children: &Query<&Children>) {
+    despawn_dying_up_to(commands, dying, children, DESPAWN_PER_FRAME);
+}
+
+/// [`despawn_dying`] with `per_frame` children at most (the loaded cells' count follows
+/// the frame rate, stream_pace.rs).
+fn despawn_dying_up_to(commands: &mut Commands, dying: &mut Vec<Entity>, children: &Query<&Children>, per_frame: usize) {
+    let mut left = per_frame;
     dying.retain(|&cell| {
         if left == 0 {
             return true;
@@ -558,6 +775,79 @@ pub struct ReadAhead {
     listed: HashMap<(i32, i32), CellAhead>,
     /// When each cell wanted for drawing was first found not ready (seconds).
     waiting: HashMap<(i32, i32), f64>,
+    /// The start's cells read ahead on the read pool ([`start_pool_prep`]).
+    start: StartPrep,
+}
+
+/// How the start's cells came in ([`start_pool_prep`]), for the line logged when they are
+/// all drawn.
+#[derive(Default)]
+struct StartPrep {
+    /// Cells read ahead under the picture hold ([`read_ahead_under_hold`]).
+    held: usize,
+    /// When the start's cells were first asked for, after the hold (real time).
+    since: Option<std::time::Instant>,
+    /// Cells drawn with every model prepared, and drawn before (the rest prepared on the
+    /// main thread).
+    ready: usize,
+    forced: usize,
+    /// The real seconds from `since` to the last cell drawn.
+    waited: f64,
+    /// The line has been logged.
+    logged: bool,
+}
+
+impl StartPrep {
+    /// The real seconds the start's cells have waited for the read pool by `now`.
+    fn waited(&mut self, now: std::time::Instant) -> f64 {
+        now.saturating_duration_since(*self.since.get_or_insert(now)).as_secs_f64()
+    }
+
+    /// One of the start's cells is drawn, its models all `ready` or not.
+    fn drawn(&mut self, ready: bool) {
+        if ready {
+            self.ready += 1;
+        } else {
+            self.forced += 1;
+        }
+        if let Some(since) = self.since {
+            self.waited = since.elapsed().as_secs_f64();
+        }
+    }
+
+    /// The line logged once the start's cells are all drawn, the first time only.
+    fn settled_line(&mut self) -> Option<String> {
+        if self.logged || self.since.is_none() {
+            return None;
+        }
+        self.logged = true;
+        Some(format!(
+            "world: the start's cells drawn: {} with their models prepared on the read pool, {} before (the rest prepared on the main thread); {} cells read ahead under the picture hold, {:.2} s from the first cell to the last",
+            self.ready, self.forced, self.held, self.waited
+        ))
+    }
+}
+
+impl ReadAhead {
+    /// Cells still being read on worker threads.
+    pub(crate) fn busy(&self) -> bool {
+        !self.listing.is_empty()
+    }
+
+    /// The landscape read ahead for cell `c`, taken (the cell's reading is done with).
+    pub(crate) fn take_terrain(&mut self, c: (i32, i32)) -> Option<TerrainPrep> {
+        self.waiting.remove(&c);
+        self.listed.remove(&c).and_then(|a| a.terrain)
+    }
+}
+
+/// Which references' models a cell's read-ahead prepares: the load order, the placement
+/// and its base (enabled, not an imposter or primitive, [`cell_models`]).
+pub(crate) type ModelFilter = fn(&LoadOrder, &Placement, &BaseObject) -> bool;
+
+/// The models the loaded cells draw as static models ([`spawn_model`]).
+fn loaded_models(_: &LoadOrder, _: &Placement, base: &BaseObject) -> bool {
+    DRAWN.contains(&&base.sig) && !base.is_speedtree()
 }
 
 /// Start reading ahead the cells within `ring` steps of `centre` that are not drawn or
@@ -565,28 +855,64 @@ pub struct ReadAhead {
 /// cells far beyond the ring.
 fn read_ahead(world: &WorldData, streamer: &mut Streamer, centre: (i32, i32), ring: i32, tile: f32, models: &mut ModelCtx) {
     let Streamer { ahead, loaded, spawning, hide, .. } = streamer;
+    let area = AheadArea { centre, inner: 0, ring, start: true, deadline: None };
+    read_ahead_cells(world, ahead, area, |c| loaded.contains_key(c) || spawning.contains_key(c), hide, loaded_models, tile, models);
+}
+
+/// The cells a read-ahead covers: those `inner` to `ring` steps from `centre`; `start`:
+/// new readings may begin (otherwise only finished ones are taken in); `deadline`: no new
+/// reading begins and no finished one is looked at past it (the rest wait for a later
+/// frame).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AheadArea {
+    pub centre: (i32, i32),
+    pub inner: i32,
+    pub ring: i32,
+    pub start: bool,
+    pub deadline: Option<std::time::Instant>,
+}
+
+/// [`read_ahead`] over any [`ReadAhead`]: start reading the cells of `area` that `skip`
+/// does not leave out and that are not read or being read, their references' models as
+/// `filter` chooses them; take in the readings done and send their models to be
+/// prepared; forget cells far beyond the ring.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn read_ahead_cells(world: &WorldData, ahead: &mut ReadAhead, area: AheadArea, skip: impl Fn(&(i32, i32)) -> bool, hide: &[String], filter: ModelFilter, tile: f32, models: &mut ModelCtx) {
+    let AheadArea { centre, inner, ring, start, deadline } = area;
+    let late = || deadline.is_some_and(|d| std::time::Instant::now() >= d);
     if ahead.world != world.world {
         *ahead = ReadAhead { world: world.world, ..default() };
     }
     let steps = |c: &(i32, i32)| (c.0 - centre.0).abs().max((c.1 - centre.1).abs());
     ahead.listing.retain(|c, _| steps(c) <= ring + 1);
-    ahead.listed.retain(|c, _| steps(c) <= ring + 1);
+    // [design] #3082: what a cell left behind was read ahead for (its landscape, the
+    // smoothed surface and every quadrant's meshes, all CPU data, no asset handles) is
+    // freed on a worker thread. A crossing leaves a row of the outer ring's cells, mostly
+    // never loaded; freeing them here took 9-16 ms of the frame [observed 2026-11-19,
+    // `profile hitch` spans, stress tour Goodsprings-Primm at --step 2048].
+    let far: Vec<(i32, i32)> = ahead.listed.keys().filter(|c| steps(c) > ring + 1).copied().collect();
+    let left: Vec<CellAhead> = far.iter().filter_map(|c| ahead.listed.remove(c)).collect();
+    if !left.is_empty() {
+        nvf_assets::read_pool::read_pool().spawn(async move { drop(left) }).detach();
+    }
     ahead.waiting.retain(|c, _| steps(c) <= ring);
-    for dx in -ring..=ring {
+    for dx in (-ring..=ring).filter(|_| start) {
         for dy in -ring..=ring {
             let c = (centre.0 + dx, centre.1 + dy);
-            if loaded.contains_key(&c) || spawning.contains_key(&c) || ahead.listing.contains_key(&c) || ahead.listed.contains_key(&c) {
+            if steps(&c) < inner || skip(&c) || ahead.listing.contains_key(&c) || ahead.listed.contains_key(&c) || late() {
                 continue;
             }
             let Some(cell) = world.grid_cell(c) else { continue };
             let mut refs = cell.refs.clone();
             refs.extend(world.persistent_by_grid.get(&c).into_iter().flatten());
             let land = cell.land;
-            let (lo, schema, hide) = (world.lo, world.schema, hide.clone());
+            let around = world.land_ids(c);
+            let (spec, draw) = (nvf_play::smooth_terrain::spec(), crate::terrain_lod::first_draw());
+            let (lo, schema, hide) = (world.lo, world.schema, hide.to_vec());
             let task = nvf_assets::read_pool::read_pool().spawn(async move {
                 CellAhead {
-                    models: cell_models(lo, schema, &refs, &hide),
-                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile)),
+                    models: cell_models(lo, schema, &refs, &hide, filter),
+                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile, around, spec, draw)),
                     ready: false,
                 }
             });
@@ -594,7 +920,7 @@ fn read_ahead(world: &WorldData, streamer: &mut Streamer, centre: (i32, i32), ri
         }
     }
     let mut done = Vec::new();
-    ahead.listing.retain(|c, task| match check_ready(task) {
+    ahead.listing.retain(|c, task| match (!late()).then(|| check_ready(task)).flatten() {
         Some(a) => {
             done.push((*c, a));
             false
@@ -602,14 +928,17 @@ fn read_ahead(world: &WorldData, streamer: &mut Streamer, centre: (i32, i32), ri
         None => true,
     });
     for (c, mut a) in done {
-        a.ready = models.models_ready(a.models.iter().map(|(p, s)| (p.as_str(), s.as_slice())));
+        // Past the deadline its models are asked for when the cell is (`cell_ready`).
+        if !late() {
+            a.ready = models.models_ready(a.models.iter().map(|(p, s)| (p.as_str(), s.as_slice())));
+        }
         ahead.listed.insert(c, a);
     }
 }
 
 /// Whether the cell `c`'s models are all prepared, so it can be drawn without reading a
 /// model file on this thread. A grid square without a cell has nothing to read.
-fn cell_ready(world: &WorldData, ahead: &mut ReadAhead, c: (i32, i32), models: &mut ModelCtx) -> bool {
+pub(crate) fn cell_ready(world: &WorldData, ahead: &mut ReadAhead, c: (i32, i32), models: &mut ModelCtx) -> bool {
     match ahead.listed.get_mut(&c) {
         Some(a) => {
             // Asked again: a model read ahead long ago may have been released since.
@@ -621,8 +950,9 @@ fn cell_ready(world: &WorldData, ahead: &mut ReadAhead, c: (i32, i32), models: &
 }
 
 /// The distinct models (path, alternate textures) the references `refs` draw as static
-/// models (`spawn_model`): what a cell's read-ahead prepares. Runs on a worker thread.
-fn cell_models(lo: &LoadOrder, schema: &EsmSchema, refs: &[u32], hide: &[String]) -> Vec<(String, Vec<AltTexture>)> {
+/// models (`spawn_model`) as `filter` chooses them: what a cell's read-ahead prepares.
+/// Runs on a worker thread.
+fn cell_models(lo: &LoadOrder, schema: &EsmSchema, refs: &[u32], hide: &[String], filter: ModelFilter) -> Vec<(String, Vec<AltTexture>)> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for &r in refs {
@@ -631,11 +961,11 @@ fn cell_models(lo: &LoadOrder, schema: &EsmSchema, refs: &[u32], hide: &[String]
             continue;
         }
         let Some(base) = p.base.and_then(|b| base_object(lo, schema, b)) else { continue };
-        if !DRAWN.contains(&&base.sig) || base.is_speedtree() {
+        if !filter(lo, &p, &base) {
             continue;
         }
         let Some(path) = base.world_model_path() else { continue };
-        if is_marker(&path) || hide.iter().any(|h| path.contains(h.as_str())) {
+        if script_marker(base.form_id).unwrap_or_else(|| is_marker(&path)) || hide.iter().any(|h| path.contains(h.as_str())) {
             continue;
         }
         if seen.insert((path.clone(), base.world_alt_textures.clone())) {
@@ -682,9 +1012,14 @@ pub fn take_cell_work(
     streamer: Res<Streamer>,
     loading: Option<Res<nvf_play::loading::Loading>>,
     bytes: Option<ResMut<bevy::render::render_asset::RenderAssetBytesPerFrame>>,
+    pace: Res<crate::stream_pace::StreamPace>,
 ) {
     let free = !streamer.settled || loading.is_some_and(|l| l.unseen_frames());
-    models.take_fetched(time.elapsed_secs_f64(), (!free).then_some(TAKE_IN_BUDGET));
+    let started = std::time::Instant::now();
+    models.take_fetched(time.elapsed_secs_f64(), (!free).then(|| pace.time(TAKE_IN_BUDGET)));
+    if !free {
+        pace.spent(started.elapsed());
+    }
     let limit = (!free).then(upload_bytes_per_frame);
     if let Some(mut b) = bytes.filter(|b| b.max_bytes != limit) {
         b.max_bytes = limit;
@@ -742,7 +1077,7 @@ pub fn respecialize_late_meshes(
 }
 
 /// Log what streaming did at the exit (stress runs read it).
-pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models: Res<nvf_assets::ModelCache>, late: Res<LateMeshes>) {
+pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models: Res<nvf_assets::ModelCache>, late: Res<LateMeshes>, terrain: Option<Res<crate::terrain::TerrainCache>>) {
     if exit.read().last().is_none() {
         return;
     }
@@ -751,6 +1086,20 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
         "streaming summary: {} cells loaded ({:.0} ms on the main thread), spread over {} frames; {} waited for their read-ahead, {} drawn before it was done; {} models cached, {} in flight; {} late-mesh marks",
         s.cells_loaded, s.load_ms, s.spawn_frames, s.cells_waited, s.cells_forced, models.held(), models.in_flight(), late.marked
     );
+    info!("{}", nvf_assets::tangents::summary());
+    // What the two readers of each model file cost (#3149).
+    info!("{}", nvf_assets::load_times::summary());
+    // The smoke scenario `terrain-smoothing` reads it (#2149).
+    if let Some(t) = terrain {
+        // Cell draws counted over the run (a cell drawn again after it unloaded counts
+        // again), not the cells loaded now.
+        // Under 4 x 4 near, after the recipe: its redraws (terrain_lod.rs, #2676).
+        let levels = t.lod.as_ref().map_or(String::new(), |l| format!("; {}", l.summary()));
+        info!("terrain summary: {} cells drawn smoothed, {} on the stored triangles ({}){levels}", t.smoothed_cells, t.stored_cells, nvf_play::smooth_terrain::spec().describe());
+    }
+    if s.billboards > 0 {
+        info!("world: {} placed billboard nodes turn to the camera ({} references)", s.billboards, s.refs_billboards);
+    }
 }
 
 /// Behind a loading screen (`nvf_play::loading`) cells are loaded one after another for
@@ -763,6 +1112,54 @@ const LOADING_SCREEN_FRAME: std::time::Duration = std::time::Duration::from_mill
 /// screen is only asked for.
 pub fn world_not_held(loading: Option<Res<nvf_play::loading::Loading>>, cover: Option<Res<nvf_play::loading::StartCover>>) -> bool {
     cover.is_none() && !loading.is_some_and(|l| l.world_held())
+}
+
+/// Whether the start's models are prepared on the read pool (docs/design/loading-screen.md
+/// §1a): the cells around the camera are read ahead under the picture hold
+/// ([`read_ahead_under_hold`]) and, under the start's screen, wait for that read-ahead
+/// ([`wait_over`]) instead of having their models prepared on the main thread in the first
+/// frame after the hold. Test aid `NVF_START_POOL_PREP=0`: as before, nothing read under
+/// the hold and the start's cells drawn at once.
+pub fn start_pool_prep() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        let on = std::env::var("NVF_START_POOL_PREP").ok().as_deref().map(str::trim) != Some("0");
+        if !on {
+            info!("test aid NVF_START_POOL_PREP=0: the start's cells are read ahead after the picture hold and drawn at once, their models prepared on the main thread");
+        }
+        on
+    })
+}
+
+/// Under the start's picture hold ([`world_not_held`], so [`stream`] does not run yet),
+/// read ahead the cells around the camera as [`stream`] would in its first frame: their
+/// lists, landscape and models are prepared on the read pool while the screen's picture
+/// comes up, and [`take_cell_work`] takes the models in, so the cells find them ready
+/// once the hold is let go [design] ([`start_pool_prep`]; not for an interior, which is
+/// one cell drawn whole).
+pub fn read_ahead_under_hold(
+    world: Res<WorldData>,
+    mut streamer: ResMut<Streamer>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
+    mut models: ModelCtx,
+    terrain: Option<Res<crate::terrain::TerrainSettings>>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
+) {
+    let held = loading.is_some_and(|l| l.starting() && l.world_held());
+    let (Some(terrain), Ok(cam)) = (terrain, camera.single()) else { return };
+    if !held || streamer.interior.is_some() || !start_pool_prep() {
+        return;
+    }
+    let g = bevy_to_game(cam.translation());
+    let centre = streamer.arrival.unwrap_or_else(|| cell_of(g.x, g.y));
+    let ring = streamer.radius + 1;
+    read_ahead(&world, &mut streamer, centre, ring, terrain.tile, &mut models);
+    let ahead = &mut streamer.ahead;
+    let cells = ahead.listing.len() + ahead.listed.len();
+    if ahead.start.held == 0 && cells > 0 {
+        info!("world: the start's read-ahead begins under the loading screen's picture hold: {cells} cells around ({}, {}) read on the read pool", centre.0, centre.1);
+    }
+    ahead.start.held = ahead.start.held.max(cells);
 }
 
 /// Tell the loading screen whether cells around the camera are still to be drawn (runs
@@ -801,16 +1198,128 @@ pub fn loading_gate(
 /// the cells of the world root, so a yaw about game Z in the billboard's own transform
 /// is a yaw about the world's up axis.
 pub fn face_billboards(
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut trees: Query<(&mut Transform, &GlobalTransform), With<TreeBillboard>>,
 ) {
     let Ok(cam) = camera.single() else { return };
     let eye = bevy_to_game(cam.translation());
-    for (mut t, g) in &mut trees {
+    for (t, g) in &mut trees {
         let d = eye - bevy_to_game(g.translation());
         if d.x * d.x + d.y * d.y > 1e-6 {
-            t.rotation = Quat::from_rotation_z(d.y.atan2(d.x));
+            // Written only when it differs: a write marks the transform changed, which
+            // dirties the billboard's cell for propagation and sends it over the cell's
+            // children [design: bevy_transform's `mark_dirty_trees` and
+            // `propagate_parent_transforms`]. An exact compare: the same eye and place give
+            // the same bits, any turn differs.
+            t.map_unchanged(|t| &mut t.rotation).set_if_neq(Quat::from_rotation_z(d.y.atan2(d.x)));
         }
+    }
+}
+
+/// Turn every `NiBillboardNode` drawn as an entity ([`Billboard`]: placed models' glow
+/// cards, whether their node hierarchy is spawned or their shapes baked, and the effect
+/// models of `shot_fx`) to the camera, each frame before transforms propagate
+/// (docs/spec-notes/billboard-nodes.md): about the node's own y axis for the "rotate
+/// about up" modes (1, 9: about the node's y; 5, BSROTATE_ABOUT_UP: about its z, +y
+/// shown), its +z straight at the camera for the others [documented: nif.xml
+/// BillboardMode names; hypothesis: the axes, docs/spec-notes/billboard-nodes.md §1].
+pub fn face_camera(
+    camera: Query<Entity, crate::fly::WorldCamera>,
+    boards: Query<(Entity, &nvf_assets::model::Billboard, &ChildOf)>,
+    parents: Query<&ChildOf>,
+    mut transforms: Query<&mut Transform>,
+) {
+    let Ok(cam) = camera.single() else { return };
+    // An entity's place in the world from this frame's transforms: the propagated ones
+    // are a frame old (the camera has moved since) and missing for what was spawned
+    // this frame.
+    let world = |transforms: &Query<&mut Transform>, e: Entity| {
+        let mut m = Affine3A::IDENTITY;
+        let mut at = Some(e);
+        while let Some(p) = at {
+            if let Ok(t) = transforms.get(p) {
+                m = t.compute_affine() * m;
+            }
+            at = parents.get(p).ok().map(ChildOf::parent);
+        }
+        m
+    };
+    let eye = Vec3::from(world(&transforms, cam).translation);
+    for (e, b, parent) in &boards {
+        let m = world(&transforms, parent.parent());
+        let Ok(mut t) = transforms.get_mut(e) else { continue };
+        // The way to the camera in the node's own frame as the file has it.
+        let d = b.bind.inverse() * (m.inverse().transform_point3(eye) - t.translation);
+        let turn = match b.mode {
+            1 | 9 => Quat::from_rotation_y(d.x.atan2(d.z)),
+            // About the node's z, its +y towards the camera (#2549: the torch's flame
+            // stands along +z under a mode-5 node).
+            5 => Quat::from_rotation_z((-d.x).atan2(d.y)),
+            _ => Quat::from_rotation_arc(Vec3::Z, d.normalize_or(Vec3::Z)),
+        };
+        let rotation = b.bind * turn;
+        if t.rotation != rotation {
+            t.rotation = rotation;
+        }
+    }
+}
+
+/// What [`note_other_cameras`] remembers between frames.
+#[derive(Default)]
+pub struct OtherCameras {
+    /// `StreamStats::frames` the frame before.
+    last: u64,
+    /// The other camera's name while one is active, once streaming has run beside it.
+    open: Option<String>,
+    /// Frames streaming ran while that camera was active.
+    frames: u64,
+}
+
+impl OtherCameras {
+    /// One frame: `frames` the streaming counter now, `other` the name of an active 3D
+    /// camera beside the main view's (a menu's or a scope's), if any. Returns the line to
+    /// log: when streaming first runs beside such a camera, and when the camera is gone.
+    pub fn step(&mut self, frames: u64, other: Option<&str>) -> Option<String> {
+        let ran = frames != std::mem::replace(&mut self.last, frames);
+        match other {
+            // Another camera took over with no frame between: close the first one's count.
+            Some(name) if ran && self.open.as_deref().is_some_and(|o| o != name) => {
+                let line = self.open.replace(name.to_string()).map(|prev| format!("world: streaming kept running behind another 3D camera ({prev}): {} frames", self.frames));
+                self.frames = 1;
+                line
+            }
+            Some(name) if ran => {
+                self.frames += 1;
+                if self.open.is_none() {
+                    self.open = Some(name.to_string());
+                    return Some(format!("world: streaming runs with another 3D camera active ({name}), the main view's camera found by its marker"));
+                }
+                None
+            }
+            Some(_) => None,
+            None => self.open.take().map(|name| format!("world: streaming kept running behind another 3D camera ({name}): {} frames", std::mem::take(&mut self.frames))),
+        }
+    }
+}
+
+/// The 3D cameras beside the main view's (a menu's, a scope's), the water reflection's
+/// left out, with their names.
+type OtherCameraQuery<'w, 's> =
+    Query<'w, 's, (&'static Camera, Option<&'static Name>), (With<Camera3d>, Without<crate::fly::FlyCam>, Without<crate::reflection::ReflectionCamera>)>;
+
+/// Log that streaming keeps running while a menu's or a scope's own 3D camera is active
+/// beside the main view's: once when it first runs beside one, and for how many frames
+/// when the camera is gone. Before, every system that took "the one `Camera3d`" stopped
+/// while such a camera existed [design: issue #1753, `fly::WorldCamera`]. The water
+/// reflection's camera does not count.
+pub fn note_other_cameras(
+    streamer: Res<Streamer>,
+    others: OtherCameraQuery,
+    mut state: Local<OtherCameras>,
+) {
+    let other = others.iter().find(|(c, _)| c.is_active).map(|(_, n)| n.map_or("unnamed", Name::as_str));
+    if let Some(line) = state.step(streamer.stats.frames, other) {
+        info!("{line}");
     }
 }
 
@@ -818,6 +1327,7 @@ pub fn face_billboards(
 /// worldspace and an interior; streaming reloads around the camera, which the player
 /// systems have moved to the destination. With `--play` this happens behind a loading
 /// screen, which stays until `Streamer::settled` ([`loading_gate`]).
+#[allow(clippy::too_many_arguments)]
 pub fn travel(
     mut commands: Commands,
     mut msgs: MessageReader<nvf_play::Travel>,
@@ -826,8 +1336,10 @@ pub fn travel(
     mut sky: ResMut<crate::sky::SkyState>,
     mut lod: ResMut<crate::lod::LodState>,
     args: Res<crate::Args>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
 ) {
     let Some(t) = msgs.read().last().copied() else { return };
+    streamer.travels += 1;
     for (_, e) in streamer.loaded.drain() {
         commands.entity(e).despawn();
     }
@@ -840,9 +1352,38 @@ pub fn travel(
     streamer.settled = false;
     streamer.interior = t.interior;
     streamer.arrival = t.interior.is_none().then(|| cell_of(t.feet[0], t.feet[1]));
-    sky.set_interior(t.interior.and_then(|id| fnv_world::lighting::cell_lighting(world.lo, world.schema, id)));
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    sky.set_interior(t.interior.and_then(|id| effective_cell_lighting(&world, game, id)));
     sky.interior_grade = t.interior.and_then(|id| crate::sky::SkyState::cell_grade(world.lo, world.schema, id));
     lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
+}
+
+/// The actual cell-lighting reader shared by startup/travel and authored
+/// headless camera controls. No ScriptState testing constructor is needed.
+pub(crate) fn effective_cell_lighting(world: &WorldData, game: Option<&fnv_game::Game<'_>>, cell: u32) -> Option<fnv_world::lighting::CellLighting> {
+    match game {
+        Some(game) => game.session_cell_lighting(world.lo, world.schema, fnv_sim::FormId(cell)),
+        None => fnv_world::lighting::cell_lighting(world.lo, world.schema, cell),
+    }
+}
+
+/// Reapply lighting when the cell is applied by travel, or when its runtime
+/// becomes available/unavailable. Live setter-driven refresh is deliberately a
+/// separate timing policy; unchanged frames neither resolve fields nor allocate.
+pub fn cell_lighting(
+    mut travels: MessageReader<nvf_play::Travel>,
+    streamer: Res<Streamer>, world: Res<WorldData>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    mut sky: ResMut<crate::sky::SkyState>,
+    mut seen: Local<Option<(Option<u32>, bool)>>,
+) {
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    let key = (streamer.interior, game.is_some());
+    let travelled = travels.read().count() > 0;
+    if *seen == Some(key) && !travelled { return; }
+    *seen = Some(key);
+    let light = streamer.interior.and_then(|cell| effective_cell_lighting(&world, game, cell));
+    if sky.interior != light { sky.set_interior(light); }
 }
 
 /// SetCellImageSpace (`fnv_game::game::FormChanges::cell_image_spaces`): an interior
@@ -902,16 +1443,19 @@ fn load_cell(
     streamer: &mut Streamer,
 ) -> Entity {
     let tile = terrain.settings.tile;
-    let (cell_e, refs, origin) = begin_cell(commands, world, key, None, tile, models, terrain, water, grass, false, streamer);
-    for r in refs {
+    let (cell_e, refs, origin, start) = begin_cell(commands, world, key, None, tile, models, terrain, water, false, streamer);
+    let mut sp = CellSpawn { entity: cell_e, refs, next: 0, origin, ms: 0.0, frames: 1, start, grass: None };
+    sp.start(commands, world, models, terrain, grass, false, || false);
+    for r in sp.refs {
         spawn_ref(commands, world, cell_e, origin, r, models, water, trees, emittance, actors, streamer);
     }
     cell_e
 }
 
-/// Spawn a cell's entity with its landscape (from `prep`, read ahead, or read here),
-/// grass and water; returns it with the references to spawn into it and its origin (game
-/// space). `hidden`: spawned hidden, to be shown when its references are all in.
+/// Spawn a cell's entity with its water and begin its landscape (from `prep`, read ahead,
+/// or read here); returns it with the references to spawn into it, its origin (game space)
+/// and what is left of its start: the terrain's quadrants and the grass ([`CellStart`]).
+/// `hidden`: spawned hidden, to be shown when its references are all in.
 #[allow(clippy::too_many_arguments)]
 fn begin_cell(
     commands: &mut Commands,
@@ -922,11 +1466,11 @@ fn begin_cell(
     models: &mut ModelCtx,
     terrain: &mut TerrainMaterials,
     water: &mut WaterCtx,
-    grass: &mut crate::grass::GrassCtx,
     hidden: bool,
     streamer: &mut Streamer,
-) -> (Entity, Vec<u32>, Vec3) {
+) -> (Entity, Vec<u32>, Vec3, Option<CellStart>) {
     let stats = &mut streamer.stats;
+    stats.cell_starts += 1;
     let (origin, cell, name) = match key {
         CellKey::Exterior(g) => {
             (Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0), world.grid_cell(g), format!("Cell {},{}", g.0, g.1))
@@ -942,16 +1486,20 @@ fn begin_cell(
         CellKey::Interior(id) => RenderCell::Interior(id),
     });
     let mut refs: Vec<u32> = cell.map(|c| c.refs.clone()).unwrap_or_default();
+    let mut start = None;
     if let CellKey::Exterior(g) = key {
         if let Some((c, land_id)) = cell.and_then(|c| Some((c, c.land?))) {
-            let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile));
+            let prep = prep.or_else(|| {
+                let _span = info_span!("world::cell_terrain_unprepared").entered();
+                prepare_terrain(world.lo, world.schema, land_id, g, tile, world.land_ids(g), nvf_play::smooth_terrain::spec(), crate::terrain_lod::first_draw())
+            });
             if let Some(prep) = prep {
-                let land = spawn_terrain(commands, cell_e, world, prep, &mut TerrainCtx { tm: terrain, assets: models });
-                // Grass grows on the landscape's textures (grass.rs); the water surface
-                // is the one drawn below (`spawn_water`).
+                // Grass grows on the landscape's textures (grass.rs), once the terrain is
+                // in; the water surface is the one drawn below (`spawn_water`).
                 let ws = world.index.worldspaces.get(&world.world);
                 let water = c.has_water().then(|| c.water_surface(ws.and_then(|w| w.default_water_height))).flatten();
-                grass.spawn(commands, cell_e, world, land_id, &land, g, water, models);
+                let spawn = crate::terrain::TerrainSpawn::begin(world, prep, &mut TerrainCtx { tm: terrain, assets: models });
+                start = Some(CellStart::Terrain { spawn: Box::new(spawn), land_id, water });
             }
         }
         if let Some(p) = world.persistent_by_grid.get(&g) {
@@ -961,7 +1509,94 @@ fn begin_cell(
     if let Some(c) = cell {
         spawn_water(commands, cell_e, world, c, models, water, stats);
     }
-    (cell_e, refs, origin)
+    (cell_e, refs, origin, start)
+}
+
+/// The landscape of exterior grid square `g` (its cell `c`) spawned under `cell_e`: from
+/// `prep` (read ahead) or read here; with `draw_only` drawn only, as the full-detail ring
+/// draws it (`crate::terrain::spawn_terrain_draw_only`). The LAND's FormID, the landscape and
+/// the surface drawn, for the grass; `None` without landscape.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn spawn_cell_terrain(
+    commands: &mut Commands,
+    world: &WorldData,
+    cell_e: Entity,
+    g: (i32, i32),
+    c: &fnv_world::Cell,
+    prep: Option<TerrainPrep>,
+    tile: f32,
+    models: &mut ModelCtx,
+    terrain: &mut TerrainMaterials,
+    draw_only: bool,
+) -> Option<(u32, fnv_world::land::Land, fnv_world::land_surface::Surface)> {
+    let land_id = c.land?;
+    let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile, world.land_ids(g), nvf_play::smooth_terrain::spec(), crate::terrain_lod::first_draw()))?;
+    let tm = &mut TerrainCtx { tm: terrain, assets: models };
+    let (land, surface) = if draw_only { crate::terrain::spawn_terrain_draw_only(commands, cell_e, world, prep, tm) } else { crate::terrain::spawn_terrain(commands, cell_e, world, prep, tm) };
+    Some((land_id, land, surface))
+}
+
+/// What a reference is, for drawing it ([`classify_ref`]): the record-type decision of
+/// [`spawn_ref`], with nothing spawned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RefKind {
+    /// Drawn by the regions the camera is in (imposters.rs), not by its cell.
+    Imposter,
+    /// A primitive: a trigger volume, room bounds, a portal (level-design.md §4.1).
+    Primitive,
+    /// Not enabled at the start of a game (deleted, or its enable state).
+    Disabled,
+    /// A placed NPC or creature (actors.rs).
+    Actor,
+    /// A base type not drawn as a model (sounds, idle markers, …), or no base.
+    Skipped,
+    /// Drawn: with its light source (`light`, a LIGH), as `how` says.
+    Drawn { light: bool, how: DrawnAs },
+}
+
+/// How a drawn reference is drawn ([`RefKind::Drawn`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DrawnAs {
+    /// A SpeedTree (tree.rs, or its billboard).
+    Tree,
+    /// Placeable water, drawn as its water type's surface when it has one, else a model.
+    PlacedWater,
+    /// Its model ([`spawn_model`]).
+    Model,
+}
+
+/// The record-type decision of [`spawn_ref`] for placement `p` with its base `base`;
+/// `enabled` is asked only for references past the imposter and primitive tests.
+pub(crate) fn classify_ref(p: &Placement, base: Option<&BaseObject>, enabled: impl FnOnce() -> bool) -> RefKind {
+    if p.imposter {
+        return RefKind::Imposter;
+    }
+    if !p.draws_base_model() {
+        return RefKind::Primitive;
+    }
+    if !enabled() {
+        return RefKind::Disabled;
+    }
+    let Some(base) = base else { return RefKind::Skipped };
+    if is_actor(&base.sig) {
+        return RefKind::Actor;
+    }
+    if !DRAWN.contains(&&base.sig) {
+        return RefKind::Skipped;
+    }
+    let how = if base.is_speedtree() {
+        DrawnAs::Tree
+    } else if &base.sig == b"PWAT" {
+        DrawnAs::PlacedWater
+    } else {
+        DrawnAs::Model
+    };
+    RefKind::Drawn { light: &base.sig == b"LIGH", how }
+}
+
+/// Whether a base record type is a placed NPC's or creature's.
+fn is_actor(sig: &[u8; 4]) -> bool {
+    matches!(sig, b"NPC_" | b"CREA")
 }
 
 /// Spawn reference `r` into the cell `cell_e` whose origin is `origin` (game space).
@@ -981,6 +1616,7 @@ fn spawn_ref(
 ) {
     // Once the start's cells are in, an actor whose parts are not read yet is drawn when
     // they are (`draw_waiting_actors`); before, behind the loading screen, at once.
+    streamer.stats.reference_attempts += 1;
     let waits = streamer.settled;
     let override_model = streamer.model_overrides.get(&r).cloned();
     let (hide, light_scale, managed, stats, waiting) = (&streamer.hide, streamer.light_scale, &streamer.managed, &mut streamer.stats, &mut streamer.waiting);
@@ -990,47 +1626,55 @@ fn spawn_ref(
         return;
     }
     let Some(p) = placement(world.lo, world.schema, r) else { return };
-    // Imposters are drawn by the regions the camera is in, not by their cell
-    // (imposters.rs).
-    if p.imposter {
-        stats.refs_imposters += 1;
-        return;
-    }
-    // A primitive (a trigger volume, room bounds, a portal) is seen only in the editor,
-    // even where its activator was copied from one with a model (level-design.md §4.1).
-    if !p.draws_base_model() {
-        stats.refs_skipped_type += 1;
-        *stats.skipped_types.entry("primitive".into()).or_default() += 1;
-        return;
-    }
-    if manage_actors && p.base.and_then(|b| base_object(world.lo, world.schema, b)).is_some_and(|b| matches!(&b.sig, b"NPC_" | b"CREA")) {
-        return;
-    }
-    if !world.enabled(&p, 0) {
-        // Actors, creatures and light sources are spawned hidden, so a script's
-        // Enable can show them (actors.rs `SpawnedDisabled`); other models are
-        // nvf-play's (`script_draw.rs`).
-        if !p.deleted() {
-            spawn_dormant(commands, cell_e, world, &p, r, to_cell, models, actors, light_scale, emittance, stats, waits.then_some(&mut *waiting));
-        }
-        stats.refs_skipped_disabled += 1;
-        return;
-    }
     let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
-    // Placed NPCs and creatures (actors.rs `spawn`, `spawn_creature`, actors.md §10).
-    if let (Some((aw, parts, sim, ahead)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| matches!(&b.sig, b"NPC_" | b"CREA"))) {
-        let w = WaitingActor { cell: cell_e, rt: to_cell * ref_affine(&p), at: Vec3::from_array(p.position), reference: r, base: b.form_id, creature: &b.sig == b"CREA", hidden: false };
-        if spawn_or_wait(commands, w, aw, *sim, ahead, &mut ActorCtx { cache: parts, models }, waits.then_some(&mut *waiting), &mut stats.actors) {
+    let skip_type = |stats: &mut StreamStats| {
+        stats.refs_skipped_type += 1;
+        *stats.skipped_types.entry(base_type_name(base.as_ref())).or_default() += 1;
+    };
+    let (light, how) = match classify_ref(&p, base.as_ref(), || world.enabled(&p, 0)) {
+        // Imposters are drawn by the regions the camera is in, not by their cell
+        // (imposters.rs).
+        RefKind::Imposter => {
+            stats.refs_imposters += 1;
             return;
         }
-    }
-    let Some(base) = base.filter(|b| DRAWN.contains(&&b.sig)) else {
-        stats.refs_skipped_type += 1;
-        let t = base_type_name(p.base.and_then(|b| base_object(world.lo, world.schema, b)).as_ref());
-        *stats.skipped_types.entry(t).or_default() += 1;
-        return;
+        // A primitive (a trigger volume, room bounds, a portal) is seen only in the editor,
+        // even where its activator was copied from one with a model (level-design.md §4.1).
+        RefKind::Primitive => {
+            stats.refs_skipped_type += 1;
+            *stats.skipped_types.entry("primitive".into()).or_default() += 1;
+            return;
+        }
+        _ if manage_actors && base.as_ref().is_some_and(|b| is_actor(&b.sig)) => return,
+        RefKind::Disabled => {
+            // Actors, creatures and light sources are spawned hidden, so a script's
+            // Enable can show them (actors.rs `SpawnedDisabled`); other models are
+            // nvf-play's (`script_draw.rs`).
+            if !p.deleted() {
+                spawn_dormant(commands, cell_e, world, &p, r, to_cell, models, actors, light_scale, emittance, stats, waits.then_some(&mut *waiting));
+            }
+            stats.refs_skipped_disabled += 1;
+            return;
+        }
+        RefKind::Actor => {
+            // Placed NPCs and creatures (actors.rs `spawn`, `spawn_creature`, actors.md §10).
+            if let (Some((aw, parts, sim, ahead)), Some(b)) = (actors.as_mut(), base.as_ref()) {
+                let w = WaitingActor { cell: cell_e, rt: to_cell * ref_affine(&p), at: Vec3::from_array(p.position), reference: r, base: b.form_id, creature: &b.sig == b"CREA", hidden: false };
+                if spawn_or_wait(commands, w, aw, *sim, ahead, &mut ActorCtx { cache: parts, models }, waits.then_some(&mut *waiting), &mut stats.actors) {
+                    return;
+                }
+            }
+            skip_type(stats);
+            return;
+        }
+        RefKind::Skipped => {
+            skip_type(stats);
+            return;
+        }
+        RefKind::Drawn { light, how } => (light, how),
     };
-    if &base.sig == b"LIGH"
+    let Some(base) = base else { return };
+    if light
         && crate::lights::spawn_light(
             commands,
             cell_e,
@@ -1042,11 +1686,11 @@ fn spawn_ref(
             light_scale,
             &p,
             emittance,
-        )
+        ).is_some_and(|light| light.emitting)
     {
         stats.lights += 1;
     }
-    if base.is_speedtree() {
+    if how == DrawnAs::Tree {
         // Geometry generated from the .spt parameters (tree.rs); without it, the
         // tree's billboard as one upright quad turned towards the camera. The
         // billboard drops the reference's rotation: it has no facing of its own.
@@ -1066,7 +1710,7 @@ fn spawn_ref(
         return;
     }
     // Placeable water: its model's shapes drawn as its water type's surface.
-    if &base.sig == b"PWAT" && spawn_placed_water(commands, cell_e, world, &base, r, to_cell * ref_affine(&p), models, water, stats) {
+    if how == DrawnAs::PlacedWater && spawn_placed_water(commands, cell_e, world, &base, r, streamer.interior.is_none().then(|| Vec3::from_array(p.position)), to_cell * ref_affine(&p), models, water, stats) {
         return;
     }
     // A destroyed reference: its destruction stage's replacement model (destroyed.rs).
@@ -1075,7 +1719,7 @@ fn spawn_ref(
         None => base,
     };
     // The reference transform replaces the model root's own (world.md §4).
-    spawn_model(commands, cell_e, world, &p, r, &base, to_cell * ref_affine(&p), models, emittance, hide, stats);
+    spawn_model(commands, cell_e, world, &p, r, &base, to_cell * ref_affine(&p), models, emittance, hide, stats, SpawnMode::Full);
 }
 
 /// A placeable water reference (PWAT): the shapes of its model (a flat square, e.g.
@@ -1092,6 +1736,7 @@ fn spawn_placed_water(
     world: &WorldData,
     base: &BaseObject,
     r: u32,
+    exterior_position: Option<Vec3>,
     rt: Affine3A,
     models: &mut ModelCtx,
     water: &mut WaterCtx,
@@ -1101,7 +1746,7 @@ fn spawn_placed_water(
     let Some(path) = base.world_model_path() else { return false };
     let Some(model) = models.model(&path) else { return false };
     let reflects = fnv_world::sky::placeable_water_reflects(world.lo, world.schema, base.form_id);
-    let Some(mat) = water_material(world, wid, reflects, true, models, water) else { return false };
+    let Some(mat) = water_material(world, wid, reflects, true, exterior_position, models, water) else { return false };
     if !reflects {
         info!("placed water {r:08X}: its PWAT {:08X} does not set Reflects, drawn without reflection", base.form_id);
     }
@@ -1118,9 +1763,25 @@ fn spawn_placed_water(
     true
 }
 
+/// How [`spawn_model`] draws a model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnMode {
+    /// As the loaded cells draw it: rigs for what moves, stored poses, emitters, the mesh
+    /// terrain blend's census, the error marker for a model that did not load.
+    Full,
+    /// Drawn only, for the full-detail ring (full_detail.rs, #2701): the static model's
+    /// shapes baked as the file stores them (billboard nodes still turn, damage stages
+    /// still follow the game), a moveable static's idle sequence playing, every entity
+    /// marked `nvf_play::DrawOnly`; no other rig, pose, emitter, census, mine light or
+    /// error marker, and nothing logged [design].
+    Scenery,
+}
+
 /// Draw a reference's model as children of `parent`, `rt` being the reference's
 /// transform in the parent's space: an exterior or interior cell, or the world root for
-/// imposters (`imposters.rs`).
+/// imposters (`imposters.rs`); `mode`: [`SpawnMode`]. Whether a shape of the model was
+/// spawned (false: no model, hidden, a marker, a model that did not load or has no shape;
+/// the full-detail ring's Scenery mode then spawns nothing at all).
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_model(
     commands: &mut Commands,
@@ -1134,23 +1795,35 @@ pub fn spawn_model(
     emittance: &mut crate::emittance::EmittanceState,
     hide: &[String],
     stats: &mut StreamStats,
-) {
+    mode: SpawnMode,
+) -> bool {
+    let scenery = mode == SpawnMode::Scenery;
+    // Armour only ever worn (Non-Playable, no world model): its biped model would hang in
+    // the air at the reference (the Fort's slave backpacks, #2439; `fnv_world::placed::worn_only`).
+    if base.worn_only {
+        stats.refs_no_model += 1;
+        if scenery {
+            return false;
+        }
+        info!("world: 0x{r:08X} {}: armour only ever worn (Non-Playable, no world model), not drawn on its own", base.edid.as_deref().unwrap_or("?"));
+        return false;
+    }
     let Some(path) = base.world_model_path() else {
         stats.refs_no_model += 1;
-        return;
+        return false;
     };
     if hide.iter().any(|h| path.contains(h.as_str())) {
-        return;
+        return false;
     }
-    if is_marker(&path) {
+    if script_marker(base.form_id).unwrap_or_else(|| is_marker(&path)) {
         stats.refs_skipped_type += 1;
         *stats.skipped_types.entry("marker".into()).or_default() += 1;
-        return;
+        return false;
     }
     // With the base's alternate textures on the shapes they name (texture-swaps.md §4).
     let Some(model) = models.model_swapped(&path, false, &base.world_alt_textures) else {
         stats.refs_no_model += 1;
-        if spawn_error_marker(commands, parent, r, rt, models) {
+        if !scenery && spawn_error_marker(commands, parent, r, rt, models) {
             stats.refs_error_marker += 1;
             // Once per model: a broken mod can place hundreds of one missing model.
             static TOLD: std::sync::Mutex<Option<HashSet<String>>> = std::sync::Mutex::new(None);
@@ -1158,7 +1831,7 @@ pub fn spawn_model(
                 info!("world: 0x{r:08X} {path}: its model did not load; drawn as the error marker (each reference of it)");
             }
         }
-        return;
+        return false;
     };
     // A door that opens in place (no XTEL) and has Open/Close sequences: posed from
     // its state in `nvf_play::doors` (doors.rs). Teleport doors stay static. A container
@@ -1186,7 +1859,12 @@ pub fn spawn_model(
     // passes this test too; wrecks.rs lets the parts fall only when the game has the
     // reference destroyed to that model and physics built its collision from it.
     let wreck = model.loose && p.base.and_then(|b| base_object(world.lo, world.schema, b)).and_then(|b| b.world_model_path()).is_some_and(|m| m != path);
-    if let Some(rig) = model.rig.as_ref().filter(|rig| (rig.idle.is_some() && idle.is_some()) || door.is_some() || activator.is_some() || scripted || jointed || wreck) {
+    // Drawn only (the full-detail ring): a moveable static's idle alone, nothing else rigged.
+    let rigged = |rig: &&nvf_assets::model::Rig| match scenery {
+        true => &base.sig == b"MSTT" && rig.idle.is_some() && idle.is_some() && !rig.shapes.is_empty(),
+        false => (rig.idle.is_some() && idle.is_some()) || door.is_some() || activator.is_some() || scripted || jointed || wreck,
+    };
+    if let Some(rig) = model.rig.as_ref().filter(rigged) {
         // Animated (Idle sequence): its own node hierarchy per reference.
         // "Random Anim Start" bases start their idle at a phase spread by reference
         // (fnv_actor::anims::random_anim_start; animation.md §8).
@@ -1196,6 +1874,26 @@ pub fn spawn_model(
         commands.entity(root).insert(RefVisual(r));
         for e in &drawn {
             commands.entity(*e).insert(RefVisual(r));
+        }
+        // Drawn only: its idle plays, and that is all (no door, group, emitter, light or
+        // node map; `object_anims::publish_poses` leaves it out).
+        if scenery {
+            for e in std::iter::once(root).chain(drawn.iter().copied()) {
+                commands.entity(e).insert(nvf_play::DrawOnly);
+            }
+            // Still while its ring cell is hidden (full_detail.rs `fade_ring` wakes it).
+            commands.entity(root).insert(crate::full_detail::RingDormant);
+            stats.shapes += drawn.len();
+            stats.refs_drawn += 1;
+            stats.refs_animated += 1;
+            return !drawn.is_empty();
+        }
+        // [design] Census while the blend is on (#2661): a rigged STAT's or SCOL's shapes
+        // are tracked, never converted.
+        if let Some(census) = blend_census(world, p, r, base, &path, &model, false) {
+            for (index, e) in drawn.iter().enumerate() {
+                commands.entity(*e).insert(crate::mesh_terrain_blend::BlendCensus { shape: index, ..census.clone() });
+            }
         }
         if door.is_some() {
             commands.entity(root).insert(crate::doors::DoorRig::new(r, model.clone(), &path, nodes.clone(), p.open_by_default));
@@ -1226,36 +1924,49 @@ pub fn spawn_model(
             commands.entity(root).insert(crate::wrecks::WreckRig { form_id: r, path: path.clone(), nodes: nodes.clone() });
         }
         if !rig.groups.is_empty() {
-            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));
+            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes.clone()));
             stats.refs_group_rigs += 1;
         }
+        // Its nodes by name, for what follows one (`nvf_play::RefNodes`, ui_attach.rs): the
+        // map spawn_nodes made, kept rather than dropped here (copied only when a GroupRig
+        // took it above, as before).
+        commands.entity(root).insert(nvf_play::RefNodes { reference: r, nodes });
+        let boards = rig.nodes.iter().skip(1).filter(|n| n.billboard.is_some()).count();
+        stats.billboards += boards;
+        stats.refs_billboards += usize::from(boards > 0);
         stats.shapes += drawn.len();
         stats.refs_drawn += 1;
         stats.refs_animated += 1;
-        return;
+        return true;
     }
-    // A jointed object left posed by its designer (`XRGD`, clutter_pose.rs). Whether it
-    // poses is decided by `clutter_pose::pose` (the matching rule and every body on a
-    // named node below the model's root), the same condition the collision uses.
-    let posed = crate::clutter_pose::posable(&base.sig)
-        .then(|| crate::clutter_pose::stored(world.lo, r))
-        .flatten()
-        .and_then(|bones| {
-            let bodies = crate::clutter_pose::body_nodes(&models.data, &path)?;
-            let posed = crate::clutter_pose::pose(&model.nodes, &bodies, &bones);
-            match &posed {
-                Ok(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
-                Err(why) => crate::clutter_pose::log_refused(&path, why, &bones, &bodies),
-            }
-            posed.ok()
-        });
+    // A jointed object left posed by its designer (`XRGD`, `nvf_play::clutter_pose`).
+    // Whether it poses is decided by `clutter_pose::drawn` (the matching rule and every
+    // body on a named node below the model's root), the same condition the collision
+    // uses and the same function `nvf_play::script_draw` draws references enabled later
+    // with (issue #2339).
+    let posed = if scenery { None } else { nvf_play::clutter_pose::drawn(world.lo, &base.sig, r, &path, &model.nodes, || nvf_play::clutter_pose::body_nodes(&models.data, &path)) };
+    if let Some(p) = &posed {
+        info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", p.bodies);
+    }
     stats.refs_posed += usize::from(posed.is_some());
-    for s in &model.shapes {
-        let shape = match (&posed, s.node) {
-            (Some(p), Some(n)) => p[n] * s.own,
-            _ => s.transform,
+    // [design] Census of every STAT and SCOL shape while the blend is on, before any
+    // selection (#2661).
+    let census = if scenery { None } else { blend_census(world, p, r, base, &path, &model, posed.is_some()) };
+    // Shapes below a billboard node go under an entity for it that turns to the camera
+    // (#2549: a torch's glow card, else a flat sheet); a posed model stays as posed. Its
+    // holder carries the reference's RefVisual, so moving and redrawing it take them along.
+    let mut boards = nvf_assets::model::BakedBillboards::default();
+    for (index, s) in model.shapes.iter().enumerate() {
+        let shape = nvf_play::clutter_pose::shape_transform(posed.as_ref(), s);
+        let board = match posed.is_none().then_some(scenery) {
+            None => None,
+            Some(false) => boards.place(commands, parent, &model, rt, s, RefVisual(r)),
+            Some(true) => boards.place(commands, parent, &model, rt, s, (RefVisual(r), nvf_play::DrawOnly)),
         };
-        let m = Mat4::from(rt * shape);
+        let (parent, m, billboard) = match board {
+            Some((board, below)) => (board, Mat4::from(below), true),
+            None => (parent, Mat4::from(rt * shape), false),
+        };
         // External emittance: the reference's XEMI source drives the colour.
         let material = p
             .emittance
@@ -1265,21 +1976,157 @@ pub fn spawn_model(
         // A shape below a damage-stage node: under a holder of its own, shown at its stages
         // only (destroyed.rs); the holder's RefVisual follows the reference's presence.
         let stages = s.node.and_then(|n| nvf_assets::model::damage_stages_of(&model.nodes, n));
+        // [design] Morphing meshes are registered independently of rigs (nvf-assets/src/morph.rs).
+        // Only shapes without reference or shape reasons may be converted (BlendShape).
+        // [design] A shape turned to the camera under a billboard holder (#2549) is counted
+        // but never blends, as the backfill (`blend_backfill`) leaves it out.
+        let blend = census.as_ref().map(|c| {
+            let mut tracked = shape_census(c, index, s, models);
+            tracked.reasons |= crate::mesh_terrain_blend::billboard_reason(billboard);
+            (tracked, material.clone())
+        });
         let e = match stages {
             Some(st) => {
                 let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(parent))).id();
+                if scenery {
+                    commands.entity(holder).insert(nvf_play::DrawOnly);
+                }
                 commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), Visibility::Hidden, crate::destroyed::StagedShape::new(r, st), ChildOf(holder))).id()
             }
             None => commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r), ChildOf(parent))).id(),
         };
+        // In the same command as the spawn: no system sees the entity without its mark.
+        if scenery {
+            commands.entity(e).insert(nvf_play::DrawOnly);
+        }
+        if let Some((tracked, original)) = blend {
+            if tracked.reasons == 0 {
+                commands.entity(e).insert(crate::mesh_terrain_blend::BlendShape::new(original));
+            }
+            commands.entity(e).insert(tracked);
+        }
         // A mine's light parts: shown and hidden by its state (`nvf_play::mines`).
-        if let Some(l) = nvf_play::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
+        if let Some(l) = nvf_play::mines::MineLight::of(s.name.as_deref(), &s.ancestors).filter(|_| !scenery) {
             commands.entity(e).insert(l);
         }
         stats.shapes += 1;
     }
-    spawn_emitters(commands, parent, r, &model, &path, rt);
-    stats.refs_drawn += 1;
+    stats.billboards += boards.len();
+    stats.refs_billboards += usize::from(!boards.is_empty());
+    if !scenery {
+        spawn_emitters(commands, parent, r, &model, &path, rt);
+    }
+    // A model without shapes draws nothing (counted as drawn by the loaded cells, as
+    // before; not by the full-detail ring).
+    stats.refs_drawn += usize::from(!scenery || !model.shapes.is_empty());
+    !model.shapes.is_empty()
+}
+
+/// [design] The mesh terrain blend's census of a STAT or SCOL reference (#2661;
+/// mesh_terrain_blend.rs) while the blend is on: its reference reasons from the actual
+/// spawn path and prepared model, before any selection; `None` while the blend is off or
+/// for another record type. Record presence follows fnv-game/src/data.rs (DEST); no
+/// asset-name selection. The shape index and shape reasons are the caller's.
+fn blend_census(world: &WorldData, p: &Placement, r: u32, base: &BaseObject, path: &str, model: &PreparedModel, posed: bool) -> Option<crate::mesh_terrain_blend::BlendCensus> {
+    if !crate::mesh_terrain_blend::recording() {
+        return None;
+    }
+    census_of(world, p, r, base, path, model, posed)
+}
+
+/// [`blend_census`] whether or not the blend records spawns now (the backfill's).
+fn census_of(world: &WorldData, p: &Placement, r: u32, base: &BaseObject, path: &str, model: &PreparedModel, posed: bool) -> Option<crate::mesh_terrain_blend::BlendCensus> {
+    let base_type = crate::mesh_terrain_blend::BaseType::of(&base.sig)?;
+    let exterior = world.index.refs.get(&r).and_then(|r| world.index.cells.get(&r.cell))
+        .is_some_and(|c| !c.is_interior() && c.world == Some(world.world));
+    let destructible = fnv_world::fields::winner(world.lo, base.form_id)
+        .and_then(|(pi, record)| fnv_world::fields::Fields::new(record, pi, world.schema).ok())
+        .is_some_and(|f| f.raw(b"DEST").is_some());
+    let facts = crate::mesh_terrain_blend::ReferenceFacts {
+        exterior,
+        rigged: model.rig.is_some() || model.skinned != 0,
+        particles: model.particles,
+        posed: model.jointed || model.loose || posed,
+        damage_stages: model.nodes.iter().any(|n| n.damage_stages.is_some()),
+        destructible,
+        distant: p.imposter,
+    };
+    Some(crate::mesh_terrain_blend::BlendCensus {
+        reference: r,
+        base: base.form_id,
+        base_type,
+        model: path.into(),
+        shape: 0,
+        reasons: crate::mesh_terrain_blend::reference_reasons(facts),
+    })
+}
+
+/// [design] Shape `index` of a reference's census: its shape reasons (external emittance,
+/// a registered morph mesh, nvf-assets/src/morph.rs) added to the reference's.
+fn shape_census(c: &crate::mesh_terrain_blend::BlendCensus, index: usize, s: &nvf_assets::model::PreparedShape, models: &ModelCtx) -> crate::mesh_terrain_blend::BlendCensus {
+    let morph = models.cache.morphs.ids().any(|id| id == s.mesh.id());
+    let reasons = c.reasons | crate::mesh_terrain_blend::shape_reasons(s.external_emittance, morph);
+    crate::mesh_terrain_blend::BlendCensus { shape: index, reasons, ..c.clone() }
+}
+
+/// The shapes drawn while the blend was off: no census yet, the ordinary material on.
+type Untracked<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, &'static Mesh3d, &'static MeshMaterial3d<NifMaterial>, &'static ChildOf), Without<crate::mesh_terrain_blend::BlendCensus>>;
+
+/// [design] The blend turned on while cells were drawn (#2661, the settings row): the
+/// census and selection of every STAT and SCOL shape already drawn directly under a cell
+/// as `spawn_model` draws a static one, once per switch (`BlendState::shapes_pending`).
+/// The same rules as at spawn: the reference's placement, base (a destroyed reference's
+/// replacement model, destroyed.rs), prepared model and stored pose decide its reasons
+/// ([`census_of`]); a shape is matched to its model's shape by its mesh, which gives its
+/// index and shape reasons ([`shape_census`]); the material it draws with now is its
+/// source. Shapes under a rig's nodes (animated models), under a damage stage's holder,
+/// under a billboard holder (#2549) or drawn as an imposter have no cell for a parent and
+/// are left out; those can never blend anyway.
+pub(crate) fn blend_backfill(
+    mut commands: Commands,
+    world: Res<WorldData>,
+    streamer: Res<Streamer>,
+    mut state: ResMut<crate::mesh_terrain_blend::BlendState>,
+    mut models: ModelCtx,
+    shapes: Untracked,
+    cells: Query<(), With<CellEntity>>,
+) {
+    if !std::mem::take(&mut state.shapes_pending) {
+        return;
+    }
+    let mut by_ref = HashMap::<u32, Vec<_>>::new();
+    for (e, r, mesh, material, parent) in &shapes {
+        if cells.contains(parent.parent()) {
+            by_ref.entry(r.0).or_default().push((e, &mesh.0, &material.0));
+        }
+    }
+    let (mut tracked, mut convertible) = (0, 0);
+    for (r, drawn) in by_ref {
+        let Some(p) = placement(world.lo, world.schema, r) else { continue };
+        let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { continue };
+        if crate::mesh_terrain_blend::BaseType::of(&base.sig).is_none() {
+            continue;
+        }
+        let base = match streamer.model_overrides.get(&r) {
+            Some(m) => base_object_with_model(base, m),
+            None => base,
+        };
+        let Some(path) = base.world_model_path() else { continue };
+        let Some(model) = models.model_swapped(&path, false, &base.world_alt_textures) else { continue };
+        let posed = nvf_play::clutter_pose::drawn(world.lo, &base.sig, r, &path, &model.nodes, || nvf_play::clutter_pose::body_nodes(&models.data, &path)).is_some();
+        let Some(census) = census_of(&world, &p, r, &base, &path, &model, posed) else { continue };
+        for (e, mesh, material) in drawn {
+            let Some((index, s)) = model.shapes.iter().enumerate().find(|(_, s)| &s.mesh == mesh) else { continue };
+            let shape = shape_census(&census, index, s, &models);
+            if shape.reasons == 0 {
+                commands.entity(e).try_insert(crate::mesh_terrain_blend::BlendShape::new(material.clone()));
+                convertible += 1;
+            }
+            commands.entity(e).try_insert(shape);
+            tracked += 1;
+        }
+    }
+    info!("mesh terrain blend: backfill tracked-shapes={tracked} convertible-shapes={convertible}");
 }
 
 /// A placed model's own particle systems (a fire's flames: Gomorrah's roof,
@@ -1349,9 +2196,9 @@ pub(crate) fn spawn_dormant(
         }
         (b"LIGH", _) => {
             let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
-            if crate::lights::spawn_light(commands, holder, world, base.form_id, base.model.as_deref(), models, rt, light_scale, p, emittance) {
+            if let Some(light) = crate::lights::spawn_light(commands, holder, world, base.form_id, base.model.as_deref(), models, rt, light_scale, p, emittance) {
                 crate::actors::spawn_hidden(commands, holder, r);
-                stats.lights_hidden += 1;
+                if light.emitting { stats.lights_hidden += 1; }
             } else {
                 commands.entity(holder).despawn();
             }
@@ -1441,7 +2288,7 @@ fn spawn_water(
     // The same surface the physics swims in (`Cell::water_surface`, physics.md §6.6).
     let Some(height) = c.water_surface(ws.default_water_height) else { return };
     let Some(wid) = c.water_type.or(ws.water) else { return };
-    let Some(mat) = water_material(world, wid, true, false, models, water) else { return };
+    let Some(mat) = water_material(world, wid, true, false, c.grid.map(|grid| cell_water_center(grid, height)), models, water) else { return };
     let s = CELL_SIZE;
     let mesh = water.plane(&mut models.meshes);
     commands.entity(cell_e).with_child((
@@ -1454,7 +2301,7 @@ fn spawn_water(
 }
 
 /// Billboard quad mesh and material for a TREE base (cached per base).
-fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Handle<Mesh>, Handle<NifMaterial>)> {
+pub(crate) fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Handle<Mesh>, Handle<NifMaterial>)> {
     if let Some(b) = models.cache.billboard(tree) {
         return b;
     }
@@ -1513,6 +2360,34 @@ fn base_type_name(b: Option<&BaseObject>) -> String {
     b.map_or("none".into(), |b| String::from_utf8_lossy(&b.sig).into_owned())
 }
 
+/// The base forms SetInternalMarker changed (`fnv_game::nvse_jip12`): drawn (false) or
+/// not (true), for the references drawn from then on. Kept here, filled by
+/// [`script_markers`], because every drawing path reads [`spawn_model`]'s marker test.
+static SCRIPT_MARKERS: std::sync::RwLock<std::collections::BTreeMap<u32, bool>> = std::sync::RwLock::new(std::collections::BTreeMap::new());
+
+/// Whether the base `base` with model `path` is an editor marker, not drawn (a script's
+/// SetInternalMarker first): [`spawn_model`]'s test, for callers that decide before it.
+pub(crate) fn is_drawn_marker(base: u32, path: &str) -> bool {
+    script_marker(base).unwrap_or_else(|| is_marker(path))
+}
+
+fn script_marker(base: u32) -> Option<bool> {
+    SCRIPT_MARKERS.read().ok()?.get(&base).copied()
+}
+
+/// Take the scripts' marker changes from the game when they change.
+pub fn script_markers(script: Option<Res<nvf_play::script::ScriptState>>) {
+    let Some(g) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    let changes = g.internal_marker_changes();
+    let same = SCRIPT_MARKERS.read().is_ok_and(|m| m.len() == changes.len() && m.iter().all(|(k, v)| changes.get(&fnv_sim::FormId(*k)) == Some(v)));
+    if !same {
+        if let Ok(mut m) = SCRIPT_MARKERS.write() {
+            *m = changes.iter().map(|(k, v)| (k.0, *v)).collect();
+            info!("render: {} base form(s) made markers or drawn by a script (SetInternalMarker)", m.len());
+        }
+    }
+}
+
 /// Editor-only marker meshes [hypothesis: the game hides them; models named marker*].
 fn is_marker(path: &str) -> bool {
     let file = path.rsplit('\\').next().unwrap_or(path);
@@ -1531,6 +2406,128 @@ mod tests {
         assert!((bevy_to_game(b) - g).length() < 1e-5);
         // Game up (z) is Bevy up (y).
         assert!((t.transform_point(Vec3::Z) - Vec3::Y).length() < 1e-5);
+    }
+
+    /// A cell not ready: in play it waits `MAX_WAIT_SECS`; before the start square is in it
+    /// is drawn at once, unless under the start's screen with the pool preparation on
+    /// (`start_pool_prep`), where it waits for the read pool up to `MAX_WAIT_SECS` of real
+    /// time.
+    #[test]
+    fn cells_wait_for_the_read_pool_under_the_start_screen_only() {
+        assert!(!wait_over(true, 0.5, None));
+        assert!(wait_over(true, MAX_WAIT_SECS, None));
+        // In play the pool wait plays no part.
+        assert!(!wait_over(true, 0.5, Some(9.0)));
+        // Behind a travel's screen, or with NVF_START_POOL_PREP=0: at once.
+        assert!(wait_over(false, 0.0, None));
+        // Under the start's screen: waits for the pool, then is drawn anyway.
+        assert!(!wait_over(false, 0.0, Some(0.0)));
+        assert!(!wait_over(false, 0.0, Some(MAX_WAIT_SECS - 0.01)));
+        assert!(wait_over(false, 0.0, Some(MAX_WAIT_SECS)));
+    }
+
+    /// Only the start's own cells wait for the read pool and are counted: not with the aid
+    /// off, not behind a travel's screen, and not for a travel sent under the start's.
+    #[test]
+    fn a_travel_under_the_start_screen_is_not_the_starts() {
+        assert!(start_pool_cells(true, true, false));
+        assert!(!start_pool_cells(false, true, false), "NVF_START_POOL_PREP=0");
+        assert!(!start_pool_cells(true, false, true), "a travel's screen");
+        assert!(!start_pool_cells(true, true, true), "a travel under the start's screen");
+        assert!(!start_pool_cells(true, false, false), "in play");
+    }
+
+    /// The start's line: once, after its cells were counted, with how they came in.
+    #[test]
+    fn the_start_line_counts_its_cells_once() {
+        let mut s = StartPrep { held: 34, ..default() };
+        assert_eq!(s.settled_line(), None, "no start cell counted (a travel's screen, or the aid off)");
+        let t0 = std::time::Instant::now();
+        assert_eq!(s.waited(t0), 0.0);
+        assert!(s.waited(t0 + std::time::Duration::from_millis(250)) >= 0.25);
+        s.drawn(true);
+        s.drawn(true);
+        s.drawn(false);
+        let line = s.settled_line().unwrap();
+        assert!(line.starts_with("world: the start's cells drawn: 2 with their models prepared on the read pool, 1 before"), "{line}");
+        assert!(line.contains("34 cells read ahead under the picture hold"), "{line}");
+        assert_eq!(s.settled_line(), None, "once");
+    }
+
+    /// Issue #1753: with a menu's own `Camera3d` beside the main view's (and the water
+    /// reflection's), a world system follows the main view's camera (`fly::WorldCamera`)
+    /// instead of stopping or taking the menu's.
+    #[test]
+    fn billboards_face_the_main_view_beside_a_menu_camera() {
+        let mut app = App::new();
+        app.add_systems(Update, face_billboards);
+        let at = |p: Vec3| GlobalTransform::from(Transform::from_translation(p));
+        // The menu's camera, spawned first, 1000 units along game +X (Bevy +X).
+        app.world_mut().spawn((Name::new("Lockpicking camera"), Camera3d::default(), at(Vec3::new(1000.0, 0.0, 0.0))));
+        // The main view, 1000 units along game +Y (Bevy -Z).
+        let main = app.world_mut().spawn((Camera3d::default(), at(Vec3::new(0.0, 0.0, -1000.0)), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 })).id();
+        // The reflection, 1000 units along game -X.
+        app.world_mut().spawn((Camera3d::default(), at(Vec3::new(-1000.0, 0.0, 0.0)), crate::reflection::ReflectionCamera));
+        let tree = app.world_mut().spawn((TreeBillboard, Transform::from_rotation(Quat::from_rotation_z(-1.0)), GlobalTransform::IDENTITY)).id();
+        app.update();
+        let r = app.world().get::<Transform>(tree).unwrap().rotation;
+        assert!(r.abs_diff_eq(Quat::from_rotation_z(FRAC_PI_2), 1e-5), "faces the main view (game +Y), not the menu's camera: {r:?}");
+        // The main view moves; the tree follows it.
+        app.world_mut().entity_mut(main).insert(at(Vec3::new(0.0, 0.0, 1000.0)));
+        app.update();
+        let r = app.world().get::<Transform>(tree).unwrap().rotation;
+        assert!(r.abs_diff_eq(Quat::from_rotation_z(-FRAC_PI_2), 1e-5), "follows the main view to game -Y: {r:?}");
+    }
+
+    /// A tree billboard already facing a camera that did not move keeps its transform
+    /// unchanged, so it does not dirty its cell for transform propagation.
+    #[test]
+    fn a_still_camera_leaves_tree_billboards_unchanged() {
+        #[derive(Resource, Default)]
+        struct Turned(usize);
+        let mut app = App::new();
+        app.init_resource::<Turned>().add_systems(Update, (
+            face_billboards,
+            |changed: Query<(), (With<TreeBillboard>, Changed<Transform>)>, mut turned: ResMut<Turned>| turned.0 = changed.iter().count(),
+        ).chain());
+        let at = |p: Vec3| GlobalTransform::from(Transform::from_translation(p));
+        let main = app.world_mut().spawn((Camera3d::default(), at(Vec3::new(0.0, 0.0, -1000.0)), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 })).id();
+        let tree = app.world_mut().spawn((TreeBillboard, Transform::IDENTITY, GlobalTransform::IDENTITY)).id();
+        app.update();
+        app.update();
+        assert!(app.world().get::<Transform>(tree).unwrap().rotation.abs_diff_eq(Quat::from_rotation_z(FRAC_PI_2), 1e-5));
+        for _ in 0..2 {
+            app.update();
+            assert_eq!(app.world().resource::<Turned>().0, 0);
+        }
+        app.world_mut().entity_mut(main).insert(at(Vec3::new(0.0, 0.0, 1000.0)));
+        app.update();
+        assert_eq!(app.world().resource::<Turned>().0, 1);
+    }
+
+    /// The log of `note_other_cameras`: once when streaming first runs beside another
+    /// camera, nothing while it stays or while streaming does not run, the count at the end.
+    #[test]
+    fn other_camera_lines() {
+        let mut s = OtherCameras::default();
+        assert_eq!(s.step(1, None), None);
+        assert_eq!(s.step(2, None), None);
+        let opened = s.step(3, Some("Lockpicking camera")).expect("the first frame beside it");
+        assert!(opened.starts_with("world: streaming runs with another 3D camera active (Lockpicking camera)"), "{opened}");
+        assert_eq!(s.step(4, Some("Lockpicking camera")), None);
+        // Streaming held (a loading screen): not counted.
+        assert_eq!(s.step(4, Some("Lockpicking camera")), None);
+        assert_eq!(s.step(5, Some("Lockpicking camera")), None);
+        assert_eq!(s.step(6, None).as_deref(), Some("world: streaming kept running behind another 3D camera (Lockpicking camera): 3 frames"));
+        assert_eq!(s.step(7, None), None);
+        // A camera beside the main view while streaming never runs logs nothing.
+        assert_eq!(s.step(7, Some("Scope camera")), None);
+        assert_eq!(s.step(7, None), None);
+        // One camera taking over from another with no frame between: each its own count.
+        assert!(s.step(8, Some("Terminal camera")).is_some());
+        assert_eq!(s.step(9, Some("Terminal camera")), None);
+        assert_eq!(s.step(10, Some("Lockpicking camera")).as_deref(), Some("world: streaming kept running behind another 3D camera (Terminal camera): 2 frames"));
+        assert_eq!(s.step(11, None).as_deref(), Some("world: streaming kept running behind another 3D camera (Lockpicking camera): 1 frames"));
     }
 
     #[test]
@@ -1595,6 +2592,145 @@ mod tests {
         for (id, _, _, want) in cases {
             let p = placement(&lo, &schema, id).unwrap();
             assert_eq!(enabled(&lo, &schema, &p, 0), want, "0x{id:X}");
+        }
+    }
+
+    /// Issue #2549: a placed torch's glow card (`oasistorch01.nif`'s `GlowMesh`, a
+    /// mode-4 `NiBillboardNode` whose one quad lies in its XY plane, +z its face) faces a
+    /// camera at its side after one update, whether its shapes are baked (the static
+    /// path, `BakedBillboards`) or its node hierarchy spawned (`Rig::spawn_playing`, the
+    /// animated path); drawn unturned it is a flat sheet seen edge-on.
+    #[test]
+    fn placed_billboard_nodes_face_a_camera_at_their_side() {
+        use nvf_assets::model::{BakedBillboards, Billboard, ModelNode, PreparedModel, PreparedShape, Rig, RigNode};
+        let glow_at = Vec3::new(0.0, 0.0, 106.3);
+        let node = |name: &str, parent, local, billboard| ModelNode { name: Some(name.into()), parent, local, billboard, addon: None, damage_stages: None };
+        let nodes = vec![node("Torch", None, Affine3A::IDENTITY, None), node("GlowMesh", Some(0), Affine3A::from_translation(glow_at), Some(4))];
+        let own = Affine3A::from_translation(Vec3::new(0.0, 0.0, 9.2));
+        let shape = |node: Option<usize>, transform| PreparedShape {
+            mesh: Handle::default(),
+            material: Handle::default(),
+            transform,
+            name: None,
+            ancestors: Vec::new(),
+            node,
+            own,
+            cpu: None,
+            segments: Vec::new(),
+            external_emittance: false,
+            look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
+        };
+        let glow = shape(Some(1), Affine3A::from_translation(glow_at) * own);
+        let stick = shape(Some(0), Affine3A::IDENTITY);
+        let model = PreparedModel { nodes, shapes: vec![glow, stick], ..Default::default() };
+        let rt = Affine3A::from_translation(Vec3::new(500.0, -300.0, 20.0));
+        let world_of = |w: &World, e: Entity| {
+            let mut m = Affine3A::IDENTITY;
+            let mut at = Some(e);
+            while let Some(p) = at {
+                m = w.get::<Transform>(p).unwrap().compute_affine() * m;
+                at = w.get::<ChildOf>(p).map(ChildOf::parent);
+            }
+            m
+        };
+        // A camera level with the glow, off to the reference's side and a little behind.
+        let eye = Vec3::from(rt.translation) + Vec3::new(800.0, -200.0, 115.5);
+        let faces = |w: &World, e: Entity| {
+            let m = world_of(w, e);
+            let to_eye = (eye - Vec3::from(m.translation)).normalize();
+            m.transform_vector3(Vec3::Z).normalize().dot(to_eye)
+        };
+
+        for animated in [false, true] {
+            let mut app = App::new();
+            app.add_systems(Update, face_camera);
+            app.world_mut().spawn((Camera3d::default(), Transform::from_translation(eye), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }));
+            let cell = app.world_mut().spawn(Transform::IDENTITY).id();
+            let card = if animated {
+                let rig_node = |name: &str, parent, local: Vec3, billboard| RigNode { name: Some(name.into()), parent, local: Transform::from_translation(local), hidden: false, billboard };
+                let rig = Rig { nodes: vec![rig_node("Torch", None, Vec3::ZERO, None), rig_node("GlowMesh", Some(0), glow_at, Some(4))], shapes: Vec::new(), idle: None, door: None, groups: Vec::new(), effect: None };
+                let (_, _, by_name) = rig.spawn_nodes(&mut app.world_mut().commands(), cell, Transform::from_matrix(Mat4::from(rt)), "test", 0.0);
+                app.world_mut().flush();
+                by_name["GlowMesh"]
+            } else {
+                let mut boards = BakedBillboards::default();
+                let mut commands = app.world_mut().commands();
+                let (board, below) = boards.place(&mut commands, cell, &model, rt, &model.shapes[0], RefVisual(7)).expect("the glow is under a billboard node");
+                assert!(boards.place(&mut commands, cell, &model, rt, &model.shapes[1], ()).is_none(), "the torch's stick stays baked");
+                let card = commands.spawn((Transform::from_matrix(Mat4::from(below)), ChildOf(board))).id();
+                app.world_mut().flush();
+                // Where the file puts it, before any turn.
+                let at = Vec3::from(world_of(app.world(), card).translation);
+                // The holder, a child of the cell, is the reference's: moved.rs and
+                // destroyed.rs move and redraw it with the rest of the reference.
+                let holder = app.world().get::<ChildOf>(board).unwrap().parent();
+                assert_eq!((app.world().get::<RefVisual>(holder).map(|v| v.0), app.world().get::<ChildOf>(holder).map(|c| c.parent())), (Some(7), Some(cell)));
+                assert!((at - Vec3::from((rt * model.shapes[0].transform).translation)).length() < 1e-3, "{at}");
+                card
+            };
+            let node = if animated { card } else { app.world().get::<ChildOf>(card).unwrap().parent() };
+            assert_eq!(app.world().get::<Billboard>(node).map(|b| b.mode), Some(4), "animated {animated}");
+            assert!(faces(app.world(), card) < 0.2, "unturned, the card lies flat (seen edge-on): {}", faces(app.world(), card));
+            app.update();
+            assert!(faces(app.world(), card) > 0.999, "animated {animated}: the card faces the camera: {}", faces(app.world(), card));
+        }
+    }
+
+    /// Issue #2549: the torch's flame stands along +z under a mode-5 node; turned, it
+    /// stays upright (about its z) with its +y towards the camera.
+    #[test]
+    fn a_mode_5_billboard_turns_about_its_z() {
+        let mut app = App::new();
+        app.add_systems(Update, face_camera);
+        let eye = Vec3::new(300.0, -300.0, 500.0);
+        app.world_mut().spawn((Camera3d::default(), Transform::from_translation(eye), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }));
+        let holder = app.world_mut().spawn(Transform::IDENTITY).id();
+        let flame = app.world_mut().spawn((Transform::from_xyz(0.0, 0.0, 100.0), nvf_assets::model::Billboard { mode: 5, bind: Quat::IDENTITY }, ChildOf(holder))).id();
+        app.update();
+        let r = app.world().get::<Transform>(flame).unwrap().rotation;
+        assert!((r * Vec3::Z).abs_diff_eq(Vec3::Z, 1e-5), "upright: {}", r * Vec3::Z);
+        let level = Vec3::new(eye.x, eye.y, 0.0).normalize();
+        assert!((r * Vec3::Y).dot(level) > 0.9999, "+y to the camera: {}", r * Vec3::Y);
+    }
+}
+
+#[cfg(test)]
+mod blend_census_tests {
+    use super::*;
+    use crate::mesh_terrain_blend::{reason, BaseType};
+
+    /// #2661 round 7: a SCOL reference is taken into the census as a STAT is, under the
+    /// same reference rules and labelled by its base type; other record types are not.
+    /// Synthetic index and records; no game data.
+    #[test]
+    fn scol_references_get_the_census_of_a_stat_and_other_records_none() {
+        let mut world = crate::outfits::tests::empty_world_data();
+        let mut index = WorldIndex::default();
+        index.cells.insert(0x10, fnv_world::Cell { form_id: 0x10, world: Some(0), grid: Some((-16, -2)), ..default() });
+        index.cells.insert(0x11, fnv_world::Cell { form_id: 0x11, data_flags: 1, ..default() });
+        index.refs.insert(0x100, fnv_world::index::RefEntry { cell: 0x10, sig: *b"REFR", persistent: false });
+        index.refs.insert(0x101, fnv_world::index::RefEntry { cell: 0x11, sig: *b"REFR", persistent: false });
+        world.index = Box::leak(Box::new(index));
+        let placement = |imposter: bool| Placement {
+            form_id: 0x100, sig: *b"REFR", flags: 0, base: Some(0x200), position: [0.0; 3], rotation: [0.0; 3], scale: 1.0,
+            enable_parent: None, open_by_default: false, teleport: false, emittance: None, imposter, primitive: false,
+        };
+        let base = |sig: [u8; 4]| BaseObject {
+            form_id: 0x200, sig, edid: None, model: Some("scol/synthetic_road.nif".into()), world_model: None, world_alt_textures: vec![], worn_only: false, flags: 0, bounds: None,
+        };
+        let model = PreparedModel::default();
+        let path = "scol/synthetic_road.nif";
+        let scol = census_of(&world, &placement(false), 0x100, &base(*b"SCOL"), path, &model, false).expect("a SCOL is tracked");
+        assert_eq!((scol.base_type, scol.reasons, scol.reference, scol.base), (BaseType::Scol, 0, 0x100, 0x200));
+        assert_eq!(&*scol.model, path);
+        let stat = census_of(&world, &placement(false), 0x100, &base(*b"STAT"), path, &model, false).expect("a STAT is tracked");
+        assert_eq!((stat.base_type, stat.reasons), (BaseType::Stat, 0));
+        // The same reference rules: an imposter, an interior, a stored pose.
+        assert_eq!(census_of(&world, &placement(true), 0x100, &base(*b"SCOL"), path, &model, false).unwrap().reasons, reason::DISTANT);
+        assert_eq!(census_of(&world, &placement(false), 0x101, &base(*b"SCOL"), path, &model, false).unwrap().reasons, reason::WORLD);
+        assert_eq!(census_of(&world, &placement(false), 0x100, &base(*b"SCOL"), path, &model, true).unwrap().reasons, reason::POSED);
+        for sig in [*b"MSTT", *b"DOOR", *b"ACTI", *b"TREE", *b"MISC"] {
+            assert!(census_of(&world, &placement(false), 0x100, &base(sig), path, &model, false).is_none(), "{}", String::from_utf8_lossy(&sig));
         }
     }
 }

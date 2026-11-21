@@ -717,9 +717,9 @@ impl Table {
             s.bet = 0;
             s.put_in = 0;
         }
-        for i in 0..n {
-            if !self.seats[i].out && self.seats[i].stack == 0 {
-                self.seats[i].out = true;
+        for (i, s) in self.seats.iter_mut().enumerate() {
+            if !s.out && s.stack == 0 {
+                s.out = true;
                 ev.push(Event::Out { seat: i });
             }
         }

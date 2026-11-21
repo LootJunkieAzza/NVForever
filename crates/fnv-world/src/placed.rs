@@ -11,6 +11,39 @@ pub mod ref_flags {
     pub const VISIBLE_WHEN_DISTANT: u32 = 0x8000;
 }
 
+/// Record header flags of base objects (STAT, SCOL and the other placeable types).
+pub mod base_flags {
+    /// "Visible When Distant": the base's references go into generated object LOD when a
+    /// LOD model (`<model>_lod.nif`, the same folder) exists [documented: GECK wiki
+    /// "Static", Flags; "World LOD", LOD Object Generation; form flag bit 15 = 32768:
+    /// GECK wiki "SetFlagsLow"].
+    pub const VISIBLE_WHEN_DISTANT: u32 = 0x8000;
+}
+
+/// Whether any definition of the record `fid` in the load order (the winning one or one
+/// it overrides) carries the header flag `flag`. Reads only the record headers: no
+/// subrecord is decoded, so it is cheap on a worker thread.
+pub fn any_version_flag(lo: &LoadOrder, fid: u32, flag: u32) -> bool {
+    lo.index.get(&fid).is_some_and(|defs| defs.iter().any(|d| lo.records[d.plugin as usize][d.ordinal as usize].header.flags & flag != 0))
+}
+
+/// Whether a reference is "visible when distant" in any plugin's version of it or of its
+/// base: the reference's own flag ([`ref_flags::VISIBLE_WHEN_DISTANT`]) or the base's
+/// ([`base_flags::VISIBLE_WHEN_DISTANT`]), in the winning record or in any record it
+/// overrides. Object LOD blocks are generated for one load order by tools that may read
+/// either flag from any plugin (a LOD plugin flags bases another plugin's version leaves
+/// plain), so a renderer asking "may a block hold this reference" asks this
+/// [design, #3014: the conservative answer, never "no" when some version says yes].
+pub fn visible_when_distant(lo: &LoadOrder, reference: u32, base: Option<u32>) -> bool {
+    any_version_flag(lo, reference, ref_flags::VISIBLE_WHEN_DISTANT) || base.is_some_and(|b| any_version_flag(lo, b, base_flags::VISIBLE_WHEN_DISTANT))
+}
+
+/// [`visible_when_distant`] for a placement, also counting its own (winning) header flag,
+/// which a placement built by hand carries without a load order.
+pub fn placement_visible_when_distant(lo: &LoadOrder, p: &Placement) -> bool {
+    p.flags & ref_flags::VISIBLE_WHEN_DISTANT != 0 || visible_when_distant(lo, p.form_id, p.base)
+}
+
 /// XSRF bit 1, "Imposter" [documented: xEdit wbDefinitionsFNV.pas REFR]. The other bits
 /// of the stored value vary from reference to reference (0x0A080002, 0x30002, ...) with no
 /// pattern [observed: the 301 references with XSRF in FalloutNV.esm].
@@ -121,6 +154,29 @@ pub struct BaseObject {
     /// Alternate textures of the model [`Self::world_model_path`] names: MODS for MODL,
     /// MO2S for ARMO MOD2, MO4S for WEAP MOD4 (`crate::alt_textures`).
     pub world_alt_textures: Vec<crate::alt_textures::AltTexture>,
+    /// Armour that is only ever worn: an ARMO with no world model (MOD2) and the BMDT
+    /// general flag Non-Playable ([`worn_only`]). It has no look of its own lying in the
+    /// world: [`Self::world_model_path`] gives none.
+    pub worn_only: bool,
+    /// The winning record's header flags ([`base_flags`]).
+    pub flags: u32,
+    /// OBND "Object Bounds", in the model's space (min, max) [documented: xEdit
+    /// wbDefinitionsCommon.pas wbObjectBounds; schemas/fnv common.json].
+    pub bounds: Option<([f32; 3], [f32; 3])>,
+}
+
+/// Whether an ARMO is only ever worn: no world model (MOD2) and flagged Non-Playable
+/// (BMDT general flags bit 6 [documented: xEdit `wbDefinitionsFNV.pas` ARMO BMDT]). Its
+/// MODL is the biped model, skinned to the wearer's bones and authored at body height,
+/// so drawn on its own at a placed reference it hangs in the air: the Fort's two
+/// NVSlaveBackpack references (0x0013732C, 0x0013732D) sit 565 and 913 units above the
+/// ground, with nothing under them, and showed as two packs floating in the sky (#2439).
+/// The player can never hold a Non-Playable item, so it never needs a look on the ground
+/// [design, #2439; whether the original draws such a reference at all is observer check
+/// 142]. Playable armour without MOD2 still lies in the world as its MODL.
+pub fn worn_only(sig: &[u8; 4], has_world_model: bool, general_flags: Option<u64>) -> bool {
+    const NON_PLAYABLE: u64 = 1 << 6;
+    sig == b"ARMO" && !has_world_model && general_flags.is_some_and(|f| f & NON_PLAYABLE != 0)
 }
 
 /// The subrecord naming the model an item shows lying in the world, for the record types
@@ -168,14 +224,42 @@ impl BaseObject {
 
     /// Archive path of the model the object shows (and collides with) in the world,
     /// placed or dropped: an item's world model when its record names one
-    /// ([`world_model_sub`]), else MODL.
+    /// ([`world_model_sub`]), else MODL; none for armour that is only ever worn
+    /// ([`worn_only`]).
     pub fn world_model_path(&self) -> Option<String> {
+        if self.worn_only {
+            return None;
+        }
         self.world_model.as_deref().and_then(archive_path).or_else(|| self.model_path())
     }
 
     pub fn is_speedtree(&self) -> bool {
         self.model_path().is_some_and(|m| m.ends_with(".spt"))
     }
+
+    /// The winning record is flagged "visible when distant" ([`base_flags`]); for the
+    /// question over every plugin's version, [`visible_when_distant`].
+    pub fn visible_when_distant(&self) -> bool {
+        self.flags & base_flags::VISIBLE_WHEN_DISTANT != 0
+    }
+
+    /// Half the diagonal of the object bounds (OBND), unscaled: the radius of a sphere
+    /// round their centre holding them; `None` without bounds or with empty ones.
+    pub fn bound_radius(&self) -> Option<f32> {
+        let (lo, hi) = self.bounds?;
+        let d = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
+        let r = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() * 0.5;
+        (r > 0.0).then_some(r)
+    }
+}
+
+/// OBND as (min, max) corners from a record's fields.
+fn object_bounds(f: &Fields) -> Option<([f32; 3], [f32; 3])> {
+    let corner = |v: &serde_json::Value, k: &str| -> Option<[f32; 3]> {
+        let c = v.get(k)?;
+        Some([num(c, "x")? as f32, num(c, "y")? as f32, num(c, "z")? as f32])
+    };
+    f.get(b"OBND").and_then(|b| Some((corner(&b, "min")?, corner(&b, "max")?)))
 }
 
 pub fn base_object(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<BaseObject> {
@@ -184,7 +268,10 @@ pub fn base_object(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<BaseObje
     let world_sub = world_model_sub(&r.header.sig).filter(|s| f.string(s).as_deref().and_then(archive_path).is_some());
     let world_model = world_sub.and_then(|s| f.string(s));
     let world_alt_textures = crate::alt_textures::alt_textures(lo, schema, &f, world_sub.unwrap_or(b"MODL"));
-    Some(BaseObject { form_id: fid, sig: r.header.sig, edid: f.string(b"EDID"), model: f.string(b"MODL"), world_model, world_alt_textures })
+    let general_flags = f.get(b"BMDT").and_then(|b| b.get("general_flags").and_then(|g| crate::fields::num(g, "value"))).map(|v| v as u64);
+    let worn_only = worn_only(&r.header.sig, world_model.is_some(), general_flags);
+    let bounds = object_bounds(&f);
+    Some(BaseObject { form_id: fid, sig: r.header.sig, edid: f.string(b"EDID"), model: f.string(b"MODL"), world_model, world_alt_textures, worn_only, flags: r.header.flags, bounds })
 }
 
 /// A TREE's billboard: its size (TREE BNAM width, height) and texture,
@@ -268,11 +355,7 @@ pub fn door_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<DoorReco
     let model = f.string(b"MODL").as_deref().and_then(archive_path);
     let sound = |s: &[u8; 4]| f.formid(s, lo).filter(|&v| v != 0);
     let flags = f.get(b"FNAM").and_then(|v| num(&v, "value")).map_or(0, |v| v as u8);
-    let corner = |v: &serde_json::Value, k: &str| -> Option<[f32; 3]> {
-        let c = v.get(k)?;
-        Some([num(c, "x")? as f32, num(c, "y")? as f32, num(c, "z")? as f32])
-    };
-    let bounds = f.get(b"OBND").and_then(|b| Some((corner(&b, "min")?, corner(&b, "max")?)));
+    let bounds = object_bounds(&f);
     Some(DoorRecord { model, open_sound: sound(b"SNAM"), close_sound: sound(b"ANAM"), loop_sound: sound(b"BNAM"), flags, bounds })
 }
 
@@ -282,13 +365,26 @@ mod tests {
 
     #[test]
     fn model_paths() {
-        let b = |m: &str| BaseObject { form_id: 1, sig: *b"STAT", edid: None, model: Some(m.into()), world_model: None, world_alt_textures: Vec::new() };
+        let b = |m: &str| BaseObject { form_id: 1, sig: *b"STAT", edid: None, model: Some(m.into()), world_model: None, world_alt_textures: Vec::new(), worn_only: false, flags: 0, bounds: None };
         assert_eq!(b("Clutter\\Junk\\Can.NIF").model_path().unwrap(), "meshes\\clutter\\junk\\can.nif");
         assert_eq!(b("meshes/a.nif").model_path().unwrap(), "meshes\\a.nif");
         assert_eq!(b("  ").model_path(), None);
         assert_eq!(b("WastelandShrub01.spt").model_path().unwrap(), "trees\\wastelandshrub01.spt");
         assert_eq!(b("\\WastelandShrub01.spt").model_path().unwrap(), "trees\\wastelandshrub01.spt");
         assert!(b("WastelandShrub01.spt").is_speedtree() && !b("a.nif").is_speedtree());
+    }
+
+    /// #3014: the bound radius is half the OBND diagonal; none without bounds or with
+    /// empty ones; the winning record's flag alone.
+    #[test]
+    fn bound_radius_and_own_flag() {
+        let b = |bounds, flags| BaseObject { form_id: 1, sig: *b"STAT", edid: None, model: None, world_model: None, world_alt_textures: Vec::new(), worn_only: false, flags, bounds };
+        let r = b(Some(([-3.0, -4.0, 0.0], [3.0, 4.0, 0.0])), 0).bound_radius().unwrap();
+        assert!((r - 5.0).abs() < 1e-6, "{r}");
+        assert_eq!(b(None, 0).bound_radius(), None);
+        assert_eq!(b(Some(([1.0; 3], [1.0; 3])), 0).bound_radius(), None, "empty bounds");
+        assert!(b(None, base_flags::VISIBLE_WHEN_DISTANT | 0x400).visible_when_distant());
+        assert!(!b(None, 0x400).visible_when_distant());
     }
 
     #[test]
@@ -322,6 +418,9 @@ mod tests {
             model: model.map(Into::into),
             world_model: world.map(Into::into),
             world_alt_textures: Vec::new(),
+            worn_only: false,
+            flags: 0,
+            bounds: None,
         };
         // Armour: the ground object, not the worn suit; MODL stays what `model_path` gives.
         let leather = b(b"ARMO", Some("Armor\\LeatherArmor\\M\\OutfitM.NIF"), Some("Armor\\LeatherArmor\\M\\GO.NIF"));

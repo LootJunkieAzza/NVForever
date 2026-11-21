@@ -41,7 +41,6 @@ use crate::actors::ActorWorld;
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::ragdoll::Corpse;
-use crate::reflection::ReflectionCamera;
 use bevy::prelude::*;
 use fnv_actor::head_look::{choose, limited_leaning, shares, sided, wrap, yaw_limit, yaw_pitch, Ease, Seen, Target, KEEP_RADIUS};
 use fnv_sim::FormId;
@@ -247,7 +246,7 @@ type Free = (With<HeadLook>, Without<LookOverride>);
 fn force_point(
     mut commands: Commands,
     settings: Res<HeadLookSettings>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     free: Query<(Entity, &GlobalTransform), Free>,
 ) {
     let (Some(p), Some(cam)) = (settings.force_point.filter(|_| settings.enabled), camera.iter().next()) else { return };
@@ -298,9 +297,12 @@ impl ChainPose {
     }
 
     /// Yaw and pitch, in the frame, of the animated head's forward (`head_bind`: the
-    /// head's bind rotation, in which it faces the actor's +y).
+    /// head's bind rotation, in which it faces the actor's +y). Read with the head's up
+    /// axis (`dialogue_look::head_yaw_pitch`), so a head hanging past straight down keeps
+    /// its face's yaw and is not turned over (#2471).
     pub fn head_angles(&self, head_bind: Quat) -> (f32, f32) {
-        yaw_pitch((self.frame.inverse() * (self.head * head_bind.inverse() * Vec3::Y)).to_array())
+        let axes = self.frame.inverse() * self.head * head_bind.inverse();
+        crate::dialogue_look::head_yaw_pitch(axes * Vec3::Y, axes * Vec3::Z)
     }
 
     /// Yaw and pitch, in the frame, of a direction given in the actor's space.
@@ -493,7 +495,7 @@ pub(crate) fn track(
     script: Option<Res<ScriptState>>,
     sim: Option<Res<nvf_play::sim::SimState>>,
     talk: Option<Res<crate::dialogue_look::Looks>>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut actors: Query<Looker>,
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,

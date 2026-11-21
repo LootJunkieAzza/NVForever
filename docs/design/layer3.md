@@ -113,7 +113,7 @@ What it does now:
   game's texture × (ambient + sunlight · N·L) model [hypothesis]; this replaced levels
   tuned by eye that were about 4× too bright in sunlight. Sun path fitted to the original
   game's sun positions: rises at sunrise begin, sets at sunset end, 9° south of the
-  east-west line (world.md §6). Sun shadows: three cascades out to `--shadow-distance`
+  east-west line (world.md §6). Sun shadows: four cascades out to `--shadow-distance`, three on Performance (three and two until #2843) [engineering choice, #2843: for the maintainer to decide]
   (default 8,000 units since 2026-10-12, #254; 0 turns them off). The original game casts none from the world
   (world.md §6); they were on by default by owner decision (2026-10-09) and are off by
   default, behind `--sun-shadows`, from 2026-10-13 (owner decision: frame cost and flicker), and on by default with `--play` again since 2026-10-26 (owner, the first-person flicker fixed; `--no-sun-shadows`; runs without `--play` keep them off). The directional light
@@ -139,22 +139,37 @@ What it does now:
   renderer is already at night (time-of-day keys to revisit).
 - Distant LOD (`--no-lod` turns it off; lod.rs): the game's terrain chunks at levels
   4, 8, 16 and 32 and its level-4 object LOD blocks (world.md §7). Which chunks are drawn
-  [hypothesis]: a quadtree over the level-32 grid; nothing beyond `--lod-distance`
-  (fBlockLoadDistance, 125,000); a coarser chunk gives way to its four quarters while the
-  camera is nearer to it (horizontally, closest point) than the larger of
+  [hypothesis]: a quadtree over the level-32 grid; no terrain chunk beyond
+  `--lod-terrain-distance` (250,000, or `--lod-distance` when that is larger: a default
+  calibrated at one pose above Goodsprings, where 250,000 was the first value tried at
+  which our skyline matched the original's [observed: capture of the original and our
+  runs, 2026-11-19, #3055; world.md §7 "Terrain reach"]; the original's own terrain
+  distance, and one fixed reach everywhere, are [hypothesis], no INI key gives it); a
+  coarser chunk gives way to its four quarters while the camera is nearer to it (horizontally, closest point) than the larger of
   `--lod-near-distance` (fBlockLoadDistanceLow, 50,000) and `--lod-split`
   (fSplitDistanceMult, 1.5) × its side. All levels have 256 texels per chunk side, so
-  level 4 reaches 50,000 units, level 8 98,304 and level 16 the rest; level 32 would
-  take over from 196,608. The choice is redone when the camera enters another cell and
+  level 4 reaches 50,000 units, level 8 98,304, level 16 196,608 and level 32 the rest.
+  Distant water planes cover the cells with water under the chosen chunks, so they end
+  where the terrain does. The choice is redone when the camera enters another cell and
   levels switch at once (the game's `fBlockMorphDistanceMult` suggests it morphs between
   levels; not done). Neighbouring chunks share only some edge vertices (world.md §7), so
   every chunk's open edges get skirts hanging 128 units per cell of chunk side.
-  Object blocks are drawn over every 4 × 4-cell square nearer than `--lod-distance`.
+  Object blocks are drawn over every 4 × 4-cell square nearer than `--lod-distance`
+  (fBlockLoadDistance, 125,000).
   Distant trees (treelod.rs, `--tree-distance`, fTreeLoadDistance 40,000; 0 off): beyond
   the loaded cells every TREE reference is drawn as its billboard, an upright card
   turned towards the camera in the vertex shader, one mesh per cell and TREE base; the
   game ships no tree LOD (world.md §7) [hypothesis: distant trees are these billboards].
   They crossfade with their cells like the object blocks and cast no shadows.
+  The settings page's Tree distance row (#3016) is a part of the distant LOD's far limit
+  (`--lod-distance`, 125,000 by default) in steps of 0.02 (2,500 units at the default),
+  shown as the distance it gives; it ends at that limit so the billboards stop where the
+  object blocks around them stop; distant terrain reaches farther, `--lod-terrain-distance`,
+  250,000 by default (#3055) [design]. It starts at `--tree-distance`'s share
+  (0.32, 40,000 units at the defaults; a flag beyond the limit is taken as the limit), so an
+  untouched game draws as before and the slider can draw the billboards farther than the
+  flag; `--tree-distance 0` still draws none whatever the slider. Applied live: the wanted
+  cells are chosen again at once when it moves.
   Load distances follow the owner's `FalloutPrefs.ini` (world.md §7 table): uGridsToLoad
   5 → `--radius 2` (5 × 5 cells, unchanged), fBlockLoadDistance, fBlockLoadDistanceLow,
   fSplitDistanceMult and fTreeLoadDistance as above. Not applied: uExterior Cell Buffer

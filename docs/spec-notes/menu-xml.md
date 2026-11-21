@@ -56,6 +56,9 @@ own rules are not known]:
 - what is still open at the end of a file is closed there (each included file is read
   on its own, so this stays inside the include);
 - a start tag cut short by `<` ends there, open (its own end tag follows);
+- an element opened inside 256 open ones is left out with everything in it, up to its own
+  end tag [design: `xml::MAX_DEPTH`, NVForever's own guard against running out of stack on
+  a broken or crafted file, #3156; no vanilla file comes near it];
 - an unquoted attribute value runs to a space or `>`, stray quotes dropped;
 - `<!-- -->` comments, `<?…?>` and `<!…>` are skipped; `&amp;` `&lt;` `&gt;` `&quot;`
   `&apos;` `&#N;` are decoded; any other `&name;` is kept by name;
@@ -127,6 +130,16 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
   hud_hardcore2 hc2-hc5; hud.md §14.8];
 - every other constant reads 0 as a number [hypothesis].
 
+Scripts can also write standalone entity tokens into a trait via `SetUIString` /
+`SetUIStringAlt` with or without a trailing semicolon (e.g. `"&false"`, `"&true"`,
+`"&center"`) [hypothesis: JIP UI scripts hide vanilla tiles by writing `"&false"` to
+`.../visible`, relying on the trait parser recognising `&name` constants the same as XML
+entities; observer check]. NVForever keeps the written `Value::Str` text verbatim for
+`GetUIString`, while evaluating standalone `&name` / `&name;` ASCII identifier strings
+(excluding `&-sName;` game-string placeholders and mixed prose) identically to
+`Value::Sym` for `truthy()`, `num()`, `eq`, `justify`, and suffix-`<copy>` lookup
+[design: `fnv_ui::value`].
+
 ### 2.4 Game setting strings
 
 `&-sName;` is the text of the game setting `sName` [hypothesis: the names are game
@@ -176,6 +189,14 @@ original") [design]:
   "Back", "OK") stays what the use calls for even if it is the original's word. A longer
   label (a prompt, a sentence) is written fresh from what the menu needs. The menu files'
   comments are not copied into labels.
+- The two heading labels `sInventoryItems` ("ITEMS") and `sData` ("DATA") are in capitals:
+  every use of them is a heading (the Pip-Boy's ITEMS and DATA pages, the repair page, the
+  weapon mod menu, the container menu, the barter menu's all-items heading), and NVForever's
+  own hand-built Pip-Boy pages already write their headings so ("STATS", "ITEMS", "DATA",
+  `pipboy::Page::title`); a page drawn from its file then reads as the hand-built one beside
+  it. That is consistency with our own words, not a transcription of the original [design:
+  #2212]. The buttons and cards beside them (`sInventoryMod`, `sInventoryRepair`,
+  `sRepairItem`, `sRepairSkill` and the rest) keep their spelling.
 
 How NVForever answers `Source::game_string` (`fnv_ui::strings::GameStrings`, task T10)
 [design]:
@@ -291,7 +312,7 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   tutorial__scroll_bottom and tutorial__scroll_arrow). [hypothesis] The same for the pointer
   (`fnv_ui::input::clips_children`): `list_box.xml`'s highlight box takes its `clips` from
   its parent's `clipwindow` [documented: the file]; nothing captured says so (observer
-  check 82). It stays apart from scrolling: nothing here moves a tile; a file moves its
+  check 196). It stays apart from scrolling: nothing here moves a tile; a file moves its
   text by the `y` it writes. [documented: the vanilla files] It is true in the book,
   lockpick, map, stats, credits, load, save, trait and tutorial menus and in the prefabs
   `item_listing`, `list_box` and `load_and_save_menus`, so in every menu that includes
@@ -308,7 +329,11 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   as a raw value for later atlas resolution using interface.rs's existing `.tai` reader.
   [hypothesis] Missing `zoom` means 100 percent. [design] Explicit `zoom`, `tile`,
   `cropx` and `cropy` are passed as numbers without changing the box; absent tile/crop
-  inputs remain absent. Their effects on texture sampling await the renderer.
+  inputs remain absent. The renderer applies `cropx`/`cropy` to a picture drawn at its
+  texels' size times its zoom: the point of the zoomed picture put at the box's top left
+  [documented: GECK wiki "Tutorial: Understanding XML" and "Cropx", "applied after the
+  zoom trait"] (`tiles::draw::Piece::crop`); a stretched or repeated picture takes no crop
+  [design].
 - [design] Text `string` (empty if absent), numeric `font` (zero if absent) and optional
   `wrapwidth` go to a caller's measuring callback. Only absent width/height are replaced
   by the measured dimensions; explicit zero dimensions stay zero.
@@ -506,6 +531,67 @@ stands unchanged: every picture stretched, the shared atlas only.
   model's origin stands at the tile's `x`, `y`, a model unit an interface unit; the
   tile's `width` and `height` do not scale it.
 
+### 3.1.4 Turned tiles: `rotateangle`, `rotateaxisx`, `rotateaxisy`
+
+What the traits mean, as read:
+
+- [documented: GECK wiki "Rotation UI directives", revision 39961] `rotateangle` turns a
+  tile by an angle in radians (its example: 1.570796, "Pi/2 rotation"); `rotateaxisx` and
+  `rotateaxisy` name the point turned about, "relative to X coordinate of an element" and
+  to its Y coordinate (its example: `width` / 2, "the X center of the element"); "Those
+  traits won't work if element has children".
+- [documented: `menus\main\map_menu.xml`] Only the map menu uses them, and only the axis
+  traits: the two player arrows (`MM_LocalMapCursor`, `MM_WorldMapCursor`) turn "about its
+  center" (`width` / 2, `height` / 2), and `PathLineTemplate`'s dotted line about its
+  "leftmost-center point" (0, `height` / 2). No file writes `rotateangle`: the original's
+  code writes it (the arrows by the player's heading, the lines by their direction
+  [hypothesis: by what they show]). No file turns a text, a rect or a tile with children;
+  none of the turned tiles has `target`.
+- [hypothesis] A positive angle turns clockwise on the screen (the view's y runs down):
+  the wiki gives no sense, and a heading runs clockwise from north. Without the axis
+  traits the point is the tile's top left (0, 0).
+
+What the code does (`nvf-play/src/tiles/layout.rs` `Turn`, `tiles/draw.rs` `turned`):
+
+- [design] Layout keeps the tile's unturned box and adds its turn (angle, and the point
+  from the box's top left in interface units) to its item; none at angle 0 or an angle that
+  is not a number, so an unturned tile behaves as before (no transform, rounded as before); none for a tile with
+  live children (the wiki's rule), and a turn never passes to children.
+- [design] A box's or a picture's piece is drawn turned (its outer node takes a Bevy
+  `UiTransform`: the rotation, and the move that puts the turn about the point instead of
+  the node's middle, `Turn::shift`); a piece only turned further is turned in place, its
+  nodes kept. A turned node and its clip wrapper are laid out unrounded (Bevy's
+  `LayoutConfig`), as the shift is worked out from the box's unrounded size and place and
+  Bevy turns about the middle of the size it lays out; unturned nodes are rounded as
+  before. The clips above it (`clips`, a turned-on `clipwindow`) stay unturned boxes
+  and cut the turned quad on the screen (Bevy clips a transformed node by its clip
+  rectangles). A `tile` picture is turned whole, its repeats with it.
+- [design] Texts, models and the compass strip are not turned (no file turns one).
+- [design] The pointer is tested against a turned tile's unturned box (`fnv_ui::input`),
+  as no turned tile in the files takes the pointer.
+
+### 3.1.5 Pictures the code sets: runtime images
+
+[documented: `menus\main\map_menu.xml`] Some images have no picture in their file and are
+given one by the original's code (the Local Map's `MM_LocalMap_ParentImage`; pipboy.md
+§5.3.1). NVForever's code makes such pictures itself (the Local Map's outline,
+`nvf-play/src/pipboy/data/outline.rs`). What the code does (`nvf-play/src/tiles/runtime_images.rs`):
+
+- [design] A `filename` that starts with `nvf:` (any case) names a picture the code made,
+  kept in the `RuntimeImages` resource by name with its texture, its size in texels and a
+  revision. No game path starts so (the menu files name pictures under `textures\` by
+  relative paths; in Windows paths a colon only follows a drive letter). It is looked up
+  before the atlas indexes and the files, and never enters the file-name cache.
+- [design] Each `RuntimeImages::set` or `touch` is a new revision. The renderer stamps the
+  picture's piece with its entry's revision and size before comparing the frame's pieces
+  with the last ones, so a new texture, the same texture changed, an entry set late,
+  removed or resized repaints the piece under the same name.
+- [design] It fills its box as any picture by `zoom` and `tile` (§3.1.3; `zoom` -1
+  stretches it over the box). Its `tile` repeats are drawn by Bevy's tiles, not baked
+  into one image (the baking reads files); SetUITexOffset and SetUIAlphaMap are not
+  applied to it (they read files); each said once in the log. A name with no entry draws
+  nothing and says so once.
+
 ### 3.2 The pointer and keys (T8)
 
 What the game's code writes for input, and how `fnv_ui::input` reads the files for it.
@@ -635,6 +721,21 @@ marked]:
 
 A trait that is not there reads 0 [hypothesis].
 
+[design] Named expression sources keep their existing precedence: the first
+descendant in file order, then a menu of that name, then a bare built-in source
+such as `parent` or `me`. `Ui::find_named` indexes the first descendant of each
+case-insensitive name once per tree shape. Making, unloading, renaming or otherwise
+reshaping tiles invalidates that index; value writes reuse it. The index contains
+only the current loaded tree, so menu reloads and reused slots cannot retain old
+IDs. The fallback order and expression/write-override rules are unchanged.
+
+Owned synthetic controls call `Ui::update` with bare-source expressions on many
+rows, bound total name-lookup node visits to linear work, and report fixed-workload
+times without using wall time as a pass threshold. Separate controls retain
+named-before-built-in precedence, nested duplicate order, another-menu fallback,
+unloading, injection and menu reload. These are core implementation checks, not
+original-game captures or a measured installed-mod frame-rate result.
+
 ### 4.3 `onlyif`
 
 `onlyif` never comes first: 196 are last in their list and 99 in the middle, always
@@ -668,10 +769,22 @@ pages]
 - A path is `MenuName/Tile/…/Tile/trait`, segments split by `/` or `\`, names without
   case.
 - `*` matches any child; `name:N` matches the N-th child of that name and `*:N` the
-  N-th child [documented: "`*:0/*:5/*:9`"]. Both count from zero **from the last
-  matching child**, reversing file/creation order [observed: private jobs hud_hardcore
-  hc0, hud_xp_limbs all, hud_prompt2 p0-p8; hud.md §14.8]. Unindexed matching still
-  searches in file order [hypothesis].
+  N-th child [documented: "`*:0/*:5/*:9`"]. How N counts depends on the function:
+  - JIP's functions (`GetUIFloatAlt` and the rest) count from zero **from the last
+    matching child**, reversing file/creation order [observed: private jobs hud_hardcore
+    hc0, hud_xp_limbs all, hud_prompt2 p0-p8, all read with GetUIFloatAlt; hud.md §14.8].
+  - The extender's own `GetUIFloat`, `SetUIFloat`, `SetUIString` and `SetUIStringEx`
+    count **from the first child, from 1**, with 0 the last and nothing past the one
+    before the last [observed: GetUIFloat under the pause column, `*:1` its first child,
+    `*:3`-`*:7` the rows Continue to Help, `*:0` Quit, `*:8` of eight nothing, §10.1;
+    documented: MCM Guide v6, `StartMenu/MCM/*:4` is MCM's fourth child and `*:1/*:2`
+    Option2, mcm.md §2.1] (`fnv_ui::Count`, #2298). MCM mods write their pages by these
+    places; counted from the last they reached the wrong tiles.
+  Unindexed matching still searches in file order [hypothesis; the pause column's
+  `lb_item_hotrect` read Quit, the last, with GetUIFloat, §10.1: open].
+- A source written without brackets (`src="parent"`, `src="me"`, `src="sibling"`,
+  `src="globals"`, …) is the source it names when no tile bears the name [observed:
+  Vanilla UI Plus writes them so throughout its menus; mcm.md §2.5].
 - With `*`, the first child that leads to a full match is taken [hypothesis].
 - GetUIFloat returns -999 when the trait is not found [documented: GetUIFloat];
   SetUIFloatAlt, ModUIFloat return 1 on a change and 0 otherwise [documented].
@@ -687,6 +800,56 @@ that also have operators; observer check §8 item 3].
 
 Vanilla, 2026-10-26: 3,529 tiles, 40,583 traits, 19,541 with operators, over the 49
 menus; every menu settles [observed: fnvtool ui menus; loading all 49 takes 0.4 s].
+
+### 6.1 Structural `childcount` in expressions
+
+[observed: installed Vanilla UI Plus menu XML, 2026-11-17] Its StartMenu
+verification reads `childcount` on a diagnostic container and expects four.
+That container includes the same two-image fragment twice. The ordinary
+list-item fragment adds traits, with no child tiles. MCM's injected fragment
+separately declares its registration trait. Successful injection therefore
+does not by itself satisfy the structural verification expression. No menu
+XML or displayed warning text is included here.
+
+[design] When an expression reads an absent `childcount` trait on a resolved
+tile, read the number of direct child tiles. Includes, injected tiles and
+instantiated templates contribute their actual children; template definitions,
+traits and grandchildren do not. Existing explicit XML or code traits take
+precedence, including zero. Keep `Tile::get` and trait-presence APIs unchanged:
+the pause-menu column uses an absent explicit `childcount` as its initialization
+sentinel. This fallback does not add a trait or implement structural
+`GetUIFloat` queries.
+
+[design] A per-tile value-generation stamp records actual child insertion and
+removal. Expression reads depend on that stamp as well as the existing tree
+shape invalidation, so an empty injected child updates its readers even when
+no ordinary trait changed. Unrelated expression values written from outside
+retain their existing lifetime policy. Count lookup takes constant time and
+does not allocate.
+
+[design] Independently authored CPU controls cover repeated includes and a
+UIO-injected registration trait through the real load/update consumer, empty
+children, nested children, template instantiation, removal, slot reuse and menu
+reload, plus explicit zero/nonzero overrides and retained neighboring values.
+These controls do not establish original-game parity or complete UIO/VUI
+compatibility.
+
+[design: CPU validation record, 2026-11-17] Normal locked release Cargo builds
+of `fnv-ui` produced the baseline and candidate library-test executables. The
+same three fixtures failed at their intended numeric assertions with the
+accepted implementation and passed with this fallback. All 116 unchanged
+baseline controls passed; all 119 candidate controls passed, with none ignored.
+Candidate package-wide strict Clippy passed. Both compile controllers retained
+a failure from their unchanged descendant-shutdown deadline despite Cargo
+exiting zero. The emitted images were subsequently verified and executed in
+fresh contained jobs, with exact source/index/mtime seals and unchanged image
+hashes. These historical results qualify this package's CPU behavior. Hosted
+whole-workspace and engine checks for each published source revision are recorded
+separately in [PR #2858](https://github.com/LootJunkieAzza/NVForever/pull/2858);
+they do not change the local controller results or transfer automatically to
+later revisions. Native parity, rendered installed-menu and complete sentinel
+acceptance remain unqualified; structural script getter queries remain outside
+this change.
 
 ## 7. How mods change menus
 
@@ -869,7 +1032,7 @@ rule are in the code beside it. Smoke: `ui-gradual-in-game`, `ui-string-dimensio
 | GetUIFloatGradualActiveForTile, …ForTileTrait, …Mode, …Timer | the four SUP pages [documented] | read JIP's table; Mode -1 when none [documented] | Timer -1 when none, a repeating change's time left is its round's [hypothesis] |
 | SetUIStringReveal, CacheUIStringReveal(Alt) | SetUIStringReveal, CacheUIStringReveal [documented] | letters by the time's share, from the left or right, inverted, ease in as the square [hypothesis for the rounding, the right and the ease] | none |
 | SetUIFloatMultiple | SetUIFloatMultiple [documented] | every tile inside of the type, that has the trait; the count back [design] | whether it makes the trait [hypothesis: not] |
-| AttachUIXML, AttachUIComponent | AttachUIXML, AttachUIComponent [documented] | a single `rect` into `HUDMainMenu`'s root, kept in `UiExtra::attached` with the reference and node; 1 or 0; the VM formats the component. Replaces the one attached before to the same (reference, node, rect name), keeps it hidden until placed, drops it when the reference is deleted, disabled or outside the loaded cells [design] | node validation, animated transforms and screen projection: its own issue, **Project attached UI components onto model nodes** |
+| AttachUIXML, AttachUIComponent | AttachUIXML, AttachUIComponent [documented] | a single `rect` into `HUDMainMenu`'s root, kept in `UiExtra::attached` with the reference and node; 1 or 0; the VM formats the component. Replaces the one attached before to the same (reference, node, rect name), keeps it hidden until placed, drops it when the reference is deleted, disabled or outside the loaded cells [design]; placed over the node on screen each frame, hidden off screen or without the node (`ui_more::place_attachments`, `nvforever` `ui_attach.rs`, #1835) [design] | the rules on screen are our own (below) |
 | AddTraitToTile | AddTraitToTile [documented] | makes or sets the trait; an empty name makes none (0) [design] | the original's list of trait ids it allows is not known: any other name taken [hypothesis] |
 | GetUIValueType, GetUIElementType | the SUP pages [documented] | 1/2/3 and -1; 1-5 by tile kind; GetUIElementType uses the live cursor tile for a missing or nonexistent path, -1 with none [design: `ui_more::inspection_tile`] | `nif` 4, other kinds 0 [hypothesis] |
 | SortUIListBox | SortUIListBox [documented] | keys `-`, `#`, `@`; `$destination$increment` (default `_y`, `height`); numeric keys in a total order, NaN keys at the ends (`total_cmp`) [design] | which children are items (those with the destination), the first value (the smallest), the case [hypothesis each] |
@@ -877,7 +1040,7 @@ rule are in the code beside it. Smoke: `ui-gradual-in-game`, `ui-string-dimensio
 | DumpTileInfo, DumpTileInfoALL, DumpTileInfoToArray | the three SUP pages [documented] | `[ Tilename ] : name` and `[ trait ] : value` lines (the ToArray page's example output) to the console, or to NVForever's log for DumpToFile (never `SUPNVSE.log` in the game folder); ToArray a string map; DumpTileInfo uses the live cursor tile for a missing or nonexistent path (path argument 1); ALL lists menus; ToArray still requires a path [design: `ui_more`] | none |
 | CacheUI, …Float, …String, …ModFloat, …GetFloat, …GetString, …Range, …RangeMod, …Erase, …Dump, …Gradual, …RangeGradual, …GradualDelay, …RangeGradualDelay, each with its Alt | the CacheUI pages (CacheUIModFloat's is `CacheUIMod`) [documented] | caches per calling plugin, Alt per key; delay pulls the value then, flags 0/1/2 and the lock, `match` ends a delay; modes 0-3, 5, 6 | mode 4 (rumble) mentioned but insufficiently specified: waveform, frequency, randomness, decay curve and final value are not given; remains refused (`ui_gradients::mode_built`); RangeMod's page and example differ in argument order, both taken [design]; the script runners' shared cache |
 | CUICreateQueue, CUIGetQueue, CUIGetQueueSize, CUIQueueCycle, CUIQueueFloat | the five pages [documented] | per plugin; toggle, forced add and remove, duplicates | cycle direction 0 [hypothesis] |
-| HudBar… (35 functions) | SUP HUD Bar Functions and each HudBar page [documented] | a `rect NVFHudBar<n>` with `Meter`, `Frame`, `Text`, `ImageEx` in `HUDMainMenu`, per plugin (console: first of the name), written after each change and after a load; types 0-5, value/max/percentage, text with prefix, postfix and max, alpha, colour, system colour, depth, zoom, rotation, size, indent, alt size, texture, text font and justify, auto position, bar and meter traits, all-bars arrays, element paths, debug lines to the log | live bindings, condition visibility and fades: its own issue, **HudBar live value bindings and conditional visibility**. ScriptVar needs retained variable identity (`fnv-script/src/vm.rs`, `host_function`); UDFs already have a callable representation but lack timed evaluation. Conditions and fade traits are stored, not evaluated (`ui_hudbar.rs`); reading a texture's size (`iCalculateSize`), the rotation on screen (the traits are written, the tile renderer turns no tile yet); the meter's width as indent plus the share of the rest, type 4 without a built-in `%`, the default max 100 and which elements show by default [hypothesis] |
+| HudBar… (35 functions) | SUP HUD Bar Functions and each HudBar page [documented] | a `rect NVFHudBar<n>` with `Meter`, `Frame`, `Text`, `ImageEx` in `HUDMainMenu`, per plugin (console: first of the name), written after each change and after a load; types 0-5, value/max/percentage, text with prefix, postfix and max, alpha, colour, system colour, depth, zoom, rotation, size, indent, alt size, texture, text font and justify, auto position, bar and meter traits, all-bars arrays, element paths, debug lines to the log | bound values (ext-sup7.md §3), the visibility conditions 0 and 21-27 with their fades 41-44/61-64 and HudBarGetVisible's -1: hud-bars.md (#1834); reading a texture's size (`iCalculateSize`), the rotation on screen (the traits are written, the tile renderer turns no tile yet); the meter's width as indent plus the share of the rest, type 4 without a built-in `%`, the default max 100 and which elements show by default [hypothesis] |
 
 [design] Numbers that are not numbers: SetUIFloatMultiple, AddTraitToTile, CacheUIFloat /
 ModFloat / Range / RangeMod (and their Alt forms), a HUD bar's place at creation and its
@@ -904,31 +1067,82 @@ Implemented consumers and remaining exclusions:
   The callback runs each frame while the trait is nonzero and can change drawn traits;
   registration itself draws nothing. Menu mouseover/click events also have consumers
   (`ui_input.rs`, `step`), rather than a blanket menu-events exclusion.
-- **SetUITexOffset, SetUIAlphaMap** [design: `nvse_itr1.rs`, dispatch] store offsets and
-  alpha-map paths; the renderer has no consumers. Success does not establish texture
-  loading or rendering. Drawing needs its own issue, **Render tile UV offsets and alpha
-  masks**: wrapping, independent mask sampling, loading failures, canonical tile identity
-  and cleanup, radial/repeated/cropped tiles and batching, with authored-texture regressions.
+- **SetUITexOffset, SetUIAlphaMap** [design: `nvse_itr1.rs`, dispatch; `tiles/texmod.rs`,
+  #1833] store offsets (wrapped into 0-1) and alpha-map paths by tile id, so a tile
+  unloaded or replaced at its path drops them (`Game::itr_drop_gone_tile_textures`, each
+  frame). The tile renderer bakes a picture with either into one image in its place: its
+  texels (atlas piece or own file) sampled shifted by the offset in whole texels, wrapping
+  inside the piece, nearest texels [design]; the alpha multiplied by the alpha of the
+  mask, an "alpha mask texture" bound beside the unchanged base texture and sampled at
+  "the same UVs as the base texture", clamped to its edge texels (`CLAMP_S_CLAMP_T`)
+  [documented: GECK wiki SetUIAlphaMap]. The offset does not move the mask
+  [documented: SetUIAlphaMap notes; the mask not scrolling is read from its advice to
+  scroll a strip's base texture with SetUITexOffset on a normal-sized quad under a
+  mask, which only works if the scroll leaves the mask's stage alone]. So a picture
+  whose coordinates run 0-1 (stretched, natural, zoomed and cut to the box, clipped)
+  has the mask over it once; a `tile` picture, whose coordinates run past 1 with its
+  repeats [documented: the same note], has it over its first repeat from the box's top
+  left and the mask's edge texels over the rest; an atlas piece, whose coordinates are
+  its part of the atlas (the index gives them as parts of the atlas, corner-messages.md
+  §2.2), has the mask's same part over it [hypothesis: "same UVs" read for an atlas
+  piece]. NVForever reads no `cropoffsetX`, so no tile's coordinates start elsewhere.
+  The image has the picture's texels, more where the mask is more detailed, up to a
+  texel an interface unit of the drawn size (a 1 x 1 picture over a panel keeps the
+  mask's detail). A masked `tile` box too large to bake at its repeats' texels is baked
+  at fewer, at most `repeat::MAX_TEXELS`, so the mask still lies once (its picture
+  coarser); without a mask such a box keeps Bevy's tiling of the shifted piece [design].
+  Radial tiles stay undrawn. The compass strip's texels are moved on by the offset
+  before the heading scrolls them (the two add up) and its window is baked under the
+  mask stretched over it (`compass_strip::StripWindow::masked`) [design]: the documented
+  rule is not applied there, as NVForever's code, not a trait, scrolls the vanilla strip
+  (hud.md §14.4) and the coordinates of the original's window (which part of the strip,
+  scrolled how) are not known [hypothesis]. Textures are decoded
+  only up to `repeat::MAX_TEXELS`, read from the file's header first, by these bakes and
+  by `crate::repeat`'s (the tiled pictures, the compass strip), whose oversized textures
+  keep Bevy's drawing. An offset that changes alone re-bakes the kept image, or moves the
+  compass strip on, in place (same nodes and handle), only when it is another texel
+  shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues up to three
+  largest images, the most one bake costs: its output and both textures decoded again, or
+  for the compass strip its strip, its window and its source; the piece waiting longest is served first, so scrolling pieces take turns; a
+  texture to decode again is part of the cost checked against that reservation, and a
+  texture still cached is taken first so decoding the other cannot evict it).
+  Decoded textures are kept within 64 MiB a drawing, every decoded texel counted, at each
+  insertion and each frame's prune: those no kept bake names go first, then the least
+  recently used, a kept bake decoding its texture again when it next needs it. Texels held
+  outside the cache (a strip window's mask, a bake under way) are never let go, so the
+  cache can pass 64 MiB only while they are held. Those nothing names any more are
+  released at once [design: #1833 review]. Which way the offset moves (the texel at the
+  coordinate plus the offset) is [hypothesis: no page gives it]. The mask's path is
+  under `Data\Textures\` [documented: SetUIAlphaMap, "relative to Data\Textures\"]; a
+  path already starting `textures\` is kept as one [decision]
+  (`nvse_itr1::alpha_map_path`). SetUIAlphaMap returns 0 when the tile is not found or
+  the texture fails to load [documented]; the script side takes a texture not in the
+  data (loose or in an archive) as the failure [hypothesis], and while the host gives no
+  answer for the archives takes it as there [decision]. A texture there that cannot be
+  read (too large, not decoded) leaves the tile without it, said once (smoke
+  `ui-texoffset-alphamap`, `ui-texoffset-compass`).
 - **Attached components** [documented: [AttachUIComponent](https://geckwiki.com/index.php?title=AttachUIComponent)]
   require a loaded, case-sensitive model node and one parent rect under HUDMainMenu.
   [design: `ui_more.rs`, `attach`; `tiles/mod.rs`, update] Attachments remain hidden until
-  placed. **Project attached UI components onto model nodes** needs its own issue for
-  animated node transforms, camera projection/interface units and lifetime. Occlusion,
-  clipping, distance scaling and offscreen behavior are not settled by that page.
-- **HudBar live value bindings and conditional visibility** needs its own issue.
-  [documented: [ScriptVar](https://geckwiki.com/index.php?title=HudBarSetValueScriptVar),
-  [UDF](https://geckwiki.com/index.php?title=HudBarSetValueUDF),
-  [bar traits](https://geckwiki.com/index.php?title=HudBarSetBarTrait),
-  [GetVisible](https://geckwiki.com/index.php?title=HudBarGetVisible)] Values update on a
-  timer with optional normalization; UDFs take no arguments and an optional caller.
-  Conditions 21-27 cover movement, sneak, combat, aim, equipment, weapon and camera;
-  41-44/61-64 describe fades/movement/timing for 21-26. Trait 1 concerns removal on load,
-  trait 0 menu mode. GetVisible distinguishes condition-hidden -1, manually hidden 0,
-  visible 1. [design: `ui_hudbar.rs`, binding/visibility dispatch] Timers, safe callbacks,
-  variable lifetime, destruction/reentrancy and condition fades remain to implement.
-  [hypothesis] Menu-mode polarity (the page repeats 1), contradictory combination prose,
-  item/list precedence, empty lists, timer catch-up, fade easing/reversal, callback failures
-  and full save persistence need explicit choices and tests, not silent assumptions.
+  placed. Occlusion, clipping, distance scaling and offscreen behavior are not settled by
+  that page. [design: `ui_more.rs`, `place_attachments`; `engine/nvforever/src/ui_attach.rs`,
+  #1835] Each frame, after the animated pose and the camera are worked out, the node (by
+  its exact name: an actor's skeleton node, or a node of the reference's own animated
+  model, `nvf_play::RefNodes`; statics' baked shapes and worn or held models keep none)
+  goes through the player's camera to the HUD's interface units (960 to the window's
+  height divided by NVForever's UI scale, as the HUD is drawn; the view taken to fill the
+  window), and the rect's `x`/`y` (its top left) are put on that point. When it is
+  attached its `x`/`y` lose any expression and stay plain numbers (an authored constant as
+  written, else 0) that scripts can read and write until the next placement; the
+  component centres itself through its children. `visible` is written 1 when it comes on screen and 0 when
+  it leaves. Hidden: behind the camera, nearer than the near plane or farther than the
+  camera's far distance (checked on the camera-space depth: Bevy's perspective matrix
+  has no far plane), the point outside the view's sides, no such node, no drawn model
+  that names nodes or that model hidden, no active camera. A rect whose node is on screen
+  draws whole, cut only by the window's edge; there is no occlusion test and no scaling
+  with distance. The drawing shows the new place a frame behind the model.
+- **HudBar live value bindings and conditional visibility**: built (#1834), choices and
+  tags in docs/spec-notes/hud-bars.md.
 - **CacheUI mode 4** [documented: [CacheUIRangeGradual](https://geckwiki.com/index.php?title=CacheUIRangeGradual)]
   mentions bounded, decaying rumble but is insufficiently specified: no waveform,
   frequency, randomness, decay curve or final value. [design: `ui_gradients.rs`,
@@ -963,10 +1177,9 @@ read.
   trait only the `MCM` rect has) and `GetMCMFloat 1 0 "_optionID"` (the row under the
   pointer) and sets `SetMCMFloat 0 0 "_NewValue" 0`. The GECK wiki writes `SetMCMFloat
   1 1 "_enable" 1` as `SetUIFloat "StartMenu/MCM/*:1/*:1/_enable" 1` [documented:
-  SetMCMFloat], but NVForever's `*:N` counts from the last child (§5, observed on the
-  HUD), which would reach `MCM_Version`, so the shorthands do not go through `*:N`
-  (`fnv_game::ui_functions::mcm_trait`). Which of the two the original's `*:N` really does
-  for MCM is an observer check (§8). A trait or place that is not there reads 0; the
+  SetMCMFloat]; the extender's GetUIFloat and SetUIFloat count `*:N` from the first child
+  (§5, #2298), JIP's from the last; the shorthands find their tile by place directly
+  (`fnv_game::ui_functions::mcm_trait`). A trait or place that is not there reads 0; the
   setters make nothing (as SetUIFloat, §5) [hypothesis].
 - **A mod's menu script** [observed: FOV Slider's source]: a quest script with a
   `Begin MenuMode 1013` block (the start menu, `fnv_game::game::menus::START`). It
@@ -987,3 +1200,195 @@ read.
   chain while the start menu is open and runs a compiled `MenuMode 1013` quest script
   written in FOV Slider's way, checking the traits it sets. The files and the script are
   written for the test; no mod data is used.
+
+### 10.1 The pause column MCM waits for (observer check 73, 2026-11-12)
+
+Measured in the original with nvf_capture (job `mcm976*`, save `nvftest`, load order with
+MCM 1.5 and Just Assorted Mods active, window 1280 x 720), with the pause menu open
+(`GetActiveMenuMode` 1013, `MenuMode 1013` true) [observed 2026-11-12]:
+
+- `StartMenu/NOGLOW_BRANCH/main_container`: `childcount` 8, `x` 1301.67, `y` 336,
+  `width` 375, `height` 288, `_alpha` 255, `_enabled` 1. `StartMenu/_isPauseMenu` reads 0
+  (so it is not the pause menu's mark; MCM tests it only against DarN's start menu).
+  `StartMenu/MCM/visible` 1, `StartMenu/MCM/_MCM` 1.5.
+- Of these the file sets `x`, `y` (from `parent()`'s size), `width` (375) and `height`
+  (`_number_of_visible_items` times `_item_height` 48: 288 is 6 rows); the code writes
+  `childcount`, `_alpha` and `_enabled` (the file leaves `_alpha` empty and `_enabled`
+  false) [observed: start_menu.xml; the values above].
+- MCM's `MenuMode 1013` script shows its trigger only while that `childcount` is 8 and
+  places it from `main_container`'s `x`, `y`, `width`, `_alpha` and `_enabled` and
+  `StartMenu/_item_height` [observed: MCM's script source in its plugin (SCTX)].
+- **What the player sees** [observed: the owner's screenshots of the original, 2026-11-12,
+  1280 x 720]: "Mod Configuration" stands as the first row of the pause column, above
+  Continue, Save, Load, Settings, Help, Quit. Chosen, it opens MCM's window left of the
+  column (the column stays, dimmed, with "Mod Configuration" lit): the mod list on the
+  left (one row per mod, Just Assorted Mods as "Just Mods"; a mod with sub-menus shows them
+  indented under it once chosen), the chosen page's title in the top bracket, its
+  options in two columns of label and value (check boxes, words, numbers), arrows at the
+  foot of each list, an info box under the window for the option under the pointer, and
+  Defaults and Back at the bottom right of the screen. With no mod chosen the window
+  shows MCM's logo, its version (v1.50) at the top right and "Select a mod to configure
+  from the list on the left." in the info box (MCM's own text, from its files).
+- **The column's rows** [observed, the same run]: `main_container`'s children are the
+  file's `lb_highlight_box` and `lb_scrollbar` and six copies of the file's
+  `lb_item_template` (`lb_item_hotrect`, `string` Continue, Save, Load, Settings, Help and
+  Quit in the original's words, `listindex` 0-5, `y` 0 to 240 in steps of 48, `height` 48,
+  `width` 370, `target` 1, `_enabled` 1): 8 children. `GetUIFloat` with `*:N` under it
+  read `*:1` the highlight box, `*:2` the scroll bar, `*:3`-`*:7` the rows Continue to
+  Help, `*:0` the last row (Quit) and `*:8` nothing; `lb_item_hotrect` read Quit and
+  `lb_item_hotrect:1` Continue.
+- **MCM's trigger in the original** [observed]: once placed, `MCM_Trigger` has `x` 1301.67
+  (the column's), `y` 288 (the column's less `_item_height` 48), `width` 370, `height` 48,
+  `_alpha` 255, `_enabled` 1, and its text "Mod Configuration". `SetUIFloat` of its
+  `_clicked` to 1 opened MCM's window (MCM's `_Menu` 1, `_Reset` 1, the mod list's
+  `_visible` 1 and `_count` 2, Mod1 "Just Mods" with `_modIndex` 12, Just Assorted Mods'
+  load index).
+- **MCM's quests in the original** [observed 2026-11-12, jobs mcm976q, mcm976r, mcm976s,
+  save nvftest]: right after the load MCM's quest runs and its mod list (`MCMMods`)
+  already holds Just Assorted Mods' item (count 1), so the mod added it before the save
+  loaded, under the main menu (its `MenuMode 1013` block adds it after half a second).
+  `MCMModList` does not run in play nor under the pause menu; two frames after MCM's
+  trigger was clicked it runs, the list's `_count` is 2 and Mod1 reads "Just Mods"
+  (MCM's stage 0 starts it). ResetQuest from a job script stopped a running `MCMList`
+  and left the stopped `MCMList` and `MCMModList` stopped (as o41, layer5-captures.md
+  §5.7).
+- **NVForever** (`nvf-play` `tiles::mods`, `script`) [design unless marked]:
+  - when the Mods page opens it writes the column's code traits (`childcount` 8,
+    `_alpha` 255, `_enabled` 1), StartMenu's `alpha` 255 (its fade-in done, as the VATS
+    menu's) and one code `lb_item_hotrect` row (MCM reads only its `target`), then holds
+    MCM's trigger clicked until MCM's window opens and lets go in that frame (a click
+    held into the next frame closes MCM again, by MCM's script); MCM's window closing
+    (`_Menu` 0) closes the page;
+  - when a game starts, the start menu's `MenuMode 1013` blocks run for a second
+    (`Game::came_through_start_menu`), standing for the main menu the player came
+    through, where MCM mods add themselves [hypothesis from the observations above]; no
+    shipped script has such a block;
+  - GetSecondsPassed in a block run under the page counts the page's own clock
+    (`Game::page_time`), so a mod's MenuMode timer runs there [hypothesis: Just Assorted
+    Mods' does in the original];
+  - the page lays MCM's tiles out by the `locus` rule (a tile's `x`, `y` count from the
+    nearest tile above with `locus` on) [documented: GetUIFloatInherited], measures the
+    start menu's texts as the code does (`MCM_ModList_Size`, 31 high; "Just Mods" 117
+    wide, both as in the original), and writes `screen()` in interface units while it is
+    up (MCM centres its window by it: `x` 353.33 on a 16:9 view in the original);
+  - MCM's trigger is not drawn (NVForever's column and its Mods entry stand for that
+    row) and the pause menu's own Back is not drawn while MCM's window, which has its
+    own Back and Defaults, is open.
+  - Open: the list's `_count` read 1 here where the original's read 2 with the same
+    mod; the main menu's column.
+
+### 10.2 MCM.dll's list functions (2026-11-12)
+
+No page or source describes them; their call shapes are MCM 1.5's own scripts (its
+plugin's source text), their effects measured in the original with job `mcm976e`
+(pause menu open, MCM's window open), each call read before and after in one script
+[observed 2026-11-12]. Child numbers count MCM's children from 1 in file order (§10):
+1 `MCM_Options`, 3 `MCM_List`, 5 `MCM_ModList`.
+
+- **SetMCMFloatMass child first last setting value**: sets `setting` on child `child`'s
+  children `first` to `last`, both included, counted from 1. `3 1 2 "alpha" 77`: Item1
+  and Item2 0 to 77, Item3 and MCM_List unchanged. `3 0 1 "alpha" 66`: Item1 only.
+  `3 3 2 "alpha" 55`: nothing. `1 1 2 "image/depth" 21`: each row's `image` child (a
+  path below the row works). A trait that is not there is not made (`"_nvfm"` stayed
+  missing). MCM's own `5 24 33 "_enable" 0` reaches SubMenu1-SubMenu10, MCM_ModList's 24th
+  to 33rd children (after Mod1-Mod23). One reading differs: `1 36 37 "depth" 33` set
+  Option36 but not ArrowUp, MCM_Options' 37th child in the file; why is open (observer
+  check 118).
+- **SetMCMStringMass child first last setting "format" values…**: the same for text, the
+  format filled as SetMCMString's: `3 1 2 "text/string" "nvf"` set Item1 and Item2, not
+  Item3; `"a%gb" 5` gave "a5b"; a missing trait was not made.
+- **SetMCMModList row enable modIndex value form**: MCM_ModList's row `row` (Mod`row`)
+  gets the form's name as its `text/string`, `enable` as `_enable`, `modIndex` as
+  `_modIndex` and `value` as `_modIndex2`; nothing else of the row changed.
+  `22 1 6 5 caps`: "Bottle Cap", 1, 6, 5; `22 2 7 9`: 2, 7, 9 (still Mod22); `21 0 0 0`:
+  the name and zeros. `3 2 7 9` left SubMenu3 as it was. MCM calls it with the row, 1,
+  the mod's load index and its form's value.
+- **GetMCMListWidth list row**: the `width` of a mod-list row's text: list 1 Mod`row`
+  (`1 1` 117, Mod1's "Just Mods"; 14 for an empty row), list 2 SubMenu`row` (`2 1` 14,
+  empty); `1 0` and `3 1` give 0. Read in the frame a string was set, it gave the width
+  before (the text's own `width` too, so it reads that trait, re-measured later).
+- Built in `fnv_game::ui_functions` (names in `schemas/script/functions.json` from
+  `tools/capture/script_functions.py`'s `PAGELESS`); the setting of every MCM shorthand
+  may be a path below the tile (`"ArrowUp/y"`, `"/visible"`, as MCM's scripts pass).
+
+### 10.3 What MCM needs of a click and of the frames before the game (2026-11-12)
+
+Found in the owner's runs with MCM 1.5, CASM with MCM, B42 Quickthrow and Project Nevada
+(the mod log, `nvf_play::mod_log`):
+
+- **A click on a list row is read in two frames running.** MCM's main script sees the
+  list's `_index` (a row's `_modIndex` while its `_clicked` is 1; `_clicked` is the row's
+  `clicked` less MCM's `_UnClick`), leaves the frame ("Skip frame to let UI set
+  variables"), and its list script reads the clicked row's `_modID` in the next frame,
+  then sets `_UnClick` for one frame [observed: MCM's script source and menu files]. With
+  `clicked` at 1 for one frame (§3.2) the second read found nothing: the pointer's clicks
+  landed on the rows and nothing was selected [observed: the run's log, `clicked 1` on
+  Mod1 and Mod2, `_selected` left at -1]. So under the pause menu's Mods page a
+  pointer's click holds `clicked` for two steps (`fnv_ui::input::Pointer::click_steps`)
+  [hypothesis: the original's `clicked` reads 1 in exactly two MenuMode frames; one frame
+  more would pass MCM's one-frame `_UnClick` mask and click twice]. Elsewhere, and for a
+  script's click, it stays one step. Observer check §8 item 8 settles it.
+- **The start menu's frames before the game run with the start menu's tiles.** MCM's
+  install check (`iInstallCheck`, set by its GameMode block, so 1 in any save) reads
+  `StartMenu/MCM/_MCM` on its first MenuMode 1013 frame and shows "cannot access its menu
+  files" without it. A run that begins in a save (a settings change restarts the game
+  into it) has no main menu, and a new game's start menu is dropped before those frames,
+  so the tree had no StartMenu and the box came up [observed: the owner's run]. The
+  frames now build it first (`nvf_play::script`, `ui_loading::sync` as under the main
+  menu); the frame's own sync drops it again.
+- **`src="me"` without brackets is the tile itself.** MCM_Options places its two columns
+  by `<_x1> <copy src="me" trait="x"/> <add> 20 </add> </_x1>` (and `_x2`); read as a
+  tile's name it gave 0, and every option row stood at the screen's left instead of in
+  the right pane [observed: MCM 1.5's Options.xml; the owner's run, CASM's options about
+  500 units left of the pane]. A tile that bears the name is still the one meant
+  (`fnv_ui::Ui::resolve`).
+- **The pointer is matched by the rule the page is drawn with.** The Mods page is laid
+  out by the `locus` rule (§10.1, `layout_by_locus`), the pointer's tiles were placed by
+  adding every parent's `x` and `y`; MCM's window rect has an `x` and no `locus`, so the
+  rows were looked for that much to the right of where they were drawn [observed: the
+  owner's run, rows highlighting beside the pointer]. The page's pointer now takes
+  `fnv_ui::input::hit_candidates_by_locus`.
+- **A mod that fills MCM's list without being selected** shows its sub menus over the
+  mod names. JIP Companions Command & Control's MCM script compares `_ActiveMod` with a
+  global, `iJIPCCCModIndex`, that no script sets; JIP LN sets it (and `iJIPCCCStartup`)
+  from inside [hypothesis: nothing in the plugin writes either]. Left at 0 it equals "no
+  mod selected". Not built: it needs those values and the mod's `CCC…` functions read in
+  the original.
+
+### 10.4 The MCM author's guide, item by item (#2298)
+
+The guide's contract for a mod's page (its traits, option types 0-9, lists, sliders,
+sub-menus, columns, colours) is checked against NVForever in mcm.md, with the faults the
+Blue Moon list showed: `*:N` counted from the last child, `_Has360Controller` never
+written (MCM took the pointer for a controller), bracket-less sources read as names
+(Vanilla UI Plus's option titles all at y 0), and JIP CCC's sub-menu lines with no mod
+chosen.
+
+## 11. Modern Minimap's map picture (ModernMinimap.dll)
+
+[observed: menus\prefabs\stentorious\modernminimap\main.xml, its "ModernMinimap.dll
+Traits"; NVSE\CompileScript\ModernMinimap\OnRender.gek; nvse.log "ModernMinimap; version
+1"] The mod's HUD window `HUDMainMenu/ModernMinimap` leaves the map picture to its plugin.
+The file computes `_Render` (true when `_ForceUpdate`, or when `MapRender`'s offset from
+the window's centre passes `_UpdateWidth`; the mod's scripts force it by setting
+`_MapOriginX` to -999999 on load, cell change, fast travel and key presses), and reads the
+render's centre back from `_MapOriginX`/`_MapOriginY` to place the picture
+(`_PosXOffset = (_MapOriginX - _PlrX) * _WorldScale`, `_WorldScale = _MapScaleLocal /
+_Frustum`) and every icon. The picture spans `_FrustumSize` (`_Frustum` 2048 /
+`_MapScaleLocal`) game units each way, from a camera `_CameraOffset` (10,000) over the
+player. The mod's render-update handler writes `_PlrX`/`_PlrY`/`_PlrZ` and `_PlrDeg`.
+
+NVForever [design] (`nvf_play::tiles::modern_minimap`, `nvforever::minimap_render`): while
+`_Render` reads true, a camera straight down over `_PlrX`/`_PlrY` renders the picture,
+given to `MapRender` as the runtime picture `nvf:modern_minimap`, and the render's
+centre is written to `_MapOriginX`/`_MapOriginY`. The file's own tint (`systemcolor`,
+`brightness`) colours it. Engine design choices: the camera draws the world layer only
+(not the player's body or the water's own layer), without fog, clearing to black, with
+no MSAA; it draws to 20,000 units below its height over the player; when `_CameraOffset`
+does not read, it uses the file's 10,000.
+
+[hypothesis] The plugin's camera is orthographic with north up, and its picture is 1024
+texels square (`textureSize=1024`, taken to be the plugin INI's default). Neither has
+been observed in the original game. Open: the plugin's
+exact look (classic mode's shading, interiors under a ceiling 10,000 over the player)
+and the INI's other settings are not read; the picture is the lit scene from above.

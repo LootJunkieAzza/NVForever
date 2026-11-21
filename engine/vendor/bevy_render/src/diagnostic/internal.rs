@@ -232,6 +232,8 @@ struct FrameData {
     value_buffers: Vec<(Buffer, Cow<'static, str>, bool)>,
     is_mapped: Arc<AtomicBool>,
     callback: Option<Box<dyn FnOnce(RenderDiagnostics) + Send + Sync + 'static>>,
+    // NVForever recorded instant: when this frame began recording, carried to the store.
+    began: Option<Instant>,
     #[cfg(feature = "tracing-tracy")]
     tracy_gpu_context: Option<tracy_client::GpuContext>,
 }
@@ -308,12 +310,14 @@ impl FrameData {
             value_buffers: Vec::new(),
             is_mapped: Arc::new(AtomicBool::new(false)),
             callback: None,
+            began: None,
             #[cfg(feature = "tracing-tracy")]
             tracy_gpu_context,
         }
     }
 
     fn begin(&mut self) {
+        self.began = Some(Instant::now());
         self.num_timestamps = 0;
         self.num_pipeline_statistics = 0;
         self.path_components.clear();
@@ -552,7 +556,7 @@ impl FrameData {
                 });
             }
 
-            callback(RenderDiagnostics(diagnostics));
+            callback(RenderDiagnostics(diagnostics, self.began));
             return;
         };
 
@@ -693,7 +697,63 @@ impl FrameData {
             });
         }
 
-        callback(RenderDiagnostics(diagnostics));
+        // NVForever encoder gaps (measurement aid, NVF_PLAY_TEST_PROFILE_ENCODERS=1): the GPU
+        // time from the frame's first encoder to its last, how much of it no encoder covers,
+        // and the time from the previous frame's last encoder to this frame's first.
+        if std::env::var("NVF_PLAY_TEST_PROFILE_ENCODERS").is_ok_and(|v| v == "1") {
+            static LAST_END: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+            let mut iv: Vec<(u64, u64, &str)> = self
+                .closed_spans
+                .iter()
+                .filter(|s| s.path_range.len() == 1)
+                .filter_map(|s| {
+                    let name = &*self.path_components[s.path_range.start];
+                    if !name.starts_with("enc:") {
+                        return None;
+                    }
+                    Some((timestamps[s.begin_timestamp_index? as usize], timestamps[s.end_timestamp_index? as usize], name))
+                })
+                .filter(|(b, e, _)| *b > 0 && e >= b)
+                .collect();
+            iv.sort_by_key(|v| v.0);
+            if let (Some(first), Some(last)) = (iv.first().map(|v| v.0), iv.iter().map(|v| v.1).max()) {
+                let ms = |ticks: u64| ticks as f64 * timestamp_period_ns as f64 / 1e6;
+                let mut covered = 0u64;
+                let mut end = first;
+                let mut worst: Vec<(u64, &str, &str)> = Vec::new();
+                let mut prev = "start";
+                for (b, e, n) in &iv {
+                    if *b > end {
+                        worst.push((*b - end, prev, n));
+                    }
+                    let s = (*b).max(end);
+                    if *e > s {
+                        covered += *e - s;
+                        end = *e;
+                        prev = n;
+                    }
+                }
+                let before = LAST_END.swap(last, Ordering::Relaxed);
+                let mut push = |name: &str, value: f64| {
+                    diagnostics.push(RenderDiagnostic {
+                        path: DiagnosticPath::from_components(["render", name, "elapsed_gpu"]),
+                        suffix: "ms",
+                        value,
+                    })
+                };
+                push("zz:wall", ms(last - first));
+                push("zz:gaps", ms(last - first - covered));
+                if before > 0 && first > before {
+                    push("zz:between_frames", ms(first - before));
+                }
+                worst.sort_by(|a, b| b.0.cmp(&a.0));
+                for (g, a, b) in worst.iter().take(4) {
+                    push(&alloc::format!("zz:gap {a} -> {b}"), ms(*g));
+                }
+            }
+        }
+
+        callback(RenderDiagnostics(diagnostics, self.began));
 
         drop(data);
         read_buffer.unmap();
@@ -704,8 +764,10 @@ impl FrameData {
 }
 
 /// Resource which stores render diagnostics of the most recent frame.
+// NVForever recorded instant: the second field is when the frame began recording
+// (`RenderDiagnosticsRecorded`).
 #[derive(Debug, Default, Clone, Resource)]
-pub struct RenderDiagnostics(Vec<RenderDiagnostic>);
+pub struct RenderDiagnostics(Vec<RenderDiagnostic>, Option<Instant>);
 
 /// A render diagnostic which has been recorded, but not yet stored in [`DiagnosticsStore`].
 #[derive(Debug, Clone, Resource)]
@@ -724,12 +786,26 @@ pub struct RenderDiagnostic {
 pub struct RenderDiagnosticsMutex(pub(crate) Arc<Mutex<Option<RenderDiagnostics>>>);
 
 /// Updates render diagnostics measurements.
-pub fn sync_diagnostics(mutex: Res<RenderDiagnosticsMutex>, mut store: ResMut<DiagnosticsStore>) {
+/// NVForever recorded instant: the last render diagnostics put in the store, as (when they
+/// were put in, the time their measurements carry; when their frame began recording). The
+/// store keeps the import time (upstream); this pairs it with the recording time, so a
+/// reader can tell the frames before a moment from those after it (nvforever
+/// `perf_overlay::split`).
+#[derive(Debug, Default, Clone, Copy, Resource)]
+pub struct RenderDiagnosticsRecorded(pub Option<(Instant, Instant)>);
+
+pub fn sync_diagnostics(
+    mutex: Res<RenderDiagnosticsMutex>,
+    mut store: ResMut<DiagnosticsStore>,
+    mut recorded: ResMut<RenderDiagnosticsRecorded>,
+) {
     let Some(diagnostics) = mutex.0.lock().ok().and_then(|mut v| v.take()) else {
         return;
     };
 
     let time = Instant::now();
+    // NVForever recorded instant (`RenderDiagnosticsRecorded`).
+    recorded.0 = diagnostics.1.map(|began| (time, began));
 
     for diagnostic in &diagnostics.0 {
         if store.get(&diagnostic.path).is_none() {

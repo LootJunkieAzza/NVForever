@@ -1,6 +1,6 @@
 [package]
 name = "nvforever"
-description = "NVForever: the game. At milestone M3 a free-camera explorer of the world (terrain and objects)"
+description = "NVForever: the game, playing Fallout: New Vegas from the player's own install"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,9 +16,20 @@ fnv-dds.workspace = true
 fnv-vfs.workspace = true
 fnv-install.workspace = true
 fnv-util.workspace = true
+# The DLSS download, its checks and the DLSS folder, shared with the launcher (#2765).
+nvf-dlss-files.workspace = true
+# Player reports (reports/upload.rs): HTTPS through the system's TLS (Windows: SChannel;
+# Linux: the system's OpenSSL, the same build nvf-dlss-files already brings there, #3144)
+# and the system's certificates, not rustls. `native-tls-no-default`, not `native-tls`:
+# the latter also bundles webpki's root certificates (webpki-root-certs,
+# CDLA-Permissive-2.0, outside deny.toml), which the reports never use (they ask for
+# RootCerts::PlatformVerifier, the system's roots) (#1998). ureq and native-tls
+# MIT/Apache-2.0, schannel MIT, openssl Apache-2.0, openssl-sys MIT.
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
 fnv-save.workspace = true
 texpresso.workspace = true
 fnv-spt.workspace = true
+fnv-font.workspace = true
 nvf-play.workspace = true
 fnv-actor.workspace = true
 fnv-sim.workspace = true
@@ -32,6 +43,15 @@ fnv-script.workspace = true
 fnv-voice.workspace = true
 clap.workspace = true
 serde_json = "1"
+# Player reports (reports/, docs/design/player-reports.md): random install and session ids
+# (MIT/Apache-2.0, the version Bevy already uses), the summary's gzip (MIT/Apache-2.0,
+# already built through fnv-inflate) and the CPU and memory lines (MIT, the version
+# bevy_diagnostic already uses).
+uuid = { version = "1", features = ["v4"] }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+png = "0.18"
+rayon = "1"
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # Only for the window icon type (window_icon.rs); the version Bevy already uses.
 winit = { version = "0.30", default-features = false }
 # 16-bit floats for the FaceGen offset textures (facegen.rs); the version Bevy already uses.
@@ -51,15 +71,37 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
-rfd = { version = "0.15", default-features = false }
+# `common-controls-v6`: the Task Dialog, whose buttons can carry words of our own (the
+# reports popup's "Send reports" / "Not now"); needs the manifest build.rs embeds.
+rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 # The generated-terrain bake threads' priority (lodgen.rs) and the span profile's processor time
-# (profile.rs), the machine's RAM (memory_budget.rs) and the frame rate counter's CPU/GPU use
-# (fps_counter.rs, performance counters); a version already in the build; MIT/Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance"] }
+# (profile.rs), the machine's RAM (memory_budget.rs) and the performance overlay's CPU/GPU use
+# and working set (perf_overlay/usage.rs: performance counters, process memory counters),
+# DLSS's library loading and signature check (dlss/: LibraryLoader, WinTrust,
+# Cryptography; the functions themselves are looked up at run time, not linked; FileSystem
+# for the share flag the checked file is opened with) and a FidelityFX API library loaded
+# from the game's folder (ffx_api.rs: LibraryLoader), and Download DLSS...'s "Open release
+# page" and "Open dlss folder" (dlss_download/: ShellExecuteW in UI_Shell, its show flag in
+# UI_WindowsAndMessaging, COM set up for it in System_Com); a version already in the build;
+# MIT/Apache-2.0.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# [design, #2249] Optional NVML at runtime; reuse engine/Cargo.lock's libloading.
+libloading = "0.8.9"
+# The Linux native crash handler (native_crash_unix.rs, #2167): sigaction, the altstack,
+# write(2), /proc reads and gettid, no crate of our own. A version already in the build
+# (MIT/Apache-2.0).
+libc = "0.2"
 
 [build-dependencies]
 # The program icon in the Windows executable (build.rs); MIT.
 winresource = "0.1"
+
+[dev-dependencies]
+# [design, #2403] Exercise the real reports system with synthetic UI navigation states.
+# [design, #2652] Authored-plugin runtimes for the Use Weapon shooter tests.
+nvf-play = { workspace = true, features = ["test-support", "report-test-support"] }
 
 [features]
 default = ["intro-video"]

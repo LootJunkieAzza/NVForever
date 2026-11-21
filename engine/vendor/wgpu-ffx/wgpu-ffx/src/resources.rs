@@ -277,6 +277,10 @@ pub(crate) struct FsrResources {
 
     pub(crate) sampler_point_clamp: wgpu::Sampler,
     pub(crate) sampler_linear_clamp: wgpu::Sampler,
+
+    // NVForever (2026-11-10): the passes' bind groups, kept from frame to frame (pass.rs
+    // `FsrPass::dispatch`). Here, so a view that is dropped lets go of them.
+    pub(crate) bind_groups: std::sync::Mutex<crate::kept::Kept<crate::pass::BindKey, wgpu::BindGroup>>,
 }
 
 impl FsrResources {
@@ -542,6 +546,7 @@ impl FsrResources {
             frame_info,
             sampler_point_clamp,
             sampler_linear_clamp,
+            bind_groups: Default::default(),
         }
     }
 

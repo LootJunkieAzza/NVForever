@@ -267,7 +267,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
         // The name, S.P.E.C.I.A.L., tag-skill, trait and level-up menus draw themselves,
         // and the race menu with the creator's data (`crate::creator`).
         // The tutorial menu draws itself (`crate::tutorial_menu`).
-        Some(code) if crate::script::is_script_menu(code) && code != menus::TUTORIAL && !crate::chargen::has_own_menu(code) && !crate::levelup::draws(code) && !crate::creator::draws(code, creator) => {
+        Some(code) if crate::script::is_script_menu(code) && code != menus::TUTORIAL && !crate::chargen::has_own_menu(code) && !crate::levelup::draws(code) && !crate::script_quantity::draws(code) && !crate::creator::draws(code, creator) => {
             Some(menu_panel(code))
         }
         _ => None,
@@ -297,7 +297,12 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
         // unless a script asked for the speaker's subtitles always
         // (AlwaysShowActorSubtitles), or for this line's (Say's ForceSubtitles), or said
         // it as a 2D sound heard anywhere (Say's is2D).
-        if !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) && !s.force_subtitles && !s.two_d {
+        // The player's tweak sets its own distance [design: docs/design/tweaks.md].
+        let reach = g.tweaks.subtitle_distance;
+        // Heard where it is said: through a talking activator, at the activator, with no
+        // distance attenuation (`crate::voice::in_reach`).
+        let heard = crate::voice::audible_line(sim, player, s.place(), s.through.is_some(), (reach > 0.0).then_some(reach));
+        if !heard && !g.always_subtitles(s.speaker) && !s.force_subtitles && !s.two_d {
             continue;
         }
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
@@ -316,7 +321,8 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
         }
         subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
         if !talking {
-            on_screen.push(text);
+            // The player's tweak names the speaker [design: docs/design/tweaks.md].
+            on_screen.push(if g.tweaks.subtitle_names { format!("{who}: {text}") } else { text });
         }
     }
     // The response being said in the conversation with the player: drawn by the dialogue
@@ -332,6 +338,17 @@ struct Subtitles {
     logged: String,
     on_screen: Vec<String>,
     wheel: Option<String>,
+}
+
+impl Subtitles {
+    // [design, #2714] Log clearing once as well as newly selected text, so smoke can
+    // distinguish a finished subtitle from one left on screen.
+    fn log_change(&self, shown: &Self) -> Option<String> {
+        if self.logged == shown.logged {
+            return None;
+        }
+        Some(if self.logged.is_empty() { "subtitle: cleared".into() } else { format!("subtitle: {}", self.logged.replace('\n', " / ")) })
+    }
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -362,8 +379,8 @@ fn draw(
         panel.show(p, showing);
     }
     if subs != *shown {
-        if subs.logged != shown.logged && !subs.logged.is_empty() {
-            info!("subtitle: {}", subs.logged.replace('\n', " / "));
+        if let Some(line) = subs.log_change(&shown) {
+            info!("{line}");
         }
         if subs.on_screen != shown.on_screen {
             let _hud = crate::interface::hud_units();
@@ -388,7 +405,7 @@ fn draw(
 /// `ScriptState::answer`.
 #[allow(clippy::too_many_arguments)]
 pub fn menu_keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     clicks: Query<(&PointerState, &BoxButton), Changed<PointerState>>,
     hud: Res<ScriptHud>,
     mut panel: ResMut<MessagePanel>,
@@ -396,6 +413,7 @@ pub fn menu_keys(
     creator: Option<Res<crate::creator::CreatorData>>,
     (tile_click, tiles): (Option<ResMut<crate::tiles::input::MessageClick>>, Option<Res<crate::tiles::vanilla::TileMenus>>),
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // A click on the box drawn from its tiles (T15a, `crate::tiles::input`), taken.
     let tile_click = tile_click.and_then(|mut c| c.0.take());
@@ -405,7 +423,7 @@ pub fn menu_keys(
     }
     let clicked = clicks.iter().find(|(i, _)| **i == PointerState::Pressed).map(|(_, b)| b.0).or(tile_click);
     let enter = keys.any_just_pressed([Enter, NumpadEnter]);
-    if code == menus::TUTORIAL || crate::chargen::has_own_menu(code) || crate::levelup::draws(code) || crate::creator::draws(code, creator.is_some()) {
+    if code == menus::TUTORIAL || crate::chargen::has_own_menu(code) || crate::levelup::draws(code) || crate::script_quantity::draws(code) || crate::creator::draws(code, creator.is_some()) {
         return;
     }
     if code != MENU_MESSAGE {
@@ -451,6 +469,19 @@ pub fn menu_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subtitle_log_reports_clearing_once_after_the_line() {
+        let empty = Subtitles::default();
+        let speaking = Subtitles { logged: "Speaker: synthetic line".into(), on_screen: vec!["synthetic line".into()], wheel: None };
+        assert_eq!(empty.log_change(&empty), None);
+        assert_eq!(speaking.log_change(&empty).as_deref(), Some("subtitle: Speaker: synthetic line"));
+        assert_eq!(speaking.log_change(&speaking), None);
+        assert_eq!(empty.log_change(&speaking).as_deref(), Some("subtitle: cleared"));
+        assert_eq!(empty.log_change(&empty), None);
+        let multiple = Subtitles { logged: "A: first\nB: second".into(), ..Default::default() };
+        assert_eq!(multiple.log_change(&speaking).as_deref(), Some("subtitle: A: first / B: second"));
+    }
 
     #[test]
     fn subtitles_are_centred_lines_of_the_hud_rect() {

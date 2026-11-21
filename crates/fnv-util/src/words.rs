@@ -20,6 +20,7 @@
 //! read once at start; the chosen one can change at any time ([`set_language`]), and
 //! [`generation`] counts the changes so that text drawn once can be drawn again.
 
+use crate::text::CodePage;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
@@ -71,6 +72,11 @@ impl Table {
     pub fn is_empty(&self) -> bool {
         self.words.is_empty()
     }
+
+    /// Every (English, translation) pair, in no order.
+    pub fn pairs(&self) -> impl Iterator<Item = (&str, &'static str)> {
+        self.words.iter().map(|(k, v)| (k.as_str(), *v))
+    }
 }
 
 static TABLES: OnceLock<Vec<Table>> = OnceLock::new();
@@ -119,13 +125,28 @@ fn tables() -> &'static [Table] {
 }
 
 /// The folders NVForever looks for languages in: `lang` beside the program (its own
-/// translations), then `lang` in the home (the player's), then `NVF_LANG_DIR` if set.
+/// translations; a release has it there), then a source checkout's `lang` when the program
+/// is a build of one and has none beside it ([`checkout_lang`], #2929), then `lang` in the
+/// home (the player's), then `NVF_LANG_DIR` if set.
 pub fn dirs(exe_dir: Option<&Path>, home: Option<&Path>) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = [exe_dir, home].into_iter().flatten().map(|d| d.join("lang")).collect();
+    let mut out: Vec<PathBuf> = exe_dir.into_iter().map(|d| d.join("lang")).collect();
+    out.extend(exe_dir.and_then(checkout_lang));
+    out.extend(home.map(|d| d.join("lang")));
     if let Some(d) = std::env::var_os("NVF_LANG_DIR").filter(|d| !d.is_empty()) {
         out.push(PathBuf::from(d));
     }
     out
+}
+
+/// The repository's `lang` for a program built in a source checkout (`target/release`,
+/// `engine/target/release`, ...): the nearest ancestor of `exe_dir` holding `engine/Cargo.toml`
+/// and a `lang` folder, the way the launcher finds the checkout's game. `None` when `lang`
+/// is beside the program (a release) or no ancestor is a checkout.
+pub fn checkout_lang(exe_dir: &Path) -> Option<PathBuf> {
+    if exe_dir.join("lang").is_dir() {
+        return None;
+    }
+    exe_dir.ancestors().skip(1).find(|a| a.join("engine").join("Cargo.toml").is_file()).map(|root| root.join("lang")).filter(|l| l.is_dir())
 }
 
 /// Every language this run can show: English first, then the ones read, as (id, name).
@@ -158,6 +179,25 @@ pub fn set_language(id_or_name: &str) -> bool {
     true
 }
 
+/// The language of the game's text when its code page tells it (#1948): Windows-1251 is
+/// Russian, the one Cyrillic release of the game [hypothesis: one Russian install looked
+/// at, docs/spec-notes/fonts.md §2.1]. Windows-1250 (Polish or Czech) and 1252 (English,
+/// French, German, Italian, Spanish) are each several languages, so they tell none.
+pub fn for_code_page(page: CodePage) -> Option<&'static str> {
+    match page {
+        CodePage::Windows1251 => Some("ru"),
+        CodePage::Windows1250 | CodePage::Windows1252 => None,
+    }
+}
+
+/// At the start, before NVForever.ini's rows are applied: choose the language of the
+/// game's text ([`for_code_page`]) when a file of it was read. A `language=` in the INI,
+/// applied after, still wins. The id chosen, if one was.
+pub fn follow_code_page(page: CodePage) -> Option<&'static str> {
+    let id = for_code_page(page)?;
+    set_language(id).then(language)
+}
+
 /// Counts the changes of language: text drawn under an older count is out of date.
 pub fn generation() -> u32 {
     GENERATION.load(Ordering::Relaxed)
@@ -178,6 +218,18 @@ fn current() -> Option<&'static Table> {
 /// `en` in a given table (`None`: English).
 pub fn tr_in(en: &'static str, table: Option<&Table>) -> &'static str {
     table.and_then(|t| t.get(en)).unwrap_or(en)
+}
+
+/// [`tr`] of a text made at run time (a choice's name from a list, a slider's value): its
+/// translation when the chosen language has a line for it, else `text` itself, so a name
+/// with no line (a resolution, a monitor, a language's own name) shows as it is.
+pub fn tr_str(text: &str) -> &str {
+    str_in(text, current())
+}
+
+/// [`tr_str`] in a given table (`None`: English).
+pub fn str_in<'a>(text: &'a str, table: Option<&Table>) -> &'a str {
+    table.and_then(|t| t.get(text)).unwrap_or(text)
 }
 
 /// [`tr`] of a text with `{name}` places, each filled with its value from `with`.
@@ -209,6 +261,11 @@ mod tests {
         // An empty translation is no translation.
         assert_eq!(tr_in("Empty", Some(&t)), "Empty");
         assert_eq!(tr_in("Accepted.", None), "Accepted.");
+        // A text made at run time, as a choice's name is.
+        let made = String::from("Accepted.");
+        assert_eq!(str_in(&made, Some(&t)), "Angenommen.");
+        assert_eq!(str_in("1920x1080", Some(&t)), "1920x1080");
+        assert_eq!(str_in(&made, None), "Accepted.");
         // Places may change order.
         assert_eq!(fill(tr_in("{n} of {len} right", Some(&t)), &[("n", &4), ("len", &7)]), "7: 4 richtig");
         assert_eq!(fill("{n} of {len} right", &[("n", &4), ("len", &7)]), "4 of 7 right");
@@ -250,12 +307,46 @@ mod tests {
         assert_eq!(&d[..2], [PathBuf::from("C:/nvf/lang"), PathBuf::from("C:/home/lang")]);
     }
 
+    /// #2929: a build in a source checkout reads the repository's `lang`; a program with
+    /// `lang` beside it (a release) does not look further.
+    #[test]
+    fn a_checkouts_build_reads_the_repositorys_lang() {
+        let root = std::env::temp_dir().join(format!("nvf-words-checkout-{}", std::process::id()));
+        let game = root.join("engine").join("target").join("release");
+        let launcher = root.join("target").join("release");
+        for d in [&game, &launcher, &root.join("lang")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(root.join("engine").join("Cargo.toml"), "").unwrap();
+        for exe in [&game, &launcher] {
+            assert_eq!(checkout_lang(exe), Some(root.join("lang")));
+            assert_eq!(dirs(Some(exe), None)[..2], [exe.join("lang"), root.join("lang")]);
+        }
+        std::fs::create_dir_all(game.join("lang")).unwrap();
+        assert_eq!(checkout_lang(&game), None);
+        let release = std::env::temp_dir().join(format!("nvf-words-release-{}", std::process::id()));
+        std::fs::create_dir_all(&release).unwrap();
+        assert_eq!(checkout_lang(&release), None);
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&release).ok();
+    }
+
+    #[test]
+    fn only_a_code_page_of_one_language_names_it() {
+        assert_eq!(for_code_page(CodePage::Windows1251), Some("ru"));
+        assert_eq!(for_code_page(CodePage::Windows1250), None);
+        assert_eq!(for_code_page(CodePage::Windows1252), None);
+    }
+
     #[test]
     fn without_languages_english_is_all_there_is() {
         // No test loads tables into the run's list, so only English can be chosen.
         assert_eq!(languages()[0], (ENGLISH, "English"));
         assert!(set_language("English") && set_language("en"));
         assert!(!set_language("xx"));
+        assert_eq!(language(), ENGLISH);
+        // A Russian install's text asks for Russian, but no file of it was read.
+        assert_eq!(follow_code_page(CodePage::Windows1251), None);
         assert_eq!(language(), ENGLISH);
         assert_eq!(tr("Accepted."), "Accepted.");
         assert_eq!(trf("{n} of {len} right", &[("n", &1), ("len", &5)]), "1 of 5 right");

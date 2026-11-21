@@ -2653,6 +2653,21 @@ pub fn collect_buffers_for_phase<PI, GFBD>(
     }
 }
 
+/// NVForever coalesced build jobs: merges batch ranges that follow one another
+/// into one range. The indirect parameters building shader handles each batch
+/// index on its own, so one dispatch over the merged range does the same work as
+/// one dispatch per range, without a barrier between each.
+fn coalesce_batch_ranges(ranges: &[Range<u32>]) -> Vec<Range<u32>> {
+    let mut merged: Vec<Range<u32>> = Vec::with_capacity(ranges.len());
+    for range in ranges {
+        match merged.last_mut() {
+            Some(last) if last.end == range.start => last.end = range.end,
+            _ => merged.push(range.clone()),
+        }
+    }
+    merged
+}
+
 /// A system, part of the render world, that gathers up the batch ranges from
 /// [`IndirectParametersBuffers`] and prepares the
 /// [`BuildIndirectParametersMetadata`] that describes the range of batches that
@@ -2675,7 +2690,7 @@ pub fn prepare_indirect_parameters_build_jobs(
             .view_to_indirect_parameters_batch_ranges
             .iter()
         {
-            for indirect_parameters_range in indirect_parameters_ranges {
+            for indirect_parameters_range in coalesce_batch_ranges(indirect_parameters_ranges) {
                 let uniform_offset = indirect_parameters_build_jobs.push(
                     IndirectParametersBuildJob::new(indirect_parameters_range.clone()),
                 );
@@ -2699,7 +2714,7 @@ pub fn prepare_indirect_parameters_build_jobs(
             .view_to_indirect_parameters_batch_ranges
             .iter()
         {
-            for indirect_parameters_range in indirect_parameters_ranges {
+            for indirect_parameters_range in coalesce_batch_ranges(indirect_parameters_ranges) {
                 let uniform_offset = indirect_parameters_build_jobs.push(
                     IndirectParametersBuildJob::new(indirect_parameters_range.clone()),
                 );
@@ -2942,16 +2957,17 @@ pub fn write_binned_instance_buffers<BPI, GFBD>(
                 continue;
             };
 
-            // Write the various buffers to the GPU.
+            // Write the various buffers to the GPU. NVForever unchanged uploads: the three
+            // the CPU alone writes only when their bytes changed (#2064).
 
             batch_set
                 .gpu_buffers
                 .render_binned_mesh_instance_buffer
-                .write_buffer(&render_device, &render_queue);
+                .write_buffer_if_changed(&render_device, &render_queue);
             batch_set
                 .gpu_buffers
                 .bin_metadata_buffer
-                .write_buffer(&render_device, &render_queue);
+                .write_buffer_if_changed(&render_device, &render_queue);
             batch_set
                 .gpu_buffers
                 .fan_buffer
@@ -2959,7 +2975,7 @@ pub fn write_binned_instance_buffers<BPI, GFBD>(
             batch_set
                 .gpu_buffers
                 .bin_index_to_bin_metadata_index_buffer
-                .write_buffer(&render_device, &render_queue);
+                .write_buffer_if_changed(&render_device, &render_queue);
 
             let (
                 Some(render_bin_entry_buffer),

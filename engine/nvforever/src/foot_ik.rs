@@ -36,7 +36,6 @@ use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::player_body::PlayerBody;
 use crate::ragdoll::Corpse;
-use crate::reflection::ReflectionCamera;
 use crate::world::WorldData;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
@@ -299,23 +298,16 @@ fn attach(mut commands: Commands, mut stats: ResMut<FootIkStats>, new: Query<(En
 /// The ground under game point `p`: height and normal (game space).
 type Ground = Option<(f32, Vec3)>;
 
-/// The drawn landscape's heights of exterior cells, without `--play`.
+/// The drawn landscape surface of exterior cells (smoothed or stored), without `--play`.
 #[derive(Default)]
-struct LandCache(HashMap<(i32, i32), Option<Vec<f32>>>);
+struct LandCache(HashMap<(i32, i32), Option<fnv_world::land_surface::Surface>>);
 
 impl LandCache {
     fn height(&mut self, world: &WorldData, x: f32, y: f32) -> Option<f32> {
         let g = fnv_world::cell_of(x, y);
-        let heights = self
-            .0
-            .entry(g)
-            .or_insert_with(|| {
-                let land = world.grid_cell(g)?.land?;
-                fnv_world::land::load_land(world.lo, world.schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights
-            })
-            .as_ref()?;
+        let surface = self.0.entry(g).or_insert_with(|| world.land_surface(g)).as_ref()?;
         let (ox, oy) = (g.0 as f32 * fnv_world::CELL_SIZE, g.1 as f32 * fnv_world::CELL_SIZE);
-        Some(fnv_world::grass::height_at(heights, x - ox, y - oy))
+        Some(surface.height_at_clamped(x - ox, y - oy))
     }
 
     fn ground(&mut self, world: &WorldData, p: Vec3) -> Ground {
@@ -339,7 +331,7 @@ fn place(
     player_use: Option<Res<PlayerUse>>,
     mut phys: Option<ResMut<PhysState>>,
     world: Option<Res<WorldData>>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     actors: Query<Actor>,
     parents: Query<&ChildOf>,
     globals: Query<&GlobalTransform>,

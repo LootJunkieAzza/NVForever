@@ -52,6 +52,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::window::PrimaryWindow;
 use nvf_assets::nif_material::{Falloff, NifMaterial};
 use nvf_play::pipboy::device_screen::{GLARE_LINEAR_SCALE, SCREEN_TINT};
+use nvf_play::pipboy::transition::ScreenLook;
 use nvf_play::pipboy::{AidTarget, Frame, Page, Phase, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen, Warming, CANVAS, TARGET};
 use nvf_play::PlayerCamera;
 use std::sync::Arc;
@@ -111,6 +112,10 @@ impl Plugin for PipBoyArmPlugin {
     fn build(&self, app: &mut App) {
         crate::pipboy_ready::setup(app);
         app.init_resource::<crate::pipboy_controls::ControlAngles>()
+            .init_resource::<MenusWorn>()
+            // The look after the frame's page change and its transition are decided, so the
+            // new page never shows a frame under the last look (`upload_look`).
+            .add_systems(Update, upload_look.after(nvf_play::pipboy::transition::run).after(show_screen))
             .add_systems(Update, (follow_pointer.in_set(nvf_play::pipboy::PointerSet).before(nvf_play::pipboy::flat_pointer), (show_screen, crate::pipboy_controls::turn_controls.run_if(|pip: Res<PipBoy>| pip.warming.is_none())).chain().after(follow_pointer).after(nvf_play::player::BodySet).before(nvf_play::PlaySet::Ui)))
             .add_systems(Update, measure_raise.in_set(nvf_play::pipboy::WarmSet))
             .add_systems(Update, requeue_raise.after(show_screen).before(nvf_play::PlaySet::Ui));
@@ -335,6 +340,7 @@ fn glare_material(own: &NifMaterial) -> NifMaterial {
     m.extension.alpha_cut = 0.0;
     m.extension.falloff = Falloff::NONE.params;
     m.extension.soft = Vec4::ZERO;
+    nvf_assets::authored::clear_for_unlit_copy(&mut m);
     m
 }
 
@@ -351,7 +357,38 @@ fn menus_material(own: &NifMaterial, image: Handle<Image>) -> NifMaterial {
     m.base.alpha_mode = AlphaMode::Opaque;
     m.base.uv_transform = bevy::math::Affine2::from_scale(scale);
     m.extension.pipboy_screen = true;
+    (m.extension.pipboy_a, m.extension.pipboy_b) = ScreenLook::default().surface();
+    nvf_assets::authored::clear_for_unlit_copy(&mut m);
     m
+}
+
+/// The menus' copy of the screen's material while the model's screen wears it (set by
+/// [`show_screen`]), for [`upload_look`].
+#[derive(Resource, Default)]
+pub(crate) struct MenusWorn(Option<Handle<NifMaterial>>);
+
+/// Put the screen's look on the menus' copy, each frame after nvf-play's page change and its
+/// transition ran (`pipboy::transition::run`, in `PlaySet::Ui`): put on in `show_screen`, which
+/// runs before that set, a new page was drawn for a frame under the last look (unwashed) and
+/// the end of a change came a frame late.
+fn upload_look(worn: Res<MenusWorn>, look: Option<Res<ScreenLook>>, mut materials: ResMut<Assets<NifMaterial>>) {
+    if let (Some(menus), Some(look)) = (worn.0.as_ref(), look) {
+        put_look(menus, &look, &mut materials);
+    }
+}
+
+/// The screen's picture as `look` says it is now (nvf-play `pipboy/transition.rs`: the page
+/// change's roll and wash, the softening and the noise), on the menus' copy of the material,
+/// written only when it changed: a material changed is sent to the GPU again with its slab.
+fn put_look(menus: &Handle<NifMaterial>, look: &ScreenLook, materials: &mut Assets<NifMaterial>) -> bool {
+    let (a, b) = look.surface();
+    if materials.get(menus).is_none_or(|m| (m.extension.pipboy_a, m.extension.pipboy_b) == (a, b)) {
+        return false;
+    }
+    if let Some(mut m) = materials.get_mut(menus) {
+        (m.extension.pipboy_a, m.extension.pipboy_b) = (a, b);
+    }
+    true
 }
 
 /// Put the copies on the screen and the glare while the menus are on the model (`on`), and
@@ -431,6 +468,7 @@ pub(crate) fn show_screen(
     mut visibility: Query<&mut Visibility>,
     mut materials: ResMut<Assets<NifMaterial>>,
     mut swapped: Local<Swapped>,
+    worn: Option<ResMut<MenusWorn>>,
 ) {
     let Some(mut screen) = screen else { return };
     let shown = pip.on_arm() && (body.first_person_drawn() || (pip.warming.is_some() && body.first_person_root().is_some()));
@@ -439,6 +477,12 @@ pub(crate) fn show_screen(
     // [design: this file] Compare Copied.source after resolving any Stealth Boy copy.
     if wear_materials(screen.on_model, pip.warming.is_none(), &screen.image, &mut parts, &mut field, &mut materials, &mut swapped) {
         pip.invalidate_warm();
+    }
+    if let Some(mut worn) = worn {
+        let now = swapped.menus.as_ref().filter(|_| swapped.screen.is_some()).map(|c| c.worn.clone());
+        if worn.0 != now {
+            worn.0 = now;
+        }
     }
     // Said once each time the Pip-Boy comes up when the menus have nowhere to show, so a
     // player's log says why the arm came up blank or not at all (#1330).
@@ -590,7 +634,8 @@ impl Posed {
 /// menus (`PipBoyScreen::pointer`); a click on a button shows its page. The pointer on a
 /// button does nothing else: the button's light follows the page shown. The shapes are
 /// posed as the arm's bones hold them this frame. The test aid's target (`PipBoyAid`)
-/// stands in for the window's pointer.
+/// stands in for the window's pointer. A window pointer asleep under the controller
+/// (`nvf_play::pad::pointer`, #2310) is on nothing.
 #[allow(clippy::too_many_arguments)]
 fn follow_pointer(
     pip: Res<PipBoy>,
@@ -600,11 +645,13 @@ fn follow_pointer(
     parts: Query<(&PipBoyPart, &PartMesh, &GlobalTransform, Option<&SkinnedMesh>)>,
     globals: Query<&GlobalTransform>,
     binds: Res<Assets<SkinnedMeshInverseBindposes>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    mouse: nvf_play::pad::ActionButtons<MouseButton>,
     mut aid: ResMut<PipBoyAid>,
     mut aid_over: Local<Option<Page>>,
     mut out: MessageWriter<PipBoyInput>,
+    pad_pointer: Option<Res<nvf_play::pad::pointer::PadPointer>>,
 ) {
+    let mouse = mouse.snapshot();
     let Some(mut screen) = screen else { return };
     let was_over = aid_over.take();
     // The flat image has the pointer otherwise: never both (`pipboy::pointer_source`).
@@ -638,7 +685,8 @@ fn follow_pointer(
     if aid.target.is_some() && target.is_none() {
         warn!("test aid: pipboy target {:?} is not in view", aid.target);
     }
-    let cursor = if aid.target.is_some() { target } else { window.cursor_position() };
+    let sleeping = nvf_play::pad::pointer::asleep(pad_pointer.as_deref());
+    let cursor = if aid.target.is_some() { target } else { window.cursor_position().filter(|_| !sleeping) };
     let Some(ray) = cursor.and_then(|c| cam.viewport_to_world(at, c).ok()) else { return };
     let (origin, dir) = (ray.origin, Vec3::from(ray.direction));
     let hit = posed.iter().filter_map(|(p, s)| s.hit(origin, dir).map(|(t, uv)| (t, *p, uv))).min_by(|a, b| a.0.total_cmp(&b.0));
@@ -802,6 +850,60 @@ mod tests {
         assert_eq!(m.base.base_color.to_linear(), LinearRgba::rgb(r, g, b));
         // The source is a copy away, and keeps the engine's add.
         assert!(!own.extension.add_linear && own.base.base_color == Color::WHITE);
+    }
+
+    /// #2981: the glare and menus copies of a material that wore an authored set carry none
+    /// of it (no ORM, occlusion or depth map, no mark, no legacy look to apply one again).
+    #[test]
+    fn the_unlit_copies_of_an_authored_material_carry_no_set() {
+        let mut images = Assets::<Image>::default();
+        let mut own = surface(Color::WHITE);
+        own.base.alpha_mode = AlphaMode::Opaque;
+        let orm = images.add(Image::default());
+        own.base.metallic_roughness_texture = Some(orm.clone());
+        own.base.occlusion_texture = Some(orm);
+        own.base.depth_map = Some(images.add(Image::default()));
+        own.extension.emissive_rule.w = nvf_assets::authored::AUTHORED_MARK;
+        own.extension.legacy = Some(nvf_assets::authored::LegacyLook { normal: None, specular: None, roughness: 1.0, reflectance: 0.3, metallic: 0.0, tangents: false, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None });
+        for m in [glare_material(&own), menus_material(&own, Handle::default())] {
+            assert!(m.base.metallic_roughness_texture.is_none() && m.base.occlusion_texture.is_none() && m.base.depth_map.is_none());
+            assert!(!nvf_assets::authored::is_authored(&m) && m.extension.legacy.is_none());
+        }
+        assert!(own.base.metallic_roughness_texture.is_some(), "the source left alone");
+    }
+
+    #[test]
+    fn the_menus_copy_wears_the_screen_look_and_takes_its_changes_once() {
+        let own = surface(Color::WHITE);
+        let m = menus_material(&own, Handle::default());
+        assert_eq!((m.extension.pipboy_a, m.extension.pipboy_b), ScreenLook::default().surface(), "the static look from the start");
+        assert_eq!((own.extension.pipboy_a, own.extension.pipboy_b), (Vec4::ZERO, Vec4::ZERO), "the source left alone");
+        let mut materials = Assets::<NifMaterial>::default();
+        let menus = materials.add(m);
+        assert!(!put_look(&menus, &ScreenLook::default(), &mut materials), "the same look writes nothing");
+        let washed = ScreenLook::during(nvf_play::pipboy::transition::Kind::VerticalHold, 100.0);
+        assert!(put_look(&menus, &washed, &mut materials));
+        assert_eq!((materials.get(&menus).unwrap().extension.pipboy_a, materials.get(&menus).unwrap().extension.pipboy_b), washed.surface());
+        assert!(!put_look(&menus, &washed, &mut materials));
+    }
+
+    #[test]
+    fn the_look_goes_on_after_the_page_change_and_only_while_the_copy_is_worn() {
+        use nvf_play::pipboy::transition::Kind;
+        let mut app = App::new();
+        app.init_resource::<Assets<NifMaterial>>().init_resource::<MenusWorn>().insert_resource(ScreenLook::during(Kind::Plain, 0.0));
+        // The order in the plugin: after the transition's system.
+        app.add_systems(Update, (|mut look: ResMut<ScreenLook>| *look = ScreenLook::during(Kind::Shudder, 95.0), upload_look).chain());
+        let menus = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(menus_material(&surface(Color::WHITE), Handle::default()));
+        // Not worn: nothing is written.
+        app.update();
+        let m = app.world().resource::<Assets<NifMaterial>>().get(&menus).unwrap();
+        assert_eq!((m.extension.pipboy_a, m.extension.pipboy_b), ScreenLook::default().surface());
+        // Worn: the look of this frame, not the last one's.
+        app.world_mut().resource_mut::<MenusWorn>().0 = Some(menus.clone());
+        app.update();
+        let m = app.world().resource::<Assets<NifMaterial>>().get(&menus).unwrap();
+        assert_eq!((m.extension.pipboy_a, m.extension.pipboy_b), ScreenLook::during(Kind::Shudder, 95.0).surface());
     }
 
     /// `On` says the menus are on the model, as `show_screen` would, and the image they are

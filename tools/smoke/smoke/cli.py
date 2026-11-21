@@ -9,7 +9,8 @@
                                 scenario equals the side that changed it (smoke/integrity.py)
 
 Selection (default --changed origin/main): --changed [BASE] | --all | --only NAME… |
---area AREA…. Logs go to <repo>/target/smoke/ (or --out / NVF_SMOKE_OUT); only a
+--area AREA… | --failed (the scenarios the last run or check failed, from its
+summary.json: fix, rebuild, rerun only those). Logs go to <repo>/target/smoke/ (or --out / NVF_SMOKE_OUT); only a
 compact summary is printed. Exit code 1 when a scenario or check fails. A game that
 runs past its time leaves every thread's stack in <launch>.stacks.txt before it is
 killed (Windows; `python -m smoke.stacks PID` takes them from a game that hangs now).
@@ -18,7 +19,11 @@ for the scripts' first frame, so a late start on a busy machine cannot run them 
 (scenarios.toml's header; engine/nvf-play/src/pause.rs WorldAidClock).
 Up to NVF_SMOKE_SLOTS (default 3) games run on the machine at once, across every
 runner (smoke/slots.py), dealt first come, first served; --slots N / --jobs N let this
-run use at most N of them. Launches sharing an NVFOREVER_HOME run in order.
+run use at most N of them. Launches sharing an NVFOREVER_HOME run in order, and a
+selection (not --all) takes the scenarios before a chosen one in its home's chain too,
+the ones that write what it reads (`with_home_writers`); the
+longest start first, so a long launch does not start last and hold up the end of the
+run (the report stays in plan order). --fail-fast starts no launch after the first FAIL.
 --exclusive takes both game locks per launch, one game on the machine at a time.
 """
 from __future__ import annotations
@@ -33,11 +38,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import choose, integrity, slots
+from . import choose, front, integrity, slots
 from .expect import ScenarioError
 from .plan import Launch, plan
 from .runner import (Env, Locks, Verdict, default_lock_paths, exe_is_stale, judge, missing_requirements,
-                     read_lines, report, run_launch)
+                     read_lines, report, run_launch, unmet_platforms)
 from .scenarios import GAME, Suite, load
 
 HERE = Path(__file__).resolve().parent.parent  # tools/smoke
@@ -66,14 +71,18 @@ def parser() -> argparse.ArgumentParser:
         g.add_argument("--all", action="store_true")
         g.add_argument("--only", nargs="+", metavar="NAME")
         g.add_argument("--area", nargs="+", metavar="AREA")
+        g.add_argument("--failed", action="store_true",
+                       help="the scenarios that failed in the last run or check (its summary.json)")
         q.add_argument("--no-merge", action="store_true", help="one launch per scenario")
         q.add_argument("--games-only", action="store_true", help="leave out fnvtool scenarios")
         q.add_argument("--tools-only", action="store_true", help="only fnvtool scenarios")
         if name == "run":
             q.add_argument("--checks", action="store_true", help="also run the push checks the change calls for")
-            q.add_argument("--exe", type=Path, default=None, help="nvforever (default NVF_EXE or <repo>/engine/target/release)")
+            q.add_argument("--exe", type=Path, default=None,
+                           help="nvforever (default NVF_EXE, or the newer of <repo>/engine/target/release and release-quick)")
             q.add_argument("--data", default=None, help="game Data folder (default NVF_DATA or FNVLAB_DATA_DIR)")
-            q.add_argument("--fnvtool", type=Path, default=None, help="fnvtool (default NVF_FNVTOOL or <repo>/target/release)")
+            q.add_argument("--fnvtool", type=Path, default=None,
+                           help="fnvtool (default NVF_FNVTOOL, or the newer of <repo>/target/release and release-quick)")
             q.add_argument("--lock-poll", type=float, default=30.0)
             q.add_argument("--no-locks", action="store_true", help="for machines where nobody else runs the game")
             q.add_argument("--slots", type=int, default=None,
@@ -87,6 +96,8 @@ def parser() -> argparse.ArgumentParser:
                            help="the old way: both game locks per launch, one game on the machine at a time "
                                 "(for a check that needs the screen to itself)")
             q.add_argument("--context", type=int, default=3, help="log lines shown per failed expectation")
+            q.add_argument("--fail-fast", action="store_true",
+                           help="start no launch after the first FAIL (the rest are reported as SKIP)")
     return p
 
 
@@ -97,7 +108,37 @@ def out_dir(a) -> Path:
 
 
 def selection(a, suite: Suite, say) -> tuple[list, list[str] | None]:
-    """The chosen scenarios and, for --changed, the changed files."""
+    """The chosen scenarios and, for --changed, the changed files. A chosen scenario
+    whose NVFOREVER_HOME earlier scenarios write brings them along (`with_home_writers`)."""
+    chosen, files = _selection(a, suite, say)
+    if a.all:
+        return chosen, files
+    return with_home_writers(chosen, suite.scenarios, say), files
+
+
+def with_home_writers(chosen: list, scen: list, say) -> list:
+    """`chosen` with the game scenarios earlier in the file that share a chosen game
+    scenario's NVFOREVER_HOME: they write the settings or the save it reads (ui-scale-write
+    before ui-scale-menus), so it reads what it was written for, not what an earlier run
+    left in the home (or nothing, in a new tree). Homes under `{repo}` are fixtures kept in
+    the repository, which no scenario writes first. In the scenario file's order."""
+    def home(s) -> str | None:
+        h = s.env.get("NVFOREVER_HOME") if s.kind == GAME else None
+        return None if h is None or h.startswith("{repo}") else h
+    names = {s.name for s in chosen}
+    last: dict[str, int] = {}
+    for i, s in enumerate(scen):
+        if s.name in names and home(s):
+            last[home(s)] = i
+    added = [s for i, s in enumerate(scen) if s.name not in names and home(s) in last and i < last[home(s)]]
+    if not added:
+        return chosen
+    say(f"with the scenarios that write their NVFOREVER_HOME first: {', '.join(s.name for s in added)}")
+    keep = names | {s.name for s in added}
+    return [s for s in scen if s.name in keep]
+
+
+def _selection(a, suite: Suite, say) -> tuple[list, list[str] | None]:
     scen = suite.scenarios
     if a.games_only:
         scen = [s for s in scen if s.kind == GAME]
@@ -113,6 +154,8 @@ def selection(a, suite: Suite, say) -> tuple[list, list[str] | None]:
         return [names[n] for n in a.only], None
     if a.area:
         return choose.by_area(scen, a.area), None
+    if getattr(a, "failed", False):
+        return last_failed(scen, out_dir(a) / "summary.json", say), None
     base = a.changed or "origin/main"
     files = choose.changed_files(a.repo, base)
     hits = choose.by_changes(scen, files)
@@ -121,6 +164,21 @@ def selection(a, suite: Suite, say) -> tuple[list, list[str] | None]:
         more = f" (+{len(why) - 1})" if len(why) > 1 else ""
         say(f"  {s.name}: {why[0]}{more}")
     return [s for s, _ in hits], files
+
+
+def last_failed(scen: list, summary: Path, say) -> list:
+    """The scenarios the last run or check reported as FAIL (its summary.json)."""
+    try:
+        rows = json.loads(summary.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise SystemExit(f"--failed: no summary of a last run at {summary}")
+    failed = {r.get("scenario") for r in rows if r.get("status") == "FAIL"}
+    gone = sorted(failed - {s.name for s in scen})
+    if gone:
+        say(f"--failed: no longer in the scenario file: {', '.join(gone)}")
+    chosen = [s for s in scen if s.name in failed]
+    say(f"--failed: {len(chosen)} scenarios failed in the last run ({summary})")
+    return chosen
 
 
 def print_checks(suite: Suite, files: list[str] | None, say) -> list:
@@ -182,11 +240,18 @@ def cmd_plan(a, suite: Suite, say) -> int:
     return 0
 
 
+def newest_build(target: Path, name: str) -> Path:
+    """`name` in target/release or target/release-quick (`cargo quick`, the incremental profile for
+    iterating, #1956), whichever was built last; target/release's when neither exists."""
+    found = [p for p in (target / "release" / name, target / "release-quick" / name) if p.exists()]
+    return max(found, key=lambda p: p.stat().st_mtime) if found else target / "release" / name
+
+
 def resolve(a, suite: Suite, say) -> Env:
     exe = a.exe or (Path(os.environ["NVF_EXE"]) if os.environ.get("NVF_EXE") else
-                    a.repo / "engine" / "target" / "release" / EXE_NAME)
+                    newest_build(a.repo / "engine" / "target", EXE_NAME))
     tool = a.fnvtool or (Path(os.environ["NVF_FNVTOOL"]) if os.environ.get("NVF_FNVTOOL") else
-                         a.repo / "target" / "release" / TOOL_NAME)
+                         newest_build(a.repo / "target", TOOL_NAME))
     data = a.data or os.environ.get("NVF_DATA") or os.environ.get("FNVLAB_DATA_DIR")
     return Env(a.repo, out_dir(a), exe, data, tool, say, suite.masters)
 
@@ -239,15 +304,34 @@ def cmd_run(a, suite: Suite, say) -> int:
     if any(x.kind != GAME for x in launches) and not env.fnvtool.exists():
         say(f"warning: no fnvtool at {env.fnvtool}; tool scenarios will fail (build it or pass --fnvtool)")
     say(f"{len(chosen)} scenarios in {len(games)} game launches and {len(launches) - len(games)} tool runs; logs in {env.out}")
-    locks, jobs = game_gate(a, say, game_groups(launches))
-    if jobs > 1 and len(launches) > 1:
-        say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")
+    if games:
+        say(f"nvforever: {env.exe}")
+    # `front = true` launches need the screen to themselves: run after the others, one at a
+    # time under both game locks (smoke/front.py).
+    rest, fronts = front.split(launches, chains(launches))
     started = time.monotonic()
-    try:
-        verdicts = run_launches(launches, env, locks, jobs, a, say)
-    finally:
-        if locks:
-            locks.finish()
+    verdicts = []
+    if rest:
+        locks, jobs = game_gate(a, say, game_groups(rest))
+        if jobs > 1 and len(rest) > 1:
+            say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")
+        try:
+            verdicts = run_launches(rest, env, locks, jobs, a, say)
+        finally:
+            if locks:
+                locks.finish()
+    if fronts:
+        say(f"{len(fronts)} launches run last, one at a time with the machine to themselves (front = true, and the rest of their NVFOREVER_HOME chains)")
+        paths = default_lock_paths(a.repo)
+        alone = None if a.no_locks or not paths else Locks(paths, poll=a.lock_poll, say=say)
+        try:
+            verdicts += run_launches(fronts, env, alone, 1, a, say)
+        finally:
+            if alone:
+                alone.finish()
+        for x in [x for x in fronts if x.front]:
+            line = front.last_line(env.out / f"{x.name}.front.txt")
+            say(f"  {x.name}: {line or 'front: no record (not on Windows, or the launch did not start)'}")
     checks_ok = run_checks(checks, env, say) if (a.checks and checks) else True
     return finish(verdicts, env, time.monotonic() - started, checks_ok, say)
 
@@ -292,25 +376,45 @@ def chains(launches: list[Launch]) -> list[list[int]]:
     return out
 
 
+def longest_first(launches: list[Launch], groups: list[list[int]]) -> list[list[int]]:
+    """The groups by their game time, longest first (ties in plan order): with a few
+    workers, the run ends sooner when a long launch is not the last to start."""
+    return sorted(groups, key=lambda g: -sum(launches[i].run_seconds for i in g))
+
+
 def run_launches(launches: list[Launch], env: Env, locks, jobs: int, a, say) -> list[Verdict]:
     """Run every launch, up to `jobs` at once; the verdicts in plan order (each launch's
     lines are printed as it ends)."""
     results: list[list[Verdict]] = [[] for _ in launches]
     out = threading.Lock()
+    failed = threading.Event()
+    fail_fast = getattr(a, "fail_fast", False)
+
+    def skip(i: int, reason: str) -> None:
+        with out:
+            for s in launches[i].scenarios:
+                v = Verdict(s.name, "SKIP", reason=reason)
+                results[i].append(v)
+                report(v, launches[i], None, env.out, say)
 
     def one(i: int) -> None:
         x = launches[i]
+        if fail_fast and failed.is_set():
+            skip(i, "not started: --fail-fast after a FAIL")
+            return
         missing = sorted({r for s in x.scenarios for r in missing_requirements(s)})
         if missing:
-            with out:
-                for s in x.scenarios:
-                    v = Verdict(s.name, "SKIP", reason=f"set {', '.join(missing)}")
-                    results[i].append(v)
-                    report(v, x, None, env.out, say)
+            skip(i, f"set {', '.join(missing)}")
+            return
+        others = sorted({p for s in x.scenarios for p in unmet_platforms(s)})
+        if others:
+            skip(i, f"{', '.join(others)} only")
             return
         code, err, secs = run_launch(x, env, locks)
         with out:
             judge_launch(x, env, code, err, secs, a, say, results[i])
+            if any(v.status == "FAIL" for v in results[i]):
+                failed.set()
 
     def chain(ix: list[int]) -> None:
         for i in ix:
@@ -322,7 +426,7 @@ def run_launches(launches: list[Launch], env: Env, locks, jobs: int, a, say) -> 
             chain(g)
     else:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            futures = [pool.submit(chain, g) for g in groups]
+            futures = [pool.submit(chain, g) for g in longest_first(launches, groups)]
             try:
                 for f in futures:
                     f.result()

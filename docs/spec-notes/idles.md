@@ -209,6 +209,18 @@ below 30).
   A collection idle ends when its actor walks off or is drawn into a conversation (the
   conversation's gestures, §12, take its place; before #1745 Chet's marker sweep played on
   and held him from turning to the player).
+- **Seated by a Find or Use Item At package** (2026-11-08) [documented: Category:Packages,
+  "Find: Idles play when 'activating' the target of the find", Use Item At "at its
+  location", actor-behaviour.md §1.5]: an actor seated on furniture (fully on it) whose
+  package is Find or Use Item At plays that package's collection there, laid over the
+  sitting clip by track priority as a seated speaker's gestures are (§7), instead of the
+  tree's furniture fidgets; it ends when the actor starts getting off. Fallout 3's
+  G.O.A.T. (CG03, Tale of Two Wastelands) seats its students by Find packages listing
+  `LooseSitTakingTestA`, `LooseSitTakingTestB` and `LooseSitCheatingOnTest` (FalloutNV.esm
+  leftovers, Special Idle, loop 20 / 20, `SitTakingTest*.kf`) [observed: `fnvtool ai show`,
+  `esm decode`]; before, they leaned back and fidgeted in their chairs (owner report: "none
+  of the NPCs look to be sitting at the school desks"). Other package types keep the rule
+  above [hypothesis: Eat and Sleep are documented too, not built here].
 - **A package's idles end with the package** [design]: an idle that loops for ever and
   was asked for by a package or marker leaves its loop (plays out to the end of its clip)
   when that is no longer the actor's package or marker. A one-shot idle plays to its end
@@ -269,8 +281,9 @@ below 30).
 
 ## 8. Not done, and questions for the owner
 
-1. The idle manager: `PickIdle`, fidgets other than the drawn-weapon ones (§11), hit
-   reactions from the tree. (Talking gestures: §12.)
+1. The idle manager: fidgets other than the drawn-weapon, weapon-away (§11, §11.4) and
+   furniture ones, hit reactions from the tree; how often the original asks its tree
+   (observer check 116). (Talking gestures: §12.)
 2. Sounds and other text keys of idle clips; the response flag "Use Emotion Animation"
    and facial emotions. (Animated objects: §10.)
 3. Package begin / end / change **topics** (TNAM), and the idles of actors that are not
@@ -346,7 +359,7 @@ words, with where ours stands:
   here) and `BSPriority#50#` in its `UPB`.
 - **In the engine** (`engine/nvforever/src/anim_objects.rs`) [design, from the above]:
   while an actor's idle slot plays an IDLE that has animated objects (until it has faded
-  out), each object's model is drawn rigid under its `Prn` bone; when another idle starts
+  out), each object's complete model hierarchy is drawn under its `Prn` bone (root fallback); when another idle starts
   or the idle is over, the objects are taken away. Log: `anim object: <actor> holds
   <model> on <bone> (<ANIO>, idle <IDLE>)`, and `anim objects summary: … objects drawn
   for … idles played, … could not be drawn` at the end.
@@ -374,6 +387,53 @@ words, with where ours stands:
   model to `LooseVCG01PlayerTakeReflectron`, which no script or dialogue line of
   FalloutNV.esm names [observed]), the objects' own controllers, and checking against
   the game how long an object stays (the whole idle, as here, or only between keys).
+
+### 10.1 Chamber effects and external KF controllers (#2685)
+
+- [observed: data, main session 2026-11-15, issue #2685, FalloutNV.esm script/record
+  and Fallout - Meshes.bsa NIF/KF decode, upstream 1790ab94a] ANIO `hChamberFXAmin`
+  (0x0016125F) names `animobjects\hchamberFX.NIF` and DATA IDLE `MrHouseOpen`
+  (0x0013A23A); `hChamberFXAmin02` (0x001618FB) names
+  `animobjects\hchamberFXLSO.NIF` and DATA `MrHouseOverloadLifeSupport` (0x0013A818).
+  These two links support the reading DATA = idle.
+  [documented: offline GECK wiki 2026-10-28 snapshot, search.py --title "Animated Object" --read]
+  The requested wiki title was tried and is absent.
+- [observed: data, same main-session decode, #2685] `WakeUp.kf` has one CLAMP sequence,
+  `SpecialIdle_Wakeup`, 0..19.4 seconds. Its SELF_ILLUM tracks target the creature's
+  NIFZ parts (heart, helmet lights, back light, shell buttons and bed console).
+  Its smoke shapes and five particle systems instead belong to the ANIO model,
+  whose root `Effects` has `Prn` = `Bip01`. Alpha/UV, emitter birth/on-off, modifier
+  on-off and particle emittance tracks belong to the same KF.
+- [design, #2685; engine/nvforever/src/anim_objects.rs, nvf-assets/src/model.rs]
+  Prepare the ANIO against the external KF, so its target shapes get the material
+  features and hierarchy they require. Play transforms and material tracks with the
+  ordinary placed-model players, synchronized to the actor idle's clock. Preserve the
+  model's authored root transform below Prn; fall back to the skeleton root when Prn
+  is absent or unavailable. Replacement/stop removes the complete attachment tree
+  after the existing cross-fade. An object's independent controllers remain outside
+  this external-KF playback rule.
+- [design, #2685; idles.rs::HOLD_CLAMP_EFFECT_IDLES, fnv-actor/src/idle_play.rs]
+  A CLAMP idle carrying material/emitter tracks plays once and keeps its exact final
+  sample at full weight until replaced or stopped. Ordinary finite idles still fade
+  away. This keeps glow tracks and attached effects alive; keyed emitter-off values
+  suppress new births. This provisional generalization is listed in owner-review.
+- [hypothesis, #2685] The visible steam/glow envelope and lingering haze follow these
+  authored tracks, with no invented fog density or emitter rates. Original-game
+  timing, final appearance and reload behavior still need observer check **212**.
+- [design: crates/fnv-game/src/game.rs::object_groups, engine/nvforever/src/object_anims.rs]
+  Enabled ground fog (REFR 0x001629DD, model `effects\NV\hChamberGroundFog.NIF`,
+  `Forward` CLAMP 0..52.33 s [observed: data, main session #2685]) already draws through
+  `script_draw`, plays its sequence on `PlayGroup Forward 1`, and restores the saved
+  group at its end. [design, #2685; nvf-assets/src/morph.rs::play_sequence_morphs]
+  Its manager morph now binds `Forward` by shape/frame name and follows the same
+  `Playing::sequence_time` as UV/alpha, including the held or restored endpoint.
+  Each rig receives a private morph mesh; other copies keep their own pose.
+- [design: engine/nvforever/src/idles.rs::ActorIdle; crates/fnv-game/src/game.rs saved
+  state] Actor idle slots and their playback times are not serialized. Consequently
+  this change retains glow/ANIO state during the live session, but cannot restore a
+  held actor idle after load or actor respawn. Implementing that requires a separate
+  idle snapshot/reconstruction path; no new save fields are introduced here. Fog's
+  existing saved group state continues to work independently.
 
 ## 11. Drawn-weapon fidgets from the IDLE tree
 
@@ -418,8 +478,10 @@ record order; `GetRandomPercent` in percent):
   roots are played on request). The first node whose conditions pass is gone into; its
   children in chain order the same way; the first leaf that passes is the pick. A node
   whose children all fail is left for its next sibling [hypothesis].
-- **Only drawn-weapon fidgets** [design]: the pick is played only when a node on its way
-  requires `IsWeaponOut == 1`; any other leaf (the rest of the idle manager) is not built.
+- **Only the branches built** [design]: the pick is played only when a node on its way
+  gates the kind asked for: `IsWeaponOut == 1` for the drawn-weapon fidgets, the weapon
+  away for an NPC with its weapon away (§11.4), the furniture states; any other leaf
+  (the rest of the idle manager) is not built.
 - **The player** [design, owner 2026-10-16]: the walk starts at each node that requires
   the weapon out below the roots (`NPCWeaponIdles`, `PlayerOrNPCIdles`), judging its own
   conditions and those below, so the player gets the people's rifle fidgets. Only in
@@ -457,9 +519,86 @@ record order; `GetRandomPercent` in percent):
 
 ### 11.3 Open
 
-- How often the original looks at its tree, and the unit of the replay delay.
+- How often the original looks at its tree, and the unit of the replay delay (observer
+  check 116).
 - Whether the original walks on after a branch without a passing leaf (here: yes).
 - Whether a fidget is cut by moving or plays out on the upper body (here: cut).
+
+### 11.4 Fidgets with the weapon away (#2026)
+
+In the original a standing NPC with its weapon away plays fidgets now and then (biting
+its nails, picking its nose, swatting, smoking), and its factions decide which.
+
+**What the data holds** [observed: `fnvtool actor anims`, FalloutNV.esm]. Below
+`NPCOnlyIdles` (§11.1), after `NPCWeaponIdles`:
+
+| Node | Section | Loops | Replay delay | Conditions |
+|---|---|---|---|---|
+| `NPCNonWeaponIdles` | Special Idle | | | `GetEquipped` 0x168A7E != 1, `IsWeaponOut` == 0 |
+| `NPCPipboyIdles` | Special Idle | | | `GetStageDone` > 0, `GetEquipped` 0x236D8 == 1, `IsMoving` == 0, random < 5 |
+| `PipboyExamine`, `PipboyManipulate` | Movement | 0 | 45, 75 | random < 80; none |
+| `NPCSmokingIdle` (`SmokingStanding.kf`, 8.4 s, a leaf) | Special Idle | 2–6 | 120 | `IsRunning` == 0, `GetInFaction` SmokerFaction 0x000711A4, `GetEquipped` 0xCC824 != 1, random < 30 |
+| `NPCGeneralIdles` | Special Idle | | | `GetInFaction` GeneralIdleFaction 0x000711A6, random < 1, `GetEquipped` 0x8945E != 1, `GetEquipped` 0xCC824 != 1 |
+| `Swatting`, `PickingNose`, `PickingNose02`, `BitingNails`, `ScratchingSelf`, `ScratchingSelf02` | Special Idle | 0 | 300, 25, 55, 35, 25, 25 | random < 12 (and `IsLastIdlePlayed` 0x6B8F9 != 1), < 28, < 42, < 70, < 84, none |
+
+and the root `EatIdles`, before `GeneralIdles` in the chain: `IsWeaponOut` != 1,
+`GetEquipped` 0xCC824 != 1, `GetCurrentAIProcedure` == 10 (EAT), with
+`BeerDrinkingStanding` (`GetIsUsedItem` 0x5C365 == 1) and `SodaDrinkingStanding`, both
+`DrinkingStandingA.kf`, loops 3–8. The player's `3rdPMTIdles` (`IsWeaponOut` == 0) lies
+under `PlayerOrNPCIdles`, which wants the weapon out: never reached.
+
+**The original** [observed: AI observer capture of 2026-11-10, Goodsprings by Easy
+Pete's chair, 360 real s; four placed NPCs on `DefaultSandboxNoMoveCurrentLocation200`,
+none drew a weapon]: an NCR trooper and a wastelander (both factions) began 4 and 6
+fidgets (smoking, nails, nose), a travelling merchant (general only) 3 (swatting, nose,
+nails) and never smoked, a Goodsprings settler (neither) none.
+
+**Rules as built** (`FidgetKind::WeaponAway`, `engine/nvforever/src/idles.rs`):
+
+- **The branch** [design]: the §11.2 walk, the pick kept when a node on its way requires
+  `IsWeaponOut == 0` or `IsWeaponOut != 1` (not joined by OR): `NPCNonWeaponIdles` and
+  `EatIdles`. No faction, idle or form is named in the code: the tree's own conditions
+  (factions, random percentages, worn items, the eat procedure, the NPC-only node)
+  decide.
+- **Who** [design]: an NPC (not a creature, not the player [design: the player's
+  standing fidgets are the drawn-weapon ones, owner 2026-10-16]) standing still, its
+  weapon away (the rules' `IsWeaponOut` 0 and its hand not drawing, holding or putting
+  one away), not alerted or warning, not dead, not in a conversation, not cowering, not
+  in an idle collection, and nothing with idles of its own (`Game::fidget_held_off`): not
+  on furniture, no current package with an idle collection, none flagged No Idle Anims
+  ("Turns off Idle animations during package" [documented: GECK wiki,
+  Category:Packages]).
+- **Random numbers** [engineering choice]: the walk's `GetRandomPercent` draws from the
+  idle tree's own generator, as the talking gestures' does (§12.2), so polling every
+  holstered NPC does not move the scripts' rolls (random dialogue, addiction checks).
+  The drawn-weapon and furniture walks still draw from the scripts' generator (as
+  before #2026).
+- **When** [design, #2026]: every 2 s with the other fidgets (§11.2), not calibrated: the
+  general node passes one check in a hundred, so an NPC in GeneralIdleFaction alone
+  begins a general fidget about every 200 s here, against three in 360 s in the original
+  capture. The replay delays (§11.2) space the smoking out (120 s). The original picks
+  an idle when the actor's "energy level timer has run down", low Energy idling more
+  often [documented: GECK wiki, Idle Animations], with no numbers given; Energy is not
+  used here. Observer check 116 asks the original's cadence; `docs/owner-review.md`
+  has the choice.
+- **Ends** [design]: the fidget fades out when its actor moves, draws its weapon (or
+  starts to), is alerted, dies, is drawn into a conversation (so it can turn to the
+  other and gesture, as a collection's idle does), or something with idles of its own
+  takes over: furniture, a package with an idle collection or flagged No Idle Anims, an
+  idle marker with a collection. One still waiting for its clip is dropped then, so the
+  collection's idle starts at once.
+- **First look** [engineering choice]: in the second half of the 2 s period after the
+  actor stands still, spread by its ID, so a town's NPCs that stop together do not all
+  walk the tree in one frame. The other fidget kinds keep one full period, as before.
+- Checks: unit tests (`crates/fnv-game/tests/idles_holstered.rs`, written fixtures;
+  the engine's `idles::tests`), `fnvtool actor fidgets --weapon-away` (headless), smoke
+  tests `holstered-fidgets-tree`, `holstered-fidgets` and `holstered-fidgets-playback`
+  (tools/smoke/scenarios.toml); the run summary names each NPC looked at and the
+  fidgets it began (`holstered fidgets: …`), counted once the clip has started.
+- Test aid `NVF_PLAY_TEST_HOLSTERED_ROLL=N` (0 to 99): every `GetRandomPercent` in the
+  weapon-away walks reads N (`Game::fixed_random_percent`, set around those walks only),
+  so a run can make the random branches pass and check the general fidgets' clips play
+  (`holstered-fidgets-playback`) without changing the chances a player gets.
 
 ## 12. Talking gestures from the IDLE tree
 
@@ -738,7 +877,11 @@ combat branch that the engine never played.
   `GetIsAlerted == 1`, alone or joined by OR [hypothesis: the folder match and walk of
   §11]. The tree's own conditions decide: a warning gecko reads GetIsAlerted 0 and
   procedure 44, so it does not hiss until it fights (procedure 13) [observed in the
-  original, §14.3].
+  original, §14.3]. A fight does not set GetIsAlerted (#2121; GetIsAlerted read 0 in the
+  original's fights, npc-behaviour-compare.md §11): the gecko's combat idles pass on
+  procedure 13, which Lost reads too, and the warnings gated on `GetIsAlerted == 1` alone
+  (`MWarning`, `StBWarning`) play only for an actor SetAlert alerted [design: the tree's
+  own conditions, read as scripts read them].
 - It ends when the creature moves or is calm again [design]; an attack stops it as it
   stops any idle (`attack_anims.rs`), except that an idle flagged No Attacking (the
   hiss, the rat's growl) holds the attack until it has played (§9). Log: `npc combat:
@@ -859,3 +1002,73 @@ A conversation that does not move holds the actor anyway, and its dialogue idles
 <name> (<ref>) stands while its idle shows`, `idle hold: <name> (<ref>) breaks out of its
 idle to walk` (or `for combat`) and `idle hold: <name> (<ref>) may walk again: its idle
 has gone`. Smoke `idle-hold-oliver`.
+
+## 16. Activating: the drinking idles (issue #2349, 2026-11-14)
+
+A player noted that drinking from a sink, toilet, pump or fountain plays no animation;
+the original plays one. The tree holds it under a root of its own that nothing asked.
+
+### 16.1 What the data holds [documented: `fnvtool esm decode`, `fnvtool actor anims`, FalloutNV.esm]
+
+- `ActivateIdles` 0x00003BDC: a people's root (folder `Characters\_Male\IdleAnims`;
+  chain order §12.1), with one condition, GetUsedItemActivate (index 259) == 1. Its
+  children in chain order:
+  - `ActStimpakSource` 0x00023035 (GetIsUsedItem Stimpak == 1): the NPCs' stimpak idles
+    (`fnv_game::npc_stimpaks`, which asks its children directly).
+  - **`ActWaterSource`** 0x000221B4 (IsWaterObject (304) == 1), no file. Below it:
+    `1stPersonActWater` 0x00026EB4 (GetIsID 7 == 1 and IsPC1stPerson == 1;
+    `1stPMT_ActWaterSource.kf`, one sequence of 2.37 s, 14 tracks, `Camera1st` among them,
+    so it plays on the first-person rig, §4) then `3rdPersonActWater` 0x00026EB5 (no
+    conditions; `ActWaterSource.kf`, 2.70 s, 50 tracks). Both play once (loop 0-0),
+    Special Idle section, no replay delay.
+  - `NPCPickUpItem` 0x00069B6E (GetIsID 7 != 1 and GetIsUsedItemType 27 == 0): the
+    pick-up leaves, never the player's.
+- Two more nodes name GetUsedItemActivate: `SitActivateIdles` (under the seated NPCs'
+  chair branch: `Chair_UseComputer.kf` for a terminal) and the spinebreakers'
+  `SBGatherAnims` root (`Creatures\SMSpineBreaker\IdleAnims`).
+- "Returns 1 if the object currently being activated is Placeable Water. Used in vanilla
+  game for drinking animation" [documented: GECK wiki IsWaterObject]. GetUsedItemActivate
+  "is only used in the default game as a conditional for Idle Animations, to check
+  whether an actor is activating something" [documented: GECK wiki GetUsedItemActivate,
+  Notes; the page is marked incomplete].
+- `Camera1st` hangs under `Bip01 Looking` in `meshes\characters\_1stperson\skeleton.nif`
+  [documented: `fnvtool nif decode`], so the rig's pitch turn (§4, `player_body.rs`)
+  applies on top of what the clip does with the camera node.
+
+### 16.2 Rules as built (`Game::activate_idle`, `engine/nvforever/src/idles.rs`)
+
+- **GetUsedItemActivate** answers 1 while the actor uses something (furniture, a
+  package's item), as before. Only inside the walk for the player's activation idle
+  (`Game::activate_idle`, which sets `Game::activate_walk`) does it also answer 1 while
+  that actor activates something: the reference it activated within
+  `ACTIVATING_SECONDS` (2 s), the window IsWaterObject reads [documented: the wiki note
+  above; design, #2349: the window, and the scope]. Everywhere else (scripts, quests,
+  dialogue, packages, the NPCs' fidget and `PickIdle` walks) its answer is what it was:
+  an NPC that has just activated something answers 0 and picks as before (test
+  `activating_placeable_water_picks_the_drinking_idle`).
+- **Who asks** [design, #2349]: the player's activation that reaches its default action
+  (`Game::run_default_activation`: by hand, or a script's `Activate` with the player as
+  the action reference) queues the player in `Game::activate_idles`. The animating
+  layer, which knows the player's folder, walks the tree (`Game::activate_idle`): the
+  roots of that folder whose conditions name GetUsedItemActivate == 1, in chain order,
+  gone into as for `PickIdle` (the first leaf with a file whose way down passes)
+  [hypothesis: the original's idle manager asks this root when the player activates].
+  The tree's own conditions choose; no other activation idle is built.
+- **Playing**: asked as `IdleSource::Activate` and played like any idle asked for:
+  `1stPersonActWater` in first person on the first-person rig, `3rdPersonActWater` in
+  third person on the body.
+- **Nothing held** [design, #2349; observer check 131]: unlike a scripted idle that
+  drives the camera node (§4), an activation's idle does not hold the player
+  (`PlayerIdles::held` stays empty): mouse look, movement and the HUD stay; the camera
+  node moves the view from where the player looks.
+- **The effect** [design, #2349; observer check 131]: the water's actor effect still
+  applies at the activation (activators.md §9), not at the idle's start or end.
+- **Log**: `activate idle: the player activating 0x…: 1stPersonActWater by
+  ActivateIdles > ActWaterSource > 1stPersonActWater`, then `idle: the player plays
+  1stPersonActWater (…) on the first-person rig (Activate)`. Smoke `water-drink-idle`.
+
+### 16.3 Open
+
+- Observer check 131: the idle's length in the original, whether movement and looking
+  are held while it plays, and when the healing and the rads apply.
+- NPCs drinking (no package makes them drink from placeable water here).

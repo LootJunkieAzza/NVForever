@@ -1,5 +1,7 @@
 """The compute-pool sweep's generated campaigns (no game, no game data)."""
+import json
 import sys
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
@@ -43,6 +45,27 @@ class SweepCampaign(unittest.TestCase):
     def test_unknown_scenario_is_refused(self):
         with self.assertRaises(SystemExit):
             compute_sweep.sweep_campaign(SRC, ["stand", "nowhere"], 8, False)
+
+
+class SweepResults(unittest.TestCase):
+    def test_round_order_alternates(self):
+        self.assertEqual(compute_sweep.round_order([4, 8, 12], 1), [4, 8, 12])
+        self.assertEqual(compute_sweep.round_order([4, 8, 12], 2), [12, 8, 4])
+
+    def test_summary_uses_only_available_values_in_successful_rounds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first, second, missing = [root / str(i) for i in range(3)]
+            for folder, frames in [(first, {"frame_mean": 4.0, "cpu_ms": None, "hitches": []}),
+                                   (second, {"frame_mean": None, "cpu_ms": 6.0, "hitches": [1, 2]})]:
+                folder.mkdir()
+                (folder / "results.json").write_text(json.dumps({"scenarios": [
+                    {"name": "stand", "status": "ok", "slowest_frame": None, **frames},
+                    {"name": "stand", "status": "failed", "frame_mean": 100.0},
+                ]}), encoding="utf-8")
+            lines = compute_sweep.summarise({4: [first, second, missing]}, ["stand", "walk"]).splitlines()
+            self.assertEqual(lines[1].split(), ["4", "stand", "4.00", "-", "1.0", "6.0"])
+            self.assertIn("(no finished run)", lines[2])
 
 
 if __name__ == "__main__":

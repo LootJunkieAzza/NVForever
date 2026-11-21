@@ -9,7 +9,7 @@
 use super::PhysState;
 use bevy::prelude::*;
 use fnv_phys::Owner;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Overlaps deeper than this (game units) are logged at the first sighting.
 const OVERLAP_LOGGED: f32 = 0.5;
@@ -41,7 +41,7 @@ impl PhysTrace {
     }
 }
 
-fn owner_name(o: Option<Owner>) -> String {
+pub(super) fn owner_name(o: Option<Owner>) -> String {
     match o {
         Some(Owner::Ref { form_id, object, layer }) => format!("ref {form_id:08X} object {object} layer {layer}"),
         Some(Owner::Terrain { x, y }) => format!("terrain ({x}, {y})"),
@@ -61,7 +61,8 @@ pub(crate) fn trace(trace: Option<ResMut<PhysTrace>>, phys: Res<PhysState>) {
     let Some(mut t) = trace else { return };
     let dt = phys.world.params.dt;
     let step = phys.world.steps();
-    let refs: Vec<u32> = phys.cells.values().flat_map(|c| c.refs.iter().copied()).collect();
+    // A reference whose bounds reach over several loaded squares is listed by each (#2795).
+    let refs: BTreeSet<u32> = phys.cells.values().flat_map(|c| c.refs.iter().copied()).collect();
     for r in refs {
         let spins = phys.world.ref_spins(r);
         if spins.iter().all(Option::is_none) {

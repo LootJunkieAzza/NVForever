@@ -55,6 +55,18 @@ pub(crate) const U8: (f64, f64) = (0.0, 255.0);
 /// The range of a u32 field.
 pub(crate) const U32: (f64, f64) = (0.0, u32::MAX as f64);
 
+/// A weapon's models as scripts changed them this session ([`Game::weapon_model_changes`]);
+/// `None` where a script left the record's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WeaponModelChange {
+    /// `MODL`, then `MWD1`…`MWD7`: the path set, relative to `meshes\` (`Some(None)`: an
+    /// empty path).
+    pub world: [Option<Option<String>>; 8],
+    /// `WNAM`, then `WNM1`…`WNM7`: the first-person form set (`None`: cleared) and its
+    /// `MODL`.
+    pub first_person: [Option<(Option<FormId>, Option<String>)>; 8],
+}
+
 /// [`field`] for the sibling files.
 pub(crate) fn record_value(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
     field(g, form, sub, path)
@@ -142,6 +154,150 @@ fn weapon_field(name: &str) -> Option<(&'static str, &'static str)> {
 }
 
 impl Game<'_> {
+    /// Session critical damage used by both scripts and engine hit calculations.
+    /// See ext-last-core.md, critical weapon damage. Authored data stays in the
+    /// combat loader; this view supplies only script changes to that data.
+    pub fn weapon_critical_damage_override(&self, weapon: FormId) -> Option<u32> {
+        let key = "CRDT/critical_damage";
+        let value = self.field_overrides.get(&(weapon, key.into()))
+            .or_else(|| self.field_overrides.get(&(self.unclone(weapon), key.into())))?;
+        match value {
+            XVal::Num(value) => Some(*value as u32),
+            _ => None,
+        }
+    }
+
+    /// Session `DNAM/flags1` override for a `WEAP` (clone-first, original fallback),
+    /// from `SetWeaponFlag`, `SetWeaponFlags1`, `SetWeaponIsAutomatic`, or
+    /// `LNSetIsPlayable`. Returns `None` for non-weapons, absent edits, or non-finite
+    /// values [design].
+    pub fn weapon_flags1_override(&self, weapon: FormId) -> Option<u8> {
+        let original = self.unclone(weapon);
+        if self.data.sig(original) != Some(*b"WEAP") {
+            return None;
+        }
+        let key = "DNAM/flags1";
+        let value = self.field_overrides.get(&(weapon, key.into()))
+            .or_else(|| self.field_overrides.get(&(original, key.into())))?;
+        match value {
+            XVal::Num(n) if n.is_finite() => Some((n.trunc() as i64 as u64 & 0xFF) as u8),
+            _ => None,
+        }
+    }
+
+    /// Effective `DNAM/flags1` bitmask for a `WEAP` (session override first, else
+    /// authored record; `0` when the weapon has no `DNAM`), or `None` for non-weapons.
+    pub fn weapon_flags1(&self, weapon: FormId) -> Option<u8> {
+        let original = self.unclone(weapon);
+        if self.data.sig(original) != Some(*b"WEAP") {
+            return None;
+        }
+        match field(self, weapon, "DNAM", "flags1") {
+            Some(XVal::Num(n)) if n.is_finite() => Some((n.trunc() as i64 as u64 & 0xFF) as u8),
+            _ => Some(0),
+        }
+    }
+
+    /// Effective weapon `Is Automatic` state (`DNAM/flags1` bit 1), honoring live
+    /// session overrides before `FormStore`.
+    pub fn weapon_is_automatic(&self, weapon: FormId) -> bool {
+        if let Some(flags1) = self.weapon_flags1_override(weapon) {
+            return flags1 & (1 << 1) != 0;
+        }
+        self.world.forms.item(self.unclone(weapon)).and_then(|i| i.weapon_traits.as_ref()).is_some_and(|t| t.automatic)
+    }
+
+    /// Effective weapon `Can't Drop` state (`DNAM/flags1` bit 3), honoring live session
+    /// overrides before `FormStore`.
+    pub fn weapon_cant_drop(&self, weapon: FormId) -> bool {
+        if let Some(flags1) = self.weapon_flags1_override(weapon) {
+            return flags1 & (1 << 3) != 0;
+        }
+        self.world.forms.item(self.unclone(weapon)).is_some_and(|i| i.cant_drop)
+    }
+
+    /// Whether an item form is playable (`IsPlayable` / `LNIsPlayable`): for `WEAP`,
+    /// live `DNAM/flags1` bit 7 (`Non-Playable`) overrides take precedence; for other
+    /// items, `playable_overrides` then `FormStore` [design].
+    pub fn is_item_playable(&self, item: FormId) -> bool {
+        if let Some(flags1) = self.weapon_flags1_override(item) {
+            return flags1 & (1 << 7) == 0;
+        }
+        if let Some(&playable) = self.playable_overrides.get(&item) {
+            return playable;
+        }
+        self.world.forms.item(self.unclone(item)).is_some_and(|i| !i.non_playable)
+    }
+
+    /// Whether an item form is marked non-playable (for inventory/equipment filters
+    /// such as `GetEquippedItems` and `GetAllItemRefs`), honoring live `DNAM/flags1`
+    /// bit 7 and `playable_overrides` while keeping non-item forms `false`.
+    pub fn is_item_non_playable(&self, item: FormId) -> bool {
+        if let Some(flags1) = self.weapon_flags1_override(item) {
+            return flags1 & (1 << 7) != 0;
+        }
+        if let Some(&playable) = self.playable_overrides.get(&item) {
+            return !playable;
+        }
+        self.world.forms.item(self.unclone(item)).is_some_and(|i| i.non_playable)
+    }
+
+    /// The weapons whose models scripts changed this session (SetWeaponModel, SetModelPath,
+    /// SetWeapon1stPersonModel), for the renderer's record view to draw
+    /// (docs/spec-notes/weapon-mods.md §8). Like the critical damage above, the authored
+    /// models stay with the renderer's loader; this gives only the changes.
+    pub fn weapon_model_changes(&self) -> std::collections::BTreeMap<FormId, WeaponModelChange> {
+        let mut out: std::collections::BTreeMap<FormId, WeaponModelChange> = Default::default();
+        for (w, first, slot, v) in self.weapon_model_entries() {
+            let c = out.entry(w).or_default();
+            if first {
+                let f = match v { XVal::Ref(r) if *r != 0 => Some(FormId(*r)), _ => None };
+                // The form's MODL as the schema gives it (GetScopeModelPath's two places).
+                let model = f.and_then(|f| field(self, f, "MODL", "").or_else(|| field(self, f, "MODL", "model")));
+                c.first_person[slot] = Some((f, match model { Some(XVal::Str(p)) if !p.is_empty() => Some(p), _ => None }));
+            } else if let XVal::Str(p) = v {
+                c.world[slot] = Some(Some(p.clone()).filter(|p| !p.is_empty()));
+            }
+        }
+        out
+    }
+
+    /// A number that changes whenever [`Game::weapon_model_changes`] would give something
+    /// else, read without building it: the renderer asks every frame.
+    pub fn weapon_model_stamp(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut n = 0u64;
+        let mut sum = 0u64;
+        for (w, first, slot, v) in self.weapon_model_entries() {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (w.0, first, slot).hash(&mut h);
+            match v {
+                XVal::Str(s) => s.hash(&mut h),
+                XVal::Ref(r) => r.hash(&mut h),
+                _ => {}
+            }
+            // The map has no order: a sum of the entries' hashes does not depend on one.
+            sum = sum.wrapping_add(h.finish());
+            n += 1;
+        }
+        sum ^ n.rotate_left(32)
+    }
+
+    /// The model fields of WEAP records scripts set: (weapon, first person, slot 0–7, value);
+    /// slot 0 is MODL or WNAM, 1–7 are MWD1–MWD7 or WNM1–WNM7.
+    fn weapon_model_entries(&self) -> impl Iterator<Item = (FormId, bool, usize, &XVal)> {
+        self.field_overrides.iter().filter_map(|((w, key), v)| {
+            let (first, slot) = match key.as_bytes() {
+                b"MODL/" => (false, 0),
+                b"WNAM/" => (true, 0),
+                [b'M', b'W', b'D', k @ b'1'..=b'7', b'/'] => (false, usize::from(*k - b'0')),
+                [b'W', b'N', b'M', k @ b'1'..=b'7', b'/'] => (true, usize::from(*k - b'0')),
+                _ => return None,
+            };
+            (self.data.sig(*w) == Some(*b"WEAP")).then_some((*w, first, slot, v))
+        })
+    }
+
     /// The members of a form list, with the session's ListAddForm/ListRemove… edits.
     pub(crate) fn edited_list(&mut self, list: FormId) -> &mut Vec<FormId> {
         if !self.list_edits.contains_key(&list) {
@@ -155,6 +311,16 @@ impl Game<'_> {
 /// An xNVSE function by catalogue name (lower case); `None` when it is not built here.
 /// `on` is the reference it was called on, else the calling reference.
 pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
+    if let Some(result) = crate::texture_filter::call(g, name, args) {
+        return Some(result);
+    }
+    if let Some(result) = crate::nvse_faction_modifiers::call(g, name, args) {
+        return Some(result);
+    }
+    if let Some(result) = crate::nvse_actor_queries::call(g, name, on.or(ctx.self_ref), args) {
+        return Some(result);
+    }
+    if name == "setcasinowinningslevel" { return Some(crate::casino::set_winnings_level(g, args)); }
     if let Some(r) = crate::delayed::call(g, ctx, name, on, args) {
         return Some(r);
     }
@@ -170,10 +336,28 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
         return Some(Ok(v));
     }
     let subject = on.or(ctx.self_ref);
+    // ext-last-core.md: irreversible achievement eligibility, independent of the
+    // Hardcore needs switch. The existing saved field feeds IsAlwaysHardcore.
+    if name == "disablehardcoretracking" {
+        g.player.hardcore_was_off = true;
+        return Some(Ok(XVal::Num(0.0)));
+    }
+    if let Some(result) = crate::ui_projection::call(g, name, subject, args) {
+        return Some(result);
+    }
     if let Some(r) = crate::nvse_lutana::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_ttw::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_unlisted::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_unlisted2::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_json::call(g, name, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_refs::call(g, name, subject, args) {
@@ -221,6 +405,21 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
     if let Some(r) = crate::nvse_jg5::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_jg6::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg7::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg8::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg9::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg10::call(g, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_sup1::call(g, ctx, name, subject, args) {
         return Some(r);
     }
@@ -230,7 +429,19 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
     if let Some(r) = crate::nvse_sup3::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_sup6::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_sup5::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_sup7::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg_nif::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_sup4::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_jip5::call(g, ctx, name, subject, args) {
@@ -245,13 +456,43 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
     if let Some(r) = crate::nvse_jip8::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_jip9::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip10::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip14::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip11::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip13::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip12::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_pp::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_lu2::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_lu3::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_showoff5::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_showoff2::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_showoff3::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_showoff4::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_anh::call(g, ctx, name, subject, args) {
@@ -498,13 +739,7 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
         // base's, neither the reference's own FULL nor SetRefName's name; a static
         // without one reads "<no name>" [observed: plugins3, the Goodsprings map marker
         // and the 605 references round the player; gaps4, Doc after SetRefName].
-        "getname" => {
-            let f = as_form(args.first()).or(subject).unwrap_or(FormId(0));
-            let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
-            let b = crate::functions::base_of(g, f).filter(|&b| b != f).unwrap_or(f);
-            let n = named(b).or_else(|| (g.data.sig(b) == Some(*b"STAT")).then(|| "<no name>".to_string()));
-            XVal::Str(n.unwrap_or_default())
-        }
+        "getname" => XVal::Str(shown_name(g, as_form(args.first()).or(subject).unwrap_or(FormId(0)))),
         // [documented: GetParentCell] the cell the reference is in.
         "getparentcell" => XVal::Ref(subject.and_then(|r| g.cell_of(r)).map_or(0, |c| c.0)),
         // [documented: GetInventoryObject] the base form of the container's nth kind of
@@ -542,7 +777,8 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
                 _ => String::new(),
             };
             let parent = as_form(args.get(if setter { 2 } else { 1 })).or(subject).unwrap_or(FormId(0));
-            let slot = g.instance_of(parent).and_then(|(key, script)| Some((key, script, g.data.script(script)?.var_index(&var)?)));
+            // AddScriptVariable's variables too (`crate::nvse_jip10`).
+            let slot = g.instance_of(parent).and_then(|(key, script)| Some((key, script, g.data.script(script).and_then(|u| u.var_index(&var)).or_else(|| g.added_var_index(script, &var))?)));
             let Some((key, script, i)) = slot else {
                 return Some(Ok(match name {
                     "getstringvariable" => XVal::Str(String::new()),
@@ -686,13 +922,11 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
                 _ => c("red") + c("green") * 256.0 + c("blue") * 65536.0,
             })
         }
-        // The ACBS flags' low and high 16 bits [hypothesis from the names].
+        // The ACBS flags' low and high 16 bits [documented: GetActorBaseFlagsLow, GetActorBaseFlagsHigh].
         "getactorbaseflagslow" | "getactorbaseflagshigh" => {
-            let bits = match field(g, item(g, 0).unwrap_or(FormId(0)), "ACBS", "flags") {
-                Some(XVal::Num(x)) => x as u64,
-                _ => 0,
-            };
-            XVal::Num(if name.ends_with("low") { (bits & 0xFFFF) as f64 } else { (bits >> 16) as f64 })
+            let b = as_form(args.first()).or(subject).map(|f| g.actor_flags_target(f)).unwrap_or(FormId(0));
+            let bits = g.actor_base_flags_raw(b);
+            XVal::Num(f64::from(if name.ends_with("low") { bits & 0xFFFF } else { bits >> 16 }))
         }
         // AI packages of the reference's base: the "AI Packages" template's list whenever
         // the flag is set, the base's own list beside it unread [documented: GetPackageCount;
@@ -842,4 +1076,12 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
 fn attack_animation_index(code: i64) -> f64 {
     let order: [i64; 23] = [255, 38, 44, 50, 56, 62, 68, 26, 74, 32, 80, 86, 114, 120, 126, 132, 138, 102, 108, 144, 150, 156, 162];
     order.iter().position(|&c| c == code).map_or(0.0, |i| i as f64)
+}
+
+/// GetName's name of a form (module notes at its arm): the base's full name, as set
+/// names change it; "<no name>" for a static without one; empty otherwise.
+pub(crate) fn shown_name(g: &Game, f: FormId) -> String {
+    let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
+    let b = crate::functions::base_of(g, f).filter(|&b| b != f).unwrap_or(f);
+    named(b).or_else(|| (g.data.sig(b) == Some(*b"STAT")).then(|| "<no name>".to_string())).unwrap_or_default()
 }

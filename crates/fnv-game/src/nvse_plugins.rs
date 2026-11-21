@@ -56,7 +56,12 @@ const INGESTIBLE_BITS: [Option<u32>; 4] = [None, Some(0), Some(1), Some(0)];
 /// quint, sine, expo, circ, back, elastic and bounce at 0.25 in all three modes;
 /// "linear" -1].
 pub(crate) fn ease(t: f64, name: &str, mode: i64) -> f64 {
-    let t = t.clamp(0.0, 1.0);
+    ease_unclamped(t.clamp(0.0, 1.0), name, mode)
+}
+
+/// [`ease`] without holding `t` to 0-1: ApplyEasingAlt eases 1.5 by quad-in to 2.25
+/// [observed: showoff3 so3.ease.outside].
+pub(crate) fn ease_unclamped(t: f64, name: &str, mode: i64) -> f64 {
     let f: fn(f64) -> f64 = match name.to_ascii_lowercase().as_str() {
         "quad" => |t| t * t,
         "cubic" => |t| t * t * t,
@@ -131,9 +136,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     let v = match name {
         // ---- LU ----
         // IDLE MODL; the setter for the session [observed: plugins1].
-        "getidleanimpath" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "MODL", "")) {
-            Some(XVal::Str(s)) => XVal::Str(s),
-            _ => XVal::Str(String::new()),
+        "getidleanimpath" => match form(args, 0) {
+            Some(f) if g.idle_def(f).is_some() => XVal::Str(g.idle_animation_path(f).unwrap_or_default().to_string()),
+            Some(f) => match crate::nvse::record_value(g, f, "MODL", "") {
+                Some(XVal::Str(s)) => XVal::Str(s),
+                _ => XVal::Str(String::new()),
+            },
+            None => XVal::Str(String::new()),
         },
         "setidleanimpath" => {
             if let Some(f) = form(args, 0) {
@@ -209,12 +218,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             XVal::Num(crate::functions::actor::actor_value_capped(g, a, code))
         }
         "getquestfailed" => yes(form(args, 0).is_some_and(|q| g.quest_state(q).failed)),
-        // RACE DATA flags bit by bit [observed: plugins1, CaucasianOld 0 0 0].
+        // RACE DATA flags bit by bit [observed: plugins1, CaucasianOld 0 0 0]: the bit's
+        // value, not 1 [observed: jg4 race.get.child.2 read 4, race.set.testqa.1.1 2,
+        // race.set.testqa.3.1 8; race.get.caucasian.0 1].
         "getraceflag" => {
             let f = form(args, 0).unwrap_or(FormId(0));
             let flags = crate::nvse::record_value(g, f, "DATA", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
             let k = num(args, 1, -1.0);
-            yes((0.0..32.0).contains(&k) && flags >> (k as u64) & 1 != 0)
+            XVal::Num(if (0.0..32.0).contains(&k) { (flags & 1 << (k as u64)) as f64 } else { 0.0 })
         }
         "isdllloaded" => {
             let n = text(args, 0).to_ascii_lowercase();
@@ -239,19 +250,43 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let p: Vec<f64> = (0..6).map(|k| num(args, k, 0.0)).collect();
             XVal::Num(((p[3] - p[0]).powi(2) + (p[4] - p[1]).powi(2) + (p[5] - p[2]).powi(2)).sqrt())
         }
-        // Forms only the masters define [observed: plugins1, the stimpak 0 and 0;
-        // hypothesis: NVForever does not follow overrides by index here].
-        "getformoverrideindex" | "isformoverridden" => zero,
+        // Load-order override queries backed by `GameData::form_overrides`
+        // [documented: GECK wiki GetFormOverrideIndex, IsFormOverridden;
+        // observed: plugins1, non-overridden Stimpak returns 0 and 0].
+        "isformoverridden" => yes(form(args, 0).or(subject).is_some_and(|f| g.data.is_form_overridden(f))),
+        "getformoverrideindex" => {
+            let Some(f) = form(args, 0).or(subject) else { return Some(Ok(XVal::Num(-1.0))) };
+            let idx = if let Some(i) = g.data.form_override_index(f) {
+                f64::from(i)
+            } else if f.0 >> 24 >= 0xFE {
+                255.0
+            } else if g.world.placed.get(f).is_some() {
+                f64::from(f.0 >> 24)
+            } else {
+                -1.0
+            };
+            XVal::Num(idx)
+        }
         // ZNAM; Set… for the session, none leaving the sound [observed: plugins2, the
-        // beep reads back, a null set does not clear it].
-        "getputdownsound" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "ZNAM", "")) {
-            Some(XVal::Ref(r)) => XVal::Ref(r),
-            _ => XVal::Ref(0),
+        // beep reads back, a null set does not clear it]. WEAP shares live slots 12/13
+        // with GetWeaponSound / SetWeaponSound.
+        "getputdownsound" => match form(args, 0) {
+            Some(f) if g.is_weapon_form(f) => XVal::Ref(g.weapon_sound(f, 13).map_or(0, |s| s.0)),
+            Some(f) => match crate::nvse::record_value(g, f, "ZNAM", "") {
+                Some(XVal::Ref(r)) => XVal::Ref(r),
+                _ => XVal::Ref(0),
+            },
+            None => XVal::Ref(0),
         },
         "setpickupsound" | "setputdownsound" => {
             if let (Some(f), Some(s)) = (form(args, 0), form(args, 1)) {
-                let sub = if name == "setpickupsound" { "YNAM/" } else { "ZNAM/" };
-                g.field_overrides.insert((f, sub.into()), XVal::Ref(s.0));
+                if g.is_weapon_form(f) {
+                    let slot = if name == "setpickupsound" { 12 } else { 13 };
+                    g.set_weapon_sound(f, slot, Some(s));
+                } else if g.is_sound_form(s) {
+                    let sub = if name == "setpickupsound" { "YNAM/" } else { "ZNAM/" };
+                    g.field_overrides.insert((f, sub.into()), XVal::Ref(s.0));
+                }
             }
             zero
         }
@@ -336,7 +371,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let r = form(args, 1).or(subject).unwrap_or(FormId(0));
             let b = base(g, r);
             let b = g.template_source(b, r, |d| d.template_base).map_or(b, |(s, _)| s);
-            let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
+            let flags = u64::from(g.actor_base_flags_raw(b));
             let k = num(args, 0, -1.0);
             yes((0.0..32.0).contains(&k) && flags >> (k as u64) & 1 != 0)
         }
@@ -355,14 +390,27 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 _ => XVal::Ref(0),
             }
         }
+        // No model argument clears the combination's form, so first person draws the
+        // third-person model the weapon has for it (weapon-mods.md §2, §8) [hypothesis: WAP's
+        // script files set MODL and MWD1–MWD7 with SetWeaponModel and then call this with no
+        // model for each of 0–7, for new first-person models; observed: WAP Year One's
+        // gr_10mmP.txt]. A model argument that is no form (an empty reference, a missing
+        // master's form) changes nothing, as before [hypothesis: the original's no-op].
         "setweapon1stpersonmodel" => {
-            let (Some(w), Some(m)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
+            let Some(w) = form(args, 0) else { return Some(Ok(zero)) };
             let sub = match num(args, 1, -1.0) as i64 {
                 0 => "WNAM/".to_string(),
                 k @ 1..=7 => format!("WNM{k}/"),
                 _ => return Some(Ok(zero)),
             };
-            g.field_overrides.insert((w, sub), XVal::Ref(m.0));
+            let model = match args.get(2) {
+                None => 0,
+                Some(_) => match form(args, 2) {
+                    Some(m) => m.0,
+                    None => return Some(Ok(zero)),
+                },
+            };
+            g.field_overrides.insert((w, sub), XVal::Ref(model));
             zero
         }
         // `armor modelID(1-4) index3D`, success(0/1) [documented: ClearArmorAltTexture].
@@ -387,15 +435,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ACBS flags, the low 16 bits; the setter for the session [observed: data2,
         // Sunny 17, Boone 144, Doc and the player 0; Sunny + 8 reads 25 and back].
         "getactorbaseflagslow" => {
-            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
-            let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
-            XVal::Num((flags & 0xFFFF) as f64)
+            let b = form(args, 0).or(subject).map(|f| g.actor_flags_target(f)).unwrap_or(FormId(0));
+            XVal::Num(f64::from(g.actor_base_flags_raw(b) & 0xFFFF))
         }
         "setactorbaseflagslow" => {
-            if let Some(b) = form(args, 1).or(subject).map(|f| base(g, f)) {
-                let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
-                let new = (flags & !0xFFFF) | (num(args, 0, 0.0).max(0.0) as u64 & 0xFFFF);
-                g.field_overrides.insert((b, "ACBS/flags".into()), XVal::Num(new as f64));
+            if let Some(b) = form(args, 1).or(subject).map(|f| g.actor_flags_target(f)) {
+                g.set_actor_base_flags(b, false, (num(args, 0, 0.0).max(0.0) as u64 & 0xFFFF) as u16);
             }
             zero
         }
@@ -428,8 +473,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let vals = vec![XVal::Ref(item.0), XVal::Num(full * cond), XVal::Num(f64::from(mods))];
             list(g, vals)
         }
-        // On an inventory reference [observed: data2, the pistol's 0].
-        "getnounequip" => zero,
+        // On an inventory reference of a currently equipped item: 1 when the world holds a
+        // NoUnequip lock (EquipItem / EquipItemAlt NoUnequipFlag or SetNoUnequip 1), else 0
+        // [documented: GECK wiki GetNoUnequip; observed: data2, unlocked pistol reads 0].
+        "getnounequip" => {
+            let Some((actor, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(zero)) };
+            let equipped = g.world.peek(actor).and_then(|s| s.inventory.as_ref()).is_some_and(|inv| inv.is_equipped(item));
+            yes(equipped && g.world.equip_lock(actor, item) == Some(fnv_sim::world::EquipLock::NoUnequip))
+        }
         // ACTI WNAM; none leaves it [observed: data2].
         "setactivatorwatertype" => {
             if let (Some(w), Some(f)) = (form(args, 0), form(args, 1)) {
@@ -504,9 +555,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "setonactorvaluechangeeventhandler" => {
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
             let code = args.get(3).and_then(|v| v.num().ok()).map(|c| c as u16);
-            g.gaps.av_handlers.retain(|(h, c)| !(*h == f && *c == code));
+            let exact = (num(args, 2, 0.0) as i64) & 1 != 0;
+            g.gaps.av_handlers.retain(|(h, c, _)| !(*h == f && *c == code));
             if num(args, 0, 1.0) != 0.0 {
-                g.gaps.av_handlers.push((f, code));
+                g.gaps.av_handlers.push((f, code, exact));
             }
             zero
         }
@@ -541,10 +593,21 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             let Some(st) = g.senses.anim.get(&a) else { return Some(Ok(zero)) };
             let moving = st.moving != MoveDir::None;
+            // Movement: sub-type 0 any, 1–4 forward, backward, left, right, 5 jump;
+            // variation flags 1 fast, 2 dodge, 4 turn [documented: IsAnimPlayingEx], read
+            // from the movement group the body plays (`Jump…`, `Fast…`, `Turn…`). Before,
+            // every sub-type answered "moving", so Enhanced Movement's sprint, which
+            // stays off while `IsAnimPlayingEx 2 5` (a jump) holds, never started.
+            let group = st.group.unwrap_or("");
+            let jump = group.starts_with("Jump");
+            let flags = num(args, 2, 0.0) as i64;
+            let variation = (flags & 1 == 0 || group.starts_with("Fast")) && flags & 2 == 0 && (flags & 4 == 0 || group.starts_with("Turn"));
             yes(match (num(args, 0, -1.0) as i64, num(args, 1, 0.0) as i64) {
                 (1, 0) => true,
                 (1, _) => !moving,
-                (2, _) => moving,
+                (2, 0) => (moving || jump) && variation,
+                (2, 5) => jump,
+                (2, s) => variation && st.moving == [MoveDir::None, MoveDir::Forward, MoveDir::Backward, MoveDir::Left, MoveDir::Right].get(s.clamp(0, 4) as usize).copied().unwrap_or(MoveDir::None) && moving,
                 (3, _) => st.action.is_some_and(|x| matches!(x, AnimAction::Attack | AnimAction::FollowThrough | AnimAction::AttackReturn)),
                 (4, _) => st.action.is_some_and(|x| matches!(x, AnimAction::Reload | AnimAction::ReloadOpen)),
                 _ => false,

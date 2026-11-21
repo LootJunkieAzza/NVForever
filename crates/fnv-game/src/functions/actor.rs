@@ -122,7 +122,62 @@ pub fn damage(g: &Game, actor: FormId, code: u16) -> f64 {
     g.extra.get(&actor).and_then(|e| e.av_damage.get(&code)).copied().unwrap_or(0.0)
 }
 
+/// A change of one of `actor`'s values, with JohnnyGuitar's actor value change
+/// handlers told of it: every change of one of the player's values, whatever made it
+/// (a script, an aid item's effect, a hit), and never another actor's [documented:
+/// SetOnActorValueChangeEventHandler, "limited to Player's actor value changes"; the
+/// derived skills, which do not dispatch it, are worked out on reading here and never
+/// stored]. A change a handler itself makes is not told again [our choice: no loop].
+fn told<R>(g: &mut Game, actor: FormId, code: u16, change: impl FnOnce(&mut Game) -> R) -> R {
+    if actor != FormId::PLAYER_REF || g.gaps.av_handlers.is_empty() || g.gaps.av_telling {
+        return change(g);
+    }
+    let before = actor_value(g, actor, code).ok();
+    let out = change(g);
+    if let (Some(old), Ok(new)) = (before, actor_value(g, actor, code)) {
+        if new != old {
+            g.av_event(actor, code, old, new);
+        }
+    }
+    out
+}
+
 fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
+    told(g, actor, code, |g| set_damage_untold(g, actor, code, d));
+}
+
+/// God mode (`tgm`) keeps a change off the player: its Action Points are never spent and
+/// its rads never rise, whatever asks (a VATS attack, a tweak's cost, the world's
+/// radiation, a script's DamageActorValue or ModActorValue) [design: owner decision
+/// 2026-11-15, issue #2743; an aid effect's damage is kept off in `Game::change_value`,
+/// and the needs' own rise goes on, as observed there].
+pub(crate) fn god_spares(g: &Game, actor: FormId, code: u16) -> bool {
+    actor == FormId::PLAYER_REF && g.toggles.god_mode && matches!(code, crate::actor_values::ACTION_POINTS | crate::aid::RAD_LEVEL)
+}
+
+/// The limb conditions god mode keeps whole: Perception (head), Endurance (torso), Left
+/// and Right Attack, Left and Right Mobility Condition (codes 25–30, `AV_NAMES`); Brain
+/// Condition (31) is left as it is: the issue names the six body parts [design, #2792].
+const GOD_KEPT_LIMBS: std::ops::RangeInclusive<u16> = 25..=30;
+
+/// God mode (`tgm`) keeps a script from hurting the player: a DamageActorValue on its
+/// Health or a limb's condition does nothing, nor does a ModActorValue or ForceActorValue
+/// that would lower them (the bear traps' scripts run `DamageActorValue Health 45` and
+/// a leg's condition 50 on their victim, docs/spec-notes/traps.md §3). Restoring them, and
+/// SetActorValue, go on as for Action Points and rads [design, #2792: the maintainer's
+/// request on #2743, 2026-11-16, "no trap may damage the player in god mode"]. Hits and
+/// effects are kept off before they get here (`nvf-play` `combat::hit_player`,
+/// `Game::change_value`), so this is the script functions' check only: `add_modifier` is
+/// also how an effect's modifier is held and released, and a release must still lower.
+pub(crate) fn god_keeps_whole(g: &Game, actor: FormId, code: u16) -> bool {
+    actor == FormId::PLAYER_REF && g.toggles.god_mode && (code == crate::actor_values::HEALTH || GOD_KEPT_LIMBS.contains(&code))
+}
+
+fn set_damage_untold(g: &mut Game, actor: FormId, code: u16, d: f64) {
+    // God mode: the player's Action Points are not spent (their damage never grows).
+    if code == crate::actor_values::ACTION_POINTS && god_spares(g, actor, code) && d > damage(g, actor, code) {
+        return;
+    }
     let e = g.extra.entry(actor).or_default();
     if d > 0.0 {
         e.av_damage.insert(code, d);
@@ -158,6 +213,10 @@ pub fn temporary(g: &Game, actor: FormId, code: u16) -> f64 {
 
 /// Add `d` to the temporary modifier.
 pub(crate) fn add_temporary(g: &mut Game, actor: FormId, code: u16, d: f64) {
+    told(g, actor, code, |g| add_temporary_untold(g, actor, code, d));
+}
+
+fn add_temporary_untold(g: &mut Game, actor: FormId, code: u16, d: f64) {
     let e = g.extra.entry(actor).or_default();
     let m = e.av_temporary.get(&code).copied().unwrap_or(0.0) + d;
     if m.abs() > 1e-9 {
@@ -199,6 +258,10 @@ pub fn actor_value_parts(g: &mut Game, actor: FormId, code: u16) -> Result<[f64;
 /// Put `v` in the base's place (as SetActorValue). An attribute's permanent value goes
 /// to the world when the world holds attributes for the actor.
 fn set_base(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String> {
+    told(g, actor, code, |g| set_base_untold(g, actor, code, v))
+}
+
+fn set_base_untold(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String> {
     if let Some(name) = special(code) {
         // Something that has no attributes takes none.
         base(g, actor, code)?;
@@ -214,6 +277,14 @@ fn set_base(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String
 
 /// Add `d` to the permanent modifier (as ModActorValue).
 pub(crate) fn add_modifier(g: &mut Game, actor: FormId, code: u16, d: f64) -> Result<(), String> {
+    told(g, actor, code, |g| add_modifier_untold(g, actor, code, d))
+}
+
+fn add_modifier_untold(g: &mut Game, actor: FormId, code: u16, d: f64) -> Result<(), String> {
+    // God mode: the player's rads do not rise ([`god_spares`]).
+    if code == crate::aid::RAD_LEVEL && d > 0.0 && god_spares(g, actor, code) {
+        return Ok(());
+    }
     let before = permanent(g, actor, code)?;
     let e = g.extra.entry(actor).or_default();
     let m = e.av_permanent.get(&code).copied().unwrap_or(0.0) + d;
@@ -233,6 +304,11 @@ pub(crate) fn add_modifier(g: &mut Game, actor: FormId, code: u16, d: f64) -> Re
 
 /// Move the base by `d`, leaving the modifier and the damage alone.
 pub(crate) fn shift_base(g: &mut Game, actor: FormId, code: u16, d: f64) -> Result<(), String> {
+    // God mode: the player's rads do not rise ([`god_spares`]): the world's radiation,
+    // irradiated water, food and drink and a script's DamageActorValue all come here.
+    if code == crate::aid::RAD_LEVEL && d > 0.0 && god_spares(g, actor, code) {
+        return Ok(());
+    }
     let v = base(g, actor, code)? + d;
     set_base(g, actor, code, v)
 }
@@ -296,17 +372,18 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     none()
 }
 
-/// The actor value functions with JohnnyGuitar's actor value change handlers told of a
-/// change: (code, old value, new value) [observed: data3, ModAV Luck +1 gave (11, 10,
+/// The actor value functions with JohnnyGuitar's NPC actor value change handlers told
+/// of a change: (actor, code, old value, new value). The player's handlers are told
+/// where the value is written ([`told`]) [observed: data3, ModAV Luck +1 gave (11, 10,
 /// 11), -1 (11, 11, 10)].
 fn watched(g: &mut Game, ctx: &Ctx, a: &Args, f: fn(&mut Game, &Ctx, &Args) -> Result<Value, String>) -> Result<Value, String> {
-    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| !g.gaps.av_handlers.is_empty());
+    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| g.jg8_listening(crate::nvse_jg8::Ev::NpcActorValue));
     let before = target.and_then(|(r, c)| actor_value(g, r, c).ok());
     let out = f(g, ctx, a)?;
     if let (Some((r, c)), Some(old)) = (target, before) {
         if let Ok(new) = actor_value(g, r, c) {
             if new != old {
-                g.av_event(r, c, old, new);
+                g.jg8_actor_value(r, c, old, new);
             }
         }
     }
@@ -314,6 +391,8 @@ fn watched(g: &mut Game, ctx: &Ctx, a: &Args, f: fn(&mut Game, &Ctx, &Args) -> R
 }
 
 pub fn set_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // UnsetAV's base to go back to (`crate::nvse_jg6`).
+    crate::nvse_jg6::note_set_av(g, ctx, a);
     watched(g, ctx, a, set_actor_value)
 }
 pub fn mod_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -336,6 +415,10 @@ pub fn force_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
     let r = ctx.subject()?;
     let code = a.code(0)?;
     let diff = a.num(1)? - actor_value(g, r, code)?;
+    // God mode: not lowering the player's Health or a limb ([`god_keeps_whole`]).
+    if diff < 0.0 && god_keeps_whole(g, r, code) {
+        return none();
+    }
     add_modifier(g, r, code, diff)?;
     none()
 }
@@ -344,7 +427,12 @@ pub fn force_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
 /// ActorValue, the permanent pool].
 pub fn mod_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    add_modifier(g, r, a.code(0)?, a.num(1)?)?;
+    let (code, d) = (a.code(0)?, a.num(1)?);
+    // God mode: not lowering the player's Health or a limb ([`god_keeps_whole`]).
+    if d < 0.0 && god_keeps_whole(g, r, code) {
+        return none();
+    }
+    add_modifier(g, r, code, d)?;
     none()
 }
 
@@ -374,6 +462,12 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
         return none();
     }
     let amount = a.num(1)?;
+    // God mode: a trap's script does not hurt the player ([`god_keeps_whole`]); no damage,
+    // so no health-damage or crippled-limb handlers either.
+    if amount > 0.0 && god_keeps_whole(g, r, code) {
+        return none();
+    }
+    let limb_before = if crate::actor_values::LIMB_CONDITIONS.contains(&code) { Some(actor_value(g, r, code)?) } else { None };
     let d = damage(g, r, code) + amount;
     set_damage(g, r, code, d);
     // JIP's health-damage handlers see DamageAV too, with no source [documented:
@@ -386,6 +480,15 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     // Out of fatigue: knocked out (docs/spec-notes/unconscious.md §2.3).
     if code == crate::actor_values::FATIGUE {
         g.fatigue_changed(r);
+    }
+    // A limb's condition brought to 0 cripples it, and JIP's crippled-limb handlers are
+    // told as for a hit's [observed: jip_events2, `DamageAV LeftAttackCondition 200` on
+    // a placed NPC fired its handler with limb 2; docs/spec-notes/jip-events.md §5].
+    if let Some(before) = limb_before {
+        if before > 0.0 && actor_value(g, r, code)? <= 0.0 {
+            let limb = code - crate::actor_values::LIMB_CONDITIONS.start();
+            g.jip_event("crippledlimb", Some(r), vec![fnv_script::vm::XVal::Num(f64::from(limb))]);
+        }
     }
     none()
 }
@@ -439,7 +542,7 @@ pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     }
     if let Ok(location) = a.int(1) {
         if location >= 0 && g.is_dead(r) && r != FormId::PLAYER_REF {
-            g.combat_requests.push(crate::combat::CombatRequest::Dismember { actor: r, location, by: a.opt_form(0) });
+            g.combat_requests.push(crate::combat::CombatRequest::Dismember { actor: r, location, by: a.opt_form(0), explode: None });
         }
     }
     none()
@@ -480,11 +583,7 @@ pub fn is_weapon_out(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
     if base_of(g, r).and_then(|b| g.data.sig(b)).as_ref() == Some(b"CREA") && super::items::equipped_weapon(g, r).is_none() {
         return yes(false);
     }
-    let told = g.senses.weapon_told.get(&r).is_some_and(|&t| (g.time - t).abs() < 1.0);
-    if r == FormId::PLAYER_REF || told {
-        return yes(g.extra.get(&r).is_some_and(|e| e.weapon_out));
-    }
-    yes(g.wants_weapon_out(r))
+    yes(g.weapon_is_out(r))
 }
 
 /// GetWeaponAnimType's value for a WEAP DNAM animation type (the record's numbering).
@@ -553,8 +652,8 @@ pub fn get_dead_count(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 
 /// The factions and ranks the records give an actor: its base's `SNAM` list, or its
 /// template's with the template flag "Factions" (docs/spec-notes/factions.md §2).
-fn base_factions<'d>(g: &'d Game, r: FormId) -> &'d [(FormId, i8)] {
-    base_of(g, r).map_or(&[], |b| g.data.base_factions_at(b, g.pick_seed(r), g.leveled_at(r)))
+pub(crate) fn base_factions<'d>(g: &'d Game, r: FormId) -> &'d [(FormId, i8)] {
+    base_of(g, r).and_then(|b| g.template_source(b, r, |d| d.template_factions)).map_or(&[], |(_, d)| &d.factions)
 }
 
 /// Faction rank of an actor: a run-time change, else the records' ([`base_factions`]);
@@ -562,6 +661,10 @@ fn base_factions<'d>(g: &'d Game, r: FormId) -> &'d [(FormId, i8)] {
 pub fn faction_rank(g: &Game, r: FormId, f: FormId) -> i32 {
     if let Some(&rank) = g.extra.get(&r).and_then(|e| e.factions.get(&f)) {
         return rank as i32;
+    }
+    // SetBaseFactionRank's (`crate::nvse_jip11`).
+    if let Some(rank) = factions_source(g, r).and_then(|s| g.base_rank_override(s, f)) {
+        return rank.max(-1) as i32;
     }
     base_factions(g, r).iter().find(|(x, _)| *x == f).map(|(_, rank)| *rank as i32).unwrap_or(-1)
 }
@@ -609,7 +712,7 @@ fn forget_factions(g: &Game, r: FormId) {
 pub fn get_is_voice_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let v = a.form(0)?;
-    let Some(voice) = g.traits_def(r).and_then(|d| d.voice) else { return yes(false) };
+    let Some(voice) = g.voice_type_of(r) else { return yes(false) };
     yes(voice == v || super::refs::list_members(g, v).contains(&voice))
 }
 
@@ -655,7 +758,7 @@ pub fn get_is_race(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 pub fn get_is_class(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(g.traits_def(r).and_then(|d| d.class) == Some(a.form(0)?))
+    yes(g.traits_class(r) == Some(a.form(0)?))
 }
 
 macro_rules! flag {
@@ -730,20 +833,51 @@ pub fn get_is_creature_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
     yes(g.stats_def(r).and_then(|d| d.creature_type) == Some(t))
 }
 
-/// Essential: the reference's own flag (SetActorRefEssential) or its base's (ACBS,
-/// changed by SetEssential). The reference flag cannot clear the base's [documented:
-/// catalogue notes of SetActorRefEssential].
+/// Whether `r` is spared death: knocked out at zero health instead of killed (combat,
+/// harmful effects, DamageActorValue, KillActor, KillAllActors, planted explosives).
+/// Outside Hardcore the player's teammate is, flag or not, unless JIP's
+/// ToggleTeammateKillable made it killable; in Hardcore a teammate is not, flag or not
+/// (docs/spec-notes/unconscious.md §2.2a). Everyone else: [`essential_flagged`].
 pub fn essential(g: &Game, r: FormId) -> bool {
-    // "Essential flagged teammates are not essential in Hardcore (New Vegas)"
-    // [documented: GECK wiki SetPlayerTeammate notes]: a companion killed in Hardcore
-    // dies, flag or not.
-    if g.hardcore() && g.is_teammate(r) {
+    if g.is_teammate(r) {
+        // "Essential flagged teammates are not essential in Hardcore (New Vegas)"
+        // [documented: GECK wiki SetPlayerTeammate notes]: a companion killed in
+        // Hardcore dies, flag or not.
+        if teammates_unprotected(g) {
+            return false;
+        }
+        // No hired companion carries the Essential flag and no script sets it, yet
+        // their OnDeath blocks exist for Hardcore: outside it the engine keeps a
+        // teammate alive [hypothesis: unconscious.md §2.2a, observer-checks.md check
+        // 165]. ToggleTeammateKillable "Sets the specified teammate referance as
+        // killable" [documented: GECK wiki, JIP].
+        if !g.jip_flags.contains(&(r, "killable")) {
+            return true;
+        }
+    }
+    essential_flagged(g, r)
+}
+
+/// Whether the Hardcore rule that teammates are not essential holds: in Hardcore, or,
+/// with the player's Hardcore Tweaks on, as their Essential Companions switch says
+/// [design: docs/design/tweaks.md].
+fn teammates_unprotected(g: &Game) -> bool {
+    if g.tweaks.hardcore_tweaks { !g.tweaks.hardcore_essential_companions } else { g.hardcore() }
+}
+
+/// Essential by flag, what IsEssential reads ("Returns 1 if the calling actor is flagged
+/// as essential" [documented: GECK wiki IsEssential]): the reference's own flag
+/// (SetActorRefEssential) or its base's (ACBS, changed by SetEssential). The reference
+/// flag cannot clear the base's [documented: catalogue notes of SetActorRefEssential].
+/// A teammate in Hardcore reads 0 (the SetPlayerTeammate note, [`essential`]).
+pub fn essential_flagged(g: &Game, r: FormId) -> bool {
+    if teammates_unprotected(g) && g.is_teammate(r) {
         return false;
     }
     let base = base_of(g, r);
     let base_flag = base
         .and_then(|b| g.forms.essential.get(&b).copied())
-        .unwrap_or_else(|| g.base_data_def(r).is_some_and(|d| d.essential));
+        .unwrap_or_else(|| g.base_data_source(r).is_some_and(|(id, d)| g.acbs_flag(id, d, crate::actor_values::acbs::ESSENTIAL, |d| d.essential)));
     base_flag || g.extra.get(&r).and_then(|e| e.essential).unwrap_or(false)
 }
 
@@ -764,7 +898,7 @@ pub fn set_actor_ref_essential(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Valu
 
 pub fn is_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(essential(g, r))
+    yes(essential_flagged(g, r))
 }
 
 /// `actor.SetActorFullName message`: the base's name becomes the message's title, for
@@ -838,8 +972,29 @@ fn keeps<'a>(g: &'a Game) -> impl Iterator<Item = &'a FactionKeep> {
     g.detection_round.as_ref().map(|round| &round.kept).into_iter().chain(g.faction_frame.as_ref())
 }
 
+/// The actor base that supplies `r`'s factions (its template chain's "Factions" source).
+fn factions_source(g: &Game, r: FormId) -> Option<FormId> {
+    if g.other.jip11.base_ranks.is_empty() {
+        return None;
+    }
+    base_of(g, r).map(|b| g.data.base_template_source(b, |d| d.template_factions))
+}
+
+/// SetBaseFactionRank changed a base: every kept faction list goes.
+pub(crate) fn forget_all_factions(g: &Game) {
+    for keep in keeps(g) {
+        if let Ok(mut k) = keep.factions.write() {
+            k.clear();
+        }
+    }
+    forget_relations(g);
+}
+
 fn factions_now(g: &Game, r: FormId) -> Vec<FormId> {
     let mut out: Vec<FormId> = base_factions(g, r).iter().map(|f| f.0).collect();
+    if let Some(s) = factions_source(g, r) {
+        out.extend(g.base_rank_overrides(s).into_iter().map(|(f, _)| f));
+    }
     if let Some(e) = g.extra.get(&r) {
         out.extend(e.factions.keys().copied());
     }
@@ -871,9 +1026,13 @@ pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
 /// 3 friend) [documented: GECK wiki GetFactionRelation]. One direction: the reactions
 /// of `r`'s factions towards `o`'s, which need not be those of `o`'s towards `r`'s
 /// [documented: GECK wiki SetEnemy, each faction has its own reaction list;
-/// docs/spec-notes/factions.md §4]. How several factions combine is a [hypothesis]:
-/// enemy first, then friend, then ally; the player counts as an enemy of an actor in a
-/// faction the player is a crime enemy of.
+/// docs/spec-notes/factions.md §4]. How several factions combine: a friend or an ally
+/// first, then an enemy, as allies and friends "cannot attack each other under any
+/// circumstances" [documented: GECK wiki GetFactionCombatReaction], so one shared
+/// friendly pair keeps the peace (Vulpes Inculta, in VCaesarsLegionFaction and
+/// ArmorNCRFactionNVEnemy, among the Legion, #2560); friend before ally is a
+/// [hypothesis]. The player counts as an enemy of an actor in a faction the player is
+/// a crime enemy of, before anything else.
 pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
     // Kept while asked again and again ([`FactionKeep`]).
     let kept = keep(g).map(|k| &k.relations);
@@ -901,25 +1060,40 @@ pub(crate) fn forget_relations(g: &Game) {
 /// [`faction_relation`] does (0 neutral, 1 enemy, 2 ally, 3 friend). A media location
 /// controller's conditional faction asks this of the player (docs/spec-notes/audio.md §13).
 pub fn factions_relation(g: &Game, mine: &[FormId], o: FormId) -> i64 {
-    if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
-        return 1;
-    }
     factions_between(g, mine, o, &factions_of(g, o))
+}
+
+/// Whether the player is an enemy of an actor in the factions `mine` by a faction enemy
+/// flag (SetPCEnemyOfFaction, a witnessed crime): one of `mine` is flagged, and none of
+/// the others is the player's ally or friend (`theirs`: the player's factions). A
+/// faction disguise makes such a faction the player's friend: the NCR armour's OnEquip
+/// makes PlayerFaction and ArmorNCRFactionNV friends, every NCR soldier is in
+/// ArmorNCRFactionNV too, and the disguise pulse takes sniffers near the player out of
+/// it, by its notes so that they may turn hostile to a player they think little of
+/// [observed: FalloutNV.esm's disguise scripts; hypothesis: the friendship outranks the
+/// flag, docs/spec-notes/disguises.md §3]. The flagged faction's own friendship does
+/// not count: a crime among the player's friends stays a crime.
+pub fn player_enemy_of_factions(g: &Game, mine: &[FormId], theirs: &[FormId]) -> bool {
+    let enemy_of = &g.player.enemy_of;
+    if enemy_of.is_empty() || !mine.iter().any(|f| enemy_of.contains(f)) {
+        return false;
+    }
+    !mine.iter().filter(|f| !enemy_of.contains(f)).any(|&x| theirs.iter().any(|&y| matches!(reaction(g, x, y), 2 | 3)))
 }
 
 /// [`factions_relation`] with `o`'s factions given (`theirs`): reads no kept factions, so
 /// it takes no lock (a detection round's pairs on several threads, #1799).
 pub fn factions_between(g: &Game, mine: &[FormId], o: FormId, theirs: &[FormId]) -> i64 {
-    if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
+    if o == FormId::PLAYER_REF && player_enemy_of_factions(g, mine, theirs) {
         return 1;
     }
     let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();
-    if all.contains(&1) {
-        1
-    } else if all.contains(&3) {
+    if all.contains(&3) {
         3
     } else if all.contains(&2) {
         2
+    } else if all.contains(&1) {
+        1
     } else {
         0
     }
@@ -997,24 +1171,64 @@ pub fn get_faction_rank_difference(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<
     Ok(Value::Num((faction_rank(g, r, f) - faction_rank(g, t, f)) as f64))
 }
 
-/// `SetPCEnemyOfFaction faction flag` [documented: catalogue summary].
+/// `SetPCEnemyOfFaction faction flag` [documented: catalogue summary]. A flag a script
+/// sets stays until a script clears it; one a crime set ends with its crimes
+/// (`Game::expire_crimes`) [design, #2467].
 pub fn set_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let f = a.form(0)?;
-    if a.num_or(1, 1.0) != 0.0 {
-        g.player.enemy_of.insert(f);
-    } else {
-        g.player.enemy_of.remove(&f);
-    }
-    forget_relations(g);
+    g.script_enemy_of(f, a.num_or(1, 1.0) != 0.0);
     none()
 }
 
 pub fn get_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.expire_crimes();
     yes(g.player.enemy_of.contains(&a.form(0)?))
 }
 
+/// Resolve a faction parameter passed as a FormID (CTDA / bytecode / ref expression) or
+/// editorID string (source calls where `functions.json` types `FactionID` as `string`),
+/// requiring a `FACT` record [design].
+fn faction_arg(g: &Game, a: &Args, i: usize) -> Result<FormId, String> {
+    let id = if let Some(f) = a.peek_form(i) {
+        f
+    } else if let Some(edid) = a.peek_str(i) {
+        g.data.by_edid(edid).ok_or_else(|| format!("unknown faction {edid:?}"))?
+    } else {
+        return Err(format!("parameter {} is not a faction", i + 1));
+    };
+    if g.data.sig(id).as_ref() != Some(b"FACT") {
+        return Err(format!("parameter {} ({id}) is not a faction", i + 1));
+    }
+    Ok(id)
+}
+
+/// `GetPCExpelled faction`: 1 when the player has been expelled from `faction`
+/// [documented: GECK wiki GetPCExpelled; `schemas/script/functions.json`, 0x10C1 / CTDA 193].
+pub fn get_pc_expelled(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    yes(g.player.expelled_from.contains(&faction_arg(g, a, 0)?))
+}
+
+/// `SetPCExpelled faction flag`: expels the player from `faction` and sets the expelled
+/// flag when `flag != 0`, or clears the flag when `flag == 0` without re-adding membership
+/// [documented: GECK wiki SetPCExpelled; hypothesis: interior faction-owned cell eviction
+/// is not performed in core rules].
+pub(crate) fn set_pc_expelled(g: &mut Game, a: &Args) -> Result<(), String> {
+    let f = faction_arg(g, a, 0)?;
+    let expel = a.int(1)? != 0;
+    if expel {
+        g.player.expelled_from.insert(f);
+        if faction_rank(g, FormId::PLAYER_REF, f) >= 0 {
+            g.extra.entry(FormId::PLAYER_REF).or_default().factions.insert(f, -1);
+            forget_factions(g, FormId::PLAYER_REF);
+        }
+    } else {
+        g.player.expelled_from.remove(&f);
+    }
+    Ok(())
+}
+
 pub fn clear_faction_player_enemy_flag(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.enemy_of.remove(&a.form(0)?);
+    g.clear_enemy_of(a.form(0)?);
     forget_relations(g);
     none()
 }
@@ -1023,6 +1237,7 @@ pub fn clear_faction_player_enemy_flag(g: &mut Game, _ctx: &Ctx, a: &Args) -> Re
 /// catalogue summary].
 pub fn get_actor_faction_player_enemy(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    g.expire_crimes();
     yes(factions_of(g, r).iter().any(|f| g.player.enemy_of.contains(f)))
 }
 
@@ -1090,7 +1305,21 @@ pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     // An actor holds one script package: a second call replaces the first
     // [documented: GECK wiki AddScriptPackage notes, actor-behaviour.md §1.4; observed:
     // od_08_script_packages, owner-decision-captures.md item 8].
-    g.extra.entry(r).or_default().script_package = Some(p);
+    let e = g.extra.entry(r).or_default();
+    // The package added again while it is still the current one and its goal was met
+    // begins afresh: its goal is forgotten and the AI takes it up anew
+    // (`RefExtra::ai_reset`), as for a package it did not have [hypothesis: the GECK
+    // wiki's "takes precedence over all other packages until it is done" read for each
+    // call; the Lucky 38 elevator's OnActivate adds its Dialogue package
+    // Lucky38VictorElevatorTalkToPlayer on every talk and waits for the conversation
+    // (delaycounter 1 until MenuMode 1009), so a second talk after Stay Here never
+    // opened one and the floor box never came back, issue #2424]. A call while it
+    // still runs changes nothing, so a script adding it every frame does not restart it.
+    if e.current_package == Some(p) && e.package_goal_met {
+        e.package_goal_met = false;
+        e.ai_reset = true;
+    }
+    e.script_package = Some(p);
     if g.runs_packages() {
         g.set_package(r, Some(p));
     } else {

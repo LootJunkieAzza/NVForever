@@ -26,7 +26,6 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use crate::ui_pointer::Button;
 use bevy::window::PrimaryWindow;
-use fnv_font::Line;
 use fnv_game::lockpick::{Phase, FULL_TURN, PIN_RANGE};
 use nvf_assets::GameData;
 
@@ -149,10 +148,6 @@ pub enum FontKind {
     Body,
 }
 
-fn text_line(face: &Face, s: &str) -> Line {
-    face.font.lines(s, None).into_iter().next().unwrap_or_default()
-}
-
 /// What the screen shows; drawn again when it changes.
 fn view_key(s: &Session, has_view: bool, view_w: f32) -> String {
     format!(
@@ -199,6 +194,7 @@ pub fn draw(
     window: Query<&Window, With<PrimaryWindow>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     roots: Query<Entity, With<LockpickRoot>>,
     (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
 ) {
@@ -214,7 +210,7 @@ pub fn draw(
     let Some(s) = screen.0.as_ref() else { return };
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     spawn(&mut commands, &mut c, s, view.as_deref(), view_w);
 }
 
@@ -223,6 +219,7 @@ pub struct Ctx<'a> {
     pub(crate) data: Option<&'a GameData>,
     pub(crate) images: &'a mut Assets<Image>,
     pub(crate) bc: bool,
+    pub(crate) glyphs: &'a crate::pad::PadGlyphs,
 }
 
 impl Ctx<'_> {
@@ -267,15 +264,21 @@ impl Ctx<'_> {
         self.text_in(p, FontKind::Menu, s, x, top, right, color)
     }
 
+    /// The width one line of text would take in a font.
+    pub fn text_width(&mut self, kind: FontKind, s: &str) -> f32 {
+        let (face, _) = self.face(kind);
+        crate::pad::hint_width(face, s, self.glyphs)
+    }
+
     /// One line of text in a font, its top at `top`; `right`: `x` is its right end. Its
     /// width.
     #[allow(clippy::too_many_arguments)]
     pub fn text_in(&mut self, p: &mut ChildSpawnerCommands, kind: FontKind, s: &str, x: f32, top: f32, right: bool, color: Color) -> f32 {
         let (face, base) = self.face(kind);
-        let line = text_line(face, s);
-        let x = if right { x - line.width } else { x };
-        set_line(p, face, &line, x, top + base, color);
-        line.width
+        let width = crate::pad::hint_width(face, s, self.glyphs);
+        let x = if right { x - width } else { x };
+        crate::pad::set_hint(p, face, s, x, top + base, color, self.glyphs);
+        width
     }
 
     /// Text wrapped at `wrap`, its top at `top`, its lines the font's size and `leading`
@@ -388,6 +391,7 @@ pub fn draw_debug(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     roots: Query<Entity, With<LockpickDebugRoot>>,
     (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
 ) {
@@ -402,7 +406,7 @@ pub fn draw_debug(
     let Some(s) = screen.0.as_ref().filter(|_| debug.0) else { return };
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     let g = &s.game;
     let bright = amber(255.0);
     let pct = |deg: f32| Val::Percent((deg / PIN_RANGE * 100.0).clamp(0.0, 100.0));

@@ -81,6 +81,43 @@ describes the algorithm; verified on every file and folder name in the corpus, o
   from index 1 up to (length − 2) exclusive, plus the same rolling value computed over the
   extension (including the dot), summed mod 2^32.
 
+## Version 103 (Oblivion's archives)
+
+The original game also loads version 103 archives, which some mods ship [observed by the
+owner, #2092]. NVForever reads them by these rules (`fnv_bsa::VERSION_103`); no v103
+archive was at hand to check them against (none of the 63 archives on the maintainer's
+machine is v103, 2026-11-12), so each rests on the public pages:
+
+- **Same layout as 104.** The UESP Oblivion page gives the same 36-byte header (magic,
+  version 103, offset 36, archive flags, folder and file counts, the two name lengths,
+  content-type flags), the same 16-byte folder records (hash, file count, an offset that
+  includes the total file name length), the same file-record blocks (a folder name with a
+  length byte when flag 0x1, then 16-byte file records: hash, size with bit 30 inverting
+  the default compression, absolute offset), the same file-name block and the same sort
+  by hash. The Skyrim page calls the two formats "nearly identical" and names 104 for
+  Fallout 3 and New Vegas, 103 for Oblivion [documented: UESP "Oblivion Mod:BSA File
+  Format", "Skyrim Mod:Archive File Format", read 2026-11-12].
+- **Compressed blocks:** a u32 uncompressed size, then zlib data, as in 104 [documented:
+  the Oblivion page].
+- **Flags 0x100, 0x200, 0x400:** the Oblivion page's flag table marks all three "set in
+  all official BSA files", 0x100 and 0x200 with "a different meaning for BSA v104", and
+  the footnotes say such bits have no effect on the file structure for 0x8/0x10/0x20/0x80
+  only [documented]. The Skyrim page gives 0x100 as "Embed File Names" (each block starts
+  with its path) for 104 [documented]. NVForever therefore never looks for a path before
+  a v103 block, and knows 0x200 and 0x400 in a v103 archive (no warning, kept on rewrite)
+  [hypothesis: the Oblivion page's file-block table still says the path is "only present
+  if bit 9 of the archive flags is set", which contradicts its own flag table; with a
+  path stripped, every official v103 archive, all of which set 0x100, would read wrong,
+  so the flag table is taken. Confirm on a real v103 archive: `fnvtool bsa verify` and the
+  `bsa-version-103` smoke scenario with `NVF_BSA_103` set].
+- **Flag 0x40** means big-endian (Xbox 360) in 103 as in 104 [documented]; not supported.
+- **Name hash:** the same algorithm [hypothesis: the Oblivion page links the same Hash
+  Calculation page; a mismatch would only warn, files are found by name].
+
+A v103 archive is rewritten as 103 (`rewrite`, `fnvtool bsa verify`); the writer's own
+archives are 104. Version 105 (Skyrim SE, wider folder records and LZ4) and any other
+version are refused with `unsupported BSA version N (expected 104, or Oblivion's 103)`.
+
 ## Anomalies
 
 - `Fallout - Invalidation.bsa` (83 bytes): its folder name has length byte 0 (no NUL,
@@ -162,7 +199,17 @@ All three favour A. Rule used by `crates/fnv-vfs` (lowest precedence first):
    in the load order (#996) [hypothesis: no source says how the original picks; the
    shipped data has no such pair (every archive matches one plugin), so the rule changes
    nothing for an unmodded install, `vfs-order-shipped`; chosen because the longer name
-   is the more specific claim];
+   is the more specific claim].
+   A plugin also owns the numbered pieces `<plugin stem>N.bsa` and `<plugin stem>N - *.bsa`
+   (N decimal digits), after its unnumbered archives, in number order (#2521). [observed]
+   the Begin Again mod list ships `Begin Again Worldspace Merge.bsa` with
+   `…Merge1.bsa` to `…Merge6.bsa` beside its one plugin `Begin Again Worldspace Merge.esp`,
+   and the textures its rock meshes use (`textures\landscape\nv_rocks\nv_rockformations_04_d.dds`
+   and others) are only in `…Merge3.bsa` and `…Merge4.bsa`; without the pieces those rocks
+   drew untextured. [hypothesis] that the original mounts them: the list is built for the
+   original game; no source states its rule. A name that only begins with the stem
+   (`MergeExtra.bsa`) is not claimed, and the longest-stem rule above still applies
+   (`Merge3.bsa` is `Merge3.esp`'s when that plugin is loaded);
 4. loose files [hypothesis: no loose mesh or texture exists in the owner's `Data`
    (only music, radio songs, shader packages and the intro video), and the project never
    writes into the game folder, so this stays untested; `bInvalidateOlderFiles=1` is
@@ -175,3 +222,44 @@ share only `characters\_1stperson\1hpaim.kf` with different contents, not testab
 screenshot) and DLC against DLC in load order (only DLC-worldspace files differ).
 `Fallout - Invalidation.bsa` is in no list and named after no plugin; the VFS ignores it
 [hypothesis that the game does too].
+
+
+## NVForever home loose files
+
+Implementation context at pinned source `6692d2da4612fa4aae9f0a9eea177452ba511c4e`:
+`EngineHome::mods` in `crates/fnv-install/src/lib.rs`, `mod_file_roots` in
+`engine/nvf-play/src/script_input.rs`, and `docs/design/install-layout.md` describe
+NVForever's own `mods` folder
+is a read-only input layer above the game's Data. The script file reader already
+searches those loose files before Data. `Vfs::open_for_plugins_in` receives this
+folder, but previously used it only to discover plugin archives; the asset reader
+therefore could not read a loose asset that the script file reader could find.
+
+[hypothesis: NVForever layout policy, not native multi-directory parity] Index
+Data loose files, then the explicitly supplied own-mods loose root. Keep the
+existing archive selection and precedence. `data_dir()` still names game Data;
+`source_of` reports `loose` for either layer, and `loose_path` names the actual
+winning file with its filesystem spelling. `read_archived` keeps the highest
+archive copy underneath both loose layers, rather than treating a hidden Data
+loose file as an archive. With no mods root, single-root behavior is retained.
+Missing optional roots add no layer; other traversal failures use the existing
+skipped-folder diagnostics. An indexed winner that later cannot be read returns
+its read error, without silently falling back to hidden bytes.
+
+[hypothesis: retained snapshot policy] Opening indexes the available paths once.
+Installing a new file requires a new VFS; this change adds no filesystem polling,
+cache invalidation, extra archive discovery, or writes to either input root.
+Top-level files remain outside the asset namespace.
+
+Authored portable controls cover home-only mixed-case paths, precedence across
+both loose layers and archives, archived fallback, absent/removed layers,
+single-root controls, top-level exclusions, read errors, and reopening after a
+new file appears. Index lifetime does not freeze an indexed file's bytes: a
+later read still opens its winning path. The same-root control preserves the
+existing archive rule that an explicitly supplied mods copy has a full-path
+archive name, even when both roots name Data.
+
+These controls validate VFS path selection and error behavior. They do not by
+themselves establish asset decoding, a live animation consumer or rendering.
+Exact-head workspace checks and those consumer checks are tracked separately;
+no complete original-mod or native opcode compatibility follows from this leaf.

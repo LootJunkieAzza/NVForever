@@ -58,13 +58,34 @@ impl<'a> Game<'a> {
     /// leveled lists read at its level with its pick seed
     /// ([`crate::data::GameData::template_source_at`]).
     pub fn template_source(&self, base: FormId, r: FormId, from_template: fn(&ActorDef) -> bool) -> Option<(FormId, &'a ActorDef)> {
+        self.runtime_template_source(base, self.pick_seed(r), self.leveled_at(r), from_template)
+    }
+
+    /// Runtime template selection when the caller holds the played world's level
+    /// and seed, rather than the script world's between-turn stand-in.
+    pub fn runtime_template_source(&self, base: FormId, seed: FormId, at: LevelAt, from_template: fn(&ActorDef) -> bool) -> Option<(FormId, &'a ActorDef)> {
         let data: &'a crate::data::GameData = self.data;
-        data.template_source_at(base, self.pick_seed(r), self.leveled_at(r), from_template)
+        data.template_source_at_with(base, seed, at, from_template, &|id| self.actor_list_override(id))
     }
 
     /// The actor base whose name `r` (placed with `base`) is shown by, at its level.
     pub fn display_base(&self, base: FormId, r: FormId) -> FormId {
-        self.data.display_base_at(base, self.pick_seed(r), self.leveled_at(r))
+        self.template_source(base, r, |d| d.template_base).map_or(base, |(id, _)| id)
+    }
+
+    /// Minor actor flags from the same runtime list view as drawing and gameplay.
+    pub fn runtime_minor_flags(&self, base: FormId, seed: FormId, at: LevelAt) -> crate::templates::MinorFlags {
+        use crate::actor_values::acbs;
+        self.runtime_template_source(base, seed, at, |d| d.template_base).map_or(Default::default(), |(id, d)| {
+            let crea = &d.sig == b"CREA";
+            crate::templates::MinorFlags {
+                not_pushable: self.acbs_flag(id, d, acbs::NOT_PUSHABLE, |d| d.not_pushable),
+                no_head_track: self.acbs_flag(id, d, acbs::NO_HEAD_TRACK, |d| d.no_head_track),
+                no_head: crea && self.acbs_flag(id, d, acbs::NO_HEAD, |d| d.no_head),
+                no_right_arm: crea && self.acbs_flag(id, d, acbs::NO_RIGHT_ARM, |d| d.no_right_arm),
+                no_left_arm: crea && self.acbs_flag(id, d, acbs::NO_LEFT_ARM, |d| d.no_left_arm),
+            }
+        })
     }
 
     /// The base form whose voice type `r` (placed with `base`) speaks with: the "Traits"
@@ -85,7 +106,7 @@ impl<'a> Game<'a> {
         // ResurrectActor rolled its picks again, so a resurrected actor speaks with the
         // voice of the entry it now shows.
         let seed = fnv_sim::leveled::roll_seed(r, self.extra.get(&r).map_or(0, |e| e.rolls));
-        self.data.template_source_at(base, seed, at, |d| d.template_traits).map_or(base, |(id, _)| id)
+        self.data.template_source_at_with(base, seed, at, |d| d.template_traits, &|id| self.actor_list_override(id)).map_or(base, |(id, _)| id)
     }
 
     /// `cell` comes into the loaded area: its encounter zone gets its level if it has none,
@@ -103,6 +124,7 @@ impl<'a> Game<'a> {
         }
         for z in zones {
             if let Some(level) = self.world.enter_zone(z, player_level) {
+                self.zone_levels_set += 1;
                 let min_level = self.world.forms.zones.get(&z).map_or(0, |d| d.min_level);
                 self.push_level_news(LevelNews::Zone { zone: z, level, min_level, player_level });
             }
@@ -128,7 +150,7 @@ impl<'a> Game<'a> {
         }
         // Carried items not rolled yet come from the pick at this level.
         if reroll || self.world.peek(r).is_none() {
-            let source = self.data.template_source_at(p.base, self.pick_seed(r), at, |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != p.base);
+            let source = self.template_source(p.base, r, |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != p.base);
             self.world.set_inventory_source(r, source);
         }
         let (base, list) = self.chain_end(p.base, crate::templates::Picks::at(self.pick_seed(r), at));
@@ -142,9 +164,10 @@ impl<'a> Game<'a> {
     /// flags), with `picks`; and the first leveled list met on the way (`None`: the chain
     /// meets none, the level does not matter to it).
     fn chain_end(&self, base: FormId, mut picks: crate::templates::Picks) -> (Option<FormId>, Option<FormId>) {
-        let mut id = self.data.actor_base(base, &mut picks);
+        let lists = |id| self.actor_list_override(id);
+        let mut id = self.data.actor_base_with(base, &mut picks, &lists);
         for _ in 0..16 {
-            let Some(next) = id.and_then(|i| self.data.actors.get(&i)).and_then(|d| d.template).and_then(|t| self.data.actor_base(t, &mut picks)) else { break };
+            let Some(next) = id.and_then(|i| self.data.actors.get(&i)).and_then(|d| d.template).and_then(|t| self.data.actor_base_with(t, &mut picks, &lists)) else { break };
             if Some(next) == id {
                 break;
             }

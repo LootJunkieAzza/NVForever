@@ -34,6 +34,8 @@ pub struct Roots {
     pub write: Option<PathBuf>,
     pub lookup: Option<Lookup>,
     pub reader: Option<Reader>,
+    /// The archives the host loaded, by file name (IsBSALoaded, `nvse_jg8`).
+    pub archives: Vec<String>,
 }
 
 static ROOTS: Mutex<Option<Roots>> = Mutex::new(None);
@@ -89,6 +91,26 @@ pub fn data_files(folder: &str) -> Vec<(String, PathBuf)> {
     out
 }
 
+/// CompileScript paths are UDF-relative; normalize only this API lexically within Data.
+/// Physical symlink/junction containment remains the existing reader policy
+/// (compilescript-relative-paths.md).
+pub(crate) fn udf_data_path(path: &str) -> Option<String> {
+    if path.is_empty() || path.contains([':', '\0']) || path.starts_with(['/', '\\']) {
+        return None;
+    }
+    let mut parts = vec!["nvse", "user_defined_functions"];
+    for part in path.split(['/', '\\']) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            _ => parts.push(part),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("\\").to_ascii_lowercase())
+}
+
 /// A Data file's bytes: the first read root's loose copy (NVForever's layer before the
 /// game's Data), else through the host (archives included).
 pub fn read_data_file(path: &str) -> Option<Vec<u8>> {
@@ -115,6 +137,11 @@ fn on_disk_any_case(base: &Path, rel: &str) -> Option<PathBuf> {
     Some(p)
 }
 
+/// The archives the host loaded, by file name.
+pub fn archives() -> Vec<String> {
+    roots().archives
+}
+
 /// The game's Data folder, when the host gave one (the last read root).
 pub fn data_dir() -> Option<PathBuf> {
     roots().read.last().cloned()
@@ -125,6 +152,12 @@ pub fn data_dir() -> Option<PathBuf> {
 pub fn exists(path: &str) -> bool {
     let r = roots();
     r.read.iter().any(|root| on_disk(root, path).is_some_and(|p| p.is_file()) || find_file(root, path).is_some()) || r.lookup.as_ref().is_some_and(|f| f(path) > 0)
+}
+
+/// Whether the host answers for the archives (the engine, once the game's Data is open):
+/// without, [`exists`] can say no for a file that is in an archive.
+pub fn knows_archives() -> bool {
+    roots().lookup.is_some()
 }
 
 fn roots() -> Roots {
@@ -139,6 +172,11 @@ pub struct ModFiles {
     written: HashMap<String, String>,
     /// ShowOff's cached INI files, by lower-case Data path: key -> value, read once.
     cache: HashMap<String, HashMap<String, String>>,
+    /// ShowOff's cached JSON files (ReadFromJSON, WriteToJSON with useCache), by the
+    /// lower-case path under the game's folder.
+    showoff_json: HashMap<String, serde_json::Value>,
+    /// Folders CreateFolder made this session (under the game's folder, lower case).
+    folders: std::collections::HashSet<String>,
     /// SUP's JSONGetValue files read with iCached, by lower-case path (`crate::nvse_sup5`).
     pub(crate) json: HashMap<String, serde_json::Value>,
 }
@@ -204,30 +242,72 @@ pub fn files_under(rel: &str) -> Vec<String> {
     list_files(rel, true)
 }
 
+/// The files and folders directly in a Data folder, through every read root (an earlier
+/// root hides the same name, compared without regard to case); kNVSE's GetDirectoryFiles
+/// (`crate::nvse_unlisted2`).
+pub fn entries_in(rel: &str) -> Vec<String> {
+    let (mut seen, mut out) = (std::collections::HashSet::new(), Vec::new());
+    for root in roots().read {
+        let Some(dir) = find_dir(&root, rel) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if seen.insert(name.to_ascii_lowercase()) {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
 /// The loose files directly in a Data folder (no subfolders), as [`files_under`].
 pub fn files_in(rel: &str) -> Vec<String> {
     list_files(rel, false)
 }
 
-fn list_files(rel: &str, deep: bool) -> Vec<String> {
-    fn walk(dir: &Path, prefix: &str, deep: bool, seen: &mut std::collections::HashSet<String>, out: &mut Vec<String>) {
-        let Ok(rd) = std::fs::read_dir(dir) else { return };
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            let rel = if prefix.is_empty() { name } else { format!("{prefix}\\{name}") };
-            if e.path().is_dir() {
-                if deep {
-                    walk(&e.path(), &rel, deep, seen, out);
-                }
-            } else if seen.insert(rel.to_ascii_lowercase()) {
-                out.push(rel);
+/// The files under `dir` added to `out` as paths relative to it (`\` between parts), a
+/// path once (`seen`, lower case); subfolders too when `deep`. A folder that is a link
+/// (a symlink, an NTFS junction) to a folder the walk is already inside is not entered:
+/// a junction to its own parent would otherwise be walked until the system's path limit
+/// (#3154). `open` holds the real paths of the folders the walk is inside.
+fn walk_files(dir: &Path, prefix: &str, deep: bool, open: &mut Vec<PathBuf>, seen: &mut std::collections::HashSet<String>, out: &mut Vec<String>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        let rel = if prefix.is_empty() { name } else { format!("{prefix}\\{name}") };
+        let path = e.path();
+        if path.is_dir() {
+            if !deep {
+                continue;
             }
+            // A plain folder's real path is its parent's with its name; only a link is
+            // resolved (a system call each).
+            let linked = e.file_type().map_or(true, |t| !t.is_dir());
+            let real = match open.last() {
+                Some(parent) if !linked => parent.join(e.file_name()),
+                _ => match path.canonicalize() {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                },
+            };
+            if open.contains(&real) {
+                continue;
+            }
+            open.push(real);
+            walk_files(&path, &rel, deep, open, seen, out);
+            open.pop();
+        } else if seen.insert(rel.to_ascii_lowercase()) {
+            out.push(rel);
         }
     }
+}
+
+fn list_files(rel: &str, deep: bool) -> Vec<String> {
     let (mut seen, mut out) = (std::collections::HashSet::new(), Vec::new());
     for root in roots().read {
         if let Some(dir) = find_dir(&root, rel) {
-            walk(&dir, "", deep, &mut seen, &mut out);
+            let mut open: Vec<PathBuf> = dir.canonicalize().into_iter().collect();
+            walk_files(&dir, "", deep, &mut open, &mut seen, &mut out);
         }
     }
     out.sort_by_key(|n| n.to_ascii_lowercase());
@@ -330,6 +410,23 @@ impl ModFiles {
         on_disk(Path::new(""), rel).is_some() && self.write_under(format!("<root>\\{}", norm(rel)), rel, Some(GAME_ROOT), text)
     }
 
+    /// CreateFolder: a folder under the game's folder, made in NVForever's layer (its
+    /// `GameRoot` folder), never the game's; false for a path [`on_disk`] or
+    /// [`may_write`] refuses. Without a write root it is only kept for the session.
+    fn make_folder_root(&mut self, rel: &str) -> bool {
+        if rel.trim().is_empty() || on_disk(Path::new(""), rel).is_none() {
+            return false;
+        }
+        if let Some(w) = roots().write {
+            let Some(p) = on_disk(&w.join(GAME_ROOT), rel) else { return false };
+            if !may_write(&p) || std::fs::create_dir_all(&p).is_err() {
+                return false;
+            }
+        }
+        self.folders.insert(norm(rel));
+        true
+    }
+
     /// Write a Data file into NVForever's layer; false when refused, as `write_root`.
     pub(crate) fn write(&mut self, rel: &str, text: String) -> bool {
         on_disk(Path::new(""), rel).is_some() && self.write_under(norm(rel), rel, None, text)
@@ -413,6 +510,32 @@ impl ModFiles {
     }
 }
 
+/// Normalize only Config-relative INI names, bounded lexically by Data.
+/// Ordinary file APIs keep their strict plain-name policy (local-ini-sibling-paths.md).
+fn ini_data_path(file: &str) -> Option<String> {
+    if file.is_empty() || file.starts_with(['\\', '/']) || file.contains([':', '\0']) {
+        return None;
+    }
+    let mut parts = vec!["Config"];
+    for part in file.split(['\\', '/']).filter(|p| !p.is_empty()) {
+        match part {
+            "." => {}
+            ".." => { parts.pop()?; }
+            _ => parts.push(part),
+        }
+    }
+    if parts.is_empty() { return None; }
+    let path = parts.join("\\");
+    on_disk(Path::new(""), &path)?;
+    Some(path)
+}
+
+// Keep a parent marker for invalid input so the existing disk reader and writer
+// reject it. Prepending Config to a rooted name would hide the leading root.
+fn ini_access_path(file: &str) -> String {
+    ini_data_path(file).unwrap_or_else(|| format!("..\\{file}"))
+}
+
 /// The INI file a function names, under `Data\Config`, ".ini" added when it has no
 /// extension [observed: "NVFExtProbe\probe" and "…\probe.ini" both read]; none given:
 /// the calling mod's own, `<plugin name>.ini` [documented: GetINISection, "the name of
@@ -426,7 +549,7 @@ fn ini_path(g: &Game, file: Option<&str>) -> String {
         }
     };
     let f = if f.to_ascii_lowercase().ends_with(".ini") { f } else { format!("{f}.ini") };
-    format!("Config\\{f}")
+    ini_access_path(&f)
 }
 
 /// `Section:Key` with ":", "/" or "\" between [observed: all three work], lower case.
@@ -471,6 +594,11 @@ fn ini_section(text: &str, section: &str) -> Vec<(String, String)> {
     out
 }
 
+/// A cached file value loses one surrounding quote pair [observed: cached-ini-quotes.md].
+fn cached_ini_value(value: String) -> String {
+    value.strip_prefix('"').and_then(|s| s.strip_suffix('"')).map(str::to_owned).unwrap_or(value)
+}
+
 fn ini_sections(text: &str) -> Vec<String> {
     text.lines().filter_map(|l| l.trim().strip_prefix('[').map(|s| s.trim_end_matches(']').trim().to_string())).collect()
 }
@@ -513,6 +641,43 @@ fn ini_set(text: &str, section: &str, key: &str, value: &str, section_name: &str
     lines.join("\r\n") + "\r\n"
 }
 
+/// INI text without one key of a section (section and key without regard to case);
+/// `None` when it has no such key.
+fn ini_remove_key(text: &str, section: &str, key: &str) -> Option<String> {
+    let mut cur = String::new();
+    let mut out: Vec<&str> = Vec::new();
+    let mut found = false;
+    for line in text.lines() {
+        let l = line.trim();
+        if let Some(s) = l.strip_prefix('[') {
+            cur = s.trim_end_matches(']').trim().to_ascii_lowercase();
+        } else if cur == section && l.split_once('=').is_some_and(|(k, _)| k.trim().eq_ignore_ascii_case(key)) {
+            found = true;
+            continue;
+        }
+        out.push(line);
+    }
+    found.then(|| out.join("\r\n") + "\r\n")
+}
+
+/// INI text without a section, its heading and its keys; `None` when it has none.
+fn ini_remove_section(text: &str, section: &str) -> Option<String> {
+    let mut cur = String::new();
+    let mut out: Vec<&str> = Vec::new();
+    let mut found = false;
+    for line in text.lines() {
+        let l = line.trim();
+        if let Some(s) = l.strip_prefix('[') {
+            cur = s.trim_end_matches(']').trim().to_ascii_lowercase();
+            found |= cur == section;
+        }
+        if cur != section {
+            out.push(line);
+        }
+    }
+    found.then(|| out.join("\r\n") + "\r\n")
+}
+
 /// A number as LU writes it: no decimals for a whole number [observed: "fNum=6",
 /// "fSet=2.25"].
 fn lu_number(v: f64) -> String {
@@ -548,6 +713,155 @@ fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {
 fn sup_ini(g: &Game, args: &[XVal]) -> Option<String> {
     let t = g.mod_files.read_root(text(args, 0)?.trim())?;
     Some(t.strip_prefix("\u{ef}\u{bb}\u{bf}").map(str::to_string).unwrap_or(t))
+}
+
+/// Read an INI file into ShowOff's cache when it is not there yet (or again, with
+/// `reload`); its cache key.
+fn cache_ini(g: &mut Game, path: &str, reload: bool) -> String {
+    let key = norm(path);
+    if reload || !g.mod_files.cache.contains_key(&key) {
+        let text = g.mod_files.read(path).unwrap_or_default();
+        let mut m = HashMap::new();
+        for sec in ini_sections(&text) {
+            let ls = sec.to_ascii_lowercase();
+            for (kk, vv) in ini_section(&text, &ls) {
+                m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), cached_ini_value(vv));
+            }
+        }
+        g.mod_files.cache.insert(key.clone(), m);
+    }
+    key
+}
+
+/// A JSON string standing for a form: `@`, the plugin's file name, `:`, the FormID without
+/// its load-order index in hex, leading zeros optional [documented: ReadFromJSON,
+/// "@FalloutNV.esm:096BCE"]. `None` for any other string; `Some(0)` for a plugin not
+/// loaded [hypothesis: the form is none].
+fn json_form(g: &Game, s: &str) -> Option<u32> {
+    let rest = s.strip_prefix('@')?;
+    let (file, id) = rest.rsplit_once(':')?;
+    let id = u32::from_str_radix(id.trim(), 16).ok()?;
+    let index = g.data.load_order.iter().position(|p| p.eq_ignore_ascii_case(file.trim()));
+    Some(index.map_or(0, |i| ((i as u32) << 24) | (id & 0x00FF_FFFF)))
+}
+
+/// A JSON value as a script value: an object a string map, an array an array, numbers
+/// and booleans numbers, `null` Ar_Null's 0, a form string the form [documented:
+/// ReadFromJSON's examples].
+fn json_to_xval(g: &mut Game, v: &serde_json::Value) -> XVal {
+    use serde_json::Value as J;
+    match v {
+        J::Null => XVal::Num(0.0),
+        J::Bool(b) => XVal::Num(f64::from(u8::from(*b))),
+        J::Number(n) => XVal::Num(n.as_f64().unwrap_or(0.0)),
+        J::String(s) => match json_form(g, s) {
+            Some(r) => XVal::Ref(r),
+            None => XVal::Str(s.clone()),
+        },
+        J::Array(items) => {
+            let entries = items.iter().enumerate().map(|(i, x)| (XKey::Num(i as f64), json_to_xval(g, x))).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+        }
+        J::Object(m) => {
+            let entries = m.iter().map(|(k, x)| (XKey::Str(k.clone()), json_to_xval(g, x))).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::StringMap, entries))
+        }
+    }
+}
+
+/// A script value as JSON, the other way round [documented: WriteToJSON, "takes inputs
+/// in the same format as what is outputted by ReadFromJSON"]: a form is `@`, its plugin,
+/// `:` and its FormID in eight hex digits without the index [documented: WriteToJSON's
+/// example, "@LonesomeRoad.esm:00003E43"]; no form, or one of no loaded plugin (made in
+/// play), is `null`; a numeric map an object keyed by its numbers' text [hypothesis].
+fn xval_to_json(g: &Game, v: &XVal, depth: usize) -> serde_json::Value {
+    use serde_json::Value as J;
+    match v {
+        XVal::Num(x) => serde_json::Number::from_f64(*x).map_or(J::Null, J::Number),
+        XVal::Str(s) => J::String(s.clone()),
+        XVal::Ref(0) => J::Null,
+        XVal::Ref(r) => match g.data.load_order.get((r >> 24) as usize) {
+            Some(p) => J::String(format!("@{p}:{:08X}", r & 0x00FF_FFFF)),
+            None => J::Null,
+        },
+        XVal::Array(id) => {
+            let Some(a) = g.ext.array(*id).filter(|_| depth < 64) else { return J::Null };
+            match a.kind {
+                ArrayKind::List => J::Array(a.entries.iter().map(|(_, x)| xval_to_json(g, x, depth + 1)).collect()),
+                _ => J::Object(
+                    a.entries
+                        .iter()
+                        .map(|(k, x)| {
+                            let key = match k {
+                                XKey::Str(s) => s.clone(),
+                                XKey::Num(n) => cell_text(&XVal::Num(*n)),
+                            };
+                            (key, xval_to_json(g, x, depth + 1))
+                        })
+                        .collect(),
+                ),
+            }
+        }
+    }
+}
+
+/// Put `value` at a JSON Pointer (RFC 6901) in `root`, making the objects on the way
+/// that are missing [hypothesis: the page does not say what a pointer into a missing
+/// part does]; an array index at or past the end (or `-`) appends. False when the path
+/// runs through a value that is neither an object nor an array.
+fn json_set(root: &mut serde_json::Value, pointer: &str, value: serde_json::Value) -> bool {
+    use serde_json::Value as J;
+    if pointer.is_empty() {
+        *root = value;
+        return true;
+    }
+    let Some(rest) = pointer.strip_prefix('/') else { return false };
+    let parts: Vec<String> = rest.split('/').map(|p| p.replace("~1", "/").replace("~0", "~")).collect();
+    let mut cur = root;
+    let mut value = Some(value);
+    for (i, part) in parts.iter().enumerate() {
+        let last = i + 1 == parts.len();
+        if cur.is_null() {
+            *cur = J::Object(serde_json::Map::new());
+        }
+        cur = match cur {
+            J::Object(m) => {
+                if last {
+                    m.insert(part.clone(), value.take().unwrap_or(J::Null));
+                    return true;
+                }
+                m.entry(part.clone()).or_insert(J::Null)
+            }
+            J::Array(items) => {
+                let at = match part.parse::<usize>() {
+                    Ok(n) => n.min(items.len()),
+                    Err(_) if part == "-" => items.len(),
+                    Err(_) => return false,
+                };
+                if at == items.len() {
+                    items.push(J::Null);
+                }
+                if last {
+                    items[at] = value.take().unwrap_or(J::Null);
+                    return true;
+                }
+                &mut items[at]
+            }
+            _ => return false,
+        };
+    }
+    false
+}
+
+/// A JSON file under the game's folder: the cache's copy, else the file parsed. Every
+/// parser mode reads standard JSON [hypothesis: JAXN (1) and TaoConfig (2) extend it;
+/// their extensions are not read, so such a file fails to parse].
+fn json_file(g: &Game, path: &str) -> Option<serde_json::Value> {
+    if let Some(v) = g.mod_files.showoff_json.get(&norm(path)) {
+        return Some(v.clone());
+    }
+    let text = g.mod_files.read_root(path)?;
+    serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()
 }
 
 /// The functions of this file; `None` for any other name.
@@ -629,11 +943,35 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             let path = text(args, 0).unwrap_or_default();
             let transpose = num(args, 1, 0.0) != 0.0;
             let Some(t) = g.mod_files.read_root(&path) else { return Some(Ok(zero)) };
-            let parse = |c: &str| match c.trim().parse::<f64>() {
-                Ok(x) => XVal::Num(x),
-                Err(_) => XVal::Str(c.to_string()),
+            // One or more tabs between values; `$text` a string, `@File.esm:XXXXXX` a form
+            // of that file, else a number [documented: ReadArrayFromFile]. Anything else
+            // is no value, a `;` ends the line (a comment, or a row commented out), and a
+            // line without values is no row [hypothesis: Food Scraps' config files comment
+            // their columns and rows so].
+            let order: Vec<String> = g.data.load_order.iter().map(|p| p.to_ascii_lowercase()).collect();
+            let parse = |c: &str| -> Option<XVal> {
+                let c = c.trim_matches(|ch: char| ch == '\r' || ch == ' ');
+                if let Some(s) = c.strip_prefix('$') {
+                    return Some(XVal::Str(s.to_string()));
+                }
+                // A form of a file not loaded is the empty form, in its column [hypothesis:
+                // Food Scraps lists other mods' forms and skips a row whose form is not
+                // valid (`if IsFormValid rRef == 0`)].
+                if let Some(f) = c.strip_prefix('@') {
+                    let form = f.rsplit_once(':').and_then(|(file, hex)| {
+                        let i = order.iter().position(|p| *p == file.trim().to_ascii_lowercase())?;
+                        let id = u32::from_str_radix(hex.trim(), 16).ok()?;
+                        Some(((i as u32) << 24) | (id & 0x00FF_FFFF))
+                    });
+                    return Some(XVal::Ref(form.unwrap_or(0)));
+                }
+                c.parse::<f64>().ok().map(XVal::Num)
             };
-            let rows: Vec<Vec<XVal>> = t.lines().filter(|l| !l.trim().is_empty()).map(|l| l.split('\t').map(parse).collect()).collect();
+            let rows: Vec<Vec<XVal>> = t
+                .lines()
+                .map(|l| l.split('\t').filter(|c| !c.trim().is_empty()).take_while(|c| !c.trim_start().starts_with(';')).filter_map(parse).collect::<Vec<_>>())
+                .filter(|r| !r.is_empty())
+                .collect();
             let list = |g: &mut Game, items: Vec<XVal>| {
                 let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
                 XVal::Array(g.ext.new_array(ArrayKind::List, entries))
@@ -714,6 +1052,61 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             g.mod_files.write(&path, new);
             zero
         }
+        // ---- LU's INI writers (`Data\Config`, NVForever's layer) ----
+        // `section keysValues [file]`: each key of the string map set in the section,
+        // numbers as LU writes them [documented: SetINISection; a missing file or folder
+        // is made].
+        "setinisection" => {
+            let Some(raw) = text(args, 0).filter(|s| !s.trim().is_empty()) else { return Some(Ok(zero)) };
+            let Some(XVal::Array(id)) = args.get(1) else { return Some(Ok(zero)) };
+            let pairs: Vec<(String, String)> = g
+                .ext
+                .array(*id)
+                .map(|a| {
+                    a.entries
+                        .iter()
+                        .map(|(k, v)| {
+                            let key = match k {
+                                XKey::Str(s) => s.clone(),
+                                XKey::Num(n) => lu_number(*n),
+                            };
+                            let value = match v {
+                                XVal::Num(n) => lu_number(*n),
+                                other => cell_text(other),
+                            };
+                            (key, value)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let path = ini_path(g, text(args, 2).as_deref());
+            let mut t = g.mod_files.read(&path).unwrap_or_default();
+            let sec = raw.trim().to_ascii_lowercase();
+            for (k, v) in pairs {
+                t = ini_set(&t, &sec, &k.to_ascii_lowercase(), &v, raw.trim(), &k);
+            }
+            g.mod_files.write(&path, t);
+            zero
+        }
+        // `Section:Key [file]`: the key removed [documented: RemoveINIKey]; nothing is
+        // written when the file has no such key [hypothesis].
+        "removeinikey" => {
+            let Some((s, k)) = text(args, 0).as_deref().and_then(section_key) else { return Some(Ok(zero)) };
+            let path = ini_path(g, text(args, 1).as_deref());
+            if let Some(t) = g.mod_files.read(&path).and_then(|t| ini_remove_key(&t, &s, &k)) {
+                g.mod_files.write(&path, t);
+            }
+            zero
+        }
+        // `section [file]`: the section and its keys removed [documented: RemoveINISection].
+        "removeinisection" => {
+            let sec = text(args, 0).unwrap_or_default().trim().to_ascii_lowercase();
+            let path = ini_path(g, text(args, 1).as_deref());
+            if let Some(t) = g.mod_files.read(&path).and_then(|t| ini_remove_section(&t, &sec)) {
+                g.mod_files.write(&path, t);
+            }
+            zero
+        }
         "getinisection" => {
             let sec = text(args, 0).unwrap_or_default().to_ascii_lowercase();
             let path = ini_path(g, text(args, 1).as_deref());
@@ -742,7 +1135,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
                 for sec in ini_sections(&text) {
                     let ls = sec.to_ascii_lowercase();
                     for (kk, vv) in ini_section(&text, &ls) {
-                        m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), vv);
+                        m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), cached_ini_value(vv));
                     }
                 }
                 g.mod_files.cache.insert(key.clone(), m);
@@ -784,9 +1177,127 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         }
         "clearfilecacheshowoff" => {
             let path = norm(&text(args, 0).unwrap_or_default());
-            let had = g.mod_files.cache.keys().any(|k| k.ends_with(&path) && !path.is_empty());
+            let had = g.mod_files.cache.keys().chain(g.mod_files.showoff_json.keys()).any(|k| k.ends_with(&path) && !path.is_empty());
             g.mod_files.cache.retain(|k, _| path.is_empty() || !k.ends_with(&path));
+            g.mod_files.showoff_json.retain(|k, _| path.is_empty() || !k.ends_with(&path));
             XVal::Num(f64::from(u8::from(had)))
+        }
+        // `sectionAndKey [iniPath]`: whether the cached file has the key; the file is
+        // cached when it was not [documented: HasINISetting_Cached, alias HasINISettingC].
+        "hasinisetting_cached" | "hasinisettingc" => {
+            let Some((s, k)) = text(args, 0).as_deref().and_then(section_key) else { return Some(Ok(zero)) };
+            let path = ini_path(g, text(args, 1).as_deref());
+            let key = cache_ini(g, &path, false);
+            XVal::Num(f64::from(u8::from(g.mod_files.cache.get(&key).is_some_and(|m| m.contains_key(&format!("{s}:{k}"))))))
+        }
+        // `[iniPath]`: the cache read again from the file, what it held lost; 1 when the
+        // file exists [documented: ReloadIniCache; hypothesis: a missing file fails and
+        // leaves the cache as it was].
+        "reloadinicache" => {
+            let path = ini_path(g, text(args, 0).as_deref());
+            if g.mod_files.read(&path).is_none() {
+                return Some(Ok(zero));
+            }
+            cache_ini(g, &path, true);
+            XVal::Num(1.0)
+        }
+        // `[iniPath]`: the cached keys written to the file, each in place or added to its
+        // section; 1 when written, 0 with no cache of the file [documented:
+        // SaveCachedIniFile, alias SaveCachedIni; hypothesis: the file's comments and
+        // order kept, keys the cache added written in lower case, as the cache keeps them].
+        "savecachedinifile" | "savecachedini" => {
+            let path = ini_path(g, text(args, 0).as_deref());
+            let Some(m) = g.mod_files.cache.get(&norm(&path)) else { return Some(Ok(zero)) };
+            let mut pairs: Vec<(String, String)> = m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            pairs.sort();
+            let mut t = g.mod_files.read(&path).unwrap_or_default();
+            for (sk, v) in pairs {
+                if let Some((s, k)) = sk.split_once(':') {
+                    if ini_get(&t, s, k).as_deref() != Some(v.as_str()) {
+                        t = ini_set(&t, s, k, &v, s, k);
+                    }
+                }
+            }
+            XVal::Num(f64::from(u8::from(g.mod_files.write(&path, t))))
+        }
+        // ---- ShowOff's JSON files, under the game's folder (`read_root`) ----
+        // `filepath [jsonPointer] [parserMode] [useCache]`: the value at the pointer (the
+        // root for ""), converted (`json_to_xval`); kept in the cache when asked
+        // [documented: ReadFromJSON]. A missing file gives no value: the call fails
+        // [observed 2026-11-08: showoff4.readjson.missing, TestExpr 0]; a file that is not
+        // JSON likewise, a pointer to nothing 0 [hypothesis].
+        "readfromjson" => {
+            let path = text(args, 0).unwrap_or_default();
+            let pointer = text(args, 1).unwrap_or_default();
+            let Some(root) = json_file(g, &path) else { return Some(Err(format!("ReadFromJSON: no JSON file {path}"))) };
+            if num(args, 3, 0.0) != 0.0 {
+                g.mod_files.showoff_json.insert(norm(&path), root.clone());
+            }
+            match root.pointer(&pointer) {
+                Some(v) => {
+                    let v = v.clone();
+                    json_to_xval(g, &v)
+                }
+                None => zero,
+            }
+        }
+        // `toWrite filepath [jsonPointer] [parserMode] [useCache] [saveFile]
+        // [compactFormatting]`: the value converted and put at the pointer of the file's
+        // JSON (a file that is missing or not JSON starts from nothing); cached when
+        // asked, saved unless saveFile is 0, minified or indented [documented:
+        // WriteToJSON]. Saved into NVForever's layer, never the game's folder
+        // (`write_root`). 1 when done [documented: "success"].
+        "writetojson" => {
+            let Some(value) = args.first() else { return Some(Ok(zero)) };
+            let path = text(args, 1).unwrap_or_default();
+            if path.trim().is_empty() {
+                return Some(Ok(zero));
+            }
+            let pointer = text(args, 2).unwrap_or_default();
+            let new = xval_to_json(g, value, 0);
+            let mut root = json_file(g, &path).unwrap_or(serde_json::Value::Null);
+            if !json_set(&mut root, &pointer, new) {
+                return Some(Ok(zero));
+            }
+            if num(args, 4, 0.0) != 0.0 {
+                g.mod_files.showoff_json.insert(norm(&path), root.clone());
+            }
+            let mut ok = true;
+            if num(args, 5, 1.0) != 0.0 {
+                let body = if num(args, 6, 0.0) != 0.0 { serde_json::to_string(&root) } else { serde_json::to_string_pretty(&root) }.unwrap_or_default();
+                ok = g.mod_files.write_root(&path, body);
+            }
+            XVal::Num(f64::from(u8::from(ok)))
+        }
+        // `folderPath`: a folder under the game's folder, made in NVForever's layer; 1
+        // when made [documented: CreateFolder, alias CreateDirectory].
+        "createfolder" | "createdirectory" => {
+            let rel = text(args, 0).unwrap_or_default().replace('/', "\\");
+            XVal::Num(f64::from(u8::from(g.mod_files.make_folder_root(&rel))))
+        }
+        // `list [fileName] [bAppend]`: the list's forms, to the console, or to a file under
+        // the game's folder, added after its text unless bAppend is 0 [documented:
+        // DumpFormList, alias FListDump]. The lines are NVForever's own words.
+        "dumpformlist" | "flistdump" => {
+            let l = match args.first() {
+                Some(XVal::Ref(r)) if *r != 0 => fnv_sim::FormId(*r),
+                _ => return Some(Ok(zero)),
+            };
+            let members = crate::functions::list_members(g, l);
+            let mut lines = vec![format!("Form list {} ({:08X}): {} forms", g.data.name(l), l.0, members.len())];
+            lines.extend(members.iter().enumerate().map(|(i, f)| format!("  {i}: {:08X} {}", f.0, g.data.name(*f))));
+            match text(args, 1).filter(|f| !f.trim().is_empty()) {
+                None => g.console_out.extend(lines),
+                Some(file) => {
+                    let body = lines.join("\n");
+                    let t = match g.mod_files.read_root(&file).filter(|_| num(args, 2, 1.0) != 0.0) {
+                        Some(old) if !old.is_empty() => format!("{old}\n{body}"),
+                        _ => body,
+                    };
+                    g.mod_files.write_root(&file, t);
+                }
+            }
+            zero
         }
         // ---- MCM: "File/Section/Key" of Data\Config\File.ini; a number is written with
         // four decimals [observed: "fMcm=5.0000"] ----
@@ -831,27 +1342,21 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
                 zero
             }
         }
-        // `folder [filter]`: the file names (no path) of a folder under the game's
-        // folder and NVForever's layer [observed: "NVSE\Plugins" "*.dll" gives bare
-        // names]; a missing folder gives an empty array [observed: plugin-odds files.none,
-        // ar_Size 0, where an unset array reads -1].
-        // GetFoldersInFolder the same for folders [observed: gaps3, "NVSE" gives
-        // "Plugins"; a missing folder an empty array].
+        // [documented: file-enumeration-data-roots.md] Both APIs use Data-relative
+        // directories and optional name filters; read roots include the mods layer.
         "getfilesinfolder" | "getfoldersinfolder" => {
             let folders = name == "getfoldersinfolder";
             let p = text(args, 0).unwrap_or_default().replace('/', "\\");
             let filter = text(args, 1).unwrap_or_else(|| "*".into()).to_ascii_lowercase();
             let mut names: Vec<String> = Vec::new();
             for root in roots().read {
-                // A path under the game folder (NVSE\Plugins) or under Data.
-                for base in [root.parent().map(|x| x.to_path_buf()), Some(root.clone())].into_iter().flatten() {
-                    if let Ok(rd) = std::fs::read_dir(base.join(&p)) {
-                        for e in rd.flatten() {
-                            if e.path().is_dir() == folders {
-                                let n = e.file_name().to_string_lossy().to_string();
-                                if glob(&filter, &n.to_ascii_lowercase()) && !names.iter().any(|x| x.eq_ignore_ascii_case(&n)) {
-                                    names.push(n);
-                                }
+                let Some(dir) = find_dir(&root, &p) else { continue };
+                if let Ok(rd) = std::fs::read_dir(dir) {
+                    for e in rd.flatten() {
+                        if e.path().is_dir() == folders {
+                            let n = e.file_name().to_string_lossy().to_string();
+                            if glob(&filter, &n.to_ascii_lowercase()) && !names.iter().any(|x| x.eq_ignore_ascii_case(&n)) {
+                                names.push(n);
                             }
                         }
                     }
@@ -882,7 +1387,57 @@ fn glob(pat: &str, s: &str) -> bool {
 
 #[cfg(test)]
 mod path_tests {
-    use super::{on_disk, on_disk_any_case};
+    use super::{on_disk, on_disk_any_case, walk_files};
+
+    /// A folder link at `link` to `target`: a symlink on unix, an NTFS junction on Windows
+    /// (no privilege needed, unlike a Windows symlink). Whether it was made.
+    fn link_dir(target: &std::path::Path, link: &std::path::Path) -> bool {
+        #[cfg(unix)]
+        return std::os::unix::fs::symlink(target, link).is_ok();
+        #[cfg(windows)]
+        return std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().is_ok_and(|o| o.status.success());
+        #[cfg(not(any(unix, windows)))]
+        return false;
+    }
+
+    fn listing(dir: &std::path::Path) -> Vec<String> {
+        let (mut seen, mut out) = (std::collections::HashSet::new(), Vec::new());
+        let mut open: Vec<std::path::PathBuf> = dir.canonicalize().into_iter().collect();
+        walk_files(dir, "", true, &mut open, &mut seen, &mut out);
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn a_deep_listing_does_not_walk_round_a_folder_link() {
+        let base = std::env::temp_dir().join(format!("nvf-link-walk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("a/sub")).unwrap();
+        std::fs::create_dir_all(base.join("b")).unwrap();
+        std::fs::create_dir_all(base.join("elsewhere")).unwrap();
+        std::fs::write(base.join("a/one.txt"), "1").unwrap();
+        std::fs::write(base.join("a/sub/two.txt"), "2").unwrap();
+        std::fs::write(base.join("b/three.txt"), "3").unwrap();
+        std::fs::write(base.join("elsewhere/four.txt"), "4").unwrap();
+        // a\sub\up -> a (its own grandparent), a\to_b -> b and b\to_a -> a (a ring of
+        // two), a\out -> elsewhere (a link that leads nowhere back).
+        // (Paths joined part by part: mklink takes no `/`.)
+        let (a, b) = (base.join("a"), base.join("b"));
+        let made = link_dir(&a, &a.join("sub").join("up")) && link_dir(&b, &a.join("to_b")) && link_dir(&a, &b.join("to_a")) && link_dir(&base.join("elsewhere"), &a.join("out"));
+        if made {
+            // Each link back into a folder the walk is inside is left out; the others
+            // are followed once.
+            assert_eq!(listing(&base.join("a")), ["one.txt", "out\\four.txt", "sub\\two.txt", "to_b\\three.txt"]);
+        } else {
+            eprintln!("folder links could not be made here; only the plain listing is checked");
+            assert_eq!(listing(&base.join("a")), ["one.txt", "sub\\two.txt"]);
+        }
+        // Remove the links first: removing the tree must not go through them.
+        for l in ["a/sub/up", "a/to_b", "b/to_a", "a/out"] {
+            let _ = std::fs::remove_dir(base.join(l));
+        }
+        std::fs::remove_dir_all(&base).ok();
+    }
     use std::path::Path;
 
     #[test]
@@ -895,6 +1450,28 @@ mod path_tests {
         assert_eq!(on_disk_any_case(&base, "nvse\\plugins\\missing.txt"), None);
         assert_eq!(on_disk_any_case(&base, "..\\x"), None, "the plain-name rule of on_disk still holds");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn ini_relative_paths_are_bounded_by_data() {
+        use super::ini_data_path;
+        assert_eq!(ini_data_path("../NVSE/Plugins/Owned.ini").as_deref(), Some("NVSE\\Plugins\\Owned.ini"));
+        assert_eq!(ini_data_path("Group/../Owned.ini").as_deref(), Some("Config\\Owned.ini"));
+        assert_eq!(ini_data_path("./Owned.ini"), ini_data_path("Owned.ini"));
+        for bad in ["../../escape.ini", "../", "C:/x.ini", "C:x.ini", "/x.ini", "\\x.ini", "\\\\server\\x.ini", "x:stream", "x\0.ini", ""] {
+            assert_eq!(ini_data_path(bad), None, "{bad:?}");
+        }
+        assert!(on_disk(Path::new("layer"), "Config\\..\\NVSE\\Plugins\\Owned.ini").is_none(), "ordinary file APIs remain strict");
+    }
+
+    #[test]
+    fn invalid_ini_names_are_rejected_by_disk_access_after_resolution() {
+        use super::ini_access_path;
+        let base = Path::new("owned-layer");
+        assert_eq!(on_disk(base, &ini_access_path("Group/../Owned.ini")), Some(base.join("Config").join("Owned.ini")));
+        for bad in ["/Owned.ini", "\\Owned.ini", "\\\\server\\Owned.ini", "C:/Owned.ini", "Owned.ini:stream", "../../Owned.ini", "Owned\0.ini"] {
+            assert_eq!(on_disk(base, &ini_access_path(bad)), None, "{bad:?}");
+        }
     }
 
     #[test]

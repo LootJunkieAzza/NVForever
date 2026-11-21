@@ -69,6 +69,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"REGN", &regn),
         top(b"SPEL", &spel),
         top(b"QUST", &qust),
+        top(b"NPC_", &record(b"NPC_", 0, FormId::PLAYER_BASE.0, &[sub(b"EDID", z("Player"))])),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[outside, inside, children].concat()))),
         top(b"WRLD", &wrld),
     ]
@@ -108,6 +109,26 @@ fn game(f: &Fixture) -> Game<'_> {
     g
 }
 
+#[test]
+fn source_get_is_form_type_uses_the_reference_base_signature() {
+    let f = fixture();
+    let mut g = game(&f);
+    for (expression, expected) in [
+        ("TestBoxRef.GetIsFormType \"ACTI\"", 1.0),
+        ("TestBoxRef.GetIsFormType \"acti\"", 1.0),
+        ("TestBoxRef.GetIsFormType \"REFR\"", 0.0),
+        ("TestBoxRef.GetIsFormType \"MISC\"", 0.0),
+        ("TestGun.GetIsFormType \"WEAP\"", 1.0),
+        ("TestGun.GetIsFormType \"Weapon\"", 0.0),
+        ("GetIsFormType \"ACTI\"", 0.0),
+    ] {
+        assert_eq!(g.run_query(&format!("Begin Function {{}}\nSetFunctionValue ({expression})\nEnd"), Default::default()).unwrap(), XVal::Num(expected), "{expression}");
+    }
+    let XVal::Ref(temporary) = g.run_query("Begin Function {}\nplayer.AddItem TestGun 1\nSetFunctionValue (player.GetFirstRefForItem TestGun)\nEnd", Default::default()).unwrap() else { panic!("expected an inventory reference") };
+    assert_ne!(temporary, 0);
+    assert_eq!(fnv_game::nvse::call(&mut g, &Default::default(), "getisformtype", Some(FormId(temporary)), &[XVal::Str("WEAP".into())]), Some(Ok(XVal::Num(1.0))));
+}
+
 /// A data folder made for the run: the KF files the kNVSE functions look for, Stewie's
 /// Tweaks' INI and vheyes-nvse's queued command, and the plugin bytes TTW_CRC32 reads.
 fn files() {
@@ -126,6 +147,8 @@ fn files() {
         ).unwrap();
         std::fs::write(dir.join("NVSE/Plugins/nvse_stewie_tweaks.ini"), "[Tweaks]\r\nbJumpWhileAiming=1\r\n[Cookable Grenades]\r\nsSoundName=\"WPNGrenadeBeep\"\r\n").unwrap();
         std::fs::write(dir.join("Config/vheyes-nvse/QueuedCommand.txt"), "SetGlobalTimeMultiplier 2\r\n").unwrap();
+        std::fs::write(dir.join("NVSE/Plugins/OwnedSibling.ini"), "[Main]\r\nValue=17\r\n").unwrap();
+        std::fs::write(dir.join("Config/OwnedLocal.ini"), "[Main]\r\nValue=41\r\n").unwrap();
     });
     set_roots(Roots {
         read: vec![dir],
@@ -445,6 +468,17 @@ fn vheyes_moon_stamps_and_queued_command() {
 }
 
 #[test]
+fn interactive_console_evaluation_prints_compiled_results_before_cleanup() {
+    let f = fixture();
+    let mut g = game(&f);
+    let eval = |g: &mut fnv_game::Game<'_>, expression| g.eval_console_expression(expression, Default::default()).unwrap();
+    assert_eq!(eval(&mut g, "5 + 5"), "10");
+    assert_eq!(eval(&mut g, "GetModelPath TestBox"), r#""Test\\Box.nif""#);
+    assert_eq!(eval(&mut g, "ar_List 1, 9"), "[0: 1, 1: 9]");
+    assert!(g.eval_console_expression("5 +", Default::default()).is_err());
+}
+
+#[test]
 fn cacheui_anh_and_the_small_plugins() {
     files();
     let f = fixture();
@@ -495,10 +529,367 @@ fn cacheui_anh_and_the_small_plugins() {
     assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \"sSoundName:Cookable Grenades\")"), s("WPNGrenadeBeep"));
     assert_eq!(q(&mut g, "SetFunctionValue (TTW_CRC32 \"Small.esm\")"), n(f64::from(0xCBF4_3926u32)));
     assert_eq!(q(&mut g, "array_var a\narray_var r\nlet a := TTW_GetPlugins\nlet r := a[0]\nSetFunctionValue r[0]"), s("Small.esm"));
+    // The plugin's header version (1.34 here): TTW calls a plugin below 1.3 an
+    // unconverted Fallout 3 mod.
+    assert_eq!(q(&mut g, "array_var a\narray_var r\nlet a := TTW_GetPlugins\nlet r := a[0]\nSetFunctionValue r[1]"), n(f64::from(1.34f32)));
+    // TTW's radio fix: a switch the engine's radio reads.
+    assert!(!g.small.ttw_radio_fix);
+    q(&mut g, "TTW_EnableRadioFix 1");
+    assert!(g.small.ttw_radio_fix);
+    q(&mut g, "TTW_EnableRadioFix 0");
+    assert!(!g.small.ttw_radio_fix);
     // TTW's gene projector is the race menu, NVForever's character creator.
     q(&mut g, "TTW_ShowGeneProjector");
     assert_eq!(g.open_menu_code(), Some(fnv_game::game::menus::RACE));
+    assert!(g.race_menu_studio, "drawn in the creator's studio");
+    g.close_menu();
+    q(&mut g, "ShowRaceMenu");
+    assert!(!g.race_menu_studio, "New Vegas's race menu stays in the room");
     g.close_menu();
     q(&mut g, "SetWorldspaceMapBounds TestWorld -10 20 30 -40");
     assert_eq!(g.world_map_bounds(FormId(WORLD)), Some([-10, 20, 30, -40]));
+}
+
+#[test]
+fn a_lambda_writes_its_makers_variables() {
+    // [documented: Lambda, its variables are its maker's; the High and Dry session's repro,
+    // #2275] Called in the run that made it, then again from the run's variables.
+    let f = fixture();
+    let mut g = game(&f);
+    let src = "int c\nref f\nint x\nBegin Function { }\nlet c := 1\nlet f := ({x} => c += x)\nCall f 10\nCall f 5\nSetFunctionValue c\nEnd\n";
+    assert_eq!(g.run_query(src, Default::default()).unwrap(), n(16.0));
+    let src = "int c\nref f\nint x\nBegin Function { }\nlet f := ({x} => x * 2)\nlet c := Call f 10\nSetFunctionValue c\nEnd\n";
+    assert_eq!(g.run_query(src, Default::default()).unwrap(), n(20.0));
+}
+
+#[test]
+fn format_k_prints_the_keys_name() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(q(&mut g, "SetFunctionValue (sv_Construct \"%k\" 18)"), s("E"));
+}
+
+#[test]
+fn cached_ini_file_quotes_are_removed_without_changing_default_or_cached_values() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetINIString \"Template:Message\" (Sv_Construct \"%qAir %%.0f%q\") \"OwnedQuotes.ini\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Message\" \"OwnedQuotes.ini\")"), XVal::Str("Air %.0f".into()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIStringOrDefault_Cached \"Template:Missing\" \"OwnedQuotes.ini\" \"%qFallback%q\")"), XVal::Str("\"Fallback\"".into()));
+    q(&mut g, "SetINIString \"Quotes:Empty\" \"%q%q\" \"OwnedEmptyQuotes.ini\"");
+    q(&mut g, "SetINIString \"Quotes:Unmatched\" \"%qOpen\" \"OwnedEmptyQuotes.ini\"");
+    q(&mut g, "SetINIString \"Quotes:Internal\" \"%qA %qB%q C%q\" \"OwnedEmptyQuotes.ini\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Quotes:Empty\" \"OwnedEmptyQuotes.ini\")"), XVal::Str(String::new()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Quotes:Unmatched\" \"OwnedEmptyQuotes.ini\")"), XVal::Str("\"Open".into()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Quotes:Internal\" \"OwnedEmptyQuotes.ini\")"), XVal::Str("A \"B\" C".into()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIStringOrCreate_Cached \"Template:Created\" \"OwnedQuotes.ini\" \"%qCached%q\")"), XVal::Str("\"Cached\"".into()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Created\" \"OwnedQuotes.ini\")"), XVal::Str("\"Cached\"".into()));
+    q(&mut g, "SetINIString \"Template:Warm\" \"%qWarm%q\" \"OwnedWarmQuotes.ini\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (HasINISetting_Cached \"Template:Warm\" \"OwnedWarmQuotes.ini\")"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Warm\" \"OwnedWarmQuotes.ini\")"), XVal::Str("Warm".into()));
+    q(&mut g, "SetINIString \"Template:Warm\" \"%qReloaded%q\" \"OwnedWarmQuotes.ini\"");
+    q(&mut g, "ReloadIniCache \"OwnedWarmQuotes.ini\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Warm\" \"OwnedWarmQuotes.ini\")"), XVal::Str("Reloaded".into()));
+}
+
+#[test]
+fn ini_sibling_paths_read_owned_files_and_share_session_cache_values() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat "Main:Value" "../NVSE/Plugins/OwnedSibling.ini")"#), n(17.0));
+    q(&mut g, r#"SetINIFloat "Main:Value" 23 "../NVSE/Plugins/OwnedSibling.ini""#);
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat_Cached "Main:Value" "../NVSE/Plugins/Group/../OwnedSibling.ini" -7)"#), n(23.0));
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat "Main:Value" "Group/../OwnedLocal.ini")"#), n(41.0));
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat "Main:Value" "/OwnedLocal.ini")"#), n(0.0), "a rooted name must not alias a valid Config file");
+    q(&mut g, r#"SetINIFloat "Main:Value" 99 "../../OwnedEscape.ini""#);
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat "Main:Value" "../../OwnedEscape.ini")"#), n(0.0));
+    let original = std::env::temp_dir().join(format!("nvf-small-libs-{}", std::process::id())).join("NVSE/Plugins/OwnedSibling.ini");
+    assert_eq!(std::fs::read_to_string(original).unwrap(), "[Main]\r\nValue=17\r\n", "without a write root, the session write leaves the owned original unchanged");
+}
+
+#[test]
+fn objective_links_are_nested_paths_while_alt_is_a_flat_marker_list() {
+    use fnv_game::quest::ObjectiveState;
+    use fnv_sim::refs::Teleport;
+    let mut f = fixture();
+    // Typed, owned graph metadata uses only baseline public structures, so this
+    // identical fixture also compiles before the new cache field exists.
+    let template = f.refs.get(FormId(BOX_REF)).unwrap().clone();
+    for (id, cell, destination) in [(0x900, INSIDE, 0x902), (0x902, 0xFFFF, 0x900), (0x901, 0xFFFF, 0x903), (0x903, OUTSIDE, 0x901)] {
+        let mut door = template.clone();
+        door.id = FormId(id);
+        door.edid = None;
+        door.cell = Some(FormId(cell));
+        door.stored_in = Some(FormId(cell));
+        door.teleport = Some(Teleport { door: FormId(destination), pos: [0.0; 3], rot: [0.0; 3], no_alarm: false });
+        f.refs.refs.insert(door.id, door);
+        f.refs.by_cell.entry(FormId(cell)).or_default().push(FormId(id));
+    }
+    let mut g = game(&f);
+    let query = |g: &mut Game, source: &str| g.run_query(source, Default::default()).unwrap_or_else(|e| panic!("{source}: {e}"));
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GetCurrentQuestObjectiveTeleportLinks))"), n(0.0));
+    g.ui.active_quest = Some(FormId(QUEST));
+    g.quests.entry(FormId(QUEST)).or_default().objectives.insert(10, ObjectiveState { displayed:true, completed:false });
+    g.other.jip10.objective_targets.insert((FormId(QUEST),10), vec![FormId(BOX_REF)]);
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(INSIDE));
+    assert_eq!(g.check_quest_targets(FormId(QUEST)).len(), 1);
+    assert_eq!(g.cell_of(FormId(BOX_REF)), Some(FormId(INSIDE)));
+    assert_eq!(query(&mut g, "array_var paths\nBegin Function {}\nlet paths := GetCurrentQuestObjectiveTeleportLinks\nSetFunctionValue paths[0][0]\nEnd"), XVal::Ref(BOX_REF));
+    assert_eq!(query(&mut g, "array_var markers\nBegin Function {}\nlet markers := GetCurrentQuestObjectiveTeleportLinksAlt\nSetFunctionValue markers[0]\nEnd"), XVal::Ref(BOX_REF));
+    // Two rooms away: the first marker is the local door, and the nested row
+    // keeps both doors followed by the actual objective reference.
+    g.world.get(FormId(BOX_REF)).unwrap().cell = Some(FormId(OUTSIDE));
+    assert_eq!(query(&mut g, "array_var paths\nBegin Function {}\nlet paths := GetCurrentQuestObjectiveTeleportLinks\nSetFunctionValue (Ar_Size paths[0])\nEnd"), n(3.0));
+    assert_eq!(query(&mut g, "array_var paths\nBegin Function {}\nlet paths := GetCurrentQuestObjectiveTeleportLinks\nSetFunctionValue paths[0][2]\nEnd"), XVal::Ref(BOX_REF));
+    assert_eq!(query(&mut g, "array_var markers\nBegin Function {}\nlet markers := GetCurrentQuestObjectiveTeleportLinksAlt\nSetFunctionValue markers[0]\nEnd"), XVal::Ref(0x900));
+    g.quests.get_mut(&FormId(QUEST)).unwrap().objectives.get_mut(&10).unwrap().completed = true;
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GetCurrentQuestObjectiveTeleportLinks))"), n(0.0));
+}
+
+#[test]
+fn explicit_player_sequences_keep_view_clocks_targets_and_release_state() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    g.cfg.frame_seconds = 0.1;
+    g.senses.first_person = true;
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 1 3 1 0.4 0.3)"),n(1.0));
+    let key = (FormId::PLAYER_REF,true,"test\\a.kf".into());
+    let requested = g.anim_paths.sequences.get(&key).unwrap();
+    assert_eq!(requested.priority,3);
+    assert_eq!(requested.weight,0.4);
+    assert_eq!(requested.ease_in,Some(0.3));
+    assert!(!requested.auto_finish);
+    g.tick();
+    let first_time = g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf");
+    assert!(first_time>0.09 && first_time<0.11);
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 1)"),n(0.0));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 0 0 1 0.8)"),n(1.0));
+    assert_eq!(g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf"),first_time,"starting the other view must not restart this one");
+    assert_eq!(q(&mut g,"SetFunctionValue (Ar_Size (PlayerREF.GetActiveAnims 1))"),n(1.0));
+    assert_eq!(q(&mut g,"SetFunctionValue (Ar_Size (PlayerREF.GetActiveAnims 0))"),n(1.0));
+    q(&mut g,"PlayerREF.SetAnimCurrentTime \"test\\a.kf\" 0.6");
+    assert_eq!(g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf"),first_time);
+    g.tick();
+    // The deferred seek is applied before this tick advances the actor clock.
+    assert!((g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf")-0.7).abs()<1e-8);
+    q(&mut g,"PlayerREF.SetAnimWeight \"test\\a.kf\" 0.25");
+    assert_eq!(g.anim_paths.sequences[&key].weight,0.25);
+    assert_eq!(g.anim_paths.sequences[&(FormId::PLAYER_REF,false,"test\\a.kf".into())].weight,0.8);
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.DeactivateAnim \"test\\a.kf\" 0.4)"),n(1.0));
+    assert!(g.anim_paths.sequences[&key].stopped.is_some(),"the renderer retains the fade request");
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.IsAnimSequencePlaying \"test\\a.kf\")"),n(0.0));
+    for _ in 0..6 { g.tick(); }
+    assert!(!g.anim_paths.sequences.contains_key(&key));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 1 1 0)"),n(1.0));
+    assert!((g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf")-0.7).abs()<1e-8,"resuming uses the paused time, not time spent inactive");
+}
+
+#[test]
+fn transition_helpers_preserve_explicit_weight_and_offset_readbacks() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    g.senses.first_person = false;
+    q(&mut g,"PlayerREF.ActivateAnim \"test\\a.kf\" 0");
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.CrossFadeAnims \"test\\a.kf\" \"test\\b.kf\" 0 0.3 1 1 0.4)"),n(1.0));
+    assert_eq!(q(&mut g,"array_var a\nlet a := PlayerREF.GetAnimationAttributes \"test\\b.kf\"\nSetFunctionValue a[\"seqWeight\"]"),n(f64::from(0.4f32)));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.BlendToAnim \"test\\b.kf\" \"test\\c.kf\" 0 0.3 0.75 0 0.6)"),n(1.0));
+    assert_eq!(q(&mut g,"array_var a\nlet a := PlayerREF.GetAnimationAttributes \"test\\c.kf\"\nSetFunctionValue a[\"seqWeight\"]"),n(f64::from(0.6f32)));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.GetAnimCurrentTime \"test\\c.kf\")"),n(0.75));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.BlendToAnimFromPose \"test\\d.kf\" 0 0.3 0.5)"),n(1.0));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.GetAnimCurrentTime \"test\\d.kf\")"),n(0.5));
+}
+
+#[test]
+fn play_animation_path_preserves_loop_and_reverse_until_deactivated() {
+    use fnv_game::nvse_knvse::SequenceInfo;
+    files();
+    let f = fixture();
+    for cycle in [0, 1] {
+        let mut g = game(&f);
+        g.cfg.frame_seconds = 0.1;
+        g.set_sequence_info("test\\b.kf", SequenceInfo {
+            name:"Owned cycle".into(), accum_root:String::new(), frequency:2.0,
+            begin:0.0, end:0.25, cycle, text_keys:vec![],
+        });
+        assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.PlayAnimationPath \"test\\b.kf\" 1)"),n(1.0));
+        for _ in 0..20 { g.tick(); }
+        assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.IsAnimSequencePlaying \"test\\b.kf\")"),n(1.0),"cycle {cycle} must survive several full periods");
+        assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.DeactivateAnim \"test\\b.kf\" 0)"),n(1.0));
+        g.tick();
+        assert!(g.anim_paths.sequences.is_empty());
+    }
+}
+
+#[test]
+fn play_animation_path_stops_at_its_reported_end() {
+    use fnv_game::nvse_knvse::SequenceInfo;
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    g.cfg.frame_seconds = 0.1;
+    g.set_sequence_info("test\\b.kf",SequenceInfo {name:"Owned".into(),accum_root:String::new(),frequency:1.0,begin:0.0,end:0.25,cycle:2,text_keys:vec![]});
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.PlayAnimationPath \"test\\b.kf\" 1)"),n(1.0));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.IsAnimSequencePlaying \"test\\b.kf\")"),n(1.0));
+    for _ in 0..7 { g.tick(); }
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.IsAnimSequencePlaying \"test\\b.kf\")"),n(0.0));
+    assert!(g.anim_paths.sequences.is_empty());
+}
+
+#[test]
+fn stewie_inventory_queries_keep_unbound_fallback_and_follow_current_choices_after_handoff() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    let ini = b"[Tweaks]\nbHardcoreTweaks=1\nbIndividialItemStats=1\nbWeightlessItems=1\nbUnmapped=7\nsUnmapped=\"retained\"\n[Hardcore Tweaks]\nbAmmoWeight=1\n[Other]\nbAmmoWeight=9\n";
+    assert!(g.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+    let keys = ["bHardcoreTweaks:Tweaks", "bAmmoWeight:Hardcore Tweaks", "bIndividialItemStats:Tweaks"];
+    for key in keys {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (StewVal \"{key}\")")), n(1.0), "unbound {key} retains file fallback");
+    }
+    // The default retains an enabled ammo child under its disabled parent.
+    // This control instead explicitly selects all three choices off.
+    let chosen = fnv_game::tweaks::Tweaks {
+        hardcore_tweaks: false,
+        hardcore_ammo_weight: false,
+        single_item_figures: false,
+        ..Default::default()
+    };
+    g.bind_stewie_stat_settings(&chosen);
+    let version = q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")");
+    for name in ["StewVal", "StewieGetValue"] {
+        for key in keys {
+            assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" {key} \")")), n(0.0), "loaded explicit off for {name} {key}");
+        }
+        for (key, expected) in [("bUnmapped:Tweaks", n(7.0)), ("sUnmapped:Tweaks", s("retained")), ("bWeightlessItems:Tweaks", n(1.0)), ("bAmmoWeight:Other", n(9.0)), ("malformed", n(0.0))] {
+            assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"{key}\")")), expected, "unchanged fallback {name} {key}");
+        }
+    }
+    g.tweaks.hardcore_tweaks = true;
+    g.tweaks.hardcore_ammo_weight = true;
+    g.tweaks.single_item_figures = true;
+    let before = g.tweaks.clone();
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \" bHARDCOREtweaks : tWEAKs \")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \" bAMMOweight : hardcore tweaks \")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \" bindividialitemstats : tweaks \")"), n(1.0));
+    assert_eq!(g.tweaks, before, "queries do not mutate any settings");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"), version);
+    let saved = g.snapshot();
+    let mut restored = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..Default::default() }, &saved).unwrap();
+    assert!(restored.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bHardcoreTweaks:Tweaks\")"), n(1.0), "saved game does not retain application authority");
+    restored.bind_stewie_stat_settings(&chosen);
+    for key in keys {
+        assert_eq!(q(&mut restored, &format!("SetFunctionValue (StewVal \"{key}\")")), n(0.0), "application choices rebound after restore {key}");
+    }
+}
+
+#[test]
+fn stewie_ammo_child_choice_and_actual_inventory_totals_follow_the_parent_separately() {
+    let mut f = fixture();
+    let fnv_sim::forms::BaseData::Item(ammo) = &mut f.forms.bases.get_mut(&FormId(AMMO)).unwrap().data else { panic!("fixture ammunition is an item") };
+    ammo.weight = Some(0.5);
+    let mut g = game(&f);
+    q(&mut g, "PlayerREF.AddItem TestAmmo 3");
+    for parent in [false, true] {
+        for child in [false, true] {
+            let settings = fnv_game::tweaks::Tweaks { hardcore_tweaks: parent, hardcore_ammo_weight: child, ..Default::default() };
+            g.bind_stewie_stat_settings(&settings);
+            assert_eq!(q(&mut g, "SetFunctionValue (StewVal \"bHardcoreTweaks:Tweaks\")"), n(f64::from(u8::from(parent))));
+            assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \"bAmmoWeight:Hardcore Tweaks\")"), n(f64::from(u8::from(child))), "child remains selected while parent is off");
+            g.sync_perk_weights();
+            let rules = g.world.weight_rules(FormId::PLAYER_REF);
+            for hardcore in [false, true] {
+                let total = g.world.inventory_mut(FormId::PLAYER_REF).unwrap().totals_with(&f.forms, hardcore, &rules);
+                let expected = if if parent { child } else { hardcore } { 1.5 } else { 0.0 };
+                assert_eq!(total.weight, expected, "parent={parent} child={child} mode={hardcore}");
+                assert!(total.unknown_weight.is_empty(), "weighted fixture must be admitted");
+            }
+        }
+    }
+}
+
+#[test]
+fn stewie_pipboy_queries_keep_unbound_fallback_and_follow_current_choices_after_handoff() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    let ini = b"[Tweaks]\nbDisableStealthEffectInPipboy=1\nbKeepPipboyLightOnCellChange=0\n[Other]\nbDisableStealthEffectInPipboy=7\n";
+    assert!(g.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+    // Unbound headless games retain the layered INI fallback.
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \"bDisableStealthEffectInPipboy:Tweaks\")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \"bKeepPipboyLightOnCellChange:Tweaks\")"), n(0.0));
+    let chosen = fnv_game::tweaks::Tweaks {
+        no_stealth_shimmer_in_pipboy: false,
+        ..Default::default()
+    };
+    g.bind_stewie_stat_settings(&chosen);
+    let version = q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")");
+    assert_eq!(version, n(941.0));
+    for name in ["StewVal", "StewieGetValue"] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bDisableStealthEffectInPipboy : Tweaks \")")), n(0.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bKeepPipboyLightOnCellChange : Tweaks \")")), n(1.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bDisableStealthEffectInPipboy:Other\")")), n(7.0));
+    }
+    g.tweaks.no_stealth_shimmer_in_pipboy = true;
+    let before = g.tweaks.clone();
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \" bdisablestealtheffectinpipboy : tweaks \")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \" bkeeppipboylightoncellchange : tweaks \")"), n(1.0));
+    assert_eq!(g.tweaks, before, "queries do not mutate settings");
+    // Restore clears application authority until rebound.
+    let saved = g.snapshot();
+    let mut restored = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..Default::default() }, &saved).unwrap();
+    assert!(restored.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bDisableStealthEffectInPipboy:Tweaks\")"), n(1.0));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bKeepPipboyLightOnCellChange:Tweaks\")"), n(0.0));
+    restored.bind_stewie_stat_settings(&chosen);
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bDisableStealthEffectInPipboy:Tweaks\")"), n(0.0));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bKeepPipboyLightOnCellChange:Tweaks\")"), n(1.0));
+}
+
+#[test]
+fn stewie_worn_armor_weightless_queries_follow_handoff_and_keep_item_mask_fallback() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    let ini = b"[Tweaks]\nbWeightlessWornArmor=1\nbWeightlessWornPowerArmor=1\nbWeightlessItems=1\n[Other]\nbWeightlessWornArmor=5\n";
+    assert!(g.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+
+    // Unbound headless games retain the layered INI fallback.
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \"bWeightlessWornArmor:Tweaks\")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \"bWeightlessWornPowerArmor:Tweaks\")"), n(1.0));
+
+    // After handoff, both worn-armor switches read NVForever choices while bWeightlessItems stays on INI fallback.
+    let chosen = fnv_game::tweaks::Tweaks {
+        weightless_worn_armor: false,
+        weightless_worn_power_armor: true,
+        ..Default::default()
+    };
+    g.bind_stewie_stat_settings(&chosen);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"), n(941.0));
+    for name in ["StewVal", "StewieGetValue"] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bWeightlessWornArmor : Tweaks \")")), n(0.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bWeightlessWornPowerArmor : Tweaks \")")), n(1.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bWeightlessItems:Tweaks\")")), n(1.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bWeightlessWornArmor:Other\")")), n(5.0));
+    }
+
+    g.tweaks.weightless_worn_armor = true;
+    g.tweaks.weightless_worn_power_armor = false;
+    let before = g.tweaks.clone();
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \" bweightlesswornarmor : tweaks \")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \" bweightlesswornpowerarmor : tweaks \")"), n(0.0));
+    assert_eq!(g.tweaks, before, "queries do not mutate settings");
+
+    // Snapshot/restore clears application authority until rebound.
+    let saved = g.snapshot();
+    let mut restored = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..Default::default() }, &saved).unwrap();
+    assert!(restored.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bWeightlessWornArmor:Tweaks\")"), n(1.0));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bWeightlessWornPowerArmor:Tweaks\")"), n(1.0));
+    restored.bind_stewie_stat_settings(&chosen);
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bWeightlessWornArmor:Tweaks\")"), n(0.0));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bWeightlessWornPowerArmor:Tweaks\")"), n(1.0));
 }

@@ -13,12 +13,12 @@ use std::collections::BTreeSet;
 
 /// `actor.SetCombatStyle style`: the reference fights with that combat style from now
 /// on; the base form's style is not changed [documented: catalogue notes]. Kept in
-/// `RefExtra::combat_style`, which [`Game::combat_style`] reads first. A form that is not
+/// `RefExtra::combat_style`, which [`Game::combat_style`] reads after a package's style. A form that is not
 /// a combat style is refused.
 pub fn set_combat_style(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let style = a.form(0)?;
-    if !g.data.combat_styles.contains_key(&style) {
+    if g.combat_style_origin(style).is_none() {
         return Err(format!("{style} is not a combat style"));
     }
     g.extra.entry(r).or_default().combat_style = Some(style);
@@ -222,18 +222,29 @@ pub fn get_armor_rating(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Str
     Ok(Value::Num(dr.floor() as f64))
 }
 
-/// `ref.FireWeapon weapon`: the reference fires one shot of the weapon, from its centre
-/// straight ahead; it need not be an actor [documented: catalogue summary and notes].
+/// `ref.FireWeapon weapon`: the reference fires one shot of the weapon straight ahead;
+/// it need not be an actor [documented: catalogue summary and notes]. A reference that is
+/// not an actor fires from its model's `ProjectileNode` when its model has one and the
+/// engine has published the model's nodes (from the shot after the first ask on), else
+/// from its centre (#3128: a pitching machine's balls left its origin on the floor, its
+/// ProjectileNode is 70 units up at the wheels [observed: Traps\PitchingMachine01.NIF])
+/// [hypothesis: the original starts the shot there, as the node's name says].
 /// The shot is the engine's: the request waits in `Game::combat_requests`
-/// (`CombatRequest::Fire`). Not done [engineering choice, noted]: the model's projectile
-/// node, the player's ammunition and spread; the fired weapon's enchantments and on-hit
-/// blocks do not take effect [documented], and none run here.
+/// (`CombatRequest::Fire`). Not done [engineering choice, noted]: the node's aim, the
+/// player's ammunition and spread; the fired weapon's enchantments and on-hit blocks do
+/// not take effect [documented], and none run here.
 pub fn fire_weapon(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
     let weapon = a.form(0)?;
-    g.combat_requests.push(crate::combat::CombatRequest::Fire { from, weapon });
+    let actor = from == FormId::PLAYER_REF || matches!(super::base_of(g, from).and_then(|b| g.data.sig(b)).as_ref(), Some(b"NPC_") | Some(b"CREA"));
+    let muzzle = (!actor).then(|| crate::nif_blocks::node_place(g, from, PROJECTILE_NODE, true).map(|(p, _)| p)).flatten();
+    g.combat_requests.push(crate::combat::CombatRequest::Fire { from, weapon, muzzle });
     none()
 }
+
+/// The node a model's shots start from [observed: the name in trap models,
+/// Traps\PitchingMachine01.NIF; documented: GECK wiki FireWeaponEx takes a node].
+pub const PROJECTILE_NODE: &str = "ProjectileNode";
 
 /// `Exists [target]` (combat dialogue conditions): 1 when the condition's subject and
 /// target are different references [documented: catalogue summary]. In combat dialogue

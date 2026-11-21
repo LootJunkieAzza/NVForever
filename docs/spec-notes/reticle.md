@@ -166,3 +166,9 @@ pixels (the font's glyphs start a little after their pen position).
   lock (lockpicking.md §6). Only E's own default activation does so; a script's
   `Activate` that unlocks with the key is silent. Log: `activate …: unlocked with the
   key, the unlock sound plays`.
+
+## Session talk labels
+
+[design] The existing Talk action reads the effective sTargetTypeTalk string before
+its XATO override; see [string-settings.md](string-settings.md) for the source contract
+and unverified native/persistence limits. Other action labels retain their own rules.

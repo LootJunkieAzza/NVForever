@@ -18,6 +18,11 @@ Conventions, sources, tags and the bytecode observations are in
 readable base-game table is
 [`docs/spec-notes/script-functions-catalogue.md`](../../docs/spec-notes/script-functions-catalogue.md).
 
+xEdit: with `--xedit wbDefinitionsFNV.pas` the generator reads xEdit's definitions file
+for each condition function's index and parameter types (`condition_index`,
+`xedit_param_types`, opcode evidence `xedit_index`). Only those names, numbers and types
+are taken; no xEdit code is copied or generated (LEGAL.md, owner decision #3006).
+
 Rules: no wiki prose is copied (paraphrase, link the page); no opcode is guessed (only
 `observed` or `xedit_index` evidence); no game content is written (names, opcodes and
 counts only).

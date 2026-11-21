@@ -329,7 +329,7 @@ impl Game<'_> {
         let data = self.data;
         let mut out = Vec::new();
         for (perk, rank) in self.held_perks(actor) {
-            let Some(def) = data.perks.get(&perk) else { continue };
+            let Some(def) = self.lu3.perk_edits.get(&perk).or_else(|| data.perks.get(&perk)) else { continue };
             out.extend(rank_abilities(def, rank.max(1)).into_iter().map(|s| (perk, s)));
         }
         out
@@ -406,9 +406,8 @@ impl Game<'_> {
     /// conditions not asked: for flag entry points whose entries have none (Jury Rigging),
     /// where only a shared borrow of the game is at hand.
     pub fn holds_entry_point(&self, actor: FormId, point: u8) -> bool {
-        let data = self.data;
         self.held_perks(actor).into_iter().any(|(perk, rank)| {
-            data.perks.get(&perk).is_some_and(|d| d.entries.iter().any(|e| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < rank.max(1)))
+            self.perk_def(perk).is_some_and(|d| d.entries.iter().any(|e| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < rank.max(1)))
         })
     }
 
@@ -434,7 +433,16 @@ impl Game<'_> {
             (crate::combat::setting(self, "fPackRatThreshold", 2.0) as f32, crate::combat::setting(self, "fPackRatModifier", 0.5) as f32)
         });
         let heavy = self.entry_point(p, ADJUST_HEAVY_WEAPON_WEIGHT, 1.0).0 as f32;
-        let rules = WeightRules { light, heavy_weapons: ((heavy - 1.0).abs() > 1e-6).then_some((HEAVY_WEAPON_WEIGHT, heavy)) };
+        // The player's weightless tweaks ride along [design: docs/design/tweaks.md].
+        let t = &self.tweaks;
+        let rules = WeightRules {
+            light,
+            heavy_weapons: ((heavy - 1.0).abs() > 1e-6).then_some((HEAVY_WEAPON_WEIGHT, heavy)),
+            weightless: t.weightless_kinds,
+            weightless_worn_armor: t.weightless_worn_armor,
+            weightless_worn_power_armor: t.weightless_worn_power_armor,
+            ammo_weight: t.hardcore_tweaks.then_some(t.hardcore_ammo_weight),
+        };
         if self.world.weight_rules(p) != rules {
             let light = rules.light.map_or("light items as they are".to_string(), |(w, m)| format!("items of {w} or less x {m}"));
             let heavy = rules.heavy_weapons.map_or("heavy weapons as they are".to_string(), |(w, m)| format!("weapons of {w} or more x {m}"));
@@ -457,7 +465,10 @@ impl Game<'_> {
         let data = self.data;
         let mut found: Vec<(FormId, PerkEntry)> = Vec::new();
         for (perk, rank) in owned {
-            let Some(def) = data.perks.get(&perk) else { continue };
+            // A perk whose entries a script changed reads its session copy
+            // (`crate::nvse_lu3`).
+            let edited = self.lu3.perk_edits.get(&perk).cloned();
+            let Some(def) = edited.as_ref().or_else(|| data.perks.get(&perk)) else { continue };
             let at = |e: &&PerkEntry| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < rank.max(1);
             let Some(top) = def.entries.iter().filter(at).map(|e| e.rank).max() else { continue };
             'entry: for e in def.entries.iter().filter(at).filter(|e| e.rank == top) {

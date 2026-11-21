@@ -590,13 +590,13 @@ mod tests {
         let size = |_: f64, text: &str, _: Option<f64>| (100.0, if text == "Tall" { 70.0 } else { 10.0 });
         let rows = |last: &'static str| -> Vec<(u32, &'static str)> { (1..=20).map(|i| (i, if i == 20 { last } else { "Short" })).collect() };
         let left = LISTS[Side::Player as usize];
-        frame_sized(&mut ui, &snapshot(&rows("Tall"), &[], Side::Player, 10), &mut st, &size);
-        assert!((at(&ui, &format!("{left}/_scroll_delta")) - 190.0 / 13.0).abs() < 1e-9);
-        assert_eq!(st.value(Side::Player), 3.0);
+        frame_sized(&mut ui, &snapshot(&rows("Tall"), &[], Side::Player, 11), &mut st, &size);
+        assert!((at(&ui, &format!("{left}/_scroll_delta")) - 190.0 / 15.0).abs() < 1e-9);
+        assert_eq!(st.value(Side::Player), 4.0);
         assert_selected_shown(&ui, Side::Player);
-        frame_sized(&mut ui, &snapshot(&rows("Short"), &[], Side::Player, 10), &mut st, &size);
+        frame_sized(&mut ui, &snapshot(&rows("Short"), &[], Side::Player, 11), &mut st, &size);
         assert_eq!(at(&ui, &format!("{left}/_scroll_delta")), 10.0);
-        assert_eq!(st.value(Side::Player), 4.0, "the scale fell: value 3 would leave the row at y 70");
+        assert_eq!(st.value(Side::Player), 5.0, "the scale fell: value 4 would leave the row at y 70");
         assert_selected_shown(&ui, Side::Player);
     }
 

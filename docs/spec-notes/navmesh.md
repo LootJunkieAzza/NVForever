@@ -126,6 +126,21 @@ the actor jumps or drops over them (actor-jumps.md §3).
   locked [hypothesis, as `fnv_sim::world` assumes]. Paths go through a locked door only
   for an actor holding its key (or allowed to open locks). Example: the Freeside gate to
   the Strip (0x00116425) has lock level 255 and key 0x00119875 [observed].
+- **Disabled load doors**: a teleport door that is not in the world (disabled by its own
+  "Initially Disabled" flag, by its enable parent, or by a script's Disable, or deleted)
+  takes no part in paths, for any actor, keys or not [hypothesis: the original's actors do
+  not walk through a disabled door; issue #2566]. The graph starts from the load order's
+  state (the flag at the end of the XESP chain, each "opposite" link turning it over
+  [documented: xEdit REFR XESP]) and the engine brings it in line as references are
+  enabled and disabled (`fnv_ai::Ai::apply_door_presence`, polled on the world's presence
+  serial). Example: Nellis's hangar has two pairs of doors on the same spots outdoors,
+  0x00104A3E/0x00104A3F into NellisHangar1 and 0x001093DC/0x001093DB into NellisHangar1b
+  (the hangar with the B-29), the second pair Initially Disabled with the first as its
+  enable parent, opposite; SCPT 0x001093CB swaps them once the B-29 is up [observed].
+  Loyal's first package, NellisLoyalB29SandboxAIPackage, is in NellisHangar1b and needs
+  GetQuestCompleted VMS15 1, which a failed Volare! also gives (layer5-captures.md §5.3);
+  before this the arrival rule put him there through the disabled pair, where the player
+  cannot follow.
 - "Preferred" triangles are ones actors favour [documented: GECK wiki, Toolbar, "Toggle
   Preferred Pathing"]; by how much is not documented.
 - The GECK can cut navmesh round a selected object, with uneven results [documented:
@@ -142,9 +157,59 @@ the actor jumps or drops over them (actor-jumps.md §3).
   navmesh's triangles: **1,043** of them stand on navmesh in FalloutNV.esm [observed:
   `fnvtool nav graph`, `stats.in_place_doors`]. Others stand where no navmesh runs (a
   closet door at the navmesh's edge, e.g. 0x0010618E in GSProspectorSaloonInterior)
-  [observed: `nav near`]. A locked one closes its triangles to actors without its key, as
-  a locked teleport door closes its link [engine choice on the lock rule above]. Their
+  [observed: `nav near`]. A closed locked one closes passing triangles to actors without
+  its key [design, #2716; endpoint and open-state exceptions below]. Their
   models and animation: docs/spec-notes/doors.md.
+- **Endpoints beside an in-place door** [design, #2716]: overlap with OBND tags a whole
+  triangle (`crates/fnv-nav/src/doors.rs::set_in_place_doors`), but the original path's
+  snapped start and goal triangles are exempt from door refusal when their respective
+  points lie outside every refusing door's oriented footprint. A point on the footprint's
+  boundary is inside. Intermediate triangles retain the refusal; unrelated endpoints of
+  teleport legs get no exemption (`path.rs::search_path`, `passable_for_path`).
+  [design, #2716] After funneling, shortcuts and door-stop insertion, `search_path`
+  rejects any generated segment entering a refusing door's oriented footprint
+  (`doors.rs::door_segments_open`). This also guards adjacent exempt endpoints on
+  opposite sides of a door and crossings within one exempt triangle.
+  [documented: issue #2716, spooknik comment, 2026-11-15, supplied record findings]
+  `SecretDoorMarkerREF` (0x0012791D, 3764,592,8872) is 31 units beyond the footprint of
+  `MickSecretDoorREF` (0x00121FF2, x 3627..3733), but its triangle 75 in NAVM 0x00115DD6
+  overlaps the bounds. The door requires a key (XLOC 255), has no key or owner, and is
+  opened by `VFSMickTravelToLinkedPackage` (0x00127920)'s end script after Mick arrives;
+  that script sets `VFreeformFreeside.MickHoldoutWeapons` to 4 and evaluates his package.
+- **In-place doors not in the world** [hypothesis, #2405]: a door that opens in place
+  and is disabled (placed Initially Disabled, or disabled by a script; enable parents
+  followed) or deleted bars nothing and gets no door stop, as a disabled load door is no
+  way through (#2566). Both are `NavGraph::disabled_doors`, built from the load order's
+  enable state and brought in line with the game's (`fnv_ai::Ai::apply_door_presence`).
+  The case [observed: `fnvtool esm decode`, `nav path`, `script decompile`, TTW load
+  order]: Point Lookout's mansion (`DLC04Mansion01`) has two doors of base
+  `DLC04MDoorBig01` in one doorway at (-1408, -1664, 1024), the quest's spawn door
+  `DLC04MQ02LDSeq01Spawn01aDoor` (0x0E0035BB, locked 255; `DLC04MQ02LD` stage 10
+  `SetOpenState 1`s it) and `DLC04SideDoubleDoor02REF` (0x0E00DE2E, locked 255,
+  Initially Disabled; SCPT 0x0E00B786 enables it and disables the spawn door later).
+  Before, the disabled one closed `nav path` from Desmond to his
+  `DLC04ManDesmondWaitForPlayerREF` even with the spawn door open; now that path is
+  1,368 units.
+- **Open in-place doors** [hypothesis, #2716]: an open door does not refuse triangles
+  to any actor, even while locked or previously refused by its activation script.
+  [documented: GECK wiki SetOpenState, offline snapshot 2026-10-28,
+  https://geckwiki.com/index.php?title=SetOpenState] `SetOpenState 1` sets the door open;
+  the wiki does not establish NPC navigation through an open locked door. [documented:
+  issue #2716, supplied record findings] Mick's next package,
+  `VFSMickSecretSalesConversationPackage` (0x00127921), goes through that still-locked
+  door to `SecretSalesMarkerREF` (0x0016CCA1). [design / file refs] `PathParams::open_doors`
+  supplies live state to both triangle refusal and approach stops; `fnv_ai::Ai::path_params`
+  includes script-opened and untouched default-open locked doors. [hypothesis, #2716]
+  Runtime passage also permits an already-open in-place door despite a cached or fresh
+  activation refusal. [design / `fnv_ai::Ai::ask_door`] The activation attempt still runs
+  for crossing events; live state afterward decides whether a refusal cancels movement.
+  [design, #2716 / `fnv_ai::Ai::ask_door`] A door closed after planning must pass
+  its live lock permission check after activation: current inventory key or its own
+  ownership, plus configured path permission overrides. Cell ownership does not
+  authorize the lock. If permission is absent, the path is cancelled before movement
+  or an opening request, even when the door has no activation script. Load-door
+  behavior is unchanged. Original-game check:
+  `docs/handoff/observer-checks.md` **206**.
 - A door's bounds can be wider than its opening: `UtlDoor01`'s span 249 units across
   (−69 to 180), more than the doorway the navmesh runs through at 0x0012C97C [observed];
   the walkable stretch of navmesh along the door's line is taken as the opening instead
@@ -234,12 +299,14 @@ All commands take `<data_dir> <plugins>... --schema <dir>` and print one JSON do
   its ends are outline vertices, doors, `in_place_doors`: the doors that open in place
   standing on it).
 - `fnvtool nav path --from <ref|x,y,z> --to <ref|x,y,z> [--space S] [--clearance R]
-  [--ledges] [--no-doors] [--large] [--open-locked] [--keys K,...]` → `fnv.nav.path/1`:
+  [--ledges] [--no-doors] [--large] [--open-locked] [--keys K,...] [--open-door D]` → `fnv.nav.path/1`:
   the resolved ends, params, `door_route` (the doors to go through, with the space each
   leads into and its lock, or an error) and its time, and `path` (length, triangles
   expanded, snap distances, legs: space, polyline points, corridor size, navmeshes
   crossed, the door ending the leg, `door_stops`: each door that opens in place on the
   leg and the point where the actor stops to open it) or `error`.
+  [design, #2716] `--open-door D` is repeatable; it supplies known open in-place door
+  FormIDs without enabling `--open-locked` for other doors.
 - `fnvtool nav walk` (the path options, plus `--speed`, `--max-seconds`,
   `--goal-radius`, `--every`, `--max-slope`, `--any-slope`, `--with-actors`,
   `--nif-schema`, `--no-meshes`) → `fnv.nav.walk/1`: an NPC-sized physics character
@@ -290,6 +357,17 @@ newly cut triangle plan again, as for a navmesh switched off. Log lines: `nav: N
 obstacles that can be enabled or disabled stand on the navmesh …` at the start, `nav:
 obstacles switched […]` on a change. Not done: the collision-layer condition (fnv-nav
 reads no models), cutting by the shape rather than the bounds.
+
+**Bounds wider than a cell cut nothing** (issue #2846) [engine choice: `MAX_SIDE`, 4,096
+units along the model's x or y, scaled]. Such bounds hold an animated activator's whole
+motion, not where it stands [hypothesis]. Survey of the come-and-go obstacles [observed
+2026-11-17]: FalloutNV.esm and its add-ons 197, none wider than 1,794; Tale of Two
+Wastelands' load order 393, of which only Fallout 3's MQ05 landing vertibirds
+(`MQ05VertibirdLandREF` 0x06079FEE, `Mq05VertibirdLandREF02` 0x060AE06E, base
+`MQ05VertibirdLandACT`, 12,146 by 12,885) are wider; the next is 4,633 by 2,444 and placed
+enabled, so it never cut. Cut, the vertibirds took 7,927 triangles around the Jefferson
+Memorial: the Enclave troops they bring had no triangle to start from, nor the player at
+the intake pipe's control panel.
 
 **The poll is skipped while nothing it reads changed** (issue #1430) [design:
 `fnv_ai::Ai::obstacles_in_line`, crates/fnv-ai/src/carry.rs]. `Game::present` reads the

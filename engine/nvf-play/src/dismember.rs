@@ -97,7 +97,7 @@ pub fn resolve(
         }
         // A creature flagged No Head, No Left Arm or No Right Arm has no such part to lose
         // (actor-fields.md §1).
-        if sim.base_of(k.target.0).is_some_and(|b| { let (seed, at) = sim.pick(&rt.game, k.target); rt.game.data.minor_flags(b, seed, at) }.lacks(part.location())) {
+        if sim.base_of(k.target.0).is_some_and(|b| { let (seed, at) = sim.pick(&rt.game, k.target); rt.game.runtime_minor_flags(b, seed, at) }.lacks(part.location())) {
             debug!("dismember: {} {}: the creature has no such part", k.target, part.name.as_deref().unwrap_or("part"));
             continue;
         }
@@ -138,9 +138,15 @@ pub fn resolve(
 
 /// KillActor's limb (`CombatRequest::Dismember`): the part at that location that can go,
 /// its fate by its flags.
-pub fn scripted_check(c: &Combat, parts: &ActorParts, sim: &SimState, actor: FormId, location: i32, by: Option<FormId>) -> Option<Check> {
+pub fn scripted_check(c: &Combat, parts: &ActorParts, sim: &SimState, actor: FormId, location: i32, by: Option<FormId>, explode: Option<bool>) -> Option<Check> {
     let data = c.forms.body_parts.get(&parts.data_of(actor.0)?)?;
     let (part, fate) = dismember::scripted(data, location)?;
+    // DismemberLimb's choice (`fnv_game::nvse_jip14`): severed, or exploded.
+    let fate = match explode {
+        Some(true) => dismember::Fate::Explode,
+        Some(false) => dismember::Fate::Sever,
+        None => fate,
+    };
     let point = sim.world.peek(actor).map_or([0.0; 3], |s| [s.pos[0], s.pos[1], s.pos[2] + 40.0]);
     Some(Check { target: actor, part, on_hit: OnHit::Normal, crippled: true, corpse: true, overkill: 0.0, max_health: 0.0, by, point, dir: [0.0, 0.0, 1.0], scripted: Some(fate) })
 }

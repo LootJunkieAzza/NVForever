@@ -321,7 +321,7 @@ pub fn unarmed_damage_av(r: &Rules, unarmed_skill: f32) -> f32 {
 /// multiplier is divided by the fire rate for automatic weapons.
 pub fn crit_chance(r: &Rules, w: &WeaponStats, a: &Attacker, attacker: &dyn PerkHooks, target: &dyn PerkHooks) -> f32 {
     let av = r.crit_luck_base + r.crit_luck_mult * a.luck + a.crit_chance_bonus;
-    let mult = if w.automatic && w.fire_rate > 0.0 { w.crit_mult / w.fire_rate } else { w.crit_mult };
+    let mult = if w.automatic && w.fire_rate > 0.0 && !r.crit_ignores_fire_rate { w.crit_mult / w.fire_rate } else { w.crit_mult };
     let c = attacker.crit_chance(av * mult) + if a.in_vats { r.vats_crit_bonus } else { 0.0 };
     target.enemy_crit_chance(c)
 }
@@ -342,7 +342,7 @@ pub fn hit(
     let kind = AttackKind::of(w);
     let n = h.projectiles.max(1) as f32;
     let weapon_base = w.base_damage as f32 * r.damage_weapon_mult;
-    let cond = condition_mult(h.condition);
+    let cond = 1.0 - (r.condition_damage_threshold - h.condition.clamp(0.0, 1.0)).max(0.0) * r.condition_damage_penalty;
     // Crippled-arm penalty for melee and unarmed [documented].
     let arm = weapon_base * (r.damage_arm_condition_base - 1.0 + r.damage_arm_condition_mult * a.arm_condition.clamp(0.0, 1.0)) / 2.0;
     let base = match kind {
@@ -369,7 +369,7 @@ pub fn hit(
         && (a.sneaking || (t.headshot_unaware_crit && h.part.head && target.unaware) || crit_roll * 100.0 < crit_chance);
     // Critical damage is added before armour [documented]; shared among projectiles
     // like the base damage [design].
-    let crit_bonus = if critical { attacker_perks.crit_damage(w.crit_damage as f32) / n } else { 0.0 };
+    let crit_bonus = if critical { attacker_perks.crit_damage(w.crit_damage as f32) * r.crit_damage_scale / n } else { 0.0 };
     let raw = modified * sneak_mult * part_mult + crit_bonus;
 
     let ignores_armour = w.flags.iter().any(|f| f == "Ignores Normal Weapon Resistance");
@@ -407,6 +407,15 @@ pub fn hit(
 pub fn melee_reach(r: &Rules, w: &WeaponStats, scale: f32) -> f32 {
     let reach = if w.reach > 0.0 { w.reach } else { 1.0 };
     r.combat_distance * scale * reach
+}
+
+/// How far a melee or unarmed weapon reaches a target in the original's V.A.T.S., game
+/// units from the attacker's body: [`melee_reach`] × `fVATSMeleeReachMult`, at most
+/// `fVATSMeleeMaxDistance` [documented: GECK wiki "VATS Settings", `Rules`' fields]. With
+/// the defaults (2, 300) and `fCombatDistance` 107: the Fists (Reach 1) 214, a Reach of
+/// 1.4 and above the cap, 300.
+pub fn vats_melee_reach(r: &Rules, w: &WeaponStats, scale: f32) -> f32 {
+    (melee_reach(r, w, scale) * r.vats_melee_reach_mult).min(r.vats_melee_max_distance)
 }
 
 /// Health damage left of a melee or unarmed hit taken while blocking [design: the
@@ -494,6 +503,10 @@ pub fn explosion_damage(t: &CombatTuning, damage: f32, radius: f32, distance: f3
         return 0.0;
     }
     let k = (distance / radius).clamp(0.0, 1.0);
+    if t.explosion_inner > 0.0 {
+        let k = ((k - t.explosion_inner) / (1.0 - t.explosion_inner).max(0.01)).clamp(0.0, 1.0);
+        return damage * (1.0 - k * (1.0 - t.explosion_inner_edge));
+    }
     damage * (1.0 - k * (1.0 - t.explosion_edge))
 }
 

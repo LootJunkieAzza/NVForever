@@ -525,6 +525,22 @@ sides answered agree with ours):
      been dispelled].
    - RemoveSpell of an enchantment leaves a worn item's effect [hypothesis, as above].
 
+8. **Conditional AddSpell admission**: a spell is already in the actor's list while
+   its conditions are evaluated. During immediate effect application, the existing
+   actor-effect synchronization guard prevents a condition's actor-value read from
+   synchronizing that same listed spell a second time. The previous guard state is
+   restored afterward, including when admission was nested inside synchronization.
+   A repeated AddSpell still refuses an existing list entry. Removing the spell
+   releases its single effect and modifier through the normal removal path.
+
+The authored regression uses a conditionally active ability with one 50-point
+modifier: AddSpell must create one active effect and contribute 50, repeated reads
+and another AddSpell must leave that count unchanged, and RemoveSpell must return
+the temporary modifier to zero. Separate controls cover a false condition becoming
+true, an empty ability, invalid magic-item refusal and later synchronization of a
+different actor. These are NVForever implementation regressions, not native timing
+or original-mod acceptance claims.
+
 Not settled: GetActorValueModifier did not compile in the game's probe script (the
 function needs a different form), and the script name `PoisonResist` (the original answers
 125 on Victor: 25 + PoisonImmunity's 100) is missing from our decoder's actor value

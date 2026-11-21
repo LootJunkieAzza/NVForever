@@ -173,3 +173,15 @@ pulse".
 - Particle controllers beyond the emitter's rate and on/off keys; keyed birth rates.
 - Shot effects (muzzle flashes, beams, impacts, projectiles): the "Animate laser beams:
   texture scroll and fade" session.
+
+
+## Chamber idle attachments (#2685)
+
+[design; engine/nvforever/src/anim_objects.rs; idles.md section 10.1; particles.md
+section 7.8] ANIO support predates this issue; attachments now use full model rigs,
+material slots and per-instance particle simulation driven by the actor idle KF.
+External NiPSysModifierActiveCtlr keys now reach named gravity, drag and bomb modifiers
+on those attachments. Existing actor material posing continues to target creature NIFZ
+shapes. CLAMP effect idles hold their final values in memory; actor idle serialization
+remains a gap, whereas placed fog groups already restore at their end. [hypothesis]
+Original appearance and timing require observer check 212.

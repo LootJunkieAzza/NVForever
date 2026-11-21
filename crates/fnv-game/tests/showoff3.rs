@@ -3,7 +3,7 @@
 //! seeded randomizer, easing by code, temporary faction relations, the player's flags and
 //! the aux timers' countdowns.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -20,6 +20,7 @@ const GUN: u32 = 0x800;
 const VEST: u32 = 0x801;
 const HAT: u32 = 0x802;
 const PIP: u32 = 0x803;
+const POWER_SUIT: u32 = 0x804;
 const FLST: u32 = 0x810;
 const FACT_A: u32 = 0x820;
 const FACT_B: u32 = 0x821;
@@ -49,6 +50,7 @@ fn fixture() -> Fixture {
         armo(VEST, "TestVest", 1 << 2, 0, 4.0),
         armo(HAT, "TestHat", 1 | 1 << 10, 0, 1.0),
         armo(PIP, "TestPip", 1 << 6, 0x40, 0.5),
+        armo(POWER_SUIT, "TestPowerSuit", 1 << 2, 0x20, 20.0),
     ]
     .concat();
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("TestList")), sub(b"LNAM", u32s(&[HAT])), sub(b"LNAM", u32s(&[VEST]))]);
@@ -144,6 +146,11 @@ fn equipped_items_by_slot_mask() {
     assert_eq!(n(&mut g, "player.GetBaseEquippedWeight 2"), 10.0);
     assert_eq!(n(&mut g, "player.GetBaseEquippedWeight 0 64"), 0.5);
     assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 11.0, "no weight perks");
+    // Nothing that heavy: 0, not -0 (which prints "-0.000") [observed: L5.ext rerun, #2040].
+    for f in ["GetBaseEquippedWeight", "GetCalculatedEquippedWeight"] {
+        let w = n(&mut g, &format!("player.{f} 1000"));
+        assert!(w == 0.0 && w.is_sign_positive(), "{f}: {w}");
+    }
     // The vest is at 20 %.
     assert_eq!(n(&mut g, "player.GetNumBrokenEquippedItems"), 0.0);
     assert_eq!(n(&mut g, "player.GetNumBrokenEquippedItems 30"), 1.0);
@@ -160,6 +167,18 @@ fn equipped_items_by_slot_mask() {
     assert!(n(&mut g, "player.GetCalculatedMaxCarryWeight") > 0.0);
 }
 
+/// A draw scaled onto `lo..=hi`, a biased one taken again [observed: showoff3
+/// so3.seed.default, so3.seed.range.wide].
+fn draw(m: &mut Mt19937, lo: u64, hi: u64) -> f64 {
+    let span = hi - lo + 1;
+    loop {
+        let p = u64::from(m.next_u32()) * span;
+        if p & 0xFFFF_FFFF >= (1u64 << 32) % span {
+            return (lo + (p >> 32)) as f64;
+        }
+    }
+}
+
 #[test]
 fn seeded_randomizer_follows_the_mersenne_twister() {
     let f = fixture();
@@ -169,15 +188,24 @@ fn seeded_randomizer_follows_the_mersenne_twister() {
     assert_eq!(n(&mut g, "AdvanceSeed 3"), 0.0);
     // A first draw makes the default seed.
     let mut m = Mt19937::new(DEFAULT_SEED);
-    assert_eq!(n(&mut g, "RandSeeded 1 6"), f64::from(1 + m.next_u32() % 6));
+    assert_eq!(n(&mut g, "RandSeeded 1 6"), draw(&mut m, 1, 6));
     assert_eq!(n(&mut g, "GetSeed"), f64::from(DEFAULT_SEED));
+    // The original's first five 1-100 draws of the default seed [observed: showoff3
+    // so3.seed.default].
+    q(&mut g, "SetRandomizerSeed 0");
+    let five: Vec<f64> = (0..5).map(|_| n(&mut g, "RandSeeded 1 100")).collect();
+    assert_eq!(five, vec![82.0, 14.0, 91.0, 84.0, 13.0]);
+    // The third output is thrown away for this span [observed: so3.seed.range.wide].
+    q(&mut g, "SetRandomizerSeed 5489");
+    let three: Vec<f64> = (0..3).map(|_| n(&mut g, "RandSeeded 0 1000000000")).collect();
+    assert_eq!(three, vec![814723692.0, 135477004.0, 835008590.0]);
     // SetRandomizerSeed starts again; AdvanceSeed skips draws.
     q(&mut g, "SetRandomizerSeed 20");
     let mut m = Mt19937::new(20);
     m.next_u32();
     m.next_u32();
     assert_eq!(n(&mut g, "AdvanceSeed 2"), 1.0);
-    assert_eq!(n(&mut g, "GetRandomPercentSeeded"), f64::from(1 + m.next_u32() % 100));
+    assert_eq!(n(&mut g, "GetRandomPercentSeeded"), draw(&mut m, 1, 100));
     assert_eq!(n(&mut g, "RandSeeded 5 2"), -1.0, "min above max");
     q(&mut g, "SetSeedUsingForm TestHat");
     assert_eq!(n(&mut g, "GetRandomizerSeed"), f64::from(HAT));
@@ -199,7 +227,7 @@ fn advance_seed_caps_a_huge_count() {
     for _ in 0..1_000_000 {
         m.next_u32();
     }
-    assert_eq!(n(&mut g, "GetRandomPercentSeeded"), f64::from(1 + m.next_u32() % 100));
+    assert_eq!(n(&mut g, "GetRandomPercentSeeded"), draw(&mut m, 1, 100));
 }
 
 #[test]
@@ -262,4 +290,154 @@ fn small_getters_run() {
     assert_eq!(n(&mut g, "player.GetRadiationExtraData"), 0.0);
     assert_eq!(n(&mut g, "player.SetRadiationExtraData 20"), 1.0);
     assert_eq!(n(&mut g, "player.GetRadiationExtraData"), 20.0);
+}
+
+/// JIP's IsAnimPlayingEx movement sub-types and variation flags [documented:
+/// IsAnimPlayingEx]: running forward is not a jump (Enhanced Movement's sprint stays off
+/// while `IsAnimPlayingEx 2 5` holds, #2275).
+#[test]
+fn is_anim_playing_ex_tells_movement_sub_types_apart() {
+    use fnv_game::anim_state::{AnimState, MoveDir};
+    let f = fixture();
+    let mut g = game(&f);
+    let p = fnv_sim::FormId::PLAYER_REF;
+    g.set_anim_state(p, AnimState { moving: MoveDir::Forward, group: Some("FastForward"), ..Default::default() });
+    for (expr, want) in [("2", 1.0), ("2 1", 1.0), ("2 2", 0.0), ("2 5", 0.0), ("2 0 1", 1.0), ("2 1 4", 0.0)] {
+        assert_eq!(n(&mut g, &format!("player.IsAnimPlayingEx {expr}")), want, "running forward: {expr}");
+    }
+    g.set_anim_state(p, AnimState { moving: MoveDir::Forward, group: Some("Forward"), ..Default::default() });
+    assert_eq!(n(&mut g, "player.IsAnimPlayingEx 2 0 1"), 0.0, "walking is not fast");
+    g.set_anim_state(p, AnimState { moving: MoveDir::None, group: Some("JumpLoop"), ..Default::default() });
+    assert_eq!(n(&mut g, "player.IsAnimPlayingEx 2 5"), 1.0, "in a jump");
+    assert_eq!(n(&mut g, "player.IsAnimPlayingEx 2"), 1.0);
+}
+
+#[test]
+fn calculated_equipped_weight_honors_weightless_tweaks_and_perks() {
+    use fnv_sim::inventory::{WeightRules, WEIGHTLESS_ARMOR, WEIGHTLESS_WEAPONS};
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+
+    // Equip gun (6.0), power armor (20.0), and hat (1.0).
+    let inv = g.world.inventory_mut(FormId::PLAYER_REF).unwrap();
+    for id in [GUN, POWER_SUIT, HAT] {
+        inv.add(FormId(id), 1);
+        assert!(inv.set_equipped(FormId(id)));
+    }
+    assert_eq!(n(&mut g, "player.GetBaseEquippedWeight"), 27.0);
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 27.0);
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 27.0);
+
+    // bWeightlessWornPowerArmor zeroes worn power armor while keeping regular armor and weapon.
+    g.tweaks.weightless_worn_power_armor = true;
+    g.sync_perk_weights();
+    assert_eq!(n(&mut g, "player.GetBaseEquippedWeight"), 27.0);
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 7.0);
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 7.0);
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight 2"), 6.0, "minWeight filters weightless power armor out");
+
+    // bWeightlessWornArmor zeroes all worn armor (both power armor and hat), leaving only the gun.
+    g.tweaks.weightless_worn_power_armor = false;
+    g.tweaks.weightless_worn_armor = true;
+    g.sync_perk_weights();
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 6.0);
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 6.0);
+
+    // bWeightlessItems (weapons + armor) zeroes everything and keeps +0.0 (not -0.0).
+    g.tweaks.weightless_worn_armor = false;
+    g.tweaks.weightless_kinds = WEIGHTLESS_ARMOR | WEIGHTLESS_WEAPONS;
+    g.sync_perk_weights();
+    let zero_w = n(&mut g, "player.GetCalculatedEquippedWeight");
+    assert!(zero_w == 0.0 && zero_w.is_sign_positive(), "expected +0.0, got {zero_w}");
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 0.0);
+
+    // Perk rules still apply to non-weightless equipped items alongside weightless worn power armor.
+    g.tweaks.weightless_kinds = 0;
+    g.world.set_weight_rules(
+        FormId::PLAYER_REF,
+        WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((6.0, 0.5)), weightless_worn_power_armor: true, ..Default::default() },
+    );
+    // Gun: 6 * 0.5 = 3.0; Hat: 1 * 0.5 = 0.5; Power Suit: 0.0.
+    assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 3.5);
+    assert_eq!(n(&mut g, "player.GetInventoryWeight"), 3.5);
+}
+
+#[test]
+fn weapon_flag_overrides_sync_getters_playability_and_equipment() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+    dressed(&mut g);
+
+    let gun = FormId(GUN);
+    assert_eq!(g.weapon_flags1_override(gun), None);
+    assert_eq!(g.weapon_flags1(gun), Some(0));
+    assert!(!g.weapon_is_automatic(gun) && !g.weapon_cant_drop(gun));
+    assert!(g.is_item_playable(gun) && !g.is_item_non_playable(gun));
+    assert_eq!(n(&mut g, "IsPlayable TestGun"), 1.0);
+    assert_eq!(n(&mut g, "LNIsPlayable TestGun"), 1.0);
+    assert_eq!(n(&mut g, "player.IsEquippedWeaponScoped"), 0.0);
+
+    // Set Is Automatic (1), Has Scope (2), Can't Drop (3) via SetWeaponFlag and alias SetWeaponHasFlag.
+    q(&mut g, "SetWeaponFlag 1 1 TestGun");
+    q(&mut g, "SetWeaponHasFlag 2 1 TestGun");
+    q(&mut g, "player.SetWeaponFlag 3 1");
+    let want = (1u8 << 1) | (1u8 << 2) | (1u8 << 3);
+    assert_eq!(g.weapon_flags1_override(gun), Some(want));
+    assert_eq!(g.weapon_flags1(gun), Some(want));
+    assert!(g.weapon_is_automatic(gun) && g.weapon_cant_drop(gun));
+    assert_eq!(n(&mut g, "WeaponHasFlag 1 TestGun"), 1.0);
+    assert_eq!(n(&mut g, "GetWeaponHasFlag 2 TestGun"), 1.0);
+    assert_eq!(n(&mut g, "player.WeaponHasFlag 3"), 1.0);
+    assert_eq!(n(&mut g, "GetWeaponFlags1 TestGun"), f64::from(want));
+    assert_eq!(n(&mut g, "GetWeaponIsAutomatic TestGun"), 1.0);
+    assert_eq!(n(&mut g, "GetWeaponHasScope TestGun"), 1.0);
+    assert_eq!(n(&mut g, "player.IsEquippedWeaponScoped"), 1.0);
+
+    // Calling SetWeaponFlag / WeaponHasFlag on an inventory reference resolves the underlying WEAP.
+    q(&mut g, "ref ir\nlet ir := player.GetEquippedWeaponRef\nir.SetWeaponFlag 0 1");
+    assert_eq!(n(&mut g, "WeaponHasFlag 0 TestGun"), 1.0);
+    assert_eq!(q(&mut g, "ref ir\nlet ir := player.GetEquippedWeaponRef\nSetFunctionValue (ir.WeaponHasFlag 0)"), XVal::Num(1.0));
+
+    // Toggling Non-Playable (bit 7) updates IsPlayable, LNIsPlayable, GetEquippedItems, and GetAllItemRefs.
+    q(&mut g, "SetWeaponFlag 7 1 TestGun");
+    assert!(!g.is_item_playable(gun) && g.is_item_non_playable(gun));
+    assert_eq!(n(&mut g, "IsPlayable TestGun"), 0.0);
+    assert_eq!(n(&mut g, "LNIsPlayable TestGun"), 0.0);
+    assert!(!sorted(&mut g, "player.GetEquippedItems").contains(&f64::from(GUN)));
+    assert!(sorted(&mut g, "player.GetEquippedItems 32").contains(&f64::from(GUN)), "explicit slot mask still includes non-playable weapon");
+    assert_eq!(sorted(&mut g, "player.GetAllItemRefs 40 1").len(), 0, "noNonPlayable filters weapon out");
+
+    // LNSetIsPlayable 1 clears bit 7 and stays in sync with WeaponHasFlag 7 and GetWeaponFlags1.
+    q(&mut g, "LNSetIsPlayable 1 TestGun");
+    assert!(g.is_item_playable(gun));
+    assert_eq!(n(&mut g, "WeaponHasFlag 7 TestGun"), 0.0);
+    assert_eq!(n(&mut g, "IsPlayable TestGun"), 1.0);
+    assert!(sorted(&mut g, "player.GetEquippedItems").contains(&f64::from(GUN)));
+    assert_eq!(sorted(&mut g, "player.GetAllItemRefs 40 1").len(), 1);
+
+    // SetIsPlayable on a WEAP remains a no-op (observed: nvse-fourth).
+    q(&mut g, "SetIsPlayable 0 TestGun");
+    assert_eq!(n(&mut g, "IsPlayable TestGun"), 1.0);
+
+    // TempCloneForm inherits original flags1 and isolates clone-specific edits.
+    let clone_inherited = match q(&mut g, "SetFunctionValue (TempCloneForm TestGun)") {
+        XVal::Ref(r) => FormId(r),
+        v => panic!("TempCloneForm: {v:?}"),
+    };
+    assert_eq!(g.weapon_flags1_override(clone_inherited), g.weapon_flags1_override(gun));
+    let clone_edited = match q(&mut g, "ref c\nlet c := TempCloneForm TestGun\nSetWeaponFlag 7 1 c\nSetFunctionValue c") {
+        XVal::Ref(r) => FormId(r),
+        v => panic!("TempCloneForm edit: {v:?}"),
+    };
+    assert!(!g.is_item_playable(clone_edited));
+    assert!(g.is_item_playable(gun), "clone edit does not mutate original");
+
+    // Non-weapon forms are refused without polluting field_overrides.
+    q(&mut g, "SetWeaponFlag 1 1 TestHat");
+    assert_eq!(n(&mut g, "WeaponHasFlag 1 TestHat"), 0.0);
+    assert_eq!(g.weapon_flags1_override(FormId(HAT)), None);
+    assert_eq!(g.weapon_flags1(FormId(HAT)), None);
+    assert_eq!(g.num_field(FormId(HAT), "DNAM", "flags1"), 0.0);
 }

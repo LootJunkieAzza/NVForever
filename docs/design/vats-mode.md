@@ -427,7 +427,15 @@ marks) or if he dies. i dont want the player to get stuck in vats" [design].
   what it does outside it. The one exception is Activate while marking with a mark
   made: that accepts (§11.5). So E with nothing marked activates what is under the
   crosshair, and Wait opens the Wait menu (or is refused as usual, the mode ended all the
-  same). The check runs in `read_keys`, before activation, so the same frame's E
+  same). The other exception is the Pip-Boy (Menu Mode), whose own action comes on the
+  release (a tap opens the Pip-Boy) or after a hold (the flashlight, `flashlight.rs`): a
+  Menu Mode press made while the mode is on (Drawing, Marking or Firing) is the mode's
+  and is used up (`flashlight::MenuKeyHold::consume`), so it only leaves, or on the
+  controller's classic screen, where B is also the screen's Return, only returns; its
+  release opens no Pip-Boy and its hold switches no flashlight, and the next press out
+  of the mode opens the Pip-Boy as usual [design, #2311: B, a controller's back button,
+  left Dead Eye and opened the Pip-Boy on its release; Tab the same]. The
+  check runs in `read_keys`, before activation, so the same frame's E
   reaches the target. Use, Block, V, movement, looking and Toggle POV stay the mode's
   or go on as before. Log: `vats mode: off (…; Wait pressed)`, the control's name from
   `bindings::label`.
@@ -789,10 +797,10 @@ cone   = the VATS actor spread (below) and the weapon's Min Spread, in degrees, 
   line (`PREVIEW_CONE`), in the weapon's reach and in sight [design: one actor, not
   every one in view, so the labels stay readable; the one the next click would land on
   or near]. Each part its hit volume has a capsule for (the weapon it holds too) draws
-  "head 41%" (the BPTD part name in small letters, "weapon" for the held weapon) centred
+  "Head 41%" (the BPTD part name as the data spells it, "Weapon" for the held weapon) centred
   on the part's capsule centre (`PhysWorld::actor_part_center`); an actor with a single
   capsule draws its chance alone at its aim point. The part the crosshair is on is drawn
-  in brackets, "[head 41%]", and brighter (the amber lifted 75 % to white against the
+  in brackets, "[Head 41%]", and brighter (the amber lifted 75 % to white against the
   marks' 25 %), so the player sees which part a click marks [design: NVForever's own
   wording and look]. Same font as the marks' labels, the marks' amber, the same size on
   the screen at any range; a label that would overlap one drawn before it moves down a
@@ -972,9 +980,23 @@ against FalloutNV.esm's own tree (`fnv-game` test `camera_paths`, with game data
 VATS mode fires its marks in one run (§9), so a kill camera follows only the run's last
 mark: from the frame every mark's attack has started until 2 game seconds after the mode
 is off (a slow projectile), the last mark's actor is watched, and if it dies the kill
-camera starts. Earlier kills in the run do not cut it short. With the masters' data a
-kill camera plays on every such kill: the original's chance of one is not in our notes
-(the tree's GetRandomPercent conditions only choose between shots).
+camera starts. With the masters' data a kill camera plays on every such kill: the
+original's chance of one is not in our notes (the tree's GetRandomPercent conditions
+only choose between shots).
+
+Since 2026-11-10 (the fork owner's playtests, docs/design/vats-classic.md §8.1), in both
+styles:
+
+- A mark still to play whose actor has died is dropped, and with none left the mode ends
+  2 real seconds later. Such a kill, by an earlier mark, shows no kill camera.
+- The last mark's actor is watched while a classic attack's camera still plays, and the
+  kill camera takes over from it. A near target died inside that camera, was dead before
+  it was watched, and got no kill camera.
+- A corpse has no hit volume once its ragdoll is in the world (`hitvol.rs`). The camera
+  then holds to the ragdoll's centre, followed smoothly (0.1 s), and to the last place
+  seen when there is none. Before, it lost the target a frame after the kill and stood
+  about the attacker, with the room about the two measured as none.
+- The last shot is held 3 real seconds longer.
 
 The settings page's Kill camera row (`kill-camera` in NVForever.ini, Gameplay; owner's
 playtest requests #1035 and #1037, 2026-10-31) narrows that [design: combat is not a
@@ -1097,3 +1119,19 @@ loaded but not played: the death camera is the owner's own design (`death_cam.rs
   may not target logs `nothing to mark under the crosshair (<ref> is not a VATS target)`.
 - Not built: thrown grenades and placed mines in flight or on the ground (projectiles,
   not placed objects).
+
+## 21. Projectiles as targets (the Tweaks tab, 2026-11-13, #1891)
+
+[design: Stewie's Tweaks' `bTargetProjectilesInVATS` and its options, our own way] With
+the Tweaks tab's Target Projectiles in V.A.T.S. on, a click marks a missile or lobbed
+projectile in flight (not a hitscan shot, beam or flame) whose path passes within 24
+units of the crosshair's line, or within 0.03 rad of it far off, nearer than what the
+line meets; the one nearest the line by angle. Not the player's own (unless V.A.T.S.
+Targets Your Own Projectiles), not thrown mines (unless Mines Too), only explosive ones
+under V.A.T.S. Ignores Non-Explosive Projectiles. The mark's chance is the usual work
+(§17) on a held weapon's size with no body part: the distance and the player's skill.
+The mark follows the projectile and is dropped when it no longer flies. A landed shot
+ends it where it is, its explosion going off there as the player's (`Combat::shoot_down`).
+With Mines Too, an armed mine lying in the world is marked as a placed object (§20) and
+the shot sets it off as any destructible. The classic style's target list still holds
+actors only.

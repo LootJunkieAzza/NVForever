@@ -40,6 +40,7 @@ use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
 use fnv_game::casino;
+use fnv_util::words::{tr, trf};
 use fnv_game::slots::{self as rules, Limits, REELS};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -398,8 +399,14 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
+    // The player's tweak: W held spins again each time the reels stop [design: docs/design/tweaks.md].
+    if tweaks.is_some_and(|t| t.slots_hold_to_spin) && keys.pressed(KeyCode::KeyW) && !keys.just_pressed(KeyCode::KeyW) && s.betting() {
+        out.write(SlotsInput::Spin);
+        return;
+    }
     if s.help.is_some() {
         if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
             out.write(SlotsInput::CloseHelp);
@@ -502,7 +509,7 @@ fn apply(mut input: MessageReader<SlotsInput>, mut screen: ResMut<SlotsScreen>, 
             SlotsInput::Spin => {
                 let bet = s.bet;
                 if bet == 0 || bet > s.chips {
-                    s.status = Some("You do not have enough chips.".into());
+                    s.status = Some(tr("You do not have enough chips.").into());
                     continue;
                 }
                 if let Err(e) = sim.world.remove_item(FormId::PLAYER_REF, s.chip, bet as i32) {
@@ -579,11 +586,12 @@ fn step(time: AidTime, mut screen: ResMut<SlotsScreen>, mut next: ResMut<NextSta
                 if s.banned { "; banned" } else { "" }
             );
             // [hypothesis: the original's words are not in the plugins; these are NVForever's]
-            let result = match rules::win_name(line) {
-                Some(w) => format!("{w}: you win {back} chips."),
-                None => format!("You lose {} chips.", s.bet),
+            // In the chosen language (`lang/*.toml`, #3146); the log's line above is English.
+            let result = match rules::win_words(line) {
+                Some(w) => trf("{win}: you win {back} chips.", &[("win", &tr(w)), ("back", &back)]),
+                None => trf("You lose {n} chips.", &[("n", &s.bet)]),
             };
-            s.status = Some(if s.banned { format!("{result} You have been banned from {}.", s.casino_name) } else { result });
+            s.status = Some(if s.banned { trf("{result} You have been banned from {casino}.", &[("result", &result), ("casino", &s.casino_name)]) } else { result });
             s.phase = Phase::Paid { until: now + RESULT_SECONDS };
         }
         Phase::Paid { until } if now >= until => {
@@ -620,6 +628,33 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<SlotsStats>) {
     }
     let s = &*stats;
     info!("slots summary: {} asked, {} opened ({} refused); {} spins, {} won, {} chips won, {} lost; {} bans", s.asked, s.opened, s.refused, s.spins, s.wins, s.won, s.lost, s.bans);
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> SlotsScreen {
+    SlotsScreen(Some(Session {
+        casino: FormId(42),
+        casino_name: String::new(),
+        chip: FormId(43),
+        symbols: vec![],
+        reel: vec![0, 1],
+        max_winnings: 1000,
+        limits: Limits::new(1, 10),
+        bet: if step >= 1 { 2 } else { 1 },
+        stops: if step >= 2 { [1; REELS] } else { [0; REELS] },
+        phase: if step >= 3 { Phase::Paid { until: step as f32 } } else { Phase::Betting },
+        chips: 100,
+        earnings: 0,
+        status: None,
+        help: None,
+        payouts: step >= 4,
+        banned: false,
+        forced: None,
+        increases: step,
+        rng: ChaCha8Rng::seed_from_u64(step as u64),
+    }))
 }
 
 #[cfg(test)]

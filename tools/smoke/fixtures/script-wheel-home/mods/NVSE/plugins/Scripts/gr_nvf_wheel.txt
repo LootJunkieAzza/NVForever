@@ -1,0 +1,2 @@
+PrintC "nvf wheel up handler %g", (SetOnKeyDownEventHandler (CompileScript "nvf_wheel_edge.txt") 1 264)
+PrintC "nvf wheel down handler %g", (SetOnKeyDownEventHandler (CompileScript "nvf_wheel_edge.txt") 1 265)

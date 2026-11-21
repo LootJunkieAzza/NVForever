@@ -12,9 +12,13 @@ be used at a 1:1 ratio for temporal anti-aliasing (TAA) without upscaling.
 **Early / experimental.** Known limitations:
 
 - `GenerateReactive` pass is unimplemented
-- Lanczos-LUT, half-precision, and wave64 shader permutations are not yet
-  selected based on device capabilities (the reference/full-precision variants
-  are always chosen)
+- Lanczos-LUT and wave64 shader permutations are not yet selected based on
+  device capabilities (the reference variants are always chosen)
+- The upscaler's half-precision variants are compiled and chosen with
+  `FsrContextFlags::ALLOW_FP16` where the device has `SHADER_F16` and
+  `SHADER_I16`, for the accumulate pass only: SDK 1.1.4's FP16 callbacks of the
+  two SPD pyramids are stubs (NVForever, 2026-11-08). Optical flow and frame
+  interpolation stay full precision.
 
 ## Requirements
 

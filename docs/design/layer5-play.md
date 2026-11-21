@@ -104,7 +104,8 @@ open and close the runtime's menu), plus `--new-game` in `engine/nvforever/src/m
   `GetButtonPressed` once (the Goodsprings chemistry set's does; `Game::press_button`
   closes the box at once, before MenuMode could run) [hypothesis: the original runs the
   frame's MenuMode with the button pressed]. A box that waits for a button and is
-  closed with OK gets button 0.
+  closed with OK gets button 0; so does the OK of a message box without buttons, whose
+  `message_box` has `buttons: 0` (#2925, docs/spec-notes/scripts.md §7.2).
 - The **placeholder** for a character-creation menu names it and says nothing is chosen
   (Layer 7 builds the real menus); the player's name, race and picks stay as they are.
 - **Holding the player** (`script::hold_player`): while a script's menu or box is open
@@ -162,8 +163,12 @@ follows docs/spec-notes/level-design.md §11.2 T1–T3:
   OnTrigger every frame it does, **the entering frame included, after OnTriggerEnter**
   [documented: every frame inside, T3; hypothesis: the order on the entering frame,
   open in game, level-design.md §13 question 2]; OnTriggerLeave once on the first frame
-  it no longer does. A trigger that is disabled or whose cell unloads gives no Leave; an
-  actor that is disabled, dies or leaves the loaded cells gives one [hypothesis].
+  it no longer does. A trigger that is disabled gives no Leave; an actor that is
+  disabled, dies or leaves the loaded cells gives one [hypothesis]. A trigger whose cell
+  unloads gives none to the actors still in it, but gives one to the player, who went
+  away (fast travel, a door, MoveTo) [design, #2449: the Boomers' artillery field counts
+  the player in and out, and a player who travelled out stayed counted;
+  observer-checks.md check 137].
 
 ## 4. Effects
 
@@ -174,7 +179,7 @@ engine does:
 |---|---|
 | `ref_enabled` / `ref_disabled` | `RefChanged` for the reference and every reference whose enable-parent chain leads to it: visuals hide or show (`activate.rs` sync), collision goes or comes back (`phys.rs`) |
 | a reference newly marked for delete (`MarkForDelete`; no trace event, read from `Game::extra`) | the same `RefChanged` |
-| `moved` of the player (`MoveTo`) | `Travel` to the destination cell (interior or worldspace), feet at the marker, heading kept; none when the player already stands there (within 32 units, same cell) |
+| `moved` of the player (`MoveTo`) | `Travel` to the destination cell (interior or worldspace), feet at the marker, the marker's heading and pitch (its X angle; #2226, #2710); none when the player already stands there (within 32 units, same cell) |
 | `activated` (a script's `Activate`) | the outcome read back from its JSON and turned into effects by `activate::outcome::effects`, as for E: `RefChanged`, `Travel` and `OpenContainer` when the actor is the player, the outcome's message; an actor activated for the player is talked to instead (`Runtime::talk_after`, docs/design/dialogue-play.md) |
 | `message_shown` | a line for a message that is not a box; for a box (`MESG` "Message Box" flag or buttons) its text and buttons are kept for when the runtime's queue brings it to the front |
 | `line_started` | the line's response texts (INFO `NAM1`) are read for the subtitles |

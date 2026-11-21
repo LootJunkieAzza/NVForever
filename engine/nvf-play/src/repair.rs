@@ -30,6 +30,11 @@
 //! chosen row), `all` (Repair All), `done`, `shot` (a screenshot `repair_menu.png` in the
 //! working folder). Open the menu through a script, e.g. the console aid's
 //! `GSChetRef.ShowRepairMenu`.
+//!
+//! Behind `[UI] TileMenus=RepairServicesMenu` the menu is drawn from its file instead
+//! (`crate::tiles::repair_services_menu`, repair.md §3.1): the rules, sounds and log lines here
+//! stay, [`draw`] spawns only a sheet that keeps the pointer from what is under the menu, and
+//! what the tiles are asked comes in as [`RepairServicesInput`].
 
 use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face, Pictures};
 use crate::pause::AidTime;
@@ -117,6 +122,7 @@ impl Plugin for RepairPlugin {
             aid.sort_by(|a, b| a.0.total_cmp(&b.0));
         }
         app.init_resource::<RepairServices>()
+            .add_message::<RepairServicesInput>()
             .insert_resource(RepairAid(aid))
             .add_systems(Update, (scripts_open, (keys, draw).chain().run_if(in_state(PlayState::Menu))).chain().in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close);
@@ -132,6 +138,11 @@ struct RepairAid(Vec<(f32, String)>);
 pub struct RepairServices(pub Option<Open>);
 
 impl RepairServices {
+    /// [design, #2403 / file refs] Logical repair choices and displayed conditions/costs;
+    /// excludes `Open::navigated`, pointer state and drawing labels.
+    pub fn progress(&self) -> Option<impl std::fmt::Debug + '_> {
+        self.0.as_ref().map(|o| (o.vendor, o.selected, o.first, o.confirming, o.drawn.as_ref().map(|v| (&v.rows, v.skill, v.caps, v.total, v.all_ready))))
+    }
     pub fn is_open(&self) -> bool {
         self.0.is_some()
     }
@@ -144,7 +155,64 @@ pub struct Open {
     /// never scrolls the list.
     first: usize,
     drawn: Option<View>,
+    /// The selection was last moved by the pointer on the tiles: their list stays where it is.
+    pointer_pick: bool,
+    /// A count of the keys' and the wheel's moves: the tiles' list brings their row into view
+    /// (`crate::tiles::list::settle_list`).
+    navigated: u32,
+    /// The player's Repair All Confirmation tweak asked once: the next Repair All does it,
+    /// anything else takes the question back [design: docs/design/tweaks.md].
+    confirming: bool,
 }
+
+impl Open {
+    /// What the menu showed last, for the tiles' writer: the view, and [`Open::pointer_pick`]
+    /// and [`Open::navigated`].
+    pub(crate) fn shown(&self) -> Option<(&View, bool, u32)> {
+        self.drawn.as_ref().map(|v| (v, self.pointer_pick, self.navigated))
+    }
+
+    /// A key's or the wheel's move.
+    fn keyed(&mut self) {
+        self.navigated = self.navigated.wrapping_add(1);
+        self.pointer_pick = false;
+    }
+
+    /// The rows the tiles' input chose, in the order asked, among `rows` rows, up to a repair: it
+    /// is of the row chosen when it was asked, the one whose cost was shown.
+    fn chosen_on_tiles(&mut self, asked: &[RepairServicesInput], rows: usize) {
+        for a in asked {
+            match *a {
+                RepairServicesInput::Hover(i) | RepairServicesInput::Select(i) if i < rows => {
+                    self.selected = i;
+                    self.pointer_pick = true;
+                }
+                RepairServicesInput::Repair => return,
+                _ => {}
+            }
+        }
+    }
+}
+
+/// What the menu drawn from its tiles asks of it (`crate::tiles::input`), as a click and a press
+/// on the hand-built menu do [design: repair.md §3.1].
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepairServicesInput {
+    /// The pointer came onto a row.
+    Hover(usize),
+    /// A click on a row not selected.
+    Select(usize),
+    /// A click on the selected row or the Repair button: the selected row repaired.
+    Repair,
+    /// Repair All.
+    All,
+    /// Done.
+    Done,
+}
+
+/// The sentence for an item beyond the vendor's skill: NVForever's own, the original sets this
+/// text in its code [documented: repair.md §3].
+pub(crate) const BEYOND_WORDS: &str = "The vendor's skill is too low to repair this.";
 
 #[derive(Component)]
 struct RepairRoot;
@@ -158,42 +226,52 @@ enum RepairButton {
 
 /// One unit group of the player's inventory the vendor lists.
 #[derive(Debug, Clone, PartialEq)]
-struct RowView {
-    item: FormId,
-    extra: Extra,
-    count: i32,
-    label: String,
-    condition: f32,
-    quote: Quote,
+pub(crate) struct RowView {
+    pub(crate) item: FormId,
+    pub(crate) extra: Extra,
+    pub(crate) count: i32,
+    /// The item's name, without the count.
+    pub(crate) name: String,
+    pub(crate) label: String,
+    pub(crate) condition: f32,
+    pub(crate) quote: Quote,
     /// Repairable now: within the vendor's skill and affordable.
-    ready: bool,
-    icon: Option<String>,
+    pub(crate) ready: bool,
+    pub(crate) icon: Option<String>,
     /// ("DAM", now, after) or ("DT", now, after).
-    stat: Option<(&'static str, i32, i32)>,
+    pub(crate) stat: Option<(&'static str, i32, i32)>,
 }
 
 /// Everything the menu shows: drawn again when it changes.
 #[derive(Debug, Clone, PartialEq)]
-struct View {
-    rows: Vec<RowView>,
-    selected: usize,
+pub(crate) struct View {
+    pub(crate) rows: Vec<RowView>,
+    pub(crate) selected: usize,
     /// The first row shown ([`window`]).
-    first: usize,
-    skill: i32,
-    caps: i32,
+    pub(crate) first: usize,
+    pub(crate) skill: i32,
+    pub(crate) caps: i32,
     /// What Repair All costs, and whether the player can pay it.
-    total: u32,
-    all_ready: bool,
+    pub(crate) total: u32,
+    pub(crate) all_ready: bool,
+    /// Repair All asks to be pressed again (the player's Repair All Confirmation tweak).
+    pub(crate) confirming: bool,
     /// The names the hints use (`crate::pad::labels`).
-    labels: crate::pad::Labels,
+    pub(crate) labels: crate::pad::Labels,
 }
 
 /// What `open` lists now (with the world in the runtime).
 fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&crate::combat::Combat>, open: &Open) -> View {
     let forms = sim.forms;
-    let settings = RepairSettings::from_settings(|n| forms.setting_f32(n));
+    let mut settings = RepairSettings::from_settings(|n| forms.setting_f32(n));
     crate::script::with_world(rt, sim, |rt| {
         let skill = fnv_game::functions::actor_value_capped(&mut rt.game, open.vendor, fnv_game::actor_values::REPAIR) as f32;
+        // The player's tweak: the player's Barter takes off part of the price [design: docs/design/tweaks.md].
+        let off = rt.game.tweaks.barter_repair_discount;
+        if off > 0.0 {
+            let barter = fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::BARTER) as f32;
+            settings.cost_mult *= fnv_game::tweaks::barter_repair_factor(off, barter);
+        }
         let caps = rt.game.world.item_count(FormId::PLAYER_REF, CAPS).unwrap_or(0);
         let groups: Vec<(FormId, Extra, i32)> = rt.game.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
         let mut rows = Vec::new();
@@ -205,7 +283,9 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&cra
                 _ => continue,
             };
             let condition = extra.condition_or_whole();
-            if !vendor_lists(gear, it.health, it.armor_dt, condition) {
+            // The player's tweak lists armour with no DT too [design: docs/design/tweaks.md].
+            let dt = if rt.game.tweaks.repair_any_armor { Some(it.armor_dt.unwrap_or(1.0).max(1.0)) } else { it.armor_dt };
+            if !vendor_lists(gear, it.health, dt, condition) {
                 continue;
             }
             let quote = vendor_quote(&settings, it.value.unwrap_or(0), condition, skill);
@@ -225,14 +305,14 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&cra
                 }),
             });
             let name = crate::menu::model::display_name(forms, item);
-            let label = if count > 1 { format!("{name} ({count})") } else { name };
-            rows.push(RowView { item, extra, count, label, condition, quote, ready, icon: it.icon.clone(), stat });
+            let label = if count > 1 { format!("{name} ({count})") } else { name.clone() };
+            rows.push(RowView { item, extra, count, name, label, condition, quote, ready, icon: it.icon.clone(), stat });
         }
         // Those that can be repaired first [observed], by name within each part [design].
         rows.sort_by(|a, b| b.ready.cmp(&a.ready).then_with(|| a.label.cmp(&b.label)).then(a.condition.total_cmp(&b.condition)));
         let total: u32 = rows.iter().filter_map(|r| r.quote.cost().map(|c| c * r.count.max(1) as u32)).sum();
         let selected = open.selected.min(rows.len().saturating_sub(1));
-        View { all_ready: total > 0 && total as i64 <= caps as i64, rows, selected, first: open.first, skill: skill.max(0.0).floor() as i32, caps, total, labels: crate::pad::labels() }
+        View { all_ready: total > 0 && total as i64 <= caps as i64, rows, selected, first: open.first, skill: skill.max(0.0).floor() as i32, caps, total, confirming: open.confirming, labels: crate::pad::labels() }
     })
 }
 
@@ -250,13 +330,18 @@ fn repair_one(rt: &mut crate::script::Runtime, vendor: FormId, r: &RowView) -> R
     }
     if cost > 0 && vendor != FormId::PLAYER_REF {
         rt.game.world.remove_item(FormId::PLAYER_REF, CAPS, cost as i32).map_err(|e| format!("{e:?}"))?;
-        // A vendor without an inventory keeps nothing [design].
-        let _ = rt.game.world.add_item(vendor, CAPS, cost as i32);
+        // A vendor without an inventory keeps nothing [design]. The player's tweak puts
+        // the caps in the merchant's container, out of a pickpocket's reach [design: docs/design/tweaks.md].
+        let to = if rt.game.tweaks.repair_caps_to_container { rt.game.merchant_container(vendor).unwrap_or(vendor) } else { vendor };
+        let _ = rt.game.world.add_item(to, CAPS, cost as i32);
     }
     Ok((to, cost))
 }
 
-/// The repair services scripts asked for, opened while playing.
+/// The repair services scripts asked for, opened while playing or over a conversation (a
+/// vendor's line's result script, #2308): the menu is a `PlayState::Menu` either way, the
+/// conversation waits under it (`crate::dialogue::held`: `Game::menu` is set) and goes on
+/// when it closes ([`after_close`]).
 #[allow(clippy::too_many_arguments)]
 fn scripts_open(
     script: Option<ResMut<ScriptState>>,
@@ -269,12 +354,13 @@ fn scripts_open(
     mut sounds: MessageWriter<UiSound>,
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
-    if rt.game.repair_requests.is_empty() || *state.get() != PlayState::Playing || menu.is_open() || active.0.is_some() {
+    let here = matches!(*state.get(), PlayState::Playing | PlayState::Dialogue);
+    if rt.game.repair_requests.is_empty() || !here || menu.is_open() || active.0.is_some() {
         return;
     }
     let Some(r) = rt.game.repair_requests.pop() else { return };
     rt.game.repair_requests.clear();
-    let open = Open { vendor: r.vendor, selected: 0, first: 0, drawn: None };
+    let open = Open { vendor: r.vendor, selected: 0, first: 0, drawn: None, pointer_pick: false, navigated: 0, confirming: false };
     let v = view(rt, &mut sim, combat.as_deref(), &open);
     let first: Vec<String> = v.rows.iter().take(6).map(|r| format!("{} {}%{}", r.label, (r.condition * 100.0).round(), r.quote.cost().map_or(" beyond".to_string(), |c| format!(" {c} caps")))).collect();
     info!(
@@ -294,7 +380,7 @@ fn scripts_open(
 
 #[allow(clippy::too_many_arguments)]
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<RepairAid>,
     mut menu: ResMut<RepairServices>,
@@ -307,10 +393,15 @@ fn keys(
     mut sounds: MessageWriter<UiSound>,
     mut moved: MessageReader<bevy::window::CursorMoved>,
     mut commands: Commands,
+    mut on_tiles: MessageReader<RepairServicesInput>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    let keys = keys.snapshot();
     // Only a pointer that moves takes the selection: the rows drawn when the menu opens
     // (or redrawn) under a resting pointer leave the keys' choice alone (as `crate::menu`).
     let pointer_moved = moved.read().count() > 0;
+    // What the tiles asked: read whatever else happens, so none of it waits for a later frame.
+    let asked: Vec<RepairServicesInput> = on_tiles.read().copied().collect();
     let Some(open) = menu.0.as_mut() else { return };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     // A world aid (`crate::pause::WorldAidClock`).
@@ -340,26 +431,48 @@ fn keys(
     let wheel = scroll.as_ref().map_or(0.0, |s| s.delta.y);
     if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || wheel > 0.0 || act("up") {
         open.selected = open.selected.min(n.saturating_sub(1)).saturating_sub(1);
+        open.keyed();
     }
     if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || wheel < 0.0 || act("down") {
         open.selected = (open.selected + 1).min(n.saturating_sub(1));
+        open.keyed();
     }
     if let Some(RepairButton::Row(r)) = clicked {
         open.selected = r;
     }
+    // After the keys: a click acts on the row it was on.
+    open.chosen_on_tiles(&asked, n);
+    let tile_asked = |a: RepairServicesInput| asked.contains(&a);
     if open.selected != before {
         sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Focus });
+        if std::mem::take(&mut open.confirming) {
+            open.drawn = None;
+        }
     }
-    if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab]) || clicked == Some(RepairButton::Done) || act("done") {
+    if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab]) || clicked == Some(RepairButton::Done) || act("done") || tile_asked(RepairServicesInput::Done) {
         info!("repair menu: done");
         sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Back });
-        next.set(PlayState::Playing);
+        next.set(after_close(&rt.game));
         return;
     }
     let forms = sim.forms;
     let vendor = open.vendor;
-    let one = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) || matches!(clicked, Some(RepairButton::Row(_))) || act("repair");
-    let all = keys.just_pressed(KeyCode::KeyA) || clicked == Some(RepairButton::All) || act("all");
+    let one = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) || matches!(clicked, Some(RepairButton::Row(_))) || act("repair") || tile_asked(RepairServicesInput::Repair);
+    let all = keys.just_pressed(KeyCode::KeyA) || clicked == Some(RepairButton::All) || act("all") || tile_asked(RepairServicesInput::All);
+    // The player's Repair All Confirmation tweak: a Repair All at or over its price asks
+    // first; any other repair takes the question back [design: docs/design/tweaks.md].
+    let asks = tweaks.as_deref().filter(|t| t.repair_all_confirm).is_some_and(|t| v.total as f32 >= t.repair_all_threshold);
+    if one && std::mem::take(&mut open.confirming) {
+        open.drawn = None;
+    }
+    if all && asks && v.all_ready && !std::mem::take(&mut open.confirming) {
+        info!("repair menu: Repair All for {} caps asks to be pressed again (Repair All Confirmation)", v.total);
+        open.confirming = true;
+        open.drawn = None;
+        sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Focus });
+        return;
+    }
+    open.confirming = false;
     if one {
         let Some(r) = v.rows.get(open.selected.min(n.saturating_sub(1))) else { return };
         let name = crate::menu::model::display_name(forms, r.item);
@@ -475,7 +588,7 @@ fn window(look: &RepairLook, v: &View) -> std::ops::Range<usize> {
     }
 }
 
-fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
+fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
     let node = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-MAIN.x / 2.0)), top: crate::interface::from_top((960.0 - MAIN.y) / 2.0, 0.5), width: u(MAIN.x), height: u(MAIN.y), ..default() };
     let bright = color(Shade::Bright);
     let dim = amber(DIM);
@@ -565,7 +678,7 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<
                     }
                     Quote::Beyond => {
                         // [the words are ours: the original sets this text in its code].
-                        centred(m, &look.row, "The vendor's skill is too low to repair this.", sx + ERROR_AT.x, sy + ERROR_AT.y, dim);
+                        centred(m, &look.row, BEYOND_WORDS, sx + ERROR_AT.x, sy + ERROR_AT.y, dim);
                     }
                 }
             }
@@ -573,12 +686,18 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<
             // A and E, with a controller X (`repair_services_menu.xml`'s Repair All) and B
             // (Esc) [#1662].
             let hint_at = crate::pad::at_menu(fnv_game::repair::REPAIR_SERVICES_MENU);
-            let all = format!("Repair All ({})  {}", v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels));
+            // The player's Repair All Confirmation tweak: asking, the button says so [design:
+            // our own words].
+            let all = if v.confirming {
+                format!("Repair All ({})? Again to confirm  {}", v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels))
+            } else {
+                format!("Repair All ({})  {}", v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels))
+            };
             let done = format!("Done  {}", crate::pad::hint_as(&[KeyCode::KeyE, KeyCode::Escape], hint_at, v.labels));
             for (k, (label, b, on)) in [(all.as_str(), RepairButton::All, v.all_ready), (done.as_str(), RepairButton::Done, true)].into_iter().enumerate() {
-                let w = look.row.font.width(label);
+                let w = crate::pad::hint_width(&look.row, label, glyphs);
                 m.spawn((Button, b, at(BUTTONS.x - w - 10.0, BUTTONS.y + k as f32 * BUTTON_STEP, w + 10.0, 44.0))).with_children(|t| {
-                    text(t, &look.row, label, 0.0, 0.0, if on { bright } else { dim });
+                    crate::pad::set_hint(t, &look.row, label, 0.0, crate::pipboy::frame::base(&look.row.font), if on { bright } else { dim }, glyphs);
                 });
             }
             // The bottom bracket: a line along 680 with short sides fading up.
@@ -602,8 +721,28 @@ fn draw(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
+    (switch, mut was_tiled): (Option<Res<crate::tiles::vanilla::TileMenus>>, Local<bool>),
 ) {
     let Some(open) = menu.0.as_mut() else { return };
+    // The one decision with the tiles' writer, whose drawing replaces this one.
+    let tiled = switch.is_some_and(|s| s.repair_services) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::repair_services_menu::tiled(true, &rt.game, true));
+    if tiled {
+        let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+        let v = view(rt, &mut sim, combat.as_deref(), open);
+        if !*was_tiled || roots.is_empty() {
+            for e in &roots {
+                commands.entity(e).despawn();
+            }
+            commands.spawn((RepairRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(crate::interface::TOP_MENU_Z))).with_children(|root| {
+                root.spawn(crate::tiles::menus::modal_sheet());
+            });
+        }
+        *was_tiled = true;
+        open.selected = v.selected;
+        open.drawn = Some(v);
+        return;
+    }
     let bc = bc_supported(formats.as_deref());
     let Some(mut look) = look else {
         let font = |n: usize, images: &mut Assets<Image>| face(crate::pipboy::frame::FONTS[n - 1], plain_font(30.0, 14.0), data.as_deref(), images, bc);
@@ -611,18 +750,31 @@ fn draw(
         return;
     };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    // Back from the tiles (the file gone, its tree dropped): the hand-built menu is drawn anew.
+    let back = std::mem::take(&mut *was_tiled);
     let mut v = view(rt, &mut sim, combat.as_deref(), open);
     v.first = window(&look, &v).start;
     open.first = v.first;
-    if open.drawn.as_ref() == Some(&v) && !roots.is_empty() {
+    if open.drawn.as_ref() == Some(&v) && !roots.is_empty() && !back {
         return;
     }
     for e in &roots {
         commands.entity(e).despawn();
     }
-    spawn(&mut commands, &mut look, &v, data.as_deref(), &mut images, bc);
+    spawn(&mut commands, &mut look, &v, data.as_deref(), &mut images, bc, &glyphs);
     open.selected = v.selected;
     open.drawn = Some(v);
+}
+
+/// The state a closed menu goes back to: the conversation it was opened over, if it still
+/// runs, else play. [hypothesis: the original returns to the topic list after a repair
+/// line without the Goodbye flag, as after barter; not captured]
+pub(crate) fn after_close(g: &fnv_game::Game) -> PlayState {
+    if g.dialogue.is_some() {
+        PlayState::Dialogue
+    } else {
+        PlayState::Playing
+    }
 }
 
 fn close(mut commands: Commands, mut menu: ResMut<RepairServices>, roots: Query<Entity, With<RepairRoot>>, script: Option<ResMut<ScriptState>>) {
@@ -638,4 +790,81 @@ fn close(mut commands: Commands, mut menu: ResMut<RepairServices>, roots: Query<
         }
     }
     info!("repair menu: closed");
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> RepairServices {
+    let mut o = Open { vendor: FormId(42), selected: 0, first: 0, drawn: None, pointer_pick: step >= 5, navigated: step as u32, confirming: false };
+    if step >= 1 {
+        o.selected = 1;
+    }
+    if step >= 2 {
+        o.first = 1;
+    }
+    if step >= 3 {
+        o.confirming = true;
+    }
+    o.drawn = Some(View {
+        rows: (0..20)
+            .map(|i| RowView {
+                item: FormId(100 + i),
+                extra: Extra::default(),
+                count: 1,
+                name: format!("Synthetic item {i}"),
+                label: format!("Synthetic item {i}"),
+                condition: 0.5,
+                quote: Quote::Repair { to: 1.0, cost: 10 },
+                ready: true,
+                icon: None,
+                stat: None,
+            })
+            .collect(),
+        selected: o.selected,
+        first: o.first,
+        skill: 50,
+        caps: if step >= 4 { 50 } else { 100 },
+        total: 20,
+        all_ready: true,
+        confirming: o.confirming,
+        labels: Default::default(),
+    });
+    RepairServices(Some(o))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open() -> Open {
+        Open { vendor: FormId(1), selected: 0, first: 0, drawn: None, pointer_pick: false, navigated: 0, confirming: false }
+    }
+
+    #[test]
+    fn the_tiles_choose_rows_there_are_and_the_keys_take_it_back() {
+        let mut o = open();
+        o.chosen_on_tiles(&[RepairServicesInput::Hover(2)], 3);
+        assert_eq!((o.selected, o.pointer_pick), (2, true));
+        o.chosen_on_tiles(&[RepairServicesInput::Select(1), RepairServicesInput::Repair], 3);
+        assert_eq!(o.selected, 1);
+        o.chosen_on_tiles(&[RepairServicesInput::Select(3)], 3);
+        assert_eq!(o.selected, 1, "a row no longer there chooses nothing");
+        o.keyed();
+        assert_eq!((o.pointer_pick, o.navigated), (false, 1));
+    }
+
+    #[test]
+    fn a_repair_is_of_the_row_chosen_when_it_was_asked() {
+        let mut o = open();
+        o.chosen_on_tiles(&[RepairServicesInput::Select(1), RepairServicesInput::Repair, RepairServicesInput::Hover(2)], 3);
+        assert_eq!(o.selected, 1, "a pointer step after it in the frame moves nothing");
+    }
+
+    #[test]
+    fn asking_for_nothing_changes_nothing() {
+        let mut o = open();
+        o.chosen_on_tiles(&[RepairServicesInput::All, RepairServicesInput::Done], 3);
+        assert_eq!((o.selected, o.pointer_pick, o.navigated), (0, false, 0));
+    }
 }

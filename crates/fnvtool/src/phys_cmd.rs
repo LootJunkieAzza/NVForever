@@ -172,7 +172,12 @@ impl Meshes {
             },
         };
         let schema = fnv_nif::Schema::load_dir(&dir).with_context(|| dir.display().to_string())?;
-        let vfs = fnv_vfs::Vfs::open_default(data_dir).with_context(|| data_dir.display().to_string())?;
+        // Under `--mo2-profile` the mods' archives and loose meshes count too (TTW's
+        // Megaton lives in a mod's BSA); otherwise the base game's own archives.
+        let vfs = match crate::mo2_args::vfs(data_dir)? {
+            Some(v) => v,
+            None => fnv_vfs::Vfs::open_default(data_dir).with_context(|| data_dir.display().to_string())?,
+        };
         Ok(Some(Meshes { vfs, schema, cache: BTreeMap::new(), water: BTreeMap::new(), anims: BTreeMap::new() }))
     }
 
@@ -358,9 +363,11 @@ pub(crate) fn build_with<'a>(
     let mut cells: Vec<&Cell> = vec![centre];
     let mut grids: BTreeMap<(i32, i32), Option<Vec<f32>>> = BTreeMap::new();
     let ws = centre.world.and_then(|w| ix.worldspaces.get(&w));
+    // The exterior squares loaded, with a cell record there or not (as the engine's
+    // physics loads them).
+    let mut squares = std::collections::BTreeSet::new();
     if let (Some(ws), Some(g0)) = (ws, centre.grid) {
         cells.clear();
-        let mut squares = std::collections::BTreeSet::new();
         for (gx, gy) in std::iter::once(g0).chain(around.iter().map(|&(x, y)| cell_of(x, y))) {
             for y in gy - radius..=gy + radius {
                 for x in gx - radius..=gx + radius {
@@ -368,7 +375,7 @@ pub(crate) fn build_with<'a>(
                 }
             }
         }
-        for (y, x) in squares {
+        for &(y, x) in &squares {
             {
                 let Some(id) = ws.grid.get(&(x, y)) else { continue };
                 let c = &ix.cells[id];
@@ -403,8 +410,15 @@ pub(crate) fn build_with<'a>(
     }
 
     // References: those of the loaded cells, plus the worldspace's persistent references
-    // standing in a loaded grid square.
+    // standing in a loaded grid square, plus the references placed in other squares whose
+    // bounds reach into a loaded square (`fnv_world::reach`, the engine's rule, #2795).
     let mut ref_ids: Vec<u32> = cells.iter().flat_map(|c| c.refs.iter().copied()).collect();
+    if let Some(ws) = ws.filter(|_| !squares.is_empty()) {
+        let reach = fnv_world::reach::ReachIndex::build(lo, schema, ix, ws.form_id);
+        for &(y, x) in &squares {
+            ref_ids.extend(reach.reaching((x, y)));
+        }
+    }
     let persistent = ws.and_then(|w| w.persistent_cell).and_then(|p| ix.cells.get(&p));
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     let mut by_base: BTreeMap<String, usize> = BTreeMap::new();

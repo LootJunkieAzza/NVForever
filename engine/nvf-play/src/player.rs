@@ -18,6 +18,10 @@
 
 pub mod safe;
 
+#[cfg(test)]
+#[path = "player_control_event_tests.rs"]
+mod control_event_tests;
+
 use crate::bindings::{Bindings, Control, ControlInput};
 use crate::control::PlayerControl;
 use crate::phys::cells::Space;
@@ -219,6 +223,9 @@ pub fn read_keys(c: &mut Controls, intent: &mut MoveIntent, pressed: impl Fn(Key
     }
 }
 
+/// Jump is held now (the Jump Swims Upwards tweak reads it in the step) [design: docs/design/tweaks.md].
+static JUMP_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Speed backwards as a fraction of the forward speed [observed: 272.8 against 344 units/s
 /// running, capture mv_values, physics.md §6.3]. Sideways and diagonal speeds were not
 /// measured (the strafe runs hit a wall); they take the forward speed [hypothesis].
@@ -353,6 +360,7 @@ impl Plugin for PlayerPlugin {
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
+            .add_plugins(crate::vanity::VanityPlugin)
             .init_resource::<RunPace>()
             .init_resource::<PerkSpeed>()
             .init_resource::<StatSpeed>()
@@ -362,31 +370,133 @@ impl Plugin for PlayerPlugin {
             .init_resource::<crate::control::DetachedCamera>()
             .add_systems(
                 Update,
-                (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk, crate::control::detach_camera).chain().after(PlaySet::Input).before(PlaySet::Physics),
+                (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk, dialogue_lead_walks, crate::control::detach_camera).chain().after(PlaySet::Input).before(PlaySet::Physics),
             )
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
-                (place_initial, interior_net, step, crate::phys::settle_created, sync_sim, log_status)
+                (place_initial, interior_net, crate::phys::piles_pass_their_corpses, step, crate::phys::settle_created, sync_sim, log_status)
                     .chain()
                     .in_set(PlaySet::Physics)
                     .after(crate::phys::PhysSystems),
             )
             .add_systems(Update, crate::control::place_camera.in_set(PlaySet::Physics).after(log_status));
+        app.init_resource::<crate::inertia::MovementInertia>().add_systems(Update, (crate::inertia::follow_weapon, crate::inertia::log_switches));
+        // Sprint's shared state and the bindings kept on its switch.
+        app.add_plugins(crate::stance::StancePlugin);
+        // Sprint (`crate::sprint`): between the frame's walk rules and the physics steps.
+        app.add_plugins(crate::sprint::SprintPlugin);
+        // The Advanced Movement section's switches kept here (NVF Features; Weapon Inertia and
+        // Camera Motion are nvforever's `settings.rs`): the Global Toggle, then Gameplay's and
+        // Animation Smoothing [design: the owner, 2026-11-15, the menu's names and order].
+        type Inertia = crate::inertia::MovementInertia;
+        let switch = |key, label, note, switches, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: crate::pause::GROUP_MENUS, label, note, switches, get, set, slider: None };
+        for s in [
+            switch(
+                "advanced-movement",
+                "Global Toggle",
+                "On: the switches below shape how your character, view and weapon move. Off: none of them acts, as in the original; each keeps its own choice.",
+                "--no-advanced-movement",
+                |w| w.resource::<Inertia>().advanced,
+                |w, on| w.resource_mut::<Inertia>().advanced = on,
+            ),
+            switch(
+                "movement-inertia",
+                "Movement Inertia",
+                "On: you speed up, glide to a stop and brake before turning; crouching eases and landings dip and slow you by the fall. Off: as in the original.",
+                "--movement-inertia --no-movement-inertia",
+                |w| w.resource::<Inertia>().on,
+                |w, on| w.resource_mut::<Inertia>().on = on,
+            ),
+            switch(
+                "weapon-handling",
+                "Weapon Handling",
+                "On: drawing, putting away and aiming a weapon take a moment longer, and longer still for heavier weapons. Off: the original's timing.",
+                "--weapon-handling --no-weapon-handling",
+                |w| w.resource::<Inertia>().weapon_handling,
+                |w, on| w.resource_mut::<Inertia>().weapon_handling = on,
+            ),
+            switch(
+                "advanced-recoil",
+                "Advanced Recoil",
+                "On: a shot's kick eases the view up and part of it settles back down, and the view nudges back. Off: the whole kick stays, as in the original.",
+                "--no-advanced-recoil",
+                |w| w.resource::<Inertia>().recoil,
+                |w, on| w.resource_mut::<Inertia>().recoil = on,
+            ),
+            // Sprint, off by default; its control (`crate::bindings`) is greyed while it is
+            // off, its shared state is `crate::stance`'s.
+            switch(
+                "sprint",
+                "Sprint",
+                SPRINT_NOTE,
+                "--sprint --no-sprint",
+                |w| w.resource::<Inertia>().sprint,
+                |w, on| w.resource_mut::<Inertia>().sprint = on,
+            ),
+            switch(
+                "animation-smoothing",
+                "Animation Smoothing",
+                "On: in first person drawing, aiming, attacks, reloads and the Pip-Boy ease in and settle softly, taking no longer. Off: the original's clips.",
+                "--animation-smoothing --no-animation-smoothing",
+                |w| w.resource::<Inertia>().smooth,
+                |w, on| w.resource_mut::<Inertia>().smooth = on,
+            ),
+        ] {
+            crate::settings::add_setting(app, s);
+        }
+        // Under the Global Toggle: how heavy all of it is [design: the owner, 2026-11-15,
+        // "add it as Movement Weight under the global toggle ... a dropdown with 25-100%"].
+        crate::settings::add_choice_list(
+            app,
+            crate::settings::Setting {
+                key: "movement-weight",
+                group: crate::pause::GROUP_MENUS,
+                label: "Movement Weight",
+                note: "How heavy it all feels: 100% as made; lower makes speeding up, stopping and crouching quicker and cuts the extra time drawing and aiming take.",
+                switches: "",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            crate::settings::ChoiceList {
+                names: |_| crate::inertia::MOVEMENT_WEIGHTS.iter().map(|(_, n)| n.to_string()).collect(),
+                chosen: |w| crate::inertia::movement_weight_name(w.resource::<Inertia>().weight()).to_string(),
+                pick: movement_weight_pick,
+                save: |w| crate::inertia::movement_weight_name(w.resource::<Inertia>().weight()).to_string(),
+                load: movement_weight_pick,
+                ask_keep: false,
+            },
+        );
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
                 key: "detached-camera",
                 group: crate::pause::GROUP_MENUS,
                 label: "Detached third-person camera",
-                note: "On: in third person with your weapon away the mouse turns the camera around you, not your character, and your character turns to run whichever way you push, as the camera sees it. Drawing your weapon turns you to where the camera looks. Off: the camera stays behind you, as in the original.",
+                note: "On: in third person with your weapon away the mouse turns the camera around you and you run whichever way you push. Off: the camera stays behind you.",
+                switches: "",
                 get: |w| w.resource::<crate::control::DetachedCamera>().0,
                 set: |w, on| w.resource_mut::<crate::control::DetachedCamera>().0 = on,
                 slider: None,
             },
         );
+    }
+}
+
+/// The Sprint row's note (NVF Features › Advanced Movement › Gameplay).
+pub const SPRINT_NOTE: &str = "On: hold the Sprint key (set it in Controls) to run faster, spending AP every second; stopping low on AP leaves you out of breath. Off: as in the original.";
+
+/// The Movement Weight dropdown's choice, by its name or its number.
+fn movement_weight_pick(w: &mut World, name: &str) -> bool {
+    match crate::inertia::movement_weight_by_name(name) {
+        Some(weight) => {
+            w.resource_mut::<crate::inertia::MovementInertia>().weight = weight;
+            true
+        }
+        None => false,
     }
 }
 
@@ -438,6 +548,9 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
 /// The character creator (`crate::creator`) always has it, whatever state the game is in
 /// when the opening opens it [owner 2026-10-17: "we should have mouse pointer in this
 /// menu"].
+///
+/// With Input Device = Controller the pointer sleeps until the mouse is used
+/// (`crate::pad::pointer`): hidden wherever it would show [design, #2310].
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn grab_cursor(
     state: Res<State<PlayState>>,
@@ -447,11 +560,24 @@ fn grab_cursor(
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
-    (intro, view, creator): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>),
+    (intro, view, creator, panel, talk, tweaks, vats): (
+        Option<Res<crate::intro::Intro>>,
+        Option<Res<ViewDriven>>,
+        Option<Res<crate::creator::CreatorMenu>>,
+        Option<Res<crate::message_menu::MessagePanel>>,
+        Option<Res<crate::dialogue_menu::DialogueMenu>>,
+        Option<Res<crate::tweaks::TweakSettings>>,
+        Option<Res<crate::vats_mode::VatsMode>>,
+    ),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
+    switches: Option<Res<crate::script_switches::ScriptSwitches>>,
+    pad_pointer: Option<Res<crate::pad::pointer::PadPointer>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
+    // A script's HUD cursor (ToggleHUDCursor, `crate::script_switches`): the pointer shows
+    // over the world, free.
+    let hud_cursor = switches.is_some_and(|s| s.hud_cursor) && *state.get() == PlayState::Playing;
     let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
     let boxed = hud.is_some_and(|h| h.front().is_some());
     // Also while an actor speaks in a conversation (free look, `crate::dialogue`), and
@@ -461,10 +587,16 @@ fn grab_cursor(
     let playing = !creating && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
     let film = intro.as_ref().is_some_and(|i| i.is_playing());
     let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed && !creating;
-    let wanted = creating || ((!playing || boxed) && !film && !scene);
+    // The classic VATS style's target screen has the pointer: its parts and arrows are
+    // chosen with it [observed: the owner's screenshots of the original's VATS, 2026-11-10].
+    let targeting = vats.is_some_and(|v| v.pointer_wanted());
+    let sleeping = crate::pad::pointer::asleep(pad_pointer.as_deref());
+    let wanted = !sleeping && (creating || targeting || ((!playing || boxed) && !film && !scene));
     // Logged when it changes, and when a film starts or ends over a pointer already hidden.
     if *wanted_before != Some((wanted, film)) {
-        let why = if creating {
+        let why = if sleeping {
+            " (the controller has the controls)"
+        } else if creating {
             " (the character creator)"
         } else if film && intro.is_some_and(|i| i.playing_script_film()) {
             " (a film)"
@@ -478,7 +610,7 @@ fn grab_cursor(
         info!("pointer: {}{why}", if wanted { "shown" } else { "hidden" });
         *wanted_before = Some((wanted, film));
     }
-    let grab = playing && !driven && !boxed && window.focused;
+    let grab = playing && !driven && !boxed && window.focused && !hud_cursor && !targeting;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,
@@ -487,7 +619,11 @@ fn grab_cursor(
     };
     // Out of focus or under a test aid the mouse is the desktop's: its pointer stays. The
     // lockpicking menu hides the pointer over the lock (`crate::lockpick`).
-    let visible = !grab && (wanted || driven || !window.focused) && !over_lock.is_some_and(|o| o.0);
+    // The player's tweak hides it over a message box, worked with the keys then [design: docs/design/tweaks.md].
+    // So does its other tweak over a conversation's choices.
+    let message_box = tweaks.as_ref().is_some_and(|t| t.no_pointer_in_message_box) && panel.is_some_and(|p| p.view.is_some()) && window.focused && !driven;
+    let message_box = message_box || (tweaks.as_ref().is_some_and(|t| t.no_pointer_in_dialogue) && talk.is_some_and(|t| t.view.is_some()) && window.focused && !driven);
+    let visible = !grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0) && !message_box;
     if cursor.grab_mode != mode || cursor.visible != visible {
         cursor.grab_mode = mode;
         cursor.visible = visible;
@@ -504,6 +640,7 @@ fn read_input(
     mut intent: ResMut<MoveIntent>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     if *state.get() != PlayState::Playing {
         *intent = MoveIntent::default();
@@ -544,9 +681,12 @@ fn read_input(
         }
     }
     intent.sneak = control.sneak;
-    if input.just_pressed(Control::Jump) {
+    // The player's tweak: holding Jump jumps again on landing [design: docs/design/tweaks.md].
+    let repeat = tweaks.as_ref().is_some_and(|t| t.repeat_jumping);
+    if input.just_pressed(Control::Jump) || (repeat && input.pressed(Control::Jump)) {
         intent.jump = true;
     }
+    JUMP_HELD.store(input.pressed(Control::Jump), std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Actors walked by another system whose moves are planned on the compute pool when at
@@ -559,8 +699,9 @@ const MOVE_CHUNK: usize = 4;
 /// running, and the body walks [design: the owner's wish, playtest of 2026-10-11, "reduced
 /// to walk speed while aiming"; the original's rule is not captured]. Sneaking still
 /// slows the walk. NPCs that aim are for the combat AI (docs/design/combat-ai.md, open).
-pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>, mut was: Local<bool>) {
-    let aiming = control.aiming && control.weapon_out;
+pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>, mut was: Local<bool>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    // The player's tweak keeps the pace while aiming or blocking [design: docs/design/tweaks.md].
+    let aiming = control.aiming && control.weapon_out && !tweaks.is_some_and(|t| t.no_aiming_slowdown);
     if aiming && !intent.walk {
         intent.walk = true;
     }
@@ -575,12 +716,26 @@ pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>,
 /// docs/spec-notes/simulation.md §3; the owner's playtest list 5 item 21]. Not in god
 /// mode [hypothesis: the original's tgm lifts the carry limit]. The weight is read twice
 /// a second [design].
-pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState>>, mut intent: ResMut<MoveIntent>, mut st: Local<(f32, bool)>) {
+/// The player is over the carry limit now (for the Overencumbered Running tweak,
+/// `crate::tweaks`) [design: docs/design/tweaks.md].
+pub static OVERENCUMBERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState>>, mut intent: ResMut<MoveIntent>, mut st: Local<(f32, bool)>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, grab: Option<Res<crate::grab::GrabState>>) {
     let Some(mut sim) = sim else { return };
     st.0 -= time.delta_secs();
     if st.0 <= 0.0 {
         st.0 = ENCUMBRANCE_CHECK;
-        let e = sim.world.encumbrance(fnv_sim::FormId::PLAYER_REF).ok();
+        let mut e = sim.world.encumbrance(fnv_sim::FormId::PLAYER_REF).ok();
+        // The player's tweak: an item held up by the grab weighs as if carried [design: docs/design/tweaks.md].
+        let held = grab.as_ref().and_then(|g| g.held.as_ref()).filter(|_| tweaks.as_ref().is_some_and(|t| t.grabbed_weighs)).map(|h| h.on);
+        if let (Some(e), Some(fnv_phys::GripOn::Ref(id))) = (e.as_mut(), held) {
+            let id = fnv_sim::FormId(id);
+            let base = sim.base_of(id.0);
+            let weight = base.and_then(|b| sim.forms.item(b)).and_then(|i| i.weight).unwrap_or(0.0);
+            let count = sim.world.peek(id).map(|s| s.count).or_else(|| base.map(|b| sim.forms.placed_count(b, sim.refs.get(id).and_then(|p| p.count)))).unwrap_or(1);
+            e.weight += f64::from(weight) * f64::from(count.max(1));
+            e.over |= e.weight > e.capacity;
+        }
         let over = e.as_ref().is_some_and(|e| e.over) && !crate::combat::god_mode();
         if over != st.1 {
             st.1 = over;
@@ -590,7 +745,9 @@ pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState
             }
         }
     }
-    if st.1 && !intent.walk {
+    OVERENCUMBERED.store(st.1, std::sync::atomic::Ordering::Relaxed);
+    // The player's tweak lets them run, paying Action Points (`crate::tweaks::ap_costs`).
+    if st.1 && !intent.walk && !tweaks.is_some_and(|t| t.run_overencumbered) {
         intent.walk = true;
     }
 }
@@ -612,6 +769,48 @@ pub fn flinch_holds_walk(combat: Option<Res<crate::combat::Combat>>, mut intent:
         (intent.forward, intent.right, intent.jump) = (0.0, 0.0, false);
     }
 }
+
+/// A Dialogue package walks the player into its trigger location before its actor talks
+/// ("Do Not Control Target Movement" off; `fnv_game::game::PlayerLead`, set by `fnv_ai`):
+/// while the lead holds, the player walks to its point, facing that way, and the
+/// movement keys are set aside [documented: GECK wiki, Dialogue Package, the target
+/// "will walk towards that location when the dialogue package starts"; at walking pace
+/// is our choice; issue #2453].
+pub fn dialogue_lead_walks(
+    script: Option<Res<crate::script::ScriptState>>,
+    state: Res<State<PlayState>>,
+    mut player: ResMut<Player>,
+    mut intent: ResMut<MoveIntent>,
+    mut was: Local<bool>,
+) {
+    let lead = script
+        .as_ref()
+        .and_then(|s| s.rt.as_ref())
+        .and_then(|rt| rt.game.player_lead.filter(|l| l.fresh(rt.game.time)))
+        .filter(|_| *state.get() == PlayState::Playing);
+    let walking = match lead {
+        Some(l) => {
+            let (dx, dy) = (l.to[0] - player.feet[0], l.to[1] - player.feet[1]);
+            let far = dx.hypot(dy) > LEAD_ARRIVE;
+            if far {
+                player.heading = dx.atan2(dy);
+            }
+            *intent = MoveIntent { forward: if far { 1.0 } else { 0.0 }, walk: true, sneak: intent.sneak, ..Default::default() };
+            far
+        }
+        None => false,
+    };
+    if walking != *was {
+        *was = walking;
+        match lead.filter(|_| walking) {
+            Some(l) => info!("dialogue lead: the player walks to ({:.0}, {:.0}, {:.0}) for 0x{:08X}'s Dialogue package", l.to[0], l.to[1], l.to[2], l.by.0),
+            None => info!("dialogue lead: over"),
+        }
+    }
+}
+
+/// How near the lead's point the player stops ([`dialogue_lead_walks`]) [our choice].
+const LEAD_ARRIVE: f32 = 16.0;
 
 /// Seconds between reads of the player's carried weight ([`encumbered_walks`]).
 const ENCUMBRANCE_CHECK: f32 = 0.5;
@@ -640,17 +839,27 @@ impl Default for ReloadPace {
 
 /// What slows or speeds the player's steps: crippled legs, a two-handed weapon's run, the
 /// Modify Run Speed perks, a reload, Speed Mult and body armour.
-type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, RunPace>>, Option<Res<'w, PerkSpeed>>, Option<Res<'w, ReloadPace>>, Option<Res<'w, StatSpeed>>);
+type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, RunPace>>, Option<Res<'w, PerkSpeed>>, Option<Res<'w, ReloadPace>>, Option<Res<'w, StatSpeed>>, Sprinting<'w>);
+
+/// Sprint's share and speed (`crate::sprint`): from the gait's speed to a multiple of the run's.
+type Sprinting<'w> = (Option<Res<'w, crate::stance::StanceMotion>>, Option<Res<'w, crate::sprint::SprintTuning>>);
+
+/// Turbo's clock for the player, and where the steps' cost is measured: `--log-frame-times`'
+/// counts and the physics rate's guard (`crate::phys_load::Meter`).
+type Meters<'w> = (Option<Res<'w, crate::script::PlayerTimeScale>>, Option<ResMut<'w, crate::phys_load::PhysLoad>>, Option<ResMut<'w, crate::phys_rate::PhysRate>>);
 
 /// The player's Speed Mult and body armour's factor on its movement, walking, running
 /// and sneaking, as people's (`fnv_game::Game::move_speed_mult`, `crate::combat`'s
 /// `stat_speed`; actors.md §8.10, issue #1364).
+/// The second number is the player's Agility Scales Jump Height tweak, a factor on the
+/// jump height (1 with the tweak off); the third the Armor Causes Sinking tweak's sinking
+/// speed in water, units a second (0 off) [design: docs/design/tweaks.md].
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
-pub struct StatSpeed(pub f32);
+pub struct StatSpeed(pub f32, pub f32, pub f32);
 
 impl Default for StatSpeed {
     fn default() -> Self {
-        StatSpeed(1.0)
+        StatSpeed(1.0, 1.0, 0.0)
     }
 }
 
@@ -718,14 +927,18 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
     }
 }
 
+/// How fast the Smooth Camera tweak's look catches up with the input, per second (ours)
+/// [design: docs/design/tweaks.md].
+const SMOOTH_LOOK_RATE: f32 = 8.0;
+
 /// Mouse look while the cursor is grabbed, or with a controller working the controls the
 /// right stick's (`crate::pad`); while Toggle POV is held it circles the camera instead
 /// (control.rs). Not while a script has locked looking: the view stays where it is
 /// [documented: GECK wiki DisablePlayerControls, LookingFlag].
 #[allow(clippy::too_many_arguments)]
-fn mouse_look(
+pub(crate) fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
-    (pads, time): (Query<&Gamepad>, Res<Time>),
+    (pads, time, vats): (crate::pad::ActionPads, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
@@ -737,38 +950,97 @@ fn mouse_look(
     driven: Option<Res<ViewDriven>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
-    assist: Option<Res<crate::aim_assist::AimAssistState>>,
-    talk: Option<Res<crate::dialogue_zoom::DialogueZoom>>,
+    (assist, aim): (Option<Res<crate::aim_assist::AimAssistState>>, Option<Res<crate::aim_zoom::AimZoom>>),
+    (talk, switches, mut mouse_guard): (
+        Option<Res<crate::dialogue_zoom::DialogueZoom>>,
+        Option<Res<crate::script_switches::ScriptSwitches>>,
+        Local<DialogueMouseGuard>,
+    ),
+    (tweaks, mut smooth): (Option<Res<crate::tweaks::TweakSettings>>, Local<Vec2>),
 ) {
-    // The console's free camera takes the mouse (`crate::free_cam`), and so does the
-    // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
-    // it (`crate::kill_cam`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) {
+    let dialogue = *state.get() == PlayState::Dialogue;
+    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
+    let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
+    let mouse_delta = mouse_guard.filter(motion.delta, grabbed && playing, dialogue);
+    // A zoomed conversation locks the view: the mouse moves only the cursor, even if the
+    // capture has not caught up yet (`dialogue::sync_state` frees the pointer), and the
+    // right stick does not turn it either [owner decision 2026-11-13, #2254;
+    // `crate::dialogue_look::view_locked`].
+    if dialogue && talk.as_deref().is_some_and(crate::dialogue_look::view_locked) {
         return;
     }
-    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
-    // The player looks around freely while an actor speaks in a conversation.
-    let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
+    // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
+    if vats.is_some_and(|v| v.holds_view()) {
+        return;
+    }
+    // The console's free camera takes the mouse (`crate::free_cam`), and so does the
+    // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
+    // it (`crate::kill_cam`). A script's HUD cursor has the mouse too (ToggleHUDCursor,
+    // `crate::script_switches`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
+        return;
+    }
     // The right stick's turn this frame, as mouse counts of a thousandth of a radian
     // (`crate::bindings::LOOK_SPEED_HORIZONTAL`), pushed a little turning slowly
     // (squared) [design], slower on a nearby hostile (`crate::aim_assist`; never the
     // mouse).
-    let (delta, s) = if bindings.device == crate::bindings::InputDevice::Controller {
+    // With the player's Keyboard and Mouse With a Controller tweak, a mouse that moves
+    // looks as the mouse does [design: docs/design/tweaks.md].
+    let mouse_too = crate::bindings::keys_with_pad() && motion.delta != Vec2::ZERO;
+    let (delta, s) = if bindings.device == crate::bindings::InputDevice::Controller && !mouse_too {
         let v = crate::pad::stick(&pads, false);
-        let curve = |x: f32| x * x.abs();
+        // The player's tweak: the turn grows straight with the push past the dead zone,
+        // not with its square, so a small push turns at once [design: docs/design/tweaks.md].
+        let linear = tweaks.as_ref().is_some_and(|t| t.responsive_stick);
+        let dz = crate::pad::dead_zone(false);
+        let curve = |x: f32| if linear { x.signum() * ((x.abs() - dz) / (1.0 - dz).max(0.01)).max(0.0) } else { x * x.abs() };
         // The Controls tab's Stick Sensitivity scales the stick's look speeds.
         let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale) * bindings.stick_sensitivity;
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
     } else {
-        (motion.delta, bindings.mouse_sensitivity)
+        // The axes ToggleMouseMovement left on (`crate::script_switches`).
+        (switches.as_deref().map_or(mouse_delta, |s| s.look(mouse_delta)), bindings.mouse_sensitivity)
+    };
+    // The Controls tab's Vertical Sensitivity of the device in use (#2201).
+    let delta = vertical_scaled(delta, bindings.vertical_sensitivity());
+    // The player's tweak: the look eases after the mouse or stick, a cinematic camera;
+    // not while aiming [design: docs/design/tweaks.md].
+    let smoothing = tweaks.as_ref().is_some_and(|t| t.smooth_look) && !control.aiming;
+    let delta = if smoothing {
+        *smooth += delta;
+        let out = *smooth * (1.0 - (-time.delta_secs() * SMOOTH_LOOK_RATE).exp());
+        *smooth -= out;
+        if smooth.length() < 1e-3 {
+            *smooth = Vec2::ZERO;
+        }
+        out
+    } else {
+        *smooth = Vec2::ZERO;
+        delta
     };
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
     }
-    // A conversation's zoom: the picture moves as far as it does unzoomed.
+    // A conversation's zoom as it eases out: the picture moves as far as it does unzoomed.
     let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
+    // The Controls tab's Aim Sensitivity of the device in use, as far as the view is zoomed
+    // for the aim (down the sights or through a scope; `crate::aim_zoom`): the hip look is
+    // left as it is.
+    let s = s * aim_scale(bindings.aim_sensitivity(), aim.as_deref().map_or(0.0, crate::aim_zoom::AimZoom::share));
     let inv = bindings.invert_y;
+    // The player's tweak: left and right at their own speed [design: docs/design/tweaks.md].
+    let delta = Vec2::new(delta.x * tweaks.as_ref().map_or(1.0, |t| t.horizontal_look as f32), delta.y);
+    // The player's tweak turns the other way left and right [design: docs/design/tweaks.md].
+    let delta = if tweaks.as_ref().is_some_and(|t| t.invert_x) { Vec2::new(-delta.x, delta.y) } else { delta };
+    // The player's tweak turns slower while aiming [design: docs/design/tweaks.md].
+    let delta = match tweaks.as_deref().filter(|_| control.aiming && control.weapon_out) {
+        Some(t) => delta * Vec2::new(t.aim_turn_x, t.aim_turn_y),
+        None => delta,
+    };
     if control.orbit.held {
+        // The player's tweak: a controller turns the circling camera twice as fast [design: docs/design/tweaks.md].
+        let fast = bindings.device == crate::bindings::InputDevice::Controller && tweaks.as_ref().is_some_and(|t| t.faster_pad_orbit);
+        let delta = if fast { delta * 2.0 } else { delta };
         let o = &mut control.orbit;
         let (yaw, pitch) = look_with(o.yaw, o.pitch, delta, s, inv);
         // Keep the yaw in (−π, π] so the swing back takes the short way.
@@ -792,6 +1064,46 @@ fn mouse_look(
         seat.look[0] += delta.x * s;
         seat.look[1] -= dy * s;
     }
+}
+
+/// Discard dialogue capture-transition motion in the current and following input frame:
+/// the window backend applies capture asynchronously [design, #2254; grab_cursor and
+/// Bevy bevy_winit::system::changed_cursor_options]. This is a guard, not a measured artifact.
+#[derive(Default)]
+pub(crate) struct DialogueMouseGuard {
+    active: bool,
+    settling: u8,
+}
+
+/// Ignore the transition frame and the next input frame [design, #2254].
+const DIALOGUE_CURSOR_SETTLE_FRAMES: u8 = 2;
+
+impl DialogueMouseGuard {
+    pub(crate) fn filter(&mut self, delta: Vec2, active: bool, dialogue: bool) -> Vec2 {
+        if dialogue && active != self.active {
+            self.settling = DIALOGUE_CURSOR_SETTLE_FRAMES;
+        }
+        self.active = active;
+        let settling = self.settling > 0;
+        self.settling = self.settling.saturating_sub(1);
+        if dialogue && settling { Vec2::ZERO } else { delta }
+    }
+}
+
+/// `delta` (mouse counts, or the right stick's turn) with its vertical part times
+/// `vertical`, the Controls tab's Vertical Sensitivity of the device in use [design:
+/// #2201]; 1 leaves it exactly as it is.
+pub fn vertical_scaled(delta: Vec2, vertical: f32) -> Vec2 {
+    Vec2::new(delta.x, delta.y * vertical)
+}
+
+/// What the look's radians per count are multiplied by for `aim`, the Controls tab's Aim
+/// Sensitivity of the device in use, with the view `zoomed` of the way to the aim's zoom
+/// (`crate::aim_zoom::AimZoom::share`: 0 unzoomed, 1 down the sights or through a scope)
+/// [design: owner 2026-11-15]. Exactly 1 unzoomed, and at an Aim Sensitivity of 1 (the
+/// look as before); `aim` at the full zoom, in step with the zoom between.
+pub fn aim_scale(aim: f32, zoomed: f32) -> f32 {
+    1.0 + (aim - 1.0) * zoomed.clamp(0.0, 1.0)
 }
 
 /// Radians per unit of the right stick's turn (a look speed of 1000 turns a radian a
@@ -1048,19 +1360,24 @@ fn step(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
-    (limbs, pace, perk_pace, reload_pace, stat_pace): Paces,
-    (turbo, mut load): (Option<Res<crate::script::PlayerTimeScale>>, Option<ResMut<crate::phys_load::PhysLoad>>),
+    (limbs, pace, perk_pace, reload_pace, stat_pace, sprinting): Paces,
+    (turbo, mut load, mut rate): Meters,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
-    (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
+    (mut blocks, noclip, mut inertia): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>, ResMut<crate::inertia::MovementInertia>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     if *state.get() != PlayState::Playing {
-        phys.stepper = default();
+        // No time reaches the stepper while not playing, so nothing steps; its remainder is
+        // kept, and with it the share of a step everything is drawn at (`draw_alpha`), so
+        // nothing drawn between steps shifts when a menu opens or closes. (Zeroed, it drew
+        // every actor, corpse and moved clutter at its pose before the last step under a
+        // menu, and a frame later back where it was.)
         return;
     }
-    // Measuring (`--log-frame-times`): the frame's and each step's time and counts, into
-    // `PhysLoad` (nothing is timed without it).
-    let mut meter = crate::phys_load::Meter::start(load.as_deref_mut());
+    // Measuring: the frame's time, always, for the physics rate's guard (`PhysRate`); with
+    // `--log-frame-times` each step's time and the counts too, into `PhysLoad`.
+    let mut meter = crate::phys_load::Meter::start(load.as_deref_mut(), rate.as_deref_mut());
     if let Some(at) = seat.hold.filter(|_| phys.player.is_some()) {
         // Held by furniture (`crate::furniture`): the world steps on, the character
         // stays where the furniture has it and collides with nothing. Movement asked
@@ -1077,7 +1394,7 @@ fn step(
         for _ in 0..n {
             let _tick = info_span!("phys::tick").entered();
             let began = meter.now();
-            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, body, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
+            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, &p.actor_block_radii, body, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
             p.world.step();
             meter.tick(began, p.npcs.len(), listed);
         }
@@ -1094,6 +1411,7 @@ fn step(
         p.prev_feet = at;
         p.player_lift.reset();
         player.feet = at;
+        inertia.reset();
         return;
     }
     if noclip.0 && phys.player.is_some() {
@@ -1118,7 +1436,7 @@ fn step(
             // Not falling: no fall, landing or fall damage while it flies.
             c.grounded = true;
             c.ground_gap = Some(0.0);
-            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, None, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
+            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, &p.actor_block_radii, None, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
             p.world.step();
             meter.tick(began, p.npcs.len(), listed);
         }
@@ -1126,8 +1444,9 @@ fn step(
             player.placed = None;
         }
         p.player_lift.reset();
-        let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
-        player.feet = lerp3(p.prev_feet, c.feet, alpha);
+        inertia.reset();
+        let feet = c.feet;
+        player.feet = lerp3(p.prev_feet, feet, p.draw_alpha());
         return;
     }
     // A frame with no player character or waiting for a cell is not a played frame for
@@ -1137,9 +1456,9 @@ fn step(
         return;
     };
     if !phys.ready_at(feet) {
-        // Walked into a cell that is not loaded yet: wait for it.
+        // Walked into a cell that is not loaded yet: wait for it. The frames' time does
+        // not reach the stepper; its remainder, and the drawn blend, stay as they were.
         meter.skip();
-        phys.stepper = default();
         status.waiting_frames += 1;
         return;
     }
@@ -1155,6 +1474,8 @@ fn step(
     let dt = p.world.params.dt;
     let n = p.stepper.advance(&p.world.params, time.delta_secs());
     let c = p.player.as_mut().expect("placed");
+    inertia.check_game_placed(player.placed);
+    inertia.check_placed(c.feet);
     // The clip's travel owed, spread over this frame's steps (none: kept for the next).
     let carry = if n > 0 { lunge.owed.map(|o| o / (n as f32 * dt)) } else { [0.0; 2] };
     if n > 0 {
@@ -1170,7 +1491,13 @@ fn step(
         } else if c.swimming {
             // Running strokes follow the stroke cycle from when the swimmer started to
             // move [observed]; walking stays at its start speed [hypothesis].
-            let v = swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS);
+            let mut v = swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS);
+            // The player's tweak: heavy armour pulls the swimmer down (`StatSpeed`'s third).
+            v[2] -= stat_pace.as_deref().map_or(0.0, |p| p.2);
+            // The player's tweak: Jump held swims up, at the walking stroke's speed [design: docs/design/tweaks.md].
+            if tweaks.as_deref().is_some_and(|t| t.jump_swims_up) && JUMP_HELD.load(std::sync::atomic::Ordering::Relaxed) {
+                v[2] = v[2].max(SWIM_SPEEDS.walk);
+            }
             match Stroke::of(intent.forward, intent.right) {
                 Some(stroke) => {
                     let f = if intent.walk { 1.0 } else { stroke.factor(*stroke_time + dt / 2.0) };
@@ -1186,20 +1513,55 @@ fn step(
             *stroke_time = 0.0;
             // Crippled legs slow the player (combat C8) [design].
             let k = limbs.as_deref().map_or(1.0, crate::combat::PlayerLimbs::speed_mult);
-            // Running with a two-handed weapon drawn is slower (`RunPace`).
-            let k = if intent.walk { k } else { k * pace.as_deref().map_or(1.0, |p| p.0) };
+            // Running with a two-handed weapon drawn is slower (`RunPace`): on the run's speed
+            // only (below, with the gait).
+            let run_pace = pace.as_deref().map_or(1.0, |p| p.0);
             // The Modify Run Speed perks (Travel Light, Tunnel Runner, Implant M-5 …).
             let k = k * perk_pace.as_deref().map_or(1.0, |p| p.0);
             // Slower while reloading, when the setting is on (`crate::combat::reload_pace`).
             let k = k * reload_pace.as_deref().map_or(1.0, |p| p.0);
             // Speed Mult and the body armour's class, as people's (`StatSpeed`).
             let k = k * stat_pace.as_deref().map_or(1.0, |p| p.0);
+            // The player's tweak: wading slows the player, the deeper the more [design: docs/design/tweaks.md].
+            let wade = tweaks.as_deref().map_or(1.0, |t| t.wading_pace);
+            let k = if wade < 1.0 && !c.swimming {
+                let depth = p.world.water_surface_at(c.feet[0], c.feet[1]).map_or(0.0, |w| w - c.feet[2]);
+                let t = (depth / c.params.swim_depth.max(1.0)).clamp(0.0, 1.0);
+                k * (1.0 - t * (1.0 - wade))
+            } else {
+                k
+            };
+            // The player's movement penalty tweaks: backwards and sideways at their own
+            // share of the pace, a diagonal between them by how much of each it is [design: docs/design/tweaks.md].
+            let k = match tweaks.as_deref() {
+                Some(t) if t.back_pace < 1.0 || t.strafe_pace < 1.0 => {
+                    let (f, r) = (intent.forward.abs(), intent.right.abs());
+                    let ahead = if intent.forward < 0.0 { t.back_pace } else { 1.0 };
+                    if f + r > 0.0 { k * (f * ahead + r * t.strafe_pace) / (f + r) } else { k }
+                }
+                _ => k,
+            };
             let [x, y] = velocity(&intent, player.heading, *speeds);
+            let gait = if intent.walk { k } else { k * run_pace };
+            let key = [x * gait, y * gait];
+            // Sprint: from the gait's velocity to a multiple of the run's, all of the paces
+            // above with it, by its eased share, walking or running (`crate::sprint`).
+            let sprint = sprinting.0.as_deref().zip(sprinting.1.as_deref()).map_or((0.0, 1.0), |(s, t)| (s.sprint_share, t.speed));
+            let key = if sprint.0 > 0.0 {
+                let [rx, ry] = velocity(&MoveIntent { walk: false, ..*intent }, player.heading, *speeds);
+                let run = k * run_pace;
+                crate::sprint::sprint_velocity(key, [rx * run, ry * run], sprint.0, sprint.1)
+            } else {
+                key
+            };
+            // On the ground the velocity speeds up and slows down (`crate::inertia`); in
+            // the air the controller's own rules take the keys' velocity.
+            let [x, y] = if inertia.ground() && c.grounded { inertia.step(key, intent.walk && sprint.0 < crate::sprint::RUN_GAIT_FROM, dt) } else { key };
             // An attack's clip carries the player (`Lunge`).
             if lunge.carrying && lunge.from.is_none() {
                 lunge.from = Some(c.feet);
             }
-            [x * k + carry[0], y * k + carry[1], 0.0]
+            [x + carry[0], y + carry[1], 0.0]
         };
         // A blow's knockback pushes the player back (`crate::combat::Knockback`), walking,
         // swimming or not, so it never waits to push later (review of #1219).
@@ -1229,11 +1591,11 @@ fn step(
         }
         if let Some(b) = blocks.as_deref_mut() {
             use crate::blocking::{clip, Block, Push, PLAYER};
-            b.player_held = b.player_held.saturating_sub(1);
-            let standing = go == [0.0, 0.0] && c.grounded && !c.swimming && b.player_held == 0;
+            b.player_held = (b.player_held - dt).max(0.0);
+            let standing = go == [0.0, 0.0] && c.grounded && !c.swimming && b.player_held <= dt * 0.5;
             let placed = b.list.len();
             let mut all = std::mem::take(&mut b.list);
-            all.extend(p.npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, n.ch.params.radius, n.ch.params.height, false)));
+            all.extend(p.npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, crate::blocking::walking_radius(n.ch.params.radius, p.actor_block_radii.get(&n.ch.id).copied()), n.ch.params.height, false)));
             all.push(Block::character(PLAYER, c.feet, c.params.radius, c.params.height, standing));
             listed = Some(all.len());
             // First the walking actors: what they push is their owner's to move, but for
@@ -1242,10 +1604,11 @@ fn step(
             let mut stopped = false;
             for (v, n) in walking.iter_mut().zip(p.npcs.values()) {
                 let asked = *v;
+                let radius = crate::blocking::walking_radius(n.ch.params.radius, p.actor_block_radii.get(&n.ch.id).copied());
                 *v = if b.carried.contains(&n.ch.id) {
-                    crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all)
+                    crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, radius, n.ch.params.height, dt, &mut all)
                 } else {
-                    clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes)
+                    clip(n.ch.id, asked, n.ch.feet, radius, n.ch.params.height, dt, &mut all, &mut pushes)
                 };
                 stopped |= *v != asked;
             }
@@ -1269,11 +1632,34 @@ fn step(
         drop(blocks_span);
         let move_span = info_span!("phys::player_move").entered();
         let was_swimming = c.swimming;
-        let was_on_ground = c.grounded && !c.swimming;
+        let was_footing = crate::phys::step_lift::footing(c);
+        // The player's tweaks: the steepest walkable slope, and a crippled leg's jump [design: docs/design/tweaks.md].
+        if let Some(t) = tweaks.as_deref() {
+            let base = fnv_phys::CharacterParams::default();
+            c.params.max_slope_deg = t.walk_angle;
+            let legs = limbs.as_deref().map_or(0, |l| i32::from(l.crippled(29)) + i32::from(l.crippled(30)));
+            // Speed Mult (and armour) scale it too with the player's tweak [design: docs/design/tweaks.md].
+            let speed = if t.game.speed_scales_jump { stat_pace.as_deref().map_or(1.0, |p| p.0) } else { 1.0 };
+            let agility = stat_pace.as_deref().map_or(1.0, |p| p.1);
+            c.params.jump_height = base.jump_height * t.crippled_leg_jump.powi(legs) * speed * agility;
+        }
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
+        if inertia.ground() {
+            // A landing lands into the inertia, not the game's landing speed profile; a
+            // hard one takes speed out of it (Landing weight).
+            c.since_landing = None;
+            if let Some(speed) = s.landed_speed.filter(|_| inertia.landing_weight()) {
+                inertia.land(speed);
+            }
+        }
+        if !inertia.ground() || !c.grounded || c.swimming || d.auto_walk > 0.0 {
+            // Off the ground, in the water or switched off: the spring takes what the
+            // character did, so the ground picks up from there.
+            inertia.follow(c.velocity);
+        }
         // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
         let moved = (c.feet[0] - p.prev_feet[0]).hypot(c.feet[1] - p.prev_feet[1]);
-        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_on_ground && c.grounded && !c.swimming, dt);
+        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_footing && crate::phys::step_lift::footing(c), dt);
         if s.swimming != was_swimming {
             let depth = p.world.water_surface_at(s.feet[0], s.feet[1]).map_or("no water".to_string(), |w| format!("feet {:.1} below the water", w - s.feet[2]));
             info!("player: {} at ({:.0}, {:.0}, {:.1}), {depth}", if s.swimming { "starts swimming" } else { "stops swimming" }, s.feet[0], s.feet[1], s.feet[2]);
@@ -1282,6 +1668,9 @@ fn step(
             landed.write(crate::rumble::Landed { speed });
         }
         // A fall's damage (`crate::falls`).
+        if let Some(f) = falls.as_deref_mut() {
+            f.note_player(c.id);
+        }
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(c.id, p.prev_feet[2], &s)) {
             fell.write(crate::falls::Fell { actor: FormId::PLAYER_REF, height, feet: s.feet });
         }
@@ -1290,7 +1679,7 @@ fn step(
         if want > 1e-4 {
             let got = ((c.feet[0] - p.prev_feet[0]) * pushed[0] + (c.feet[1] - p.prev_feet[1]) * pushed[1]) / want;
             if let Some(b) = blocks.as_deref_mut().filter(|_| got < crate::blocking::HELD_SHARE * want) {
-                b.player_held = crate::blocking::HELD_STEPS;
+                b.player_held = crate::blocking::HELD_SECS;
             }
         }
         drop(move_span);
@@ -1311,8 +1700,15 @@ fn step(
         lunge.from = None;
         info!("player: lunge done: {:.0} units from where it started", (c.feet[0] - from[0]).hypot(c.feet[1] - from[1]));
     }
-    let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
-    player.feet = lerp3(p.prev_feet, c.feet, alpha);
+    inertia.end_frame(c.feet, c.grounded && !c.swimming);
+    for r in std::mem::take(&mut inertia.reports) {
+        match r {
+            crate::inertia::Report::Started { seconds, speed } => info!("movement inertia: up to {speed:.0} units/s in {seconds:.2}s"),
+            crate::inertia::Report::Stopped { seconds, distance, speed } => info!("movement inertia: glided {distance:.1} units in {seconds:.2}s from {speed:.0} units/s"),
+        }
+    }
+    let feet = c.feet;
+    player.feet = lerp3(p.prev_feet, feet, p.draw_alpha());
     if n > 0 {
         // Where the bodies are drawn after the steps (the drawn ground under each).
         p.update_drawn_sinks();
@@ -1336,9 +1732,9 @@ fn move_npcs(
     let mut moving: Vec<(u32, &mut crate::phys::NpcBody, [f32; 2])> = npcs.iter_mut().zip(walking).map(|((&id, b), v)| (id, b, v)).collect();
     let plan = |b: &mut crate::phys::NpcBody, v: [f32; 2]| {
         b.prev_feet = b.ch.feet;
-        let was_on_ground = b.ch.grounded && !b.ch.swimming;
+        let was_footing = crate::phys::step_lift::footing(&b.ch);
         let (s, push) = reader.plan_move(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
-        (was_on_ground, s, push)
+        (was_footing, s, push)
     };
     let plans: Vec<_> = if moving.len() < PARALLEL_MOVES {
         moving.iter_mut().map(|(_, b, v)| plan(b, *v)).collect()
@@ -1347,10 +1743,10 @@ fn move_npcs(
     };
     drop(plan_span);
     let _apply = info_span!("phys::npc_apply").entered();
-    for ((id, b, _), (was_on_ground, s, push)) in moving.into_iter().zip(plans) {
+    for ((id, b, _), (was_footing, s, push)) in moving.into_iter().zip(plans) {
         world.apply_move(&b.ch, push);
         let (f, from) = (b.ch.feet, b.prev_feet);
-        b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
+        b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_footing && crate::phys::step_lift::footing(&b.ch), dt);
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
             fell.write(crate::falls::Fell { actor: FormId(id), height, feet: s.feet });
         }
@@ -1365,9 +1761,11 @@ fn move_npcs(
 /// a step of the player's; the player's block is where the furniture holds it, not pushed,
 /// or none when the player passes through everything. Returns the length of the step's
 /// block list (none without `ActorBlocks`), for `crate::phys_load`.
+#[allow(clippy::too_many_arguments)]
 fn step_npcs_alone(
     world: &mut fnv_phys::PhysWorld,
     npcs: &mut std::collections::BTreeMap<u32, crate::phys::NpcBody>,
+    actor_block_radii: &std::collections::HashMap<u32, f32>,
     player: Option<([f32; 3], f32, f32)>,
     blocks: Option<&mut crate::blocking::ActorBlocks>,
     falls: Option<&mut crate::falls::Falls>,
@@ -1383,7 +1781,7 @@ fn step_npcs_alone(
     if let Some(b) = blocks {
         let placed = b.list.len();
         let mut all = std::mem::take(&mut b.list);
-        all.extend(npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, n.ch.params.radius, n.ch.params.height, false)));
+        all.extend(npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, crate::blocking::walking_radius(n.ch.params.radius, actor_block_radii.get(&n.ch.id).copied()), n.ch.params.height, false)));
         if let Some((feet, radius, height)) = player {
             all.push(Block::character(PLAYER, feet, radius, height, false));
         }
@@ -1392,10 +1790,11 @@ fn step_npcs_alone(
         let mut stopped = false;
         for (v, n) in walking.iter_mut().zip(npcs.values()) {
             let asked = *v;
+            let radius = crate::blocking::walking_radius(n.ch.params.radius, actor_block_radii.get(&n.ch.id).copied());
             *v = if b.carried.contains(&n.ch.id) {
-                crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all)
+                crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, radius, n.ch.params.height, dt, &mut all)
             } else {
-                clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes)
+                clip(n.ch.id, asked, n.ch.feet, radius, n.ch.params.height, dt, &mut all, &mut pushes)
             };
             stopped |= *v != asked;
         }
@@ -1499,6 +1898,116 @@ mod tests {
     use std::f32::consts::{FRAC_PI_2, PI};
 
     const SPEEDS: MoveSpeeds = MoveSpeeds { walk: 77.0, run: 308.0 };
+
+    /// A menu, a conversation or a loading screen keeps the share of a step everything is
+    /// drawn at: nothing drawn between steps shifts when one opens or closes.
+    #[test]
+    fn the_drawn_blend_holds_while_not_playing() {
+        for state in [PlayState::Menu, PlayState::Dialogue, PlayState::Loading] {
+            let mut app = App::new();
+            let player = Player { heading: 0.0, pitch: 0.0, eye_height: 120.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None };
+            app.insert_resource(State::new(state))
+                .insert_resource(crate::script_draw::tests::play_over(&[]))
+                .insert_resource(SPEEDS)
+                .insert_resource(player)
+                .insert_resource(PhysState::default())
+                .init_resource::<Time>()
+                .init_resource::<MoveIntent>()
+                .init_resource::<Status>()
+                .init_resource::<crate::furniture::PlayerSeat>()
+                .init_resource::<NoClip>()
+                .init_resource::<Lunge>()
+                .init_resource::<crate::inertia::MovementInertia>()
+                .add_message::<crate::rumble::Landed>()
+                .add_message::<crate::falls::Fell>()
+                .add_systems(Update, step);
+            let dt = app.world().resource::<PhysState>().world.params.dt;
+            app.world_mut().resource_mut::<PhysState>().stepper.accumulated = f64::from(dt) * 0.4;
+            let before = app.world().resource::<PhysState>().draw_alpha();
+            for _ in 0..3 {
+                app.update();
+            }
+            let p = app.world().resource::<PhysState>();
+            assert_eq!(p.draw_alpha(), before, "{state:?}");
+            assert!((before - 0.4).abs() < 1e-5);
+        }
+    }
+
+    /// #2201: at the default Vertical Sensitivity (1) the mouse and the right stick turn the
+    /// view exactly as before; another value changes the pitch only.
+    #[test]
+    fn the_vertical_sensitivity_at_its_default_leaves_the_look_as_it_was() {
+        let b = crate::bindings::Bindings::game_defaults();
+        let mut pad = b.clone();
+        pad.device = crate::bindings::InputDevice::Controller;
+        // A mouse's counts, and a stick's turn as the look system builds it.
+        let mouse = Vec2::new(37.0, -21.0);
+        let stick = Vec2::new(0.6 * b.look_speed[0] * 0.016, -0.4 * b.look_speed[1] * 0.016);
+        for (bind, delta, s) in [(&b, mouse, b.mouse_sensitivity), (&pad, stick, STICK_LOOK_RADIANS)] {
+            assert_eq!(bind.vertical_sensitivity(), 1.0);
+            let scaled = vertical_scaled(delta, bind.vertical_sensitivity());
+            assert_eq!(scaled, delta);
+            for inv in [false, true] {
+                assert_eq!(look_with(0.3, 0.1, scaled, s, inv), look_with(0.3, 0.1, delta, s, inv));
+            }
+            // Half: the heading as before, the pitch turned half as far.
+            let (h, p) = look_with(0.3, 0.1, vertical_scaled(delta, 0.5), s, false);
+            let (h1, p1) = look_with(0.3, 0.1, delta, s, false);
+            assert_eq!(h, h1);
+            assert!(((p - 0.1) - (p1 - 0.1) / 2.0).abs() < 1e-6, "{p} {p1}");
+        }
+    }
+
+    /// Owner 2026-11-15: the Aim Sensitivity scales the look by how far the view is zoomed
+    /// for the aim (`crate::aim_zoom::AimZoom::share`); unzoomed (the hip look), and at 100%,
+    /// the look is exactly as before.
+    #[test]
+    fn the_aim_sensitivity_scales_the_look_only_while_zoomed_for_the_aim() {
+        use bevy::input::mouse::AccumulatedMouseMotion;
+        use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+        for zoomed in [0.0, 0.25, 0.5, 1.0] {
+            assert_eq!(aim_scale(1.0, zoomed), 1.0, "100%: as before");
+        }
+        for aim in [crate::bindings::SENSITIVITY_LEAST, 0.5, 1.5, crate::bindings::SENSITIVITY_MOST] {
+            assert_eq!(aim_scale(aim, 0.0), 1.0, "unzoomed: as before");
+            assert!((aim_scale(aim, 1.0) - aim).abs() < 1e-6, "{aim}");
+        }
+        assert!((aim_scale(0.5, 0.5) - 0.75).abs() < 1e-6, "in step with the zoom");
+        // The zoom's share as the field of view moves: none at rest, all at the full zoom.
+        let mut z = crate::aim_zoom::AimZoom::default();
+        assert_eq!(z.share(), 0.0);
+        z.blend = 1.0;
+        assert_eq!(z.share(), 1.0);
+        // Through the look system: the mouse's turn this frame at an Aim Sensitivity `aim`
+        // with the aim's zoom at `blend`.
+        let turned = |aim: f32, blend: f32| {
+            let mut app = App::new();
+            let mut zoom = crate::aim_zoom::AimZoom::default();
+            zoom.blend = blend;
+            let mut b = Bindings::game_defaults();
+            b.aim = [aim, 1.0];
+            app.insert_resource(State::new(PlayState::Playing))
+                .insert_resource(Time::<()>::default())
+                .insert_resource(b)
+                .insert_resource(zoom)
+                .init_resource::<crate::control::ControlLocks>()
+                .init_resource::<PlayerControl>()
+                .init_resource::<crate::furniture::PlayerSeat>()
+                .insert_resource(AccumulatedMouseMotion { delta: Vec2::new(80.0, 20.0) })
+                .insert_resource(Player { heading: 1.0, pitch: 0.0, eye_height: 112.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+                .add_systems(Update, mouse_look);
+            app.world_mut().spawn((PrimaryWindow, CursorOptions { grab_mode: CursorGrabMode::Confined, ..default() }));
+            app.update();
+            let p = app.world().resource::<Player>();
+            (p.heading - 1.0, p.pitch)
+        };
+        let hip = turned(1.0, 0.0);
+        assert!(hip.0 > 0.0 && hip.1 < 0.0, "{hip:?}");
+        assert_eq!(turned(0.5, 0.0), hip, "unzoomed the Aim Sensitivity does nothing");
+        assert_eq!(turned(1.0, 1.0), hip, "at 100% the zoomed look is as before");
+        let half = turned(0.5, 1.0);
+        assert!((half.0 - hip.0 / 2.0).abs() < 1e-6 && (half.1 - hip.1 / 2.0).abs() < 1e-6, "both axes half as far: {half:?} {hip:?}");
+    }
 
     fn close(a: [f32; 2], b: [f32; 2]) -> bool {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3

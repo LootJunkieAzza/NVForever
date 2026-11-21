@@ -276,6 +276,7 @@ fn watch(
     mut sounds: MessageWriter<PlaySound>,
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
     mut cap_logged: Local<bool>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
         meter.set_if_neq(Meter::default());
@@ -287,15 +288,31 @@ fn watch(
         let dlcs = experience::STORY_DLCS.iter().filter(|d| rt.game.data.load_order.iter().any(|p| p.eq_ignore_ascii_case(d))).count();
         info!("xp: level cap {} ({dlcs} story add-ons)", now.max);
     }
+    // The player's tweak: gains wait for the fight to end, then show together [design: docs/design/tweaks.md].
+    if tweaks.as_ref().is_some_and(|t| t.no_xp_meter_in_combat) && crate::hud::sneak_now(&rt.game) == crate::hud::Sneak::Danger {
+        return;
+    }
     let mut play = |name: &'static str| play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, name);
     match meter.observe(&now) {
+        // The player's Quiet Experience tweak: a gain that earns no level is not shown
+        // [design: docs/design/tweaks.md]; one that does still brings up LEVEL UP.
+        Some(Seen::Gained { amount, level_up: false }) if tweaks.as_ref().is_some_and(|t| t.no_xp_messages) => {
+            meter.show = None;
+            info!("xp meter: +{amount} XP ({} in all), not shown (Quiet Experience)", now.xp);
+        }
         Some(Seen::Gained { amount, level_up }) => {
             info!("xp meter: +{amount} XP ({} in all): level {}, {:.0} % to {}{}", now.xp, now.level, now.fraction() * 100.0, now.level + 1, if level_up { ", next level earned" } else { "" });
             // Every gain [owner, 2026-10-16: "every time you get experience there is also a
             // sound effect that plays"; hypothesis: this record, by its name].
             play("UIPopUpExperienceUp");
         }
-        Some(Seen::AtCap { amount }) => info!("xp meter: +{amount} XP at the level cap {}: not shown", now.max),
+        Some(Seen::AtCap { amount }) => {
+            info!("xp meter: +{amount} XP at the level cap {}: not shown", now.max);
+            // The player's tweak still plays the sound [design: docs/design/tweaks.md].
+            if tweaks.as_ref().is_some_and(|t| t.xp_sound_at_cap) {
+                play("UIPopUpExperienceUp");
+            }
+        }
         None => {}
     }
     // Held, its time standing still, while the HUD is not up (menus, conversations).
@@ -306,6 +323,18 @@ fn watch(
 }
 
 /// Play a SOUN by Editor ID at the listener, its FormID looked up once.
+/// The level-up sound the player's Alternate Level-Up Sounds tweak gives level `level`:
+/// A's every `a.0` levels, B's every `b.0`, the larger interval where both fall; none
+/// when neither does or its sound is the game's own (empty).
+pub fn alternate_level_sound<'a>(level: u32, a: (u32, &'a str), b: (u32, &'a str)) -> Option<&'a str> {
+    let hits = |(every, name): (u32, &'a str)| (every > 0 && !name.is_empty() && level.is_multiple_of(every)).then_some((every, name));
+    match (hits(a), hits(b)) {
+        (Some(x), Some(y)) => Some(if y.0 > x.0 { y.1 } else { x.1 }),
+        (Some(x), None) | (None, Some(x)) => Some(x.1),
+        (None, None) => None,
+    }
+}
+
 fn play_sound(sfx: Option<&Sfx>, cache: &mut HashMap<&'static str, Option<FormId>>, sounds: &mut MessageWriter<PlaySound>, name: &'static str) {
     let Some(sfx) = sfx else { return };
     let found = *cache.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f));
@@ -321,9 +350,11 @@ fn play_sound(sfx: Option<&Sfx>, cache: &mut HashMap<&'static str, Option<FormId
 /// For an earned level: the level-up sound once the pointer fills (or at once when
 /// no bar is up, as for the second of two levels earned together), then the level-up menu
 /// [`LEVEL_UP_DELAY`] seconds later once the player can take it: in the world, out of
-/// every menu, nobody fighting or searching for them ([`experience::hunters`], the
-/// owner's rule), and the last fight over for a while (`crate::after_combat`, #1050).
-/// The wait counts only while the HUD is up.
+/// every menu, nobody drawn fighting or searching for them (the owner's rule; counted over
+/// the drawn actors as `crate::after_combat` counts them, since an actor left in an
+/// unloaded cell keeps its combat state, #3030), and the last fight over for a while
+/// (`crate::after_combat`, #1050). The wait counts only while the HUD is up. Each new
+/// reason it waits for is logged once (`xp: level up waits: …`).
 #[allow(clippy::too_many_arguments)]
 fn level_up(
     time: Res<Time>,
@@ -337,8 +368,10 @@ fn level_up(
     mut music: Option<ResMut<crate::music::MusicCues>>,
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
     after: Option<Res<crate::after_combat::AfterCombat>>,
+    actors: Option<Res<crate::hitvol::HitVolumes>>,
     mut since_sound: Local<Option<f32>>,
-    mut waiting: Local<usize>,
+    mut waiting: Local<Option<String>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
         *since_sound = None;
@@ -346,6 +379,16 @@ fn level_up(
     };
     if !experience::level_up_due(&rt.game) {
         *since_sound = None;
+        // Earned, but held by SetInCharGen 1 or ToggleLevelUpMenu 0: say so once.
+        let due = experience::standing(&rt.game).due();
+        let reason = if due && rt.game.player.in_chargen {
+            Some("the game is in character generation (SetInCharGen 1)".to_string())
+        } else if due && !rt.game.level_up_menu_enabled() {
+            Some("a script disabled the level-up menu (ToggleLevelUpMenu 0)".to_string())
+        } else {
+            None
+        };
+        note_wait(&mut waiting, reason);
         return;
     }
     if *state.get() != PlayState::Playing || !view.shown {
@@ -353,7 +396,19 @@ fn level_up(
     }
     let Some(since) = since_sound.as_mut() else {
         if meter.level_up_filled() || meter.idle() {
-            play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, LEVEL_UP_SOUND);
+            // The player's tweak: every so many levels another sound [design: docs/design/tweaks.md].
+            let next = rt.game.player_level() as u32 + 1;
+            let own = tweaks.as_deref().and_then(|t| alternate_level_sound(next, (t.level_sound_every_a as u32, &t.level_sound_a), (t.level_sound_every_b as u32, &t.level_sound_b)));
+            match (own, sfx.as_deref()) {
+                (Some(name), Some(s)) if s.forms.sounds.values().any(|x| x.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))) => {
+                    let sound = s.forms.sounds.iter().find(|(_, x)| x.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f);
+                    if let Some(sound) = sound {
+                        info!("xp meter: sound {name} for level {next} (tweak)");
+                        sounds.write(PlaySound { sound, at: None });
+                    }
+                }
+                _ => play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, LEVEL_UP_SOUND),
+            }
             // And the default objects' Level Up Music, when it has a file (#991).
             if let Some(m) = music.as_deref_mut() {
                 m.level_up = true;
@@ -370,19 +425,40 @@ fn level_up(
     if g.in_menu() {
         return;
     }
-    let hunters = experience::hunters(g);
-    if hunters != *waiting {
-        if hunters > 0 {
-            info!("xp: level up waits: {hunters} actors fighting or searching for the player");
-        }
-        *waiting = hunters;
-    }
-    if hunters > 0 || after.is_some_and(|a| !a.settled()) {
+    let hunters = match actors.as_deref() {
+        Some(a) => crate::after_combat::drawn_hunters(g, &a.living),
+        None => experience::hunters(g),
+    };
+    if let Some(why) = level_up_wait(hunters, after.as_deref()) {
+        note_wait(&mut waiting, Some(why));
         return;
     }
+    note_wait(&mut waiting, None);
     *since_sound = None;
     let (level, max) = with_world(rt, &mut sim, |rt| (experience::level_up(&mut rt.game), experience::max_level(&rt.game)));
     info!("xp: level up taken: level {level} (cap {max})");
+}
+
+/// What still keeps an earned level-up's menu shut once its delay has run, with nothing
+/// open: drawn actors hunting the player, or the last fight not over for long enough.
+fn level_up_wait(hunters: usize, after: Option<&crate::after_combat::AfterCombat>) -> Option<String> {
+    if hunters > 0 {
+        return Some(format!("{hunters} actors fighting or searching for the player"));
+    }
+    if after.is_some_and(|a| !a.settled()) {
+        return Some(format!("the last fight is not over for {:.1} s of play yet", crate::after_combat::AFTER_COMBAT_DELAY));
+    }
+    None
+}
+
+/// Log the reason a level-up waits when it changes (`None`: nothing waits now).
+fn note_wait(last: &mut Option<String>, why: Option<String>) {
+    if *last != why {
+        if let Some(w) = &why {
+            info!("xp: level up waits: {w}");
+        }
+        *last = why;
+    }
 }
 
 /// The meter's pointer.
@@ -568,6 +644,33 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
 mod tests {
     use super::*;
 
+    /// #3030: the menu waits for drawn hunters and the after-combat delay only; once both
+    /// are clear nothing holds it, and each new reason is logged once.
+    #[test]
+    fn the_level_up_waits_for_drawn_hunters_and_the_after_combat_delay_only() {
+        use crate::after_combat::AfterCombat;
+        let settled = AfterCombat::default();
+        let fresh = AfterCombat { fighting: false, quiet: 0.5 };
+        assert_eq!(level_up_wait(0, Some(&settled)), None);
+        assert_eq!(level_up_wait(0, None), None);
+        assert!(level_up_wait(2, Some(&settled)).is_some_and(|w| w.starts_with("2 actors")));
+        assert!(level_up_wait(0, Some(&fresh)).is_some_and(|w| w.contains("not over")));
+        let mut last = None;
+        note_wait(&mut last, Some("a".into()));
+        assert_eq!(last.as_deref(), Some("a"));
+        note_wait(&mut last, None);
+        assert_eq!(last, None, "nothing waits: the next wait is logged again");
+    }
+
+    #[test]
+    fn alternate_level_sounds_fall_on_their_levels() {
+        let (a, b) = ((5, "UIA"), (10, "UIB"));
+        assert_eq!(alternate_level_sound(5, a, b), Some("UIA"));
+        assert_eq!(alternate_level_sound(10, a, b), Some("UIB"));
+        assert_eq!(alternate_level_sound(7, a, b), None);
+        assert_eq!(alternate_level_sound(10, (5, ""), (0, "UIB")), None);
+    }
+
     /// T12e: "LEVEL UP" stands 16 above the amount's line (the original's 12 pixels higher
     /// at 720 lines), ending at its own x.
     #[test]
@@ -594,10 +697,9 @@ mod tests {
         assert!(before.contains(&"+190".into()) && before.contains(&"1".into()) && before.contains(&"2".into()));
         app.world_mut().resource_mut::<Meter>().step(4.6);
         app.update();
-        // [documented: interface.rs, set_marked; fnv-font, Font::lines] The fallback
-        // Text contains only placed glyphs (spaces are advances). Check its glyphs;
-        // the model's literal "LEVEL UP" is checked separately below.
-        assert_eq!(texts(app.world_mut()), ["LEVELUP"]);
+        // [documented: interface.rs, set_marked; fnv-font, Line::text_spaced] The fallback
+        // Text puts back the spaces between the placed glyphs (#2298).
+        assert_eq!(texts(app.world_mut()), ["LEVEL UP"]);
         let mut visuals = app.world_mut().query_filtered::<&Visibility, With<MeterVisual>>();
         assert!(visuals.iter(app.world()).all(|v| *v == Visibility::Hidden));
     }

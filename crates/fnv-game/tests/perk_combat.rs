@@ -3,7 +3,7 @@
 //! entries take the highest rank's, and the functions resolve to numbers.
 //! docs/spec-notes/perk-entry-points.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;
@@ -364,7 +364,7 @@ fn weight_perks_change_the_players_load() {
     g.player.perks.insert(FormId(HEAVY), 1);
     g.player.perks.insert(FormId(HOARDER), 1);
     g.sync_perk_weights();
-    assert_eq!(g.world.weight_rules(P), WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((perks::HEAVY_WEAPON_WEIGHT, 0.5)) });
+    assert_eq!(g.world.weight_rules(P), WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((perks::HEAVY_WEAPON_WEIGHT, 0.5)), ..Default::default() });
     let after = g.world.encumbrance(P).map(|e| e.capacity);
     if let (Ok(b), Ok(a)) = (before, after) {
         assert!((a - b - 25.0).abs() < 1e-6, "Hoarder: {b} -> {a}");
@@ -422,4 +422,19 @@ fn mine_blast_throw_and_speed_perks() {
     assert!((at(&mut g, perks::MODIFY_RUN_SPEED, 1.0) - 1.1).abs() < 1e-6);
     // Another actor's mine chance is its own (no perks).
     assert_eq!(g.entry_point(FormId(NPC_REF), perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0).0, 1.0);
+}
+
+/// JIP's SetNthPerkEntryValue1 changes the value the entry point applies, as Enhanced
+/// Movement sets its sprint speed perk's Modify Run Speed factor (#2275).
+#[test]
+fn set_nth_perk_entry_value1_changes_the_entry_points_value() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.player.perks.insert(FormId(TRAVEL), 1);
+    let speed = |g: &mut Game| g.entry_point(P, perks::MODIFY_RUN_SPEED, 1.0).0;
+    assert!((speed(&mut g) - 1.1).abs() < 1e-6);
+    let run = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap();
+    run(&mut g, "SetNthPerkEntryValue1 TravelLight 0 1.5");
+    assert!((speed(&mut g) - 1.5).abs() < 1e-6, "{}", speed(&mut g));
+    assert_eq!(run(&mut g, "SetFunctionValue (GetNthPerkEntryValue1 TravelLight 0)"), fnv_script::vm::XVal::Num(1.5));
 }

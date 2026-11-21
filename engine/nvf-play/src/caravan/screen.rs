@@ -63,6 +63,10 @@ const HINT_GAP: f32 = 16.0;
 /// The betting box: rows, titles' left, values' right, its bracket.
 const BET_ROWS: [f32; 3] = [778.0, 824.0, 868.0];
 const BET_X: (f32, f32) = (67.0, 533.0);
+/// The bet box's bracket: left, top, width, height.
+const BET_BRACKET: (f32, f32, f32, f32) = (40.0, 750.0, 545.0, 170.0);
+/// The gap the help box keeps from the bet screen's words and buttons [design].
+const HELP_GAP: f32 = 40.0;
 /// The builder: rows' tops, the middle card's tops, the step between cards.
 const ROW_TOPS: (f32, f32) = (100.0, 600.0);
 const MIDDLE_TOPS: (f32, f32) = (44.0, 560.0);
@@ -120,6 +124,7 @@ pub fn draw(
     window: Query<&Window, With<PrimaryWindow>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     roots: Query<Entity, With<CaravanRoot>>,
     _time: AidTime,
     (mut kit, mut shown, mut hints): (Local<Option<Kit>>, Local<Option<String>>, Local<String>),
@@ -141,7 +146,7 @@ pub fn draw(
     let Some(s) = screen.0.as_ref() else { return };
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     spawn(&mut commands, &mut c, s, view_w);
 }
 
@@ -168,10 +173,33 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view_w: f32) {
                 Stage::Results => results(f, c, s, dim),
         });
         if let Some(h) = &s.help {
-            crate::lockpick::help::spawn(r, c, h, view_w);
+            let clear = help_clear(c, s, view_w);
+            crate::lockpick::help::spawn_clear(r, c, h, view_w, clear);
         }
         });
     });
+}
+
+/// The room the help box leaves the bet screen's words and buttons: above the bet box's
+/// bracket and left of the buttons' labels, with a gap (issue #1663) [design]. The table's
+/// frame is scaled about its middle in a view narrower than 16:9, so its places are taken
+/// into the view's units. Other stages: no limits.
+fn help_clear(c: &mut Ctx, s: &Session, view_w: f32) -> crate::lockpick::help::Clear {
+    if s.stage != Stage::Bet {
+        return crate::lockpick::help::Clear::NONE;
+    }
+    let k = (view_w / FRAME_W).min(1.0);
+    let x = |fx: f32| view_w / 2.0 + (fx - FRAME_W / 2.0) * k;
+    let y = |fy: f32| 480.0 + (fy - 480.0) * k;
+    let labels = s.buttons().iter().map(|(label, ..)| BUTTONS_RIGHT - HINT_GAP - 34.0 - c.text_width(FontKind::Menu, label)).fold(BUTTONS_RIGHT, f32::min);
+    let clear = crate::lockpick::help::Clear { bottom: y(BET_BRACKET.1 - HELP_GAP), right: x(labels - HELP_GAP) };
+    let (bottom, right) = crate::lockpick::help::frame_lines(crate::lockpick::help::box_rect(view_w, clear));
+    info!(
+        "caravan: help box on the bet screen ({view_w:.0} wide): {:.0} above the bet box, {:.0} left of the buttons",
+        y(BET_BRACKET.1) - bottom,
+        x(labels) - right
+    );
+    clear
 }
 
 fn lit(on: bool) -> Color {
@@ -210,7 +238,8 @@ fn bracket(p: &mut ChildSpawnerCommands, c: &mut Ctx, left: f32, top: f32, w: f3
 fn bet(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     sign(p, c, dim);
     let b = amber(255.0);
-    bracket(p, c, 40.0, 750.0, 545.0, 170.0);
+    let (x, y, w, h) = BET_BRACKET;
+    bracket(p, c, x, y, w, h);
     let rows = [(s.opponent_name.clone(), s.bet.bid), ("Current Ante:".into(), s.bet.ante), ("Total Funds:".into(), s.bet.funds)];
     for ((title, value), y) in rows.iter().zip(BET_ROWS) {
         c.text_in(p, FontKind::Menu, title, BET_X.0, y, false, b);

@@ -14,6 +14,9 @@ use fnv_script::FunctionTable;
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use serde_json::{json, Value as Json};
 
+#[path = "common/inline_call_source_bridge.rs"]
+mod inline_call_source_bridge_tests;
+
 // ---- plugin builders ------------------------------------------------------------
 
 fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
@@ -169,6 +172,10 @@ const NPC_REF: u32 = 0x320;
 const NPC_AUTO_REF: u32 = 0x321;
 const PATROL_REF: u32 = 0x330;
 const OTHER_REF: u32 = 0x331;
+const TELEPORT_DOOR: u32 = 0x940;
+const DOOR_REF: u32 = 0x340;
+const DEST_DOOR_REF: u32 = 0x341;
+const DOOR_POS: [f32; 3] = [11.0, 22.0, 33.0];
 
 const SET_STAGE: u16 = 0x1039;
 const GET_SECONDS_PASSED: u16 = 0x100C;
@@ -257,12 +264,25 @@ fn plugin_bytes() -> Vec<u8> {
         ),
     ]
     .concat();
-    // NPC script: nDone (1, short).
+    // NPC script: nDone (1), nFrames (3), nOnLoad (7), all short counters.
     //   begin SayToDone
     //     set nDone to nDone + 1
     //   end
     let body = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
-    let npcscript = [vec![sub(b"EDID", z("NpcScript"))], unit(0, &script(&[(0x07, None, body)]), &[(1, "nDone", 1)], &[])].concat();
+    let npcscript = [
+        vec![sub(b"EDID", z("NpcScript"))],
+        unit(
+            0,
+            &script(&[
+                (0x07, None, body),
+                (0, None, set(var(b's', 3), ex(&[var(b's', 3), a("1"), a("+")]))),
+                (0x15, None, set(var(b's', 7), ex(&[var(b's', 7), a("1"), a("+")]))),
+            ]),
+            &[(1, "nDone", 1), (3, "nFrames", 1), (7, "nOnLoad", 1)],
+            &[],
+        ),
+    ]
+    .concat();
     // Trigger script: fSum (1, float); no GameMode block.
     //   begin OnTrigger
     //     set fSum to fSum + GetSecondsPassed
@@ -413,17 +433,28 @@ fn plugin_bytes() -> Vec<u8> {
         ]
         .concat(),
     );
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto, patrol_ref].concat()));
+    let door = record(b"DOOR", 0, TELEPORT_DOOR, &[sub(b"EDID", z("TestTeleportDoor"))]);
+    let destination: Vec<u8> = DOOR_POS.into_iter().chain([0.0, 0.0, 0.75]).flat_map(f32::to_le_bytes).collect();
+    let door_ref = record(b"REFR", 0, DOOR_REF, &[
+        sub(b"EDID", z("TestDoorREF")), sub(b"NAME", TELEPORT_DOOR.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
+        // XTEL: destination door, position and rotation, No Alarm (u32) [xEdit REFR XTEL].
+        sub(b"XTEL", [DEST_DOOR_REF.to_le_bytes().to_vec(), destination, 0u32.to_le_bytes().to_vec()].concat()),
+    ]);
+    let dest_door = record(b"REFR", 0, DEST_DOOR_REF, &[
+        sub(b"NAME", TELEPORT_DOOR.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
+    ]);
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto, patrol_ref, door_ref].concat()));
     // A second cell, with one unscripted reference to move things to.
     let other_cell = record(b"CELL", 0, OTHER_CELL, &[sub(b"EDID", z("TestOtherCell"))]);
     let other_ref = record(b"REFR", 0, OTHER_REF, &[sub(b"EDID", z("TestOtherREF")), sub(b"NAME", MARKER.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
-    let other_children = group(OTHER_CELL.to_le_bytes(), 6, &group(OTHER_CELL.to_le_bytes(), 9, &other_ref));
+    let other_children = group(OTHER_CELL.to_le_bytes(), 6, &group(OTHER_CELL.to_le_bytes(), 9, &[other_ref, dest_door].concat()));
     [
         tes4(),
         top(b"GLOB", &glob),
         top(b"MESG", &mesg),
         top(b"SCPT", &scpt),
         top(b"ACTI", &[acti, trig, marker].concat()),
+        top(b"DOOR", &door),
         top(b"NPC_", &[npc, npc_auto].concat()),
         top(b"WEAP", &record(b"WEAP", 0, WEAPON, &[sub(b"EDID", z("TestWeapon")), sub(b"SCRI", WEAPON_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 15])])),
         top(b"PACK", &pack),
@@ -583,6 +614,34 @@ fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
 }
 
 #[test]
+fn get_seconds_passed_counts_a_trigger_frame_once_however_many_runs_it_has() {
+    // Two references inside a trigger: its OnTrigger runs twice a frame, and only the
+    // first run gets the frame's time (`Game::trigger_again`; Hidden Valley's virus
+    // purge, issue #2455, ran out several times too fast).
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let t = FormId(TRIG_REF);
+    let run = |g: &mut Game| assert!(g.ref_event(t, fnv_game::game::event::ON_TRIGGER, Some(Value::Ref(FormId::PLAYER_REF.0)), Some(FormId::PLAYER_REF)));
+    let inside_twice = |g: &mut Game| {
+        g.trigger_frame(t);
+        run(g);
+        g.trigger_again(t);
+        run(g);
+    };
+    inside_twice(&mut g);
+    let first = g.time;
+    for _ in 0..60 {
+        g.frames(1);
+        inside_twice(&mut g);
+    }
+    let elapsed = g.time - first;
+    let Value::Num(sum) = g.var(InstKey::Ref { reference: t }, 1) else { panic!("fSum is not a number") };
+    assert!(elapsed > 0.5, "{elapsed}");
+    assert!((sum - elapsed).abs() <= 2.0 / 64.0, "sum {sum}, elapsed {elapsed}");
+}
+
+#[test]
 fn stage_entries_run_when_their_conditions_pass_and_done_stages_do_not_rerun() {
     let f = fixture();
     let mut g = game(&f);
@@ -624,9 +683,60 @@ fn quest_targets_are_marked_while_their_conditions_pass() {
     // The subject is the target: disabling it fails its own GetDisabled == 0.
     g.world.set_enabled(FormId(ACT_REF), false).unwrap();
     assert_eq!(shown(&mut g), vec![(0, true), (1, false), (2, false)]);
-    // A completed objective has no targets.
-    g.set_objective(q(), 10, None, Some(true));
+    // A completed objective has no targets. (Stage 20 completed the quest, and a
+    // completed quest's objectives no longer change, #2958: complete it as
+    // CompleteAllObjectives does.)
+    assert!(!g.set_objective(q(), 10, None, Some(true)));
+    assert_eq!(shown(&mut g), vec![(0, true), (1, false), (2, false)]);
+    g.set_objective_whatever(q(), 10, None, Some(true));
     assert!(g.check_quest_targets(q()).is_empty());
+}
+
+/// #2958 (layer5-captures.md §5.8): once a quest is completed or failed, SetStage still marks the
+/// stage and runs its entries but does not start the quest again, and
+/// SetObjectiveDisplayed / SetObjectiveCompleted do nothing, running or not. A quest
+/// stopped without being completed starts again on both.
+#[test]
+fn a_completed_quest_stays_stopped_and_its_objectives_no_longer_change() {
+    let f = fixture();
+    let objective = |g: &mut Game| g.quest(q()).objectives.get(&10).map_or((false, false), |o| (o.displayed, o.completed));
+    // Stopped, not completed: SetStage starts it, and so does displaying an objective.
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    g.stop_quest(q());
+    assert!(!g.quest_state(q()).running);
+    g.set_stage(q(), 30);
+    assert!(g.quest_state(q()).running);
+    g.stop_quest(q());
+    assert!(g.set_objective(q(), 10, Some(true), None));
+    assert!(g.quest_state(q()).running);
+    assert_eq!(objective(&mut g), (true, false));
+    // Completed (stage 20 has the Complete Quest flag) and stopped.
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 20);
+    assert!(g.quest_state(q()).completed);
+    g.stop_quest(q());
+    let before = objective(&mut g);
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
+    assert!(g.set_stage(q(), 30));
+    assert!(g.quest_state(q()).stages_done.contains(&30), "the stage is marked done");
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 7.0, "and its entry ran");
+    assert!(!g.quest_state(q()).running, "but the quest is not started again");
+    // Its objectives no longer change, stopped or started again.
+    for running in [false, true] {
+        if running {
+            g.start_quest(q());
+            assert!(g.quest_state(q()).running);
+        }
+        assert!(!g.set_objective(q(), 10, Some(!before.0), None));
+        assert!(!g.set_objective(q(), 10, None, Some(!before.1)));
+        assert_eq!(objective(&mut g), before);
+    }
+    // CompleteAllObjectives' way still completes one.
+    assert!(g.set_objective_whatever(q(), 10, None, Some(true)));
+    assert!(objective(&mut g).1);
 }
 
 /// Displaying an objective already shown keeps its completed flag; showing a hidden one
@@ -1174,7 +1284,7 @@ fn a_disabled_reference_runs_on_load_when_its_cell_loads() {
     assert_eq!(loads(&g), 2.0);
 }
 
-/// How many times `r`'s OnLoad block has run (the activator script's nOnLoad).
+/// How many times `r`'s OnLoad block has run (the fixture scripts' nOnLoad).
 fn on_loads(g: &Game, r: FormId) -> f64 {
     match g.var(InstKey::Ref { reference: r }, 7) {
         Value::Num(x) => x,
@@ -1184,6 +1294,101 @@ fn on_loads(g: &Game, r: FormId) -> f64 {
 
 fn load_only(g: &mut Game, cell: u32) {
     g.set_loaded([FormId(cell)].into_iter().collect());
+}
+
+/// [design: game.rs scripted_refs_in] A scripted door move registers an NPC for
+/// destination GameMode and OnLoad selection, including after a save is restored.
+#[test]
+fn a_scripted_npc_sent_through_a_door_runs_in_its_destination() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    let frames = |g: &Game| g.var(InstKey::Ref { reference: npc }, 3);
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, npc), 1.0);
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(1.0));
+    g.events.clear();
+    g.run_source("TestDoorREF.Activate TestNpcREF", Default::default()).unwrap();
+    let s = g.world.peek(npc).unwrap();
+    assert_eq!((s.cell, s.pos, s.rot), (Some(FormId(OTHER_CELL)), DOOR_POS, [0.0, 0.0, 0.75]));
+    assert!(g.moved.contains(&npc));
+    assert_eq!(g.take_teleported(), [npc].into_iter().collect());
+    assert!(g.brought_along.is_empty());
+    assert!(!g.turned.contains(&npc));
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Moved { reference, cell: Some(cell), pos }
+        if reference == npc && cell == FormId(OTHER_CELL) && pos == DOOR_POS)).count(), 1);
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(1.0), "the source no longer runs the NPC");
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, npc), 2.0);
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(2.0));
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, npc), 2.0, "no second load while the cell stays loaded");
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, npc), 2.0, "the authored cell loads without it");
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, npc), 3.0, "once on destination reload");
+
+    let saved: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &saved.sim).unwrap();
+    let mut restored = Game::restore(&f.data, world, g.cfg, &saved).unwrap();
+    assert_eq!(restored.cell_of(npc), Some(FormId(OTHER_CELL)));
+    assert!(restored.moved.contains(&npc));
+    restored.tick();
+    assert_eq!(frames(&restored), Value::Num(3.0));
+    load_only(&mut restored, CELL);
+    restored.tick();
+    assert_eq!(frames(&restored), Value::Num(3.0));
+    assert_eq!(on_loads(&restored, npc), 3.0);
+    load_only(&mut restored, OTHER_CELL);
+    assert_eq!(on_loads(&restored, npc), 4.0);
+    restored.tick();
+    assert_eq!(frames(&restored), Value::Num(4.0));
+}
+
+#[test]
+fn an_unscripted_npc_door_move_is_reported_only_after_success() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    load_only(&mut g, CELL);
+    let npc = FormId(NPC_AUTO_REF);
+    g.events.clear();
+    g.world.lock(FormId(DOOR_REF), Some(50)).unwrap();
+    g.run_source("TestDoorREF.Activate TestAutoNpcREF", Default::default()).unwrap();
+    assert_eq!(g.cell_of(npc), Some(FormId(CELL)));
+    assert!(g.take_teleported().is_empty());
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Moved { .. })));
+    g.world.unlock(FormId(DOOR_REF)).unwrap();
+    g.run_source("TestDoorREF.Activate TestAutoNpcREF", Default::default()).unwrap();
+    assert_eq!(g.cell_of(npc), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.take_teleported(), [npc].into_iter().collect());
+    assert!(!g.moved.contains(&npc));
+    assert!(!g.turned.contains(&npc));
+    assert_eq!(g.loaded_cells, [FormId(CELL)].into_iter().collect());
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Moved { reference, .. } if reference == npc)).count(), 1);
+}
+
+#[test]
+fn a_player_door_move_keeps_cell_entry_and_followers() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    load_only(&mut g, CELL);
+    let npc = FormId(NPC_REF);
+    g.extra.entry(npc).or_default().teammate = true;
+    g.events.clear();
+    g.run_source("TestDoorREF.Activate player", Default::default()).unwrap();
+    assert_eq!(g.cell_of(FormId::PLAYER_REF), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.loaded_cells, [FormId(OTHER_CELL)].into_iter().collect());
+    assert_eq!(g.cell_of(npc), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.brought_along, [npc].into_iter().collect());
+    assert_eq!(g.take_teleported(), [npc].into_iter().collect());
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Moved { reference, .. } if reference == npc)).count(), 1);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Moved { reference: FormId::PLAYER_REF, .. })));
 }
 
 /// OnLoad at a cell load goes by the cell a reference is in now: a moved one runs it when
@@ -1262,6 +1467,22 @@ fn a_moved_player_runs_no_on_load_at_a_cell_load() {
     assert_eq!(on_loads(&g, FormId::PLAYER_REF), 0.0);
 }
 
+/// A player moved to a marker turns to the marker's heading and takes its pitch (the X
+/// angle); moved to itself it keeps both (issue #2226: the ending's XMarkerHeading faces
+/// the slide; #2710: the slide markers are level, and the view held there was tilted).
+#[test]
+fn a_moved_player_takes_the_markers_heading_and_pitch() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId(OTHER_REF)).unwrap().rot = [0.4, 0.0, 1.5];
+    g.world.get(FormId::PLAYER_REF).unwrap().rot = [0.3, 0.0, 2.5];
+    g.run_source("player.MoveTo TestOtherREF", Default::default()).unwrap();
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.4, 0.0, 1.5]);
+    g.run_source("player.MoveTo player 0 0 10", Default::default()).unwrap();
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.4, 0.0, 1.5]);
+}
+
 /// An OnLoad event handler that counts in TestGlobal: 1 for the activator, 10 for the
 /// trigger, 100 for the unscripted reference of the other cell.
 const COUNT_ON_LOADS: &str = "SetEventHandler \"OnLoad\" (begin function {ref rOn, ref rSame}\nif rOn == TestActivatorREF\nlet TestGlobal := TestGlobal + 1\nelseif rOn == TestTriggerREF\nlet TestGlobal := TestGlobal + 10\nelseif rOn == TestOtherREF\nlet TestGlobal := TestGlobal + 100\nendif\nend)";
@@ -1315,14 +1536,17 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     add(&mut g);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&g), 21.0);
-    // It reaches its goal: the end script; being replaced afterwards is not a change.
+    // It reaches its goal: the end script, once; being replaced afterwards is a change
+    // too (its change script runs as the actor leaves it, issue #2221).
     g.package_goal_met(npc);
     assert_eq!(global(&g), 22.0);
     g.package_goal_met(npc);
+    assert_eq!(global(&g), 22.0);
     remove(&mut g);
     g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
-    assert_eq!(global(&g), 0.0);
+    assert_eq!(global(&g), 23.0, "the change script ran as the finished package was left");
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     // Replaced before its goal: the change script.
     add(&mut g);
     g.evaluate_package(npc);
@@ -1407,6 +1631,37 @@ fn the_runner_fires_a_carried_weapon_and_runs_its_on_fire_block() {
     assert!(steps[2].get("error").is_none(), "{} {}", out["steps"], out["events"]);
     let obs = out["observations"].as_array().unwrap();
     assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 9.0);
+}
+
+/// #1848: a labelled step that fails answers with its error, whatever the action; the
+/// menu steps open and close the container menu as the game does; `#0` is no index.
+#[test]
+fn the_runners_failed_steps_answer_and_its_menus_open_and_close() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "consume", "item": "NoSuchItem", "label": "consume"},
+            {"op": "get_quest", "quest": "NoSuchQuest", "fields": ["stage"], "label": "quest"},
+            {"op": "sample_ref_var", "ref": "TestActivatorREF", "var": "nNoSuchVar", "frames": 2, "label": "sample"},
+            {"op": "get_ref", "of": "scripted:ActScript#0", "label": "zero"},
+            {"op": "get_ref", "of": "scripted:ActScript#1", "label": "one"},
+            {"op": "call", "line": "TestNpcREF.KillActor"},
+            {"op": "hold_menu", "via": "TestNpcREF", "frames": 3}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    let obs = |l: &str| out["observations"].as_array().unwrap().iter().find(|o| o["label"] == l).cloned();
+    for (i, l) in ["consume", "quest", "sample", "zero"].into_iter().enumerate() {
+        assert!(steps[i].get("error").is_some(), "{l}: {}", out["steps"]);
+        assert!(obs(l).is_some_and(|o| o["errors"]["action"].is_string()), "{l}: {}", out["observations"]);
+    }
+    assert!(steps[4].get("error").is_none(), "{}", out["steps"]);
+    assert!(steps[6].get("error").is_none(), "{}", out["steps"]);
+    let events = out["events"].to_string();
+    assert!(events.contains(r#""kind":"menu_opened","menu":1008"#) && events.contains(r#""kind":"menu_closed","menu":1008"#), "{events}");
 }
 
 /// `save_load`: the game is written into a save's bytes and restored from them; what a
@@ -1590,6 +1845,65 @@ fn say_to_done_follows_say_as_well_as_say_to() {
     assert_eq!(done(&h), 1.0);
 }
 
+// [documented: #2714, spooknik's 2026-11-15 comment] Roy's plain Say uses a
+// Conversation/Goodbye line without a target or continuation. [design, #2714]
+// Exercise that shape with this file's authored fixture; check engine pause/audio in
+// the roy-say-pause-resume smoke scenario, not by this headless menu-mode test.
+#[test]
+fn plain_say_resumes_after_mid_line_pauses_and_finishes_once() {
+    let mut f = fixture();
+    let line = f.data.infos.get_mut(&FormId(INFO_A)).unwrap();
+    line.info_type = fnv_game::data::topic_type::CONVERSATION;
+    line.flags |= fnv_game::data::info_flag::GOODBYE;
+    line.goodbye = true;
+    assert!(line.choices.is_empty() && line.follow_ups.is_empty());
+    let end = line.end.unwrap();
+    let opcode = f.data.table.by_name("Say").unwrap();
+    let mut g = game(&f);
+    g.new_game();
+    let speaker = FormId(NPC_REF);
+    let ctx = Ctx { unit: "test".into(), opcode, on: Some(speaker), self_ref: Some(speaker), action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(TOPIC))]);
+    let done = |g: &Game| g.var(InstKey::Ref { reference: speaker }, 1).num();
+    let ends = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::LineEnded { info, .. } if info == FormId(INFO_A))).count();
+    let total = g.speech[0].remaining;
+    g.frames(40);
+    assert!(g.speech[0].remaining > 0.0 && g.speech[0].remaining < total);
+    for _ in 0..2 {
+        let held = g.speech[0].clone();
+        assert_eq!((held.speaker, held.info, held.target, held.conversation), (speaker, FormId(INFO_A), None, None));
+        assert_eq!(held.response, 0);
+        assert!(!held.say_to && !held.leads_on && !held.greeting && !held.farewell);
+        g.open_menu(fnv_game::game::menus::START);
+        g.frames(600);
+        assert!(g.is_talking(speaker));
+        // [design: nvf-play/script_hud.rs::subtitles, voice.rs::speech_response]
+        // Retained INFO/response and remaining time let the HUD keep this subtitle.
+        assert_eq!(g.speech.len(), 1);
+        assert_eq!((g.speech[0].info, g.speech[0].response, g.speech[0].remaining), (held.info, held.response, held.remaining));
+        assert_eq!((ends(&g), done(&g)), (0, 0.0));
+        assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 5.0);
+        assert_eq!(g.close_menu(), Some(fnv_game::game::menus::START));
+        g.frames(10);
+        assert!(g.is_talking(speaker));
+        assert!(g.speech[0].remaining < held.remaining);
+    }
+    let left = g.speech[0].remaining;
+    let frames_left = (left / g.cfg.frame_seconds).ceil() as u64;
+    g.frames(frames_left - 1);
+    assert!(g.is_talking(speaker));
+    assert_eq!((ends(&g), done(&g)), (0, 0.0));
+    g.tick();
+    assert!(!g.is_talking(speaker) && g.speech.is_empty());
+    assert_eq!((ends(&g), done(&g)), (1, 1.0));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 3.0);
+    g.frames(600);
+    assert_eq!((ends(&g), done(&g)), (1, 1.0));
+    assert_eq!(g.events.iter().filter(|e| matches!(&e.kind, EventKind::ResultScript { unit, on: Some(on) } if *on == speaker && *unit == f.data.unit(end).key())).count(), 1);
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::LineStarted { .. })).count(), 1);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { cut: true, .. } | EventKind::ActorConversationStarted { .. })));
+}
+
 #[test]
 fn a_line_lasts_as_long_as_its_voice_file_when_the_game_knows_it() {
     // docs/spec-notes/voice.md §8: the hook gives a response's length; a response it
@@ -1688,7 +2002,43 @@ fn a_scripts_say_does_not_fall_back_when_the_speakers_own_line_is_spent() {
     let mut g = game(&f);
     g.new_game();
     assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_B)));
+    // Once the line is over (a repeat while it plays leaves it playing, #2582).
+    g.frames(120);
+    assert!(!g.is_talking(speaker));
     assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), None);
+}
+
+#[test]
+fn a_scripts_say_of_the_topic_being_said_leaves_the_line_playing() {
+    // #2582: the Strip gate's kill zone SayTos its topic every frame; the original renews
+    // the talking state without a queue (observer batch o30), and here the line being
+    // said goes on instead of restarting every frame.
+    let f = fixture();
+    let speaker = FormId(NPC_REF);
+    let mut g = game(&f);
+    g.new_game();
+    let started = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::LineStarted { .. })).count();
+    assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_A)));
+    // A SayTo or a Say of the same topic every frame while it plays: the same line.
+    for k in 0..60 {
+        g.frames(1);
+        assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), k % 2 == 0), Some(FormId(INFO_A)));
+    }
+    assert_eq!(started(&g), 1);
+    // Said to its end: its end script ran (GLOBAL 3, as in the SayTo test above), and
+    // the next call says the topic's next line.
+    g.frames(120);
+    assert!(!g.is_talking(speaker));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 3.0);
+    assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_B)));
+    assert_eq!(started(&g), 2);
+    // A line started otherwise (here a Say by the engine, `Game::say`) is no different:
+    // a script's repeat of its topic leaves it playing too, while `Game::say` still cuts.
+    let mut h = game(&f);
+    h.new_game();
+    assert_eq!(h.say(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_A)));
+    assert_eq!(h.say_by_script(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_A)));
+    assert_eq!(h.say(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_B)));
 }
 
 #[test]
@@ -1737,6 +2087,150 @@ fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_
     f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
     let g = game(&f);
     assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC));
+}
+
+#[test]
+fn a_templated_actors_combat_style_follows_the_traits_flag() {
+    // Issue #2138: the combat style (ZNAM) is on the Traits tab [documented: GECK wiki
+    // Traits Tab - NPC, Traits Tab - Creatures], so a templated actor takes it from its
+    // template under "Use Traits", as the death item, not under "Use AI Data".
+    const OWN: u32 = 0xA20;
+    const PARENT: u32 = 0xA21;
+    const TOP: u32 = 0xA22;
+    const PACKAGE: u32 = 0xA23;
+    const SCRIPTED: u32 = 0xA24;
+    const MID: u32 = 0xA25;
+    const LIST: u32 = 0xA26;
+    let me = FormId(NPC_REF);
+    // NPC (own style OWN) templated on NPC_AUTO (style PARENT), with the given flags.
+    let with = |traits: bool, ai: bool| {
+        let mut f = fixture();
+        for s in [OWN, PARENT, TOP, PACKAGE, SCRIPTED] {
+            f.data.combat_styles.insert(FormId(s), fnv_game::data::CombatStyleDef::default());
+        }
+        f.data.actors.get_mut(&FormId(NPC_AUTO)).unwrap().combat_style = Some(FormId(PARENT));
+        let npc = f.data.actors.get_mut(&FormId(NPC)).unwrap();
+        npc.combat_style = Some(FormId(OWN));
+        npc.template = Some(FormId(NPC_AUTO));
+        npc.template_traits = traits;
+        npc.template_ai = ai;
+        f
+    };
+    // Traits only: the template's; AI Data only: its own; neither: its own; both: the
+    // template's.
+    for (traits, ai, style) in [(true, false, PARENT), (false, true, OWN), (false, false, OWN), (true, true, PARENT)] {
+        let f = with(traits, ai);
+        let g = game(&f);
+        assert_eq!(g.combat_style_id(me), Some(FormId(style)), "traits {traits}, AI data {ai}");
+    }
+    // A chain: NPC → NPC_AUTO → MID, each with Traits, takes MID's; NPC_AUTO without the
+    // flag stops at its own.
+    for (mid_traits, style) in [(true, TOP), (false, PARENT)] {
+        let mut f = with(true, false);
+        let mut mid = f.data.actors[&FormId(NPC_AUTO)].clone();
+        mid.combat_style = Some(FormId(TOP));
+        f.data.actors.insert(FormId(MID), mid);
+        let parent = f.data.actors.get_mut(&FormId(NPC_AUTO)).unwrap();
+        parent.template = Some(FormId(MID));
+        parent.template_traits = mid_traits;
+        let g = game(&f);
+        assert_eq!(g.combat_style_id(me), Some(FormId(style)), "parent's Traits flag {mid_traits}");
+    }
+    // A leveled list template stands for its picked entry.
+    let mut f = with(true, false);
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
+    let g = game(&f);
+    assert_eq!(g.combat_style_id(me), Some(FormId(PARENT)));
+    // The precedence is unchanged: the running package's style, then SetCombatStyle's,
+    // then the record's from its Traits source.
+    let mut f = with(true, false);
+    f.data.package_defs.get_mut(&FormId(PACK_IDLE)).unwrap().combat_style = Some(FormId(PACKAGE));
+    let mut g = game(&f);
+    g.extra.entry(me).or_default().combat_style = Some(FormId(SCRIPTED));
+    assert_eq!(g.combat_style_id(me), Some(FormId(SCRIPTED)));
+    g.extra.entry(me).or_default().current_package = Some(FormId(PACK_IDLE));
+    assert_eq!(g.combat_style_id(me), Some(FormId(PACKAGE)));
+    g.extra.entry(me).or_default().current_package = None;
+    g.extra.entry(me).or_default().combat_style = None;
+    assert_eq!(g.combat_style_id(me), Some(FormId(PARENT)));
+}
+
+#[test]
+fn the_player_speaks_with_the_default_objects_voice_of_her_or_his_sex() {
+    // Issue #2088: the player record names PlayerVoiceMale; a female player's Hit,
+    // PowerAttack and Death lines are in PlayerVoiceFemale's folder. The DefaultObjectManager
+    // names both (places 14 and 16); the player speaks with the one of her or his sex.
+    const VOICE_MALE: u32 = 0x9E1;
+    const VOICE_FEMALE: u32 = 0x9E2;
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, _info: FormId, _response: usize, _speaker_base: Option<FormId>) -> Option<f64> {
+            Some(0.9)
+        }
+        fn response_seconds_in_voice(&self, info: FormId, response: usize, voice_type: FormId) -> Option<f64> {
+            if info != FormId(INFO_A) || response != 0 {
+                return None;
+            }
+            match voice_type.0 {
+                VOICE_MALE => Some(0.3),
+                VOICE_FEMALE => Some(0.5),
+                _ => None,
+            }
+        }
+    }
+    let mut f = fixture();
+    let mut list = vec![None; 34];
+    list[14] = Some(FormId(VOICE_MALE));
+    list[16] = Some(FormId(VOICE_FEMALE));
+    f.data.default_objects = list;
+    let player = Some(FormId::PLAYER_BASE);
+    let mut g = game(&f);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    g.player.female = Some(true);
+    assert_eq!(g.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE)));
+    assert_eq!(g.voice_override(player), Some(FormId(VOICE_FEMALE)));
+    assert_eq!(g.response_lengths_as(player, FormId(INFO_A)), vec![0.5]);
+    g.player.female = Some(false);
+    assert_eq!(g.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_MALE)));
+    assert_eq!(g.response_lengths_as(player, FormId(INFO_A)), vec![0.3]);
+    // A child race (Tale of Two Wastelands' Vault 101 childhood): the child places,
+    // the adult one of the same sex when the list names no child voice.
+    const CHILD_RACE: u32 = 0x9E5;
+    const VOICE_MALE_CHILD: u32 = 0x9E3;
+    const VOICE_FEMALE_CHILD: u32 = 0x9E4;
+    let mut f = fixture();
+    let mut list = vec![None; 34];
+    list[14] = Some(FormId(VOICE_MALE));
+    list[15] = Some(FormId(VOICE_MALE_CHILD));
+    list[16] = Some(FormId(VOICE_FEMALE));
+    f.data.default_objects = list.clone();
+    f.data.child_races.insert(FormId(CHILD_RACE));
+    let mut c = game(&f);
+    c.player.race = Some(FormId(CHILD_RACE));
+    c.player.female = Some(false);
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_MALE_CHILD)));
+    c.player.female = Some(true);
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE)));
+    list[17] = Some(FormId(VOICE_FEMALE_CHILD));
+    f.data.default_objects = list;
+    let mut c = game(&f);
+    c.player.race = Some(FormId(CHILD_RACE));
+    c.player.female = Some(true);
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE_CHILD)));
+    // Grown up again: the adult voice.
+    c.player.race = None;
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE)));
+    // Other speakers keep their record's voice.
+    assert_eq!(g.voice_override(Some(FormId(NPC))), None);
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC)), FormId(INFO_A)), vec![0.9]);
+    // A list without the places: the player record's own voice.
+    let f = fixture();
+    let mut g = game(&f);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    g.player.female = Some(true);
+    assert_eq!(g.voice_override(player), None);
+    assert_eq!(g.response_lengths_as(player, FormId(INFO_A)), vec![0.9]);
 }
 
 #[test]
@@ -2055,7 +2549,14 @@ fn dismembered_parts_are_kept_and_read_by_scripts() {
     call(&mut g, KILL_ACTOR, &[]);
     assert!(g.combat_requests.is_empty());
     call(&mut g, KILL_ACTOR, &[ArgValue::Value(Value::Ref(FormId::PLAYER_REF.0)), ArgValue::Value(Value::Num(3.0))]);
-    assert_eq!(g.combat_requests, vec![CombatRequest::Dismember { actor: npc, location: 3, by: Some(FormId::PLAYER_REF) }]);
+    assert_eq!(g.combat_requests, vec![CombatRequest::Dismember { actor: npc, location: 3, by: Some(FormId::PLAYER_REF), explode: None }]);
+    // #1846: ResurrectActor 1 does not update the body; ResurrectActor 0 brings it back whole.
+    g.resurrect(npc, true);
+    assert_eq!(g.limbs_gone(npc), vec![(1, true), (13, false)], "animate 1 keeps them gone");
+    assert!(g.hit(npc, 500.0, head).died);
+    g.resurrect(npc, false);
+    assert!(g.limbs_gone(npc).is_empty(), "animate 0: whole again");
+    assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[0.0, 10.0])), 0.0);
 }
 
 #[test]
@@ -2361,6 +2862,40 @@ fn furniture_functions_answer_from_the_use_set_on_the_actor() {
     g.set_furniture_use(npc, None);
     assert_eq!(ask(&mut g, SLEEPING, npc, None), 0.0);
     assert_eq!(g.furniture_use(npc), None);
+}
+
+/// #2948: a teammate brought into another cell forgets the foes left in the one it came
+/// from and, with none left, leaves the fight; a foe in its new cell is kept.
+#[test]
+fn a_teammate_brought_along_leaves_the_foes_of_the_other_cell_behind() {
+    use fnv_game::awareness::{Awareness, State, Target};
+    use fnv_game::detection::Band;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let (npc, foe, near) = (FormId(NPC_REF), FormId(PATROL_REF), FormId(OTHER_REF));
+    let target = Target { band: Band::Hidden, value: 10.0, at: [0.0; 3], detected: Some(0.0), hidden_since: Some(0.0) };
+    let mut searching = Awareness { state: State::Alert, ..Default::default() };
+    searching.targets.insert(foe, target);
+    let put = |g: &mut fnv_game::game::Game, r: FormId, cell: u32| g.world.get(r).unwrap().cell = Some(FormId(cell));
+    put(&mut g, npc, OTHER_CELL);
+    put(&mut g, foe, CELL);
+    put(&mut g, near, OTHER_CELL);
+    // The foe is in the same cell: kept.
+    put(&mut g, foe, OTHER_CELL);
+    g.awareness.actors.insert(npc, searching.clone());
+    g.leave_foes_behind(npc);
+    assert_eq!(g.awareness.state(npc), State::Alert);
+    // Left behind in the other cell: forgotten, and the search is over.
+    put(&mut g, foe, CELL);
+    g.leave_foes_behind(npc);
+    assert_eq!(g.awareness.state(npc), State::Normal);
+    // One left behind, one in the new cell: only the first is forgotten.
+    searching.targets.insert(near, target);
+    g.awareness.actors.insert(npc, searching);
+    g.leave_foes_behind(npc);
+    let a = g.awareness.get(npc).expect("still searching for the near one");
+    assert!(a.targets.contains_key(&near) && !a.targets.contains_key(&foe), "{:?}", a.targets.keys());
 }
 
 #[test]
@@ -3083,6 +3618,35 @@ fn jip_hit_handlers_run_before_the_damage_and_read_the_hit() {
 }
 
 #[test]
+fn player_value_changes_cripples_and_ragdolls_reach_their_handlers() {
+    // #2134 [documented: SetOnActorValueChangeEventHandler, the player's changes, whole
+    // numbers without flag bit 0; SetOnRagdollEventHandler, death; observed: jip_events2,
+    // DamageAV LeftAttackCondition 200 fired the crippled-limb handler with limb 2].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let reg = "Begin Function { }\nSetOnActorValueChangeEventHandler 1 (Begin Function {int iAV, float fOld, float fNew}\nPlayerREF.AuxVarSetFlt \"*av\" iAV -1\nPlayerREF.AuxVarSetFlt \"*avd\" (fNew - fOld) -1\nEnd) 0\nSetOnCrippledLimbEventHandler (Begin Function {int iLimb}\nPlayerREF.AuxVarSetFlt \"*limb\" iLimb -1\nEnd) 1 PlayerREF\nSetOnRagdollEventHandler (Begin Function { }\nPlayerREF.AuxVarSetFlt \"*rag\" (GetSelf == PlayerREF) -1\nEnd) 1\nEnd\n";
+    assert_eq!(g.run_query(reg, ctx()), Ok(XVal::Num(0.0)));
+    let size = |g: &mut Game, s: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarSize \"{s}\")\nEnd\n"), ctx()).unwrap();
+    let read = |g: &mut Game, s: &str, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"{s}\" {i})\nEnd\n"), ctx()).unwrap();
+    // A hit is no script function, and the handler still hears of it, once, rounded.
+    g.hit(FormId::PLAYER_REF, 5.4, fnv_game::combat::HitInfo { location: -1, ..Default::default() });
+    assert_eq!(size(&mut g, "*av"), XVal::Num(1.0));
+    assert_eq!((read(&mut g, "*av", 0), read(&mut g, "*avd", 0)), (XVal::Num(16.0), XVal::Num(-5.0)));
+    // DamageAV takes the left arm to 0: crippled, limb 2; the change is told once more.
+    g.run_query("Begin Function { }\nPlayerREF.DamageAV LeftAttackCondition 200\nEnd\n", ctx()).unwrap();
+    assert_eq!((size(&mut g, "*limb"), read(&mut g, "*limb", 0)), (XVal::Num(1.0), XVal::Num(2.0)));
+    assert_eq!((size(&mut g, "*av"), read(&mut g, "*av", 1)), (XVal::Num(2.0), XVal::Num(27.0)));
+    // Already crippled: no second firing.
+    g.run_query("Begin Function { }\nPlayerREF.DamageAV LeftAttackCondition 10\nEnd\n", ctx()).unwrap();
+    assert_eq!(size(&mut g, "*limb"), XVal::Num(1.0));
+    // Death ragdolls.
+    assert!(g.kill(FormId::PLAYER_REF, None));
+    assert_eq!((size(&mut g, "*rag"), read(&mut g, "*rag", 0)), (XVal::Num(1.0), XVal::Num(1.0)));
+}
+
+#[test]
 fn message_ex_box_ex_and_debug_print() {
     // Task D4 [documented: MessageEx; MessageBoxEx; DebugPrint; SetDebugMode].
     let f = udf_fixture();
@@ -3150,6 +3714,151 @@ fn each_queued_box_keeps_its_own_button_count() {
 }
 
 #[test]
+fn answer_ok_boxes_answers_a_scripts_ok_box_without_opening_it() {
+    // `--no-messages` (GameConfig::answer_ok_boxes): the add-on packs' start-up boxes
+    // never open, so game time does not stop for them.
+    use fnv_game::game::menus;
+    let mut f = fixture();
+    f.data.messages.get_mut(&FormId(MESSAGE)).unwrap().buttons = vec!["Ok".into()];
+    let mut g = game(&f);
+    g.cfg.answer_ok_boxes = true;
+    g.new_game();
+    // The activator's ShowMessage (and SetStage Q 10, whose 1 s quest timer then runs).
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!((g.menu, g.boxes.len()), (None, 0), "the box never opened");
+    assert_eq!(g.message_box.as_ref().and_then(|m| m.pressed), Some(0), "answered with OK");
+    assert_eq!(g.take_answered_boxes(), vec![FormId(MESSAGE)]);
+    assert!(g.take_answered_boxes().is_empty(), "taken once");
+    let t0 = g.time;
+    g.frames(120);
+    assert!(g.time > t0, "game time runs on");
+    assert!(g.quest_state(q()).stages_done.contains(&20));
+    // Off (the default): the same box opens and holds the game.
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!((g.menu, g.boxes.clone()), (Some(menus::MESSAGE), vec![FormId(MESSAGE)]));
+    assert!(g.take_answered_boxes().is_empty());
+}
+
+#[test]
+fn answer_ok_boxes_leaves_a_box_with_a_choice_to_the_player() {
+    use fnv_game::game::menus;
+    use fnv_script::vm::XVal;
+    // The fixture's message asks Yes / No.
+    let f = fixture();
+    let mut g = game(&f);
+    g.cfg.answer_ok_boxes = true;
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!((g.menu, g.boxes.clone()), (Some(menus::MESSAGE), vec![FormId(MESSAGE)]));
+    assert_eq!(g.message_box.as_ref().and_then(|m| m.pressed), None);
+    assert!(g.take_answered_boxes().is_empty());
+    // A form-less MessageBoxEx box: OK alone is answered (GetButtonPressed of the script
+    // that showed it reads 0), Yes / No waits.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.cfg.answer_ok_boxes = true;
+    let ok = "Begin Function { }\nMessageBoxEx \"C|Ok\"\nSetFunctionValue (GetButtonPressed)\nEnd\n";
+    assert_eq!(g.run_query(ok, Default::default()), Ok(XVal::Num(0.0)));
+    assert_eq!((g.menu, g.boxes.len(), g.take_answered_boxes()), (None, 0, vec![FormId(0)]));
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    assert_eq!((g.menu, g.boxes.len()), (Some(menus::MESSAGE), 1));
+    assert!(g.take_answered_boxes().is_empty());
+}
+
+/// The fixture with its message made a box without buttons (Message Box flag, no ITXT),
+/// as BMRhondaFixMsg (MESG 0x000E9551) is (#2925).
+fn ok_box_fixture(message_box: bool) -> Fixture {
+    let mut f = fixture();
+    let msg = f.data.messages.get_mut(&FormId(MESSAGE)).unwrap();
+    msg.buttons.clear();
+    msg.button_conditions.clear();
+    msg.message_box = message_box;
+    f
+}
+
+/// GetButtonPressed as the activator's script (the one that shows the message) calls it.
+fn activator_reads_button(g: &mut Game) -> Value {
+    let ctx = Ctx { unit: "test".into(), opcode: 0x101F, on: None, self_ref: None, action_ref: None, quest: None, inst: Some(InstKey::Ref { reference: FormId(ACT_REF) }), in_condition: false };
+    g.call_function(&ctx, &[])
+}
+
+/// #2925: the Broken Mr. Handy in Black Mountain waits for button 0 after a box with no
+/// buttons. The player's OK on such a box gives the script that showed it 0, once, then
+/// −1 [hypothesis: inferred from SCPT 0x000E9483]; before, the box had no `message_box`
+/// and GetButtonPressed read −1 for good.
+#[test]
+fn ok_on_a_message_box_without_buttons_gives_its_script_button_0_once() {
+    use fnv_game::game::menus;
+    let f = ok_box_fixture(true);
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!((g.menu, g.boxes.clone()), (Some(menus::MESSAGE), vec![FormId(MESSAGE)]));
+    assert_eq!(g.message_box.as_ref().map(|m| (m.buttons, m.pressed)), Some((0, None)));
+    assert_eq!(activator_reads_button(&mut g), Value::Num(-1.0), "not answered yet");
+    // The player's OK (`Game::close_menu`, as nvf-play closes an answered box).
+    assert_eq!(g.close_menu(), Some(menus::MESSAGE));
+    assert_eq!(g.menu, None);
+    assert_eq!(activator_reads_button(&mut g), Value::Num(0.0));
+    assert_eq!(activator_reads_button(&mut g), Value::Num(-1.0), "once");
+}
+
+/// A message without the Message Box flag and without buttons is a corner notification:
+/// no box waits, GetButtonPressed stays −1 (#2925).
+#[test]
+fn a_corner_message_gives_get_button_pressed_nothing() {
+    let f = ok_box_fixture(false);
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!((g.menu, g.boxes.len()), (None, 0));
+    assert!(g.message_box.is_none());
+    assert_eq!(activator_reads_button(&mut g), Value::Num(-1.0));
+}
+
+/// `--no-messages` (GameConfig::answer_ok_boxes) answers the same box with OK as it is
+/// shown: its script reads 0 once (#2925; before, −1).
+#[test]
+fn answer_ok_boxes_gives_a_box_without_buttons_button_0() {
+    let f = ok_box_fixture(true);
+    let mut g = game(&f);
+    g.cfg.answer_ok_boxes = true;
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!((g.menu, g.boxes.len()), (None, 0), "the box never opened");
+    assert_eq!(g.take_answered_boxes(), vec![FormId(MESSAGE)]);
+    assert_eq!(activator_reads_button(&mut g), Value::Num(0.0));
+    assert_eq!(activator_reads_button(&mut g), Value::Num(-1.0));
+}
+
+/// A box without buttons shown behind a box with buttons that still waits does not take
+/// its place: the choice's button reaches its script [design, #2925].
+#[test]
+fn a_box_without_buttons_leaves_a_waiting_choice_its_button() {
+    use fnv_game::game::menus;
+    const INFO: u32 = 0x811;
+    let mut f = fixture();
+    let info = fnv_game::data::MessageDef { text: Some("Info".into()), message_box: true, ..Default::default() };
+    f.data.messages.insert(FormId(INFO), info);
+    let mut g = game(&f);
+    g.new_game();
+    // The activator's Yes / No box, then another script's box with OK alone behind it.
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    let quest = Ctx { unit: "test".into(), opcode: SHOW_MESSAGE, on: None, self_ref: None, action_ref: None, quest: None, inst: Some(InstKey::Quest { quest: q() }), in_condition: false };
+    g.call_function(&quest, &[ArgValue::Value(Value::Ref(INFO))]);
+    assert_eq!(g.boxes, vec![FormId(MESSAGE), FormId(INFO)]);
+    assert_eq!(g.message_box.as_ref().map(|m| m.message), Some(FormId(MESSAGE)), "the choice keeps the slot");
+    g.press_button(1).unwrap();
+    assert_eq!(activator_reads_button(&mut g), Value::Num(1.0));
+    // The box with OK alone is on screen now; its OK has nothing to answer.
+    assert_eq!((g.menu, g.boxes.clone()), (Some(menus::MESSAGE), vec![FormId(INFO)]));
+    g.close_menu();
+    assert_eq!(g.menu, None);
+}
+
+#[test]
 fn an_older_snapshots_boxes_restore_as_showings_of_unknown_count() {
     let f = udf_fixture();
     let mut g = game(&f);
@@ -3199,6 +3908,28 @@ CallWhen ({} => AuxVarSetFlt \"*o\" 1 -1) ({} => (AuxVarSize \"*w\") >= 2)");
     assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*a\")"), XVal::Num(1.0), "once");
     assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*w\")"), XVal::Num(3.0), "while the condition holds");
     assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*o\")"), XVal::Num(1.0), "when, exactly once");
+}
+
+/// A queued call whose function cannot run (a ref variable still 0, as the player
+/// reports' mods queued: "0x00000000 is not a function script") is reported once, not on
+/// every frame it comes due (#2280).
+#[test]
+fn a_call_that_cannot_run_is_reported_once() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    g.run_query("ref r
+Begin Function { }
+CallWhile r ({} => (AuxVarSize \"*never\") < 1)
+End
+", ctx).unwrap();
+    g.frames(10);
+    let errors: Vec<String> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::ScriptError { unit, error } if unit == "delayed call" => Some(error.clone()),
+        _ => None,
+    }).collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].ends_with("is not a function script"), "{errors:?}");
 }
 
 #[test]
@@ -3465,6 +4196,194 @@ fn console_functions_run_their_commands() {
 }
 
 #[test]
+fn script_console_assignments_update_quest_variables_instead_of_calling_their_names() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let timer = g.run_query("Begin Function {}\nConsole \"Q.fTimer = 2\"\nConsole \"Q.fTimer += 0.5\"\nConsole \"set Q.bRun to 7.8\"\nSetFunctionValue Q.fTimer\nEnd", Default::default()).unwrap();
+    assert_eq!(timer, XVal::Num(2.5));
+    let run_flag = g.run_query("Begin Function {}\nSetFunctionValue Q.bRun\nEnd", Default::default()).unwrap();
+    assert_eq!(run_flag, XVal::Num(7.0));
+    assert!(g.console_out.iter().all(|line| !line.starts_with("Script error:")), "{:?}", g.console_out);
+    assert!(g.events.iter().all(|e| !matches!(&e.kind, EventKind::ScriptError { .. })));
+}
+
+#[test]
+fn script_console_assignment_expressions_preserve_the_callers_next_statement() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let result = g.run_query("float result\nBegin Function {}\nConsole \"set TestGlobal to 5\"\nConsole \"TestGlobal += 3 * 2\"\nlet result := TestGlobal + 1\nSetFunctionValue result\nEnd", Default::default()).unwrap();
+    assert_eq!(result, XVal::Num(12.0));
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 11.0);
+    assert!(g.console_out.is_empty(), "success is silent with echo off: {:?}", g.console_out);
+}
+
+#[test]
+fn script_console_classic_set_accepts_single_token_expressions() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    for (line, expected) in [("set TestGlobal to (5)", 5.0), ("set TestGlobal to 3*2", 6.0), ("set TestGlobal to -7", -7.0)] {
+        fnv_game::nvse::call(&mut g, &Default::default(), "console", None, &[XVal::Str(line.into())]).unwrap().unwrap();
+        assert_eq!(g.world.global(FormId(0x800)).unwrap(), expected);
+    }
+    assert!(g.console_out.is_empty(), "{:?}", g.console_out);
+}
+
+#[test]
+fn script_console_cache_limits_distinct_sources_but_reuses_existing_entries() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 0..256 { run(&mut g, format!("TestGlobal = {i}")); }
+    assert!(g.console_out.is_empty());
+    run(&mut g, "TestGlobal = 999".into());
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("256 distinct"));
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 255.0);
+    run(&mut g, "TestGlobal = 3".into());
+    assert_eq!(g.console_out.len(), 1, "cache hits remain executable at the limit");
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 3.0);
+}
+
+#[test]
+fn script_console_source_length_boundary_does_not_disable_shorter_lines() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    let mut exact = "TestGlobal = 7".to_string();
+    exact.extend(std::iter::repeat_n(' ', 16 * 1024 - exact.len()));
+    run(&mut g, exact.clone());
+    assert!(g.console_out.is_empty());
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 7.0);
+    exact.push(' ');
+    run(&mut g, exact);
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("16 KiB"));
+    run(&mut g, "TestGlobal = 8".into());
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 8.0);
+    assert_eq!(g.console_out.len(), 1);
+}
+
+#[test]
+fn script_console_unknown_plain_commands_still_report_errors_and_continue() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let result = g.run_query("Begin Function {}\nConsole \"OwnMissingCommand\"\nConsole \"set TestGlobal to 9\"\nSetFunctionValue TestGlobal\nEnd", Default::default()).unwrap();
+    assert_eq!(result, XVal::Num(9.0));
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("OwnMissingCommand"));
+}
+
+#[test]
+fn script_console_repeated_expressions_reuse_their_compilation_and_read_live_state() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.world.set_global(FormId(0x800), 0.0).unwrap();
+    for _ in 0..300 {
+        fnv_game::nvse::call(&mut g, &Default::default(), "console", None, &[XVal::Str("TestGlobal += 1".into())]).unwrap().unwrap();
+    }
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 300.0);
+    assert!(g.console_out.is_empty(), "the repeated expression must not exhaust its cache: {:?}", g.console_out);
+}
+
+#[test]
+fn script_console_runtime_and_syntax_failures_are_diagnostic_and_do_not_end_the_caller() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let result = g.run_query("Begin Function {}\nConsole \"TestGlobal = 1 / 0\"\nConsole \"TestGlobal +=\"\nConsole \"set TestGlobal to 13\"\nSetFunctionValue TestGlobal\nEnd", Default::default()).unwrap();
+    assert_eq!(result, XVal::Num(13.0));
+    assert_eq!(g.console_out.len(), 2, "{:?}", g.console_out);
+    assert!(g.console_out[0].contains("division by zero"));
+    assert!(g.console_out[1].starts_with("Script error: console:"));
+}
+
+#[test]
+fn script_console_changing_signed_number_words_preserve_word_dispatch() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 1..=300 {
+        run(&mut g, format!("player.SetPos z -{i}"));
+        run(&mut g, format!("player.SetAngle z -{}", f64::from(i) / 10.0));
+        let player = g.world.get(FormId::PLAYER_REF).unwrap();
+        assert_eq!(player.pos[2], -(i as f32), "negative SetPos word {i}");
+        assert!((player.rot[2].to_degrees() + i as f32 / 10.0).abs() < 0.001, "negative SetAngle word {i}");
+    }
+    assert!(g.console_out.is_empty(), "ordinary numeric words: {:?}", g.console_out);
+}
+
+#[test]
+fn script_console_numeric_words_leave_the_expression_budget_and_post_budget_dispatch_available() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 1..=300 {
+        run(&mut g, format!("player.SetPos z -{i}"));
+        run(&mut g, format!("player.SetAngle z -{}", f64::from(i) / 10.0));
+    }
+    assert!(g.console_out.is_empty(), "ordinary numeric words: {:?}", g.console_out);
+    // All expression slots remain available after more than 256 changing commands.
+    for i in 0..256 { run(&mut g, format!("TestGlobal = {i}")); }
+    assert!(g.console_out.is_empty(), "numeric words must not occupy expression slots: {:?}", g.console_out);
+    run(&mut g, "TestGlobal = 999".into());
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("256 distinct"));
+    run(&mut g, "player.SetPos z -999".into());
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().pos[2], -999.0);
+    assert_eq!(g.console_out.len(), 1, "word dispatch remains available after the expression budget");
+}
+
+#[test]
+fn script_console_compact_decimal_assignments_still_use_the_expression_compiler() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.world.set_global(FormId(0x800), 0.0).unwrap();
+    for _ in 0..300 {
+        fnv_game::nvse::call(&mut g, &Default::default(), "console", None, &[XVal::Str("TestGlobal+=0.5".into())]).unwrap().unwrap();
+    }
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 150.0);
+    assert!(g.console_out.is_empty(), "{:?}", g.console_out);
+}
+
+#[test]
+fn script_console_unquoted_string_paths_reach_the_word_handler_without_compilation() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 0..256 { run(&mut g, format!("TestGlobal = {i}")); }
+    assert!(g.console_out.is_empty());
+    // PlayIdle's declared string argument must reach its existing host lookup as one
+    // unchanged word. The authored missing name gives a discriminating host error.
+    run(&mut g, "player.PlayIdle Owned-Thing/path.kf".into());
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("no form named Owned-Thing/path.kf"), "{:?}", g.console_out);
+    assert!(!g.console_out[0].contains("256 distinct"));
+    let failures = g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { name, .. } if name.eq_ignore_ascii_case("PlayIdle"))).count();
+    assert_eq!(failures, 1, "a failed word handler is not retried through the compiler");
+}
+
+#[test]
 fn generic_form_lists_and_animation_lists_change_for_the_session() {
     // #914 [documented: GenericAddForm "-2 will add to the end", GenericDeleteForm and
     // GenericReplaceForm return the form taken out; AddAnimation, DelAnimation,
@@ -3502,7 +4421,7 @@ fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(|p: &str| {
         (p.eq_ignore_ascii_case("nvse\\user_defined_functions\\sub\\add.txt")).then(|| b"begin Function { int iA, int iB }\nSetFunctionValue iA + iB\nend\n".to_vec())
     });
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader) });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader), archives: Vec::new() });
     let f = udf_fixture();
     let mut g = game(&f);
     let ctx = fnv_game::game::RunCtx::default;
@@ -3510,7 +4429,7 @@ fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (Call rF 2 3)"), Ok(XVal::Num(5.0)));
     assert_eq!(q(&mut g, "let rF := CompileScript \"sub\\add.txt\"\nlet rG := GetUDFFromFile \"Sub/Add.txt\"\nSetFunctionValue (rF == rG)"), Ok(XVal::Num(1.0)), "cached by path");
     assert_eq!(q(&mut g, "SetFunctionValue (CompileScript \"Sub/None.txt\")"), Ok(XVal::Ref(0)), "no file");
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None, archives: Vec::new() });
 
     g.console_out.clear();
     q(&mut g, "let fRes := 2.5\nlet aA := ar_List 2, 4\nPrintVar fRes, aA").unwrap();
@@ -3604,8 +4523,26 @@ fn extender_census() {
     let mut unbuilt: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     let mut unknown = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for x in fs.iter().filter(|x| x["family"] == "extender") {
+    // The catalogue's names the installed extenders do not register, read as text by
+    // the compiler (`fnv-script` encodings.json `compiler.not_commands`) [observed:
+    // nvse-fourth fose.*, `SetFunctionValue (GetFOSEVersion)` gives the text; lutana1
+    // misc.messagedisplaytime]: nothing to build, left out of the count (#1924).
+    let enc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/crates/fnv-script/data/encodings.json")).unwrap()).unwrap();
+    let not_commands: Vec<String> = enc["compiler"]["not_commands"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).map(str::to_ascii_lowercase).collect();
+    let mut not_registered = Vec::new();
+    // `NVF_CENSUS_FAMILY=vanilla`: the base game's functions the catalogue has no opcode
+    // for (no shipped script calls them). A mod's source reaches them by name, as it
+    // reaches an extender's, so an unbuilt one is skipped the same way; the extender
+    // count alone did not show them (the owner's run of 2026-11-12: SetDefaultOpen and
+    // IsActorDetected "not built yet" in Just Assorted Mods and CASM). The list then goes
+    // to `target/tmp/vanilla-census.txt`.
+    let family = std::env::var("NVF_CENSUS_FAMILY").unwrap_or_else(|_| "extender".to_string());
+    for x in fs.iter().filter(|x| x["family"] == family.as_str() && (family == "extender" || x["opcodes"].is_null())) {
         let n = x["name"].as_str().unwrap_or_default();
+        if not_commands.contains(&n.to_ascii_lowercase()) {
+            not_registered.push(n.to_string());
+            continue;
+        }
         if n.is_empty() || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || STATEMENTS.contains(&n.to_ascii_lowercase().as_str()) || !seen.insert(n.to_ascii_lowercase()) {
             continue;
         }
@@ -3644,9 +4581,10 @@ fn extender_census() {
         out += &format!("{o} {}: {}\n", v.len(), v.join(", "));
     }
     out += &format!("not compiled with any argument count {}: {}\n", unknown.len(), unknown.join(", "));
+    out += &format!("not registered by the original, left out {}: {}\n", not_registered.len(), not_registered.join(", "));
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
     std::fs::create_dir_all(dir).unwrap();
-    std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
+    std::fs::write(format!("{dir}/{family}-census.txt"), &out).unwrap();
     println!("unbuilt: {}", unbuilt.values().map(Vec::len).sum::<usize>());
 }
 
@@ -4134,6 +5072,23 @@ fn jip_menu_key_crafting_and_discovery_events_reach_their_handlers() {
 }
 
 #[test]
+fn the_mods_page_sends_the_start_menus_open_and_close() {
+    // MCM Extender adds its menus from a handler for the start menu, 1013 [observed:
+    // its OnPauseMenuOpen.gek; Begin Again list 2026-11-13].
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game<'_>, src: &str| g.run_source(src, Default::default()).expect("compiles");
+    let global = |g: &Game| g.world.global(FormId(0x0000_0800)).unwrap();
+    run(&mut g, "SetOnMenuOpenEventHandler (begin function {int i}\nlet TestGlobal := i + MenuMode 1013\nend) 1 1013");
+    run(&mut g, "SetOnMenuCloseEventHandler (begin function {int i}\nlet TestGlobal := 0 - i\nend) 1 1013");
+    g.page_menu_event(1013, true);
+    assert_eq!(global(&g), 1014.0, "the handler runs with MenuMode 1013 true");
+    assert_eq!(g.menu, None, "no menu is opened");
+    g.page_menu_event(1013, false);
+    assert_eq!(global(&g), -1013.0);
+}
+
+#[test]
 fn extra_misc_stats_music_states_eaten_corpses_and_terminal_art() {
     let f = udf_fixture();
     let mut g = game(&f);
@@ -4228,3 +5183,88 @@ fn planted_forms_remap_and_missing_dependencies_are_dropped() {
     assert_eq!(back.drop_gone(|id| id == extra), 0);
     assert_eq!(back.planted[0].seen_by, vec![victim]);
 }
+
+/// An activator opens and closes like a door: SetOpenState and its default activation
+/// change its open state (GetOpenState) and ask for its "Open" or "Close" sequence, as
+/// PlayGroup asks one (TTW's Overseer desk and vault door, issues #2231, #2232). Setting
+/// the state it has asks for nothing.
+#[test]
+fn an_activator_plays_open_and_close_with_its_open_state() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let r = FormId(ACT_REF);
+    assert!(!g.world.get(r).unwrap().open);
+    g.run_source("TestActivatorREF.SetOpenState 1", Default::default()).unwrap();
+    assert!(g.world.get(r).unwrap().open);
+    assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Open"));
+    let asked = g.anims.requests.len();
+    g.run_source("TestActivatorREF.SetOpenState 1", Default::default()).unwrap();
+    assert_eq!(g.anims.requests.len(), asked, "already open: nothing asked");
+    // Its default activation (a script's Activate, the vault door's pod) closes it again.
+    g.default_activation(FormId::PLAYER_REF, r, false).unwrap();
+    assert!(!g.world.get(r).unwrap().open);
+    assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Close"));
+}
+
+/// The plugins whose functions the engine builds answer as installed, the others do not
+/// (docs/spec-notes/ext-version.md §5): a mod's start-up check passes for what is here.
+#[test]
+fn built_in_plugins_report_installed() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default());
+    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "sup nvse plugin"] {
+        assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(1.0)), "{name}");
+        let Ok(XVal::Num(v)) = q(&mut g, &format!("GetPluginVersion \"{name}\"")) else { panic!("{name}") };
+        assert!(v > 0.0, "{name}: {v}");
+    }
+    // A version a mod asks for "at least" is met where none was read in the original.
+    assert_eq!(q(&mut g, "GetPluginVersion \"SUP NVSE Plugin\" >= 250"), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, "GetPluginVersion \"CUI\""), Ok(XVal::Num(120.0)));
+    for name in ["yUI", "NVTF", "No Such Plugin"] {
+        assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(0.0)), "{name}");
+        assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");
+    }
+}
+
+/// The test aid's list of what scripts ask about plugins (`fnv_game::plugin_questions`):
+/// nothing is kept by default; switched on, each question comes once with its answer.
+#[test]
+fn plugin_questions_are_kept_only_when_asked_for() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default()).unwrap();
+    q(&mut g, "IsPluginInstalled \"yUI\"");
+    assert!(g.plugin_questions.is_none());
+    g.plugin_questions = Some(Default::default());
+    for body in ["IsPluginInstalled \"yUI\"", "IsPluginInstalled \"yUI\"", "GetPluginVersion \"JIP NVSE Plugin\"", "IsDLLLoaded \"no_such\"", "IsModLoaded \"Nothing.esp\"", "GetModIndex \"Nothing.esp\""] {
+        q(&mut g, body);
+    }
+    let got = g.plugin_questions.as_mut().unwrap().take();
+    let read: Vec<(&str, &str, f64, bool)> = got.iter().map(|x| (x.function.as_str(), x.name.as_str(), x.answer, x.absent())).collect();
+    assert_eq!(
+        read,
+        [("isplugininstalled", "yUI", 0.0, true), ("getpluginversion", "JIP NVSE Plugin", 57.3, false), ("isdllloaded", "no_such", 0.0, true), ("ismodloaded", "Nothing.esp", 0.0, true), ("getmodindex", "Nothing.esp", 255.0, true)]
+    );
+}
+
+#[test]
+fn a_clone_of_an_item_goes_into_a_container_by_its_own_id() {
+    // MCM marks each mod it listed by adding it to a container; MCM Extender's menus are
+    // temporary clones of an item [observed: MCM's script source, MCM Extender's
+    // OnPauseMenuOpen.gek; Begin Again list 2026-11-13].
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let src = "ref r
+let r := TempCloneForm TestWeapon
+TestNpcREF.AddItem r 1
+set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestWeapon";
+    g.run_source(src, Default::default()).expect("runs");
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
+}
+
+#[path = "common/jip_callback_clock.rs"]
+mod jip_callback_clock_tests;

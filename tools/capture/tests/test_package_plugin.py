@@ -120,6 +120,12 @@ class Archive(unittest.TestCase):
                 self.assertEqual(z.namelist(), sorted(files))
                 self.assertEqual(z.read("NVSE/Plugins/nvf_capture.dll"), b"dll bytes")
 
+    def test_every_source_path_exists(self):
+        # The source archive ships two spec notes; a docs change that renames one would
+        # break the package step, so the docs-only CI skip runs this test too (#2000).
+        missing = [p for p in pp.SOURCE_PATHS if not (pp.REPO / p).exists()]
+        self.assertEqual(missing, [])
+
     def test_shipped_files_are_what_the_plugin_reads(self):
         pkg = pp.PLUGIN / "package"
         for f in sorted((pkg / "examples").glob("*.steps.json")):

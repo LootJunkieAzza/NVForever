@@ -7,15 +7,31 @@
 
 use crate::bindings::{dik_key, Binding, Bindings, GAME_CONTROLS, GAME_INI_CONTROLS};
 use bevy::prelude::*;
+use bevy::input::mouse::MouseWheel;
+use bevy::window::PrimaryWindow;
+use fnv_sim::FormId;
 use fnv_game::script_input::MOUSE_BASE;
 
 pub struct ScriptInputPlugin;
 
+/// Physical script input observes acknowledged cursor state before callbacks.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ScriptInputSet;
+
 impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptBlocked>()
-            .add_systems(PreUpdate, script_input.after(bevy::input::InputSystems))
-            .add_systems(Update, (tell_magazine, tell_player_state, mod_file_roots));
+            .add_message::<MouseWheel>()
+            .configure_sets(PreUpdate, ScriptInputSet.after(bevy::input::InputSystems))
+            // [design, #2200] Scripts see consumed switching presses as absent too.
+            .add_systems(PreUpdate, script_input.in_set(ScriptInputSet).after(crate::pad::device::automatic).after(crate::pad::update_stick_buttons))
+            // The player's state the scripts read (sights up, for the HUD bars' aiming
+            // condition) is handed over after combat has updated it this frame and before
+            // the scripts run [design]. `tell_magazine` keeps its own place: it also
+            // applies the scripts' pending ammo writes, which must reach combat first.
+            .add_systems(Update, tell_player_state.after(crate::PlaySet::Activation).before(crate::PlaySet::Scripts))
+            .add_systems(Update, (tell_magazine, mod_file_roots))
+            .add_systems(Update, script_moves.after(crate::PlaySet::Input));
     }
 }
 
@@ -59,18 +75,33 @@ fn release(c: u16, keys: &mut ButtonInput<KeyCode>, mouse: &mut ButtonInput<Mous
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn script_input(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     mut bindings: Option<ResMut<Bindings>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mut wheel: MessageReader<MouseWheel>,
+    primary: Query<Entity, With<PrimaryWindow>>,
     mut blocked: ResMut<ScriptBlocked>,
+    switching: Option<Res<crate::pad::SwitchingInput>>,
+    pads: crate::pad::ActionPads,
+    sticks: Option<Res<crate::pad::StickButtons>>,
     mut tapped: Local<Vec<u16>>,
     mut script_held: Local<Vec<u16>>,
 ) {
     // Last frame's taps end.
     for c in tapped.drain(..) {
         release(c, &mut keys, &mut mouse);
+    }
+    // Wheel directions are physical pulses, not MouseButton::Other aliases. Drain
+    // current messages even without a runtime/window so they cannot replay later.
+    let window = primary.single().ok();
+    let mut wheel_codes = [false; 2];
+    for event in wheel.read() {
+        if Some(event.window) != window || !event.y.is_finite() { continue; }
+        if event.y > 0.0 { wheel_codes[0] = true; }
+        else if event.y < 0.0 { wheel_codes[1] = true; }
     }
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let input = &mut rt.game.input;
@@ -91,7 +122,14 @@ fn script_input(
             b.set(control, new);
         }
     }
-    input.held = keys.get_pressed().filter_map(|&k| key_code(k)).chain(mouse.get_pressed().filter_map(|&b| mouse_code(b))).collect();
+    let action_keys = switching.as_ref().map_or_else(|| std::borrow::Cow::Borrowed(&*keys), |s| s.filter(&keys));
+    let action_mouse = switching.as_ref().map_or_else(|| std::borrow::Cow::Borrowed(&*mouse), |s| s.filter(&mouse));
+    input.held = action_keys.get_pressed().filter_map(|&k| key_code(k)).chain(action_mouse.get_pressed().filter_map(|&b| mouse_code(b))).collect();
+    drop((action_keys, action_mouse));
+    // 264/265 are the documented up/down wheel codes. Rebuilding held each frame
+    // releases a direction immediately when that frame has no matching message.
+    input.held.extend(wheel_codes.into_iter().zip([MOUSE_BASE + 8, MOUSE_BASE + 9])
+        .filter_map(|(pressed, code)| pressed.then_some(code)));
     if let Some(b) = bindings.as_deref() {
         // The engine's controls are the extender's 0–27, in the same order.
         input.bindings = GAME_CONTROLS[..GAME_INI_CONTROLS].iter().map(|(c, _, _)| {
@@ -99,6 +137,18 @@ fn script_input(
             (bind.key.and_then(key_code), bind.mouse.and_then(mouse_code))
         }).collect();
     }
+    // Before taps/holds below alter engine keys: use the published input snapshot,
+    // selected device and the same controller binding reader as ControlInput.
+    // DisableControl blocks gameplay, not these documented event transitions.
+    input.event_controls = bindings.as_deref().map(|b| {
+        let controller = b.device == crate::bindings::InputDevice::Controller;
+        let keys = !controller || crate::bindings::keys_with_pad();
+        GAME_CONTROLS.iter().take(fnv_game::script_input::CONTROLS).enumerate().fold(0, |mask, (c, (control, _, _))| {
+            let keyboard = keys && input.bindings.get(c).is_some_and(|(k, m)| [*k, *m].into_iter().flatten().any(|code| input.held.contains(&code)));
+            let pad = controller && crate::bindings::pad_binding_held(b.pad(*control), &pads, sticks.as_deref());
+            mask | (u32::from(keyboard || pad) << c)
+        })
+    });
     let codes = input.blocked();
     blocked.keys = codes.iter().filter(|&&c| c < MOUSE_BASE).filter_map(|&c| dik_key(c as u8)).collect();
     blocked.mouse = codes.iter().filter_map(|&c| mouse_of(c)).collect();
@@ -126,6 +176,92 @@ fn tell_magazine(mut combat: Option<ResMut<crate::combat::Combat>>, mut script: 
     rt.game.player_magazine = combat.and_then(|c| c.magazine_for_save()).map(|m| m.1);
 }
 
+/// The player's speed resources script_moves reads back for GetRunSpeed.
+type PlayerSpeeds<'w> = (Option<Res<'w, crate::player::MoveSpeeds>>, Option<Res<'w, crate::player::StatSpeed>>, Option<Res<'w, crate::player::PerkSpeed>>);
+
+/// What scripts ask of the player's and actors' moves (`fnv_game::nvse_jg9`: Jump,
+/// SetAutoMove, SetPlayerMovementFlags, SetVelEx), after the controls are read so this
+/// frame's moves carry them; and what those functions read back: the player's run speed,
+/// spread, grenade hold and view.
+#[allow(clippy::too_many_arguments)]
+fn script_moves(
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+    mut control: Option<ResMut<crate::control::PlayerControl>>,
+    mut intent: Option<ResMut<crate::player::MoveIntent>>,
+    mut phys: Option<ResMut<crate::phys::PhysState>>,
+    mut knocks: Option<ResMut<Messages<crate::combat::Knockback>>>,
+    combat: Option<Res<crate::combat::Combat>>,
+    speeds: PlayerSpeeds,
+) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let st = &mut rt.game.other.jg9;
+    for who in std::mem::take(&mut st.jumps) {
+        if who == FormId::PLAYER_REF {
+            if let Some(i) = intent.as_deref_mut() {
+                i.jump = true;
+            }
+        } else if let Some(b) = phys.as_deref_mut().and_then(|p| p.npcs.get_mut(&who.0)) {
+            b.jump = true;
+        }
+        info!("script moves: {who} jumps");
+    }
+    if let (Some(on), Some(c)) = (st.auto_move.take(), control.as_deref_mut()) {
+        c.auto_move = on;
+        info!("script moves: auto move {}", if on { "on" } else { "off" });
+    }
+    // The flags as the keys: forward and back, left and right, walking, running and
+    // sneaking, jumping (SetPlayerMovementFlags' page lists them).
+    if let (Some(f), Some(i)) = (st.move_flags.take(), intent.as_deref_mut()) {
+        let axis = |plus: u32, minus: u32| f32::from(u8::from(f & plus != 0)) - f32::from(u8::from(f & minus != 0));
+        i.forward = axis(1, 2);
+        i.right = axis(8, 4);
+        if f & (256 | 512) != 0 {
+            i.walk = f & 256 != 0 && f & 512 == 0;
+        }
+        i.sneak = f & 1024 != 0;
+        i.jump |= f & 4096 != 0;
+    }
+    for (who, v) in std::mem::take(&mut st.velocities) {
+        let line = set_vel_ex(who, v, phys.as_deref_mut(), knocks.as_deref_mut());
+        info!("script moves: {line}");
+    }
+    let (moves, stat, perk) = speeds;
+    if let Some(m) = moves {
+        let factor = stat.map_or(1.0, |s| s.0) * perk.map_or(1.0, |p| p.0);
+        st.run_speeds.insert(FormId::PLAYER_REF, m.run * factor);
+    }
+    if let Some(c) = combat {
+        if let Some(s) = c.player_spread {
+            st.spreads.insert(FormId::PLAYER_REF, s);
+        }
+        st.grenade_hold = c.grenade_hold;
+    }
+    st.third_person = control.as_deref().is_some_and(|c| c.pov != crate::control::Pov::First);
+}
+
+/// SetVelEx's velocity on `who`: a character goes up or down at z and is pushed along
+/// the ground at (x, y) as the console's SetVel pushes it (`crate::console::set_vel`, one
+/// push along the two axes together); a loose object's bodies take all three.
+fn set_vel_ex(who: FormId, v: [f32; 3], phys: Option<&mut crate::phys::PhysState>, knocks: Option<&mut Messages<crate::combat::Knockback>>) -> String {
+    let Some(p) = phys else { return "SetVelEx: no physics in this run".into() };
+    let id = who.0;
+    let ch = if who == FormId::PLAYER_REF { p.player.as_mut() } else { p.npcs.get_mut(&id).map(|n| &mut n.ch) };
+    let Some(ch) = ch else {
+        let n: usize = (0..3).map(|axis| p.world.set_ref_velocity(id, axis, v[axis])).max().unwrap_or(0);
+        return format!("SetVelEx: {who} at ({:.0}, {:.0}, {:.0}) units/s ({n} bodies)", v[0], v[1], v[2]);
+    };
+    if v[2] != 0.0 {
+        ch.vertical_speed = v[2];
+        ch.grounded = false;
+    }
+    let along = v[0].hypot(v[1]);
+    if let (true, Some(k)) = (along > 0.0, knocks) {
+        let dir = [v[0] / along, v[1] / along];
+        k.write(crate::combat::Knockback { form_id: id, dir, speed: along, secs: crate::console::SET_VEL_SECS, attacker: 0, blow: 0, power: false });
+    }
+    format!("SetVelEx: {who} {:.0} units/s up, pushed {along:.0} units/s along the ground", v[2])
+}
+
 /// The pad's buttons as the extender's controller functions number them
 /// (`fnv_game::nvse_jip2::Pad`).
 const PAD_BITS: [(GamepadButton, u32); 14] = [
@@ -145,15 +281,30 @@ const PAD_BITS: [(GamepadButton, u32); 14] = [
     (GamepadButton::North, 0x8000),
 ];
 
-/// Tell the scripts the player's auto-move and aiming and the first connected pad
-/// (GetAutoMove, GetPCUsingScope/IronSights, the controller functions).
-fn tell_player_state(control: Option<Res<crate::control::PlayerControl>>, pads: Query<&Gamepad>, mut script: Option<ResMut<crate::script::ScriptState>>) {
+/// Tell the scripts the player's auto-move, aiming, kill-camera state, and the first
+/// connected pad (GetAutoMove, GetPCUsingScope/IronSights, IsInKillCam, the controller
+/// functions), and whether the sights are up (`Combat::player_sights_up`: not while
+/// blocking with a melee weapon or while a reload holds them down), for SUP's HUD bars'
+/// aiming condition.
+fn tell_player_state(
+    control: Option<Res<crate::control::PlayerControl>>,
+    combat: Option<Res<crate::combat::Combat>>,
+    anim: Option<Res<crate::combat::WeaponAnim>>,
+    kill_cam: Option<Res<crate::kill_cam::KillCam>>,
+    pads: crate::pad::ActionPads,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let told = &mut rt.game.jip2.told;
     if let Some(c) = control {
         told.auto_move = c.auto_move;
         told.aiming = c.aiming && c.weapon_out;
+        told.sights_up = match (combat.as_deref(), anim.as_deref()) {
+            (Some(cb), Some(a)) => cb.player_sights_up(a, told.aiming),
+            _ => false,
+        };
     }
+    told.kill_cam = kill_cam.is_some_and(|k| k.kill_playing());
     let pad = &mut told.pad;
     match pads.iter().next() {
         Some(g) => {
@@ -181,8 +332,10 @@ fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>
     let reader_vfs = d.vfs.clone();
     let mods = fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods());
     let data_dir = vfs.data_dir().to_path_buf();
+    let archives: Vec<String> = vfs.archives().map(str::to_string).collect();
     fnv_game::mod_files::update_roots(move |r| {
         r.read = mods.into_iter().chain(std::iter::once(data_dir)).collect();
+        r.archives = archives;
         r.reader = Some(std::sync::Arc::new(move |p: &str| reader_vfs.read(p).and_then(Result::ok)));
         r.lookup = Some(std::sync::Arc::new(move |p: &str| {
             if vfs.loose_path(p).is_some() {
@@ -194,4 +347,60 @@ fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>
             }
         }));
     });
+}
+
+#[cfg(test)]
+#[path = "script_input_wheel_tests.rs"]
+mod wheel_tests;
+
+#[cfg(test)]
+#[path = "script_input_mcm_page_tests.rs"]
+mod mcm_page_tests;
+
+#[cfg(test)]
+mod kill_cam_state_tests {
+    use super::*;
+    use crate::kill_cam::KillCam;
+    use crate::script::ScriptState;
+    use fnv_game::game::RunCtx;
+    use fnv_script::vm::XVal;
+
+    fn is_in_kill_cam(app: &mut App) -> XVal {
+        let mut state = app.world_mut().resource_mut::<ScriptState>();
+        let game = &mut state.rt.as_mut().unwrap().game;
+        fnv_game::nvse::call(game, &RunCtx::default(), "isinkillcam", None, &[])
+            .expect("IsInKillCam handler")
+            .expect("IsInKillCam result")
+    }
+
+    #[test]
+    fn tell_player_state_tracks_kill_cam_and_excludes_classic_attack_cam() {
+        let mut app = App::new();
+        app.insert_resource(ScriptState::over_no_plugins())
+            .init_resource::<KillCam>()
+            .add_systems(Update, tell_player_state);
+
+        // Inactive by default.
+        app.update();
+        assert_eq!(is_in_kill_cam(&mut app), XVal::Num(0.0));
+
+        // Active kill camera reports 1.
+        app.insert_resource(KillCam::test_with_kill_show());
+        app.update();
+        assert_eq!(is_in_kill_cam(&mut app), XVal::Num(1.0));
+
+        // Classic VATS attack camera (non-kill) reports 0.
+        app.insert_resource(KillCam::test_with_attack_show());
+        app.update();
+        assert_eq!(is_in_kill_cam(&mut app), XVal::Num(0.0));
+
+        // Back to active kill camera, then removed resource resets to 0 (no stale true).
+        app.insert_resource(KillCam::test_with_kill_show());
+        app.update();
+        assert_eq!(is_in_kill_cam(&mut app), XVal::Num(1.0));
+
+        app.world_mut().remove_resource::<KillCam>();
+        app.update();
+        assert_eq!(is_in_kill_cam(&mut app), XVal::Num(0.0));
+    }
 }

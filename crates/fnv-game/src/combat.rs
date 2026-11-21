@@ -63,11 +63,11 @@ pub enum CombatRequest {
     /// (`DetonatePlacedExplosives`).
     Detonate(FormId),
     /// `from` fires one shot of `weapon` from its centre, straight ahead (`FireWeapon`).
-    Fire { from: FormId, weapon: FormId },
+    Fire { from: FormId, weapon: FormId, muzzle: Option<[f32; 3]> },
     /// Dismember the part at `location` (GetHitLocation's numbering) of a dead actor:
     /// KillActor's limb argument. The engine knows the actor's body parts
     /// (docs/spec-notes/dismemberment.md §5).
-    Dismember { actor: FormId, location: i32, by: Option<FormId> },
+    Dismember { actor: FormId, location: i32, by: Option<FormId>, explode: Option<bool> },
     /// Set off an explosion placed by a script (PlaceAtMe of an EXPL) where it was placed,
     /// nobody's.
     Explode { explosion: FormId, at: [f32; 3] },
@@ -87,6 +87,17 @@ pub struct DestructionChange {
     pub damage_stage: Option<u8>,
     /// The debris (DEBR) of the stages reached and how many pieces of it.
     pub debris: Vec<(FormId, i32)>,
+}
+
+pub(crate) fn destruction_damage_threshold(health: f64, percent: u8) -> f64 {
+    health * (100.0 - f64::from(percent)) / 100.0
+}
+
+pub(crate) fn destruction_threshold_reached(damage: f64, health: f64, percent: u8) -> bool {
+    // [design] Eight f64 epsilons scaled by health cover rounding (including old saves'
+    // health * (1 - percent / 100)) without swallowing real damage intervals; see
+    // docs/spec-notes/combat-rules.md, object destruction.
+    damage >= destruction_damage_threshold(health, percent) - 8.0 * f64::EPSILON * health
 }
 
 /// What a hit did.
@@ -267,8 +278,8 @@ impl Game<'_> {
         if let Some(l) = self.extra.get(&r).and_then(|e| e.level) {
             return l as f64;
         }
-        let Some(d) = self.stats_def(r) else { return 1.0 };
-        if d.pc_level_mult {
+        let Some((id, d)) = self.stats_source(r) else { return 1.0 };
+        if self.acbs_flag(id, d, crate::actor_values::acbs::PC_LEVEL_MULT, |d| d.pc_level_mult) {
             let l = (self.player_level() * d.level_raw as f64 / 1000.0).round().max(d.calc_min as f64);
             if d.calc_max > 0 {
                 l.min(d.calc_max as f64)
@@ -284,7 +295,7 @@ impl Game<'_> {
     /// Maximum health before any script changed it (see the module notes).
     pub fn max_health(&mut self, r: FormId) -> f64 {
         let level = self.actor_level(r);
-        let Some(d) = self.stats_def(r) else { return 100.0 };
+        let Some((id, d)) = self.stats_source(r) else { return 100.0 };
         // The permanent value, as before the other actor values were read
         // [hypothesis: whether damage to Endurance lowers the maximum].
         let end = actor::actor_value_base(self, r, crate::actor_values::ENDURANCE);
@@ -297,7 +308,8 @@ impl Game<'_> {
         if &d.sig == b"CREA" {
             return (d.base_health as f64).max(1.0);
         }
-        let by_level = if d.autocalc { (level - 1.0).max(0.0) * setting(self, "fAVDNPCHealthLevelMult", 5.0) } else { 0.0 };
+        let autocalc = self.acbs_flag(id, d, crate::actor_values::acbs::AUTOCALC, |d| d.autocalc);
+        let by_level = if autocalc { (level - 1.0).max(0.0) * setting(self, "fAVDNPCHealthLevelMult", 5.0) } else { 0.0 };
         (d.base_health as f64 + (end - 1.0).max(0.0) * setting(self, "fAVDNPCHealthEnduranceMult", 5.0) + by_level).max(1.0)
     }
 
@@ -319,7 +331,7 @@ impl Game<'_> {
     /// Whether `r`'s base has "No Low Level Processing": its AI is not updated outside
     /// the loaded area [documented: GECK wiki Category:NPC].
     pub fn no_low_level_processing(&self, r: FormId) -> bool {
-        self.base_data_def(r).is_some_and(|d| d.no_low_level)
+        self.base_data_source(r).is_some_and(|(id, d)| self.acbs_flag(id, d, crate::actor_values::acbs::NO_LOW_LEVEL, |d| d.no_low_level))
     }
 
     /// Lay out the corpses of a new game: every placed actor that starts dead
@@ -346,7 +358,9 @@ impl Game<'_> {
     /// ghosted player is still hurt: "Though NPCs and creatures can not be damaged in this
     /// state, the player can" [documented: GECK wiki SetGhost notes].
     pub fn is_immune(&self, r: FormId) -> bool {
-        let invulnerable = self.base_data_def(r).is_some_and(|d| d.invulnerable);
+        let invulnerable = self
+            .base_data_source(r)
+            .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::INVULNERABLE, |d| d.invulnerable));
         let ghost = r != FormId::PLAYER_REF && self.is_ghost(r);
         invulnerable || ghost || self.actor_race(r).is_some_and(|race| self.data.child_races.contains(&race))
     }
@@ -388,10 +402,17 @@ impl Game<'_> {
             self.count_kill(r);
             self.challenge_kill(r);
         }
+        // A body already lying knocked out is a ragdoll already [hypothesis].
+        let lying = self.knockout(r).is_some_and(|k| k.lying());
         let e = self.extra.entry(r).or_default();
         e.dead = true;
         e.killer = killer;
         e.killing_hit = fatal;
+        // JIP's ragdoll handlers: any actor ragdolled on death [documented:
+        // SetOnRagdollEventHandler].
+        if !lying {
+            self.jip_event("ragdoll", Some(r), Vec::new());
+        }
         if let Some(b) = base_of(self, r) {
             *self.player.dead_count.entry(b).or_default() += 1;
         }
@@ -474,8 +495,9 @@ impl Game<'_> {
     /// Effect List") [hypothesis: the group, data.rs `template_spells`].
     pub fn unarmed_effect(&self, r: FormId) -> Option<(FormId, Option<&str>)> {
         let base = base_of(self, r)?;
-        let (_, d) = self.template_source(base, r, |d| d.template_spells)?;
-        Some((d.unarmed_effect?, d.unarmed_anim.as_deref()))
+        let (src, d) = self.template_source(base, r, |d| d.template_spells)?;
+        // SetActorUnarmedEffect's first (`crate::nvse_jip11`).
+        Some((self.unarmed_override(src).or(d.unarmed_effect)?, d.unarmed_anim.as_deref()))
     }
 
     /// Whether a kill by `killer` earns the player experience: the player's, and a hired
@@ -483,8 +505,14 @@ impl Game<'_> {
     /// 2026-10-27: "companion kills should net you experience if they are hired"]. Their
     /// damage counts together towards the share kill XP asks for ([`Game::kill_xp`])
     /// [design].
-    pub fn kill_earns_xp(&self, killer: FormId) -> bool {
-        killer == FormId::PLAYER_REF || self.is_teammate(killer)
+    pub fn kill_earns_xp(&mut self, killer: FormId) -> bool {
+        // The player's tweak: a teammate's kill is not the player's [design: docs/design/tweaks.md].
+        if killer == FormId::PLAYER_REF || (!self.tweaks.no_companion_kill_xp && self.is_teammate(killer)) {
+            return true;
+        }
+        // The player's tweak: a frenzied actor's kill is the player's; Aggression 3 is
+        // Frenzied [documented: GECK wiki Aggression; design: docs/design/tweaks.md].
+        self.tweaks.frenzy_kill_xp && actor::actor_value(self, killer, crate::actor_values::AGGRESSION).is_ok_and(|v| v >= 3.0)
     }
 
     /// Health damage an effect does (a burn, a poison): as a hit's, kept at 1 for an
@@ -533,7 +561,8 @@ impl Game<'_> {
         let player = r == FormId::PLAYER_REF;
         // Only actors whose record gives a Health have one to run out of.
         let has_health = self.stats_def(r).is_some_and(|d| d.base_health != 0 || d.zero_health);
-        if (player && self.toggles.god_mode) || (!player && !has_health) {
+        // ToggleImmortalMode 1 and 2 keep the player alive too (`crate::nvse_jip9`).
+        if (player && (self.toggles.god_mode || self.immortal_mode() > 0)) || (!player && !has_health) {
             return;
         }
         if !actor::actor_value(self, r, HEALTH).is_ok_and(|v| v <= 0.0) {
@@ -563,7 +592,16 @@ impl Game<'_> {
         }
         let before = actor::actor_value(self, target, HEALTH).unwrap_or(max_health);
         let essential = self.is_essential(target);
-        let floor = if essential { 1.0 } else { 0.0 };
+        // ToggleImmortalMode [documented]: 1 keeps the player's Health at 1 or more, as an
+        // essential actor's; 2 takes no Health or limb damage at all (`crate::nvse_jip9`).
+        let immortal = if target == FormId::PLAYER_REF { self.immortal_mode() } else { 0 };
+        if immortal == 2 {
+            if let Some(l) = info.limb.as_mut() {
+                l.damage = 0.0;
+            }
+        }
+        let damage = if immortal == 2 { 0.0 } else { damage };
+        let floor = if essential || immortal == 1 { 1.0 } else { 0.0 };
         let dealt = damage.max(0.0).min((before - floor).max(0.0));
         // JIP's hit record, then its hit handlers, before the damage [documented:
         // SetOnHitEventHandler; observed: jip-hits, Health in the handler is the value
@@ -588,6 +626,14 @@ impl Game<'_> {
         }
         if let Some(a) = info.attacker {
             self.extra.entry(a).or_default().last_target = Some(target);
+        }
+        if info.critical {
+            // [documented: SetOnCriticalHitEventHandler] this = struck actor;
+            // arguments: source, weapon. Fired after `last_hit` is recorded so
+            // `GetHitLocation` reads this hit as in the wiki example.
+            let source = fnv_script::vm::XVal::Ref(info.attacker.map_or(0, |a| a.0));
+            let weapon = fnv_script::vm::XVal::Ref(info.weapon.map_or(0, |w| w.0));
+            self.jip_event("criticalhit", Some(target), vec![source, weapon]);
         }
         if dealt > 0.0 {
             // [documented: SetOnHealthDamageEventHandler] the amount negative, the source.
@@ -616,7 +662,8 @@ impl Game<'_> {
             let part = crate::challenges::body_part(info.limb.map(|l| l.condition), info.location);
             self.challenge_hit(target, info.weapon, part, dealt, info.critical, out.crippled);
         }
-        if health <= floor && !self.is_dead(target) {
+        // Immortal mode 1 holds the player at 1 HP: no death, no knockout.
+        if health <= floor && !self.is_dead(target) && immortal == 0 {
             if essential {
                 // Said its KOed line when knocked out now (`Game::knock_out`).
                 out.knocked_out = self.knock_out(target, crate::unconscious::Cause::Essential, info.attacker);
@@ -630,6 +677,10 @@ impl Game<'_> {
                 if out.died && info.attacker.is_some_and(|a| self.kill_earns_xp(a)) {
                     let xp = self.kill_xp(target);
                     out.xp = crate::experience::award(self, crate::experience::Source::Kill, xp);
+                }
+                // The player's tweak: a kill gives Action Points back [design: docs/design/tweaks.md].
+                if out.died && info.attacker == Some(FormId::PLAYER_REF) && self.tweaks.kill_reward_ap > 0.0 {
+                    crate::functions::restore_actor_value_damage(self, FormId::PLAYER_REF, crate::actor_values::ACTION_POINTS, self.tweaks.kill_reward_ap);
                 }
             }
         }
@@ -667,6 +718,19 @@ impl Game<'_> {
         ran
     }
 
+    /// A hit that deals no damage: a Use Weapon package's or UseWeapon's Do No Damage
+    /// ("prevent all damage", "for scripted protracted fake combat" [documented: GECK
+    /// wiki UseWeapon, docs/spec-notes/use-weapon.md §1]). The target's OnHit and
+    /// OnHitWith blocks run with the attacker and the weapon, as for any hit; nothing else
+    /// changes: no Health, limb or fatigue damage, no hit lines, no last hit, no JIP hit
+    /// event. Returns whether a block ran. [observed: G.I. Blues' thugs fall only in their
+    /// OnHit block for Orris (SCPT 0x00118A77), whose Use Weapon packages are Always Hit and
+    /// Do No Damage, so the scene goes on only if such a hit runs it (#2433); hypothesis:
+    /// that is what the original does, observer check 134.]
+    pub fn harmless_hit(&mut self, target: FormId, info: HitInfo) -> bool {
+        self.hit_object(target, info)
+    }
+
     /// Tell the rules which weapon the animating side draws for `actor`
     /// (`RefExtra::held_weapon`).
     pub fn set_held_weapon(&mut self, actor: FormId, weapon: Option<FormId>) {
@@ -683,6 +747,18 @@ impl Game<'_> {
         if self.extra.get(&actor).is_some_and(|e| e.weapon_out) != out {
             self.extra.entry(actor).or_default().weapon_out = out;
         }
+    }
+
+    /// Whether a living actor has its weapon out now, as IsWeaponOut reads it
+    /// (`functions::actor::is_weapon_out`): what the animating side told in the last second
+    /// ([`Game::set_weapon_out`]; the player's always), else the rule
+    /// ([`Game::wants_weapon_out`]).
+    pub fn weapon_is_out(&self, actor: FormId) -> bool {
+        let told = self.senses.weapon_told.get(&actor).is_some_and(|&t| (self.time - t).abs() < 1.0);
+        if actor == FormId::PLAYER_REF || told {
+            return self.extra.get(&actor).is_some_and(|e| e.weapon_out);
+        }
+        self.wants_weapon_out(actor)
     }
 
     /// Whether an actor wants its weapon out: alerted (SetAlert, or fighting), its
@@ -703,13 +779,18 @@ impl Game<'_> {
         let drawn = self.package_has(actor, flags::WEAPON_DRAWN) || self.package_has(actor, flags::PRETEND_IN_COMBAT);
         // SetWeaponOut 1 holds it drawn (`crate::nvse_hud`).
         let held = self.hud.forced_out.contains(&actor);
-        !unequipped && !fleeing && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
+        // A child fighting or alerted keeps its weapon away: it never fights (#2438).
+        let child = self.never_fights(actor) && (fighting || self.draws_weapon(actor));
+        !unequipped && !fleeing && !child && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
     }
 
     /// A hit's limb damage on one limb ([`Game::damage_limb`]) with what crippling it
     /// tells: the hit record's crippled flag, JIP's crippled-limb handlers and the
     /// player's Limbs Crippled statistic.
     fn hit_limb(&mut self, target: FormId, l: LimbHit, max_health: f64) -> (f64, bool) {
+        // The player's tweak scales limb damage in power armour [design: docs/design/tweaks.md].
+        let scale = self.tweaks.power_armor_limb_damage;
+        let l = if scale != 1.0 && self.wears_power_armor(target) { LimbHit { damage: l.damage * scale, ..l } } else { l };
         let (condition, crippled) = self.damage_limb(target, l, max_health);
         if crippled {
             if let Some(h) = self.jip.hits.get_mut(&target) {
@@ -809,7 +890,10 @@ impl Game<'_> {
     /// equipment change, which the owner ruled a bug (actors.md §8.10, The player).
     pub fn move_speed_mult(&mut self, r: FormId) -> f64 {
         let mult = actor::actor_value(self, r, crate::actor_values::SPEED_MULTIPLIER).unwrap_or(100.0);
-        (mult / 100.0).clamp(0.0, 10.0) * self.armor_speed_mult(r)
+        // The player's tweak: Agility above or below 5 speeds or slows everyone [design: docs/design/tweaks.md].
+        let per = self.tweaks.agility_speed_per_point;
+        let agility = if per != 0.0 { (1.0 + per * (actor::actor_value(self, r, crate::actor_values::AGILITY).unwrap_or(5.0) - 5.0)).max(0.1) } else { 1.0 };
+        (mult / 100.0).clamp(0.0, 10.0) * self.armor_speed_mult(r) * agility
     }
 
     /// An actor's limb conditions, codes 25–31 in order.
@@ -854,6 +938,11 @@ impl Game<'_> {
         }
         if by == Some(FormId::PLAYER_REF) && !new.is_empty() {
             self.count_stat(crate::misc_stats::DISMEMBERED_LIMBS, new.len() as f64);
+        }
+        // JohnnyGuitar's limb handlers: (actor, limb) (`crate::nvse_jg8`).
+        for &(l, _) in &new {
+            let (a, limb) = (fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(f64::from(l)));
+            self.jg8_fire(crate::nvse_jg8::Ev::LimbGone, &[a.clone(), limb.clone()], vec![a, limb]);
         }
         new
     }
@@ -920,12 +1009,12 @@ impl Game<'_> {
             // Cap Damage: a stage newly reached stops the hit at its threshold.
             let mut by_pct: Vec<&crate::data::DestructionStage> = def.stages.iter().collect();
             by_pct.sort_by_key(|s| std::cmp::Reverse(s.health_percent));
-            let pct_after = 100.0 * (health - total) / health;
-            let pct_before = 100.0 * (health - had) / health;
             for s in by_pct {
-                let p = s.health_percent as f64;
-                if s.flags & crate::data::DestructionStage::CAP_DAMAGE != 0 && pct_after <= p && pct_before > p {
-                    total = total.min(health * (1.0 - p / 100.0));
+                if s.flags & crate::data::DestructionStage::CAP_DAMAGE != 0
+                    && destruction_threshold_reached(total, health, s.health_percent)
+                    && !destruction_threshold_reached(had, health, s.health_percent)
+                {
+                    total = total.min(destruction_damage_threshold(health, s.health_percent));
                     break;
                 }
             }
@@ -961,8 +1050,33 @@ impl Game<'_> {
         if health > 0.0 && total >= health {
             self.extra.entry(r).or_default().burning = None;
         }
-        self.ref_event(r, event::ON_DESTRUCTION_STAGE_CHANGE, None, None);
+        // A block with a parameter (`Begin OnDestructionStageChange 3`, the Citadel's
+        // vertibird wrecks for Liberty Prime's march, SCPT 0x0A096CC8 in TTW, #3112)
+        // runs for the stage reached, counted from 1: the wreck's last of three stages
+        // (index 2) is its stage 3 [hypothesis: fit to the data, the only such block in a
+        // TTW load order; in both Fallout3.esm's four-stage and TTW's three-stage DEST of
+        // MQ11vertibirdPartyBus, 3 is index 2, whose DSTD damage stage is also 3]. One
+        // without a parameter runs for any stage. NVSE handlers keep their arguments.
+        self.ext_event(event::ON_DESTRUCTION_STAGE_CHANGE, r, None);
+        self.ref_blocks(r, event::ON_DESTRUCTION_STAGE_CHANGE, Some(Value::Num(f64::from(after + 1))), None);
         Some(out)
+    }
+
+    /// The destructible references burning down toward a stage that explodes (a car on
+    /// fire), each with that stage's explosion: the nearest later stage with one. The
+    /// player's Exploding Destructible Indicator tweak shows them on the grenade
+    /// indicator [design: docs/design/tweaks.md].
+    pub fn burning_explosives(&self) -> Vec<(FormId, FormId)> {
+        let mut out = Vec::new();
+        for (r, _) in self.extra.iter().filter(|(_, e)| e.burning.is_some()) {
+            let Some(def) = base_of(self, *r).and_then(|b| self.destruction(b)) else { continue };
+            let stage = crate::functions::objects_destruction_stage(self, *r);
+            let next = def.stages.iter().filter(|s| i32::from(s.index) > stage).filter_map(|s| s.explosion.map(|x| (s.index, x))).min_by_key(|(i, _)| *i);
+            if let Some((_, x)) = next {
+                out.push((*r, x));
+            }
+        }
+        out
     }
 
     /// Advance burning objects (a stage's self-damage per second) by `dt` seconds; the
@@ -982,9 +1096,12 @@ impl Game<'_> {
 
     /// Run the OnFire blocks of the weapon `actor` fired (its object script)
     /// [documented: block name; observed: the detonator's script, `DetonatorOnFire`, is
-    /// an OnFire block].
+    /// an OnFire block], and fire JIP's `SetOnFireWeaponEventHandler` event
+    /// [documented: SetOnFireWeaponEventHandler]. Returns whether an OnFire block ran.
     pub fn weapon_fired(&mut self, actor: FormId, weapon: FormId) -> bool {
-        self.item_event(actor, weapon, event::ON_FIRE, None)
+        let ran = self.item_event(actor, weapon, event::ON_FIRE, None);
+        self.fire_weapon_jip_event(actor, weapon, false);
+        ran
     }
 
     /// The XP the player earns for killing `target` (see the module notes): none for the
@@ -1009,6 +1126,12 @@ impl Game<'_> {
         let class = classes.iter().find(|(c, lvl, _)| level <= setting(self, &format!("iXPLevelKill{who}{c}"), *lvl)).unwrap_or(&classes[4]);
         // × the difficulty's `fDiffMultXP<level>` (1 at every level in FalloutNV.esm;
         // `crate::difficulty`).
-        setting(self, &format!("iXPRewardKill{reward}{}", class.0), class.2) * self.kill_xp_mult()
+        let xp = setting(self, &format!("iXPRewardKill{reward}{}", class.0), class.2) * self.kill_xp_mult();
+        // The player's tweak weighs the levels between them [design: docs/design/tweaks.md].
+        let per = self.tweaks.kill_xp_per_level;
+        if per == 0.0 {
+            return xp;
+        }
+        xp * (1.0 + per * (level - self.player_level())).max(0.0)
     }
 }

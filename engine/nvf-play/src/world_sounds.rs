@@ -351,7 +351,133 @@ pub struct WorldSounds {
     /// Placed objects with a sound of their own, by the space they are in: (reference,
     /// sound, kind, the place of one that never moves); found the first frame.
     sources: Option<HashMap<crate::music::Space, Vec<ObjectSource>>>,
+    /// The index over each space's `sources`, made the first frame the space is played
+    /// ([`SourceIndex`]).
+    index: HashMap<crate::music::Space, SourceIndex>,
+    /// This frame's candidates and the sources in reach (reused).
+    near: Vec<u32>,
+    heard: Vec<(u32, [f32; 3])>,
     pub stats: WorldSoundStats,
+}
+
+/// The objects' own sounds of one space, indexed so that a frame visits only those that
+/// can be in reach (`crate::sound_grid`) [design]. The answer is the walk over the whole
+/// list's ([`scan_all`]): each candidate gets the same test ([`source_heard`]).
+///
+/// - A static's place is its placement and never changes (the list says so), and a
+///   source of another kind is where its run-time state puts it, or at its placement
+///   while it has none ([`ref_pos`]). So the grid holds every source at its placement,
+///   and the sources other than statics that have a run-time state (`live`) are tested
+///   every frame wherever they are, the grid's copy of them left out.
+/// - Which of them have a state changes only when a state is made or dropped. A state
+///   made adds to the world's count of states; one dropped (a cell reset) or made
+///   with other flags moves [`fnv_sim::world::World::presence_serial`]; a world
+///   restored starts from a serial no other world used. So `live` is made again when
+///   that pair is not the one it was made at.
+/// - The reaches are read from the sound forms once ([`Sfx`] gets its forms when it is
+///   made; only tests add to them later, so a change in their number makes the index
+///   again).
+struct SourceIndex {
+    /// Each entry's reach (`None`: its sound is not in the load order; never sent).
+    reach: Vec<Option<f32>>,
+    grid: crate::sound_grid::FixedGrid,
+    /// The entries that are not statics, (reference, entry) in FormID order; those of
+    /// them with a run-time state now (and the flag by entry), and the world's (presence
+    /// serial, number of states) then.
+    movable: Vec<(u32, u32)>,
+    live: Vec<u32>,
+    is_live: Vec<bool>,
+    live_key: Option<(u64, usize)>,
+    /// The number of sound forms the reaches were read from.
+    sounds: usize,
+}
+
+/// The squared distance between two places, as the reach test measures it.
+fn dist2(a: [f32; 3], b: [f32; 3]) -> f32 {
+    (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)
+}
+
+/// Where a placed object's own sound is heard from when the listener at `eye` is within
+/// its `reach` and the object is enabled.
+fn source_heard(sim: &SimState, eye: [f32; 3], &(id, _, _, fixed): &ObjectSource, reach: f32) -> Option<[f32; 3]> {
+    let at = fixed.or_else(|| ref_pos(sim, id))?;
+    if dist2(at, eye) > reach * reach || !sim.world.is_enabled(FormId(id)).unwrap_or(false) {
+        return None;
+    }
+    Some(at)
+}
+
+/// The reach of a sound: its maximum distance and a tenth more.
+fn reach_of(sfx: &Sfx, sound: FormId) -> Option<f32> {
+    sfx.forms.sounds.get(&sound).map(|s| s.max_distance * 1.1)
+}
+
+/// The world's number of reference states, when its iterator says it exactly (a
+/// `BTreeMap`'s does); `None` otherwise, and the caller takes every frame as a change.
+fn state_count(sim: &SimState) -> Option<usize> {
+    let (lo, hi) = sim.world.changed().size_hint();
+    (hi == Some(lo)).then_some(lo)
+}
+
+impl SourceIndex {
+    fn build(list: &[ObjectSource], sim: &SimState, reach: impl Fn(FormId) -> Option<f32>, sounds: usize) -> SourceIndex {
+        let reach: Vec<Option<f32>> = list.iter().map(|e| reach(e.1)).collect();
+        let place = |&(id, _, _, fixed): &ObjectSource| fixed.or_else(|| sim.refs.get(FormId(id)).map(|p| p.pos));
+        // The grid's reach is the one the squared test reads: a negative reach squares as
+        // its size does.
+        let grid = crate::sound_grid::FixedGrid::build(list.iter().zip(&reach).enumerate().filter_map(|(i, (e, r))| Some((i as u32, place(e)?, r.as_ref()?.abs()))));
+        let mut movable: Vec<(u32, u32)> = list.iter().zip(&reach).enumerate().filter(|(_, (e, r))| e.3.is_none() && r.is_some()).map(|(i, (e, _))| (e.0, i as u32)).collect();
+        movable.sort_unstable();
+        SourceIndex { reach, grid, movable, live: Vec::new(), is_live: vec![false; list.len()], live_key: None, sounds }
+    }
+
+    /// The entries of `list` (the one the index was made over) heard at `eye`, and where
+    /// from, in list order, into `out`; `near` is scratch.
+    fn heard(&mut self, list: &[ObjectSource], sim: &SimState, eye: [f32; 3], near: &mut Vec<u32>, out: &mut Vec<(u32, [f32; 3])>) {
+        let key = state_count(sim).map(|n| (sim.world.presence_serial(), n));
+        if key.is_none() || key != self.live_key {
+            // Both in FormID order (`World::changed` gives the states so): one walk down
+            // the two lists.
+            self.live.clear();
+            let mut states = sim.world.changed().map(|(id, _)| id.0).peekable();
+            for &(id, i) in &self.movable {
+                while states.next_if(|&s| s < id).is_some() {}
+                let live = states.peek() == Some(&id);
+                self.is_live[i as usize] = live;
+                if live {
+                    self.live.push(i);
+                }
+            }
+            self.live.sort_unstable();
+            self.live_key = key;
+        }
+        self.grid.near(eye, |c, r| dist2(c, eye) > r * r, near);
+        near.retain(|&i| !self.is_live[i as usize]);
+        near.extend_from_slice(&self.live);
+        near.sort_unstable();
+        out.clear();
+        for &i in near.iter() {
+            let Some(reach) = self.reach[i as usize] else { continue };
+            if let Some(at) = source_heard(sim, eye, &list[i as usize], reach) {
+                out.push((i, at));
+            }
+        }
+    }
+}
+
+/// The entries of `list` heard at `eye`, and where from, in list order, by testing every
+/// one: what [`SourceIndex::heard`] must answer (the tests', and in debug builds a check
+/// now and then).
+#[cfg(any(test, debug_assertions))]
+fn scan_all(list: &[ObjectSource], sim: &SimState, eye: [f32; 3], reach: impl Fn(FormId) -> Option<f32>) -> Vec<(u32, [f32; 3])> {
+    let mut out = Vec::new();
+    for (i, e) in list.iter().enumerate() {
+        let Some(r) = reach(e.1) else { continue };
+        if let Some(at) = source_heard(sim, eye, e, r) {
+            out.push((i as u32, at));
+        }
+    }
+    out
 }
 
 /// Log what a shot's impact picked (`crate::combat`), for the summary's count.
@@ -517,7 +643,14 @@ fn objects(
         *ws.stats.impacts.entry(i.material).or_default() += 1;
         ws.stats.impacts_no_material += i.no_material as u32;
     }
-    let in_container = menu.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|m| matches!(m.mode, Mode::Container(_)));
+    // Quick Loot's takes sound as the container menu's (`crate::quick_loot`): the player's
+    // inventory is followed while its list shows, but only a frame it took something in
+    // is sounded (the game runs on under it: a shot's ammo, a hotkeyed Stimpak are not takes).
+    let menu_open = menu.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|m| matches!(m.mode, Mode::Container(_)));
+    let in_container = menu_open || crate::quick_loot::holds_input();
+    // Read every frame, so a take flagged while the container menu is open is not left to
+    // sound a later frame after it closes.
+    let took = crate::quick_loot::took_this_frame() | menu_open;
     for &RefChanged { form_id: id, restored } in changed.read() {
         let Some(s) = sim.world.peek(FormId(id)) else { continue };
         if !ws.forms.items.contains_key(&s.base) {
@@ -536,7 +669,7 @@ fn objects(
         if s.deleted() {
             // Taken from a container menu (a corpse's dropped weapon, `menu::model::Row::
             // reference`): the menu's own take sound below plays instead.
-            if in_container && s.dropped_by.is_some() {
+            if took && s.dropped_by.is_some() {
                 ws.picked.insert(id);
                 continue;
             }
@@ -563,7 +696,7 @@ fn objects(
     // at the listener [hypothesis: the same sounds as in the world].
     let now_carried: Option<BTreeMap<FormId, i32>> =
         in_container.then(|| sim.world.peek(FormId::PLAYER_REF).and_then(|p| p.inventory.as_ref()).map(|i| i.iter().collect()).unwrap_or_default());
-    if let (Some(before), Some(now)) = (ws.carried.as_ref(), now_carried.as_ref()) {
+    if let (Some(before), Some(now)) = (ws.carried.as_ref().filter(|_| took), now_carried.as_ref()) {
         let mut moved: Vec<(FormId, bool)> = Vec::new();
         for (&item, &n) in now {
             if n > before.get(&item).copied().unwrap_or(0) {
@@ -686,6 +819,15 @@ fn objects(
         out.write(PlaySound { sound, at: ref_pos(&sim, reference) });
     }
 
+    // Items a script gave the player (caps, #3095): their pick-up sound at the listener.
+    for item in std::mem::take(&mut script_sounds.items_added) {
+        let sound = item_sound(ws, sfx, item, true);
+        info!("world sounds: {item} given by a script, sound {}", sound_name(sfx, sound));
+        if let Some(sound) = sound {
+            out.write(PlaySound { sound, at: None });
+        }
+    }
+
     // Scripts: the engine's answers for the sounds already played, StopSound's stops,
     // and the new sounds (`fnv_game::nvse_sound`).
     if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
@@ -693,6 +835,11 @@ fn objects(
             rt.game.gaps.sounds.heard(id, seconds);
         }
         script_sounds.stops.append(&mut rt.game.gaps.sounds.stops);
+        // Sounds made for files and the fades (`fnv_game::nvse_jg9`), before the plays.
+        let jg9 = &mut rt.game.other.jg9;
+        script_sounds.paths.append(&mut jg9.new_paths);
+        script_sounds.fades_in.append(&mut jg9.fades_in);
+        script_sounds.fades_out.append(&mut jg9.fades_out);
         ws.held.append(&mut rt.game.sound_requests);
     }
     let in_game = *state.get() == PlayState::Playing;
@@ -703,10 +850,12 @@ fn objects(
             held.push(r);
             continue;
         }
-        let at = match r.at {
-            None => None,
-            Some(FormId::PLAYER_REF) => eye,
-            Some(at) => ref_pos(&sim, at.0),
+        // PlaySound3DNode's node (`fnv_game::nvse_jip14`), else the reference.
+        let at = match (r.point, r.at) {
+            (Some(p), _) => Some(p),
+            (None, None) => None,
+            (None, Some(FormId::PLAYER_REF)) => eye,
+            (None, Some(at)) => ref_pos(&sim, at.0),
         };
         if r.at.is_some() {
             ws.stats.script_3d += 1;
@@ -724,7 +873,15 @@ fn objects(
 
 /// Placed objects' own sounds near the listener, sent to the ambient every frame (see
 /// the module notes).
-fn object_sources(mut ws: ResMut<WorldSounds>, sim: Res<SimState>, loc: Res<crate::Location>, player: Option<Res<Player>>, sfx: Option<Res<Sfx>>, mut out: MessageWriter<SoundSource>) {
+fn object_sources(
+    mut ws: ResMut<WorldSounds>,
+    sim: Res<SimState>,
+    loc: Res<crate::Location>,
+    player: Option<Res<Player>>,
+    sfx: Option<Res<Sfx>>,
+    #[cfg(debug_assertions)] mut frames: Local<u32>,
+    mut out: MessageWriter<SoundSource>,
+) {
     let (Some(player), Some(sfx)) = (player, sfx) else { return };
     let ws = &mut *ws;
     if ws.sources.is_none() {
@@ -741,13 +898,25 @@ fn object_sources(mut ws: ResMut<WorldSounds>, sim: Res<SimState>, loc: Res<crat
     let eye = player.eye();
     let space = crate::music::Space::of(&loc);
     let Some(list) = ws.sources.as_ref().and_then(|s| s.get(&space)) else { return };
-    for &(id, sound, kind, fixed) in list {
-        let Some(reach) = sfx.forms.sounds.get(&sound).map(|s| s.max_distance * 1.1) else { continue };
-        let Some(at) = fixed.or_else(|| ref_pos(&sim, id)) else { continue };
-        let d2 = (at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2);
-        if d2 > reach * reach || !sim.world.is_enabled(FormId(id)).unwrap_or(false) {
-            continue;
+    let sounds = sfx.forms.sounds.len();
+    if ws.index.get(&space).is_none_or(|x| x.sounds != sounds) {
+        let built = SourceIndex::build(list, &sim, |s| reach_of(&sfx, s), sounds);
+        debug!("world sounds: {} objects' own sounds in this space, {} indexed", list.len(), built.grid.len());
+        ws.index.insert(space, built);
+    }
+    let index = ws.index.get_mut(&space).expect("made above");
+    index.heard(list, &sim, eye, &mut ws.near, &mut ws.heard);
+    #[cfg(debug_assertions)]
+    {
+        // The walk over the whole list, now and then, as the reference.
+        *frames = frames.wrapping_add(1);
+        if *frames % 64 == 1 {
+            let bits = |v: &[(u32, [f32; 3])]| v.iter().map(|&(i, at)| (i, at.map(f32::to_bits))).collect::<Vec<_>>();
+            debug_assert_eq!(bits(&ws.heard), bits(&scan_all(list, &sim, eye, |s| reach_of(&sfx, s))), "world sounds: the index lost or added a source");
         }
+    }
+    for &(i, at) in &ws.heard {
+        let (id, sound, kind, _) = list[i as usize];
         if ws.stats.object_sources_sent.insert(id) {
             ws.stats.object_sources_by_kind[kind] += 1;
         }
@@ -853,12 +1022,183 @@ fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
     );
 }
 
+/// Session state kept by [`script_sound_files`] so `SetSoundSourceFile`,
+/// `SetSoundTraitNumeric`, and `TempCloneForm` SOUN aliases reach `Sfx` before
+/// playback and reset cleanly on a new session or load.
+#[derive(Default)]
+struct ScriptSoundSync {
+    seen_sources: HashMap<FormId, String>,
+    seen_traits: HashMap<(FormId, i64), u64>,
+    seen_clones: HashMap<FormId, FormId>,
+    originals: HashMap<FormId, fnv_combat::fx::Sound>,
+    active_clones: HashSet<FormId>,
+}
+
+/// Apply the direct `SetSoundSourceFile` and `SetSoundTraitNumeric` (`0..=11`) overrides
+/// for `id` (including overrides snapshotted at `TempCloneForm` time) onto `sound`.
+fn apply_sound_overrides(game: &fnv_game::Game, id: FormId, sound: &mut fnv_combat::fx::Sound) {
+    if let Some(path) = game.sound_source_override(id) {
+        let trimmed = path.trim();
+        sound.file = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    for slot in 0..=11 {
+        let Some(v) = game.sound_trait_override(id, slot) else { continue };
+        match slot {
+            0 => sound.min_distance = v.max(0.0) as f32,
+            1 => sound.max_distance = v.max(0.0) as f32,
+            2 => sound.frequency_adjust_percent = v as f32,
+            3 => sound.static_attenuation_db = (-v).max(0.0) as f32,
+            4 => sound.stop_hour = (v.clamp(0.0, 255.0) * 24.0 / 256.0) as f32,
+            5 => sound.start_hour = (v.clamp(0.0, 255.0) * 24.0 / 256.0) as f32,
+            6..=10 => {
+                let curve = sound.attenuation_curve.get_or_insert(fnv_combat::fx::DEFAULT_ATTENUATION_CURVE);
+                curve[(slot - 6) as usize] = v.clamp(0.0, 100.0) as f32;
+            }
+            11 => sound.reverb_attenuation_percent = v.clamp(0.0, 100.0) as f32,
+            _ => {}
+        }
+    }
+}
+
+/// Sync `SetSoundSourceFile`, `SetSoundTraitNumeric`, and `TempCloneForm` SOUN aliases
+/// from `game` into `sounds`. Returns `true` when any entry changed.
+fn sync_script_sounds(game: &fnv_game::Game, sounds: &mut HashMap<FormId, fnv_combat::fx::Sound>, state: &mut ScriptSoundSync) -> bool {
+    let family = fnv_game::nvse_traits::SOUND_TRAIT_FAMILY;
+    let sources_same = game.traits.sources.len() == state.seen_sources.len()
+        && game.traits.sources.iter().all(|(k, v)| state.seen_sources.get(k) == Some(v));
+    let mut sound_trait_count = 0usize;
+    let mut traits_same = true;
+    for (&(id, fam, slot), &val) in &game.traits.values {
+        if fam != family || !(0..=11).contains(&slot) {
+            continue;
+        }
+        sound_trait_count += 1;
+        if state.seen_traits.get(&(id, slot)) != Some(&val.to_bits()) {
+            traits_same = false;
+        }
+    }
+    traits_same &= sound_trait_count == state.seen_traits.len();
+
+    let mut sound_clone_count = 0usize;
+    let mut clones_same = true;
+    for (&clone_id, &parent) in game.clones() {
+        let origin = game.unclone(clone_id);
+        let is_sound = !game.clones().contains_key(&origin)
+            && (state.originals.contains_key(&origin) || (sounds.contains_key(&origin) && !state.active_clones.contains(&origin)));
+        if !is_sound {
+            continue;
+        }
+        sound_clone_count += 1;
+        if state.seen_clones.get(&clone_id) != Some(&parent) {
+            clones_same = false;
+        }
+    }
+    clones_same &= sound_clone_count == state.seen_clones.len();
+
+    if sources_same && traits_same && clones_same {
+        return false;
+    }
+
+    // Drain all previously materialized clone entries before rebuilding so disappeared
+    // clones and FormIDs reused for non-SOUN clones in a fresh session never leak.
+    for id in state.active_clones.drain() {
+        sounds.remove(&id);
+    }
+
+    // Collect authored SOUN IDs that currently have a direct source or numeric trait override.
+    let mut overridden_authored: HashSet<FormId> = HashSet::new();
+    for &id in game.traits.sources.keys() {
+        if !game.clones().contains_key(&id) && (state.originals.contains_key(&id) || sounds.contains_key(&id)) {
+            overridden_authored.insert(id);
+        }
+    }
+    for &(id, fam, slot) in game.traits.values.keys() {
+        if fam == family && (0..=11).contains(&slot) && !game.clones().contains_key(&id) && (state.originals.contains_key(&id) || sounds.contains_key(&id)) {
+            overridden_authored.insert(id);
+        }
+    }
+
+    // Restore previously mutated authored SOUNs before re-applying active overrides.
+    state.originals.retain(|id, orig| {
+        if let Some(entry) = sounds.get_mut(id) {
+            *entry = orig.clone();
+        }
+        overridden_authored.contains(id)
+    });
+
+    // Apply overrides to authored SOUN records, snapshotting each authored record once.
+    for id in overridden_authored {
+        let Some(entry) = sounds.get_mut(&id) else { continue };
+        state.originals.entry(id).or_insert_with(|| entry.clone());
+        apply_sound_overrides(game, id, entry);
+        if let Some(v) = game.traits.sources.get(&id) {
+            if state.seen_sources.get(&id) != Some(v) {
+                let label = entry.edid.as_deref().unwrap_or("a sound");
+                if v.trim().is_empty() {
+                    info!("world sounds: {label} cleared sound file (SetSoundSourceFile)");
+                } else {
+                    info!("world sounds: {label} plays from {v} (SetSoundSourceFile)");
+                }
+            }
+        }
+    }
+
+    // Materialize/update every TempCloneForm SOUN alias from its authored origin's base Sound,
+    // clearing `edid` so EDID-based lookups never accidentally pick a clone over the original.
+    let mut next_clones: HashMap<FormId, FormId> = HashMap::new();
+    for (&clone_id, &parent) in game.clones() {
+        let origin = game.unclone(clone_id);
+        if game.clones().contains_key(&origin) || state.active_clones.contains(&origin) {
+            continue;
+        }
+        let Some(mut cloned) = state.originals.get(&origin).or_else(|| sounds.get(&origin)).cloned() else {
+            continue;
+        };
+        cloned.edid = None;
+        apply_sound_overrides(game, clone_id, &mut cloned);
+        if let Some(v) = game.traits.sources.get(&clone_id) {
+            if state.seen_sources.get(&clone_id) != Some(v) {
+                if v.trim().is_empty() {
+                    info!("world sounds: {clone_id} (clone of {origin}) cleared sound file (SetSoundSourceFile)");
+                } else {
+                    info!("world sounds: {clone_id} (clone of {origin}) plays from {v} (SetSoundSourceFile)");
+                }
+            }
+        }
+        sounds.insert(clone_id, cloned);
+        state.active_clones.insert(clone_id);
+        next_clones.insert(clone_id, parent);
+    }
+
+    state.seen_sources = game.traits.sources.clone();
+    state.seen_traits = game
+        .traits
+        .values
+        .iter()
+        .filter(|&(&(_, fam, slot), _)| fam == family && (0..=11).contains(&slot))
+        .map(|(&(id, _, slot), &v)| ((id, slot), v.to_bits()))
+        .collect();
+    state.seen_clones = next_clones;
+    true
+}
+
+/// SetSoundSourceFile, SetSoundTraitNumeric, and TempCloneForm SOUN sync
+/// (`fnv_game::nvse_traits`): a SOUN (or temporary clone) whose file or numeric traits
+/// a script changed plays with those values [documented: SetSoundSourceFile,
+/// SetSoundTraitNumeric, TempCloneForm; observed: Titans of the New West points
+/// FSTArmorPowerL/R at its silence folders (`fx\fst\TNW_SilenceL\`) (#2541)].
+fn script_sound_files(script: Option<Res<crate::script::ScriptState>>, sfx: Option<ResMut<Sfx>>, mut state: Local<ScriptSoundSync>) {
+    let (Some(script), Some(mut sfx)) = (script, sfx) else { return };
+    let Some(rt) = script.rt.as_ref() else { return };
+    sync_script_sounds(&rt.game, &mut sfx.forms.sounds, &mut state);
+}
+
 pub struct WorldSoundsPlugin;
 
 impl Plugin for WorldSoundsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init)
-            .add_systems(Update, (knocks, objects, object_sources, water_sources).in_set(PlaySet::Sync))
+            .add_systems(Update, (knocks, objects, object_sources, water_sources, script_sound_files).in_set(PlaySet::Sync))
             .add_systems(Last, report);
     }
 }
@@ -953,5 +1293,369 @@ mod tests {
         assert_eq!((stats.pickups, stats.drops), (1, 1));
         // Both count as heard: a later notice of them makes no sound.
         assert!(hear(&mut app, &[RefChanged::new(0x301), RefChanged::new(dropped_before)]).is_empty());
+    }
+
+    /// The index's answer is the walk over the whole list's ([`scan_all`]): sources across
+    /// cell borders, a reach that ends on a cell border, a negative reach, a sound not in
+    /// the load order, initially disabled and disabled references, statics whose state
+    /// moves (they stay at their placement), others moved by their state into reach,
+    /// moved again with nothing else changing, one state dropped (a cell reset) and
+    /// another made in the same frame (the number of states unchanged), a restored world
+    /// with as many states as the last, and their states gone with a new world.
+    #[test]
+    fn indexed_object_sources_are_the_whole_lists() {
+        use crate::sim::test_world::{item_base, placed, sim};
+        use crate::sound_grid::tests::Lcg;
+        use fnv_sim::forms::{BaseData, BaseForm, Container};
+        use fnv_sim::refs::FLAG_INITIALLY_DISABLED;
+        fn reach(s: FormId) -> Option<f32> {
+            match s.0 - 0x900 {
+                0 => Some(4096.0),
+                1 => Some(300.0),
+                2 => Some(2200.0),
+                3 => Some(6000.0),
+                4 => Some(-500.0),
+                _ => None,
+            }
+        }
+        fn bits(v: &[(u32, [f32; 3])]) -> Vec<(u32, [u32; 3])> {
+            v.iter().map(|&(i, at)| (i, at.map(f32::to_bits))).collect()
+        }
+        /// Every listener: the index's answer and the whole list's; how many heard.
+        fn check(index: &mut SourceIndex, list: &[ObjectSource], sim: &SimState, eyes: &[[f32; 3]]) -> usize {
+            let (mut near, mut out) = (Vec::new(), Vec::new());
+            let mut heard = 0;
+            for &eye in eyes {
+                index.heard(list, sim, eye, &mut near, &mut out);
+                assert_eq!(bits(&out), bits(&scan_all(list, sim, eye, reach)), "listener at {eye:?}");
+                if eye[0].is_finite() {
+                    assert!(near.len() < list.len() / 4, "the index narrows the candidates at {eye:?}");
+                }
+                heard += out.len();
+            }
+            heard
+        }
+        const BASE: u32 = 0x100;
+        const FIRST: u32 = 0x1000;
+        let mut rng = Lcg(11);
+        let mut refs = Vec::new();
+        let mut list: Vec<ObjectSource> = Vec::new();
+        for i in 0..900u32 {
+            let mut pos = [rng.range(-30000.0, 30000.0), rng.range(-30000.0, 30000.0), rng.range(-500.0, 2500.0)];
+            if i % 5 == 0 {
+                pos[0] = 4096.0 * (rng.next_u32() % 13) as f32 - 24576.0;
+            }
+            if i % 7 == 0 {
+                pos[1] = -4096.0 * (rng.next_u32() % 6) as f32;
+            }
+            let mut p = placed(FIRST + i, BASE);
+            p.pos = pos;
+            if i % 13 == 0 {
+                p.flags |= FLAG_INITIALLY_DISABLED;
+            }
+            refs.push(p);
+            let kind = if i % 3 == 0 { STATIC_KIND } else { 0 };
+            list.push((FIRST + i, FormId(0x900 + i % 6), kind, (kind == STATIC_KIND).then_some(pos)));
+        }
+        // A respawning container in a cell, beside the listener at the origin.
+        const CRATE_BASE: u32 = 0x101;
+        const CELL: FormId = FormId(0x200);
+        let crate_ref = FormId(FIRST + 900);
+        let crate_base = BaseForm {
+            id: FormId(CRATE_BASE),
+            sig: *b"CONT",
+            edid: None,
+            name: None,
+            script: None,
+            prompt: None,
+            voice_filter: false,
+            data: BaseData::Container(Container { respawns: true, entries: vec![] }),
+        };
+        let mut p = placed(crate_ref.0, CRATE_BASE);
+        (p.cell, p.pos) = (Some(CELL), [100.0, 0.0, 0.0]);
+        refs.push(p);
+        list.push((crate_ref.0, FormId(0x900), 0, None));
+        let mut sim = sim(vec![item_base(BASE), crate_base], refs);
+        let mut index = SourceIndex::build(&list, &sim, reach, 6);
+        let mut eyes: Vec<[f32; 3]> = (0..120).map(|_| [rng.range(-32000.0, 32000.0), rng.range(-32000.0, 32000.0), rng.range(0.0, 2000.0)]).collect();
+        eyes.extend([[0.0; 3], [4096.0, -4096.0, 0.0], [f32::NAN, 0.0, 0.0]]);
+        // On the edge of a source's reach.
+        for &(_, sound, _, fixed) in list.iter().filter(|e| e.3.is_some()).take(30) {
+            let (at, r) = (fixed.unwrap(), reach(sound).unwrap_or(0.0).abs());
+            eyes.push([at[0] + r, at[1], at[2]]);
+        }
+        assert!(check(&mut index, &list, &sim, &eyes) > 0, "some sources are heard");
+
+        // Disabled now, enabled now; a static's state moved (it stays at its placement);
+        // others moved by their state, one beside a listener.
+        let at = |i: u32| FormId(FIRST + i);
+        let eye = eyes[0];
+        sim.world.set_enabled(at(1), false).unwrap();
+        sim.world.set_enabled(at(13), true).unwrap();
+        sim.world.get(at(3)).unwrap().pos = eye;
+        sim.world.get(at(4)).unwrap().pos = [eye[0] + 100.0, eye[1], eye[2]];
+        sim.world.get(at(8)).unwrap().pos = [1e7, 1e7, 0.0];
+        let (mut near, mut out) = (Vec::new(), Vec::new());
+        let mine = |out: &[(u32, [f32; 3])]| out.iter().any(|&(i, _)| i == 4);
+        assert!(check(&mut index, &list, &sim, &eyes) > 0);
+        index.heard(&list, &sim, eye, &mut near, &mut out);
+        assert!(mine(&out), "a source moved beside the listener is heard there");
+        // Moved again, nothing else changing (no new state, no serial).
+        sim.world.get(at(4)).unwrap().pos = [eye[0] + 1e6, eye[1], eye[2]];
+        check(&mut index, &list, &sim, &eyes);
+        index.heard(&list, &sim, eye, &mut near, &mut out);
+        assert!(!mine(&out), "a source moved away is no longer heard");
+        sim.world.get(at(4)).unwrap().pos = [eye[0], eye[1] + 50.0, eye[2]];
+        check(&mut index, &list, &sim, &eyes);
+        let heard = |out: &[(u32, [f32; 3])], id: FormId| out.iter().any(|&(i, _)| list[i as usize].0 == id.0);
+        // The container gets a state where it stands, and the index sees it.
+        sim.world.get(crate_ref).unwrap();
+        check(&mut index, &list, &sim, &eyes);
+        index.heard(&list, &sim, [0.0; 3], &mut near, &mut out);
+        assert!(heard(&out, crate_ref), "the container is heard beside its listener");
+        // Between two frames, one state dropped and another made, the number of states the
+        // same: the container's state goes with its cell's reset, and a source with no
+        // state so far gets one and is moved beside a listener. A state made as placed
+        // leaves the presence serial, so only the reset's drop tells the index that the
+        // states changed.
+        let fresh = at(2);
+        assert!(sim.world.changed().all(|(id, _)| id != fresh), "a source with no state so far");
+        let states = sim.world.changed().count();
+        assert_eq!(sim.world.reset_containers(CELL), vec![crate_ref]);
+        sim.world.get(fresh).unwrap().pos = [eye[0], eye[1] + 100.0, eye[2]];
+        assert_eq!(sim.world.changed().count(), states, "as many states as before");
+        check(&mut index, &list, &sim, &eyes);
+        index.heard(&list, &sim, eye, &mut near, &mut out);
+        assert!(heard(&out, fresh), "the source with a new state is heard beside the listener");
+        // A restored world with as many states as the last (it starts from a serial no
+        // other world used): other sources have them, one beside the listener.
+        let before: Vec<FormId> = sim.world.changed().map(|(id, _)| id).collect();
+        sim.world = fnv_sim::World::new(sim.forms, sim.refs, fnv_sim::SimConfig::default());
+        let fresh: Vec<FormId> = list
+            .iter()
+            .filter(|e| e.3.is_none() && reach(e.1).is_some_and(|r| r > 0.0) && !before.contains(&FormId(e.0)) && sim.world.is_enabled(FormId(e.0)).unwrap_or(false))
+            .map(|e| FormId(e.0))
+            .collect();
+        sim.world.get(fresh[0]).unwrap().pos = [eye[0] - 100.0, eye[1], eye[2]];
+        for &id in &fresh[1..] {
+            if sim.world.changed().count() >= before.len() {
+                break;
+            }
+            sim.world.get(id).unwrap();
+        }
+        assert_eq!(sim.world.changed().count(), before.len(), "as many states as the last world");
+        check(&mut index, &list, &sim, &eyes);
+        index.heard(&list, &sim, eye, &mut near, &mut out);
+        assert!(heard(&out, fresh[0]), "a source the restored world moved is heard beside the listener");
+        // A new world: every state gone, every source at its placement again.
+        sim.world = fnv_sim::World::new(sim.forms, sim.refs, fnv_sim::SimConfig::default());
+        check(&mut index, &list, &sim, &eyes);
+    }
+
+    fn test_sound_game() -> (fnv_game::GameData, fnv_sim::FormStore, fnv_sim::RefTable) {
+        fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(6 + data.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(data);
+            out
+        }
+        fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+            let body: Vec<u8> = subs.concat();
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&[0u8; 8]);
+            out.extend_from_slice(&body);
+            out
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(b"GRUP");
+            out.extend_from_slice(&((24 + body.len()) as u32).to_le_bytes());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&[0u8; 12]);
+            out.extend_from_slice(body);
+            out
+        }
+        let mut bytes = rec(b"TES4", 0, &[sub(b"HEDR", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0])]);
+        bytes.extend(top(
+            b"SOUN",
+            &rec(b"SOUN", 0x0000_0D60, &[sub(b"EDID", b"OwnedMenuFocus\0"), sub(b"FNAM", b"fx\\ui\\owned_focus.wav\0")]),
+        ));
+        bytes.extend(top(b"STAT", &rec(b"STAT", 0x0000_0D61, &[sub(b"EDID", b"OwnedStatic\0")])));
+        let plugins = vec![fnv_esm::Plugin::parse(&bytes, "Owned.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = fnv_esm::Schema::load_dir(root.join("fnv")).unwrap();
+        let functions = root.join("script/functions.json");
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&functions).unwrap()).unwrap();
+        let forms = fnv_sim::FormStore::build(&lo, &schema);
+        let refs = fnv_sim::RefTable::build(&lo, &schema);
+        let data = fnv_game::GameData::build(&lo, &schema, fnv_script::FunctionTable::load(&functions).unwrap(), &json, &refs);
+        (data, forms, refs)
+    }
+
+    #[test]
+    fn sync_script_sounds_admits_cloned_sounds_applies_traits_and_resets_across_sessions() {
+        use fnv_combat::fx::Sound;
+        use fnv_script::vm::XVal;
+
+        let (data, forms, refs) = test_sound_game();
+        let mut game = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let orig = FormId(0x0000_0D60);
+        let non_sound = FormId(0x0000_0D61);
+
+        let mut sounds: HashMap<FormId, Sound> = HashMap::from([(
+            orig,
+            Sound {
+                edid: Some("OwnedMenuFocus".into()),
+                file: Some("fx\\ui\\owned_focus.wav".into()),
+                min_distance: 100.0,
+                max_distance: 1500.0,
+                static_attenuation_db: 6.0,
+                frequency_adjust_percent: 0.0,
+                ..Sound::default()
+            },
+        )]);
+        let mut sync = ScriptSoundSync::default();
+
+        // Create an unmodified SOUN clone BEFORE mutating orig, plus a non-SOUN clone.
+        let XVal::Ref(c_unmod_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(orig.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected unmodified sound clone");
+        };
+        let c_unmod = FormId(c_unmod_raw);
+        let XVal::Ref(bad_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(non_sound.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected non-sound clone");
+        };
+        let bad = FormId(bad_raw);
+
+        // Silence/redirect orig AFTER c_unmod exists (B42 Inject silence-original pattern):
+        // c_unmod must keep orig's authored file and attenuation, while c1 cloned AFTER
+        // this edit snapshots orig's active overrides.
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundsourcefile", None, &[XVal::Ref(orig.0), XVal::Str("fx\\owned\\silence.wav".into())]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(orig.0), XVal::Num(3.0), XVal::Num(-99.0)]).unwrap().unwrap();
+
+        let XVal::Ref(c1_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(orig.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected sound clone 1");
+        };
+        let c1 = FormId(c1_raw);
+
+        assert!(sync_script_sounds(&game, &mut sounds, &mut sync));
+        // Second call with unchanged state is a zero-work no-op.
+        assert!(!sync_script_sounds(&game, &mut sounds, &mut sync));
+
+        // Non-SOUN clone is never admitted into sounds.
+        assert!(!sounds.contains_key(&bad));
+
+        // c_unmod was created before orig was silenced, so it keeps orig's authored Sound.
+        let su = sounds.get(&c_unmod).expect("unmodified clone materialized");
+        assert_eq!(su.edid, None);
+        assert_eq!(su.file.as_deref(), Some("fx\\ui\\owned_focus.wav"));
+        assert_eq!(su.static_attenuation_db, 6.0);
+
+        // c1 was created after orig was mutated, so it snapshotted orig's session overrides.
+        let s1_initial = sounds.get(&c1).expect("clone 1 materialized");
+        assert_eq!(s1_initial.edid, None);
+        assert_eq!(s1_initial.file.as_deref(), Some("fx\\owned\\silence.wav"));
+        assert_eq!(s1_initial.static_attenuation_db, 99.0);
+
+        // Apply SetSoundSourceFile and SetSoundTraitNumeric to clone 1, then clone c2 from c1,
+        // then mutate c1 again; c2 must stay isolated at the snapshot taken from c1.
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundsourcefile", None, &[XVal::Ref(c1.0), XVal::Str("fx\\owned\\scope_click.wav".into())]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(0.0), XVal::Num(250.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(1.0), XVal::Num(3200.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(2.0), XVal::Num(12.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(3.0), XVal::Num(-25.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(6.0), XVal::Num(80.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(11.0), XVal::Num(55.0)]).unwrap().unwrap();
+
+        let XVal::Ref(c2_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(c1.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected sound clone 2");
+        };
+        let c2 = FormId(c2_raw);
+
+        // Post-clone edits on c1 do not leak into c2; empty SetSoundSourceFile clears file to None.
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundsourcefile", None, &[XVal::Ref(c1.0), XVal::Str("fx\\owned\\later_c1.wav".into())]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(3.0), XVal::Num(-40.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundsourcefile", None, &[XVal::Ref(c_unmod.0), XVal::Str(String::new())]).unwrap().unwrap();
+
+        assert!(sync_script_sounds(&game, &mut sounds, &mut sync));
+        assert!(!sync_script_sounds(&game, &mut sounds, &mut sync));
+
+        let su_empty = sounds.get(&c_unmod).expect("c_unmod present");
+        assert_eq!(su_empty.file, None);
+
+        let s1 = sounds.get(&c1).expect("clone 1 present");
+        assert_eq!(s1.edid, None);
+        assert_eq!(s1.file.as_deref(), Some("fx\\owned\\later_c1.wav"));
+        assert_eq!((s1.min_distance, s1.max_distance, s1.frequency_adjust_percent, s1.static_attenuation_db), (250.0, 3200.0, 12.0, 40.0));
+        assert_eq!(s1.attenuation_curve.unwrap()[0], 80.0);
+        assert_eq!(s1.reverb_attenuation_percent, 55.0);
+
+        let s2 = sounds.get(&c2).expect("clone 2 present");
+        assert_eq!(s2.edid, None);
+        assert_eq!(s2.file.as_deref(), Some("fx\\owned\\scope_click.wav"));
+        assert_eq!(s2.static_attenuation_db, 25.0);
+
+        // Original received its own overrides while keeping its authored EDID.
+        let so = sounds.get(&orig).expect("original present");
+        assert_eq!(so.edid.as_deref(), Some("OwnedMenuFocus"));
+        assert_eq!(so.file.as_deref(), Some("fx\\owned\\silence.wav"));
+        assert_eq!(so.static_attenuation_db, 99.0);
+
+        // Fresh session (new game / load): cloned SOUNs are pruned and authored original is restored.
+        let fresh = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        assert!(sync_script_sounds(&fresh, &mut sounds, &mut sync));
+        assert!(!sounds.contains_key(&c_unmod));
+        assert!(!sounds.contains_key(&c1));
+        assert!(!sounds.contains_key(&c2));
+        let restored = sounds.get(&orig).expect("original restored");
+        assert_eq!(restored.file.as_deref(), Some("fx\\ui\\owned_focus.wav"));
+        assert_eq!(restored.static_attenuation_db, 6.0);
+    }
+
+    #[test]
+    fn sync_script_sounds_prunes_reused_clone_form_id_when_new_session_clones_non_sound() {
+        use fnv_combat::fx::Sound;
+        use fnv_script::vm::XVal;
+
+        let (data, forms, refs) = test_sound_game();
+        let orig = FormId(0x0000_0D60);
+        let non_sound = FormId(0x0000_0D61);
+
+        let mut sounds: HashMap<FormId, Sound> = HashMap::from([(
+            orig,
+            Sound {
+                edid: Some("OwnedMenuFocus".into()),
+                file: Some("fx\\ui\\owned_focus.wav".into()),
+                ..Sound::default()
+            },
+        )]);
+        let mut sync = ScriptSoundSync::default();
+
+        // Session 1: first local clone is a SOUN at deterministic FormId 0x00FE_0000.
+        let mut s1 = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let XVal::Ref(c1_raw) = fnv_game::nvse::call(&mut s1, &Default::default(), "tempcloneform", None, &[XVal::Ref(orig.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected session 1 SOUN clone");
+        };
+        let c1 = FormId(c1_raw);
+        assert!(sync_script_sounds(&s1, &mut sounds, &mut sync));
+        assert!(sounds.contains_key(&c1));
+        assert!(sync.active_clones.contains(&c1));
+
+        // Session 2: before sync runs, a non-SOUN (STAT) clone reuses the exact same FormId.
+        let mut s2 = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let XVal::Ref(reused_raw) = fnv_game::nvse::call(&mut s2, &Default::default(), "tempcloneform", None, &[XVal::Ref(non_sound.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected session 2 STAT clone");
+        };
+        let reused_id = FormId(reused_raw);
+        assert_eq!(reused_id, c1, "fresh session deterministically reuses first local clone FormId");
+
+        assert!(sync_script_sounds(&s2, &mut sounds, &mut sync));
+        assert!(!sounds.contains_key(&reused_id), "stale Session 1 SOUN must be removed when FormId is reused by a non-SOUN");
+        assert!(!sync.active_clones.contains(&reused_id), "active_clones must prune reused non-SOUN FormId");
     }
 }

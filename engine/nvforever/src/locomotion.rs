@@ -12,7 +12,7 @@ use bevy::tasks::{ComputeTaskPool, ParallelSliceMut};
 use fnv_actor::locomotion::{choose, direction, hurt_move_in, wrap01, Blend, Body, Choice, ClipInfo, LocomotionSet, Move, Slot, HURT_FOLDER, RATE_MAX, RATE_MIN};
 use fnv_nav::follow::{heading_delta, SPOT_TURN_RATE, SPOT_TURN_START};
 use nvf_assets::actor::{bind_clip, clip_binding, ClipSource, PreparedSkeleton};
-use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
+use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer, PoseMask, MAX_LAYERS};
 use std::collections::BTreeMap;
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::sync::Arc;
@@ -230,7 +230,7 @@ impl ClipSet {
             let path = format!("meshes\\{p}");
             let Some(clip) = ctx.clip(&path) else { continue };
             let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
-            set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info, path });
+            set.clips.insert(m, SetClip { bound: Arc::new(bind_move(skel, clip, m)), info, path });
             n += 1;
         }
         (set, n)
@@ -313,17 +313,21 @@ impl ClipSet {
             };
             let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
             let (bound, unbound) = clip_binding(skel, &clip);
+            // Bound tracks whose rotation adds up from cycle to cycle (the Securitron's
+            // wheel in its walk, docs/spec-notes/animation.md §9.12).
+            let adding: Vec<&str> = clip.tracks.iter().filter(|(n, t)| t.per_cycle.is_some() && bound.contains(&n.as_str())).map(|(n, _)| n.as_str()).collect();
             report.push(format!(
-                "{} {:.2}s {:.1}u/s blend {:.2}s foot {:.2} ({} tracks bound{})",
+                "{} {:.2}s {:.1}u/s blend {:.2}s foot {:.2} ({} tracks bound{}{})",
                 m.group(),
                 info.duration,
                 info.speed,
                 info.blend_time,
                 info.foot_phase,
                 bound.len(),
-                if unbound.is_empty() { String::new() } else { format!(", unbound {unbound:?}") }
+                if unbound.is_empty() { String::new() } else { format!(", unbound {unbound:?}") },
+                if adding.is_empty() { String::new() } else { format!(", rotation adding up per cycle {adding:?}") }
             ));
-            set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info, path });
+            set.clips.insert(m, SetClip { bound: Arc::new(bind_move(skel, clip, m)), info, path });
         }
         (set, report)
     }
@@ -366,7 +370,7 @@ impl ClipSet {
                 let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
                 found.retain(|(f, _)| *f != m);
                 found.push((m, format!("{} {stem} {:.1}u/s", m.group(), info.speed)));
-                set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info, path: path.clone() });
+                set.clips.insert(m, SetClip { bound: Arc::new(bind_move(skel, clip, m)), info, path: path.clone() });
             }
         }
         if found.is_empty() {
@@ -377,6 +381,13 @@ impl ClipSet {
         let line = format!("{folder} {what}: {} of {} moves from hurt\\: {}", moves.len(), set.clips.len(), moves.join("; "));
         Some((set, line))
     }
+}
+
+/// Apply the in-place policy for the selected move, including script replacements
+/// and hurt/weapon sets (`ClipSet` loaders; animation.md §9.13).
+fn bind_move(skel: &PreparedSkeleton, clip: Arc<nvf_assets::anim_play::Clip>, mv: Move) -> BoundClip {
+    let bound = bind_clip(skel, clip);
+    if mv.is_turn() { bound.turn_in_place() } else if mv.is_moving() { bound.locomotion() } else { bound }
 }
 
 /// A weapon stance's movement clips bound to one skeleton
@@ -480,58 +491,56 @@ pub struct Locomotion {
     pub armed_on: bool,
     /// The clip files logged while armed ([`Locomotion::armed_clip_news`]).
     armed_logged: Vec<String>,
-    /// The idle under the movement clips ([`UNDER_LAYER`]): creatures only.
+    /// [design, #2352] The idle under movement and upper clips ([`BlendPlayer::pose_only`]): creatures only.
     pub idle_under: bool,
     under: Under,
     /// Times "moves with no movement clip" was logged for this actor (once).
     clipless_logged: u8,
 }
 
-/// [`Locomotion::layers`]' slot for the set's idle laid under a movement clip, at a
-/// priority below every track ([`UNDER_PRIORITY`]): it drives only what the clips over it
-/// leave, the nodes the movement clip has no track for [observed: the bloatfly's
-/// `mtidle.kf` drives its wings (`Bip01 L/R UpperArm`, `Forearm`, priority 45) and head,
-/// its `mtforward.kf`, `mtfastforward.kf` and side clips neither (kf_layer_survey,
-/// 2026-10-23), so the wings stood still in their bind pose while it flew; hypothesis:
-/// the original keeps the idle under the movement clips, as the player body does,
-/// animation.md §9.4]. Only while the idle drives a node the movement clip does not, and
-/// only on creatures ([`Locomotion::idle_under`]) [design: people's `mtidle.kf` drives
-/// the pauldrons and twist bones their movement clips leave, posed for the idle's arms;
-/// their bind pose suits a swinging arm better].
-pub const UNDER_LAYER: usize = 6;
-/// The under-laid idle's track priority: below every clip's (clips' priorities are small
-/// non-negative numbers [observed]) and above `anim_play`'s undriven-root identity.
+/// [design, #2352] The creature set's pose-only idle below movement, stance, aim,
+/// attack and special-idle clips, only on bones those clips omit. The accumulation
+/// root is excluded. [documented: issue #2352] The supplied bloatfly survey names
+/// wing tracks in `mtidle.kf` that its move, aim and attack clips omit.
+/// [hypothesis] The original keeps those bones animating from its idle; observer
+/// check 169 asks for a capture. [design] People retain their existing layering.
+/// [design, #2352] Fallback priority: below ordinary clip tracks and above
+/// `anim_play`'s undriven-root identity.
 pub const UNDER_PRIORITY: i32 = i32::MIN + 1;
 
-/// The idle under the movement clips: the idle clip it was made from (by address), the
-/// idle with its tracks at [`UNDER_PRIORITY`] (without the accumulation root), the
-/// movement clip last checked and whether the idle drives a node that clip does not, and
-/// the idle's own phase, which runs on while another clip plays.
+/// [design, #2352] One playback identity per real Idle, with a changing track mask
+/// and the idle's independent phase (`Locomotion::step`).
 #[derive(Default)]
 struct Under {
-    idle: usize,
+    idle: Option<Arc<BoundClip>>,
     clip: Option<Arc<BoundClip>>,
-    checked: usize,
+    mask: Option<Arc<PoseMask>>,
+    checked: [usize; MAX_LAYERS],
     needed: bool,
     phase: f32,
 }
 
-/// `idle` with every track at [`UNDER_PRIORITY`], without the accumulation root (whose
-/// motion is the movement clip's, or held at the identity).
+/// [design, #2352] Root-free idle at UNDER_PRIORITY. The timing-only source and
+/// bound tracks stay allocated while this Idle plays; masks live beside playback.
+/// The pose-only slot isolates it from every non-pose consumer.
 fn under_clip(idle: &BoundClip) -> BoundClip {
+    let c = &idle.clip;
     BoundClip {
-        clip: idle.clip.clone(),
+        // [design, #2352] Copy timing only; all controller/event payloads start empty.
+        clip: Arc::new(nvf_assets::anim_play::Clip {
+            name: String::new(), start: c.start, stop: c.stop, frequency: c.frequency,
+            cycle_type: c.cycle_type, tracks: Vec::new(), priorities: Vec::new(),
+            skipped: 0, accum_root: None, text_keys: Vec::new(), visibility: Vec::new(),
+            emitters: Vec::new(), materials: Vec::new(), free: Vec::new(),
+            free_visibility: Vec::new(), lights: Vec::new(),
+        }),
         tracks: idle.tracks.iter().filter(|(i, _, _)| Some(*i) != idle.root).map(|(i, t, _)| (*i, t.clone(), UNDER_PRIORITY)).collect(),
         root: None,
         root_track: None,
         carried: None,
+        hold_xy: None,
+        unbound: Arc::new(idle.unbound.iter().map(|(n, t, _)| (n.clone(), t.clone(), UNDER_PRIORITY)).collect()),
     }
-}
-
-/// Whether `idle` drives a node (other than the accumulation root) that `other` has no
-/// track for.
-fn drives_more(idle: &BoundClip, other: &BoundClip) -> bool {
-    idle.tracks.iter().any(|(i, _, _)| Some(*i) != idle.root && !other.tracks.iter().any(|(j, _, _)| j == i))
 }
 
 impl Locomotion {
@@ -767,30 +776,50 @@ impl Locomotion {
                 player.layers[0] = Some(Layer { clip: clip.clone(), phase, weight: jw });
             }
         }
-        player.layers[UNDER_LAYER] = self.under_layer();
+        player.pose_only = None;
+        player.pose_only_mask = None;
     }
 
-    /// The set's idle under the movement clip ([`UNDER_LAYER`]): while a clip other than
-    /// the idle plays (or fades out) and the idle drives a node it does not.
-    fn under_layer(&mut self) -> Option<Layer> {
+    /// [design, #2352] The creature's idle under movement, aim, attack and special
+    /// idles, after those layers are assembled: only bones none of those clips drive.
+    /// [hypothesis] Original-game layering remains to be checked (observer check 169).
+    fn under_layer(&mut self, player: &mut BlendPlayer) -> Option<Layer> {
+        player.pose_only_mask = None;
         if !self.idle_under {
             return None;
         }
         let idle = self.set.clips.get(&Move::Idle)?.bound.clone();
-        let other = [Some(self.blend.cur.mv), self.blend.prev.map(|p| p.mv)].into_iter().flatten().find(|m| *m != Move::Idle)?;
-        let moving = self.set.clips.get(&other).or_else(|| self.prev_set.as_ref().and_then(|s| s.clips.get(&other)))?.bound.clone();
-        let key = Arc::as_ptr(&idle) as usize;
-        if self.under.idle != key || self.under.clip.is_none() {
-            self.under.idle = key;
+        let others: [Option<&BoundClip>; MAX_LAYERS] = std::array::from_fn(|k| {
+            player.layers[k].as_ref().filter(|l| l.weight.is_finite() && l.weight > 0.0 && !Arc::ptr_eq(&l.clip, &idle)).map(|l| l.clip.as_ref())
+        });
+        let checked = others.map(|c| c.map_or(0, |c| c as *const BoundClip as usize));
+        let changed_idle = !self.under.idle.as_ref().is_some_and(|c| Arc::ptr_eq(c, &idle));
+        if changed_idle {
             self.under.clip = Some(Arc::new(under_clip(&idle)));
-            self.under.checked = 0;
+            self.under.idle = Some(idle);
         }
-        let checked = Arc::as_ptr(&moving) as usize;
-        if self.under.checked != checked {
+        let clip = self.under.clip.as_ref().expect("made with Idle");
+        if changed_idle || self.under.mask.is_none() || self.under.checked != checked {
+            let active = checked.iter().any(|k| *k != 0);
+            let mask = PoseMask {
+                tracks: clip.tracks.iter().map(|(i, _, _)| active && !others.iter().flatten().any(|c| c.tracks.iter().any(|(j, _, _)| i == j))).collect(),
+                unbound: clip.unbound.iter().map(|(n, _, _)| active && !others.iter().flatten().any(|c| c.unbound.iter().any(|(m, _, _)| n.eq_ignore_ascii_case(m)))).collect(),
+            };
+            self.under.needed = mask.tracks.iter().chain(&mask.unbound).any(|b| *b);
+            self.under.mask = Some(Arc::new(mask));
             self.under.checked = checked;
-            self.under.needed = drives_more(&idle, &moving);
         }
-        self.under.needed.then(|| Layer { clip: self.under.clip.clone().expect("made above"), phase: self.under.phase, weight: 1.0 })
+        player.pose_only_mask = self.under.mask.clone();
+        // [design, #2352] Even a fully masked fallback follows phase wraps in Loops.
+        // Zero weight preserves the existing audible/contribution gates.
+        Some(Layer { clip: clip.clone(), phase: self.under.phase, weight: if self.under.needed { 1.0 } else { 0.0 } })
+    }
+
+    /// [design, #2352] The real Idle's source and continuing phase. Pose fallback
+    /// masks and timing-only views never become sound/event identities.
+    pub(crate) fn idle_timeline(&self) -> Option<(&Arc<nvf_assets::anim_play::Clip>, f32)> {
+        self.idle_under.then_some(())?;
+        Some((&self.set.clips.get(&Move::Idle)?.bound.clip, self.under.phase))
     }
 
     /// The jump clip of the actor's set that plays now (the loop in the air, the landing
@@ -852,7 +881,7 @@ pub struct ActorAnimCost {
     pub blend_frames: u64,
     /// Frames in which an actor's clip was a turn on the spot, summed over actors.
     pub turn_frames: u64,
-    /// Frames in which an actor's idle was laid under another clip ([`UNDER_LAYER`]),
+    /// Frames in which an actor's idle was laid under another clip ([`BlendPlayer::pose_only`]),
     /// summed over actors.
     pub under_frames: u64,
     /// Frames in which an actor moved (at least `STAND_SPEED`) with no movement clip
@@ -951,6 +980,10 @@ type ActorAnimItem<'w, 's> = bevy::ecs::query::QueryItem<'w, 's, ActorAnimParts>
 fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32, scratch: &mut Vec<(usize, Transform)>, out: &mut Vec<(Entity, Transform)>, cost: &mut ActorAnimCost) {
     let (lo, player, weapon, dying, flinch, seated, idle, pose, creature, name, talk) = item;
     let (flinch, seated, idle, name, talk) = (*flinch, *seated, *idle, *name, *talk);
+    // Set below for a standing actor's idle only.
+    player.over_movement = 0;
+    player.pose_only = None;
+    player.pose_only_mask = None;
     if let Some(d) = dying.as_mut() {
         // Dead: the death pose to its end and held; without one the pose stays (and
         // whoever has the bones now, a ragdoll, has written them).
@@ -1019,7 +1052,6 @@ fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32,
     }
     cost.turn_frames += u64::from(lo.blend.cur.mv.is_turn());
     lo.layers(player);
-    cost.under_frames += u64::from(player.layers[UNDER_LAYER].is_some());
     let drawn = crate::attack_anims::drawn(weapon.as_deref());
     if let Some(w) = weapon.as_mut() {
         if !w.hold {
@@ -1044,6 +1076,19 @@ fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32,
     (player.layers[idles], player.layers[idles + 1]) = (None, None);
     if let Some(i) = idle {
         i.layers(player);
+        // A standing actor's idle shows in place of its base idle on every bone it drives,
+        // whatever the priorities of their tracks (`BlendPlayer::over_movement`): Mr.
+        // House's chamber is closed by DynamicIdle_Sleeping (priority 40) and opened by
+        // WakeUp (30), both under his mtidle.kf (50), the pod open [observed: the
+        // ControlledBlock priorities of the clips in `creatures/nvmrhouse`; owner, #2425: the original
+        // shows the chamber sealed until the terminal opens it]. 129 of the 556 idle files
+        // under an `IdleAnims` folder of the base archive have some tracks under their
+        // base idle's [observed: survey 2026-11-14]. Not while it moves: an idle shown
+        // over a walk keeps the walk's legs [hypothesis] (animation.md §9.4).
+        let standing = lo.velocity[0].hypot(lo.velocity[1]) < fnv_actor::locomotion::STAND_SPEED && !lo.blend.cur.mv.is_moving();
+        if standing {
+            player.over_movement = (1 << idles) | (1 << (idles + 1));
+        }
     }
     if let Some(f) = flinch {
         let (len, t) = (f.clip.clip.length().max(1e-3), now - f.at);
@@ -1079,7 +1124,10 @@ fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32,
     if let Some(t) = talk {
         t.layers(player);
     }
-    let layers = player.layers.iter().flatten().count() as u64;
+    player.pose_only = lo.under_layer(player);
+    let under = player.pose_only.as_ref().is_some_and(|l| l.weight > 0.0);
+    cost.under_frames += u64::from(under);
+    let layers = player.layers.iter().flatten().count() as u64 + u64::from(under);
     cost.layer_frames += layers;
     cost.blend_frames += u64::from(layers > 1);
     cost.tracks += player.sample_into(scratch, out) as u64;
@@ -1128,6 +1176,21 @@ pub fn heading_of_rotation(rotation: Quat) -> f32 {
 pub fn spot_turn(heading: f32, target: f32, dt: f32) -> (f32, bool) {
     let (d, max) = (heading_delta(heading, target), SPOT_TURN_RATE * dt.max(0.0));
     (d.clamp(-max, max), d.abs() <= max)
+}
+
+/// FaceObject and Turn (`fnv_game::nvse_jip13`): the actor turns on the spot to the
+/// heading, playing its turn clip.
+pub fn script_turns(mut commands: Commands, script: Option<ResMut<nvf_play::script::ScriptState>>, actors: Query<(Entity, &crate::limbs::ActorRig), With<Locomotion>>) {
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    for (r, heading) in rt.game.take_turns() {
+        match actors.iter().find(|(_, rig)| rig.reference == r.0) {
+            Some((e, _)) => {
+                commands.entity(e).insert(TurnTo { heading });
+                info!("locomotion: a script turns {r} to {:.0}°", heading.to_degrees());
+            }
+            None => debug!("locomotion: a script turns {r}, which is not drawn"),
+        }
+    }
 }
 
 /// Turn the actors with a [`TurnTo`]: the root about its parent's z, and the turn rate
@@ -1187,7 +1250,7 @@ type TurnTestActors = (Without<TurnTo>, Without<WalkTest>, Without<Dying>);
 pub fn turn_test(
     mut commands: Commands,
     mut test: ResMut<TurnTest>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     actors: Query<(Entity, &GlobalTransform, &Transform, &Locomotion), TurnTestActors>,
 ) {
     let Ok(cam) = camera.single() else { return };
@@ -1327,6 +1390,75 @@ pub fn walk_test(time: Res<Time>, mut q: Query<(&mut WalkTest, &mut Locomotion, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turn_moves_remove_exported_root_basis_at_the_pose_consumer() {
+        use fnv_nif::anim::{Channel, TransformTrack};
+        let basis = Quat::from_euler(EulerRot::XYZ, 1.1, 0.4, -0.3);
+        let root_track = Arc::new(TransformTrack {
+            translation: Channel::Static(Some([0.0; 3])),
+            rotation: Channel::Static(Some([basis.w, basis.x, basis.y, basis.z])),
+            euler: None, scale: Channel::Static(None), per_cycle: None,
+        });
+        let body_track = Arc::new(TransformTrack { rotation: Channel::Static(Some([1.0, 0.0, 0.0, 0.0])), ..(*root_track).clone() });
+        let mut clip = (*death_clip(1.0).clip).clone();
+        clip.accum_root = Some("Bip01".into());
+        clip.tracks = vec![("Bip01".into(), root_track), ("Bip01 NonAccum".into(), body_track)];
+        clip.priorities = vec![26, 26];
+        let clip = Arc::new(clip);
+        let skel = PreparedSkeleton {
+            names: vec![Some("Scene Root".into()), Some("Bip01".into()), Some("Bip01 NonAccum".into())],
+            by_name: std::collections::HashMap::from([("Bip01".into(), 1), ("Bip01 NonAccum".into(), 2)]),
+            ..default()
+        };
+        let nodes = (1..=3).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+        let mut player = BlendPlayer::new(nodes, Arc::new(vec![Transform::IDENTITY; 3]));
+        let mut out = Vec::new();
+        for mv in [Move::TurnLeft, Move::TurnRight, Move::Idle, Move::Forward, Move::Backward] {
+            let bound = Arc::new(bind_move(&skel, clip.clone(), mv));
+            player.layers[0] = Some(Layer { clip: bound, phase: 0.5, weight: 1.0 });
+            player.sample(&mut out);
+            let root = out.iter().find(|(i, _)| *i == 1).unwrap().1.rotation;
+            let expected = if mv.is_turn() { Quat::IDENTITY } else { basis };
+            assert!(root.dot(expected).abs() > 1.0 - 1e-6, "{mv:?}: {root:?}");
+            assert!(out.iter().find(|(i, _)| *i == 2).unwrap().1.rotation.dot(Quat::IDENTITY).abs() > 1.0 - 1e-6);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires local KF files in NVF_TURN_CLIP_DIR and NIF schema in NVF_NIF_SCHEMA"]
+    fn loaded_turn_assets_keep_accumulation_root_upright() {
+        use fnv_nif::anim::sequences;
+        use fnv_nif::scene::Decoded;
+        use fnv_nif::{NifFile, Schema};
+        let clips = std::path::PathBuf::from(std::env::var_os("NVF_TURN_CLIP_DIR").expect("NVF_TURN_CLIP_DIR"));
+        let schema_path = std::path::PathBuf::from(std::env::var_os("NVF_NIF_SCHEMA").expect("NVF_NIF_SCHEMA"));
+        let schema = Schema::load_dir(&schema_path).unwrap();
+        let skel = PreparedSkeleton {
+            by_name: std::collections::HashMap::from([("Bip01".into(), 1), ("Bip01 NonAccum".into(), 2)]),
+            ..default()
+        };
+        for (file, mv) in [("2haturnleft.kf", Move::TurnLeft), ("2haturnright.kf", Move::TurnRight), ("mtturnleft.kf", Move::TurnLeft), ("mtturnright.kf", Move::TurnRight)] {
+            let data = std::fs::read(clips.join(file)).unwrap();
+            let nif = NifFile::parse(&data, Some(&schema)).unwrap();
+            let decoded = Decoded::new(&nif, &data, &schema);
+            let sequence = sequences(&nif, &decoded).into_iter().next().expect("turn sequence");
+            let clip = Arc::new(nvf_assets::anim_play::Clip::from_sequence(&sequence));
+            assert_eq!(clip.accum_root.as_deref(), Some("Bip01"));
+            assert!(clip.tracks.iter().any(|(name, _)| name == "Bip01 NonAccum"));
+            let bound = Arc::new(bind_move(&skel, clip, mv));
+            let nodes = (1..=3).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+            let mut player = BlendPlayer::new(nodes, Arc::new(vec![Transform::IDENTITY; 3]));
+            let mut out = Vec::new();
+            for phase in [0.0, 0.25, 0.5, 0.75, 0.0] {
+                player.layers[0] = Some(Layer { clip: bound.clone(), phase, weight: 1.0 });
+                player.sample(&mut out);
+                let root = out.iter().find(|(i, _)| *i == 1).unwrap().1.rotation;
+                let up = root * Vec3::Z;
+                assert!(up.abs_diff_eq(Vec3::Z, 1e-4), "{file} at {phase}: root up {up:?}");
+            }
+        }
+    }
 
     #[test]
     fn walk_test_script() {
@@ -1471,11 +1603,11 @@ mod tests {
     /// A clip one second long with one track, on the corpse's bone.
     fn death_clip(x: f32) -> Arc<BoundClip> {
         use fnv_nif::anim::{Channel, TransformTrack};
-        let track = Arc::new(TransformTrack { translation: Channel::Static(Some([x, 0.0, 0.0])), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) });
+        let track = Arc::new(TransformTrack { translation: Channel::Static(Some([x, 0.0, 0.0])), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None });
         let clip = nvf_assets::anim_play::Clip {
             name: String::new(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0, tracks: Vec::new(), priorities: Vec::new(), skipped: 0, accum_root: None, text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(), free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
         };
-        Arc::new(BoundClip { clip: Arc::new(clip), tracks: vec![(0, track, 30)], root: None, root_track: None, carried: None })
+        Arc::new(BoundClip { clip: Arc::new(clip), tracks: vec![(0, track, 30)], root: None, root_track: None, carried: None, hold_xy: None, unbound: Default::default() })
     }
 
     /// One frame of `secs`: (tracks sampled so far, frames held so far, frames at the
@@ -1490,10 +1622,13 @@ mod tests {
     #[test]
     fn a_finished_death_pose_is_not_sampled_again() {
         let clip = death_clip(9.0);
-        let (mut world, id, _, bone) = corpse(&clip);
+        let (mut world, id, actor, bone) = corpse(&clip);
+        // [design, #2352] A living fallback must be discarded on the death path too.
+        world.get_mut::<BlendPlayer>(actor).unwrap().pose_only = Some(Layer { clip: death_clip(3.0), phase: 0.0, weight: 1.0 });
         let posed = Transform::from_xyz(9.0, 0.0, 0.0);
         // Playing: a pose a frame; the frame it reaches its end, the last.
         assert_eq!(frame(&mut world, id, 0.4), (1, 0, 0, 1));
+        assert!(world.get::<BlendPlayer>(actor).unwrap().pose_only.is_none());
         assert_eq!(frame(&mut world, id, 0.4), (2, 0, 0, 2));
         assert_eq!(frame(&mut world, id, 0.4), (3, 0, 1, 3));
         assert_eq!(*world.get::<Transform>(bone).unwrap(), posed);
@@ -1580,12 +1715,265 @@ mod tests {
         // Infos only (no bound tracks are needed to choose and blend).
         let bound = Arc::new(BoundClip { clip: Arc::new(nvf_assets::anim_play::Clip {
             name: String::new(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0, tracks: Vec::new(), priorities: Vec::new(), skipped: 0, accum_root: None, text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(), free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
-        }), tracks: Vec::new(), root: None, root_track: None, carried: None });
+        }), tracks: Vec::new(), root: None, root_track: None, carried: None, hold_xy: None, unbound: Default::default() });
         let mut s = ClipSet::default();
         for (m, duration, speed) in [(Move::Idle, 4.0, 0.0), (Move::Forward, 1.2, 85.26), (Move::Backward, 1.133, 67.44), (Move::TurnLeft, 1.0, 0.0), (Move::TurnRight, 1.0, 0.0)] {
             s.clips.insert(m, SetClip { bound: bound.clone(), info: ClipInfo { duration, speed, foot_phase: 0.3, blend_time: 0.2 }, path: format!("mt{}.kf", m.group()) });
         }
         Arc::new(s)
+    }
+
+    // [design, #2352] Synthetic idle: an animated wing (node 1), head (0), and root
+    // (2). The other clips drive the head; no game tracks are used.
+    fn wing_idle_set() -> Arc<ClipSet> {
+        use fnv_nif::anim::{Channel, Key, KeyKind, Keys};
+        let mut idle = Arc::try_unwrap(death_clip(1.0)).unwrap();
+        let mut wing = (*idle.tracks[0].1).clone();
+        wing.translation = Channel::Keys(Keys {
+            kind: KeyKind::Linear,
+            keys: [(0.0, [2.0, 0.0, 0.0]), (0.5, [6.0, 0.0, 0.0]), (1.0, [2.0, 0.0, 0.0])]
+                .map(|(time, value)| Key { time, value, forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }).to_vec(),
+        });
+        idle.tracks.push((1, Arc::new(wing), 45));
+        idle.tracks.push((2, idle.tracks[0].1.clone(), 30));
+        idle.root = Some(2);
+        let mut s = (*set()).clone();
+        let c = s.clips.get_mut(&Move::Idle).unwrap();
+        c.bound = Arc::new(idle);
+        c.info.duration = 1.0;
+        s.clips.get_mut(&Move::Forward).unwrap().bound = death_clip(3.0);
+        Arc::new(s)
+    }
+
+    #[test]
+    fn creature_idle_under_aim_attack_and_special_idle_only_drives_missing_bones() {
+        for slot in [2, crate::attack_anims::ATTACK_LAYER, crate::idles::IDLE_LAYER + 1] {
+            for moving in [false, true] {
+                let mut lo = Locomotion::new(wing_idle_set(), 0.0);
+                lo.idle_under = true;
+                if moving {
+                    lo.blend = Blend::new(Move::Forward, 0.0);
+                    lo.velocity = [0.0, 85.26];
+                }
+                let mut player = BlendPlayer::new(vec![Entity::PLACEHOLDER; 3], Arc::new(vec![Transform::IDENTITY; 3]));
+                lo.step(0.25);
+                lo.layers(&mut player);
+                let mut upper = Arc::try_unwrap(death_clip(9.0)).unwrap();
+                upper.tracks[0].2 = 60;
+                player.layers[slot] = Some(Layer { clip: Arc::new(upper), phase: 0.0, weight: 1.0 });
+                let under = lo.under_layer(&mut player).expect("idle under an upper clip");
+                assert_eq!(under.phase, 0.25);
+                assert_eq!(under.clip.tracks.iter().zip(&player.pose_only_mask.as_ref().unwrap().tracks).filter(|(_, enabled)| **enabled).map(|((i, _, _), _)| *i).collect::<Vec<_>>(), [1]);
+                assert!(under.clip.root.is_none());
+                let cached = under.clip.clone();
+                player.pose_only = Some(under);
+                assert!(Arc::ptr_eq(&cached, &lo.under_layer(&mut player).unwrap().clip));
+                let mut out = Vec::new();
+                player.sample(&mut out);
+                assert_eq!(out.iter().find(|(i, _)| *i == 0).unwrap().1.translation.x, 9.0);
+                assert_eq!(out.iter().find(|(i, _)| *i == 1).unwrap().1.translation.x, 4.0);
+                lo.step(0.25);
+                lo.layers(&mut player);
+                assert_eq!(lo.under_layer(&mut player).unwrap().phase, 0.5);
+            }
+        }
+    }
+
+    #[test]
+    fn creature_idle_under_special_idle_keeps_its_materials_and_animates_missing_bones() {
+        use fnv_nif::anim::{BoolTrack, Channel, ValueTrack};
+        use nvf_assets::anim_play::{EmitterTrack, LightTarget, LightTrack, MaterialTarget, MaterialTrack, OwnCycle};
+        use nvf_assets::material_anim::actor_material_values;
+
+        // [design, #2352] Synthetic equal-priority materials compete while the special
+        // idle omits the wing. No game tracks or material names are used.
+        let material = |alpha| MaterialTrack {
+            shape: "SyntheticPanel".into(),
+            target: MaterialTarget::Alpha,
+            values: Arc::new(ValueTrack::Float(Channel::Static(Some([alpha])))),
+            cycle: None,
+            priority: 20,
+        };
+        let mut set = (*wing_idle_set()).clone();
+        let idle = &mut set.clips.get_mut(&Move::Idle).unwrap().bound;
+        let bound_idle = Arc::get_mut(idle).unwrap();
+        let track = bound_idle.tracks[0].1.clone();
+        let source = Arc::make_mut(&mut bound_idle.clip);
+        source.materials.push(material(0.0));
+        // [design, #2352] Populate every non-pose payload with synthetic controllers
+        // so a future clone-and-strip fallback cannot silently retain one.
+        let shows = BoolTrack { value: Some(false), keys: Vec::new() };
+        let cycle = OwnCycle { start: 0.0, stop: 1.0, frequency: 1.0, phase: 0.0, cycle_type: 0 };
+        source.tracks.push(("SyntheticWing".into(), track.clone()));
+        source.priorities.push(45);
+        source.text_keys.push((0.1, "Sound: SyntheticBuzz".into()));
+        source.visibility.push(("SyntheticPanel".into(), 20, shows.clone()));
+        source.free_visibility.push(("SyntheticPanel".into(), shows.clone(), cycle));
+        source.free.push(("SyntheticWing".into(), track, cycle));
+        source.emitters.push(EmitterTrack { system: "SyntheticEmitter".into(), priority: 20, rate: None, active: Some(shows), modifiers: Vec::new() });
+        source.lights.push(LightTrack { light: "SyntheticLight".into(), target: LightTarget::Dimmer, values: material(0.0).values });
+        let set = Arc::new(set);
+        for slot in [crate::idles::IDLE_LAYER, crate::idles::IDLE_LAYER + 1] {
+            for moving in [false, true] {
+                let mut lo = Locomotion::new(set.clone(), 0.0);
+                lo.idle_under = true;
+                if moving {
+                    lo.blend = Blend::new(Move::Forward, 0.0);
+                    lo.velocity = [0.0, 85.26];
+                }
+                let mut player = BlendPlayer::new(vec![Entity::PLACEHOLDER; 3], Arc::new(vec![Transform::IDENTITY; 3]));
+                lo.step(0.25);
+                lo.layers(&mut player);
+                let mut special = Arc::try_unwrap(death_clip(9.0)).unwrap();
+                Arc::make_mut(&mut special.clip).materials.push(material(1.0));
+                player.layers[slot] = Some(Layer { clip: Arc::new(special), phase: 0.0, weight: 1.0 });
+                {
+                    let mut materials = Vec::new();
+                    actor_material_values(&player, &mut materials);
+                    assert_eq!(materials, [("SyntheticPanel", MaterialTarget::Alpha, [1.0; 3], 1.0)]);
+                }
+
+                let under = lo.under_layer(&mut player).expect("idle fills the omitted wing");
+                let view = &under.clip.clip;
+                assert!(view.materials.is_empty());
+                assert!(view.text_keys.is_empty());
+                assert!(view.visibility.is_empty());
+                assert!(view.free_visibility.is_empty());
+                assert!(view.emitters.is_empty());
+                assert!(view.lights.is_empty());
+                assert!(view.free.is_empty());
+                assert!(view.tracks.is_empty());
+                assert!(view.priorities.is_empty());
+                player.pose_only = Some(under);
+                let mut materials = Vec::new();
+                actor_material_values(&player, &mut materials);
+                assert_eq!(materials, [("SyntheticPanel", MaterialTarget::Alpha, [1.0; 3], 1.0)]);
+                assert_eq!(lo.set.clips[&Move::Idle].bound.clip.materials.len(), 1);
+                assert_eq!(player.layers[slot].as_ref().unwrap().clip.clip.materials.len(), 1);
+                let mut bones = Vec::new();
+                player.sample(&mut bones);
+                assert_eq!(bones.iter().find(|(i, _)| *i == 1).unwrap().1.translation.x, 4.0);
+            }
+        }
+    }
+
+    #[test]
+    fn creature_idle_under_layer_gates_and_refreshes_for_upper_clip_changes() {
+        let mut lo = Locomotion::new(wing_idle_set(), 0.0);
+        let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
+        player.layers[2] = Some(Layer { clip: death_clip(9.0), phase: 0.0, weight: 1.0 });
+        assert!(lo.under_layer(&mut player).is_none(), "people have no under-layer");
+        lo.idle_under = true;
+        let old = lo.under_layer(&mut player).unwrap().clip;
+        let mut upper = Arc::try_unwrap(death_clip(8.0)).unwrap();
+        upper.tracks.push((1, upper.tracks[0].1.clone(), 60));
+        player.layers[4] = Some(Layer { clip: Arc::new(upper), phase: 0.0, weight: 1.0 });
+        assert_eq!(lo.under_layer(&mut player).unwrap().weight, 0.0, "all non-root idle bones are driven");
+        assert_eq!(player.pose_only_mask.as_ref().unwrap().tracks, [false, false]);
+        for weight in [0.0, f32::NAN] {
+            player.layers[4].as_mut().unwrap().weight = weight;
+            let next = lo.under_layer(&mut player).unwrap();
+            assert_eq!(next.weight, 1.0);
+            assert!(Arc::ptr_eq(&old, &next.clip), "mask changes preserve the BoundClip allocation");
+            assert!(Arc::ptr_eq(&old.clip, &next.clip.clip), "mask changes preserve the timing-only source");
+            assert_eq!(player.pose_only_mask.as_ref().unwrap().tracks, [false, true]);
+        }
+        player.layers = Default::default();
+        assert_eq!(lo.under_layer(&mut player).unwrap().weight, 0.0, "no upper clip needs fallback poses");
+        player.layers[2] = Some(Layer { clip: death_clip(9.0), phase: 0.0, weight: 1.0 });
+        lo.set = wing_idle_set();
+        let next = lo.under_layer(&mut player).unwrap().clip;
+        assert!(!Arc::ptr_eq(&old, &next), "a different idle refreshes playback identity");
+        assert!(!Arc::ptr_eq(&old.clip, &next.clip), "a different idle refreshes the timing-only source");
+        let mut no_idle = (*lo.set).clone();
+        no_idle.clips.remove(&Move::Idle);
+        lo.set = Arc::new(no_idle);
+        assert!(lo.under_layer(&mut player).is_none(), "sets without Idle get no fallback");
+        assert!(player.pose_only_mask.is_none());
+    }
+
+    #[test]
+    fn creature_idle_under_accumulating_rotation_survives_upper_and_mask_changes() {
+        use fnv_nif::anim::{Channel, Key, KeyKind, Keys};
+        // [design, #2352] Synthetic 100-degree cycle on a wing and a part node.
+        // Three wraps leave a visible 300-degree accumulation, unlike cycle zero.
+        let q = |degrees: f32| Quat::from_rotation_z(degrees.to_radians());
+        let mut set = (*wing_idle_set()).clone();
+        let idle = Arc::get_mut(&mut set.clips.get_mut(&Move::Idle).unwrap().bound).unwrap();
+        let mut spin = (*idle.tracks[1].1).clone();
+        spin.rotation = Channel::Keys(Keys {
+            kind: KeyKind::Linear,
+            keys: (0..=4).map(|k| {
+                let r = q(25.0 * k as f32);
+                Key { time: k as f32 / 4.0, value: [r.w, r.x, r.y, r.z], forward: [0.0; 4], backward: [0.0; 4], tbc: [0.0; 3] }
+            }).collect(),
+        });
+        let delta = q(100.0);
+        spin.per_cycle = Some([delta.w, delta.x, delta.y, delta.z]);
+        let spin = Arc::new(spin);
+        idle.tracks[1].1 = spin.clone();
+        idle.unbound = Arc::new(vec![("SyntheticPart".into(), spin, 45)]);
+        let set = Arc::new(set);
+        let mut lo = Locomotion::new(set, 0.0);
+        lo.idle_under = true;
+        let mut player = BlendPlayer::new(vec![Entity::PLACEHOLDER; 3], Arc::new(vec![Transform::IDENTITY; 3]));
+        player.add_part_node("syntheticpart", Entity::PLACEHOLDER, Transform::IDENTITY);
+        let aim = death_clip(9.0);
+        let mut attack = Arc::try_unwrap(death_clip(8.0)).unwrap();
+        attack.unbound = Arc::new(vec![("SYNTHETICPART".into(), attack.tracks[0].1.clone(), 60)]);
+        let attack = Arc::new(attack);
+        let mut covers_all = Arc::try_unwrap(death_clip(7.0)).unwrap();
+        covers_all.tracks.push((1, covers_all.tracks[0].1.clone(), 60));
+        covers_all.unbound = attack.unbound.clone();
+        let covers_all = Arc::new(covers_all);
+        let mut out = Vec::new();
+        let mut identity = None;
+        let same = |a: Quat, b: Quat| a.dot(b).abs() > 1.0 - 1e-5;
+        let mut sample = |lo: &mut Locomotion, player: &mut BlendPlayer, upper: Option<&Arc<BoundClip>>, elapsed: f32| {
+            lo.under.phase = elapsed.fract();
+            player.layers[2] = upper.map(|c| Layer { clip: c.clone(), phase: 0.0, weight: 1.0 });
+            player.pose_only = lo.under_layer(player);
+            let clip = player.pose_only.as_ref().unwrap().clip.clone();
+            if let Some(old) = &identity {
+                assert!(Arc::ptr_eq(old, &clip));
+            } else {
+                identity = Some(clip);
+            }
+            player.sample(&mut out);
+            out.clone()
+        };
+        // [design, #2352] Quarter-cycle samples let Loops see every wrap.
+        for step in 3..=12 {
+            let elapsed = step as f32 / 4.0;
+            let pose = sample(&mut lo, &mut player, Some(&aim), elapsed);
+            for node in [1, 3] {
+                assert!(same(pose.iter().find(|(i, _)| *i == node).unwrap().1.rotation, q(100.0 * elapsed)));
+            }
+        }
+        let pose = sample(&mut lo, &mut player, Some(&attack), 3.25);
+        assert_eq!(player.pose_only_mask.as_ref().unwrap().unbound, [false]);
+        assert!(same(pose.iter().find(|(i, _)| *i == 1).unwrap().1.rotation, q(325.0)));
+        assert!(same(pose.iter().find(|(i, _)| *i == 3).unwrap().1.rotation, Quat::IDENTITY));
+        // [design, #2352] A fully covered interval and an interval without uppers
+        // retain the same timeline even though fallback tracks contribute nothing.
+        for step in 14..=16 {
+            sample(&mut lo, &mut player, Some(&covers_all), step as f32 / 4.0);
+            assert_eq!(player.pose_only.as_ref().unwrap().weight, 0.0);
+        }
+        for step in 17..=20 {
+            sample(&mut lo, &mut player, None, step as f32 / 4.0);
+            assert_eq!(player.pose_only.as_ref().unwrap().weight, 0.0);
+        }
+        let pose = sample(&mut lo, &mut player, Some(&aim), 5.25);
+        for node in [1, 3] {
+            assert!(same(pose.iter().find(|(i, _)| *i == node).unwrap().1.rotation, q(525.0)));
+        }
+        let before = player.pose_only.as_ref().unwrap().clip.clone();
+        lo.set = wing_idle_set();
+        player.pose_only = lo.under_layer(&mut player);
+        assert!(!Arc::ptr_eq(&before, &player.pose_only.as_ref().unwrap().clip));
+        player.sample(&mut out);
+        assert!(same(out.iter().find(|(i, _)| *i == 1).unwrap().1.rotation, Quat::IDENTITY));
     }
 
     /// `base` with the clips of `moves` (move, file) put in, at the same infos.

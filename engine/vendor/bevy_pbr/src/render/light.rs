@@ -179,10 +179,20 @@ bitflags::bitflags! {
         const VOLUMETRIC                        = 1 << 1;
         const AFFECTS_LIGHTMAPPED_MESH_DIFFUSE  = 1 << 2;
         const CONTACT_SHADOWS_ENABLED           = 1 << 3;
+        // NVForever sun visibility: the light is the outdoor sun ([`NvfOutdoorSun`]).
+        const NVF_OUTDOOR_SUN                   = 1 << 4;
         const NONE                              = 0;
         const UNINITIALIZED                     = 0xFFFF;
     }
 }
+
+/// NVForever sun visibility (2026-11-17, engine/vendor/README.md). On the render-world
+/// entity of a directional light, it marks that light as the outdoor sun:
+/// `prepare_lights` sets `DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT` in its GPU flags,
+/// so a shader can tell it from every other directional light without assuming an index.
+/// Bevy inserts none; without it the flags are as upstream's.
+#[derive(Component, Clone, Copy, Default, Debug)]
+pub struct NvfOutdoorSun;
 
 #[derive(Copy, Clone, ShaderType, Default, Debug)]
 pub struct GpuRectLight {
@@ -1124,6 +1134,14 @@ pub fn prepare_lights(
         ResMut<LightKeyCache>,
         ResMut<SpecializedShadowMaterialPipelineCache>,
     ),
+    // NVForever held shadow maps: the hold, and the directional shadow texture of the last
+    // frame (see where the texture is taken below).
+    (mut hold_directional, mut last_directional_texture, nvf_outdoor_sun): (
+        Option<ResMut<HoldDirectionalShadowMaps>>,
+        Local<Option<TextureId>>,
+        // NVForever sun visibility: the light marked as the outdoor sun.
+        Query<(), With<NvfOutdoorSun>>,
+    ),
 ) {
     let views_iter = views.iter();
     let views_count = views_iter.len();
@@ -1551,6 +1569,28 @@ pub fn prepare_lights(
         },
     );
 
+    // NVForever held shadow maps: a held cascade samples what an earlier frame drew into
+    // this texture, so it can only be held when the texture is the one the last frame drew
+    // into. The cache hands out another one whenever the descriptor changes (a shadowed spot
+    // light, such as the player's flashlight, switched on or off changes the layer count) or
+    // the old one was dropped; that frame draws every cascade, with the matrices the main
+    // world gave the held ones, which are then what the following frames hold.
+    let directional_texture_id = directional_light_depth_texture.texture.id();
+    if *last_directional_texture != Some(directional_texture_id) {
+        if let Some(hold) = hold_directional.as_deref_mut() {
+            if last_directional_texture.is_some() {
+                bevy_log::info!(
+                    "held shadow maps: a new directional shadow texture ({} layers): every cascade drawn this frame",
+                    (num_directional_cascades_enabled + spot_light_shadow_maps_count).max(1)
+                );
+            }
+            if hold.0 != 0 {
+                hold.0 = 0;
+            }
+        }
+        *last_directional_texture = Some(directional_texture_id);
+    }
+
     let directional_light_depth_texture_view =
         directional_light_depth_texture
             .texture
@@ -1809,6 +1849,11 @@ pub fn prepare_lights(
 
             if light.affects_lightmapped_mesh_diffuse {
                 flags |= DirectionalLightFlags::AFFECTS_LIGHTMAPPED_MESH_DIFFUSE;
+            }
+
+            // NVForever sun visibility.
+            if nvf_outdoor_sun.contains(*light_entity) {
+                flags |= DirectionalLightFlags::NVF_OUTDOOR_SUN;
             }
 
             gpu_directional_lights[index] = GpuDirectionalLight {
@@ -2943,9 +2988,40 @@ pub fn shared_shadow_pass<const IS_LATE: bool>(
 /// Renders the shadow maps that are associated with a specific view.
 ///
 /// At present, these consist of the directional light shadows.
+/// NVForever held shadow maps (2026-11-10, engine/vendor/README.md). The cascades of
+/// directional lights whose bit is set in this render-world resource (bit `i` for cascade
+/// index `i`) are not drawn this frame: the shadow pass skips their views
+/// ([`per_view_shadow_pass`]), and so do the compute passes that prepare those views' draws
+/// (gpu_preprocess.rs `gather_shadow_cascades_for_view`). Their maps keep what the last
+/// frame that drew them left in them, so whoever sets it must also give the lights those
+/// cascades as that frame had them (the game: nvforever shadow_rate.rs). Point and spot
+/// lights' maps are drawn as ever. Bevy inserts none; without it nothing changes.
+#[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct HoldDirectionalShadowMaps(pub u32);
+
+impl HoldDirectionalShadowMaps {
+    /// Every cascade held.
+    pub const ALL: Self = Self(u32::MAX);
+
+    /// Whether cascade `index`'s map is kept from an earlier frame.
+    pub fn holds(&self, index: usize) -> bool {
+        index < 32 && self.0 & (1 << index) != 0
+    }
+}
+
+impl bevy_render::extract_resource::ExtractResource<RenderApp> for HoldDirectionalShadowMaps {
+    type Source = HoldDirectionalShadowMaps;
+    fn extract_resource(source: &Self::Source) -> Self {
+        *source
+    }
+}
+
 pub fn per_view_shadow_pass<const IS_LATE: bool>(
     world: &World,
     view: ViewQuery<&ViewLightEntities>,
+    // NVForever held shadow maps.
+    hold_directional: Option<Res<HoldDirectionalShadowMaps>>,
+    light_entities: Query<&LightEntity>,
     view_light_query: Query<(
         &ShadowView,
         &ExtractedView,
@@ -2968,7 +3044,14 @@ pub fn per_view_shadow_pass<const IS_LATE: bool>(
     let diagnostics = diagnostics.as_deref();
     let time_span = diagnostics.time_span(ctx.command_encoder(), "per_view_shadow_pass");
 
+    let hold_directional = hold_directional.map_or(HoldDirectionalShadowMaps(0), |hold| *hold);
     for view_light_entity in view_lights.lights.iter().copied() {
+        // NVForever held shadow maps: a held cascade's map keeps an earlier frame's picture.
+        if let Ok(LightEntity::Directional { cascade_index, .. }) = light_entities.get(view_light_entity)
+            && hold_directional.holds(*cascade_index)
+        {
+            continue;
+        }
         let Ok((
             view_light,
             extracted_light_view,

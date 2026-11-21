@@ -60,7 +60,6 @@ use crate::head_look::{HeadLook, NoHeadLook};
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::ragdoll::Corpse;
-use crate::reflection::ReflectionCamera;
 
 /// The `.lip` modifier channels applied to morphs (with every mouth shape).
 pub const DRIVEN_MODIFIERS: [&str; 14] = [
@@ -384,6 +383,17 @@ pub fn morphed(base: &[[f32; 3]], morphs: &[(usize, Displacement)], weights: &We
     out
 }
 
+/// Whether `morphed(base, morphs, after)` can differ from `morphed(base, morphs, before)`:
+/// a slot of the shape's own morphs whose weight, as `morphed` applies it (nothing below
+/// [`SMALL`]), changed. When not, the shape's mesh already holds the positions and is not
+/// written: writing a mesh sends it whole to the GPU again and has every entity drawing it
+/// checked for its pipeline once more, and a blink or a glance moves only the lids' or the
+/// eyes' morphs [design].
+pub fn shape_changed(morphs: &[(usize, Displacement)], before: &Weights, after: &Weights) -> bool {
+    let applied = |w: f32| if w.abs() < SMALL { 0.0 } else { w };
+    morphs.iter().any(|(s, _)| applied(before[*s]) != applied(after[*s]))
+}
+
 /// The `.lip` weights to show `t` seconds after the sound started: the file's frames
 /// around that moment, nothing before the sound starts or after the last frame, scaled
 /// by `ease` (1 while the line is said). Channels neither applied to morphs nor turning
@@ -441,6 +451,9 @@ struct Moving {
     mesh: Handle<Mesh>,
     base: Vec<[f32; 3]>,
     morphs: Vec<(usize, Displacement)>,
+    /// The weights its mesh was last written with (all 0: the base positions it is made
+    /// with).
+    shown: Weights,
 }
 
 /// The head bone of a face.
@@ -498,6 +511,29 @@ impl Speaking {
     }
 }
 
+/// How long a response's speaker that has no face rig yet is looked for again (real
+/// seconds): one enabled by the script that starts the conversation is drawn some frames
+/// later, once its parts are read (#2616) [engineering choice].
+const RIG_WAIT_SECONDS: f64 = 1.5;
+
+/// Whether a response's speaker without a face rig is looked for again next frame: for
+/// [`RIG_WAIT_SECONDS`] from the first look at that response (`unrigged` keeps it), then
+/// the response is skipped and forgotten.
+fn wait_for_rig(unrigged: &mut HashMap<FormId, (String, f64, f64)>, speaker: FormId, path: &str, started_at: f64, now: f64) -> bool {
+    let since = match unrigged.get(&speaker) {
+        Some((p, t, since)) if p == path && *t == started_at => *since,
+        _ => {
+            unrigged.insert(speaker, (path.to_string(), started_at, now));
+            now
+        }
+    };
+    if now - since < RIG_WAIT_SECONDS {
+        return true;
+    }
+    unrigged.remove(&speaker);
+    false
+}
+
 #[derive(Resource)]
 pub struct LipState {
     pub enabled: bool,
@@ -511,6 +547,9 @@ pub struct LipState {
     /// (speaker, path, start) of the response last looked at per speaker, animated or
     /// skipped, so that each is handled and logged once.
     seen: HashMap<FormId, (String, f64)>,
+    /// Speakers of a response just started with no face rig drawn yet: (path, start, real
+    /// time of the first look), looked for again for [`RIG_WAIT_SECONDS`].
+    unrigged: HashMap<FormId, (String, f64, f64)>,
     /// The head bones turned this frame: (node, rotation before, rotation written).
     written_heads: Vec<(Entity, Quat, Quat)>,
     hold: Option<Weights>,
@@ -542,6 +581,12 @@ pub struct LipState {
 }
 
 impl LipState {
+    /// The meshes the moving faces are drawn from (the profile aid's `profile change
+    /// sources:` line).
+    pub fn face_meshes(&self) -> impl Iterator<Item = AssetId<Mesh>> + '_ {
+        self.faces.values().flat_map(|f| f.shapes.iter().map(|m| m.mesh.id()))
+    }
+
     fn new(enabled: bool, idle: bool, hold: Option<Weights>) -> LipState {
         LipState {
             enabled,
@@ -551,6 +596,7 @@ impl LipState {
             faces: HashMap::new(),
             speaking: HashMap::new(),
             seen: HashMap::new(),
+            unrigged: HashMap::new(),
             written_heads: Vec::new(),
             hold,
             animated: 0,
@@ -626,7 +672,7 @@ fn prepare(st: &mut LipState, rig: &LipRig, world: &ActorWorld, data: &GameData,
         mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, base.clone());
         count += morphs.len();
-        out.push(Moving { entity: s.entity, rest: s.rest.clone(), mesh: meshes.add(mesh), base, morphs });
+        out.push(Moving { entity: s.entity, rest: s.rest.clone(), mesh: meshes.add(mesh), base, morphs, shown: [0.0; SLOTS] });
     }
     (out, count)
 }
@@ -741,7 +787,7 @@ fn drive(
     data: Res<GameData>,
     mut meshes: ResMut<Assets<Mesh>>,
     rigs: Rigs,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
 ) {
     let st = &mut *state;
     let Some(world) = world else { return };
@@ -801,10 +847,20 @@ fn drive(
             }
         };
         let Some((root, actor, rig, ..)) = rigs.iter().find(|r| r.1.reference == speaker.0) else {
+            // An actor the script that started the conversation enabled in the same frame
+            // is drawn a few frames later (#2616): its face is looked for again for a
+            // moment, and its mouth then follows the line from where the sound is.
+            if wait_for_rig(&mut st.unrigged, *speaker, path, *started_at, now) {
+                st.seen.remove(speaker);
+                continue;
+            }
             st.skipped += 1;
             info!("lip: skipped {lip_path}: speaker {who} has no face rig here (a creature, a robot, an activator, or not drawn)");
             continue;
         };
+        if let Some((_, _, since)) = st.unrigged.remove(speaker) {
+            info!("lip: speaker {who} drawn {:.2} s after its response started: its face follows {lip_path} from there", now - since);
+        }
         let Some((shapes, morphs)) = ensure_face(st, &mut commands, root, actor, rig, &world, &data, &mut meshes, clock) else {
             st.skipped += 1;
             info!("lip: skipped {lip_path}: speaker {who} has no shape with morphs");
@@ -985,9 +1041,14 @@ fn drive(
             continue;
         }
         face.last = w;
-        for m in &face.shapes {
+        for m in &mut face.shapes {
+            // Only the shapes whose own morphs moved (`get_mut` alone marks a mesh changed).
+            if !shape_changed(&m.morphs, &m.shown, &w) {
+                continue;
+            }
             if let Some(mut mesh) = meshes.get_mut(&m.mesh) {
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, morphed(&m.base, &m.morphs, &w));
+                m.shown = w;
             }
         }
     }
@@ -1211,6 +1272,22 @@ impl Plugin for LipsPlugin {
 mod tests {
     use super::*;
 
+    /// #2616: a speaker enabled in the frame its conversation starts is drawn a few
+    /// frames later; its response waits for the face rig that long, then gives up.
+    #[test]
+    fn a_speaker_drawn_late_is_waited_for_then_given_up() {
+        let mut un = HashMap::new();
+        let (who, path) = (FormId(0x0013_CA6B), "sound/voice/a.ogg");
+        assert!(wait_for_rig(&mut un, who, path, 10.0, 10.0), "the first look waits");
+        assert!(wait_for_rig(&mut un, who, path, 10.0, 10.0 + RIG_WAIT_SECONDS - 0.01), "still within the wait");
+        assert!(!wait_for_rig(&mut un, who, path, 10.0, 10.0 + RIG_WAIT_SECONDS), "given up after the wait");
+        assert!(un.is_empty(), "forgotten once given up");
+        // Another response of the same speaker has a wait of its own, from its first look.
+        assert!(wait_for_rig(&mut un, who, path, 10.0, 20.0));
+        assert!(wait_for_rig(&mut un, who, "sound/voice/b.ogg", 21.0, 22.0));
+        assert!(wait_for_rig(&mut un, who, "sound/voice/b.ogg", 21.0, 22.0 + RIG_WAIT_SECONDS - 0.1), "counted from the new response's first look");
+    }
+
     fn lip(start: i32, frames: Vec<[f32; CHANNELS]>) -> Lip {
         Lip { version: 1, flag: 1, start_frame: start, frames }
     }
@@ -1290,6 +1367,25 @@ mod tests {
         assert_eq!(p, vec![[1.0, 2.0, 1.0], [2.25, 2.0, 1.0], [3.0, 4.0, 3.0]]);
         // At rest nothing moves.
         assert_eq!(morphed(&base, &morphs, &[0.0; SLOTS]), base);
+    }
+
+    #[test]
+    fn a_shape_is_written_only_when_its_own_morphs_move() {
+        let base = vec![[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]];
+        let lids = vec![(0usize, vec![(0u32, [0.0, 0.0, -1.0])])];
+        let eyes = vec![(2usize, vec![(1u32, [1.0, 0.0, 0.0])])];
+        let before = weights(&[(0, 0.5), (2, 0.25)]);
+        // Only slot 2 moved: the lids' shape is unchanged, the eyes' is not.
+        let after = weights(&[(0, 0.5), (2, 0.5), (7, 1.0)]);
+        assert!(!shape_changed(&lids, &before, &after));
+        assert!(shape_changed(&eyes, &before, &after));
+        // Unchanged means the same positions, bit for bit.
+        assert_eq!(morphed(&base, &lids, &before), morphed(&base, &lids, &after));
+        // Weights below SMALL move nothing, whatever their value.
+        let tiny = weights(&[(0, SMALL * 0.5)]);
+        assert!(!shape_changed(&lids, &[0.0; SLOTS], &tiny));
+        assert_eq!(morphed(&base, &lids, &tiny), base);
+        assert!(shape_changed(&lids, &tiny, &weights(&[(0, SMALL * 2.0)])));
     }
 
     #[test]

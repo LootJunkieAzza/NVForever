@@ -22,6 +22,8 @@ fnv-save.workspace = true
 infinitier_bik_decoder = { workspace = true, optional = true }
 fnv-install.workspace = true
 fnv-util.workspace = true
+# The settings page's tabs, categories and row order, shared with the launcher (settings_layout.rs).
+nvf-settings-layout.workspace = true
 fnv-combat.workspace = true
 fnv-actor.workspace = true
 fnv-voice.workspace = true
@@ -44,7 +46,15 @@ rodio = { version = "0.22", default-features = false, features = ["mp3", "vorbis
 png = "0.18"
 
 [features]
+# [design, #2403] Synthetic private-screen fixtures for cross-crate reports tests only.
+report-test-support = []
 default = ["intro-video"]
+# [design, #2652] Synthetic runtime fixtures for downstream engine tests.
+test-support = []
 # The intro film before a new game (src/intro.rs); its Bink decoder is GPL-3.0-or-later,
 # as NVForever is (owner decision 2026-10-15).
 intro-video = ["dep:infinitier_bik_decoder"]
+
+[dev-dependencies]
+# Exercises the production native-result consumer without creating an OS window.
+bevy_winit = { version = "=0.20.1", features = ["cursor-test-support"] }

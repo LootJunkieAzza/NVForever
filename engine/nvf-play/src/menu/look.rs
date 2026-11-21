@@ -60,6 +60,14 @@ const ARROW: Vec2 = Vec2::new(17.5, 35.0);
 const FIGURE_RIGHT: f32 = 449.0;
 const CORNER: f32 = 40.0;
 const FOOTER_Y: f32 = 480.0;
+/// The controller's hint under each list, the button that picks it: the files'
+/// `*_Items_TitleButton` (LT) 15 in and `*_Container_TitleButton` (RT) 364 in from the
+/// half's left, 440 under its top, 85 square, shown only with a controller (`&xbox;`)
+/// [documented: container_menu.xml, barter_menu.xml; the hint drawn as text centred in
+/// the square in place of the button's picture: design, #1827].
+const PICK_HINT_X: [f32; 2] = [15.0, 364.0];
+const PICK_HINT_Y: f32 = 440.0;
+const PICK_HINT: f32 = 85.0;
 /// The bottom bracket, 820 down the screen.
 const BRACKET_Y: f32 = 740.0;
 /// Accept / Take All and Exit: right-aligned at 1034 less the box's 10, 670 down the
@@ -155,11 +163,32 @@ fn first_line(font: &Font, s: &str) -> Line {
 /// other categories is not observed].
 pub fn half_title(m: &MenuModel, side: Side) -> String {
     let c = m.category[side as usize];
+    // The player's tweak: "Weapons", not "WEAPONS" [design: docs/design/tweaks.md].
+    let title = |t: &str| if m.title_case_categories { title_case(t) } else { t.to_string() };
     match side {
-        Side::Player => c.title().into(),
+        Side::Player => title(c.title()),
         Side::Container if c == Category::All => m.title.clone(),
-        Side::Container => c.title().into(),
+        Side::Container => title(c.title()),
     }
+}
+
+/// Whether taking the container's selected row would put the player over the carry
+/// limit (the Weight Warning tweak; only the player's half of a container).
+fn over_if_taken(m: &MenuModel, side: Side) -> bool {
+    if !m.warn_encumbrance || side != Side::Player || !matches!(m.mode, Mode::Container(_)) {
+        return false;
+    }
+    let Ok(e) = m.encumbrance.as_ref() else { return false };
+    let row = m.list(Side::Container).rows.get(m.selected[Side::Container as usize]);
+    row.and_then(|r| r.weight.map(|w| w * r.count.max(1) as f32)).is_some_and(|w| e.weight + f64::from(w) > e.capacity)
+}
+
+/// `WEAPONS` as `Weapons`: each word's first letter kept, the rest lower case.
+fn title_case(t: &str) -> String {
+    t.split(' ').map(|w| {
+        let mut c = w.chars();
+        c.next().map_or_else(String::new, |f| f.to_string() + &c.as_str().to_lowercase())
+    }).collect::<Vec<_>>().join(" ")
 }
 
 /// A row's text: the name, and the count when there is more than one [observed].
@@ -175,6 +204,12 @@ pub fn row_text(r: &Row) -> String {
 /// player's weight in a container's [observed: "Caps 35877", "Wg 35/165"].
 pub fn half_figure(m: &MenuModel, side: Side) -> Option<String> {
     match (m.mode, side, &m.trade) {
+        // The player's tweak: the caps after the trade beside those now (our words) [design: docs/design/tweaks.md].
+        (Mode::Barter(_), _, Some(t)) if m.barter_caps_change && t.balance != 0 => {
+            let now = i64::from(t.purse[side as usize]);
+            let after = if side == Side::Player { now + t.paid() } else { now - t.paid() };
+            Some(format!("Caps  {now} (to {after})"))
+        }
         (Mode::Barter(_), _, Some(t)) => Some(format!("Caps  {}", t.purse[side as usize])),
         (Mode::Container(_), Side::Player, _) => {
             m.encumbrance.as_ref().ok().map(|e| format!("Wg  {:.0}/{:.0}", e.weight, e.capacity))
@@ -285,9 +320,9 @@ pub fn rows_marker(rows: usize, first: usize, page: usize, track: f32) -> Option
 /// menu's list of whole rows: `BAR_W` wide at `x`, `y`, `height` high. Nothing when the
 /// list fits.
 #[allow(clippy::too_many_arguments)]
-pub fn spawn_rows_bar(p: &mut ChildSpawnerCommands, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, (x, y, height): (f32, f32, f32), rows: usize, first: usize, page: usize) {
+pub fn spawn_rows_bar(p: &mut ChildSpawnerCommands, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs, (x, y, height): (f32, f32, f32), rows: usize, first: usize, page: usize) {
     let Some((my, mh)) = rows_marker(rows, first, page, height - 2.0 * BAR_ARROW) else { return };
-    let mut c = Ctx { kit, data, images, bc };
+    let mut c = Ctx { kit, data, images, bc, glyphs };
     let bright = amber(255.0);
     c.image(p, "arrow_up.dds", at(x, y, BAR_W, BAR_ARROW), bright);
     c.image(p, "arrow_down.dds", at(x, y + height - BAR_ARROW, BAR_W, BAR_ARROW), bright);
@@ -304,6 +339,7 @@ struct Ctx<'a> {
     data: Option<&'a GameData>,
     images: &'a mut Assets<Image>,
     bc: bool,
+    glyphs: &'a crate::pad::PadGlyphs,
 }
 
 impl Ctx<'_> {
@@ -338,21 +374,22 @@ impl Ctx<'_> {
     #[allow(clippy::too_many_arguments)]
     fn text(&mut self, p: &mut ChildSpawnerCommands, title: bool, s: &str, x: f32, top: f32, align: Align, color: Color) -> f32 {
         let face = if title { &self.kit.title } else { &self.kit.body };
-        let line = first_line(&face.font, s);
+        let width = crate::pad::hint_width(face, s, self.glyphs);
         let x = match align {
             Align::Left => x,
-            Align::Right => x - line.width,
-            Align::Centre => x - line.width / 2.0,
+            Align::Right => x - width,
+            Align::Centre => x - width / 2.0,
         };
-        set_line(p, face, &line, x, top + if title { TITLE_BASE } else { BODY_BASE }, color);
-        line.width
+        let base = top + if title { TITLE_BASE } else { BODY_BASE };
+        crate::pad::set_hint(p, face, s, x, base, color, self.glyphs);
+        width
     }
 }
 
 /// Spawn the menu under `root`. `note`: the line under the menu.
 #[allow(clippy::too_many_arguments)]
-pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>, info: Option<&Info>, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
-    let mut c = Ctx { kit, data, images, bc };
+pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>, info: Option<&Info>, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
+    let mut c = Ctx { kit, data, images, bc, glyphs };
     let bright = amber(255.0);
     let main = Node {
         width: crate::interface::u(MAIN.x),
@@ -377,7 +414,9 @@ pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>,
         match (m.mode, &m.trade) {
             (Mode::Barter(_), Some(t)) => {
                 if let Some(flow) = barter::flow(t.balance) {
-                    caps_flow(p, &mut c, flow, t.paid().unsigned_abs(), t.affordable());
+                    // The player's tweak: the whole total, past the merchant's caps [design: docs/design/tweaks.md].
+                    let shown = if m.full_barter_total { t.balance } else { t.paid() };
+                    caps_flow(p, &mut c, flow, shown.unsigned_abs(), t.affordable());
                 }
             }
             (Mode::Container(_), _) if m.selected_row(m.focus).is_some() => {
@@ -399,8 +438,8 @@ pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>,
 
 /// [design: barter-menu.md section 9] Keep the model's own refusal note over the tiled
 /// barter view, whose file has no subtitle tile, at the existing hand-built place.
-pub fn spawn_note(root: &mut ChildSpawnerCommands, note: &str, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
-    let mut c = Ctx { kit, data, images, bc };
+pub fn spawn_note(root: &mut ChildSpawnerCommands, note: &str, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
+    let mut c = Ctx { kit, data, images, bc, glyphs };
     root.spawn(Node { width: crate::interface::u(MAIN.x), height: crate::interface::u(MAIN.y), ..default() }).with_children(|p| {
         c.text(p, false, note, MAIN.x / 2.0, NOTE_Y + (31.0 + 20.0) / 2.0 + 20.0, Align::Centre, amber(255.0));
     });
@@ -426,14 +465,37 @@ fn half(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side) {
     p.spawn((at(x0 + zone_x, TOP - 10.0, zone_w, ARROW.y), FocusPolicy::Pass, PointerState::default(), CategoryTitle(side)));
     c.line(p, x0 + line_x, TOP, line_len, THICK, bright);
     if let Some(f) = half_figure(m, side) {
-        c.text(p, false, &f, x0 + FIGURE_RIGHT, TOP + 20.0, Align::Right, bright);
+        // The player's tweak: the weight in red when taking the container's selected row
+        // would put the player over [design: docs/design/tweaks.md].
+        let colour = if over_if_taken(m, side) { crate::reticle::crime_colour() } else { bright };
+        c.text(p, false, &f, x0 + FIGURE_RIGHT, TOP + 20.0, Align::Right, colour);
     }
     c.fade(p, x0 + HALF_W - THICK, TOP, false, bright);
     // The footer.
     c.fade(p, x0, TOP + FOOTER_Y - CORNER, true, bright);
     c.line(p, x0, TOP + FOOTER_Y, HALF_W, THICK, bright);
     c.fade(p, x0 + HALF_W - THICK, TOP + FOOTER_Y - CORNER, true, bright);
+    if let Some(hint) = pick_hint(m.mode, side, crate::pad::labels()) {
+        let x = x0 + PICK_HINT_X[side as usize] + PICK_HINT / 2.0;
+        c.text(p, false, &hint, x, TOP + PICK_HINT_Y + PICK_HINT / 2.0 - BODY_BASE, Align::Centre, bright);
+    }
     list(p, c, m, side, x0);
+}
+
+/// The hint under a half with a controller in use (labels `l`): the button that picks
+/// that list, "LT)" under the player's and "RT)" under the other ([`PICK_HINT_X`]).
+/// None with the keyboard, as the original shows none.
+pub fn pick_hint(mode: Mode, side: Side, l: crate::pad::Labels) -> Option<String> {
+    let at = match mode {
+        Mode::Barter(_) => crate::pad::at_menu(fnv_game::game::menus::BARTER),
+        Mode::Container(_) => crate::pad::at_menu(crate::script::MENU_CONTAINER),
+        Mode::Inventory => return None,
+    };
+    if l == crate::pad::Labels::Keys {
+        return None;
+    }
+    let key = if side == Side::Player { KeyCode::ArrowLeft } else { KeyCode::ArrowRight };
+    Some(crate::pad::hint_as(&[key], at, l))
 }
 
 fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side, x0: f32) {
@@ -480,7 +542,7 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side, x0
                 }
                 // [documented] A filled square for an equipped item, an open one for an
                 // item put up for the trade.
-                let mark = if r.bartered { Some("square.dds") } else if r.equipped { Some("square_filled.dds") } else { None };
+                let mark = if r.bartered { Some("square.dds") } else if r.equipped || r.loaded { Some("square_filled.dds") } else { None };
                 if let Some(mark) = mark {
                     c.image(row, mark, at(MARK_AT, MARK_AT, MARK, MARK), bright);
                 }
@@ -580,8 +642,11 @@ fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, w: f32, title
     c.line(p, x, y, w, THICK, bright);
     c.fade(p, x + w - THICK, y, false, bright);
     c.text(p, false, title, x + 5.0, y + 20.0, Align::Left, bright);
-    if !value.is_empty() {
-        c.text(p, false, value, x + w - 10.0, y + 20.0, Align::Right, bright);
+    // A value too long for the room beside the title goes on in lines under it, as on the
+    // Pip-Boy's cards (#2537).
+    let pitch = c.kit.body.font.size;
+    for (i, l) in crate::pipboy::frame::card_value_lines(&c.kit.body.font, title, w, value).iter().enumerate() {
+        c.text(p, false, l, x + w - 10.0, y + 20.0 + pitch * i as f32, Align::Right, bright);
     }
 }
 
@@ -607,6 +672,18 @@ const Q_PROMPT_Y: f32 = 50.0;
 const Q_METER: Rect = Rect { min: Vec2::new(149.5, 115.0), max: Vec2::new(540.5, 139.0) };
 const Q_ARROWS: [f32; 2] = [130.0, 549.0];
 const Q_AMOUNT_Y: f32 = 170.0;
+/// The tweaks' weight or price line, under the amount [design: docs/design/tweaks.md].
+const Q_EXTRA_Y: f32 = 215.0;
+
+/// The line the quantity tweaks add under the amount: in a barter what `amount` units
+/// fetch, in a container what they weigh (our words) [design: docs/design/tweaks.md].
+pub fn quantity_line(price: Option<f32>, weight: Option<f32>, amount: i32) -> Option<String> {
+    match (price, weight) {
+        (Some(p), _) => Some(format!("Price: {:.0} caps", p * amount as f32)),
+        (None, Some(w)) => Some(format!("Weight: {}", format!("{:.1}", w * amount as f32).trim_end_matches(".0"))),
+        _ => None,
+    }
+}
 const Q_BUTTONS_RIGHT: f32 = 665.0;
 const Q_BUTTONS_Y: [f32; 2] = [155.0, 200.0];
 /// A tick of the meter: 8 apart [observed], the picture's top 8 × 20 texels stretched to
@@ -636,8 +713,9 @@ pub fn quantity_words(game: Option<&fnv_game::Game<'_>>) -> [String; 2] {
     })
 }
 
-pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[String; 2], kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
-    let mut c = Ctx { kit, data, images, bc };
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[String; 2], kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs, extra: Option<&str>) {
+    let mut c = Ctx { kit, data, images, bc, glyphs };
     let bright = amber(255.0);
     let sheet = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     root.spawn((sheet, FocusPolicy::Block, PointerState::default()));
@@ -680,6 +758,10 @@ pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[St
                 }
             }
             c.text(p, true, &q.amount.to_string(), Q_CENTRE, Q_AMOUNT_Y, Align::Centre, bright);
+            // The player's tweaks: what the amount weighs or costs, under it [design: docs/design/tweaks.md].
+            if let Some(line) = extra {
+                c.text(p, false, line, Q_CENTRE, Q_EXTRA_Y, Align::Centre, bright);
+            }
             let h = 31.0 + BUTTON_PAD;
             // The prompt's own keys over any menu: A (Enter) and B (Esc) on a controller.
             let any = crate::pad::MenuAt::default();
@@ -711,6 +793,21 @@ mod tests {
         assert_eq!(flow_figure_x(Flow::Sell, 70.0), 20.0 + 449.0 + 20.0 + 32.5 + 7.5);
         assert_eq!(flow_figure_x(Flow::Buy, 90.0), 20.0 + 449.0 + 32.5 - 20.0);
         assert_eq!(flow_figure_x(Flow::Sell, 90.0), 20.0 + 449.0 + 20.0 + 40.0 + 20.0);
+    }
+
+    /// Issue #1827: with a controller each list names the trigger that picks it, as the
+    /// files' title buttons; with the keyboard none, as the original.
+    #[test]
+    fn the_lists_name_the_trigger_that_picks_them() {
+        use crate::pad::Labels;
+        use fnv_sim::FormId;
+        for mode in [Mode::Container(FormId(0x105658)), Mode::Barter(FormId(0x104C0C))] {
+            assert_eq!(pick_hint(mode, Side::Player, Labels::Xbox).as_deref(), Some("LT)"));
+            assert_eq!(pick_hint(mode, Side::Container, Labels::Xbox).as_deref(), Some("RT)"));
+            assert_eq!(pick_hint(mode, Side::Player, Labels::PlayStation).as_deref(), Some("L2)"));
+            assert_eq!(pick_hint(mode, Side::Player, Labels::Keys), None);
+        }
+        assert_eq!(pick_hint(Mode::Inventory, Side::Player, Labels::Xbox), None);
     }
 
     #[test]

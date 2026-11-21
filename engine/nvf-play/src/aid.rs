@@ -101,6 +101,33 @@ fn change_text(c: &ValueChange, duration: f64) -> String {
     format!("{} {:+.1} {how}{limbs}", av_name(c.code), c.amount)
 }
 
+/// The player used the poison `item` (already taken from the inventory by the menu): it
+/// goes on the weapon in hand, or asks first, or there is no weapon for it; a corner
+/// message says which, and the item goes back unless it was put on
+/// (`fnv_game::weapon_poison`). Call with the world swapped in.
+pub fn use_poison(rt: &mut Runtime, item: FormId) {
+    use fnv_game::weapon_poison::PoisonUse;
+    let name = |rt: &Runtime, f: FormId| rt.game.data.name(f);
+    let used = rt.game.use_poison(item);
+    let text = match used {
+        PoisonUse::Applied { weapon } => format!("{} poisoned with {}", name(rt, weapon), name(rt, item)),
+        // [design: our own words]
+        PoisonUse::Asks { weapon } => format!("Use {} again to poison your {}", name(rt, item), name(rt, weapon)),
+        // The game's own words [observed: FalloutNV.esm sPoisonNoWeaponMessage], ours without them.
+        PoisonUse::NoWeapon => match rt.game.world.setting_value("sPoisonNoWeaponMessage") {
+            Some(fnv_sim::settings::Setting::Str(s)) if !s.trim().is_empty() => s.clone(),
+            _ => "Equip a weapon that can be poisoned first.".into(),
+        },
+    };
+    if !matches!(used, PoisonUse::Applied { .. }) {
+        if let Err(e) = rt.game.world.add_item(P, item, 1) {
+            warn!("aid: could not give {} back: {e}", name(rt, item));
+        }
+    }
+    info!("aid: poison {}: {text}", name(rt, item));
+    rt.game.emit(fnv_game::trace::EventKind::NoteShown { text, icon: None, seconds: 2.0 });
+}
+
 /// The player uses `item` (already taken from the inventory by the menu), on one limb
 /// (its condition code) when the Pip-Boy's CND page aims it (`Game::ingest_on`). Call
 /// with the world swapped in (`with_world`).
@@ -267,7 +294,13 @@ pub fn after_tick(rt: &mut Runtime, from: usize) {
 /// what changed.
 pub fn hour_passed(rt: &mut Runtime, sleeping: bool, hour: u32) {
     let from = rt.game.events.len();
-    let p = rt.game.pass_hours(1.0, sleeping);
+    // The player's tweak: a sleep heals only from its set hour on [design: docs/design/tweaks.md].
+    let min = rt.game.tweaks.sleep_heal_min_hours;
+    let heal = min == 0 || hour >= min;
+    if sleeping && !heal {
+        info!("sleep: hour {hour} of {min} before healing (tweak)");
+    }
+    let p = rt.game.pass_hours_healing(1.0, sleeping, heal);
     rt.aid.hours += 1;
     let needs: Vec<String> = p.needs.iter().map(|&(c, a, b)| format!("{} {} → {}", av_name(c), whole(a), whole(b))).collect();
     if !p.limbs_healed.is_empty() {

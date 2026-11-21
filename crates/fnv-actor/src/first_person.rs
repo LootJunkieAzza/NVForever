@@ -15,12 +15,29 @@
 //!   and `Arms:1`]. Hand parts are drawn whole.
 //! - With a Pip-Boy on, the outfit's `PipBoyOn…` sleeve is drawn too [owner statement
 //!   2026-10-10, with two in-game screenshots: "we see a sleeve on the arm with a
-//!   pipboy, it is rendered over the outfit using the pipboy on node"]. Whether the
-//!   actor wears one is decided where the parts are assembled
-//!   ([`crate::mesh::hidden_for_pipboy`]), which leaves that sleeve out otherwise.
+//!   pipboy, it is rendered over the outfit using the pipboy on node"]. Without one the
+//!   `PipBoyOff…` sleeve is drawn in its place [hypothesis: it is the same stretch of the
+//!   left forearm; the original's player always wears a Pip-Boy. #2173: left on the
+//!   third-person body, it floated in front of the view while that body's arms were
+//!   hidden]. Which of the two an actor wears is decided where the parts are assembled
+//!   ([`crate::mesh::hidden_for_pipboy`]), which leaves the other out.
+//! - An upper-body model with no `Arms…` shape keeps its sleeves in shapes named for
+//!   other things, beside the torso (the NCR Trooper Fatigues' `hest:0`, `objdefault01:0`,
+//!   `objdefault02:0`, #2457). Of such a model the arm partitions of the skins are drawn
+//!   ([`is_arm_body_part`], [`arms_by_partition`]) [observed: their partitions' bones and
+//!   extents, docs/spec-notes/actors.md §1.2; hypothesis: the original draws those
+//!   sleeves in first person, as it draws a jumpsuit's].
+//! - A held weapon's own addons (WEAP BIPL, the hand-to-hand weapons' hand models) are
+//!   worn by the arms only when the weapon has no model of its own for the first-person
+//!   view ([`wears_weapon_addons`], #3226): the Bladed Gauntlet, the knuckles and the
+//!   other fist weapons with no MODL are drawn by their addon alone; a weapon with a
+//!   MODL or a first-person model (the power fist's rigid gauntlet) is drawn by that
+//!   model over the arms' bare hand, as before.
 
+use crate::records::Weapon;
 use crate::resolve::{slot, Appearance, Part};
 use crate::ActorForms;
+use fnv_sim::FormId;
 
 /// The first-person skeleton [observed: the only non-`.kf` file in
 /// `meshes\characters\_1stperson`].
@@ -47,9 +64,33 @@ pub fn is_arms_shape(name: &str) -> bool {
 }
 
 /// Whether a shape of an upper-body model is drawn in first person: the `Arms…` shapes
-/// and the sleeve worn with a Pip-Boy (`PipBoyOn…`).
+/// and the left forearm sleeves (`PipBoyOn…` worn with a Pip-Boy, `PipBoyOff…` without;
+/// [`crate::mesh::hidden_for_pipboy`] leaves out the one not worn).
 pub fn is_first_person_shape(name: &str) -> bool {
-    is_arms_shape(name) || crate::mesh::pipboy_sleeve(name) == Some(true)
+    is_arms_shape(name) || crate::mesh::pipboy_sleeve(name).is_some()
+}
+
+/// Whether a skin partition of body part `bp` (nif.xml `BSDismemberBodyPartType`,
+/// documentation only; docs/spec-notes/dismemberment.md §2.5) is of an arm: BP_LEFTARM,
+/// BP_LEFTARM2, BP_RIGHTARM, BP_RIGHTARM2 (3–6) and their torso sections (part × 1000)
+/// [documented: the type's names; observed: in the NCR Trooper Fatigues those partitions
+/// are skinned to the arm bones, the left one's 3000 from the shoulder down the upper arm
+/// and 3 to the elbow, actors.md §1.2].
+pub fn is_arm_body_part(bp: u16) -> bool {
+    matches!(bp, 3..=6 | 3000 | 4000 | 5000 | 6000)
+}
+
+/// Whether an upper-body model whose shapes are named `names` is drawn in first person
+/// by its arm partitions rather than by its shapes' names: it has no `Arms…` shape.
+pub fn arms_by_partition<'a>(mut names: impl Iterator<Item = &'a str>) -> bool {
+    !names.any(is_arms_shape)
+}
+
+/// Whether a shape named `name` with partitions of body parts `parts` is drawn, with its
+/// arm partitions only, in first person by a model drawn [`arms_by_partition`]: a shape
+/// that has one and is no forearm sleeve (those go by their names).
+pub fn partition_arm_shape(name: &str, parts: impl IntoIterator<Item = u16>) -> bool {
+    crate::mesh::pipboy_sleeve(name).is_none() && parts.into_iter().any(is_arm_body_part)
 }
 
 /// How part `p` appears in first person, if at all.
@@ -80,6 +121,51 @@ pub fn shape_shows(show: Option<Show>, name: Option<&str>) -> bool {
         Some(Show::Arms) => name.is_some_and(is_first_person_shape),
         None => false,
     }
+}
+
+/// Whether the first-person arms wear held weapon `w`'s own addons (WEAP BIPL,
+/// [`Weapon::addons`]): it has some and no model for the first-person view
+/// ([`Weapon::model_for`] with no mods on: no WNAM "1st Person Model", no MODL). An ARMA
+/// has no first-person model of its own, only a male and a female biped model
+/// [documented: GECK wiki ArmorAddon; `schemas/fnv/objects.json` ARMA], so its biped
+/// model is the one worn, a `…1st.nif` beside it taking its place as for any hand part
+/// ([`appearance`]; none of the fist weapons' addon models has one [documented: asset
+/// inspection, archive listings]). In FalloutNV.esm and the add-ons 21 weapons have a
+/// BIPL and no MODL, all hand-to-hand weapons whose only model besides the ground object
+/// is a Right Hand addon (the Bladed Gauntlet's `ARMABladedGuantlet`, the brass and
+/// spiked knuckles, the deathclaw, mantis and yao guai gauntlets, Old World Blues'
+/// gloves, …) [documented: record decode]. With the weapon's addons left off, the
+/// first-person view drew nothing of the Bladed Gauntlet (#3226, [observed: a player's
+/// log]); the others have the same record shape [hypothesis: the same happened to
+/// them]. [hypothesis: the original draws the addon on the first-person arms, as it does
+/// on the third-person body.] A weapon with a model of its
+/// own (the power fist's `PowerFistRigid.NIF`, the boxing gloves, the Shishkebab) keeps
+/// the bare hand under that model in first person, as before [hypothesis].
+pub fn wears_weapon_addons(w: &Weapon) -> bool {
+    !w.addons.is_empty() && w.model_for(true, 0).is_none()
+}
+
+/// The items the first-person rig is dressed in, of those `worn` (armour and the held
+/// weapon, as given to the resolver): all but a weapon with addons the arms do not wear
+/// ([`wears_weapon_addons`]). The resolver gives a kept weapon's addons their slots as on
+/// the third-person body: the race's hand and a worn addon on the same slot (an outfit's
+/// glove) give way to them, one hand model per hand.
+pub fn first_person_worn(actors: &ActorForms, worn: &[FormId]) -> Vec<FormId> {
+    worn.iter().copied().filter(|id| actors.weapons.get(id).is_none_or(|w| w.addons.is_empty() || wears_weapon_addons(w))).collect()
+}
+
+/// The addons (members of an ARMO's or a WEAP's BIPL) of the items `worn` that
+/// appearance `a` draws, in its parts' order, each once.
+pub fn worn_addons(actors: &ActorForms, worn: &[FormId], a: &Appearance) -> Vec<FormId> {
+    let lists = |w: &FormId| actors.armors.get(w).map(|x| &x.addons).or_else(|| actors.weapons.get(w).map(|x| &x.addons));
+    let listed = |id: &FormId| worn.iter().any(|w| lists(w).is_some_and(|l| l.contains(id)));
+    let mut out: Vec<FormId> = Vec::new();
+    for p in a.parts.iter().filter(|p| p.role == "armor") {
+        if listed(&p.form) && !out.contains(&p.form) {
+            out.push(p.form);
+        }
+    }
+    out
 }
 
 /// The appearance the first-person rig draws: the parts that show, hands swapped for
@@ -126,12 +212,45 @@ mod tests {
         for n in ["UpperBody", "PipBoyOn", "MeatCapLimbs", "body:0", "RightGlove:0"] {
             assert!(!is_arms_shape(n), "{n:?}");
         }
-        for n in ["Arms", "Arms\t", "PipBoyOn", "PipBoyOn:0", "PipBoy0n:0"] {
+        for n in ["Arms", "Arms\t", "PipBoyOn", "PipBoyOn:0", "PipBoy0n:0", "PipBoyOff", "PipBoyOff:0", "pipboyoffmm_ncr:0"] {
             assert!(is_first_person_shape(n), "{n:?}");
         }
-        for n in ["UpperBody", "PipBoyOff", "PipBoyOff:0", "MeatCapLimbs"] {
+        for n in ["UpperBody", "MeatCapLimbs", "PipBoyArm:0", "PipboyLightEffect:0"] {
             assert!(!is_first_person_shape(n), "{n:?}");
         }
+    }
+
+    /// The left forearm sleeve goes with the arms whether a Pip-Boy is worn or not: one
+    /// of the two is drawn by the arms rig, and so hidden on the third-person body under
+    /// it, never left behind in the air (#2173).
+    #[test]
+    fn the_forearm_sleeve_is_an_arm_shape_with_and_without_a_pipboy() {
+        let sleeves = ["PipBoyOn", "PipBoyOff"];
+        for wears in [true, false] {
+            let drawn: Vec<&str> = sleeves.iter().copied().filter(|n| !crate::mesh::hidden_for_pipboy(n, wears)).collect();
+            assert_eq!(drawn, [if wears { "PipBoyOn" } else { "PipBoyOff" }]);
+            assert!(drawn.iter().all(|n| shape_shows(Some(Show::Arms), Some(n))), "wears {wears}");
+        }
+    }
+
+    #[test]
+    fn an_outfit_without_arms_shapes_draws_its_arm_partitions() {
+        // armor	roupersrmornvncrtrooperplain.nif (#2457): no `Arms…` shape; the
+        // sleeves are partitions 3/3000 and 5/5000 of shapes named for other things.
+        let names = ["meathead:0", "body:0", "upperbody2:0", "pipboyoff:0", "hest:0", "objdefault01:0", "objdefault02:0", "pipboyon:0"];
+        assert!(arms_by_partition(names.iter().copied()));
+        assert!(!arms_by_partition(["UpperBody", "Arms", "PipBoyOn", "PipBoyOff"].into_iter()), "a jumpsuit goes by its names");
+        assert!(partition_arm_shape("hest:0", [0, 5000, 3000, 3]));
+        assert!(partition_arm_shape("objdefault01:0", [3000, 5000]));
+        assert!(partition_arm_shape("objdefault02:0", [0, 5]));
+        assert!(!partition_arm_shape("body:0", [0, 7000, 10000, 10, 7]), "legs and torso");
+        assert!(!partition_arm_shape("upperbody2:0", [0]));
+        assert!(!partition_arm_shape("meatcap1:0", [103]), "a section cap");
+        assert!(!partition_arm_shape("meatcap2:0", [203]), "a torso cap");
+        assert!(!partition_arm_shape("pipboyoff:0", [3]), "the forearm sleeves go by their names");
+        assert!(!partition_arm_shape("pipboyon:0", [3]));
+        assert!((3..=6).all(is_arm_body_part) && [3000, 4000, 5000, 6000].into_iter().all(is_arm_body_part));
+        assert!(![0, 1, 2, 7, 10, 103, 203, 1000, 7000, 65535].into_iter().any(is_arm_body_part));
     }
 
     #[test]
@@ -140,6 +259,7 @@ mod tests {
         assert!(shape_shows(Some(Show::Whole), Some("RightGlove:0")));
         assert!(shape_shows(Some(Show::Arms), Some("Arms:0")));
         assert!(shape_shows(Some(Show::Arms), Some("PipBoyOn")));
+        assert!(shape_shows(Some(Show::Arms), Some("PipBoyOff:0")));
         assert!(!shape_shows(Some(Show::Arms), Some("UpperBody")));
         assert!(!shape_shows(Some(Show::Arms), None));
         assert!(!shape_shows(None, Some("Arms:0")));

@@ -83,13 +83,27 @@ pub struct VatsState {
     /// Known only while a kill camera is chosen (`crate::camera_paths`).
     pub outcome: Option<VatsOutcome>,
     pub room: Option<CameraRoom>,
+    /// The share of a hit's damage the player takes now: `fVATSPlayerDamageMult` while
+    /// the classic style plays its queued attacks, `None` otherwise (the engine's
+    /// `vats_mode`, docs/design/vats-classic.md §7).
+    pub player_damage_mult: Option<f32>,
 }
 
 impl Game<'_> {
     /// The engine's VATS mode state and the shot leaving now (only while firing).
     pub fn set_vats(&mut self, mode: u8, shot: Option<VatsShot>) {
-        self.vats = VatsState { mode, shot: shot.filter(|_| mode == MODE_PLAYBACK), outcome: None, room: None };
+        self.vats = VatsState { mode, shot: shot.filter(|_| mode == MODE_PLAYBACK), outcome: None, room: None, player_damage_mult: self.vats.player_damage_mult };
     }
+}
+
+/// Existing camera-room maximum, reused by named source queries [design].
+/// Native range/measurement policy remains unverified (vats-script-clearance.md).
+pub const AREA_REACH: f32 = 1024.0;
+
+/// Named area queries implemented by the source host (also reached by the
+/// console's existing unnumbered-function compiler fallback).
+pub(crate) fn handles_area_query(name: &str) -> bool {
+    name.eq_ignore_ascii_case("GetVATSLeftAreaFree") || name.eq_ignore_ascii_case("GetVATSRightAreaFree")
 }
 
 /// The VATS area condition functions, by condition index [documented: xEdit
@@ -119,6 +133,32 @@ pub fn area_value(g: &Game, f: u16) -> f64 {
         0.0
     };
     v as f64
+}
+
+/// Named source-query mapping for ordinary lateral clearance. This is independent
+/// of the CPTH/kill-camera room above; see vats-script-clearance.md.
+pub(crate) fn script_area(g: &Game, subject: Option<FormId>, left: bool) -> f64 {
+    let Some(r) = subject else { return 0.0 };
+    let Some(base) = crate::functions::base_of(g, r) else { return 0.0 };
+    if g.template_source(base, r, |_| false).is_none() || crate::ray::lent().is_none() {
+        return 0.0;
+    }
+    let pose = g.world.peek(r).map(|s| (s.pos, s.rot))
+        .or_else(|| g.world.placed.get(r).map(|p| (p.pos, p.rot)));
+    let Some((pos, rot)) = pose else { return 0.0 };
+    if !pos.iter().chain(rot.iter()).all(|x| x.is_finite()) {
+        return 0.0;
+    }
+    let (sin, cos) = rot[2].sin_cos();
+    let sign = if left { -1.0 } else { 1.0 };
+    let from = [pos[0], pos[1], pos[2] + crate::ray::ACTOR_RAY_EYE_HEIGHT];
+    let to = [from[0] + sign * cos * AREA_REACH, from[1] - sign * sin * AREA_REACH, from[2]];
+    let distance = crate::ray::cast(from, to, crate::ray::CastKind::CameraClearance).unwrap_or(AREA_REACH);
+    if distance.is_finite() && (0.0..=AREA_REACH).contains(&distance) {
+        f64::from(distance)
+    } else {
+        0.0
+    }
 }
 
 /// "Has Concentrated Fire" [documented: GECK wiki GetNthPerkEntryFunction, code 33; Entry
@@ -151,11 +191,46 @@ impl Game<'_> {
     /// as it is; and Has Concentrated Fire.
     pub fn vats_hit_perks(&mut self, shot: VatsShot) -> HitPerks {
         let was = self.vats;
-        self.vats = VatsState { mode: was.mode, shot: Some(shot), outcome: None, room: None };
+        self.vats = VatsState { mode: was.mode, shot: Some(shot), outcome: None, room: None, player_damage_mult: was.player_damage_mult };
         let ops = self.entry_ops(FormId::PLAYER_REF, crate::perks::CALCULATE_TO_HIT_CHANCE, &[Some(shot.weapon), Some(shot.target)], Some(shot.target));
         let concentrated_fire = self.entry_point(FormId::PLAYER_REF, HAS_CONCENTRATED_FIRE, 0.0).0 != 0.0;
         self.vats = was;
         HitPerks { ops, concentrated_fire }
+    }
+}
+
+/// The form list of actors VATS never targets [observed: FalloutNV.esm, FLST
+/// `BannedVATSTargets`, eight creatures: Mr. House's and Yes Man's screens and Festus].
+pub const BANNED_TARGETS: &str = "BannedVATSTargets";
+
+impl Game<'_> {
+    /// Why VATS does not target `r`, if it does not (the engine's `vats_mode`, both
+    /// styles):
+    /// - it or its base is on the game's own list ([`BANNED_TARGETS`]) [hypothesis: the
+    ///   list's role, from its name and members];
+    /// - it is a ghost (hits pass through it, `Game::is_ghost`) [design];
+    /// - it is a flying creature whose Aggression is Unaggressive, a raven: it does not
+    ///   fight [design: the fork owner 2026-11-10, "only true living NPCs can be attacked,
+    ///   some npc like birds that cannot attack back should not be targetable"; observed:
+    ///   NVCrRaven, Flies, Unaggressive, Helps Nobody; a bloatfly flies and is Aggressive].
+    pub fn vats_untargetable(&mut self, r: FormId) -> Option<&'static str> {
+        let base = base_of(self, r);
+        if let Some(list) = self.data.by_edid(BANNED_TARGETS) {
+            let members = list_members(self, list);
+            if members.contains(&r) || base.is_some_and(|b| members.contains(&b)) {
+                return Some("on the game's BannedVATSTargets list");
+            }
+        }
+        if self.is_ghost(r) {
+            return Some("a ghost");
+        }
+        let flies = self
+            .stats_source(r)
+            .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::FLIES, |d| d.flies));
+        if flies && crate::functions::actor_value(self, r, crate::actor_values::AGGRESSION).unwrap_or(0.0) < 1.0 {
+            return Some("an unaggressive flying creature");
+        }
+        None
     }
 }
 

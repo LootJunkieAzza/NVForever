@@ -121,22 +121,16 @@ impl Repeats {
     }
 }
 
+/// Texture `path`'s level 0 as RGBA8, at most [`MAX_TEXELS`] by its header, read before
+/// anything is decoded (`tiles::texmod::decode`); a larger one is not baked and its
+/// picture keeps Bevy's drawing (the tiles' `NodeImageMode::Tiled`, the compass strip
+/// unfaded) [design: #1833 review].
 fn decode(path: &str, data: &GameData) -> Option<(Vec<u8>, usize)> {
     let bytes = data.read(path)?;
-    let dds = match fnv_dds::Dds::parse(&bytes) {
-        Ok(d) => d,
-        Err(e) => {
-            warn!("repeat: {path}: {e}");
-            return None;
-        }
-    };
-    let (w, h) = (dds.header.width, dds.header.height);
-    let level = dds.levels.first()?.first()?;
-    let rgba = fnv_dds::decode_blocks(dds.format, w, h, level).or_else(|| fnv_dds::to_rgba8(dds.format, level));
-    match rgba {
-        Some(rgba) if rgba.len() == w as usize * h as usize * 4 => Some((rgba, w as usize)),
-        _ => {
-            warn!("repeat: {path}: its format is not decoded");
+    match crate::tiles::texmod::decode(&bytes, MAX_TEXELS) {
+        Ok(t) => Some((t.rgba, t.width)),
+        Err(why) => {
+            warn!("repeat: {path}: {why}; not baked");
             None
         }
     }

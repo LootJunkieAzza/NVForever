@@ -29,7 +29,8 @@
 
 use crate::anim_blend::Animator;
 use crate::anim_play::{cycle_time, BlendPlayer, MaterialTarget, MaterialTrack, Playing};
-use crate::nif_material::{display_emissive, emissive_in_display, NifMaterial};
+use crate::nif_material::{display_emissive, emissive_in_display, plain_material, MaterialOverride, NifMaterial};
+use bevy::ecs::system::SystemParam;
 use bevy::math::Affine2;
 use bevy::prelude::*;
 use std::sync::Arc;
@@ -58,11 +59,13 @@ pub struct MaterialSlot {
     /// whether it was last drawn black for a dark idle ([`RigMaterials::apply`]).
     unlit_base: Option<LinearRgba>,
     unlit_dark: bool,
+    /// [design, #2685] Members previously driven, for restoring a replaced clip.
+    driven: Driven,
 }
 
 impl MaterialSlot {
     pub fn new(shape: String, entity: Entity, handle: Handle<NifMaterial>, emissive: [f32; 3], emissive_mult: f32, alpha: f32) -> MaterialSlot {
-        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, alpha, refraction: 0.0, last: None, faded: 1.0, unlit_base: None, unlit_dark: false }
+        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, alpha, refraction: 0.0, last: None, faded: 1.0, unlit_base: None, unlit_dark: false, driven: Driven::default() }
     }
 }
 
@@ -227,65 +230,92 @@ impl RigMaterials {
     /// emissive, so the jukebox's light tubes stayed at full brightness while off; the
     /// original's go dark [observed: owner 2026-10-30, #1079; activators.md §3]. The
     /// additive notes and bubbles vanish with it.
-    pub fn apply(&mut self, tracks: &[MaterialTrack], t: f32, clock: f32, dark: bool, materials: &mut Assets<NifMaterial>) {
+    pub fn apply(&mut self, tracks: &[MaterialTrack], t: f32, clock: f32, dark: bool, drawing: &mut RigMaterialDrawing) {
         let values = sample(&self.slots, tracks, t, clock, dark);
         let fade = self.fade.clamp(0.0, 1.0);
         for (slot, v) in self.slots.iter_mut().zip(values) {
             let unlit_dark = dark && tracks.iter().any(|tr| tr.shape == slot.shape);
-            if !slot.own || (slot.last == Some(v) && slot.faded == fade && slot.unlit_dark == unlit_dark) {
+            // [design, #2685] Preserve the builder's values for untouched members.
+            // Retain previous membership so replacing a clip can restore its values.
+            let driven = tracks.iter().filter(|tr| tr.shape == slot.shape)
+                .fold(slot.driven, |d, tr| d.or(Driven::of(tr.target)));
+            if !slot.own {
                 continue;
             }
-            let Some(mut m) = materials.get_mut(&slot.handle) else { continue };
+            let Ok((current, override_)) = drawing.shapes.get(slot.entity) else { continue };
+            let source = plain_material(&current.0, override_);
+            if slot.last == Some(v) && slot.faded == fade && slot.unlit_dark == unlit_dark && slot.driven == driven {
+                continue;
+            }
+            // [design, #2557] Keep animating the bound private plain source. Another
+            // owner's replacement (e.g. a fade) keeps ownership until it restores us.
+            let publish = source == &slot.handle;
+            let Some(mut m) = drawing.materials.get_mut(&slot.handle) else { continue };
             let unlit = m.base.unlit && !matches!(m.base.alpha_mode, AlphaMode::Multiply);
             if unlit && slot.unlit_base.is_none() {
                 slot.unlit_base = Some(m.base.base_color.to_linear());
             }
-            pose_material(&mut m, &Look { alpha: v.alpha * fade, ..v }, Driven::ALL, false);
+            let faded = Driven { alpha: fade < 1.0 || slot.faded < 1.0, ..default() };
+            pose_material(&mut m, &Look { alpha: v.alpha * fade, ..v }, driven.or(faded), false);
             if let Some(base) = slot.unlit_base.filter(|_| unlit && (unlit_dark || slot.unlit_dark)) {
                 let a = m.base.base_color.alpha();
                 m.base.base_color = if unlit_dark {
                     let a = if matches!(m.base.alpha_mode, AlphaMode::Blend) { 0.0 } else { a };
                     Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, a))
                 } else {
+                    // [design, #2685] Dark mode hid blended alpha even without an
+                    // alpha track. Restore it unless animation/fade just posed it.
+                    let a = if driven.alpha || faded.alpha { a } else { base.alpha };
                     Color::LinearRgba(LinearRgba { alpha: a, ..base })
                 };
             }
             slot.last = Some(v);
             slot.faded = fade;
             slot.unlit_dark = unlit_dark;
+            slot.driven = driven;
+            // [design, #2557] Publication dirties only this mesh's cloak derivation.
+            if publish {
+                drawing.commands.entity(slot.entity).insert(MeshMaterial3d(slot.handle.clone()));
+            }
         }
     }
+}
+
+/// [design, #2557] Shared plain-source ownership and publication for rig animation.
+#[derive(SystemParam)]
+pub struct RigMaterialDrawing<'w, 's> {
+    commands: Commands<'w, 's>,
+    shapes: Query<'w, 's, (&'static MeshMaterial3d<NifMaterial>, Option<&'static MaterialOverride>)>,
+    materials: ResMut<'w, Assets<NifMaterial>>,
 }
 
 /// Give each newly drawn rig's driven shapes their own copy of their material.
 pub fn bind_rig_materials(
     mut rigs: Query<&mut RigMaterials, Added<RigMaterials>>,
-    mut materials: ResMut<Assets<NifMaterial>>,
-    mut shapes: Query<&mut MeshMaterial3d<NifMaterial>>,
+    mut drawing: RigMaterialDrawing,
 ) {
     for mut rig in &mut rigs {
         for slot in &mut rig.slots {
-            let Some(copy) = materials.get(&slot.handle).cloned() else { continue };
-            let own = materials.add(copy);
-            if let Ok(mut m) = shapes.get_mut(slot.entity) {
-                m.0 = own.clone();
-                slot.handle = own;
-                slot.own = true;
-            }
+            let Ok((current, override_)) = drawing.shapes.get(slot.entity) else { continue };
+            let Some(copy) = drawing.materials.get(plain_material(&current.0, override_)).cloned() else { continue };
+            let own = drawing.materials.add(copy);
+            drawing.commands.entity(slot.entity).insert(MeshMaterial3d(own.clone()));
+            slot.handle = own;
+            slot.own = true;
         }
     }
 }
 
 /// Pose the materials of rigs playing their idle clip at its time (or dark), and fade
 /// those that fade.
-pub fn animate_rig_materials(mut rigs: Query<(&Playing, &mut RigMaterials)>, mut materials: ResMut<Assets<NifMaterial>>) {
+pub fn animate_rig_materials(mut rigs: Query<(&Playing, &mut RigMaterials)>, mut drawing: RigMaterialDrawing) {
     for (p, mut rig) in &mut rigs {
         if rig.idle.is_empty() && rig.fade >= 1.0 {
             continue;
         }
         let idle = rig.idle.clone();
         let dark = rig.dark;
-        rig.apply(&idle, p.sequence_time(), p.time - p.start, dark, &mut materials);
+        rig.apply(&idle, p.sequence_time(), p.time - p.start, dark, &mut drawing);
     }
 }
 
@@ -405,6 +435,73 @@ mod tests {
         let slots = [slot("windowEm01:0")];
         assert_eq!(sample(&slots, &[], 0.0, 0.0, false)[0].alpha, 0.0);
         assert_eq!(sample(&slots, std::slice::from_ref(&left), 0.01, 0.01, false)[0].alpha, 1.0);
+    }
+
+    #[test]
+    fn dark_blended_material_restores_alpha_on_reactivation() {
+        // [design, #2685] Synthetic builder alpha differs from the stored look;
+        // an undriven alpha must survive the dark override without normalization.
+        for target in [MaterialTarget::UvOffset(0), MaterialTarget::SelfIllum] {
+            for animated_alpha in [false, true] {
+                for (off_fade, on_fade) in [(1.0, 1.0), (0.5, 0.5), (0.5, 1.0), (1.0, 0.5)] {
+                    let track = |target, value| MaterialTrack {
+                        shape: "SyntheticGlow".into(), target,
+                        values: Arc::new(ValueTrack::Float(Channel::Static(Some([value])))),
+                        cycle: None, priority: 0,
+                    };
+                    let mut tracks = vec![track(target, 0.4)];
+                    if animated_alpha {
+                        tracks.push(track(MaterialTarget::Alpha, 0.25));
+                    }
+                    let mut app = App::new();
+                    app.init_resource::<Assets<NifMaterial>>().add_systems(Update, (
+                        bind_rig_materials,
+                        |mut rigs: Query<&mut RigMaterials>, mut drawing: RigMaterialDrawing| {
+                            for mut rig in &mut rigs {
+                                let tracks = rig.idle.clone();
+                                let dark = rig.dark;
+                                rig.apply(&tracks, 1.0, 1.0, dark, &mut drawing);
+                            }
+                        },
+                    ).chain());
+                    let mut material = NifMaterial::default();
+                    material.base.unlit = true;
+                    material.base.alpha_mode = AlphaMode::Blend;
+                    material.base.base_color = Color::linear_rgba(0.2, 0.3, 0.4, 0.6);
+                    let original = material.base.base_color.to_linear();
+                    let shared = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(material);
+                    let entity = app.world_mut().spawn(MeshMaterial3d(shared.clone())).id();
+                    app.world_mut().entity_mut(entity).insert(RigMaterials {
+                        slots: vec![MaterialSlot::new("SyntheticGlow".into(), entity, shared.clone(), [0.0; 3], 1.0, 0.8)],
+                        idle: Arc::new(tracks), dark: false, fade: off_fade,
+                    });
+                    let drawn = |app: &App| {
+                        let handle = &app.world().get::<MeshMaterial3d<NifMaterial>>(entity).unwrap().0;
+                        assert_ne!(handle, &shared);
+                        app.world().resource::<Assets<NifMaterial>>().get(handle).unwrap().base.base_color.to_linear()
+                    };
+                    app.update();
+                    let pre_dark = if animated_alpha { 0.25 } else if off_fade < 1.0 { 0.8 } else { 0.6 };
+                    assert_eq!(drawn(&app).alpha, pre_dark * off_fade);
+                    app.world_mut().get_mut::<RigMaterials>(entity).unwrap().dark = true;
+                    for _ in 0..2 {
+                        app.update();
+                        assert_eq!(drawn(&app).alpha, 0.0);
+                    }
+                    {
+                        let mut rig = app.world_mut().get_mut::<RigMaterials>(entity).unwrap();
+                        rig.dark = false;
+                        rig.fade = on_fade;
+                    }
+                    let restored = if animated_alpha { 0.25 } else if off_fade < 1.0 || on_fade < 1.0 { 0.8 } else { 0.6 };
+                    for _ in 0..2 {
+                        app.update();
+                        assert_eq!(drawn(&app), LinearRgba { alpha: restored * on_fade, ..original });
+                    }
+                    assert_eq!(app.world().resource::<Assets<NifMaterial>>().get(&shared).unwrap().base.base_color.to_linear(), original);
+                }
+            }
+        }
     }
 
     #[test]

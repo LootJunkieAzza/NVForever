@@ -57,6 +57,29 @@ impl Compiled {
         self.program.blocks.iter().any(|b| b.event == event)
     }
 
+    /// Whether a GameMode block of the script tests that a reference is not in the
+    /// player's cell: an If condition with `GetInSameCell … 0 ==` or `GetInSameCell … 1 !=`
+    /// (`Game::run_far_frame`'s rule). Such a branch can only do anything while the
+    /// actor is somewhere the player is not, so the script was written to run then.
+    pub fn tests_away_from_player(&self) -> bool {
+        use fnv_script::ir::{Op, Stmt, Token};
+        const GET_IN_SAME_CELL: u16 = 0x1020;
+        fn away(tokens: &[Token]) -> bool {
+            tokens.windows(3).any(|w| match w {
+                [Token::Call { call }, Token::Num { value, .. }, Token::Op { op }] if call.opcode == GET_IN_SAME_CELL => (*value == 0.0 && *op == Op::Eq) || (*value == 1.0 && *op == Op::Ne),
+                _ => false,
+            })
+        }
+        fn rec(body: &[Stmt]) -> bool {
+            body.iter().any(|st| match st {
+                Stmt::If { arms, otherwise } => arms.iter().any(|a| away(&a.cond.0) || rec(&a.body)) || otherwise.as_deref().is_some_and(rec),
+                Stmt::While { body, .. } | Stmt::ForEach { body, .. } => rec(body),
+                _ => false,
+            })
+        }
+        self.program.blocks.iter().filter(|b| b.event == crate::game::event::GAME_MODE).any(|b| rec(&b.body))
+    }
+
     /// Declared type of a local variable.
     pub fn var_type(&self, index: u16) -> Option<&VarType> {
         self.unit.var(index as u32).map(|v| &v.ty)
@@ -480,7 +503,9 @@ pub struct ActorDef {
     pub template_model: bool,
     pub template_inventory: bool,
     pub template_script: bool,
-    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM].
+    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM], from the
+    /// actor that supplies its traits (template flag "Traits") [documented: GECK wiki
+    /// Traits Tab - NPC and Traits Tab - Creatures list Combat Style; Template Data].
     pub combat_style: Option<FormId>,
     /// INAM "Death item": the leveled item list added to the actor's inventory when it
     /// dies, from the actor that supplies its traits (template flag "Traits")
@@ -600,7 +625,14 @@ pub struct RegionDef {
     /// The map block (RDAT type 4, then RDMP), when the region has one: its name and the
     /// header's priority (schema `sky.json` REGN RDMP).
     pub map: Option<(String, u8)>,
+    /// The record's Border Region flag (header bit 6, 0x40) [documented: GECK wiki form
+    /// flags table, "Border Region" at 64]: the player is kept inside its areas
+    /// (`crate::borders`).
+    pub border: bool,
 }
+
+/// REGN record flag Border Region [documented: GECK wiki form flags table, 64].
+pub const BORDER_REGION: u32 = 0x40;
 
 /// A region's weather block [documented: xEdit wbRegionDataEntries type 3; schema
 /// `sky.json` REGN RDAT, RDWT]: its RDAT flags (bit 0 override,
@@ -674,6 +706,9 @@ impl MagicEffectDef {
     /// "FX Persist": the effect shader's persistent part shows while the effect lasts
     /// [documented: xEdit MGEF flags; GECK wiki EffectShader].
     pub const FX_PERSIST: u32 = 1 << 10;
+    /// "Display Name Only": a Script effect, which shows nothing by default, shows its
+    /// name [documented: GECK wiki Base Effect; schema `gameplay.json` MGEF flags bit 13].
+    pub const DISPLAY_NAME_ONLY: u32 = 1 << 13;
     /// "No Death Dispel": the effect goes on after its target dies [documented: xEdit
     /// MGEF flags; hypothesis: without it the effect ends at the death,
     /// docs/spec-notes/hit-effects.md §4].
@@ -681,6 +716,13 @@ impl MagicEffectDef {
 
     pub fn has(&self, flag: u32) -> bool {
         self.flags & flag != 0
+    }
+
+    /// Whether the interface names this effect where it shows no value: a Script effect
+    /// flagged Display Name Only (Psycho's "Damage +25%", Cateye's "Low-Light Vision")
+    /// [documented: GECK wiki Base Effect; #3119].
+    pub fn shows_name(&self) -> bool {
+        self.archetype == ARCHETYPE_SCRIPT && self.has(Self::DISPLAY_NAME_ONLY)
     }
 }
 
@@ -745,6 +787,14 @@ pub enum DefaultObject {
     PerkParalysis = 5,
     DeathMusic = 11,
     LevelUpMusic = 13,
+    /// The player's voice types [documented: xEdit DOBJ "Player Voice (Male)", "(Male
+    /// Child)", "(Female)", "(Female Child)"; observed: FalloutNV.esm names PlayerVoiceMale
+    /// 0002853B, MaleChild01 00019FCE, PlayerVoiceFemale 00040D42 and FemaleChild01
+    /// 00019FD0 there] (`Game::player_voice_type`).
+    PlayerVoiceMale = 14,
+    PlayerVoiceMaleChild = 15,
+    PlayerVoiceFemale = 16,
+    PlayerVoiceFemaleChild = 17,
     DrugWearsOffImageSpace = 20,
     /// The explosion of Meltdown's kills [observed: FalloutNV.esm's DOBJ names
     /// MinePlasmaExplosion 0007078C there] (perk-entry-points.md §9).
@@ -778,6 +828,47 @@ impl ActorDef {
     /// (`Game::keeps_out_of_water`); one with none of the three flags is left as it is.
     pub fn keeps_out_of_water(&self) -> bool {
         (self.walks || self.flies) && !self.swims
+    }
+
+    /// Reconstruct the parsed `ACBS` flag bits from this `ActorDef` (used when a
+    /// synthetic fixture populates `GameData::actors` without raw `record_fields`).
+    pub(crate) fn authored_acbs_flags(&self) -> u32 {
+        use crate::actor_values::acbs;
+        let npc = &self.sig == b"NPC_";
+        let crea = &self.sig == b"CREA";
+        let mut bits = 0u32;
+        let mut set = |on: bool, bit: u32| {
+            if on {
+                bits |= 1 << bit;
+            }
+        };
+        set(npc && self.female, acbs::FEMALE);
+        set(self.essential, acbs::ESSENTIAL);
+        set(self.respawn, acbs::RESPAWN);
+        set(npc && self.autocalc, acbs::AUTOCALC);
+        set(crea && self.swims, acbs::SWIMS);
+        set(crea && self.flies, acbs::FLIES);
+        set(crea && self.walks, acbs::WALKS);
+        set(self.pc_level_mult, acbs::PC_LEVEL_MULT);
+        set(self.no_low_level, acbs::NO_LOW_LEVEL);
+        set(self.no_blood_spray, acbs::NO_BLOOD_SPRAY);
+        set(self.no_blood_decal, acbs::NO_BLOOD_DECAL);
+        set(crea && self.no_head, acbs::NO_HEAD);
+        set(crea && self.no_right_arm, acbs::NO_RIGHT_ARM);
+        set(crea && self.no_left_arm, acbs::NO_LEFT_ARM);
+        set(crea && self.no_combat_in_water, acbs::NO_COMBAT_IN_WATER);
+        set(self.no_vats_melee, acbs::NO_VATS_MELEE);
+        set(crea && self.allow_pc_dialogue, acbs::ALLOW_PC_DIALOGUE);
+        set(crea && self.cant_open_doors, acbs::CANT_OPEN_DOORS);
+        set(crea && self.immobile, acbs::IMMOBILE);
+        set(npc && self.autocalc_service, acbs::AUTOCALC_SERVICE);
+        set(self.no_knockdowns, acbs::NO_KNOCKDOWNS);
+        set(self.not_pushable, acbs::NOT_PUSHABLE);
+        set(crea && self.allow_pickpocket, acbs::ALLOW_PICKPOCKET);
+        set(crea && self.is_ghost, acbs::IS_GHOST);
+        set(self.no_head_track, acbs::NO_HEAD_TRACK);
+        set(crea && self.invulnerable, acbs::INVULNERABLE);
+        bits
     }
 }
 
@@ -813,6 +904,10 @@ mod default_object_tests {
         assert_eq!(default_in(&list, DefaultObject::PerkParalysis), Some(FormId(0x105)));
         assert_eq!(default_in(&list, DefaultObject::DeathMusic), Some(FormId(0x10B)));
         assert_eq!(default_in(&list, DefaultObject::LevelUpMusic), Some(FormId(0x10D)));
+        assert_eq!(default_in(&list, DefaultObject::PlayerVoiceMale), Some(FormId(0x10E)));
+        assert_eq!(default_in(&list, DefaultObject::PlayerVoiceMaleChild), Some(FormId(0x10F)));
+        assert_eq!(default_in(&list, DefaultObject::PlayerVoiceFemale), Some(FormId(0x110)));
+        assert_eq!(default_in(&list, DefaultObject::PlayerVoiceFemaleChild), Some(FormId(0x111)));
         assert_eq!(default_in(&list, DefaultObject::DrugWearsOffImageSpace), Some(FormId(0x114)));
         assert_eq!(default_in(&list, DefaultObject::MeltdownExplosion), Some(FormId(0x118)));
         assert_eq!(default_in(&[], DefaultObject::DeathMusic), None);
@@ -871,8 +966,14 @@ pub struct GameData {
     pub table: FunctionTable,
     pub param_types: ParamTypes,
     pub load_order: Vec<String>,
+    /// The plugins (load-order indices) that hold each form more than one plugin
+    /// defines or overrides, in load order (LU's GetFormMods, [`GameData::form_plugins`]).
+    pub form_overrides: HashMap<FormId, Vec<u8>>,
     /// Each plugin's TES4 HEDR version, in load order (GetPluginHeaderVersion).
     pub plugin_versions: Vec<f32>,
+    /// Each plugin's author and description, TES4 CNAM and SNAM, `None` where the header
+    /// has none (SUP's GetModTraitSTR).
+    pub plugin_texts: Vec<(Option<String>, Option<String>)>,
     pub units: Vec<Compiled>,
     /// [`Compiled::key`] → unit (the first unit with that key), for finding a saved
     /// lambda's unit on load.
@@ -890,7 +991,8 @@ pub struct GameData {
     /// How many lines [`follow_previous`] moved out of file order (0 for the ten masters).
     pub lines_moved_by_previous: usize,
     /// The topics with shared lines (INFC / INFX, [`TopicDef::shared_infos`]): their own
-    /// lines with the shared ones put in at their Info Index, the order
+    /// lines in stored order, with shared ones put in among the listing quest's own lines
+    /// at their Info Index [hypothesis: dialogue.md §1.2], the order
     /// [`GameData::lines_tried`] starts from (dialogue.md §1.2).
     pub shared_lines: HashMap<FormId, Vec<FormId>>,
     /// Link From turned round: for a topic X, the topics with a line whose Link From
@@ -948,6 +1050,9 @@ pub struct GameData {
     /// Where each inventory item form was first defined: (plugin, place among its records),
     /// for GetLoadedTypeArray's order.
     pub item_order: HashMap<FormId, (u8, u32)>,
+    /// Where each actor base (NPC_, CREA) was first defined: (plugin, place among its
+    /// records), for GetFactionMembers' order (`nvse_jg4`).
+    pub actor_order: HashMap<FormId, (u8, u32)>,
     /// OBND of the base forms that have one ([`BOUNDS_SIGS`]): min x, y, z, max x, y, z.
     pub object_bounds: HashMap<FormId, [i16; 6]>,
     /// The name the player sees (FULL) of every winning record that has one.
@@ -1003,6 +1108,8 @@ pub struct GameData {
     /// FACT XNAM: (other faction, group combat reaction 0 neutral, 1 enemy, 2 ally,
     /// 3 friend).
     pub faction_reactions: HashMap<FormId, Vec<(FormId, i64)>>,
+    /// Directional decoded FACT XNAM disposition modifiers, separate from combat.
+    pub faction_modifiers: HashMap<FormId, Vec<(FormId, i64)>>,
     /// FACT DATA flags as one number: the first byte's bits (1 Hidden from PC, 2 Evil,
     /// 4 Special Combat) and the second's shifted by 8 (256 Track Crime, 512 Allow Sell)
     /// [documented: xEdit wbDefinitionsFNV.pas FACT, schema `gameplay.json`; the numbering
@@ -1039,6 +1146,10 @@ pub struct GameData {
     /// TACT: the record-header flags of every talking activator (radio stations: the
     /// Continuous Broadcast bit, `crate::radio`; docs/spec-notes/radio.md §2).
     pub station_flags: HashMap<FormId, u32>,
+    /// TACT VNAM: each talking activator's voice type [documented: xEdit TACT "Voice
+    /// Type"; schema `placed.json`], for GetIsVoiceType and the voice gate
+    /// (`Game::voice_type_of`; #3060: The Pitt's Ashur intercom, DLC01RaiderMaleColdVoice).
+    pub talking_voices: HashMap<FormId, FormId>,
     /// PERK: perks and traits ([`PerkDef`]).
     pub perks: HashMap<FormId, PerkDef>,
     /// AVIF: the name, short name, description and icon of each actor value
@@ -1067,6 +1178,9 @@ pub struct GameData {
     /// wiki Activator, "Non scripted activators can serve as drinkable water sources"]
     /// (docs/spec-notes/activators.md §9).
     pub drink_waters: HashMap<FormId, FormId>,
+    /// Activators that name a radio station (ACTI RNAM): radio receivers, whose on and
+    /// off looks follow the radio rules (`crate::radio`), not their open state.
+    pub radio_receivers: HashSet<FormId>,
     /// DOBJ DATA "Default Objects", by their place in the list ([`DefaultObject`])
     /// [documented: xEdit DOBJ] (docs/spec-notes/default-objects.md).
     pub default_objects: Vec<Option<FormId>>,
@@ -1083,6 +1197,10 @@ pub struct GameData {
     pub class_services: HashMap<FormId, u32>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
+    /// What the compile of mods' source text made of each unit it picked
+    /// (`crate::source_compile`): whether it compiled, and the names it calls that
+    /// nothing knows. For the engine's log and `fnvtool ext report`.
+    pub source_units: Vec<crate::source_compile::SourceUnit>,
 }
 
 /// An idle animation (IDLE) as far as playing it goes: the file it names and how often
@@ -1461,6 +1579,7 @@ struct Read {
     race_older: Option<FormId>,
     race_younger: Option<FormId>,
     faction: Option<Vec<(FormId, i64)>>,
+    faction_modifiers: Option<Vec<(FormId, i64)>>,
     faction_flags: Option<u16>,
     faction_reputation: Option<FormId>,
     cell: Option<crate::crime::CellDef>,
@@ -1486,6 +1605,8 @@ struct Read {
     water_effect: Option<FormId>,
     /// An ACTI's WNAM: the water drunk from it.
     drink_water: Option<FormId>,
+    /// An ACTI with an RNAM (a radio station): a radio receiver.
+    radio_receiver: bool,
     /// DOBJ DATA: the default objects, by their place in the list (null: `None`).
     default_objects: Option<Vec<Option<FormId>>>,
     /// A WATR's damage a second when it has "Causes Damage", else 0 (`Some` on every WATR).
@@ -1568,7 +1689,7 @@ const BOUNDS_SIGS: [[u8; 4]; 20] = [
 ];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 49] = [
+pub const FIELD_SIGS: [[u8; 4]; 56] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
     *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
     // JIP batch 4 (`crate::nvse_jip4`).
@@ -1581,6 +1702,11 @@ pub const FIELD_SIGS: [[u8; 4]; 49] = [
     *b"EFSH", *b"MSET",
     // JIP batch 8 (`crate::nvse_jip8`): GetEffectFlag / SetEffectFlag read SPIT and ENIT flags.
     *b"SPEL", *b"ENCH",
+    // Lutana batch 3 (`crate::nvse_lu3`): the Anim Object's idle, the loading screen type.
+    *b"ANIO", *b"LSCT",
+    // GetModelPath also reads these world objects' authored MODL. Keep the winning
+    // record handles here; their fields are still decoded only when a getter asks.
+    *b"STAT", *b"MSTT", *b"FURN", *b"DOOR", *b"TACT",
 ];
 
 /// The winning records of the [`FIELD_SIGS`] types, each decoded by
@@ -1623,9 +1749,11 @@ impl RecordFields {
 /// CSCR (a creature's sounds template) and NIFZ (its model list): JIP batch 6
 /// (`crate::nvse_jip6`). NAM4 (the impact material): JIP batch 7 (`crate::nvse_jip7`).
 /// INAM (the death item), TPLT (the template), SPLO (the actor effects): JIP batch 8
-/// (`crate::nvse_jip8`).
-const ACTOR_SUBS: [[u8; 4]; 22] = [
+/// (`crate::nvse_jip8`). FGGS, FGGA and FGTS (the FaceGen values): JohnnyGuitar batch 10
+/// (`crate::nvse_jg10`).
+const ACTOR_SUBS: [[u8; 4]; 25] = [
     *b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK", *b"DATA", *b"MODL", *b"TNAM", *b"BNAM", *b"WNAM", *b"CSCR", *b"NIFZ", *b"NAM4", *b"INAM", *b"TPLT", *b"SPLO",
+    *b"FGGS", *b"FGGA", *b"FGTS",
 ];
 
 /// A record's subrecords decoded by the schema, with each enum as its number (the
@@ -1806,6 +1934,15 @@ impl GameData {
             })
             .collect();
         clock.lap("item order");
+        let actor_order: HashMap<FormId, (u8, u32)> = lo
+            .index
+            .iter()
+            .filter_map(|(&g, defs)| {
+                let first = defs.first()?;
+                let r = lo.records[first.plugin as usize][first.ordinal as usize];
+                matches!(&r.header.sig, b"NPC_" | b"CREA").then_some((FormId(g), (first.plugin, first.ordinal)))
+            })
+            .collect();
         let object_bounds: HashMap<FormId, [i16; 6]> = winners
             .par_iter()
             .filter(|(_, _, r)| BOUNDS_SIGS.contains(&r.header.sig))
@@ -1815,6 +1952,20 @@ impl GameData {
         let form_flags: HashMap<FormId, u32> = winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect();
         let record_fields = RecordFields::new(schema, winners.iter().filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig)).map(|&(g, _, r)| (FormId(g), r.clone())));
         let station_flags: HashMap<FormId, u32> = winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect();
+        let talking_voices: HashMap<FormId, FormId> = winners
+            .iter()
+            .filter(|w| &w.2.header.sig == b"TACT")
+            .filter_map(|&(g, pi, r)| {
+                let mut local = None;
+                r.visit_subrecords(|sig, data| {
+                    if sig == b"VNAM" && local.is_none() {
+                        local = data.get(0..4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+                    }
+                })
+                .ok()?;
+                Some((FormId(g), FormId(lo.to_global(pi, local.filter(|&l| l != 0)?)?)))
+            })
+            .collect();
         clock.lap("form flags, record field handles");
         let radiation_markers = crate::radiation::markers(refs);
         clock.lap("radiation markers");
@@ -1822,7 +1973,9 @@ impl GameData {
             table,
             param_types: param_types.clone(),
             load_order: lo.plugins.iter().map(|p| p.name.clone()).collect(),
+            form_overrides: lo.index.iter().filter(|(_, d)| d.len() > 1).map(|(&id, d)| (FormId(id), d.iter().map(|x| x.plugin).collect())).collect(),
             plugin_versions: lo.plugins.iter().map(|p| p.header.version).collect(),
+            plugin_texts: lo.plugins.iter().map(|p| (p.header.author.clone(), p.header.description.clone())).collect(),
             units: Vec::new(),
             unit_by_key: HashMap::new(),
             scripts: HashMap::new(),
@@ -1853,6 +2006,7 @@ impl GameData {
             edids: HashMap::new(),
             edid_of: HashMap::new(),
             item_order,
+            actor_order,
             object_bounds,
             form_flags,
             full_names: HashMap::new(),
@@ -1879,6 +2033,7 @@ impl GameData {
             race_older: HashMap::new(),
             race_younger: HashMap::new(),
             faction_reactions: HashMap::new(),
+            faction_modifiers: HashMap::new(),
             faction_flags: HashMap::new(),
             faction_reputations: HashMap::new(),
             cells: HashMap::new(),
@@ -1892,6 +2047,7 @@ impl GameData {
             idle_children: HashMap::new(),
             image_modifiers: HashMap::new(),
             station_flags,
+            talking_voices,
             perks: HashMap::new(),
             actor_value_infos: HashMap::new(),
             recipes: HashMap::new(),
@@ -1904,12 +2060,14 @@ impl GameData {
             need_stages: HashMap::new(),
             water_effects: HashMap::new(),
             drink_waters: HashMap::new(),
+            radio_receivers: HashSet::new(),
             default_objects: Vec::new(),
             water_damage: HashMap::new(),
             radiation_markers,
             class_services: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
+            source_units: Vec::new(),
         };
         // Decode every unit once.
         let mut all_units: Vec<ScriptUnit> = Vec::new();
@@ -1950,11 +2108,11 @@ impl GameData {
         // of a unit only what `source_compile::apply` leaves alone.
         let table = std::mem::take(&mut d.table);
         if long_way {
-            let recompiled = crate::source_compile::compile_picked(lo, &table, &units);
-            crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+            let recompiled = crate::source_compile::compile_picked(lo, schema, &table, &units);
+            d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         }
         let recompiled = std::thread::scope(|scope| {
-            let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, &table, &units) });
+            let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, schema, &table, &units) });
             // In form order, as one list read all at once was.
             let mut unit_reads: HashMap<u32, Box<Read>> = unit_reads.into_iter().collect();
             // The reads run a slice at a time inside the loop below: their time is summed here,
@@ -2139,6 +2297,9 @@ impl GameData {
                 if let Some(v) = r.faction {
                     d.faction_reactions.insert(id, v);
                 }
+                if let Some(v) = r.faction_modifiers {
+                    d.faction_modifiers.insert(id, v);
+                }
                 if let Some(v) = r.destruction {
                     d.destructibles.insert(id, v);
                 }
@@ -2217,6 +2378,9 @@ impl GameData {
                 if let Some(water) = r.drink_water {
                     d.drink_waters.insert(id, water);
                 }
+                if r.radio_receiver {
+                    d.radio_receivers.insert(id);
+                }
                 if let Some(list) = r.default_objects {
                     d.default_objects = list;
                 }
@@ -2245,7 +2409,7 @@ impl GameData {
             recompiled
         });
         d.table = table;
-        crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+        d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         d.units = units;
         clock.lap("source compile results put in");
         for stages in d.need_stages.values_mut() {
@@ -2300,6 +2464,36 @@ impl GameData {
 
     pub fn script(&self, script: FormId) -> Option<&Compiled> {
         self.scripts.get(&script).map(|&u| &self.units[u])
+    }
+
+    /// The file names of the plugins that hold `form`, defining it or overriding it, in
+    /// load order; none for a form of no plugin (made in play).
+    pub fn form_plugins(&self, form: FormId) -> Vec<String> {
+        let idx: Vec<u8> = match self.form_overrides.get(&form) {
+            Some(v) => v.clone(),
+            None if self.sig(form).is_some() => vec![(form.0 >> 24) as u8],
+            None => Vec::new(),
+        };
+        idx.into_iter().filter_map(|i| self.load_order.get(usize::from(i)).cloned()).collect()
+    }
+
+    /// Whether `form` is overridden by at least one plugin after its defining plugin in
+    /// the load order (`IsFormOverridden`).
+    pub fn is_form_overridden(&self, form: FormId) -> bool {
+        self.form_overrides.get(&form).is_some_and(|v| v.len() > 1)
+    }
+
+    /// The load-order index of the winning (last) plugin that defines or overrides
+    /// `form` (`GetFormOverrideIndex`), or `None` when `form` is not known from any
+    /// plugin in `GameData`.
+    pub fn form_override_index(&self, form: FormId) -> Option<u8> {
+        if let Some(last) = self.form_overrides.get(&form).and_then(|v| v.last().copied()) {
+            return Some(last);
+        }
+        if (form.0 >> 24) < 0xFE && self.sig(form).is_some() {
+            return Some((form.0 >> 24) as u8);
+        }
+        None
     }
 
     pub fn by_edid(&self, edid: &str) -> Option<FormId> {
@@ -2414,28 +2608,99 @@ impl GameData {
 }
 
 /// [`GameData::shared_lines`]: for each topic whose INFC / INFX pairs name a line, its
-/// own lines with each shared line put in at its Info Index (pairs in index order; an
-/// index past the end, or negative, puts it last) [hypothesis: the index is the line's
-/// place in the topic's list; in topics with no line of their own the indices run
-/// 0, 1, 2 … as a list's would, observed, dialogue.md §1.2]. A line already in
-/// the list is not added twice.
+/// own lines in stored order with each shared line put in among the own lines of the
+/// quest that lists it (the QSTI the pair follows) [hypothesis: the Info Index is the
+/// line's place in that quest's lines of the topic, dialogue.md §1.2].
+///
+/// [design] Each listing quest's list is its own lines of the topic, in stored order,
+/// with its shared lines inserted at their Info Index (pairs in index order; a negative,
+/// missing or past-the-end index puts the line last). In the topic's list a shared line
+/// then goes just before the quest's own line that follows it in that list, or right
+/// after the quest's last own line when none follows; lines that meet at one place keep
+/// index order, then QSTI order. The own lines never move, so equal priorities keep the
+/// stored order as in [`GameData::lines_by_priority`] (dialogue.md §4). A quest with no
+/// own line in the topic has its shared lines appended after the own lines, quests in
+/// QSTI order. A line already in the topic is not added twice (the first pair in index
+/// order wins); missing INFOs are skipped. A topic with a valid pair under no QSTI keeps
+/// the topic-wide merge (the index as a place in the whole list). Maps here are lookups
+/// only: the order comes from the stored lines, the QSTI list and sorted keys.
 fn shared_lines(topics: &HashMap<FormId, Vec<FormId>>, defs: &HashMap<FormId, TopicDef>, infos: &HashMap<FormId, InfoDef>) -> HashMap<FormId, Vec<FormId>> {
     let mut out = HashMap::new();
     for (id, t) in defs {
-        let mut pairs: Vec<(i32, FormId)> =
-            t.shared_infos.iter().filter_map(|s| s.info.filter(|i| infos.contains_key(i)).map(|i| (s.index.unwrap_or(-1), i))).collect();
+        let mut pairs: Vec<_> = t.shared_infos.iter().filter(|s| s.info.is_some_and(|i| infos.contains_key(&i))).collect();
         if pairs.is_empty() {
             continue;
         }
-        pairs.sort_by_key(|&(x, _)| if x < 0 { i32::MAX } else { x });
-        let mut lines = topics.get(id).cloned().unwrap_or_default();
-        for (x, i) in pairs {
-            if lines.contains(&i) {
+        let index_order = |s: &SharedInfo| s.index.filter(|&x| x >= 0).unwrap_or(i32::MAX);
+        pairs.sort_by_key(|s| index_order(s));
+        if pairs.iter().any(|s| s.quest.is_none()) {
+            // No listing quest can be assigned without guessing. Keep the entire
+            // malformed topic's old merge, including equal-index insertion order.
+            let mut lines = topics.get(id).cloned().unwrap_or_default();
+            for s in pairs {
+                let i = s.info.unwrap();
+                if !lines.contains(&i) {
+                    let at = s.index.and_then(|x| usize::try_from(x).ok()).map_or(lines.len(), |x| x.min(lines.len()));
+                    lines.insert(at, i);
+                }
+            }
+            out.insert(*id, lines);
+            continue;
+        }
+        let own = topics.get(id).cloned().unwrap_or_default();
+        let mut seen: HashSet<FormId> = own.iter().copied().collect();
+        // Where each quest's own lines stand in the topic's stored list.
+        let mut own_at: HashMap<FormId, Vec<usize>> = HashMap::new();
+        for (at, i) in own.iter().enumerate() {
+            if let Some(quest) = infos.get(i).and_then(|d| d.quest) {
+                own_at.entry(quest).or_default().push(at);
+            }
+        }
+        // Each listing quest's list: None for one of its own lines, Some for a shared
+        // line with its index order.
+        let mut quest_lines: HashMap<FormId, Vec<Option<(FormId, i32)>>> = HashMap::new();
+        for s in pairs {
+            let i = s.info.unwrap(); // Filtered above.
+            if !seen.insert(i) {
                 continue;
             }
-            let at = usize::try_from(x).map_or(lines.len(), |x| x.min(lines.len()));
-            lines.insert(at, i);
+            let quest = s.quest.unwrap(); // Unscoped topics use the fallback above.
+            let lines = quest_lines.entry(quest).or_insert_with(|| vec![None; own_at.get(&quest).map_or(0, Vec::len)]);
+            let at = usize::try_from(s.index.unwrap_or(-1)).map_or(lines.len(), |x| x.min(lines.len()));
+            lines.insert(at, Some((i, index_order(s))));
         }
+        // Shared lines among the own lines, keyed (place in `own`, index order, QSTI
+        // rank, place in the quest's list); shared lines of quests with no own line.
+        let mut placed: Vec<((usize, i32, usize, usize), FormId)> = Vec::new();
+        let mut appended = Vec::new();
+        for (rank, quest) in t.quests.iter().enumerate() {
+            let Some(lines) = quest_lines.remove(quest) else { continue };
+            let Some(at) = own_at.get(quest) else {
+                appended.extend(lines.into_iter().flatten().map(|(i, _)| i));
+                continue;
+            };
+            let mut own_before = 0;
+            for (pos, line) in lines.into_iter().enumerate() {
+                match line {
+                    None => own_before += 1,
+                    Some((i, index)) => {
+                        let place = at.get(own_before).copied().unwrap_or(at[at.len() - 1] + 1);
+                        placed.push(((place, index, rank, pos), i));
+                    }
+                }
+            }
+        }
+        placed.sort_by_key(|&(key, _)| key);
+        let mut placed = placed.into_iter().peekable();
+        let mut lines = Vec::with_capacity(own.len() + placed.len() + appended.len());
+        for (at, i) in own.into_iter().enumerate() {
+            while let Some((_, shared)) = placed.next_if(|&((place, ..), _)| place <= at) {
+                lines.push(shared);
+            }
+            lines.push(i);
+        }
+        lines.extend(placed.map(|(_, shared)| shared));
+        lines.extend(appended);
         out.insert(*id, lines);
     }
     out
@@ -2634,6 +2899,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     // WaterHeal5Terrible, the effects of drinking them]. docs/spec-notes/radiation.md §3.
     if &sig == b"ACTI" {
         out.drink_water = subs.iter().find(|s| &s.sig == b"WNAM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId);
+        // RNAM: the radio station a receiver plays [documented: xEdit ACTI RNAM;
+        // `fnv_world::radio`].
+        out.radio_receiver = subs.iter().find(|s| &s.sig == b"RNAM").and_then(|s| word(&s.data)).is_some_and(|l| l != 0);
     }
     if &sig == b"DOBJ" {
         let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();
@@ -3334,7 +3602,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             });
         }
         b"REGN" => {
-            let mut rg = RegionDef::default();
+            let mut rg = RegionDef { border: r.header.flags & BORDER_REGION != 0, ..Default::default() };
             let num = |v: Option<&Json>| v.and_then(|x| x.as_f64().or_else(|| x.get("value")?.as_f64())).unwrap_or(0.0);
             let mut header: Option<&Json> = None;
             for (s, v) in &decoded {
@@ -3457,6 +3725,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             out.race_younger = link(b"YNAM");
         }
         b"FACT" => {
+            out.faction_modifiers = Some(decoded.iter().filter(|(s, _)| *s == b"XNAM").filter_map(|(_, v)| {
+                let v = v.as_ref()?;
+                let f = v.get("faction").and_then(hexid).and_then(map)?;
+                Some((FormId(f), v.get("modifier")?.as_i64()?))
+            }).collect());
             out.faction = Some(
                 decoded
                     .iter()

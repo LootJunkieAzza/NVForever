@@ -174,7 +174,10 @@ fn fragment(
         discard;
     }
     @if(!PREPASS_PIPELINE && SOFT_EDGES) pbr_input.material.base_color.a = 1.0;
-    @if(!PREPASS_PIPELINE && !SOFT_EDGES) pbr_input.material.base_color = alpha_discard(pbr_input.material.flags, pbr_input.material.alpha_cutoff, pbr_input.material.base_color);
+    // PREPASS_COVERAGE (nvf_assets `soft_edges`): the depth prepass wrote the card on the
+    // samples it covers and the depth test is for equality: nothing to test here.
+    @if(!PREPASS_PIPELINE && PREPASS_COVERAGE) pbr_input.material.base_color.a = 1.0;
+    @if(!PREPASS_PIPELINE && !SOFT_EDGES && !PREPASS_COVERAGE) pbr_input.material.base_color = alpha_discard(pbr_input.material.flags, pbr_input.material.alpha_cutoff, pbr_input.material.base_color);
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);

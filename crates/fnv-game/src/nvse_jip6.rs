@@ -149,9 +149,11 @@ fn set_stage_trait(s: &mut DestructionStage, t: i64, v: f64) {
                 s.self_damage_per_second = i;
             }
         }
+        // The model damage stage takes any whole number the same way, modulo 9 (10 reads
+        // 1, 255 reads 3, 256 reads 4, -1 reads 3) [observed: jip-records-6.md §1, #2039].
         2 => {
-            if let Some(b) = byte {
-                s.damage_stage = b;
+            if let Some(i) = int {
+                s.damage_stage = (i as u32 % 9) as u8;
             }
         }
         // Flags 1 cap damage, 2 disable, 4 destroy [documented: the page's table].

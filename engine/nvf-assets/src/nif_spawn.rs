@@ -9,6 +9,7 @@
 
 use crate::data::GameData;
 use crate::nif_material::{display_emissive, emissive_in_display, nif_material, Falloff, NifMaterial};
+use crate::tangents::{StoredArrays, Tangents};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -132,7 +133,8 @@ pub(crate) struct Props {
     /// BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml]: vertex colour alpha is
     /// used only with it (`fix_vertex_colors`).
     vertex_alpha: bool,
-    double_sided: bool,
+    /// NiStencilProperty draw mode DRAW_BOTH; also set on dismemberment caps (actor.rs).
+    pub(crate) double_sided: bool,
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
@@ -168,9 +170,16 @@ pub(crate) struct Props {
     pub(crate) animated_emissive: bool,
     /// A clip of the model drives the shape's material alpha ([`shape_alpha_mode`]).
     pub(crate) animated_alpha: bool,
+    /// The `environment_map_scale` of a lit shader property that sets both
+    /// Environment_Mapping and Window_Environment_Mapping ([`window_env_flags`]): the shape
+    /// reflects its texture set's environment cube ([`window_env`]).
+    window_env: Option<f32>,
     /// An actor's part whose material carries an NiAlphaController for the actor's
     /// clips to drive ([`shape_alpha_mode`], [`material_alpha_controlled`]).
     pub(crate) alpha_gated: bool,
+    /// The caller keeps the shape off authored sets (#2981): particle systems, object LOD
+    /// (`crate::authored::shape_eligible`).
+    pub(crate) no_authored: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -178,13 +187,6 @@ pub(crate) struct Props {
 }
 
 impl Props {
-    /// Helper geometry the game does not draw: properties attached, but neither a
-    /// shader property nor a texture. These are bone display boxes (`TTail1:0`,
-    /// `Bone01:0`), collision proxies (`c_Minigun`, `DummyCol:3`) and invisible markers
-    /// (`##PLRInvis:0`): 434 of 48,996 visible shapes in `Fallout - Meshes.bsa`, all with
-    /// only a NiMaterialProperty [observed: `crates/fnv-nif/examples/shape_survey.rs`;
-    /// hypothesis: the game skips them, consistent with the in-game look of the
-    /// Goodsprings flag]. Shapes with no properties at all (landscape LOD) are drawn.
     pub(crate) fn external_emittance(&self) -> bool {
         self.external_emittance
     }
@@ -206,9 +208,41 @@ impl Props {
         self.material_alpha.unwrap_or(1.0)
     }
 
-    pub(crate) fn is_helper(&self) -> bool {
-        self.has_properties && !self.shader && self.textures.is_empty()
+    /// Helper geometry the game does not draw: neither a shader property nor a texture,
+    /// and either some other property attached or none at all in a model that shades
+    /// other shapes (`shaded_model`, from [`shaded_model`]).
+    ///
+    /// With properties: bone display boxes (`TTail1:0`, `Bone01:0`), collision proxies
+    /// (`c_Minigun`, `DummyCol:3`) and invisible markers (`##PLRInvis:0`): 434 of 48,996
+    /// visible shapes in `Fallout - Meshes.bsa`, all with only a NiMaterialProperty
+    /// [observed: `crates/fnv-nif/examples/shape_survey.rs`; hypothesis: the game skips
+    /// them, consistent with the in-game look of the Goodsprings flag].
+    ///
+    /// Without any property: the furniture-marker figures, capsules and boundaries
+    /// copied into the Tops lounge chair (`furniture\loungechair_tops.nif`, the only
+    /// such model outside landscape LOD in the base and DLC archives), and the untextured
+    /// water-height shape of the landscape LOD chunks, which `lod.rs` never drew
+    /// [observed: `crates/fnv-nif/examples/marker_shape_survey.rs`; documented: GECK
+    /// wiki "Bethsoft Tutorial NPC population": a furniture marker's "white markers and
+    /// blue characters will not show up in-game"; hypothesis: the game draws none of
+    /// them; docs/spec-notes/nif.md §6 "Shapes with no property at all"]. A model with
+    /// no shader property anywhere keeps its bare shapes [design: no model in the
+    /// archives has bare shapes and no shader property; a rule that could blank a whole
+    /// model is not wanted].
+    pub(crate) fn is_helper(&self, shaded_model: bool) -> bool {
+        !self.shader && self.textures.is_empty() && (self.has_properties || shaded_model)
     }
+
+    /// No property at all on the shape or an ancestor.
+    pub(crate) fn is_bare(&self) -> bool {
+        !self.has_properties
+    }
+}
+
+/// Some block of the model derives from BSShaderProperty, so its shapes without any
+/// property are editor geometry ([`Props::is_helper`]).
+pub(crate) fn shaded_model(file: &NifFile, dec: &Decoded) -> bool {
+    (0..file.blocks.len()).any(|i| dec.is_a(i, "BSShaderProperty"))
 }
 
 /// BSShaderType 14 "SHADER_SKIN" [documented: nif.xml BSShaderType]. In
@@ -292,6 +326,26 @@ pub(crate) fn uses_falloff(shader_flags: i64) -> bool {
     shader_flags & (1 << 6) != 0
 }
 
+/// Whether shader flags ask for a window's environment map: BSShaderFlags bit 7
+/// "Environment_Mapping" and bit 21 "Window_Environment_Mapping" [documented: nif.xml flag
+/// names] (docs/spec-notes/nif.md §6 "Window glass and environment maps"). The glass of
+/// windows, bottles and lamps (490 files in `Fallout - Meshes.bsa`, gap audit §2.1);
+/// shapes with bit 7 alone are not given a reflection [design, #2462].
+pub(crate) fn window_env_flags(shader_flags: i64) -> bool {
+    shader_flags & (1 << 7) != 0 && shader_flags & (1 << 21) != 0
+}
+
+/// A shape's window environment map ([`window_env_flags`]): the environment cube (texture
+/// set slot 4), the environment mask (slot 5) if the set has one, and the scale
+/// (`environment_map_scale`) [documented: nif.xml BSShaderTextureSet slot order,
+/// BSShaderProperty field]. `None` without the flags, without a cube, on an unlit shape or
+/// at a scale of 0 or less.
+pub(crate) fn window_env(props: &Props) -> Option<(String, Option<String>, f32)> {
+    let scale = props.window_env.filter(|&s| s > 0.0 && !props.unlit)?;
+    let slot = |i: usize| props.textures.get(i).filter(|t| !t.is_empty()).cloned();
+    Some((slot(4)?, slot(5), scale))
+}
+
 /// Whether a shader property's shapes take their vertex alpha: with BSShaderFlags bit 3
 /// "Vertex_Alpha", and on an unlit shape (BSShaderNoLightingProperty) also with bit 19
 /// "Dynamic_Alpha" [documented: nif.xml flag names; hypothesis for the second: the
@@ -339,6 +393,8 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.fire_period = fire_period(flags, s.int("refraction_fire_period"));
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
         p.falloff = None;
+        let lit = dec.is_a(r as usize, "BSShaderPPLightingProperty");
+        p.window_env = (lit && window_env_flags(flags)).then(|| s.float("environment_map_scale").unwrap_or(1.0));
     }
     match ty {
         "BSShaderPPLightingProperty" => p.glow = glow_map(s.int("shader_flags").unwrap_or(0), &p.textures),
@@ -565,7 +621,18 @@ pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
 }
 
 /// The vertex colours of an unlit shape (BSShaderNoLightingProperty) taken as display
-/// values: their colour is converted to linear, the alpha kept.
+/// values: the mesh keeps them as stored, and the material marks them so
+/// (`NifSurface::emissive_rule` z = 1); the shader blends them across the triangles as
+/// display values and makes the colour linear per fragment (sRGB transfer,
+/// [`display_to_linear`]), the alpha kept.
+///
+/// Per fragment, not at the vertices (#2435): the game blends the stored values across
+/// a triangle [hypothesis: a DirectX 9 frame without sRGB conversion, as in nif.md §6
+/// "Additive blend"]. Made linear at the vertices, a colour falling to black across a
+/// triangle stayed bright almost to its black edge (display 0.096 at nine tenths of the
+/// way from 0.34 to 0, where the stored values give 0.034): the Gomorrah Suites' wall
+/// sconce glow (`neoclassicalsconce.nif`, `NeoclassicalSconce:9`, ONE / ONE, no texture,
+/// 0.34 at the bowl to black on its outline) was a pale board with a hard outline.
 ///
 /// An unlit shape's colour is texture × vertex colour, which the game forms in display
 /// values [hypothesis, as for the landscape's vertex colours (terrain.rs) and the grass
@@ -575,13 +642,14 @@ pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
 /// texture) is a grey near the desert floor's in the game, where it can barely be seen
 /// (owner's screenshots, 2026-10-12), and drew as a white plume here
 /// (docs/spec-notes/nif.md §6 "Vertex colours").
-pub(crate) fn unlit_vertex_colors(mesh: &mut Mesh) {
-    let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) else { return };
-    for c in colors.iter_mut() {
-        for v in &mut c[..3] {
-            *v = Color::srgb(*v, 0.0, 0.0).to_linear().red;
-        }
-    }
+pub(crate) fn unlit_vertex_colors(material: &mut NifMaterial) {
+    material.extension.emissive_rule.z = 1.0;
+}
+
+/// A display value made linear by the sRGB transfer (CPU mirror of nif_material.wesl
+/// `display_to_linear`, which [`unlit_vertex_colors`] has the shader apply per fragment).
+pub fn display_to_linear(v: f32) -> f32 {
+    Color::srgb(v, 0.0, 0.0).to_linear().red
 }
 
 /// Reflectance for a shape, and whether its normal map's alpha (the specular mask,
@@ -616,15 +684,28 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (
 /// their mean alpha 21 / 35 / 58; the choice of the median is a hypothesis].
 pub const UNMASKED_SPECULAR: f32 = 35.0 / 255.0;
 
-/// Whether a loaded normal map has no alpha channel to hold a specular mask (DXT1).
+/// Whether an unexpanded loaded format has no alpha channel to hold a specular mask.
 pub fn lacks_alpha(image: &Image) -> bool {
     format_lacks_alpha(image.texture_descriptor.format)
 }
 
-/// [`lacks_alpha`] by the texture's format.
+/// [`lacks_alpha`] by the texture's format: the one- and two-channel formats (BC4, BC5,
+/// and their CPU fallbacks R8 and RG8) and BC1.
 pub fn format_lacks_alpha(format: bevy::render::render_resource::TextureFormat) -> bool {
     use bevy::render::render_resource::TextureFormat;
-    matches!(format, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc1RgbaUnormSrgb)
+    matches!(
+        format,
+        TextureFormat::Bc1RgbaUnorm
+            | TextureFormat::Bc1RgbaUnormSrgb
+            | TextureFormat::Bc4RUnorm
+            | TextureFormat::Bc4RSnorm
+            | TextureFormat::Bc5RgUnorm
+            | TextureFormat::Bc5RgSnorm
+            | TextureFormat::R8Unorm
+            | TextureFormat::R8Snorm
+            | TextureFormat::Rg8Unorm
+            | TextureFormat::Rg8Snorm
+    )
 }
 
 /// The falloff to draw a shape's material with. Falloff scales alpha, so only blended
@@ -734,12 +815,34 @@ fn mesh_extent(mesh: &Mesh) -> f32 {
 pub(crate) trait TextureSource {
     /// The texture at a NIF texture path, loaded once.
     fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>>;
+    /// A normal map and its source alpha classification (BC5 expansion must not
+    /// turn its synthetic storage alpha into a specular mask).
+    fn normal(&mut self, raw_path: &str) -> Option<(Handle<Image>, bool)> {
+        let h = self.texture(raw_path, false)?;
+        let unmasked = self.lacks_alpha(&h);
+        Some((h, unmasked))
+    }
     /// Whether the texture of `h` has no alpha channel ([`lacks_alpha`]).
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool;
     /// Whether the texture at a NIF texture path has a cut-out mask in its alpha
-    /// (`texture::AlphaShares::is_mask`), read from the archives again: asked only for the
-    /// few shapes [`blended_cutout`] concerns.
+    /// (`texture::AlphaShares::is_mask`), read from the archives once per file
+    /// (`texture::WorkerTextures::alpha_is_mask`): asked only for the shapes
+    /// [`blended_cutout`] concerns.
     fn alpha_is_mask(&self, raw_path: &str) -> bool;
+    /// The key a NIF texture path loads under (`texture::resolved_path` over this source's
+    /// VFS): the diffuse's key is what an authored set is looked up by.
+    fn resolve(&self, raw_path: &str) -> String;
+    /// The set (#2981: authored, or height only) for a resolved diffuse key, its maps loaded by
+    /// the exact paths the index names (`crate::authored::find`); `None` when the run's setting
+    /// is off (then nothing is asked of the index), with no active set, when an authored set's
+    /// `_orm` does not load, or when a height-only set gives no height map. Every production
+    /// source implements it (no default, so none can leave the feature off by omission); test
+    /// doubles answer for themselves.
+    fn pbr_set(&mut self, resolved_diffuse: &str) -> Option<crate::authored::PbrSet>;
+    /// Whether authored sets are in use at all (the run's setting, `crate::authored::enabled`,
+    /// for every production source): off, no shape is looked up and no legacy look is kept,
+    /// so an off run's materials carry nothing new. No default, as for [`Self::pbr_set`].
+    fn authored_on(&self) -> bool;
 }
 
 /// The main thread's textures: the cache and the image store.
@@ -755,12 +858,34 @@ impl TextureSource for StoreTextures<'_> {
         self.textures.get(raw_path, srgb, self.data, self.images, self.formats)
     }
 
+    fn normal(&mut self, raw_path: &str) -> Option<(Handle<Image>, bool)> {
+        self.textures.normal(raw_path, self.data, self.images, self.formats)
+    }
+
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
         self.images.get(h).is_some_and(lacks_alpha)
     }
 
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
-        crate::texture::texture_alpha_shares(raw_path, self.data).is_some_and(|s| s.is_mask())
+        self.textures.workers.alpha_is_mask(raw_path, self.data)
+    }
+
+    fn resolve(&self, raw_path: &str) -> String {
+        crate::texture::resolved_path(raw_path, |p| self.data.vfs.exists(p))
+    }
+
+    fn authored_on(&self) -> bool {
+        crate::authored::enabled()
+    }
+
+    fn pbr_set(&mut self, resolved_diffuse: &str) -> Option<crate::authored::PbrSet> {
+        let workers = self.textures.workers.clone();
+        let (textures, data, images, formats) = (&mut *self.textures, self.data, &mut *self.images, self.formats);
+        crate::authored::find(data, crate::authored::enabled(), resolved_diffuse, &workers.authored, |path, usage| {
+            let (h, _) = textures.exact(path, usage, data, images, formats)?;
+            let format = images.get(&h).map(|i| i.texture_descriptor.format);
+            Some((h, format))
+        })
     }
 }
 
@@ -806,7 +931,7 @@ pub(crate) fn shape_material(
     images: &mut Assets<Image>,
     formats: Option<&CompressedImageFormatSupport>,
 ) -> (NifMaterial, Option<String>) {
-    shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats })
+    shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats }, Tangents::Generate)
 }
 
 /// [`shape_material`] for a copy of a mesh that went through it before (an actor part's
@@ -822,26 +947,72 @@ pub(crate) fn shape_material_reusing_tangents(
     images: &mut Assets<Image>,
     formats: Option<&CompressedImageFormatSupport>,
 ) -> (NifMaterial, Option<String>) {
-    shape_material_inner(props, mesh, &mut StoreTextures { textures, data, images, formats }, true)
+    shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats }, Tangents::Keep)
 }
 
-/// [`shape_material`] with its textures from `textures`.
-pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource) -> (NifMaterial, Option<String>) {
-    shape_material_inner(props, mesh, textures, false)
-}
-
-fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource, keep_tangents: bool) -> (NifMaterial, Option<String>) {
+/// [`shape_material`] with its textures from `textures` and the normal map's tangents from
+/// `tangents`: the static models (`crate::model`) give the ones stored in the shape's data
+/// block ([`crate::tangents`]); every other caller generates them (or keeps them,
+/// [`shape_material_reusing_tangents`]).
+pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource, tangents: Tangents) -> (NifMaterial, Option<String>) {
     fix_vertex_colors(mesh, props.vertex_alpha);
-    if props.unlit {
-        unlit_vertex_colors(mesh);
-    }
-    let base = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, true));
-    let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, false));
-    let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
+    let diffuse = props.textures.first().filter(|t| !t.is_empty());
+    let base = diffuse.and_then(|t| textures.texture(t, true));
+    let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.normal(t));
+    let missing = if base.is_none() { diffuse.cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
-    let normal = normal.filter(|_| has_uv && ((keep_tangents && mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some()) || mesh.generate_tangents().is_ok()));
+    let had_tangents = mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some();
+    let normal = normal.filter(|_| has_uv && tangents.add_to(mesh));
+    let (normal, unmasked) = normal.map_or((None, false), |(h, unmasked)| (Some(h), unmasked));
     let cut = blend_cut(props, mesh);
     let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
+    // The window environment map: the cube, the mask and the scale (docs/spec-notes/nif.md
+    // §6 "Window glass and environment maps"). A blended shape that reflects is drawn
+    // premultiplied, so its reflection is added over the blend whatever its alpha.
+    let env = window_env(props).and_then(|(cube, mask, scale)| {
+        let cube = textures.texture(&crate::texture::cube_path(&cube), true)?;
+        let mask = mask.filter(|_| has_uv).and_then(|m| textures.texture(&m, false));
+        Some((cube, mask, scale))
+    });
+    // Not a blended cut-out (a tested shape whose texture is a mask): it stays Blend, the
+    // mode `blended_cutout` and the FSR cut-out switch (nif_material.rs) know, and its
+    // reflection is added inside the blend.
+    let premultiply = env.is_some()
+        && matches!(alpha_mode, AlphaMode::Blend)
+        && blended_cutout(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_mask(t))).is_none();
+    let alpha_mode = if premultiply { AlphaMode::Premultiplied } else { alpha_mode };
+    // An authored set (#2981, crate::authored): looked up by the resolved diffuse when the
+    // shape may take one; `None` whenever the run's setting is off.
+    let on = textures.authored_on();
+    let eligible = on && crate::authored::shape_eligible(props.unlit, props.refraction.is_some(), props.hair, props.skin, alpha_mode, has_uv, props.no_authored);
+    if on && !eligible {
+        crate::authored::note_skipped(false);
+    }
+    let key = diffuse.filter(|_| eligible).map(|t| textures.resolve(t));
+    let key_ok = key.as_deref().is_some_and(crate::authored::key_eligible);
+    if key.is_some() && !key_ok {
+        crate::authored::note_skipped(true);
+    }
+    let found = key.filter(|_| key_ok).and_then(|k| textures.pbr_set(&k));
+    let authored = found.as_ref().and_then(crate::authored::PbrSet::authored);
+    let height = found.as_ref().and_then(crate::authored::PbrSet::height);
+    // A height map is drawn only on an opaque (or, under the alpha-tested switch, an
+    // alpha-tested), single-sided, non-decal shape (`crate::authored::height_gate`, asked
+    // again of the built material): only such a shape gains tangents for one.
+    let height_wanted = height.is_some()
+        && crate::authored::height_alpha(alpha_mode, crate::authored::parallax_mask()).is_ok()
+        && !props.double_sided
+        && !props.decal;
+    // The final normal is chosen before the tangents are settled: a set's `_n` or `_p` on a
+    // shape without a normal map needs tangents on the drawn mesh, given here from `tangents`
+    // (kept, stored or generated, as for the game's own normal map).
+    let tangents = if normal.is_some() {
+        true
+    } else if (authored.is_some_and(|s| s.normal.is_some()) || height_wanted) && !had_tangents {
+        has_uv && tangents.add_to(mesh)
+    } else {
+        had_tangents
+    };
     let cutout = blended_cutout(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_mask(t)));
     let gloss = props.glossiness.unwrap_or(10.0);
     // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
@@ -851,7 +1022,6 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         .then_some(props.glow.as_deref())
         .flatten()
         .and_then(|t| textures.texture(t, true));
-    let unmasked = normal.as_ref().is_some_and(|h| textures.lacks_alpha(h));
     let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
@@ -883,7 +1053,15 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         material.extension.depth_write = true;
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
+    if let Some((cube, mask, scale)) = env {
+        material.extension.env = Vec4::new(scale, if mask.is_some() { 1.0 } else { 0.0 }, 0.0, 0.0);
+        material.extension.env_cube = Some(cube);
+        material.extension.env_mask = mask;
+    }
     material.extension.emissive_rule = shape_emissive_rule(props, alpha_mode);
+    if props.unlit {
+        unlit_vertex_colors(&mut material);
+    }
     material.extension.decal = props.decal;
     if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
@@ -897,6 +1075,34 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.
     material.extension.hard_edges = props.lod_building;
+    // The authored set last, over the legacy values chosen above and after the extension's
+    // `emissive_rule` is assigned (its w lane carries the mark). Shapes that may take a set
+    // keep their legacy look for later swaps (`crate::authored::LegacyLook`).
+    if eligible {
+        let legacy = crate::authored::LegacyLook {
+            normal: material.base.normal_map_texture.clone(),
+            specular: material.base.specular_texture.clone(),
+            roughness: material.base.perceptual_roughness,
+            reflectance: material.base.reflectance,
+            metallic: material.base.metallic,
+            tangents,
+            specular_tint: material.base.specular_tint,
+            parallax: crate::authored::Parallax::of(&material.base),
+            scripted_tint: None,
+        };
+        if let Some(set) = authored {
+            crate::authored::apply(&mut material, set, &legacy);
+            crate::authored::note_built(set);
+        }
+        // The height map over either kind of set (a height-only set changes nothing else and
+        // leaves the mark clear).
+        if let Some(height) = height {
+            if crate::authored::apply_height(&mut material, height, &legacy).is_ok() {
+                crate::authored::note_height_built(authored.is_none());
+            }
+        }
+        material.extension.legacy = Some(legacy);
+    }
     (material, missing)
 }
 
@@ -965,9 +1171,15 @@ pub fn refraction_material(material: &mut NifMaterial, strength: f32, fire_perio
     material.extension.fire_period = fire_period;
     material.extension.refract = true;
     material.extension.depth_write = false;
+    // #2981: a refracting copy (a cloak's: nvforever `stealth_field.rs`, player and actors
+    // alike) draws no authored height map: the shader samples the standard material, with
+    // the march, before its refraction return.
+    crate::authored::recheck_height(material);
 }
 
-pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize)> {
+/// The mesh of a shape-data block, its triangle count, and the tangent arrays it stores
+/// (for [`Tangents::Stored`]; empty when it stores none).
+pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
     let md = mesh_data(data);
     if md.positions.is_empty() || md.triangles.is_empty() {
         return None;
@@ -992,7 +1204,7 @@ pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize)> {
     if !has_normals {
         mesh.compute_normals();
     }
-    Some((mesh, tris))
+    Some((mesh, tris, StoredArrays { tangents: md.tangents, bitangents: md.bitangents }))
 }
 
 /// Per-vertex joint indices and normalised weights (four influences per vertex).
@@ -1120,6 +1332,7 @@ impl SpawnCtx<'_, '_> {
         let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
         let dec = Decoded::new(&file, &bytes, &schema);
         let objects = scene_objects(&file, &dec);
+        let shaded = shaded_model(&file, &dec);
         let mut report = SpawnReport { blocks: file.blocks.len(), ..Default::default() };
 
         // Pass 1: one entity per node or shape, with its local transform.
@@ -1169,9 +1382,11 @@ impl SpawnCtx<'_, '_> {
             let Ok(shape) = &dec.blocks[o.block] else { continue };
             let Some(data_ref) = shape.block_ref("data") else { continue };
             let Some(data) = dec.get(data_ref) else { continue };
-            let Some((mut mesh, tris)) = build_mesh(data) else { continue };
+            let Some((mut mesh, tris, _)) = build_mesh(data) else { continue };
 
-            let props = shape_props(&file, &dec, o, &by_block);
+            let mut props = shape_props(&file, &dec, o, &by_block);
+            // Landscape LOD takes no authored set (#2981), as in the model loader.
+            props.no_authored = crate::model::is_lod_model(path);
             let (material, missing) = shape_material(
                 &props,
                 &mut mesh,
@@ -1181,7 +1396,7 @@ impl SpawnCtx<'_, '_> {
                 self.formats.as_deref(),
             );
             report.textures_missing.extend(missing);
-            if props.is_helper() {
+            if props.is_helper(shaded) {
                 self.commands.entity(entity_of[&o.block]).insert((NifHidden, Visibility::Hidden));
             }
 
@@ -1244,6 +1459,15 @@ mod tests {
         fn alpha_is_mask(&self, _: &str) -> bool {
             false
         }
+        fn resolve(&self, raw_path: &str) -> String {
+            fnv_vfs::texture_path(raw_path)
+        }
+        fn pbr_set(&mut self, _: &str) -> Option<crate::authored::PbrSet> {
+            None
+        }
+        fn authored_on(&self) -> bool {
+            false
+        }
     }
 
     /// Textures whose alpha is a cut-out mask when their path says "mask".
@@ -1258,6 +1482,62 @@ mod tests {
         fn alpha_is_mask(&self, raw_path: &str) -> bool {
             raw_path.contains("mask")
         }
+        fn resolve(&self, raw_path: &str) -> String {
+            fnv_vfs::texture_path(raw_path)
+        }
+        fn pbr_set(&mut self, _: &str) -> Option<crate::authored::PbrSet> {
+            None
+        }
+        fn authored_on(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn a_dismemberment_cap_is_alpha_tested_and_drawn_from_both_sides() {
+        let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        // `upperbody.nif` `bodycaps`: NiAlphaProperty 0x12EC (test GREATER 127), no stencil;
+        // actor.rs sets `double_sided` on shapes with cap partitions.
+        let cap = Props { alpha: Some((0x12EC, 127)), textures: vec![r"gore\meatcapgore01.dds".into()], double_sided: true, ..Default::default() };
+        let (m, _) = shape_material_with(&cap, &mut tri.clone(), &mut NoTextures, Tangents::Generate);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Mask(_)));
+        assert!(m.base.double_sided && m.base.cull_mode.is_none());
+        let (m, _) = shape_material_with(&Props { double_sided: false, ..cap }, &mut tri, &mut NoTextures, Tangents::Generate);
+        assert!(!m.base.double_sided && m.base.cull_mode.is_some());
+    }
+
+    #[test]
+    fn unlit_vertex_colours_are_blended_as_display_values() {
+        // The Gomorrah Suites sconce glow (neoclassicalsconce.nif, NeoclassicalSconce:9):
+        // unlit, additive ONE / ONE (0x1001), no texture, vertex colour 0.34 at the bowl
+        // and black on the outline (#2435).
+        let glow = Props { unlit: true, alpha: Some((0x1001, 0)), textures: vec![String::new()], ..Default::default() };
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        let stored = vec![[0.34f32, 0.32, 0.27, 1.0], [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]];
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, stored.clone());
+        let (m, _) = shape_material_with(&glow, &mut mesh, &mut NoTextures, Tangents::Generate);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Add);
+        assert!(m.base.unlit);
+        // The mesh keeps the stored display values; the shader makes them linear.
+        assert_eq!(m.extension.emissive_rule.z, 1.0);
+        let Some(VertexAttributeValues::Float32x4(kept)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR) else { panic!("colours") };
+        assert_eq!(kept, &stored);
+        // Nine tenths of the way to the black outline: blended as display values and made
+        // linear there, the colour is a tenth of the bowl's display value; blended after
+        // being made linear (before #2435), 0.096, almost three times as bright.
+        let t = 0.9;
+        let per_fragment = display_to_linear(0.34 * (1.0 - t));
+        let per_vertex = display_to_linear(0.34) * (1.0 - t);
+        assert!((Color::linear_rgb(per_fragment, 0.0, 0.0).to_srgba().red - 0.034).abs() < 1e-3);
+        assert!(Color::linear_rgb(per_vertex, 0.0, 0.0).to_srgba().red > 0.09);
+        // At the vertices both readings agree.
+        assert!((display_to_linear(0.34) - Color::srgb(0.34, 0.0, 0.0).to_linear().red).abs() < 1e-6);
+        // A lit shape's vertex colours stay linear factors.
+        let lit = Props { textures: vec![String::new()], ..Default::default() };
+        let (m, _) = shape_material_with(&lit, &mut Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default()), &mut NoTextures, Tangents::Generate);
+        assert_eq!(m.extension.emissive_rule.z, 0.0);
     }
 
     #[test]
@@ -1269,11 +1549,11 @@ mod tests {
         };
         // The corn rows: blend SRC_ALPHA / INV_SRC_ALPHA, test GREATER 0 (0x12ED), lit.
         let corn = Props { alpha: Some((0x12ED, 0)), textures: vec![r"landscape\plants\maize_mask.dds".into()], ..Default::default() };
-        let (m, _) = shape_material_with(&corn, &mut quad(), &mut MaskTextures);
+        let (m, _) = shape_material_with(&corn, &mut quad(), &mut MaskTextures, Tangents::Generate);
         assert!(matches!(m.base.alpha_mode, AlphaMode::Blend), "drawn blended until FSR asks");
         assert_eq!(m.extension.blended_cutout, Some(BLENDED_CUTOUT_CUT));
         // Translucent texture alpha (dirty glass), or no texture: stays blended only.
-        assert_eq!(shape_material_with(&corn, &mut quad(), &mut NoTextures).0.extension.blended_cutout, None);
+        assert_eq!(shape_material_with(&corn, &mut quad(), &mut NoTextures, Tangents::Generate).0.extension.blended_cutout, None);
         // Anything else that sets alpha keeps it a real blend.
         for props in [
             Props { material_alpha: Some(0.5), ..corn.clone() },
@@ -1287,7 +1567,7 @@ mod tests {
             Props { alpha: Some((0x12ED & !(0xF << 5), 0)), ..corn.clone() },
             Props { alpha: Some((0x12ED, 128)), ..corn.clone() },
         ] {
-            assert_eq!(shape_material_with(&props, &mut quad(), &mut MaskTextures).0.extension.blended_cutout, None, "{props:?}");
+            assert_eq!(shape_material_with(&props, &mut quad(), &mut MaskTextures, Tangents::Generate).0.extension.blended_cutout, None, "{props:?}");
         }
     }
 
@@ -1299,13 +1579,13 @@ mod tests {
     #[test]
     fn blended_hair_writes_depth_above_its_cut() {
         let hair = Props { hair: true, alpha: Some((4333, 0)), ..Default::default() };
-        let (m, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
         assert!(m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, HAIR_DEPTH_CUT);
         assert!(crate::nif_material::see_through(&m), "hair still casts no shadow");
         // Other blended shapes (smoke, glass) write none and drop nothing.
-        let (m, _) = shape_material_with(&Props { hair: false, ..hair }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { hair: false, ..hair }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(!m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, 0.0);
     }
@@ -1315,7 +1595,7 @@ mod tests {
     #[test]
     fn hair_models_are_a_core_and_a_layer() {
         let hair = Props { hair: true, alpha: Some((4333, 0)), ..Default::default() };
-        let (blended, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures);
+        let (blended, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures, Tangents::Generate);
         let mut m = blended.clone();
         hair_model_cut_out(&mut m);
         assert_eq!(m.base.alpha_mode, AlphaMode::Mask(HAIR_MODEL_CUT));
@@ -1332,6 +1612,26 @@ mod tests {
         hair_model_cut_out(&mut masked);
         assert_eq!(masked.base.alpha_mode, AlphaMode::Mask(0.7));
         assert!(hair_model_layer(&masked).is_none());
+    }
+
+    /// A window environment map needs both flags (bits 7 and 21), a lit shader, a cube in
+    /// slot 4 and a scale above 0; the mask in slot 5 is optional (`vwindow01.nif`: flags
+    /// 0x82200180, ShinyBright_e.dds, no mask; nif.md §6 "Window glass and environment
+    /// maps").
+    #[test]
+    fn window_env_needs_both_flags_a_lit_shader_and_a_cube() {
+        assert!(window_env_flags(0x8220_0180));
+        assert!(!window_env_flags(1 << 7));
+        assert!(!window_env_flags(1 << 21));
+        let set = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let glass = Props { window_env: Some(1.0), textures: set(&["vglass01.dds", "vglass01_n.dds", "", "", "shinybright_e.dds", ""]), ..default() };
+        assert_eq!(window_env(&glass), Some(("shinybright_e.dds".to_string(), None, 1.0)));
+        let masked = Props { textures: set(&["a.dds", "a_n.dds", "", "", "b_e.dds", "a_m.dds"]), ..glass.clone() };
+        assert_eq!(window_env(&masked), Some(("b_e.dds".to_string(), Some("a_m.dds".to_string()), 1.0)));
+        assert_eq!(window_env(&Props { textures: set(&["a.dds", "a_n.dds"]), ..glass.clone() }), None);
+        assert_eq!(window_env(&Props { window_env: Some(0.0), ..glass.clone() }), None);
+        assert_eq!(window_env(&Props { unlit: true, ..glass.clone() }), None);
+        assert_eq!(window_env(&Props { window_env: None, ..glass }), None);
     }
 
     #[test]
@@ -1547,14 +1847,185 @@ mod tests {
 
     #[test]
     fn helper_shapes() {
-        // No properties at all (landscape LOD): drawn.
-        assert!(!Props::default().is_helper());
+        // No properties at all: skipped in a model that shades other shapes (the lounge
+        // chair's marker figures), drawn in one that shades none.
+        assert!(Props::default().is_helper(true) && Props::default().is_bare());
+        assert!(!Props::default().is_helper(false));
         // Material only (bone boxes, collision proxies): skipped.
         let material_only = Props { has_properties: true, ..Default::default() };
-        assert!(material_only.is_helper());
+        assert!(material_only.is_helper(false) && material_only.is_helper(true) && !material_only.is_bare());
         // A shader property, or a texture from NiTexturingProperty: drawn.
-        assert!(!Props { shader: true, ..material_only.clone() }.is_helper());
-        assert!(!Props { textures: vec!["textures\\a.dds".into()], ..material_only }.is_helper());
+        assert!(!Props { shader: true, ..material_only.clone() }.is_helper(true));
+        assert!(!Props { textures: vec!["textures\\a.dds".into()], ..material_only }.is_helper(true));
+    }
+
+    // A synthetic NIF (20.2.0.7, user version 11, BS version 34) in the layout of
+    // `crates/fnv-nif/tests/synthetic.rs` and `schemas/nif`; no game data.
+    fn words(out: &mut Vec<u8>, values: &[u32]) {
+        out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
+    }
+
+    fn floats(out: &mut Vec<u8>, values: &[f32]) {
+        out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
+    }
+
+    fn nif(blocks: &[(&str, Vec<u8>)], strings: &[&str]) -> Vec<u8> {
+        fn string(out: &mut Vec<u8>, s: &str) {
+            words(out, &[s.len() as u32]);
+            out.extend(s.as_bytes());
+        }
+        let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
+        words(&mut out, &[0x1402_0007]);
+        out.push(1);
+        words(&mut out, &[11, blocks.len() as u32, 34]);
+        out.extend([1, 0, 1, 0, 1, 0]); // three empty export strings
+        let mut types = vec![];
+        for (kind, _) in blocks {
+            if !types.contains(kind) {
+                types.push(*kind);
+            }
+        }
+        out.extend((types.len() as u16).to_le_bytes());
+        for kind in &types {
+            string(&mut out, kind);
+        }
+        for (kind, _) in blocks {
+            out.extend((types.iter().position(|t| t == kind).unwrap() as u16).to_le_bytes());
+        }
+        for (_, block) in blocks {
+            words(&mut out, &[block.len() as u32]);
+        }
+        words(&mut out, &[strings.len() as u32, strings.iter().map(|s| s.len()).max().unwrap_or(0) as u32]);
+        for s in strings {
+            string(&mut out, s);
+        }
+        words(&mut out, &[0]); // groups
+        for (_, block) in blocks {
+            out.extend(block);
+        }
+        words(&mut out, &[1, 0]); // footer: one root, block 0
+        out
+    }
+
+    /// NiAVObject fields: name (string index), no extra data or controller, flags 14,
+    /// identity transform, these properties, no collision.
+    fn av_object(name: u32, properties: &[u32]) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[name, 0, u32::MAX, 14]);
+        floats(&mut out, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0]);
+        words(&mut out, &[properties.len() as u32]);
+        words(&mut out, properties);
+        words(&mut out, &[u32::MAX]);
+        out
+    }
+
+    fn node(name: u32, children: &[u32]) -> Vec<u8> {
+        let mut out = av_object(name, &[]);
+        words(&mut out, &[children.len() as u32]);
+        words(&mut out, children);
+        words(&mut out, &[0]); // effects
+        out
+    }
+
+    fn strips(name: u32, properties: &[u32], data: u32) -> Vec<u8> {
+        let mut out = av_object(name, properties);
+        words(&mut out, &[data, u32::MAX, 0, u32::MAX]); // data, skin, materials, active
+        out.push(0); // material needs update
+        out
+    }
+
+    /// A 100 × 100 square at height `z`, one strip of two triangles.
+    fn square(z: f32) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[0]); // group id
+        out.extend(4u16.to_le_bytes());
+        out.extend([0, 0, 1]); // keep, compress, has vertices
+        floats(&mut out, &[0.0, 0.0, z, 100.0, 0.0, z, 0.0, 100.0, z, 100.0, 100.0, z]);
+        out.extend(1u16.to_le_bytes()); // one UV set
+        out.push(0); // no normals
+        floats(&mut out, &[50.0, 50.0, z, 71.0]); // bounding sphere
+        out.push(0); // no vertex colours
+        floats(&mut out, &[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+        out.extend(0u16.to_le_bytes()); // consistency
+        words(&mut out, &[u32::MAX]); // additional data
+        for v in [2u16, 1, 4] {
+            out.extend(v.to_le_bytes()); // triangles, strips, strip length
+        }
+        out.push(1); // has points
+        for v in [0u16, 1, 2, 3] {
+            out.extend(v.to_le_bytes());
+        }
+        out
+    }
+
+    /// BSShaderPPLightingProperty: no name, smooth shading, SHADER_DEFAULT, no flags,
+    /// wrap clamp mode, no texture set.
+    fn lit_shader() -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        out.extend(1u16.to_le_bytes());
+        words(&mut out, &[1, 0, 0]);
+        floats(&mut out, &[1.0]);
+        words(&mut out, &[3, u32::MAX]);
+        floats(&mut out, &[0.0]);
+        words(&mut out, &[0]);
+        floats(&mut out, &[4.0, 1.0]);
+        out
+    }
+
+    /// The lounge chair's set-up (`furniture\loungechair_tops.nif`): a seat shape with a
+    /// shader property, and a marker capsule under its own node with no property at all.
+    /// Without `shader` the seat has no property either and block 2 is an empty node.
+    fn chair(shader: bool) -> Vec<u8> {
+        let (seat_props, block2): (&[u32], (&str, Vec<u8>)) =
+            if shader { (&[2], ("BSShaderPPLightingProperty", lit_shader())) } else { (&[], ("NiNode", node(u32::MAX, &[]))) };
+        nif(
+            &[
+                ("BSFadeNode", node(0, &[1, 3])),
+                ("NiTriStrips", strips(1, seat_props, 5)),
+                block2,
+                ("NiNode", node(2, &[4])),
+                ("NiTriStrips", strips(3, &[], 6)),
+                ("NiTriStripsData", square(5.0)),
+                ("NiTriStripsData", square(50.0)),
+            ],
+            &["Shape01", "Shape01:0", "Capsule01", "Capsule01:0"],
+        )
+    }
+
+    /// Whether the model counts as shaded, and (is_helper, is_bare) of each shape by name.
+    fn chair_helpers(shader: bool) -> (bool, HashMap<String, (bool, bool)>) {
+        let schema = fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
+        let bytes = chair(shader);
+        let file = NifFile::parse(&bytes, Some(&schema)).unwrap();
+        let dec = Decoded::new(&file, &bytes, &schema);
+        let objects = scene_objects(&file, &dec);
+        let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+        let shaded = shaded_model(&file, &dec);
+        let shapes = objects
+            .iter()
+            .filter(|o| !o.is_node)
+            .map(|o| {
+                let p = shape_props(&file, &dec, o, &by_block);
+                (o.name.clone().unwrap(), (p.is_helper(shaded), p.is_bare()))
+            })
+            .collect();
+        (shaded, shapes)
+    }
+
+    #[test]
+    fn bare_shapes_beside_shaded_ones_are_editor_geometry() {
+        // Issue #2469: the lounge chair's marker capsule is left out, its seat drawn.
+        let (shaded, shapes) = chair_helpers(true);
+        assert!(shaded);
+        assert_eq!(shapes.len(), 2);
+        assert_eq!(shapes["Shape01:0"], (false, false), "the seat is drawn");
+        assert_eq!(shapes["Capsule01:0"], (true, true), "the bare capsule is editor geometry");
+        // A model with no shader property anywhere keeps its bare shapes.
+        let (shaded, shapes) = chair_helpers(false);
+        assert!(!shaded);
+        assert_eq!(shapes["Shape01:0"], (false, true));
+        assert_eq!(shapes["Capsule01:0"], (false, true));
     }
 
     #[test]
@@ -1649,5 +2120,53 @@ mod tests {
         assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
         assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);
         assert!(gloss_roughness(10.0) > gloss_roughness(67.0) && gloss_roughness(-5.0) == 1.0);
+    }
+}
+
+
+#[cfg(test)]
+mod authored_tests;
+
+#[cfg(test)]
+mod bc5_material_tests {
+    use super::*;
+    use crate::texture::bc5_tests::{OwnedData, triangle};
+    use bevy::render::render_resource::TextureFormat;
+
+    #[test]
+    fn actual_nif_normal_slot_keeps_bc5_orientation_and_original_alpha_semantics() {
+        let owned = OwnedData::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::default();
+        // Preload the same path as generic linear data. It cannot answer Normal.
+        let linear = cache.get("signed.dds", false, &owned.data, &mut images, None).unwrap();
+        let props = Props { textures: vec!["old.dds".into(), "signed.dds".into()], specular: true, ..Default::default() };
+        let (material, missing) = shape_material(&props, &mut triangle(), &mut cache, &owned.data, &mut images, None);
+        assert!(missing.is_none());
+        let normal = material.base.normal_map_texture.as_ref().expect("real normal slot");
+        assert_ne!(normal, &linear);
+        assert_eq!(images.get(normal).unwrap().texture_descriptor.format, TextureFormat::Rgba8Unorm);
+        assert_eq!(images.get(normal).unwrap().data.as_deref(), Some([0, 255, 128, 255].repeat(16).as_slice()));
+        assert!(material.base.flip_normal_map_y, "the existing DirectX green flip still applies exactly once");
+        assert!(material.base.specular_texture.is_none(), "generated alpha 255 must not become a full mask");
+        assert_eq!(material.base.reflectance, UNMASKED_SPECULAR);
+        let base = material.base.base_color_texture.as_ref().unwrap();
+        assert_eq!(images.get(base).unwrap().texture_descriptor.format, TextureFormat::Bc3RgbaUnormSrgb);
+        // The same ordinary DXT5 retains its mask, native bytes and normal convention.
+        let old = Props { textures: vec!["old.dds".into(), "old.dds".into()], specular: true, ..Default::default() };
+        let (old_material, missing) = shape_material(&old, &mut triangle(), &mut cache, &owned.data, &mut images, None);
+        assert!(missing.is_none());
+        let old_normal = old_material.base.normal_map_texture.as_ref().unwrap();
+        assert_eq!(old_material.base.specular_texture.as_ref(), Some(old_normal));
+        assert_eq!(old_material.base.reflectance, 2.0);
+        assert_eq!(images.get(old_normal).unwrap().texture_descriptor.format, TextureFormat::Bc3RgbaUnorm);
+        assert_eq!(images.get(old_normal).unwrap().data.as_deref(), Some([255; 16].as_slice()));
+        // Tangent/UV admission remains in force even though decoding succeeded.
+        let mut no_uv = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD);
+        no_uv.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        let refused = shape_material(&props, &mut no_uv, &mut cache, &owned.data, &mut images, None).0;
+        assert!(refused.base.normal_map_texture.is_none());
+        assert!(refused.base.specular_texture.is_none());
+        assert_eq!(refused.base.reflectance, 0.3);
     }
 }

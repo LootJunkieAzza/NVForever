@@ -36,6 +36,12 @@
 //! are where their packages have them; one that was on furniture and is to be elsewhere
 //! is off it at once. [engineering choice: what the original does is not sourced.]
 //!
+//! **A script moving the clock** (`set GameHour to 8`, more than an hour on the clock
+//! face; issue #2353, docs/spec-notes/packages.md §9) is handled like the end of a wait:
+//! everybody chooses its package at once, and the residents out of sight are put where
+//! their new packages have them, as on arrival; those in view walk there
+//! ([`Core::after_hour_jump`]) [design, #2353].
+//!
 //! **Movement.** With `--play`, an actor walking where the collision world is loaded
 //! (around the player) is moved by the character controller ([`PhysMover`]): it steers
 //! along its path and physics decides where it ends up, so it goes round furniture and
@@ -45,6 +51,10 @@
 //! **Load doors** (`door_fade.rs`): an actor that goes through a door into another space
 //! fades out at it and in at the other side, and the doors' open sounds play where the
 //! listener is drawn (owner's playtest list 5 item 3).
+//!
+//! **The start's loading screen** (`nvf_play::loading::StartCover`): the residents in view
+//! are drawn behind it, where the AI will take them up, and the screen waits for them; their
+//! first package is still chosen on the first frame of play ([`StartPlacing`]).
 
 use crate::actors::ActorWorld;
 use crate::furniture::{GetUp, LeaveNow, OnFurniture, SitOn, SitRefused};
@@ -67,6 +77,7 @@ use nvf_play::RefVisual;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::f32::consts::FRAC_PI_4;
 
+mod guard_wander;
 mod knock_run;
 pub(crate) mod melee_knockback;
 mod sandbox_interrupt;
@@ -81,6 +92,94 @@ const PACKAGE_INTERVAL: f64 = 10.0;
 /// Actors drawn for the first time per frame at most (drawing one loads its parts).
 const SPAWNS_PER_FRAME: usize = 3;
 
+/// Under the start's loading screen the residents in view are drawn without
+/// [`SPAWNS_PER_FRAME`], for this long each frame (at least one a frame), since no frame
+/// is seen there ([`StartPlacing`]) [engineering choice: half of the 200 ms a frame cells
+/// load for behind a loading screen, `world::LOADING_SCREEN_FRAME`; the screen's emblem
+/// turns on real time, so a long frame only makes it jump].
+const START_PLACE_BUDGET: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Test aid: `0` draws the start's residents after its loading screen, at most
+/// [`SPAWNS_PER_FRAME`] a frame, as before they were drawn under it ([`StartPlacing`]).
+const START_PLACE_AID: &str = "NVF_START_ACTORS_UNDER_SCREEN";
+
+/// Whether the start's residents are drawn under its screen, by [`START_PLACE_AID`]'s value.
+fn start_actors_under_screen(aid: Option<&str>) -> bool {
+    aid.is_none_or(|v| v.trim() != "0")
+}
+
+/// The start's residents drawn under its loading screen (`nvf_play::loading::StartCover`,
+/// docs/design/loading-screen.md §1a). Until then nobody was drawn before the screen came
+/// down: the AI waited for the game to go on, then the first frames drew the residents in
+/// view [`SPAWNS_PER_FRAME`] at a time, a frame of 65-106 ms and about a second of 20-54 ms
+/// frames after a Novac start's screen (against 6.5-7 ms after) [observed 2026-11-19, 0.1 s
+/// frame windows, 0 spawns before the screen came down and 15-17 after, the driver's
+/// shader cache on and off].
+///
+/// Only the bodies come earlier: the residents are not handed to the AI under the screen,
+/// so they choose their first package on the first frame of play, after the scripts' first
+/// frame (OnLoad, GameMode), as before. Each is drawn where `fnv_ai::Ai::add` will put its
+/// walker then (where the game has it), facing the same way; nobody walks under the screen
+/// anyway, its clock is paused [design]. Choosing packages under the screen would run their
+/// begin scripts and OnPackageStart before the scripts' first frame, and judge their
+/// conditions before it changed anything (`fnv_game::ai`, `Game::set_package`).
+struct StartPlacing {
+    /// Off with [`START_PLACE_AID`]` = 0`.
+    on: bool,
+    /// Frames under the start's screen with the game state there. Drawing begins on the
+    /// second: the frame the scripts are made, the appearance changes of a loaded game may
+    /// not have reached the actors' resolver yet (`appearance::show_changes` runs before
+    /// [`drive`], but not after the scripts).
+    game_frames: u32,
+    /// Residents drawn under the screen so far.
+    placed: usize,
+    /// The first frame of drawing was logged.
+    told: bool,
+}
+
+/// A resident not handed to the AI yet, under the start's screen: where its walker will
+/// stand ([`Core::start_bodies`]) and whether the game has it in the world.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct StartBody {
+    /// Its index in [`Core::list`].
+    index: usize,
+    space: Space,
+    feet: [f32; 3],
+    heading: f32,
+    present: bool,
+}
+
+/// What drawing one resident under the start's screen came to ([`place_frame`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Placed {
+    Drawn,
+    /// Its parts are not read yet: asked again next frame.
+    NotYet,
+    /// It cannot be drawn (`nav::show_actor` failed): not waited for.
+    Never,
+}
+
+/// One frame of drawing the residents in view under the start's screen, `want` in the
+/// residents' order: while `may`, each is drawn (`draw`) until the frame has spent
+/// [`START_PLACE_BUDGET`] (`spent`), at least one a frame. Returns how many were drawn and
+/// how many are still to draw.
+fn place_frame<T: Copy>(want: &[T], may: bool, mut spent: impl FnMut() -> std::time::Duration, mut draw: impl FnMut(T) -> Placed) -> (usize, usize) {
+    let (mut drawn, mut never) = (0, 0);
+    if may {
+        for (i, &w) in want.iter().enumerate() {
+            if i > 0 && spent() >= START_PLACE_BUDGET {
+                break;
+            }
+            match draw(w) {
+                Placed::Drawn => drawn += 1,
+                Placed::Never => never += 1,
+                Placed::NotYet => {}
+            }
+        }
+    }
+    (drawn, want.len() - drawn - never)
+}
+
 /// After the character controller could not get an actor along its path, the actor
 /// keeps to the navmesh surface for this long, seconds [our choice].
 const PHYSICS_RETRY: f32 = 8.0;
@@ -88,6 +187,10 @@ const PHYSICS_RETRY: f32 = 8.0;
 /// A stuck actor is moved on this far along its path (game units) [our choice: more than
 /// a brahmin's length, the longest of the common actors].
 const SKIP_AHEAD: f32 = 160.0;
+
+/// Height above the feet at which the way to a skip's spot is checked for keyframed
+/// collision, game units [design: below a protectron's waist, above a step].
+const BARRIER_PROBE_HEIGHT: f32 = 50.0;
 
 /// How far on along its path a stuck actor may be put down, from the first choice to the
 /// nearest place that still helps (0: back onto the path, for feet off it), the first
@@ -183,6 +286,21 @@ fn unstuck(speed: f32) -> Unstuck {
     let mut u = Unstuck::new(speed);
     u.skip = true;
     u
+}
+
+/// Actor `id`'s stuck rule, kept in step with the speed it moves at now (`speed`:
+/// `Walker::moving_speed`, its package's or fight's speed times its crippled legs' share,
+/// so the progress asked of it is what it can make; `Unstuck::set_speed`). `None` at a
+/// speed of 0 (a Speed Mult of 0, issue #2118): the actor stands where it is and is never
+/// stuck, and its rule forgets the second before, so the time it stood does not count when
+/// its speed comes back. Before, the rule kept the speed its walk had when the rule was
+/// made: an actor at Speed Mult 0, or slowed under a fifth of that, was moved on along its
+/// path every second, and one whose rule was made at 0 was never found stuck.
+fn stuck_rule(rules: &mut HashMap<u32, Unstuck>, id: u32, speed: f32) -> Option<&mut Unstuck> {
+    let moving = speed.is_finite() && speed > 0.0;
+    let rule = rules.entry(id).or_insert_with(|| unstuck(0.0));
+    rule.set_speed(if moving { speed } else { 0.0 });
+    moving.then_some(rule)
 }
 
 /// Horizontal speed over a ledge at the most, game units per second [design: the arc's
@@ -294,6 +412,8 @@ struct PhysMover<'a> {
     /// The ledge each actor last went over (its path's leg and the hop's take-off point):
     /// counted and logged once.
     hopped: &'a mut HashMap<u32, (usize, usize)>,
+    /// The keyframed barrier (a force field, a gate) each actor stands held at: logged once.
+    barred: &'a mut HashMap<u32, u32>,
     now: f32,
     /// Actors moved by physics in this update; times physics gave up; stuck actors moved
     /// on along their paths; jumps up a ledge, drops off one and jumps over an obstacle
@@ -308,6 +428,9 @@ struct PhysMover<'a> {
     /// People in combat (`Core::aims`, from the last update): physics walks them to the
     /// end of their walks.
     fighting: &'a HashMap<FormId, [f32; 3]>,
+    /// Actors searching for a foe they lost or noticed (`fnv_ai::alert`): not moved on
+    /// past what blocks them.
+    searching: &'a HashSet<u32>,
 }
 
 /// An actor walking on with its AI off (SetActorsAI 0): where it was when the AI went
@@ -379,6 +502,7 @@ impl Mover for PhysMover<'_> {
         // frame below goes as if it fitted, so a body that never lands is not held up by
         // it (docs/design/navmesh.md §4.1).
         let judged = phys.npcs[&id].ch.grounded && !phys.npcs[&id].ch.swimming;
+        let airborne = !phys.npcs[&id].ch.grounded;
         let mut f = walker.follower.take()?;
         // Back to the walker: where physics left the actor, on the same path.
         let give_up = |phys: &mut PhysState, walker: &mut Walker, f| {
@@ -437,6 +561,21 @@ impl Mover for PhysMover<'_> {
                 phys.remove_npc(id);
                 return Some(WalkEvent::UsedDoor(d));
             }
+            // At a speed of 0 (a Speed Mult of 0, issue #2118) it stands where it is, its
+            // walk and its body kept, as the walker does on the navmesh (no step, no turn
+            // on the spot): not counted as stuck and not moved on along its path
+            // (`stuck_rule`), nor handed to the walker for its last steps. Already in the
+            // air over a ledge, the flight lands it first (`hop_or_obstacle`, which only
+            // takes off from the ground).
+            Steer::Walk { .. } if walker.moving_speed().is_nan() || walker.moving_speed() <= 0.0 => {
+                if self.unstuck.get(&id).is_none_or(|u| u.speed > 0.0) {
+                    info!("actor {id:08X} stands on its walk at ({:.0}, {:.0}, {:.0}): its speed is 0, not stuck", feet[0], feet[1], feet[2]);
+                }
+                let _ = stuck_rule(self.unstuck, id, 0.0);
+                walker.turning = false;
+                let v = if airborne && f.hop().is_some() { hop_or_obstacle(phys, id, &f, walker, [0.0, 0.0], self.stats, self.hopped).0 } else { [0.0, 0.0] };
+                (if v == [0.0, 0.0] { WalkEvent::Idle } else { WalkEvent::Moved }, v)
+            }
             // The last steps to the place itself are the walker's: packages send actors
             // to chairs, beds and markers, which the character cannot stand in. Not a
             // fighter's: its posts (cover, a peek point, a flank) are places to stand, and
@@ -467,7 +606,7 @@ impl Mover for PhysMover<'_> {
                 walker.turning = !walker.face(heading_of(dir), dt);
                 (WalkEvent::Turned, [0.0, 0.0])
             }
-            Steer::Walk { dir, remaining, .. } => match self.unstuck.entry(id).or_insert_with(|| unstuck(walker.speed)).advise_moved(feet, dir, dt) {
+            Steer::Walk { dir, remaining, .. } => match stuck_rule(self.unstuck, id, walker.moving_speed()).map_or(Advice::Head(dir), |u| u.advise_moved(feet, dir, dt)) {
                 Advice::Head(h) => {
                     // The heading turns at the walking rate and the actor walks along it
                     // (an arc round a corner), slowing while it is off the way to go
@@ -485,6 +624,31 @@ impl Mover for PhysMover<'_> {
                 }
                 // Stuck where detours did not help: moved on along the path, past what
                 // blocks it, to the first place with ground and room for it.
+                // Stuck at keyframed collision (a force field, a gate: what an animation or
+                // a script moves away), or stuck while searching (a place to look, not one
+                // it must reach): it stays where it is, pressing on, and is not moved past
+                // what blocks it or left to the walker, which would carry it through.
+                // [observed: HELIOS One's stasis protectrons stay in their pods behind the
+                // field VHELIOSStasisField*REF, one moving 12 units in 30 s while it
+                // fought, #1977 probe 3; the search: design]
+                Advice::Skip
+                    if let Some(gate) = f
+                        .skip_candidate(feet, SKIP_AHEAD)
+                        .and_then(|c| phys.keyframed_between(feet, c.pos, BARRIER_PROBE_HEIGHT))
+                        .or_else(|| self.searching.contains(&id).then_some(0)) =>
+                {
+                    if self.barred.insert(id, gate) != Some(gate) {
+                        if gate == 0 {
+                            info!("actor {id:08X} stuck at ({:.0}, {:.0}, {:.0}) while it searches: held, not moved past what blocks it", feet[0], feet[1], feet[2]);
+                        } else {
+                            info!("actor {id:08X} stuck at ({:.0}, {:.0}, {:.0}): held at {gate:08X}'s moving collision, not moved past it", feet[0], feet[1], feet[2]);
+                        }
+                    }
+                    if let Some(u) = self.unstuck.get_mut(&id) {
+                        u.skip_refused();
+                    }
+                    (WalkEvent::Moved, [0.0, 0.0])
+                }
                 Advice::Skip if f.skip_candidate(feet, SKIP_AHEAD).is_some() => match skip_spot(phys, nav, &f, id, walker.space, feet) {
                     Ok((c, to)) => {
                         info!(
@@ -506,7 +670,7 @@ impl Mover for PhysMover<'_> {
                         phys.place_npc(id, to);
                         // Stuck again where it was put down, it is moved on again without
                         // the detours that failed already (`Unstuck::after_skip`).
-                        let mut u = unstuck(walker.speed);
+                        let mut u = unstuck(walker.moving_speed());
                         u.after_skip();
                         self.unstuck.insert(id, u);
                         return Some(WalkEvent::Moved);
@@ -702,6 +866,85 @@ impl Seat {
     }
 }
 
+/// What [`next_seat`] has the furniture do with a drawn resident.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SeatOrder {
+    /// Sit on this furniture (`SitOn`); `true`: put on at once.
+    Sit(u32, bool),
+    /// Get up by the furniture's exit clip (`GetUp`); the walk waits.
+    GetUp,
+    /// It never got on: the order to sit is taken back.
+    Cancel,
+    /// Off the furniture: its walk goes on from where the furniture left it.
+    Stood,
+}
+
+/// One frame of a resident's seat: the next state and what to tell the furniture.
+/// `drawn`: its body is there to be told; `on`: it is on furniture (`OnFurniture`);
+/// `restart`: ResetAI took its package up afresh since the last frame (`fnv_ai::Agent::
+/// restarts`). Then an actor sitting where its package wants it gets up even when the
+/// package gives it the same furniture again, and is told to sit again only once it is
+/// off: the AI only says which furniture it is to use, so without this the reset showed
+/// nothing [design, issue #2119; the original's seated RingoRef read GET_UP one loop
+/// after ResetAI, observed: owner-decision-captures.md od_06].
+fn next_seat(seat: Seat, drawn: bool, on: bool, frame: &retry::Now, restart: bool) -> (Seat, Option<SeatOrder>) {
+    let wants = frame.wants;
+    match (seat, drawn) {
+        (Seat::Ordered(f, _), true) if restart && wants == Some(f) => {
+            if on {
+                (Seat::GettingUp(f), Some(SeatOrder::GetUp))
+            } else {
+                // Not on yet: told again from the start, through `Wanted`.
+                (Seat::None, Some(SeatOrder::Cancel))
+            }
+        }
+        (Seat::None, _) => (wants.map_or(Seat::None, |f| Seat::Wanted(f, false)), None),
+        // The order goes out in the frame that found it eligible, not through `Wanted`:
+        // by the next frame its AI may be off, or it may be held or out cold.
+        (Seat::Waiting(f, so_far), _) => match (retry::waiting(f, so_far, frame), drawn) {
+            (retry::Decision::Reissue { target }, true) => (Seat::Ordered(target, false), Some(SeatOrder::Sit(target, false))),
+            (decision, _) => (Seat::after(decision), None),
+        },
+        (Seat::Unavailable(f), _) => (Seat::after(retry::unavailable(f, frame)), None),
+        (Seat::Wanted(f, at_once), true) if wants == Some(f) => (Seat::Ordered(f, false), Some(SeatOrder::Sit(f, at_once))),
+        (Seat::Wanted(f, _), _) if wants != Some(f) => (Seat::None, None),
+        // Its visual went away (its cell unloaded): sit again when it is back, at once
+        // when it was on the furniture (or walking up to it) then.
+        (Seat::Ordered(f, was_on), false) if wants == Some(f) => (Seat::Wanted(f, was_on), None),
+        (Seat::Ordered(f, _), true) if wants != Some(f) => {
+            if on {
+                (Seat::GettingUp(f), Some(SeatOrder::GetUp))
+            } else {
+                // Never got on: nothing to undo.
+                (Seat::None, Some(SeatOrder::Cancel))
+            }
+        }
+        (Seat::Ordered(f, _), _) if on => (Seat::Ordered(f, true), None),
+        (Seat::Ordered(..) | Seat::GettingUp(_), false) => (Seat::None, None),
+        (Seat::GettingUp(_), true) if !on => (Seat::None, Some(SeatOrder::Stood)),
+        (s, _) => (s, None),
+    }
+}
+
+/// The seat of a resident put at its package's place after a script moved the clock
+/// ([`Core::after_hour_jump`]): the furniture it is to use now (`None` at a standing
+/// place) and its seat. On new furniture it is sat on at once (no walk up, no sitting-down
+/// clip); otherwise the old seat stays for [`stale_seat`] to drop in the same frame
+/// (`Resident::jumped`), which also has a body still on the old furniture let go of it.
+fn seat_after_jump(seat: Seat, furniture: Option<u32>) -> (Option<u32>, Seat) {
+    match furniture {
+        Some(f) => (Some(f), Seat::Wanted(f, true)),
+        None => (None, seat),
+    }
+}
+
+/// After hours passed in the Wait menu, a script's MoveTo or a jump of the clock
+/// (`changed`): the furniture of `seat` the resident is to be off at once, when its AI
+/// no longer has it use that one (`wants`).
+fn stale_seat(seat: Seat, wants: Option<u32>, changed: bool) -> Option<u32> {
+    seat.furniture().filter(|f| changed && wants != Some(*f))
+}
+
 struct Resident {
     actor: FormId,
     base: u32,
@@ -714,6 +957,9 @@ struct Resident {
     /// Handed to the AI (once the game state is there).
     joined: bool,
     spawned: bool,
+    /// Created by a script and not drawn yet: drawn in the first frame it is in view,
+    /// past the read-ahead and the frame's spawn budget (`nav::Who::at_once`).
+    at_once: bool,
     root: Option<Entity>,
     failed: bool,
     /// In the world and enabled, as the game has it.
@@ -729,6 +975,11 @@ struct Resident {
     seat: Seat,
     /// The furniture `fnv_ai` has the actor use now.
     wants: Option<u32>,
+    /// ResetAI restarts of its package seen so far (`fnv_ai::Agent::restarts`).
+    restarts: u32,
+    /// ResetAI took its package up afresh since the seat was last driven: off its
+    /// furniture even when the package gives it the same one again ([`next_seat`]).
+    restart: bool,
     /// Waiting after a refusal, with nothing to hold it from being told to sit again: its
     /// AI runs, it is awake and alive, and no conversation, stagger or idle holds it.
     may_ask_again: bool,
@@ -739,11 +990,17 @@ struct Resident {
     last_drawn: Option<(f32, [f32; 3])>,
     /// A script put it somewhere (MoveTo) this frame: off its furniture at once.
     moved: bool,
+    /// Put at its package's place this frame after a script moved the clock
+    /// ([`Core::after_hour_jump`]): off its furniture at once, as `moved`.
+    jumped: bool,
     /// Whether it cannot walk ([`cannot_walk`]), once looked up.
     rooted: Option<bool>,
     /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
     /// ([`flies`]).
     perched: bool,
+    /// Its base is flagged Immobile ([`ACBS_IMMOBILE`]): with a Turning Speed of 0 it
+    /// never turns either ([`never_turns`]).
+    immobile: bool,
     /// The space its walker was in at the last frame (the space of a door it has just
     /// gone through).
     last_space: Option<Space>,
@@ -814,6 +1071,18 @@ fn acbs_flag(world: &WorldData, base: u32, bit: u32) -> bool {
     &f.sig == b"CREA" && f.raw(b"ACBS").and_then(|s| s.data.get(..4)).is_some_and(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & bit != 0)
 }
 
+/// An Immobile creature whose Turning Speed (CREA TNAM, `Game::creature_turning_speed`)
+/// is 0 never turns: a screen, not a turret. In FalloutNV.esm the Immobile creatures
+/// with 0 are MrHouse, MrHouseOFFLINE, YesManMainframe (the penthouse screens) and
+/// CRVoid; the 46 others, turrets and spore plants among them, have 30 to 300
+/// [observed: the master's CREA ACBS and TNAM; hypothesis: that the original reads the
+/// two so, it fits the owner's sight of a screen that stays still, issues #1543 and
+/// #2150]. A creature that walks keeps its own rule for a TNAM of 0
+/// (`creature_pace::creature_turn_rate`).
+fn never_turns(immobile: bool, turning_speed: Option<f32>) -> bool {
+    immobile && turning_speed == Some(0.0)
+}
+
 /// Whether the base form's ACBS flags have "Flies".
 fn flies(world: &WorldData, base: u32) -> bool {
     acbs_flag(world, base, ACBS_FLIES)
@@ -826,9 +1095,18 @@ fn flies(world: &WorldData, base: u32) -> bool {
 /// without one an actor has no way to move; the ravens outside Doc Mitchell's house
 /// (NVCrRaven, `creatures\nvraven`: an idle and its fly-away idle only) sandboxed about
 /// the editor location, sliding along the ground (owner's playtest, 2026-10-11).
-fn cannot_walk(world: &WorldData, data: &nvf_assets::GameData, base: u32) -> bool {
+///
+/// The skeleton is the one the creature is drawn with: its Model/Animation source, a
+/// template's pick when that flag is set ([`ActorWorld::resolve_creature`]). Its own model
+/// may be only the editor's placeholder (`marker_creature.nif`): the Young Gecko Hunter
+/// VSpawnSpecialTier1GeckoSmallRoachHunter (0x00168D0B) takes its model and animations
+/// from its template 0x00159783 and was rooted by its placeholder (#1917) [observed:
+/// fnvtool, the issue]. Without the actors' data, or when the creature does not resolve,
+/// its own model is used.
+fn cannot_walk(world: &WorldData, data: &nvf_assets::GameData, actors: Option<&ActorWorld>, base: u32, reference: u32) -> bool {
     use fnv_actor::locomotion::{Body, LocomotionSet, Move};
-    let Some(skeleton) = fnv_world::placed::base_object(world.lo, world.schema, base).and_then(|b| b.model_path()) else { return false };
+    let drawn = actors.and_then(|w| w.resolve_creature(base, reference).ok()).map(|c| c.skeleton);
+    let Some(skeleton) = drawn.or_else(|| fnv_world::placed::base_object(world.lo, world.schema, base).and_then(|b| b.model_path())) else { return false };
     if !skeleton.to_ascii_lowercase().ends_with(".nif") {
         return false;
     }
@@ -851,10 +1129,14 @@ struct Core {
     ai: Ai,
     /// Opt-in phase-gated #1497 regression aid; absent in ordinary runs.
     sandbox_interrupt: Option<sandbox_interrupt::Probe>,
+    /// Opt-in #2027 guard wander measurement; absent in ordinary runs.
+    guard_wander: Option<guard_wander::Probe>,
     list: Vec<Resident>,
     known: HashSet<u32>,
-    /// Cells whose actors were handed over (`all`).
+    /// Cells whose actors were handed over (`all`), and the worldspace whose grid squares
+    /// the exterior ones are: a grid square names another cell in another worldspace.
     cells_seen: HashSet<CellKey>,
+    cells_seen_world: u32,
     /// The game's loaded cells when actors placed elsewhere were last looked for there.
     loaded_seen: BTreeSet<FormId>,
     clock: Clock,
@@ -869,6 +1151,7 @@ struct Core {
     unstuck: HashMap<u32, Unstuck>,
     skip_until: HashMap<u32, f32>,
     hopped: HashMap<u32, (usize, usize)>,
+    barred: HashMap<u32, u32>,
     coasting: HashMap<u32, Coasting>,
     skip_refusals: SkipRefusals,
     /// Updates in which an actor was moved by physics; times physics gave up; the most
@@ -926,6 +1209,10 @@ struct Core {
     /// Actors an idle holds in place (`idles::IdleHolds`, docs/spec-notes/idles.md §15):
     /// they stand as a staggering actor does while it shows.
     posed: HashSet<u32>,
+    /// Creatures playing their unarmed stance's draw clip (`creature_stance.rs`: the
+    /// ghoul's roar, the gecko's hiss) this frame: they stand until it ends, as a
+    /// staggering actor does (#2686: an alerted ghoul slid across the floor roaring).
+    drawing: HashSet<u32>,
     /// Of those, the ones whose idle carries the body away from the reference
     /// (`idles::IdleHolds::carried_off`): they are drawn facing as they did when it began.
     carried_off: HashSet<u32>,
@@ -965,6 +1252,9 @@ struct Core {
     /// and step sideways or back as they go, so they can fire on the move (owner's
     /// playtest list 5 item 33; owner 2026-10-16, strafing and backing away) [design].
     aims: HashMap<FormId, [f32; 3]>,
+    /// Of those, the ones whose aim a weapon use owns, with the use's target
+    /// ([`aim_target`]): no combat lock on another target turns them ([`keeps_lock`]).
+    use_aims: HashMap<FormId, FormId>,
     /// The player's trip behind a loading screen under way (a fast travel, a load door):
     /// the actors coming into the loaded area are put at their package's place
     /// ([`Core::arrive`], issue #1208).
@@ -1031,6 +1321,26 @@ fn interiors_behind_doors(world: &WorldData, streamer: &Streamer, refs: &RefTabl
     out
 }
 
+/// The cells of `now` (the loaded cells of worldspace `world`, or its interior) not
+/// handed over yet: `seen` becomes `now`. A grid square of another worldspace is another
+/// cell, so a change of worldspace forgets the exterior squares seen (`seen_world` is
+/// the worldspace they were seen in). Sibling worldspaces lie on the same squares: TTW's
+/// MegatonWorld on the Wasteland cells around its gate (issue #2233), Freeside's
+/// FreesideWorld, FreesideNorthWorld and FreesideFortWorld on one another (#2432: Orris
+/// and the King's bodyguard at the north gate; #2434: the Old Mormon Fort's people)
+/// [observed: their cells share grid squares, `fnvtool world list`]. Kept by grid square
+/// alone, the squares of the worldspace left counted as handed over, and the people of
+/// the one entered never joined, so were never drawn.
+fn newly_loaded(seen: &mut HashSet<CellKey>, seen_world: &mut u32, world: u32, now: HashSet<CellKey>) -> Vec<CellKey> {
+    if *seen_world != world {
+        seen.retain(|k| !matches!(k, CellKey::Exterior(_)));
+        *seen_world = world;
+    }
+    let new: Vec<CellKey> = now.difference(seen).copied().collect();
+    *seen = now;
+    new
+}
+
 /// A trip ends this many frames after the loaded cells settled and the loading screen
 /// let the game go [our choice: the frame the last cells' actors join, and the one
 /// they are put in].
@@ -1046,6 +1356,8 @@ pub struct Residents {
     started: bool,
     warned: bool,
     startup: Vec<(bool, String)>,
+    /// The residents drawn under the start's loading screen.
+    start: StartPlacing,
 }
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
@@ -1060,7 +1372,11 @@ fn set_global(g: &mut Game, edid: &str, v: f32) -> Result<(), String> {
 }
 
 fn clock_text(g: &Game) -> String {
-    let h = g.world.calendar().map(|c| c.hour).unwrap_or(0.0);
+    hour_text(g.world.calendar().map(|c| c.hour).unwrap_or(0.0))
+}
+
+/// `h` (GameHour) as HH:MM.
+fn hour_text(h: f32) -> String {
     format!("{:02}:{:02}", h.floor() as u32, ((h.fract() * 60.0).floor() as u32).min(59))
 }
 
@@ -1069,6 +1385,12 @@ fn is_actor(refs: &RefTable, id: FormId) -> bool {
 }
 
 impl Residents {
+    /// The residents in the high process now (FormIDs), for the game digest test aid
+    /// (game_digest.rs).
+    pub fn high_process_ids(&self) -> Vec<u32> {
+        self.core.list.iter().filter(|r| self.core.ai.is_high(r.actor)).map(|r| r.actor.0).collect()
+    }
+
     /// Put an actor's walker where its body now stands (game space feet, heading), as
     /// after getting up from furniture: a knocked-out actor laid over its ragdoll to get up
     /// (`knockouts.rs`) is drawn there from now on. False for an actor that is not a
@@ -1089,6 +1411,13 @@ impl Residents {
     /// `actor`'s alert walking and running speeds (searching, combat).
     pub fn alert_speeds(&self, actor: FormId) -> fnv_ai::Speeds {
         self.core.ai.alert_speeds(actor)
+    }
+
+    /// `actor`'s walk as the AI has it: whether it is on its way, its walker's speed and
+    /// its calm run (`walk_probe.rs`).
+    pub fn walk_of(&self, actor: FormId) -> Option<(bool, f32, f32)> {
+        let a = self.core.ai.agents.get(&actor)?;
+        Some((a.activity == fnv_ai::Activity::Travelling, a.walker.speed, self.core.ai.calm_speeds(actor).run))
     }
 
     /// The share of its speed `actor` moves at (crippled legs, `limping.rs`).
@@ -1127,9 +1456,11 @@ impl Residents {
             // Test aid: conversations between NPCs anywhere in the loaded area.
             ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), find_buying: std::env::var("NVF_PLAY_TEST_FIND_BUYING").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
             sandbox_interrupt: sandbox_interrupt::Probe::from_env(refs),
+            guard_wander: guard_wander::Probe::from_env(refs),
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
+            cells_seen_world: 0,
             loaded_seen: BTreeSet::new(),
             clock,
             prepared: false,
@@ -1138,6 +1469,7 @@ impl Residents {
             unstuck: HashMap::new(),
             skip_until: HashMap::new(),
             hopped: HashMap::new(),
+            barred: HashMap::new(),
             coasting: HashMap::new(),
             skip_refusals: SkipRefusals::default(),
             physics: [0; 4],
@@ -1161,6 +1493,7 @@ impl Residents {
             held_now: false,
             staggering: HashSet::new(),
             posed: HashSet::new(),
+            drawing: HashSet::new(),
             carried_off: HashSet::new(),
             breaking: HashSet::new(),
             travel: HashMap::new(),
@@ -1175,6 +1508,7 @@ impl Residents {
             knocked: (0, 0.0),
             door_uses: Vec::new(),
             aims: HashMap::new(),
+            use_aims: HashMap::new(),
             trip: None,
             loaded_at: HashMap::new(),
             clock_hours: 0.0,
@@ -1228,7 +1562,12 @@ impl Residents {
             );
             Some(Box::new(game))
         };
-        Ok(Residents { own, core, all, started: false, warned: false, startup })
+        let under_screen = start_actors_under_screen(std::env::var(START_PLACE_AID).ok().as_deref());
+        if !under_screen {
+            startup.push((true, format!("test aid {START_PLACE_AID}=0: the start's residents are drawn after its loading screen, {SPAWNS_PER_FRAME} a frame")));
+        }
+        let start = StartPlacing { on: under_screen, game_frames: 0, placed: 0, told: false };
+        Ok(Residents { own, core, all, started: false, warned: false, startup, start })
     }
 
     /// The named references the cell streamer must leave to this module (with `all` it
@@ -1272,12 +1611,29 @@ impl Residents {
         let Some(r) = self.core.list.iter_mut().find(|r| r.actor.0 == actor) else { return false };
         if let Some(e) = r.root.take() {
             commands.entity(e).despawn();
+        } else if r.spawned {
+            // Diagnostic for #2461: a body spawned and not yet found is not taken away.
+            warn!("ai: {} drawn anew before its body spawned earlier was found: that body is not taken away", r.label);
         }
         r.spawned = false;
         r.last_drawn = None;
         r.seat = Seat::None;
         true
     }
+}
+
+/// A resident went through a load door: the body it leaves at the door is let go (its
+/// `RefVisual` and `ActorRig` taken, so nothing takes it for the resident's any more) and
+/// fades out (`door_fade.rs` despawns it); the resident is drawn anew at the far side
+/// (`nav::show_actor`, which takes the new body as its root). The body faded, if one was
+/// drawn and known.
+fn hand_off_body(commands: &mut Commands, (spawned, root): (&mut bool, &mut Option<Entity>), now: f32) -> Option<Entity> {
+    let faded = root.take().filter(|_| *spawned);
+    if let Some(e) = faded {
+        commands.entity(e).remove::<(RefVisual, crate::limbs::ActorRig)>().insert(crate::door_fade::DoorFade { since: now, out: true });
+    }
+    *spawned = false;
+    faded
 }
 
 /// A conversation or a greeting holds `actor` where it stands (`Core::think`).
@@ -1288,17 +1644,22 @@ fn held_by_talk(game: &Game, ai: &Ai, actor: FormId) -> bool {
 impl Core {
     /// Look up who of the listed creatures cannot walk ([`cannot_walk`], or flagged
     /// Immobile), before they are handed to the AI.
-    fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData) {
-        let mut by_base: HashMap<u32, (bool, bool)> = HashMap::new();
+    fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData, actors: Option<&ActorWorld>) {
+        let mut by_base: HashMap<u32, (bool, bool, bool)> = HashMap::new();
         for r in self.list.iter_mut().filter(|r| r.rooted.is_none()) {
-            let (rooted, perched) = *by_base.entry(r.base).or_insert_with(|| {
+            let reference = r.actor.0;
+            let (rooted, perched, immobile) = *by_base.entry(r.base).or_insert_with(|| {
                 // An Immobile creature (the turrets, Mr. House's screens) is held too:
                 // the flag "prevents movement" [documented: GECK wiki Animation Tab].
-                let rooted = cannot_walk(world, data, r.base) || acbs_flag(world, r.base, ACBS_IMMOBILE);
-                (rooted, rooted && flies(world, r.base))
+                // A leveled template's pick is the first resident's of that base
+                // [hypothesis: the picks of one base share a skeleton family].
+                let immobile = acbs_flag(world, r.base, ACBS_IMMOBILE);
+                let rooted = cannot_walk(world, data, actors, r.base, reference) || immobile;
+                (rooted, rooted && flies(world, r.base), immobile)
             });
             r.rooted = Some(rooted);
             r.perched = perched;
+            r.immobile = immobile;
         }
     }
 
@@ -1325,6 +1686,7 @@ impl Core {
             self.add_resident(id, base.0, creature, 1.0, pos, label, true);
             if let Some(r) = self.list.last_mut().filter(|r| r.actor == id) {
                 r.first_steps = Some(FirstSteps::new("its creation by a script"));
+                r.at_once = true;
             }
         }
     }
@@ -1371,6 +1733,7 @@ impl Core {
             named,
             joined: false,
             spawned: false,
+            at_once: false,
             root: None,
             failed: false,
             present: false,
@@ -1384,10 +1747,14 @@ impl Core {
             stand: None,
             last_drawn: None,
             wants: None,
+            restarts: 0,
+            restart: false,
             // Only creatures: people walk with the race's clips.
             rooted: (!creature).then_some(false),
             perched: false,
+            immobile: false,
             moved: false,
+            jumped: false,
             last_space: None,
             aim_heading: None,
             lock_held: None,
@@ -1404,8 +1771,7 @@ impl Core {
             Some(c) => [CellKey::Interior(c)].into(),
             None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
         };
-        let new: Vec<CellKey> = now.difference(&self.cells_seen).copied().collect();
-        self.cells_seen = now;
+        let new = newly_loaded(&mut self.cells_seen, &mut self.cells_seen_world, world.world, now);
         let before = self.list.len();
         for key in new {
             let (cell, persistent) = match key {
@@ -1618,8 +1984,31 @@ impl Core {
             } else if r.rooted == Some(true) {
                 self.ai.root(game, r.actor);
                 info!("ai: {} cannot move (no movement animations, or flagged Immobile): it stays where it is{}", r.label, if r.perched { "; it flies, so it is in nobody's way" } else { "" });
+                if never_turns(r.immobile, game.creature_turning_speed(FormId(r.base), r.actor)) {
+                    self.ai.fix_heading(r.actor);
+                    info!("ai: {} never turns (flagged Immobile, Turning Speed 0): it keeps its heading", r.label);
+                } else if game.is_fixture(r.actor) {
+                    // A fixture that never fights (`fnv_game::Game::is_fixture`): Mr.
+                    // House's chamber, Turning Speed 30, never turns either (#2431).
+                    self.ai.fix_heading(r.actor);
+                    info!("ai: {} never turns (a fixture: Immobile, Unaggressive, Helps Nobody, unarmed): it keeps its heading", r.label);
+                }
             }
         }
+    }
+
+    /// The residents not handed to the AI yet (none is under the start's screen), each
+    /// where [`Core::join`] will put its walker (`fnv_ai::Ai::add`: where the game has it,
+    /// facing the same way) and whether the game has it in the world ([`StartPlacing`]).
+    fn start_bodies(&self, game: &Game) -> Vec<StartBody> {
+        let mut out = Vec::new();
+        for (index, r) in self.list.iter().enumerate().filter(|(_, r)| !r.joined && !r.failed) {
+            let Some(place) = fnv_ai::goal::place_of_ref(game, r.actor) else { continue };
+            // The heading as `fnv_ai::Ai::add` gives its walker.
+            let heading = game.world.peek(r.actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(r.actor).map(|p| p.rot[2])).unwrap_or(0.0);
+            out.push(StartBody { index, space: place.space, feet: place.pos, heading, present: game.present(r.actor) });
+        }
+        out
     }
 
     /// The player sets off through a load door or on a fast travel, behind a loading
@@ -1739,6 +2128,66 @@ impl Core {
         }
     }
 
+    /// A script moved the clock by more than [`fnv_game::ai::SCRIPT_HOUR_JUMP`] since the
+    /// last frame (`Game::take_hour_jump`; issue #2353: VCG01 stage 200's `set GameHour to
+    /// 8` after the player rushed out of Doc Mitchell's house, Goodsprings already placed
+    /// for the early morning, Easy Pete in bed): as at the end of a wait, everybody
+    /// chooses its package now, and the residents the player cannot see (in the cell
+    /// buffer or an interior behind a door of the loaded cells, not in a drawn cell) are
+    /// put where their new package's walk ends, on its furniture, as on arrival
+    /// (`fnv_ai::Ai::hour_jumped`). Residents in view are not moved: they walk to their
+    /// new packages in sight [design, #2353]. Runs while a menu holds the game too (the
+    /// console's `set GameHour to`).
+    fn after_hour_jump(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer, mut phys: Option<&mut PhysState>) {
+        let Some(jump) = game.take_hour_jump() else { return };
+        self.join(game);
+        let doors = interiors_behind_doors(world, streamer, game.world.placed);
+        let unseen = |p: fnv_nav::Place| !drawn(world, streamer, p.space, p.pos) && (streamer.buffer.holds(p.space, p.pos) || matches!(p.space, Space::Interior(c) if doors.contains(&c)));
+        let arrivals = self.ai.hour_jumped(game, &nav.graph, &unseen);
+        self.clock_text = clock_text(game);
+        info!(
+            "ai [{}] the clock was set from {} to {} by a script: packages chosen again; {} of {} residents out of sight put at their package's place",
+            self.clock_text,
+            hour_text(jump.from),
+            hour_text(jump.to),
+            arrivals.len(),
+            self.ai.agents.len()
+        );
+        for (actor, arr) in arrivals {
+            let Some(r) = self.list.iter_mut().find(|r| r.actor == actor) else { continue };
+            r.present = game.present(actor);
+            r.jumped = true;
+            // Its character, if it had one, is made again where it is now (as on arrival).
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(actor.0);
+            }
+            self.unstuck.remove(&actor.0);
+            self.skip_until.remove(&actor.0);
+            self.skip_refusals.forget(actor.0);
+            // The furniture it is to use now, none at a standing place: set for every one,
+            // as `note` does not run while a menu holds the game (the console's jump), and
+            // an old wish would sit it back on its old furniture once drawn.
+            (r.wants, r.seat) = seat_after_jump(r.seat, arr.furniture.map(|f| f.0));
+            // Every one: a jump puts few, and the smoke tests read where they came from.
+            info!(
+                "ai [{}] {}: put at its package's place after the clock was set ({}): ({:.0}, {:.0}, {:.0}) in {}, from ({:.0}, {:.0}, {:.0}) in {}, {} walk(s) skipped{}",
+                self.clock_text,
+                r.label,
+                game.data.name(arr.package),
+                arr.to.pos[0],
+                arr.to.pos[1],
+                arr.to.pos[2],
+                nav::space_name(world, arr.to.space),
+                arr.from.pos[0],
+                arr.from.pos[1],
+                arr.from.pos[2],
+                nav::space_name(world, arr.from.space),
+                arr.walks,
+                arr.furniture.map_or_else(String::new, |f| format!(", seated on {}", game.data.name(f)))
+            );
+        }
+    }
+
     /// One frame of the package choice and the walks in `game`. `own`: the game state is
     /// this module's (it is ticked here).
     /// The scripts' navmesh switches (EnableNavMesh, DisableNavmesh) and the game's door
@@ -1769,6 +2218,21 @@ impl Core {
             ai_count(AiCount::LocksChanged, 1);
             let who: Vec<String> = again.iter().map(|a| format!("{:08X}", a.0)).collect();
             info!("nav: door locks changed; {} actors choose their package again [{}]", again.len(), who.join(", "));
+        }
+        // Doors enabled or disabled since open or close their ways: load doors (issue
+        // #2566) and doors that open in place (#2405) (`fnv_ai::Ai::apply_door_presence`).
+        let span = info_span!("ai::door_presence").entered();
+        let doors = self.ai.apply_door_presence(game, &mut nav.graph);
+        drop(span);
+        if let Some(again) = doors {
+            let who: Vec<String> = again.iter().map(|a| format!("{:08X}", a.0)).collect();
+            info!("nav: doors enabled or disabled; {} not in the world now; {} actors choose their package again [{}]", nav.graph.disabled_doors.len(), again.len(), who.join(", "));
+        }
+        // A door that opens in place that closed someone's way has opened (#2405,
+        // `fnv_ai::Ai::apply_doors_opened`): the packages set aside come back.
+        if let Some(again) = self.ai.apply_doors_opened(game) {
+            let who: Vec<String> = again.iter().map(|a| format!("{:08X}", a.0)).collect();
+            info!("nav: a door that closed a way is open; {} actors choose their package again [{}]", again.len(), who.join(", "));
         }
         // Obstacles enabled or disabled since cut or free the navmesh under them
         // (`fnv_ai::Ai::apply_obstacles`, docs/spec-notes/navmesh.md §7).
@@ -1948,6 +2412,7 @@ impl Core {
                 matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_))
                     || held_by_talk(game, &self.ai, r.actor)
                     || self.staggering.contains(&r.actor.0)
+                    || self.drawing.contains(&r.actor.0)
             })
             .map(|r| r.actor.0)
             .collect();
@@ -1982,6 +2447,9 @@ impl Core {
             // Who started the conversation with its Dialogue package goes on turning
             // to the player.
             self.ai.update_held(game, dt);
+            // Enabled or disabled by a script the held game ran (a terminal's result, a
+            // dialogue result): drawn or taken away now, not when the game goes on.
+            self.note_presence(game);
             return;
         }
         {
@@ -2035,7 +2503,8 @@ impl Core {
             );
         }
         let mut moved = [0usize; 6];
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims };
+        let searching: HashSet<u32> = self.ai.agents.iter().filter(|(_, a)| a.search.is_some()).map(|(f, _)| f.0).collect();
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, barred: &mut self.barred, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims, searching: &searching };
         {
             // Every high-process actor's update and the low-process ones due (package,
             // goal and walk; path searches are `nav::find_path` inside).
@@ -2045,6 +2514,10 @@ impl Core {
         if let Some(mut probe) = self.sandbox_interrupt.take() {
             probe.tick(self, game, phys.as_deref());
             self.sandbox_interrupt = Some(probe);
+        }
+        if let Some(mut probe) = self.guard_wander.take() {
+            probe.tick(self, game);
+            self.guard_wander = Some(probe);
         }
         // Knockbacks push their actors, and attack clips that travel carry theirs, over
         // their walks.
@@ -2125,6 +2598,13 @@ impl Core {
                     info!("ai [{}] {} {id:08X}: its character stops while it staggers (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
                 }
             }
+            // Nor a creature while it draws its stance (the ghoul's roar, #2686).
+            for &id in self.drawing.iter().filter(|id| !self.carried.contains_key(id)) {
+                let was = stop_body(Some(&mut *p), id);
+                if was > 0.0 {
+                    info!("ai [{}] {} {id:08X}: its character stops while it draws its stance (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
+                }
+            }
             // Nor while an idle holds it in place (idles.md §15).
             for &id in self.posed.iter().filter(|id| !self.carried.contains_key(id)) {
                 let was = stop_body(Some(&mut *p), id);
@@ -2159,6 +2639,7 @@ impl Core {
         // a fighter turned to its way to cover); out to its peek point and back behind
         // its cover it strafes (`PostKind::Duck`).
         self.aims.clear();
+        self.use_aims.clear();
         self.to_cover.clear();
         for r in self.list.iter().filter(|r| !r.creature) {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
@@ -2172,9 +2653,20 @@ impl Core {
             if fnv_ai::alert::reacting(game, r.actor) {
                 continue;
             }
-            let Some((target, _)) = aw.and_then(|x| x.combat_target()) else { continue };
-            if let Some(p) = fnv_ai::goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space) {
+            let Some(aw) = aw else { continue };
+            let active = game.active_weapon_use(r.actor);
+            let use_target = use_aim(active.map(|w| w.target), active.is_some_and(|w| w.taken));
+            let Some(target) = aim_target(use_target, aw.combat_target().map(|(t, _)| t)) else { continue };
+            let at = if use_target.is_some() {
+                fnv_ai::goal::weapon_target_place(game, target, a.walker.space)
+            } else {
+                fnv_ai::goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space)
+            };
+            if let Some(p) = at {
                 self.aims.insert(r.actor, p.pos);
+                if let Some(t) = use_target {
+                    self.use_aims.insert(r.actor, t);
+                }
                 if tactics.posts.get(&r.actor).is_some_and(|p| p.kind == fnv_game::combat_group::PostKind::Cover) {
                     self.to_cover.insert(r.actor);
                 }
@@ -2279,6 +2771,8 @@ impl Core {
                 _ if r.named || game.is_teammate(e.actor) => info!("{line}"),
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
+                | AiEvent::PutThere { .. }
+                | AiEvent::DoorsClosedToIt { .. }
                 | AiEvent::HeightWaived { .. }
                 | AiEvent::DoorRefused { .. }
                 | AiEvent::DoorWaitCancelled { .. }
@@ -2288,6 +2782,8 @@ impl Core {
                 | AiEvent::Talk { .. }
                 | AiEvent::NoTalk { .. }
                 | AiEvent::TalkUnseen { .. }
+                | AiEvent::LeadsPlayer { .. }
+                | AiEvent::LeadStuck { .. }
                 | AiEvent::WalkUp { .. }
                 | AiEvent::WalkedUp { .. }
                 | AiEvent::PushedBack { .. }
@@ -2316,7 +2812,10 @@ impl Core {
                 | AiEvent::FleeArrived { .. }
                 | AiEvent::Cornered { .. }
                 | AiEvent::SearchOver { .. }
+                | AiEvent::PackageHolds { .. }
                 | AiEvent::SearchBack { .. }
+                | AiEvent::Resettles { .. }
+                | AiEvent::TakesUpAgain { .. }
                 | AiEvent::BackHome { .. }
                 | AiEvent::BackUp { .. }
                 | AiEvent::WeaponUse { .. }
@@ -2337,6 +2836,7 @@ impl Core {
                 | AiEvent::FetchGot { .. }
                 | AiEvent::FetchDropped { .. }
                 | AiEvent::RangeSwap { .. }
+                | AiEvent::RangeFists { .. }
                 | AiEvent::FleeSafe { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
@@ -2344,9 +2844,14 @@ impl Core {
         self.ai.events.clear();
     }
 
-    /// Each resident's state for whoever draws and seats it, after the AI's update.
-    fn note(&mut self, game: &Game, mut blocks: Option<&mut ActorBlocks>, held: &HashSet<u32>, now: f32) {
-        let hour = clock_text(game);
+    /// Whether each resident is in the world and enabled, as the game has it now. Also
+    /// while a menu or a conversation holds the game ([`Core::think`]): a script run there
+    /// (a terminal's result script, a dialogue result) that enables an actor disabled
+    /// when its cell loaded has it drawn at once, so a conversation the same script starts
+    /// shows it speaking; until #2616 the presence was only read after the AI's update,
+    /// which a held game skips, so the hatch terminal's Centurion at Hoover Dam was never
+    /// drawn through its conversation (docs/spec-notes/enable-disabled-actor.md).
+    fn note_presence(&mut self, game: &Game) {
         for r in self.list.iter_mut() {
             r.present = r.joined && !r.failed && game.present(r.actor);
             if r.joined && !r.failed && !r.present {
@@ -2354,6 +2859,14 @@ impl Core {
             } else if r.present && std::mem::take(&mut r.absent) {
                 r.first_steps = Some(FirstSteps::new("being enabled"));
             }
+        }
+    }
+
+    /// Each resident's state for whoever draws and seats it, after the AI's update.
+    fn note(&mut self, game: &Game, mut blocks: Option<&mut ActorBlocks>, held: &HashSet<u32>, now: f32) {
+        let hour = clock_text(game);
+        self.note_presence(game);
+        for r in self.list.iter_mut() {
             let Some(agent) = self.ai.agents.get(&r.actor) else { continue };
             // A perched bird is in nobody's way (actor-behaviour.md §5.8).
             if let (Some(b), true) = (blocks.as_deref_mut(), r.perched) {
@@ -2367,6 +2880,10 @@ impl Core {
             }
             // The furniture it is to use, once it stands there.
             r.wants = agent.using.filter(|_| agent.activity == Activity::There).map(|f| f.0);
+            if agent.restarts != r.restarts {
+                r.restarts = agent.restarts;
+                r.restart = true;
+            }
             // `held` dates from before this frame's `social`: a talk begun since counts too.
             r.may_ask_again = matches!(r.seat, Seat::Waiting(..)) && !held.contains(&r.actor.0) && !held_by_talk(game, &self.ai, r.actor) && !game.ai_off(r.actor) && !game.extra.get(&r.actor).is_some_and(|e| e.dead || e.out_cold());
             let still = agent.activity != Activity::Travelling && agent.walker.follower.is_none() && agent.using.is_none() && agent.talk.is_none();
@@ -2454,8 +2971,24 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::DoorWaitCancelled { door } => format!("stops waiting at door {door}: its walk was given up"),
         AiEvent::Resumed { package, patrol_point: Some(p), .. } => format!("goes on with {} at patrol point {} (from the save)", n(package), n(p)),
         AiEvent::Resumed { package, .. } => format!("goes on with {}, its sandbox day as saved", n(package)),
+        // [design, #2532] Identify the reached patrol point for scene smoke diagnostics.
+        AiEvent::Arrived { seconds, travelled, patrol_point: Some(point), .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units (patrol point {})", n(point)),
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
+        AiEvent::ArrivalFacing { heading } => format!("faces {heading:.4} on arrival"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
+        AiEvent::PutThere { package, from, to } => format!(
+            "put at the place of {} out of sight, no door joining the two: ({:.0}, {:.0}, {:.0}) in {}, from ({:.0}, {:.0}, {:.0}) in {}",
+            n(package),
+            to.pos[0],
+            to.pos[1],
+            to.pos[2],
+            nav::space_name(world, to.space),
+            from.pos[0],
+            from.pos[1],
+            from.pos[2],
+            nav::space_name(world, from.space)
+        ),
+        AiEvent::DoorsClosedToIt { package } => format!("stays: the way to the place of {} needs a load door, and it cannot open doors", n(package)),
         AiEvent::HeightWaived { at } => format!("ends its walk off its goal's height, at ({:.0}, {:.0}, {:.0}): no new path helped", at[0], at[1], at[2]),
         AiEvent::NotCarriedOut { package, why } => format!("stays: {} is {why}, not carried out yet", n(package)),
         AiEvent::Furniture { furniture: Some(f) } => format!("is to use furniture {f}"),
@@ -2500,8 +3033,10 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             away.map(|a| format!("{a:.0} units away, ")).unwrap_or_else(|| "in another cell, ".into()),
             doors.len()
         ),
-        AiEvent::CaughtUp { target, .. } => format!("has caught up with {}", n(target)),
+        AiEvent::CaughtUp { target, away, stop_at, .. } => format!("has caught up with {}: {away:.0} units away, stops within {stop_at:.0}", n(target)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
+        AiEvent::LeadsPlayer { package, to, away } => format!("walks the player into its trigger location ({}): {away:.0} units away, to ({:.0}, {:.0}, {:.0})", n(package), to[0], to[1], to[2]),
+        AiEvent::LeadStuck { package, left } => format!("stops walking the player into its trigger location ({}): no nearer for {} s, {left:.0} units short; talks where the player stands", n(package), fnv_ai::carry::LEAD_STUCK_SECONDS),
         AiEvent::TalkUnseen { package, target, away } => format!("waits to talk to {} ({}): {away:.0} units away, with something solid between", n(target), n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
         AiEvent::IdleChatter { line, away } => format!("chatters ({away:.0} units from the player), line {line}"),
@@ -2618,7 +3153,11 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *hides { "hides where it is, crouched" } else { "stands" }
         ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
+        AiEvent::PackageHolds { package, held: true } => format!("keeps to its package {} in the fight (Continue During Combat)", n(package)),
+        AiEvent::PackageHolds { package, held: false } => format!("is let go by its package {} to fight (Continue During Combat)", n(package)),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
+        AiEvent::Resettles { package } => format!("is back in the place of {}: settles there again", n(package)),
+        AiEvent::TakesUpAgain { package } => format!("takes up {} afresh", n(package)),
         AiEvent::BackHome { away, length } => format!(
             "has no package: walks back to where it was placed, {} off, {length:.0} units to go",
             if away.is_finite() { format!("{away:.0} units") } else { "in another space".to_string() }
@@ -2649,6 +3188,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::FetchDropped { from, why } => format!("rearm: gives up on {}: {why}", n(from)),
         AiEvent::RangeSwap { weapon, distance } => format!("rearm: takes up {} for its target {distance:.0} units away", n(weapon)),
+        AiEvent::RangeFists { weapon, distance } => format!("rearm: puts away {} for its fists: its target {distance:.0} units away is inside its blast", n(weapon)),
         AiEvent::EscortWaits { package, target, away } => format!(
             "escorts {}: waits, it is {} behind ({})",
             n(target),
@@ -2711,6 +3251,7 @@ type Held<'w, 's> = (
     Option<Res<'w, crate::npc_combat::Fighters>>,
     Option<ResMut<'w, crate::idles::IdleHolds>>,
     Query<'w, 's, &'static mut SitRefused>,
+    Query<'w, 's, (&'static RefVisual, &'static crate::creature_stance::CreatureStance), Without<crate::locomotion::Dying>>,
 );
 
 /// Run the package choice and the walks, log what happens, keep the visuals in step.
@@ -2722,7 +3263,7 @@ pub fn drive(
     mut nav: ResMut<NavState>,
     world: Res<WorldData>,
     streamer: Res<Streamer>,
-    (actor_world, mut ahead): (Option<Res<ActorWorld>>, ResMut<crate::readahead::ReadAhead>),
+    (actor_world, mut ahead, pace): (Option<Res<ActorWorld>>, ResMut<crate::readahead::ReadAhead>, Res<crate::stream_pace::StreamPace>),
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
@@ -2730,8 +3271,8 @@ pub fn drive(
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, mut sim, mut phys, mut blocks): PlayState,
-    (seated, hours, flinches, fighters, idle_holds, mut refusals): Held,
-    (mut door_fades, mut door_sounds, mut travel, mut knocks, trips, screen): Moves,
+    (seated, hours, flinches, fighters, idle_holds, mut refusals, stances): Held,
+    (mut door_fades, mut door_sounds, mut travel, mut knocks, trips, mut screen): Moves,
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
     // there is no menu and no such message).
@@ -2760,11 +3301,30 @@ pub fn drive(
         if arriving {
             res.core.begin_trip();
         }
+        // The player is leaving: nobody thinks this frame (the loading screen holds the
+        // game from the next). Gomorrah's inner door resets iInGomorrah as the player
+        // goes out, and the entrance guard's GomorrahGreeterPackage, judging the player
+        // still at the door, started its weapons check with a player already outside;
+        // the hand-over set iInGomorrah again, so on the next way in the guard never
+        // greeted and the door's DisablePlayerControls was never undone.
+        return;
     }
+    // The start's loading screen is up: the residents in view are drawn behind it
+    // ([`StartPlacing`]).
+    let starting = screen.as_deref().is_some_and(|l| l.starting());
     let all = res.all;
     // Who staggers (a hit reaction playing) stands until it ends.
     res.core.on_furniture = seated.iter().map(|v| v.0).collect();
     res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
+    // So does a creature drawing its stance (#2686), from the frame before.
+    let drawing: HashSet<u32> = stances.iter().filter(|(_, s)| s.holds_in_place()).map(|(v, _)| v.0).collect();
+    for id in drawing.difference(&res.core.drawing) {
+        info!("actor {id:08X} holds still while it draws its stance");
+    }
+    for id in res.core.drawing.difference(&drawing) {
+        info!("actor {id:08X} drew its stance: free to move");
+    }
+    res.core.drawing = drawing;
     // How far attack clips carry actors (`attack_anims.rs`), from the frame before.
     if let Some(t) = travel.as_deref_mut() {
         res.core.travel = t.take();
@@ -2787,22 +3347,26 @@ pub fn drive(
         }
     }
     // The game state: this module's, or the game being played (once its data is in).
-    match (res.own.as_deref_mut(), script, sim.as_deref_mut()) {
+    // Under the start's screen, the residents not handed to the AI yet, to draw.
+    let start_bodies = match (res.own.as_deref_mut(), script, sim.as_deref_mut()) {
         (Some(game), _, _) => {
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
             }
-            res.core.check_rooted(&world, &models.data);
+            res.core.check_rooted(&world, &models.data, actor_world.as_deref());
             res.core.take_moved(game, all, None);
             if all {
                 res.core.take_placed_elsewhere(game);
                 res.core.take_created(game);
             }
             res.core.process_levels(game, &world, &streamer);
+            res.core.after_hour_jump(game, &nav, &world, &streamer, None);
             res.core.arrive(game, &nav, &world, &streamer, None);
             res.core.switch_navmeshes(game, &mut nav);
             let _span = info_span!("ai::think").entered();
             res.core.think(game, true, false, &nav, &world, &mut doors, None, None, dt, now, 0);
+            // Without `--play` there is no start's screen.
+            None
         }
         (None, Some(mut script), Some(sim)) => {
             let script = &mut *script;
@@ -2816,7 +3380,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, sim.refs);
             }
-            res.core.check_rooted(&world, &models.data);
+            res.core.check_rooted(&world, &models.data, actor_world.as_deref());
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
             let (world_ref, streamer_ref) = (&*world, &*streamer);
@@ -2836,18 +3400,21 @@ pub fn drive(
                 core.process_levels(&rt.game, world_ref, streamer_ref);
                 drop(span);
                 let span = info_span!("ai::arrive").entered();
+                core.after_hour_jump(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 core.arrive(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 drop(span);
                 let span = info_span!("ai::switch_navmeshes").entered();
                 core.switch_navmeshes(&mut rt.game, &mut nav);
                 drop(span);
-                let _span = info_span!("ai::think").entered();
+                let span = info_span!("ai::think").entered();
                 let restored = rt.restored_from_save;
-                core.think(&mut rt.game, false, restored, &nav, &world, &mut doors, phys, blocks, dt, now, waited)
-            });
+                core.think(&mut rt.game, false, restored, &nav, &world, &mut doors, phys, blocks, dt, now, waited);
+                drop(span);
+                starting.then(|| core.start_bodies(&rt.game))
+            })
         }
         _ => return,
-    }
+    };
     let equipment_world = equipment_world(res.own.as_deref().map(|g| &g.world), sim.as_deref().map(|s| &s.world));
     let mut spawn_stats = crate::actors::ActorStats::default();
     let core = &mut res.core;
@@ -2864,11 +3431,13 @@ pub fn drive(
                 }
             }
         }
-        if let Some(e) = r.root.take().filter(|_| r.spawned) {
-            commands.entity(e).remove::<(RefVisual, crate::limbs::ActorRig)>().insert(crate::door_fade::DoorFade { since: now, out: true });
+        let was_spawned = r.spawned;
+        if hand_off_body(&mut commands, (&mut r.spawned, &mut r.root), now).is_some() {
             door_fades.outs += 1;
+        } else if was_spawned {
+            // Diagnostic for #2461: a body spawned and not yet found is not taken away.
+            warn!("ai: {} went through a door before its body spawned earlier was found: that body is not taken away", r.label);
         }
-        r.spawned = false;
         r.last_drawn = None;
         door_fades.fade_in.insert(actor.0);
     }
@@ -2876,13 +3445,15 @@ pub fn drive(
         nav.lead = core.list.first().and_then(|r| core.ai.agents.get(&r.actor)).map(|a| Lead { space: a.walker.space, feet: a.walker.feet, heading: a.walker.heading });
     }
     let on_furniture: HashSet<u32> = seated.iter().map(|v| v.0).collect();
-    let mut budget = SPAWNS_PER_FRAME;
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let mut budget = pace.count(SPAWNS_PER_FRAME);
     let _span = info_span!("ai::draw_and_place").entered();
     for r in core.list.iter_mut().filter(|r| r.joined && !r.failed) {
         // Furniture: sit once drawn; get up before leaving.
         let on = on_furniture.contains(&r.actor.0);
         let entity = r.root.filter(|_| r.spawned);
         let wants = r.wants;
+        let restart = std::mem::take(&mut r.restart);
         // Hours passed in the Wait menu, or a script moved it (MoveTo), and its package
         // has it elsewhere: it is off its furniture at once (the AI has walked or put it
         // on already).
@@ -2890,22 +3461,22 @@ pub fn drive(
         if moved {
             r.first_steps = Some(FirstSteps::new("its move by a script"));
         }
-        if let (true, Some(f)) = (waited > 0 || moved, r.seat.furniture()) {
-            if wants != Some(f) {
-                r.seat = Seat::None;
-                match entity {
-                    Some(e) if on => {
-                        commands.entity(e).insert(LeaveNow);
-                        core.seats[1] += 1;
-                        // Its visual stays for the furniture to let go of it; from the
-                        // next frame it is drawn where it is now, or not at all.
-                        continue;
-                    }
-                    Some(e) => {
-                        commands.entity(e).remove::<(SitOn, GetUp)>();
-                    }
-                    None => {}
+        // Or it was put at its package's place after a script moved the clock.
+        let moved = moved || std::mem::take(&mut r.jumped);
+        if stale_seat(r.seat, wants, waited > 0 || moved).is_some() {
+            r.seat = Seat::None;
+            match entity {
+                Some(e) if on => {
+                    commands.entity(e).insert(LeaveNow);
+                    core.seats[1] += 1;
+                    // Its visual stays for the furniture to let go of it; from the
+                    // next frame it is drawn where it is now, or not at all.
+                    continue;
                 }
+                Some(e) => {
+                    commands.entity(e).remove::<(SitOn, GetUp)>();
+                }
+                None => {}
             }
         }
         // The furniture's answer to the last order, acted on once. Only an answer says it
@@ -2922,54 +3493,33 @@ pub fn drive(
             seconds: dt,
             changed: waited > 0 || moved,
         };
-        r.seat = match (r.seat, entity) {
-            (Seat::None, _) => wants.map_or(Seat::None, |f| Seat::Wanted(f, false)),
-            // The order goes out in the frame that found it eligible, not through `Wanted`:
-            // by the next frame its AI may be off, or it may be held or out cold.
-            (Seat::Waiting(f, so_far), _) => match (retry::waiting(f, so_far, &frame), entity) {
-                (retry::Decision::Reissue { target }, Some(e)) => {
-                    commands.entity(e).insert(SitOn { furniture: target, stay: None, at_once: false });
+        let (seat, order) = next_seat(r.seat, entity.is_some(), on, &frame, restart);
+        r.seat = seat;
+        if let (Some(e), Some(order)) = (entity, order) {
+            match order {
+                SeatOrder::Sit(furniture, at_once) => {
+                    commands.entity(e).insert(SitOn { furniture, stay: None, at_once });
                     core.seats[0] += 1;
-                    Seat::Ordered(target, false)
                 }
-                (decision, _) => Seat::after(decision),
-            },
-            (Seat::Unavailable(f), _) => Seat::after(retry::unavailable(f, &frame)),
-            (Seat::Wanted(f, at_once), Some(e)) if wants == Some(f) => {
-                commands.entity(e).insert(SitOn { furniture: f, stay: None, at_once });
-                core.seats[0] += 1;
-                Seat::Ordered(f, false)
-            }
-            (Seat::Wanted(f, _), _) if wants != Some(f) => Seat::None,
-            // Its visual went away (its cell unloaded): sit again when it is back, at once
-            // when it was on the furniture (or walking up to it) then.
-            (Seat::Ordered(f, was_on), None) if wants == Some(f) => Seat::Wanted(f, was_on),
-            (Seat::Ordered(f, _), Some(e)) if wants != Some(f) => {
-                if on {
+                SeatOrder::GetUp => {
                     commands.entity(e).insert(GetUp);
                     core.seats[1] += 1;
-                    Seat::GettingUp(f)
-                } else {
-                    // Never got on: nothing to undo.
+                }
+                SeatOrder::Cancel => {
                     commands.entity(e).remove::<SitOn>();
-                    Seat::None
+                }
+                SeatOrder::Stood => {
+                    // Up: the walk goes on from where the furniture left the actor, turned
+                    // as it left it (its back to the furniture): the walker's heading was
+                    // the one it sat down with, and the body snapped half about to it.
+                    if let (Ok((t, _)), Some(a)) = (actors.get(e), core.ai.agents.get_mut(&r.actor)) {
+                        a.walker.feet = t.translation.to_array();
+                        a.walker.heading = nav::tr_heading(t);
+                        a.walker.tri = fnv_nav::graph::NONE;
+                    }
                 }
             }
-            (Seat::Ordered(f, _), _) if on => Seat::Ordered(f, true),
-            (Seat::Ordered(..) | Seat::GettingUp(_), None) => Seat::None,
-            (Seat::GettingUp(_), Some(e)) if !on => {
-                // Up: the walk goes on from where the furniture left the actor, turned
-                // as it left it (its back to the furniture): the walker's heading was the
-                // one it sat down with, and the body snapped half about to it.
-                if let (Ok((t, _)), Some(a)) = (actors.get(e), core.ai.agents.get_mut(&r.actor)) {
-                    a.walker.feet = t.translation.to_array();
-                    a.walker.heading = nav::tr_heading(t);
-                    a.walker.tri = fnv_nav::graph::NONE;
-                }
-                Seat::None
-            }
-            (s, _) => s,
-        };
+        }
         // A refusal of another request is over.
         if let Some(e) = entity.filter(|e| refusals.get(*e).is_ok_and(|x| r.seat.furniture() != Some(x.furniture))) {
             commands.entity(e).remove::<SitRefused>();
@@ -2977,7 +3527,7 @@ pub fn drive(
         let Some(agent) = core.ai.agents.get(&r.actor) else { continue };
         let w = &agent.walker;
         let visible = r.present && drawn(&world, &streamer, w.space, w.feet);
-        if visible && !r.spawned {
+        if visible && !r.spawned && !r.at_once {
             if budget == 0 {
                 continue;
             }
@@ -2987,8 +3537,12 @@ pub fn drive(
         // steps run at a fixed rate, and frames that held none showed the actor standing
         // (no movement this frame, so the idle clip), which made walks stop and start.
         // Without a character, standing: on the drawn ground when its feet rest on the
-        // collision as a character's would.
-        let feet = phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet)));
+        // collision as a character's would; where its character left it, as it was
+        // drawn; on the bare landscape, with the smoothed surface (#2149), unless the
+        // furniture has it (walking up to it, on it or getting off: `on`). One waiting for
+        // a seat or refused one stands free and follows the landscape.
+        let on_landscape = !on;
+        let feet = phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet, on_landscape)));
         let step = [feet[0] - r.drawn_feet[0], feet[1] - r.drawn_feet[1]];
         let moving = agent.activity == Activity::Travelling && step[0].hypot(step[1]) > 1e-4;
         if visible && r.spawned && !on && !core.held_now && agent.activity == Activity::Travelling {
@@ -3040,12 +3594,17 @@ pub fn drive(
         // frame, not where the AI last placed it (a charging Fiend was drawn 110 units
         // from its AI place, and the trooper shooting at it faced 16° off), and once
         // turned to it, it stays on it.
-        let lock = fighters.as_deref().and_then(|f| f.lock_on(r.actor.0));
+        // A weapon use's aim is not turned by a lock on another target (one left from
+        // before the use took the actor over, [`keeps_lock`]).
+        let lock = fighters.as_deref().and_then(|f| f.lock_on(r.actor.0)).filter(|(t, _)| keeps_lock(*t, core.use_aims.get(&r.actor).copied()));
         let lock_target = lock.map(|(t, _)| t);
         let held = lock_target.is_some() && r.lock_held == lock_target;
         let lock = lock.map(|(_, at)| at);
         r.lock_held = None;
-        let heading = match (lock.or_else(|| core.aims.get(&r.actor).copied()), r.aim_heading) {
+        // One that never turns (`fnv_ai::Ai::fix_heading`: Mr. House's screen) is drawn
+        // at its walker's heading, which nothing changes, with a target or without (#2150).
+        let aim = lock.or_else(|| core.aims.get(&r.actor).copied()).filter(|_| !agent.fixed);
+        let heading = match (aim, r.aim_heading.filter(|_| !agent.fixed)) {
             (Some(t), from) => {
                 let want = heading_of([t[0] - feet[0], t[1] - feet[1]]);
                 let from = from.unwrap_or(w.heading);
@@ -3105,11 +3664,14 @@ pub fn drive(
             }
         }
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some(), jumped: moved }, stage, (feet, heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some(), jumped: moved, at_once: r.at_once }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }
             r.failed = true;
+        }
+        if r.spawned {
+            r.at_once = false;
         }
         // Its first second drawn after a script made, enabled or moved it: the clips it
         // walks or runs with (`FirstSteps`).
@@ -3136,6 +3698,68 @@ pub fn drive(
             }
         }
     }
+    // Under the start's screen: the residents in view are drawn behind it, not
+    // [`SPAWNS_PER_FRAME`] a frame once it is down, and the screen waits for them
+    // ([`StartPlacing`]; `nvf_play::loading::StartActors`). Only once the cells around the
+    // player are in, drawn and in physics (the drawn feet follow the collision).
+    if let (Some(bodies), Some(aw)) = (start_bodies, actor_world.as_deref()) {
+        let start = &mut res.start;
+        start.game_frames += 1;
+        let capped = screen.as_deref().is_some_and(|l| l.placing_capped());
+        let may = start.on && start.game_frames > 1 && !capped && streamer.settled && phys.as_deref().is_none_or(|p| p.loading_done());
+        let mut want = Vec::new();
+        for b in bodies {
+            let r = &mut core.list[b.index];
+            let visible = b.present && drawn(&world, &streamer, b.space, b.feet);
+            if visible && !r.spawned {
+                want.push(b);
+            } else if !visible && r.spawned {
+                // Out of view since (a travel under the start's screen): its body goes.
+                let who = nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe: false, air: false, jumped: false, at_once: r.at_once };
+                let _ = nav::show_actor(&mut commands, root, false, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut r.spawned, &mut r.root), (b.feet, b.heading), false, 0.0);
+            }
+        }
+        if may && !start.told && !want.is_empty() {
+            start.told = true;
+            info!("ai: the start's screen waits for {} residents in view to be drawn under it", want.len());
+        }
+        let _span = info_span!("ai::draw_under_start").entered();
+        let t0 = std::time::Instant::now();
+        let (placed, left) = place_frame(&want, may, || t0.elapsed(), |b| {
+            let r = &mut core.list[b.index];
+            // Its drawn feet as the first frame of play will have them (no character yet).
+            let feet = phys.as_deref_mut().map_or(b.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, b.feet, true)));
+            let who = nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe: false, air: false, jumped: false, at_once: r.at_once };
+            match nav::show_actor(&mut commands, root, true, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut r.spawned, &mut r.root), (feet, b.heading), false, 0.0) {
+                Err(e) => {
+                    if r.named {
+                        warn!("ai: {} could not be drawn ({e})", r.label);
+                    }
+                    r.failed = true;
+                    Placed::Never
+                }
+                Ok(()) if r.spawned => {
+                    r.at_once = false;
+                    // The first frame of play goes on from this body, as the draw loop
+                    // would from its last frame: its drawn feet and its walker's. And it
+                    // is put at its walker's place then (`jumped`), not turned or walked
+                    // there: a script that moves it on the scripts' first frame (MoveTo)
+                    // is not seen by `Core::take_moved`, which runs before it is handed
+                    // to the AI [#3081 review]. Its seat is still `Seat::None`, so
+                    // nothing else changes.
+                    r.drawn_feet = feet;
+                    r.last_feet = b.feet;
+                    r.jumped = true;
+                    Placed::Drawn
+                }
+                Ok(()) => Placed::NotYet,
+            }
+        });
+        start.placed += placed;
+        if let Some(l) = screen.as_deref_mut() {
+            l.start_actors = Some(nvf_play::loading::StartActors { placed: start.placed, left, under_screen: start.on, drawing: may });
+        }
+    }
     crate::profile::actor_spawns(spawn_stats.equipment_spawns, spawn_stats.record_spawns);
 }
 
@@ -3145,6 +3769,8 @@ pub fn report(
     res: Res<Residents>,
     world: Res<WorldData>,
     script: Option<Res<nvf_play::script::ScriptState>>,
+    bodies: Query<(Entity, &crate::limbs::ActorRig, &GlobalTransform)>,
+    world_root: Query<&GlobalTransform, With<WorldRoot>>,
 ) {
     if exit.read().next().is_none() {
         return;
@@ -3156,6 +3782,17 @@ pub fn report(
     };
     let core = &res.core;
     let data = game.data;
+    // Actor bodies drawn more than once for one reference (#2461), in game space.
+    let to_game = world_root.single().map_or(bevy::math::Affine3A::IDENTITY, |g| g.affine().inverse());
+    let twice = drawn_twice(bodies.iter().map(|(e, rig, g)| (rig.reference, e, to_game.transform_point3(g.translation()).to_array())));
+    for (reference, places) in &twice {
+        let r = core.list.iter().find(|r| r.actor.0 == *reference);
+        let label = r.map_or_else(|| data.name(game.world.placed.get(FormId(*reference)).map_or(FormId(*reference), |p| p.base)), |r| r.label.clone());
+        let tracked = r.and_then(|r| r.root.filter(|_| r.spawned));
+        let each: Vec<String> = places.iter().map(|(e, p)| format!("({:.0}, {:.0}, {:.0}){}", p[0], p[1], p[2], if Some(*e) == tracked { " driven" } else { "" })).collect();
+        info!("actor bodies: {label} ({reference:08X}) is drawn by {} bodies: {}", places.len(), each.join(", "));
+    }
+    info!("actor bodies summary: {} references drawn by more than one body ({} bodies in all)", twice.len(), twice.iter().map(|(_, p)| p.len()).sum::<usize>());
     let one = |r: &Resident| -> Option<String> {
         let a = core.ai.agents.get(&r.actor)?;
         let package = game.extra.get(&r.actor).and_then(|e| e.current_package).map(|p| data.name(p)).unwrap_or_else(|| "no package".into());
@@ -3167,6 +3804,13 @@ pub fn report(
         };
         Some(format!("{}: {package}, {state} in {}, walked {:.0} units, {} doors opened", r.label, nav::space_name(&world, a.walker.space), a.walker.travelled, r.doors_opened))
     };
+    // Named sandboxers' choices in a meal window with no free seat, so no meal (#2011;
+    // the smoke test sandbox-no-seat-meals reads them).
+    for r in core.list.iter().filter(|r| r.named) {
+        if let Some(sb) = core.ai.agents.get(&r.actor).and_then(|a| a.sandbox.as_ref()) {
+            info!("ai sandbox meals: {}: {} choices in a meal window with no free seat", r.label, sb.seatless_meal_choices());
+        }
+    }
     // The named ones, then those of the crowd that walked the most.
     let mut each: Vec<String> = core.list.iter().filter(|r| r.named).filter_map(one).collect();
     let mut crowd: Vec<&Resident> = core.list.iter().filter(|r| !r.named && core.ai.agents.get(&r.actor).is_some_and(|a| a.walker.travelled > 0.0)).collect();
@@ -3265,6 +3909,7 @@ pub fn report(
         p.coming_updates,
         p.reached_loaded
     );
+    info!("far script summary: {} GameMode runs of residents out of the loaded cells (at their low-process updates and in waited hours)", p.far_scripts);
     info!(
         "arrival summary: {} residents put at their package's place behind a loading screen, {} seated at once on their furniture; {} left where they were (in the loaded area before the trip)",
         core.arrivals[0], core.arrivals[1], core.arrivals[2]
@@ -3292,12 +3937,222 @@ fn level_for(high: bool, coming: bool, buffered: bool) -> fnv_ai::ProcessLevel {
     }
 }
 
+/// Whom a person in Combat is drawn facing (`Core::aims`): the target of a weapon use
+/// it is carrying out (`Game::active_weapon_use`) and the fight did not take over
+/// ([`use_aim`]), else its combat target. The shooter
+/// (`use_weapon`) fires only once the body faces the use's target, and the use keeps
+/// the ordinary attacks off (`npc_combat::weapon_use_holds_fight`), so facing the combat
+/// target instead would leave neither firing (#2120) [design].
+fn aim_target(use_target: Option<FormId>, combat_target: Option<FormId>) -> Option<FormId> {
+    use_target.or(combat_target)
+}
+
+/// The target a person's weapon use (`Game::active_weapon_use`) aims it at
+/// ([`aim_target`]): none when the fight took the actor over (`taken_by_fight`,
+/// `WeaponUse::taken`, set by `npc_combat::fight`, this frame's or the last: the two
+/// systems are not ordered; the shooter has nothing to act on, as a marker target, one
+/// not drawn, or not yet at its stand), so it faces its enemy and the fight's lock on
+/// that enemy holds ([`keeps_lock`]) (#2145 review) [design]. Only people are aimed here;
+/// a creature's heading is its walker's, which `fnv_ai::carry` turns the same way.
+fn use_aim(use_target: Option<FormId>, taken_by_fight: bool) -> Option<FormId> {
+    use_target.filter(|_| !taken_by_fight)
+}
+
+/// Whether a combat lock on `lock_target` (`npc_combat::Fighters::lock_on`) may hold a
+/// person's drawn heading: not when a weapon use owns its aim at another target
+/// (`use_target`, [`aim_target`]).
+fn keeps_lock(lock_target: u32, use_target: Option<FormId>) -> bool {
+    use_target.is_none_or(|t| t.0 == lock_target)
+}
+
+/// One reference's drawn bodies, each with where it stands.
+type Bodies<K> = Vec<(K, [f32; 3])>;
+
+/// The references drawn by more than one actor body at once, in FormID order, each with
+/// its bodies (`K`: the body, and where it stands), from every drawn body's reference;
+/// the player's own body is left out. One reference has one body; a second one stands
+/// where something left it and answers to the reference (#2461, Lt. Boyd at Camp
+/// McCarran) [design: a diagnostic for the smoke tests].
+fn drawn_twice<K: Copy>(bodies: impl IntoIterator<Item = (u32, K, [f32; 3])>) -> Vec<(u32, Bodies<K>)> {
+    let mut by_ref: std::collections::BTreeMap<u32, Bodies<K>> = std::collections::BTreeMap::new();
+    for (reference, body, at) in bodies.into_iter().filter(|b| b.0 != FormId::PLAYER_REF.0) {
+        by_ref.entry(reference).or_default().push((body, at));
+    }
+    by_ref.into_iter().filter(|(_, b)| b.len() > 1).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{carries_cell, level_for, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use super::{carries_cell, drawn_twice, level_for, newly_loaded, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use crate::world::CellKey;
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
+
+    /// #2432, #2434: Freeside's worldspaces lie on the same grid squares. Going through a
+    /// door from one into another (FreesideWorld to FreesideNorthWorld, that to
+    /// FreesideFortWorld) hands over every loaded cell of the one entered on the first
+    /// arrival, though the same squares were loaded in the one left; a square seen
+    /// before in the same worldspace is not handed over twice.
+    #[test]
+    fn sibling_worldspaces_on_the_same_squares_hand_over_their_cells_on_the_first_arrival() {
+        const FREESIDE: u32 = 0x0010_BEEA;
+        const NORTH: u32 = 0x0012_D94D;
+        const FORT: u32 = 0x0012_D94E;
+        let squares = |s: &[(i32, i32)]| -> HashSet<CellKey> { s.iter().map(|g| CellKey::Exterior(*g)).collect() };
+        let set = |v: Vec<CellKey>| -> HashSet<CellKey> { v.into_iter().collect() };
+        let (mut seen, mut world) = (HashSet::new(), 0);
+        let around_gate = [(0, 0), (1, 0), (0, 1), (1, 1)];
+        assert_eq!(newly_loaded(&mut seen, &mut world, FREESIDE, squares(&around_gate)).len(), 4, "the start");
+        assert!(newly_loaded(&mut seen, &mut world, FREESIDE, squares(&around_gate)).is_empty(), "the same squares again");
+        // Through the door into the north side, on the same squares: the loading screen
+        // empties the loaded cells, then they come in one by one; all of them are new.
+        assert!(newly_loaded(&mut seen, &mut world, NORTH, HashSet::new()).is_empty());
+        let mut got = newly_loaded(&mut seen, &mut world, NORTH, squares(&[(0, 0), (1, 1)]));
+        got.extend(newly_loaded(&mut seen, &mut world, NORTH, squares(&around_gate)));
+        assert_eq!(set(got), squares(&around_gate), "Orris's square (1, 1) is handed over");
+        // A frame that still shows the squares of the worldspace left counts them for
+        // the one entered (its cells are looked up there), not as seen already.
+        let (mut seen2, mut world2) = (HashSet::new(), 0);
+        newly_loaded(&mut seen2, &mut world2, NORTH, squares(&around_gate));
+        assert_eq!(set(newly_loaded(&mut seen2, &mut world2, FORT, squares(&around_gate))), squares(&around_gate), "the fort's people join");
+        // Into the fort and back out: each worldspace's squares on each arrival.
+        assert_eq!(newly_loaded(&mut seen, &mut world, FORT, squares(&[(1, 0)])), vec![CellKey::Exterior((1, 0))]);
+        assert_eq!(newly_loaded(&mut seen, &mut world, NORTH, squares(&[(1, 0)])), vec![CellKey::Exterior((1, 0))]);
+        // An interior and back to the same worldspace.
+        assert_eq!(newly_loaded(&mut seen, &mut world, NORTH, [CellKey::Interior(0x0010_E03B)].into()), vec![CellKey::Interior(0x0010_E03B)]);
+        assert_eq!(newly_loaded(&mut seen, &mut world, NORTH, squares(&[(1, 0), (2, 0)])).len(), 2);
+    }
+
+    /// #2461: a reference with two bodies is reported with both, one with one body is
+    /// not, and the player's own body never counts.
+    #[test]
+    fn a_reference_drawn_by_two_bodies_is_reported() {
+        let boyd = 0x000F_0678;
+        let silus = 0x000F_2DEF;
+        let bodies = [(boyd, 1, [296.0, 1665.0, 18671.0]), (silus, 2, [228.0, 1726.0, 18671.0]), (boyd, 3, [325.0, 719.0, 18672.0]), (FormId::PLAYER_REF.0, 4, [0.0; 3]), (FormId::PLAYER_REF.0, 5, [0.0; 3])];
+        let twice = drawn_twice(bodies);
+        assert_eq!(twice.len(), 1, "{twice:?}");
+        assert_eq!(twice[0].0, boyd);
+        assert_eq!(twice[0].1.iter().map(|b| b.0).collect::<Vec<_>>(), vec![1, 3]);
+        assert!(drawn_twice([(silus, 2, [0.0; 3])]).is_empty());
+    }
+
+    /// #2120: a person carrying out a weapon use (a Use Weapon package with Continue
+    /// During Combat, or a script's) is drawn facing the use's target, not its combat
+    /// enemy, and a lock on the enemy left from its fight does not turn it back: the
+    /// shooter fires only facing the use's target, and the fight is held meanwhile.
+    #[test]
+    fn a_weapon_use_owns_the_aim_over_the_combat_target_and_its_lock() {
+        use super::{aim_target, keeps_lock};
+        let (package_target, enemy) = (FormId(0x11), FormId(0x22));
+        // No weapon use: its combat target, and its lock holds.
+        assert_eq!(aim_target(None, Some(enemy)), Some(enemy));
+        assert!(keeps_lock(enemy.0, None));
+        // A weapon use being carried out: its target, though the enemy is elsewhere.
+        assert_eq!(aim_target(Some(package_target), Some(enemy)), Some(package_target));
+        assert_eq!(aim_target(Some(package_target), None), Some(package_target), "no combat target needed");
+        assert!(!keeps_lock(enemy.0, Some(package_target)), "a stale lock on the enemy is let go");
+        assert!(keeps_lock(package_target.0, Some(package_target)), "a lock on the use's own target holds");
+        // Neither: nothing to face.
+        assert_eq!(aim_target(None, None), None);
+    }
+
+    /// #2145 review: a use the fight took over (a marker target, one not drawn, not yet at
+    /// its stand: the shooter has nothing to act on) owns no aim; the body faces its enemy
+    /// and the fight's lock on it holds, as with no use at all.
+    #[test]
+    fn a_weapon_use_the_fight_took_over_leaves_the_aim_to_the_combat_target() {
+        use super::{aim_target, keeps_lock, use_aim};
+        let (marker, enemy) = (FormId(0x33), FormId(0x22));
+        assert_eq!(use_aim(Some(marker), false), Some(marker), "the shooter acts on it: its target");
+        let taken = use_aim(Some(marker), true);
+        assert_eq!(taken, None);
+        assert_eq!(aim_target(taken, Some(enemy)), Some(enemy));
+        assert!(keeps_lock(enemy.0, taken), "the fight's lock on its enemy holds");
+        assert_eq!(use_aim(None, true), None);
+    }
+
+    /// Only an Immobile creature with a Turning Speed of 0 never turns: Mr. House's
+    /// screen does not, a turret (Immobile, 30 and more) and a walking creature whose
+    /// record carries 0 do (issue #2150).
+    #[test]
+    fn only_an_immobile_creature_with_no_turning_speed_never_turns() {
+        use super::never_turns;
+        assert!(never_turns(true, Some(0.0)));
+        assert!(!never_turns(true, Some(30.0)));
+        assert!(!never_turns(false, Some(0.0)));
+        assert!(!never_turns(true, None));
+    }
+
+    /// ResetAI on a seated actor whose package gives it the same chair again: it gets up
+    /// by the exit clip, nothing tells it to sit while that plays, and once off it may sit
+    /// down again (issue #2119). Without the restart the same chair changes nothing.
+    #[test]
+    fn a_reset_gets_a_seated_actor_up_before_it_sits_on_the_same_chair_again() {
+        use super::{next_seat, retry::Now, Seat, SeatOrder};
+        let now = Now { wants: Some(7), eligible: true, seconds: 0.1, changed: false };
+        assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &now, false), (Seat::Ordered(7, true), None));
+        let (seat, order) = next_seat(Seat::Ordered(7, true), true, true, &now, true);
+        assert_eq!((seat, order), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+        // The exit clip plays: no order, even with the same chair wanted.
+        assert_eq!(next_seat(seat, true, true, &now, false), (Seat::GettingUp(7), None));
+        // Off: the walk goes on from where it stands; then it is told to sit again.
+        let (seat, order) = next_seat(seat, true, false, &now, false);
+        assert_eq!((seat, order), (Seat::None, Some(SeatOrder::Stood)));
+        let (seat, order) = next_seat(seat, true, false, &now, false);
+        assert_eq!((seat, order), (Seat::Wanted(7, false), None));
+        assert_eq!(next_seat(seat, true, false, &now, false), (Seat::Ordered(7, false), Some(SeatOrder::Sit(7, false))));
+    }
+
+    /// A reset of an actor not yet on its chair takes the order back (it is given again
+    /// through `Wanted`); one not drawn, or standing with no furniture, is left as it is;
+    /// another chair wanted is the usual getting up.
+    #[test]
+    fn a_reset_off_the_chair_or_unseen_orders_nothing_new() {
+        use super::{next_seat, retry::Now, Seat, SeatOrder};
+        let now = Now { wants: Some(7), eligible: true, seconds: 0.1, changed: false };
+        assert_eq!(next_seat(Seat::Ordered(7, false), true, false, &now, true), (Seat::None, Some(SeatOrder::Cancel)));
+        assert_eq!(next_seat(Seat::Ordered(7, true), false, false, &now, true), (Seat::Wanted(7, true), None));
+        assert_eq!(next_seat(Seat::None, true, false, &Now { wants: None, ..now }, true), (Seat::None, None));
+        let other = Now { wants: Some(8), ..now };
+        assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, true), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+        assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, false), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+    }
+
+    /// Review of #2353: a resident that was seated (its visual gone, so `Wanted` at once)
+    /// and is put at a standing place by a jump of the clock while the console stays open
+    /// (no `note` to refresh what it wants) ends standing: it is not sat back on its old
+    /// furniture once drawn. One put on new furniture is sat on that at once.
+    #[test]
+    fn a_seated_resident_put_at_a_standing_place_by_a_jump_is_not_seated_again() {
+        use super::{next_seat, retry::Now, seat_after_jump, stale_seat, Seat};
+        for before in [Seat::Wanted(7, true), Seat::Ordered(7, true)] {
+            // The jump's frame: nothing to use at the new place.
+            let (wants, seat) = seat_after_jump(before, None);
+            assert_eq!(wants, None);
+            // The same frame's cleanup (`Resident::jumped`) drops the old seat.
+            assert_eq!(stale_seat(seat, wants, true), Some(7));
+            let mut seat = Seat::None;
+            // Held by the console for a while, then drawn and free: never told to sit.
+            for (drawn, eligible) in [(false, false), (false, false), (true, false), (true, true), (true, true)] {
+                let frame = Now { wants, eligible, seconds: 0.1, changed: false };
+                let (next, order) = next_seat(seat, drawn, false, &frame, false);
+                assert_eq!(order, None, "{before:?}");
+                seat = next;
+            }
+            assert_eq!(seat, Seat::None, "{before:?}");
+        }
+        // Before the fix the old wish stayed: drawn, it would be sat on its old seat again.
+        let stale = Now { wants: Some(7), eligible: true, seconds: 0.1, changed: false };
+        assert!(next_seat(Seat::Wanted(7, true), true, false, &stale, false).1.is_some());
+        // To new furniture: on it at once, and the old seat is not left (it is replaced).
+        let (wants, seat) = seat_after_jump(Seat::Wanted(7, true), Some(9));
+        assert_eq!((wants, seat), (Some(9), Seat::Wanted(9, true)));
+        assert_eq!(stale_seat(seat, wants, true), None);
+        // Nothing changed this frame: no seat is dropped.
+        assert_eq!(stale_seat(Seat::Ordered(7, true), None, false), None);
+    }
 
     #[test]
     fn refused_skips_add_up_over_one_blocked_episode_only() {
@@ -3313,6 +4168,44 @@ mod tests {
         assert_eq!(r.note(1, 14.0), 2);
         assert_eq!(r.note(1, 14.0 + SKIP_REFUSED_FORGET + 1.0), 1);
         assert_eq!(r.total, 7);
+    }
+
+    /// The maintainer's review of #2143: a walk under way at Speed Mult 0 (speeds of 0, the
+    /// walk kept) stands and is never moved on along its path; one slowed under a fifth of
+    /// the speed its walk started at is judged by its new speed; and a rule made while the
+    /// speed was 0 still finds the actor stuck once its speed is back. Each frame as
+    /// `PhysMover::walk` asks it: no advice at 0, else `advise_moved` with the feet.
+    #[test]
+    fn a_walk_at_speed_zero_is_never_moved_on_along_its_path() {
+        use super::stuck_rule;
+        use fnv_nav::follow::Advice;
+        let dt = 1.0 / 60.0;
+        let mut rules = HashMap::new();
+        // Frames at `speed` (the feet moving at `moves` units/s along +x): any skip advised.
+        let frames = |rules: &mut HashMap<u32, fnv_nav::follow::Unstuck>, x: &mut f32, speed: f32, moves: f32, seconds: f32| {
+            let mut skipped = false;
+            for _ in 0..(seconds / dt).round() as usize {
+                *x += moves * dt;
+                if let Some(u) = stuck_rule(rules, 7, speed) {
+                    skipped |= matches!(u.advise_moved([*x, 0.0, 0.0], [1.0, 0.0], dt), Advice::Skip | Advice::GiveUp);
+                }
+            }
+            skipped
+        };
+        let mut x = 0.0;
+        assert!(!frames(&mut rules, &mut x, 100.0, 100.0, 2.0));
+        // SetAV SpeedMult 0 mid-walk, held ten seconds: the rule is not asked, its speed is 0.
+        assert!(!frames(&mut rules, &mut x, 0.0, 0.0, 10.0));
+        assert_eq!((rules[&7].speed, rules[&7].detours, rules[&7].replans), (0.0, 0, 0));
+        // Back to 100, then down to 15 (under a fifth of 100) and walking at 15.
+        assert!(!frames(&mut rules, &mut x, 100.0, 100.0, 3.0));
+        assert!(!frames(&mut rules, &mut x, 15.0, 15.0, 5.0));
+        assert_eq!((rules[&7].detours, rules[&7].replans), (0, 0));
+        // A rule first made at 0 finds a blocked actor stuck once its speed is back.
+        let mut late = HashMap::new();
+        let mut y = 0.0;
+        assert!(!frames(&mut late, &mut y, 0.0, 0.0, 3.0));
+        assert!(frames(&mut late, &mut y, 100.0, 0.0, 10.0), "stuck at 100 and moved on");
     }
 
     #[test]
@@ -3346,6 +4239,96 @@ mod tests {
         residents.own = None;
         assert!(std::ptr::eq(residents.prefetch_world(id.0, Some(&shared)).unwrap(), &shared));
         assert!(residents.prefetch_world(id.0, None).is_none());
+    }
+
+    /// Under the start's screen each resident not handed to the AI is drawn where
+    /// `fnv_ai::Ai::add` puts its walker when the first frame of play hands it over (where
+    /// the game has it, facing its way), whether the game has it in the world or not; one
+    /// handed over already, or one that failed, is not.
+    #[test]
+    fn under_the_start_screen_residents_are_drawn_where_the_ai_will_take_them_up() {
+        use super::{Clock, Residents, StartBody};
+        use crate::outfits::tests::{actor_forms, empty_world_data, game, OTHER};
+        use fnv_nav::Space;
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(actor_forms(vec![])));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let mut world = fnv_sim::World::new(forms, refs, Default::default());
+        let room = FormId(0x500);
+        let (a_at, b_at, c_at) = ([10.0, 20.0, 30.0], [-40.0, 5.0, 0.0], [1.0, 1.0, 1.0]);
+        let a = world.place(OTHER, Some(room), a_at, [0.0, 0.0, 1.25], 1).unwrap();
+        let b = world.place(OTHER, Some(room), b_at, [0.0, 0.0, -2.0], 1).unwrap();
+        let c = world.place(OTHER, Some(room), c_at, [0.0; 3], 1).unwrap();
+        let failed = world.place(OTHER, Some(room), c_at, [0.0; 3], 1).unwrap();
+        world.set_enabled(b, false).unwrap();
+        let g = game(world);
+        let mut residents = Residents::build(&empty_world_data(), &[], Clock { hour: 22.0, days_passed: 5.0, rate: 0.0 }, 100.0, true).unwrap();
+        for (id, at) in [(a, a_at), (b, b_at), (c, c_at), (failed, c_at)] {
+            residents.core.add_resident(id, OTHER.0, false, 1.0, at, id.to_string(), false);
+        }
+        residents.core.list[2].joined = true;
+        residents.core.list[3].failed = true;
+        let bodies = residents.core.start_bodies(&g);
+        assert_eq!(
+            bodies,
+            vec![
+                StartBody { index: 0, space: Space::Interior(room.0), feet: a_at, heading: 1.25, present: true },
+                StartBody { index: 1, space: Space::Interior(room.0), feet: b_at, heading: -2.0, present: false },
+            ]
+        );
+        // The AI takes them up there on the first frame of play.
+        for (id, body) in [(a, bodies[0]), (b, bodies[1])] {
+            residents.core.ai.add(&g, id).unwrap();
+            let w = &residents.core.ai.agents[&id].walker;
+            assert_eq!((w.space, w.feet, w.heading), (body.space, body.feet, body.heading), "{id}");
+        }
+    }
+
+    /// One frame of drawing under the start's screen: the residents in view in order,
+    /// within the frame's time (at least one a frame), those whose parts are not read yet
+    /// asked again the next frame and still waited for, one that cannot be drawn not
+    /// waited for; nothing before it may begin (the cells, the scripts, the aid off, the cap).
+    #[test]
+    fn the_start_screen_draws_its_residents_within_a_frame_budget() {
+        use super::{place_frame, Placed, START_PLACE_BUDGET};
+        use std::time::Duration;
+        let want = [1, 2, 3, 4, 5];
+        // Quick: everyone in one frame.
+        let mut asked = Vec::new();
+        assert_eq!(place_frame(&want, true, || Duration::ZERO, |i| { asked.push(i); Placed::Drawn }), (5, 0));
+        assert_eq!(asked, want);
+        // Not ready, and one that cannot be drawn: 3 left to wait for.
+        let fate = |i: i32| match i {
+            2 => Placed::Never,
+            4 | 5 => Placed::NotYet,
+            _ => Placed::Drawn,
+        };
+        assert_eq!(place_frame(&want, true, || Duration::ZERO, fate), (2, 2));
+        // Slow: each spawn 40 ms, so three a frame within 100 ms; the rest the next frame.
+        let spent = std::cell::Cell::new(Duration::ZERO);
+        let mut asked = Vec::new();
+        let step = START_PLACE_BUDGET / 5 * 2;
+        let frame = place_frame(&want, true, || spent.get(), |i| {
+            asked.push(i);
+            spent.set(spent.get() + step);
+            Placed::Drawn
+        });
+        assert_eq!((frame, asked), ((3, 2), vec![1, 2, 3]));
+        // One spawn longer than the budget: still one a frame.
+        assert_eq!(place_frame(&want[3..], true, || START_PLACE_BUDGET * 3, |_| Placed::Drawn), (1, 1));
+        // Not yet allowed: nobody drawn, all of them still to draw (the screen waits).
+        assert_eq!(place_frame(&want, false, || Duration::ZERO, |_| panic!("drawn before it may")), (0, 5));
+        assert_eq!(place_frame::<i32>(&[], true, || Duration::ZERO, |_| Placed::Drawn), (0, 0));
+    }
+
+    /// Test aid `NVF_START_ACTORS_UNDER_SCREEN=0` draws the start's residents after its
+    /// screen, as before; anything else (unset, `1`) draws them under it.
+    #[test]
+    fn the_aid_draws_the_starts_residents_after_its_screen() {
+        use super::start_actors_under_screen;
+        assert!(start_actors_under_screen(None));
+        assert!(start_actors_under_screen(Some("1")));
+        assert!(!start_actors_under_screen(Some("0")));
+        assert!(!start_actors_under_screen(Some(" 0 ")));
     }
 
     /// A game restored from a save keeps the save's clock; a new game takes the start
@@ -3452,5 +4435,118 @@ mod tests {
         assert!(!carries_cell(false, false, true, true, ProcessLevel::Low));
         assert!(!carries_cell(false, true, true, true, ProcessLevel::High));
         assert!(!carries_cell(true, false, true, true, ProcessLevel::High));
+    }
+
+    /// A resident's body drawn by `nav::show_actor`, one frame (a system run): the
+    /// resident goes through a load door first when `door` (`hand_off_body`, as `drive`'s
+    /// door loop). Its parts are read at once (`at_once`), so a body hand-over spawns the
+    /// new body in the same frame.
+    mod bodies {
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::prelude::*;
+        use nvf_play::RefVisual;
+
+        pub(super) const BOYD: u32 = 0x000F_0678;
+
+        pub(super) fn frame(app: &mut App, world_root: Entity, state: (bool, Option<Entity>), door: bool, feet: [f32; 3]) -> (bool, Option<Entity>) {
+            app.world_mut()
+                .run_system_once(
+                    move |mut commands: Commands,
+                          aw: Res<crate::actors::ActorWorld>,
+                          mut ahead: ResMut<crate::readahead::ReadAhead>,
+                          mut parts: ResMut<nvf_assets::actor::ActorParts>,
+                          mut models: nvf_assets::model::ModelCtx,
+                          roots: Query<(Entity, &RefVisual, &ChildOf)>,
+                          mut actors: Query<(&mut Transform, Option<&mut crate::locomotion::Locomotion>), Without<crate::furniture::OnFurniture>>| {
+                        let (mut spawned, mut root) = state;
+                        if door {
+                            super::super::hand_off_body(&mut commands, (&mut spawned, &mut root), 1.0);
+                        }
+                        let mut stats = crate::actors::ActorStats::default();
+                        let who = crate::nav::Who { reference: BOYD, base: crate::outfits::tests::OTHER.0, creature: false, scale: 1.0, strafe: false, air: false, jumped: false, at_once: true };
+                        crate::nav::show_actor(&mut commands, world_root, true, Some(&aw), None, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut spawned, &mut root), (feet, 0.0), false, 1.0 / 60.0).unwrap();
+                        (spawned, root)
+                    },
+                )
+                .unwrap()
+        }
+
+        /// The app with the actor fixture (`outfits::tests::asset_fixture`) and a world root.
+        pub(super) fn app() -> (App, Entity, crate::outfits::tests::TestFiles) {
+            let (mut app, files) = crate::outfits::tests::asset_fixture();
+            app.init_resource::<crate::readahead::ReadAhead>();
+            let world_root = app.world_mut().spawn(Transform::default()).id();
+            (app, world_root, files)
+        }
+
+        /// The bodies of `BOYD` (`ActorRig`) and those of them its `RefVisual` marks
+        /// under the world root (the root scan's candidates).
+        pub(super) fn bodies(app: &mut App, world_root: Entity) -> (Vec<Entity>, Vec<Entity>) {
+            let w = app.world_mut();
+            let rigs = w.query::<(Entity, &crate::limbs::ActorRig)>().iter(w).filter(|(_, r)| r.reference == BOYD).map(|(e, _)| e).collect();
+            let marked = w.query::<(Entity, &RefVisual, &ChildOf)>().iter(w).filter(|(_, v, p)| v.0 == BOYD && p.parent() == world_root).map(|(e, ..)| e).collect();
+            (rigs, marked)
+        }
+    }
+
+    /// #2461: a resident handed through a load door with its parts read spawns its new
+    /// body in the same frame as the old one is let go. Its root is the new body, not the
+    /// one fading at the door (which still had its `RefVisual` in that frame), and it is
+    /// the only body of the reference afterwards; once the faded body is despawned the
+    /// resident is still driven by the new one.
+    #[test]
+    fn a_resident_handed_through_a_load_door_keeps_one_body() {
+        use bevy::prelude::{Transform, Vec3};
+        use bodies::{app, bodies, frame};
+        let (mut app, world_root, _files) = app();
+        let state = frame(&mut app, world_root, (false, None), false, [470.0, 1499.0, 18672.0]);
+        let (true, Some(first)) = state else { panic!("not drawn: {state:?}") };
+        let state = frame(&mut app, world_root, state, false, [471.0, 1490.0, 18672.0]);
+        assert_eq!(state, (true, Some(first)), "drawn and placed by the same body");
+        assert_eq!(bodies(&mut app, world_root), (vec![first], vec![first]));
+        // Through the door: the new body spawns at the far side in the same frame.
+        let state = frame(&mut app, world_root, state, true, [466.0, 1378.0, 18672.0]);
+        let (true, Some(second)) = state else { panic!("not drawn anew: {state:?}") };
+        assert_ne!(second, first, "the root is the new body, not the one left at the door");
+        assert_eq!(bodies(&mut app, world_root), (vec![second], vec![second]), "one body of the reference, and it is the root");
+        let w = app.world();
+        assert!(w.get::<crate::door_fade::DoorFade>(first).is_some_and(|f| f.out), "the body left at the door fades out");
+        assert!(w.get::<nvf_play::RefVisual>(first).is_none());
+        // `door_fade.rs` despawns the faded body; the new one goes on being driven.
+        app.world_mut().despawn(first);
+        let state = frame(&mut app, world_root, state, false, [466.0, 1370.0, 18672.0]);
+        assert_eq!(state, (true, Some(second)));
+        assert_eq!(app.world().get::<Transform>(second).unwrap().translation, Vec3::new(466.0, 1370.0, 18672.0), "placed at the walker's feet");
+        assert_eq!(bodies(&mut app, world_root), (vec![second], vec![second]));
+    }
+
+    /// #2461: a root whose body is gone is let go: another body of the reference under the
+    /// world root is taken up, and with none the resident is drawn anew.
+    #[test]
+    fn a_resident_whose_body_is_gone_is_drawn_anew_or_takes_up_another() {
+        use bevy::prelude::{Transform, Vec3};
+        use bodies::{app, bodies, frame};
+        let (mut app, world_root, _files) = app();
+        let feet = [296.0, 1665.0, 18672.0];
+        let state = frame(&mut app, world_root, (false, None), false, feet);
+        let (true, Some(first)) = state else { panic!("not drawn: {state:?}") };
+        app.world_mut().despawn(first);
+        let state = frame(&mut app, world_root, state, false, feet);
+        assert_eq!(state, (false, None), "the lost root is let go and nothing else found: drawn anew next");
+        let state = frame(&mut app, world_root, state, false, feet);
+        let (true, Some(second)) = state else { panic!("not drawn anew: {state:?}") };
+        assert_ne!(second, first);
+        let state = frame(&mut app, world_root, state, false, feet);
+        assert_eq!(state, (true, Some(second)));
+        assert_eq!(bodies(&mut app, world_root), (vec![second], vec![second]));
+        // Another body of the same reference stands under the world root (one left
+        // standing): the resident's body gone, that one is taken up rather than a third
+        // drawn.
+        let (true, Some(stray)) = frame(&mut app, world_root, (false, None), false, [325.0, 719.0, 18672.0]) else { panic!("stray not drawn") };
+        app.world_mut().despawn(second);
+        let state = frame(&mut app, world_root, state, false, feet);
+        assert_eq!(state, (true, Some(stray)));
+        assert_eq!(app.world().get::<Transform>(stray).unwrap().translation, Vec3::from_array(feet));
+        assert_eq!(bodies(&mut app, world_root), (vec![stray], vec![stray]));
     }
 }

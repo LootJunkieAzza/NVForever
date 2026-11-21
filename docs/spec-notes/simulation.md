@@ -137,7 +137,17 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   entries carry nothing for them [observed by the owner in game, 2026-10-08]; non-item entries stay
   [hypothesis].
 - **CONT DATA**: flags u8 (bit 1 "Respawns"), weight f32 [documented: xEdit]. 3,417
-  container bases; 177 respawn; 845 have no CNTO [observed].
+  container bases; 177 respawn; 845 have no CNTO [observed]. Session-only
+  `SetContainerRespawns` / `GetContainerRespawns` (`World::set_container_respawns`,
+  `World::container_respawns`, `nvse_gaps.rs`) override a `CONT` base's Respawns
+  flag for the current session (non-containers are ignored; carried across a
+  same-run load via `WorldSession` / `World::take_session` / `World::put_session`,
+  not saved in `Snapshot`) [documented: GECK wiki `SetContainerRespawns` /
+  `GetContainerRespawns`, base-form flag toggle; observed: `gaps8`, value-first
+  returns 0 and reads back; hypothesis: session-only lifetime, like `base_edits`]
+  and are read by `World::reset_containers` (timed cell respawn and `ResetInterior`)
+  as well as `World::restocks` (merchant container restocking) [hypothesis: live
+  container-respawn consumers read the updated `CONT` Respawns flag].
 - **Respawn**: when a cell is loaded again after staying unloaded for at least the
   respawn delay, its containers whose base has the Respawns flag return to their
   authored state (new leveled roll, anything left inside lost; lock restored
@@ -273,6 +283,20 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   the 72 h cell respawn (`iHoursToRespawnCell`) applies to containers with the Respawns
   flag, measured from leaving the cell, between 70 and 74 hours [observed]. Narrowed by
   the scenario above (2026-10-09): between 71.0 and 73.1 hours, hours not midnights.
+- **AddItem on a container nothing has read yet**: a placed container's inventory is
+  rolled from its CNTO the first time anything touches it, and an AddItem is such a
+  touch, so the item joins the authored contents and nothing rolls them again over it
+  later. Only a respawn or a merchant restock (both above) replaces them [design;
+  test `add_item_before_a_container_is_read_is_kept`]. Issue #3021 looked like a lost
+  AddItem and was not one: in Old World Blues the Basic Infiltration Test terminal
+  (OldWorldBlues.esm TERM 0x0100BB5A item 0) puts the X-13 Document in
+  `X13TestSafeREF`. When a test robot detects the player, the quest script
+  (SCPT 0x01010918) sets `bDetected` and activates `X13FAILREF`, whose
+  `NVDLC03X13FailureSwitchSCRIPT` (SCPT 0x01014FFC) does `X13TestSafeREF.RemoveItem` of
+  the document [observed: decompiled]. The quest pilot's run of 2026-11-19 was seen by
+  a robobrain 9 s after the AddItem ("Test failed. You have been spotted by a patrol.")
+  and that script then ran [observed: the pilot log, 02:34:07.84]. The empty safe was
+  the authored result of a failed test.
 - **Non-playable items**: ARMO BMDT general flag bit 6 is "Non-Playable" [documented:
   xEdit wbBMDT, `schemas/fnv/objects.json`]. `PipBoy` (Pip-Boy 3000, 0x00015038) and
   `PipBoyGlove` (Pip-Boy Glove, 0x00025B83) carry it [observed: `fnvtool esm decode`].
@@ -335,6 +359,13 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
     and the psychic nullifier (MOD2 = MODL) and `MountedVaultSuit101Armored`
     (`ArmorMounted.NIF`); 44 have no MOD2 (none of them has a MOD4, 8 have no MODL
     either) [observed].
+    An ARMO with no MOD2 that is flagged Non-Playable (BMDT general flags bit 6) is armour
+    only ever worn: it has no world model and a placed or dropped reference of it is not
+    drawn or collided (`fnv_world::placed::worn_only`) [design, #2439: the Fort's two
+    placed NVSlaveBackpack references, 0x0013732C and 0x0013732D, sit 565 and 913 units
+    above the ground with nothing under them, and their biped model, skinned to Bip01
+    Spine2 and authored at body height, hung in the sky; observer check 142]. Playable
+    ARMO without MOD2 still lies as its MODL.
   - WEAP (261): MODL "Model", MOD2 "Shell Casing Model", MOD3 "Scope Model", MOD4 "World
     Model", MWD1–MWD7 "Model - Mod 1" … "Model - Mod 1, 2 and 3" [documented: xEdit
     `wbDefinitionsFNV.pas` WEAP]. Counts: MODL 207, MOD2 78, MOD3 26, MOD4 57, MWD1 34
@@ -401,7 +432,9 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   be captured]. Removal takes plain items first, then unequipped items with extra data in
   arrival order, equipped items last; items leaving an inventory are unequipped; extra
   data travels with transferred and dropped items, and a drop makes one reference per
-  group [hypothesis].
+  group [hypothesis]. A live planted explosive is a group of its own (`live`, saved as
+  `"live": true`) that no removal, transfer, drop or equip takes; only its blast does
+  [design, #1640; pickpocket.md §5].
 - **Per-item extra data in the data** [observed, six masters]: COED (owner FormID, a u32
   whose meaning depends on the owner type, condition f32 [documented: xEdit]) appears
   1,661 times, always directly after a CNTO (1,419 on NPC_, 122 on CONT, 120 on CREA);
@@ -708,8 +741,40 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
     whose render bounds (each mesh's box in its own space) the ray enters before the first
     collision hit of any kind, so walls and table tops hide what is behind them; a box the
     eye is inside does not count; ties go to the collision hit [hypothesis: many small
-    items have no collision, yet the game lets the player pick them up]. Collision on the
-    trigger layer (12) does not block the ray [hypothesis].
+    items have no collision, yet the game lets the player pick them up]. An actor's render
+    box is rough (a skinned mesh's bind-pose bounds, which do not follow a body lying on
+    the floor [hypothesis]): any other box the ray enters before the first collision hit
+    wins over it, nearer or not, so an item beside a body is taken rather than the body
+    searched; with no such box the body is picked by its box as before (#3125) [design].
+    The console's click keeps the plain nearest rule. Collision on the trigger layer (12)
+    does not block the ray [hypothesis].
+  - **A bed someone lies on yields to the sleeper**: when the target chosen above is a bed
+    an actor other than the player is on (a bed marker, IDs 1 to 9, at any stage of
+    getting on, sleeping or getting off; furniture.md §2) and that actor's body is within
+    the reach of the eye, the target is that actor, logged `by Occupant`, its distance
+    the body's: the nearest of its posed bones (the parts the renderer publishes for hit
+    volumes, which follow the lying body), else of its render boxes. No hit on the body
+    itself is asked for. A sleeper beyond the reach (the bed aimed at by its far end), or
+    one that cannot be activated now, leaves the bed the target. A free bed is the target
+    as before, and a bed in use offers the player nothing, being one user per reference
+    (furniture.md §5, item 3) [design, #3231: the bed's box encloses the mattress, so the
+    ray enters it before the sleeper's rough box, and the bed won; what the original
+    targets on a sleeper is not captured]. Chairs and benches are not included: a bench's
+    free seat stays usable beside a sitter. Scripts still see the bed: GetCrosshairRef
+    reports the raw collision hit.
+    - What activating the sleeper does: only one fully settled on the bed (GetSleeping 3,
+      `Game::asleep`) takes the wake-and-talk path (`ByHand::Woken`): it gets up and the
+      conversation starts once it is off the bed, or after `WAKE_TALK_SECONDS` (8 s of
+      game time) when the exit is slower, then with it still on the bed. One still
+      getting on or already getting off is talked to at once, as any actor, by the
+      ordinary dialogue [design].
+    - Squire Maxson (a child, TTW's CitadelBRing) was seen lying across the middle of a
+      wide bed rather than on one side (#3231's second report) [observed: the report's
+      screenshot]. Unresolved: whether the bed's entry marker and the clips' offsets put
+      him there as the original would, or the clip choice, which asks the IDLE tree for
+      an adult body (`child: false`, engine/nvforever/src/furniture.rs `user`), gives a
+      child an adult's bed clips [hypothesis; to settle by comparing the marker and the
+      pose with the original].
   - **What is offered**: references the simulation considers present (not taken, enabled)
     whose base is an item, container, door, actor or placed explosive with a weapon to
     give; activators and furniture only with a display name (FULL) [hypothesis: unnamed
@@ -762,7 +827,11 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
   hour copy of 24 or more seeds from the global. A stored GameHour stays below 24 until the day wraps. Commands
   that name an hour (SetGameHour) land on it (`World::advance_to_hour`) rather than adding
   time computed from the rounded global, which would stop short of midnight. A GameHour
-  that is no number counts as hour 0 at the next advance.
+  that is no number counts as hour 0 at the next advance, and a GameDaysPassed that is no
+  number counts as 0 [design]. From a GameHour a script stored out of 0..24, SetGameHour
+  counts as an advance does: 50 is two days on at 2:00, so 10 is eight hours on and the
+  date rolls two days (three past midnight when the hour has gone by); a negative hour
+  rolls no days back [design].
 
 ## 6. Capturing the oracle (in-game)
 

@@ -101,7 +101,7 @@ impl Game<'_> {
             // ITR's SetRaceAlt first (`crate::nvse_itr2`), then a script's change.
             return Some(race);
         }
-        self.traits_def(r).and_then(|d| d.race)
+        self.look_def(r).and_then(|d| d.race)
     }
 
     /// Whether the actor is female now: a script's change or the creator's choice, else
@@ -114,7 +114,23 @@ impl Game<'_> {
         } else if let Some(f) = self.extra.get(&r).and_then(|e| e.female) {
             return f;
         }
-        self.traits_def(r).is_some_and(|a| a.female)
+        self.look_source(r).is_some_and(|(id, a)| &a.sig == b"NPC_" && self.acbs_flag(id, a, crate::actor_values::acbs::FEMALE, |d| d.female))
+    }
+
+    /// The resolved `(base_id, ActorDef)` the actor's race and sex come from: its base's
+    /// look source when BaseCopyFaceGenFrom gave one, else the Traits template's.
+    fn look_source(&self, r: FormId) -> Option<(FormId, &crate::data::ActorDef)> {
+        let base = crate::functions::base_of(self, r).unwrap_or(r);
+        match self.face_from_base.get(&base) {
+            Some(&src) => self.data.actors.get(&src).map(|d| (src, d)),
+            None => self.traits_source(r),
+        }
+    }
+
+    /// The record the actor's race and sex come from: its base's look source when
+    /// BaseCopyFaceGenFrom gave one, else the Traits template's.
+    fn look_def(&self, r: FormId) -> Option<&crate::data::ActorDef> {
+        self.look_source(r).map(|(_, d)| d)
     }
 
     /// The race `steps` age steps from `race` (positive older), stopping at the end of

@@ -61,11 +61,41 @@ impl Game<'_> {
     /// Whether the actor reference `r` respawns: its base has the flag Respawn, or its
     /// template does with the template flag "Base Data" (module notes).
     pub fn respawns(&self, r: FormId) -> bool {
-        base_of(self, r).and_then(|b| self.template_source(b, r, |d| d.template_base)).is_some_and(|(_, d)| d.respawn)
+        base_of(self, r)
+            .and_then(|b| self.template_source(b, r, |d| d.template_base))
+            .is_some_and(|(id, d)| self.acbs_flag(id, d, crate::actor_values::acbs::RESPAWN, |d| d.respawn))
+    }
+
+    /// Whether `cell`'s encounter zone currently has "Never Resets", accounting for
+    /// `SetCellEncounterZone` / `SetWorldspaceEncounterZone`, saved `SetZoneRespawns`,
+    /// and session `SetZoneFlag` changes.
+    pub fn cell_never_resets(&self, cell: FormId) -> bool {
+        let Some(z) = crate::nvse_jg5::cell_zone(self, cell) else {
+            return false;
+        };
+        self.zone(z).map_or_else(|| self.world.cell_never_resets(cell), |d| d.never_resets)
+    }
+
+    /// Whether `cell` will reset at its next load: `None` while the player is in it or
+    /// before the loaded area has ever held it; else whether ResetInterior marked it or
+    /// it has been left for `iHoursToRespawnCell` game hours outside a zone that never
+    /// resets (module notes). IsCellExpired and the local map's tweak read it.
+    pub fn cell_expired(&self, cell: FormId) -> Option<bool> {
+        if self.cell_of(FormId::PLAYER_REF) == Some(cell) || !self.forms.visited_cells.contains(&cell) {
+            return None;
+        }
+        if self.forms.expired_cells.contains(&cell) {
+            return Some(true);
+        }
+        let now = self.world.calendar().ok().map(|k| k.days_passed);
+        let away = now.zip(self.world.detached_since(cell)).map(|(n, s)| (f64::from(n) - f64::from(s)) * 24.0);
+        Some(away.is_some_and(|h| h + 1e-3 >= f64::from(self.world.respawn_hours())) && !self.cell_never_resets(cell))
     }
 
     /// The cells `left` are no longer in the loaded area: their reset clock starts.
     pub(crate) fn cells_left(&mut self, left: &[FormId]) {
+        // TogglePurgeOnUnload's references in them go (`crate::nvse_jip12`).
+        self.purge_left(left);
         for &c in left {
             // Without the time globals (synthetic data) there is no clock to start.
             let _ = self.world.detach_cell(c);
@@ -76,13 +106,21 @@ impl Game<'_> {
     /// (module notes). The reset, if any, is also kept for [`Game::take_cell_resets`].
     pub(crate) fn cell_entered(&mut self, cell: FormId) -> Option<CellReset> {
         let expired = self.forms.expired_cells.remove(&cell);
+        let full = self.forms.expired_cells_full.remove(&cell);
         let since = self.world.detached_since(cell);
         let now = self.world.calendar().ok().map(|c| c.days_passed);
-        let containers = self.world.attach_cell(cell).unwrap_or_default();
+        let never_resets = self.cell_never_resets(cell);
+        let containers = self.world.attach_cell_with_never_resets(cell, never_resets).unwrap_or_default();
         let away = now.zip(since).map(|(n, s)| (n as f64 - s as f64) * 24.0);
         // The same slack as `World::attach_cell` (GameDaysPassed is an f32). An encounter
         // zone with "Never Resets" is never reset (docs/spec-notes/encounter-zones.md §4).
-        let timed = away.filter(|h| h + 1e-3 >= self.world.respawn_hours() as f64 && !self.world.cell_never_resets(cell));
+        let timed = away.filter(|h| h + 1e-3 >= self.world.respawn_hours() as f64 && !never_resets);
+        // ResetInteriorAlt's reset brings the dead respawning actors back as a timed one
+        // [documented: ResetInteriorAlt, "will also let dead actors that were set to
+        // respawn be resurrected"].
+        let by_time = timed.is_some();
+        let timed = timed.or_else(|| full.then(|| away.unwrap_or(0.0)));
+        let containers = if by_time || timed.is_none() { containers } else { self.world.reset_containers(cell) };
         let Some(hours_away) = timed else {
             if !expired {
                 return None;

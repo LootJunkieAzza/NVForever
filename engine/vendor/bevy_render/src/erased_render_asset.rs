@@ -14,7 +14,9 @@ use bevy_ecs::{
 use bevy_log::{debug, error};
 use bevy_platform::collections::{HashMap, HashSet};
 use bevy_render::render_asset::RenderAssetBytesPerFrameLimiter;
+use alloc::sync::Arc;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -101,6 +103,8 @@ pub struct ErasedRenderAssetPlugin<
     AFTER: ErasedRenderAssetDependency + 'static = (),
 > {
     phantom: PhantomData<fn() -> (A, AFTER)>,
+    // NVForever gated materials: see `gated`.
+    gate: Option<Arc<AtomicBool>>,
 }
 
 impl<A: ErasedRenderAsset, AFTER: ErasedRenderAssetDependency + 'static> Default
@@ -109,6 +113,22 @@ impl<A: ErasedRenderAsset, AFTER: ErasedRenderAssetDependency + 'static> Default
     fn default() -> Self {
         Self {
             phantom: Default::default(),
+            gate: None,
+        }
+    }
+}
+
+impl<A: ErasedRenderAsset, AFTER: ErasedRenderAssetDependency + 'static>
+    ErasedRenderAssetPlugin<A, AFTER>
+{
+    /// NVForever gated materials: the extraction and preparation systems run only while
+    /// `gate` is set. The owner sets it before the first asset of `A` exists and clears it
+    /// only once no asset of `A` has existed for a few frames (its removals extracted), so
+    /// nothing is left half extracted. Without a gate ([`Default`]) upstream's behaviour.
+    pub fn gated(gate: Arc<AtomicBool>) -> Self {
+        Self {
+            phantom: Default::default(),
+            gate: Some(gate),
         }
     }
 }
@@ -130,15 +150,22 @@ impl<A: ErasedRenderAsset, AFTER: ErasedRenderAssetDependency + 'static> Plugin
                 .add_systems(
                     RenderStartup,
                     collect_erased_render_assets_to_reextract::<A>,
-                )
-                .add_systems(
-                    ExtractSchedule,
-                    extract_erased_render_asset::<A>.in_set(AssetExtractionSystems),
                 );
-            AFTER::register_system(
-                render_app,
-                prepare_erased_assets::<A>.in_set(RenderSystems::PrepareAssets),
-            );
+            // NVForever gated materials: both systems wait for the gate.
+            let extract = extract_erased_render_asset::<A>.in_set(AssetExtractionSystems);
+            let prepare = prepare_erased_assets::<A>.in_set(RenderSystems::PrepareAssets);
+            let (extract, prepare) = match &self.gate {
+                Some(gate) => {
+                    let (a, b) = (gate.clone(), gate.clone());
+                    (
+                        extract.run_if(move || a.load(Ordering::Acquire)),
+                        prepare.run_if(move || b.load(Ordering::Acquire)),
+                    )
+                }
+                None => (extract, prepare),
+            };
+            render_app.add_systems(ExtractSchedule, extract);
+            AFTER::register_system(render_app, prepare);
         }
     }
 }

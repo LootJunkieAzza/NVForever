@@ -30,12 +30,27 @@ pub const TAG_COUNT: usize = 3;
 /// The traits a character may take when the game has no `iTraitMenuMaxNumTraits`
 /// [observed: the masters set it to 2].
 pub const DEFAULT_MAX_TRAITS: usize = 2;
+
+/// Wild Wasteland's editor ID, for the Free Wild Wasteland tweak [observed: FalloutNV.esm].
+pub const WILD_WASTELAND_EDID: &str = "WildWasteland";
 /// The name the name menu offers when the game has no `sDefaultPlayerName` [observed: the
 /// masters' value, and "Courier" in the owner's screenshot of the menu].
 pub const DEFAULT_NAME: &str = "Courier";
 /// The longest name the name menu takes [hypothesis: the original's limit is not
 /// captured; long enough for any name the box shows on one line].
 pub const NAME_MAX_CHARS: usize = 24;
+/// The longest name under the player's No Name Limit tweak: a bound only so a name stays
+/// a sensible size in saves; the name box wraps [design: docs/design/tweaks.md].
+pub const NAME_LONG_CHARS: usize = 256;
+
+/// The longest name the name menu takes in this game.
+pub fn name_limit(g: &Game) -> usize {
+    if g.tweaks.no_name_limit {
+        NAME_LONG_CHARS
+    } else {
+        NAME_MAX_CHARS
+    }
+}
 
 /// A string game setting.
 fn setting_str(g: &Game, name: &str) -> Option<String> {
@@ -55,7 +70,12 @@ pub fn name_offered(g: &Game) -> String {
 /// A typed name as the menu keeps it: printable characters only, at most
 /// [`NAME_MAX_CHARS`].
 pub fn clean_name(s: &str) -> String {
-    s.chars().filter(|c| !c.is_control()).take(NAME_MAX_CHARS).collect()
+    clean_name_to(s, NAME_MAX_CHARS)
+}
+
+/// A typed name with printable characters only, at most `max` of them.
+pub fn clean_name_to(s: &str, max: usize) -> String {
+    s.chars().filter(|c| !c.is_control()).take(max).collect()
 }
 
 /// Whether Ok takes the name: not empty once the spaces around it are taken off
@@ -66,7 +86,7 @@ pub fn name_acceptable(s: &str) -> bool {
 
 /// Done in the name menu: the player is called `name` (spaces around it taken off).
 pub fn apply_name(g: &mut Game, name: &str) {
-    g.player.name = Some(clean_name(name).trim().to_string());
+    g.player.name = Some(clean_name_to(name, name_limit(g)).trim().to_string());
 }
 
 // ---- the look (the race menu) ------------------------------------------------------------
@@ -148,6 +168,9 @@ impl SpecialSheet {
                 }
                 crate::functions::ui::SpecialMenu::Set(n) => s.total = n,
             }
+        } else {
+            // The player's tweak sets the total when no script did [design: docs/design/tweaks.md].
+            s.total = g.tweaks.special_points;
         }
         s
     }
@@ -336,15 +359,27 @@ pub struct TraitSheet {
     /// `iTraitMenuMaxNumTraits` [observed: 2 in the masters; "CHOOSE UP TO 2 TRAITS (OR
     /// NONE)"].
     pub max: usize,
+    /// A trait taken without counting against `max`: Wild Wasteland under the player's
+    /// Free Wild Wasteland tweak [design: docs/design/tweaks.md].
+    pub free: Option<FormId>,
 }
 
 impl TraitSheet {
     pub fn of_player(g: &Game) -> TraitSheet {
-        let mut traits: Vec<FormId> = g.data.perks.iter().filter(|(_, p)| p.is_trait && p.playable && !p.hidden).map(|(&id, _)| id).collect();
-        traits.sort_by_key(|id| (g.data.perks[id].name.to_lowercase(), *id));
+        let mut traits: Vec<FormId> = g
+            .data
+            .perks
+            .keys()
+            .copied()
+            .filter(|id| g.perk_def(*id).is_some_and(|p| p.is_trait && p.playable && !p.hidden))
+            .collect();
+        traits.sort_by_key(|id| (g.perk_def(*id).map(|p| p.name.to_lowercase()).unwrap_or_default(), *id));
         let chosen = traits.iter().copied().filter(|t| g.player.perks.contains_key(t)).collect();
         let max = g.world.setting_f32("iTraitMenuMaxNumTraits").map_or(DEFAULT_MAX_TRAITS, |v| v.max(0.0) as usize);
-        TraitSheet { traits, chosen, max }
+        // The trait's editor ID [observed: `WildWasteland` in FalloutNV.esm], taken only
+        // when it names a trait on offer.
+        let free = g.tweaks.free_wild_wasteland.then(|| g.data.by_edid(WILD_WASTELAND_EDID)).flatten().filter(|t| traits.contains(t));
+        TraitSheet { traits, chosen, max, free }
     }
 
     /// Take a trait the player meets the requirements of while fewer than the most are
@@ -354,7 +389,7 @@ impl TraitSheet {
         if self.chosen.remove(&t) {
             return true;
         }
-        if allowed && self.chosen.len() < self.max && self.traits.contains(&t) {
+        if allowed && (self.free == Some(t) || self.counted() < self.max) && self.traits.contains(&t) {
             self.chosen.insert(t);
             return true;
         }
@@ -363,7 +398,12 @@ impl TraitSheet {
 
     /// Traits that may still be taken ("2 TRAITS LEFT").
     pub fn left(&self) -> usize {
-        self.max.saturating_sub(self.chosen.len())
+        self.max.saturating_sub(self.counted())
+    }
+
+    /// The taken traits that count against `max` (all but [`TraitSheet::free`]).
+    fn counted(&self) -> usize {
+        self.chosen.iter().filter(|&&t| Some(t) != self.free).count()
     }
 
     /// Done: the player has exactly the sheet's traits among those on offer (one rank
@@ -382,7 +422,7 @@ impl TraitSheet {
 /// Whether the player meets a perk's requirements (a perk without readable conditions
 /// is taken to have none).
 pub fn requirements_met(g: &mut Game, perk: FormId) -> bool {
-    let Some(conds) = g.data.perks.get(&perk).and_then(|p| p.conditions.clone()) else { return true };
+    let Some(conds) = g.perk_def(perk).and_then(|p| p.conditions.clone()) else { return true };
     g.conditions_pass(&conds, Some(FormId::PLAYER_REF), None, "trait requirement")
 }
 
@@ -436,7 +476,7 @@ fn requirement(g: &Game, c: &Condition) -> Option<String> {
 /// Conditions joined with OR are written with "or" between them [hypothesis: no
 /// screenshot shows one].
 pub fn requirement_line(g: &Game, perk: FormId) -> String {
-    let p = g.data.perks.get(&perk);
+    let p = g.perk_def(perk);
     let mut line = match p {
         Some(p) if p.min_level > 1 => format!("Level {}", p.min_level),
         _ => String::new(),
@@ -543,7 +583,7 @@ mod tests {
     #[test]
     fn up_to_two_traits_or_none() {
         let (a, b, c) = (FormId(1), FormId(2), FormId(3));
-        let mut t = TraitSheet { traits: vec![a, b, c], chosen: BTreeSet::new(), max: 2 };
+        let mut t = TraitSheet { traits: vec![a, b, c], chosen: BTreeSet::new(), max: 2, free: None };
         assert_eq!(t.left(), 2);
         assert!(!t.toggle(a, false), "requirements not met");
         assert!(t.toggle(a, true) && t.toggle(b, true));
@@ -554,9 +594,22 @@ mod tests {
     }
 
     #[test]
+    fn the_free_trait_does_not_count() {
+        // The Free Wild Wasteland tweak: the free trait is a third beside two others.
+        let (a, b, c) = (FormId(1), FormId(2), FormId(3));
+        let mut t = TraitSheet { traits: vec![a, b, c], chosen: BTreeSet::new(), max: 2, free: Some(c) };
+        assert!(t.toggle(c, true));
+        assert_eq!(t.left(), 2);
+        assert!(t.toggle(a, true) && t.toggle(b, true));
+        assert_eq!(t.left(), 0);
+        assert_eq!(t.chosen.len(), 3);
+    }
+
+    #[test]
     fn names_are_cleaned() {
         assert_eq!(clean_name("Cou\nrier"), "Courier");
         assert_eq!(clean_name(&"x".repeat(40)).len(), NAME_MAX_CHARS);
+        assert_eq!(clean_name_to(&"x".repeat(40), NAME_LONG_CHARS).len(), 40);
         assert!(!name_acceptable("   "));
         assert!(name_acceptable(" Six "));
     }

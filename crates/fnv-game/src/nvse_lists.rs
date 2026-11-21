@@ -89,10 +89,7 @@ impl Game<'_> {
                 self.other.package_lists.insert(target, list);
             }
             13 => {
-                let _ = crate::nvse::call(self, &crate::game::RunCtx::default(), "listclear", None, &[XVal::Ref(target.0)]);
-                for f in list {
-                    let _ = crate::nvse::call(self, &crate::game::RunCtx::default(), "listaddform", None, &[XVal::Ref(target.0), XVal::Ref(f.0), XVal::Num(-1.0)]);
-                }
+                *self.edited_list(target) = list;
             }
             _ => {
                 self.other.generic.insert((code, target), list);

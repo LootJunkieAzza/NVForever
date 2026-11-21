@@ -202,7 +202,9 @@ in the engine: §7.
 3. **Occupied furniture**: one user per marker, per seat or per reference? Benches have
    one marker per seat; chairs three markers for one seat. Here: one user per reference
    unless every marker has ID 14 or 15 (benches, tables of stools), where it is one per
-   marker [design].
+   marker [design]. A bed in use is therefore never the player's to use, and the
+   crosshair on it targets its sleeper (simulation.md §5, crosshair activation; #3231)
+   [design].
 4. **GetSitting 1**, and whether the loop is chosen once or looked up again.
 5. **The blend keys** and how the game crosses from clip to loop.
 6. **Camera**: what the first-person view does while getting on. Here the view is the
@@ -347,7 +349,9 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
   answer for the user. State 1 is never reported (§5 item 4).
 - **Clips change without a cross-fade**: the clips of one use play in different frames
   (§4), so blending two of them would swing the body [design].
-- **Not done**: work spots (marker 22: no getting-on clip), the fast exits (nothing
+- **Not done**: work spots (marker 22: no getting-on clip; the original keeps Gomorrah's
+  bartenders on their `BarKeep` spots for hours [observed: npc-behaviour-compare.md
+  §15.8]), the fast exits (nothing
   sets alerted or attacked), children, checking the entry point against the navmesh, a bed's owner for lying
   down (only sleeping in it is refused, wait-menu.md §9) or a sleeper already on
   it (the bed is then "in use"), and actors choosing furniture by themselves (AI

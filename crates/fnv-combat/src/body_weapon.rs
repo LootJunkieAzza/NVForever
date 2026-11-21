@@ -25,7 +25,8 @@
 //!   melee arm if there is one, else the gun with the smallest Min Range (its blast
 //!   counted as one).
 //! - An arm that cannot be used (its limb crippled to 0, the caller's rule) is left out;
-//!   with none left there is no choice.
+//!   with none left there is no choice. A combat style's Ranged Only leaves the melee
+//!   arms out while a gun can be used ([`restrict_ranged`]).
 
 /// One arm as the choice sees it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -55,6 +56,22 @@ pub const KEEP_SLACK: f32 = 0.15;
 /// moving about the edge of two bands does not make it switch every frame (each switch
 /// plays the new arm's equip clip).
 pub const SWITCH_SECONDS: f32 = 1.5;
+
+/// Whether a gun's attack cycle has a magazine to empty and reload (#2739): any weapon
+/// in hand does; a creature's embedded weapon (`embedded`) does once its creature's rig
+/// is known to have the weapon's reload clip, `reload_clip` its length (nvforever
+/// `attack_anims`' `AttackTimes::reloads`). It then reloads by the people's rule, for as
+/// long as that clip runs (docs/spec-notes/combat-rules.md §4.1). Without the clip, or
+/// until it is known, an embedded gun fires on without a magazine, as all of them did
+/// before [design, #2739: the WEAP's Clip Size and Reload Animation are the data's
+/// reload; its Reload Time is "Unused" [documented: GECK wiki Weapons], so the clip is the
+/// only length. Only the `nvsecuritron`, `protectron` and `smspinebreaker` folders have
+/// a reload clip [documented: fnvtool bsa list, Fallout - Meshes.bsa, main session
+/// 2026-11-16]; the sentry bot's has none. Whether a creature without the clip pauses in
+/// the original is observer check 221].
+pub fn has_magazine(embedded: bool, reload_clip: Option<f32>) -> bool {
+    !embedded || reload_clip.is_some_and(|len| len > 0.0)
+}
 
 /// A weapon's damage per second for the ranking: base damage times projectiles per
 /// shot times shots per second (DNAM Attack Shots/Sec, else Fire Rate, else one).
@@ -88,6 +105,18 @@ fn blast_floor(a: &Arm, slack: f32) -> f32 {
 /// The nearest a gun suits: its Min Range or its blast, the further.
 fn nearest(a: &Arm) -> f32 {
     a.min_range.max(blast_floor(a, 0.0))
+}
+
+/// A combat style's Ranged Only: "the combatant will always use ranged weapons as their
+/// primary weapon" [documented: GECK wiki Combat Style]. Its melee arms are left out
+/// (made unusable) while one of its guns can be used; with no gun left it still fights
+/// with them [design, #2351: ranged as the primary weapon, not the only one].
+pub fn restrict_ranged(arms: &mut [Arm]) {
+    if arms.iter().any(|a| a.usable && !a.melee) {
+        for a in arms.iter_mut().filter(|a| a.melee) {
+            a.usable = false;
+        }
+    }
 }
 
 /// The arm (index into `arms`) to fight a target `d` units away with, `current` the one
@@ -235,6 +264,81 @@ mod tests {
         let a = vec![blade(), gun(0.0, 512.0, 30.0)];
         assert_eq!(choose(&a, 100.0, None), Some(0));
         assert_eq!(choose(&a, 400.0, None), Some(1));
+    }
+
+    /// #2351: a combat style's Ranged Only keeps a creature to its guns while one can be
+    /// used; with none left its melee arm comes back.
+    #[test]
+    fn ranged_only_leaves_the_melee_arms_out_while_a_gun_can_be_used() {
+        let mut a = handy();
+        restrict_ranged(&mut a);
+        assert!(!a[0].usable && a[1].usable);
+        // At its feet it keeps the flamer (the smallest Min Range), not the saw.
+        assert_eq!(choose(&a, 80.0, None), Some(1));
+        assert_eq!(choose(&a, 80.0, Some(0)), Some(1));
+        // The flamer lost to a crippled limb: the saw again.
+        let mut a = handy();
+        a[1].usable = false;
+        restrict_ranged(&mut a);
+        assert!(a[0].usable);
+        assert_eq!(choose(&a, 80.0, None), Some(0));
+        // Guns alone: nothing changes.
+        let mut g = gutsy();
+        restrict_ranged(&mut g);
+        assert_eq!(g, gutsy());
+    }
+
+    #[test]
+    fn an_embedded_gun_has_a_magazine_once_its_reload_clip_is_known() {
+        // A weapon in hand always has one.
+        assert!(has_magazine(false, None));
+        assert!(has_magazine(false, Some(1.5)));
+        // A body gun: only with a reload clip of some length in its creature's rig.
+        assert!(!has_magazine(true, None));
+        assert!(!has_magazine(true, Some(0.0)));
+        assert!(has_magazine(true, Some(2.0)));
+    }
+
+    /// #2739: a semi-automatic body gun with a one-round magazine (the sentry bot's
+    /// launcher: Clip Size 1, 1.5789 Attack Shots/Sec [documented: fnvtool esm decode,
+    /// FalloutNV.esm]) driven as `npc_combat` drives it (trigger pulled when ready, a reload
+    /// asked for as soon as the magazine is empty) fires every interval without a magazine,
+    /// and every interval plus its reload with one. The reload's 2.0 s is the test's own.
+    #[test]
+    fn a_one_round_body_gun_waits_for_its_reload_between_shots() {
+        use crate::attack::{ClipTiming, Cycle, Event, Input, Timing};
+        use crate::data::WeaponStats;
+        use crate::tuning::CombatTuning;
+        let t = CombatTuning::default();
+        let w = WeaponStats { clip_size: 1, ammo_use: 1, attack_shots_per_sec: 1.578_947_4, attack_mult: 1.0, anim_mult: 1.0, embedded: true, ..WeaponStats::default() };
+        let reload = Some(2.0);
+        let timing = Timing::of(&w, &ClipTiming { reload_len: reload, ..ClipTiming::default() }, &t);
+        let shot_times = |magazine: bool| {
+            let mut c = Cycle::new(&w, timing, !magazine, 1);
+            let (dt, mut now, mut held, mut shots) = (1.0 / 120.0, 0.0f32, false, Vec::new());
+            while now < 10.0 {
+                // A fresh pull each time it is ready, as `npc_combat` pulls a semi-automatic.
+                let trigger = !held && !c.reloading();
+                held = trigger;
+                let empty = c.magazine < c.ammo_use && c.regen.is_none();
+                for e in c.step(&t, Input { trigger, reload: empty && !c.reloading(), dt, carried: u32::MAX / 2 }) {
+                    if matches!(e, Event::Fired { .. }) {
+                        shots.push(now);
+                    }
+                }
+                now += dt;
+            }
+            shots
+        };
+        let gaps = |s: &[f32]| s.windows(2).map(|p| p[1] - p[0]).collect::<Vec<_>>();
+        let interval = 1.0 / 1.578_947_4;
+        // No magazine: a shot every interval (about 0.63 s), as on main before #2739.
+        let free = gaps(&shot_times(false));
+        assert!(free.len() > 10 && free.iter().all(|g| (g - interval).abs() < 0.05), "{free:?}");
+        // A magazine of one: the reload comes between every two shots.
+        let loaded = gaps(&shot_times(true));
+        assert!(loaded.len() >= 3 && loaded.iter().all(|g| (g - (interval + 2.0)).abs() < 0.05), "{loaded:?}");
+        assert!(has_magazine(w.embedded, reload));
     }
 
     #[test]

@@ -359,6 +359,18 @@ pub fn cache_key(params: &GenParams, world: &str, data_dir: &Path, plugins: &[St
     (format!("{:016x}", fnv1a(manifest.as_bytes(), FNV_OFFSET)), manifest)
 }
 
+/// Whether a cached chunk texture can stand in for a bake: it is in the format
+/// [`encode_dds_bc1`] emits (a legacy DXT1: no DX10 header, no cube, no volume) and has
+/// no more levels than its size allows, which the upload checks (`checked_image`).
+/// Anything else is baked again rather than failing at upload.
+fn cached_dds_usable(bytes: &[u8]) -> bool {
+    Dds::parse(bytes).is_ok_and(|t| {
+        let most = 32 - t.header.width.max(t.header.height).leading_zeros();
+        t.format == Format::Dxt1 && t.header.dx10.is_none() && !t.header.is_cubemap() && !t.header.is_volume()
+            && t.header.levels() <= most
+    })
+}
+
 /// Where generated chunks are cached, and the guard that keeps writes out of the game.
 #[derive(Clone)]
 pub struct GenCache {
@@ -375,7 +387,7 @@ impl GenCache {
     fn read(&self, chunk: (i32, i32)) -> Option<(Vec<u8>, Vec<u8>)> {
         let d = std::fs::read(self.file(chunk, "diffuse")).ok()?;
         let n = std::fs::read(self.file(chunk, "normals")).ok()?;
-        (Dds::parse(&d).is_ok() && Dds::parse(&n).is_ok()).then_some((d, n))
+        (cached_dds_usable(&d) && cached_dds_usable(&n)).then_some((d, n))
     }
 
     /// Write via a temporary name and rename, after the install guard.
@@ -639,14 +651,16 @@ impl BakerShared {
     }
 }
 
-/// Run the calling thread only when no other thread wants its core.
-fn lowest_thread_priority() {
+/// Run the calling thread only when no other thread wants its core (also the sun
+/// heightfield's loader, sun_heightfield.rs).
+pub(crate) fn lowest_thread_priority() {
     #[cfg(windows)]
     {
         use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_LOWEST};
         // SAFETY: GetCurrentThread returns a pseudo-handle for this thread; no memory is shared.
         if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST) } == 0 {
-            warn!("generated LOD: cannot lower the bake thread's priority");
+            let name = std::thread::current().name().unwrap_or("unnamed").to_string();
+            warn!("background thread {name}: cannot lower its priority");
         }
     }
 }
@@ -734,6 +748,49 @@ mod tests {
         assert_eq!((m.w, m.h), (8, 8));
         let m = decode_level(&bytes, 3).unwrap();
         assert_eq!((m.w, m.h), (4, 4), "smallest level at least 3 wide");
+    }
+
+    /// The disk cache takes what the writer emits and nothing else that merely parses.
+    #[test]
+    fn cache_hits_only_in_the_writers_format() {
+        let px: Vec<[f32; 3]> = vec![[0.5; 3]; 64];
+        let own = encode_dds_bc1(&diffuse_rgba(mip_chain(px, 8, false)));
+        assert!(cached_dds_usable(&own));
+        let set = |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        // A cube map: six faces of the same chain.
+        let mut cube = own.clone();
+        set(&mut cube, 112, 0xFE00);
+        cube.extend_from_slice(&own[128..].repeat(5));
+        assert!(Dds::parse(&cube).is_ok());
+        assert!(!cached_dds_usable(&cube));
+        // A legacy volume (capability bit 0x200000, depth 4): fnv-dds still parses it as
+        // one chain, but it is not what the writer emits.
+        let mut volume = own.clone();
+        set(&mut volume, 24, 4);
+        set(&mut volume, 112, 0x20_0000);
+        assert!(Dds::parse(&volume).is_ok());
+        assert!(!cached_dds_usable(&volume));
+        // Five levels for an 8×8 texture (at most four), with the data a parse needs.
+        let mut deep = own.clone();
+        set(&mut deep, 28, 5);
+        deep.extend_from_slice(&[0; 8]);
+        assert!(Dds::parse(&deep).is_ok());
+        assert!(!cached_dds_usable(&deep));
+        // Another format: DXT5 of the same size.
+        let mut dxt5 = own.clone();
+        dxt5[84..88].copy_from_slice(b"DXT5");
+        dxt5.extend_from_slice(&own[128..]);
+        assert!(Dds::parse(&dxt5).is_ok());
+        assert!(!cached_dds_usable(&dxt5));
+        // A DX10 BC1 file holding the same blocks.
+        let mut dx10 = own[..128].to_vec();
+        dx10[84..88].copy_from_slice(b"DX10");
+        for v in [71u32, 3, 0, 1, 0] {
+            dx10.extend_from_slice(&v.to_le_bytes());
+        }
+        dx10.extend_from_slice(&own[128..]);
+        assert_eq!(Dds::parse(&dx10).map(|t| t.format), Ok(Format::Dxt1));
+        assert!(!cached_dds_usable(&dx10));
     }
 
     #[test]

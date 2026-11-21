@@ -470,7 +470,9 @@ impl<'a> Resolver<'a> {
         //   `lefthand.nif`, `righthand.nif`) is left out when another worn item takes its
         //   slot itself, as the race's hand is: the Pip-Boy Glove's hand is drawn alone;
         // - a worn item whose every slot another item's addons take is left out: the
-        //   Pip-Boy Glove under an outfit's glove or a power armour's gauntlet.
+        //   Pip-Boy Glove under an outfit's glove or a power armour's gauntlet;
+        // - likewise when a worn item with more slots takes them on its own record with
+        //   no addon for them (below, #1523).
         let own_slots = |id: &FormId| self.actors.armors.get(id).map_or(0, |a| a.slots);
         let race_hands: Vec<String> = race.body[sex].iter().filter(|p| matches!(p.index, 1 | 2)).filter_map(|p| p.model.as_deref().map(mesh_path)).collect();
         let bare_hand = |id: &FormId| {
@@ -513,9 +515,28 @@ impl<'a> Resolver<'a> {
             }
         }
         let by_others_addons = |id: &FormId| pieces.iter().filter(|(_, o)| o.is_some_and(|o| o != *id)).fold(0, |acc, (a, _)| acc | own_slots(a));
+        // A worn item's own slots that none of its addons covers (ARMO BIPL) are drawn by
+        // the item's own model, as an addon's are: the hologram outfits
+        // (`NVDLC01HologramOutfit`, `NVDLC03HologramOutfit`: head, hair, upper body and
+        // both hands on one record, no addon list, a model with finger bones) or plain
+        // gloves take the hands this way, and the Pip-Boy Glove gives way to them as it
+        // does to an outfit's glove addon (#1523) [observed: DeadMoney.esm,
+        // OldWorldBlues.esm records; hypothesis: the original's rule]. Only an item whose
+        // slots strictly contain the other's counts, so two items on the same slots both
+        // stay (as before) and no two items push each other out. An item that also lists
+        // addons for those slots (`ArmorNVSpaceSuit`'s gloves) leaves them to the addons.
+        let own_drawn = |id: &FormId| {
+            let a = self.actors.armors.get(id);
+            let addon_slots = a.map_or(0, |a| a.addons.iter().fold(0, |acc, ad| acc | own_slots(ad)));
+            a.map_or(0, |a| a.slots) & !addon_slots
+        };
+        let by_bigger_items = |id: &FormId| {
+            let mine = own_slots(id);
+            worn.iter().filter(|o| *o != id && own_slots(o) & mine == mine && own_slots(o) != mine).fold(0, |acc, o| acc | own_drawn(o))
+        };
         let drawn: Vec<FormId> = pieces
             .iter()
-            .filter(|(id, owner)| owner.is_some() || own_slots(id) == 0 || own_slots(id) & !by_others_addons(id) != 0)
+            .filter(|(id, owner)| owner.is_some() || own_slots(id) == 0 || own_slots(id) & !(by_others_addons(id) | by_bigger_items(id)) != 0)
             .map(|(id, _)| *id)
             .filter(|id| self.actors.armors.get(id).is_some_and(|a| !(hide_backpack && a.slots & slot::BACKPACK != 0)))
             .fold(Vec::new(), |mut v, id: FormId| {

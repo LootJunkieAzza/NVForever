@@ -36,7 +36,7 @@ use crate::sim::SimState;
 use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
-use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
@@ -65,6 +65,40 @@ pub struct LevelUpMenu {
     /// Done was pressed; the runtime closes the menu after this frame's scripts.
     answered: bool,
     kit: Option<chargen::draw::Kit>,
+}
+
+impl LevelUpMenu {
+    /// [design, #2403 / file refs] Read-only page, list position and allocation
+    /// progress (`model::LevelUp`); hover and redraw flags do not count.
+    pub fn progress(&self) -> Option<impl std::fmt::Debug + '_> {
+        self.open.as_ref().map(|m| (m.level, m.page, m.selected, m.scroll, &m.skills.spent, &m.perks, self.answered))
+    }
+}
+
+/// [design, #2403] Synthetic navigation/allocation states for reports tests only.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> LevelUpMenu {
+    let mut m = LevelUp::new(2, rules::SkillSheet::new(vec![32, 33], vec![10, 10], vec![1, 1], 5), true);
+    if step >= 1 {
+        m.selected = 1;
+    }
+    if step >= 2 {
+        m.skills.spent[1] = 1;
+    }
+    if step >= 3 {
+        m.to_perks(rules::PerkSheet { perks: (1..=20).map(fnv_sim::FormId).collect(), available: vec![true; 20], chosen: Default::default(), count: 1 });
+    }
+    if step >= 4 {
+        m.scroll_by(1);
+    }
+    if step >= 5 {
+        m.perks.as_mut().unwrap().chosen.insert(fnv_sim::FormId(1));
+    }
+    if step >= 6 {
+        m.hover = Some(Part::Continue);
+    }
+    LevelUpMenu { open: Some(m), dirty: step != 6, ..Default::default() }
 }
 
 #[derive(Component)]
@@ -147,23 +181,83 @@ fn sync(mut st: ResMut<LevelUpMenu>, script: Option<ResMut<ScriptState>>, sim: O
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     let open = chargen::open_code(&script).is_some_and(draws);
     if st.open.is_some() == open {
+        if open && !st.answered {
+            script_asks(&mut st, &mut script, &mut sim, &mut sounds);
+        }
         return;
     }
     st.dirty = true;
     st.answered = false;
     if !open {
         st.open = None;
+        with_game(&mut script, &mut sim, |g| g.showoff.b5.levelup = Default::default());
         info!("levelup: menu closed");
         sounds.write(UiSound { menu: UiMenu::LevelUp, event: UiEvent::Closed });
         return;
     }
     st.open = with_game(&mut script, &mut sim, |g| {
         let level = g.player_level() as i32;
-        let m = LevelUp::open(g, level);
+        let mut m = LevelUp::open(g, level);
+        // ShowPerkMenu / ShowSkillMenu: the perks page alone, or the skills page as the
+        // last, with their counts and title (`fnv_game::nvse_showoff5`).
+        if let Some(ask) = g.showoff.b5.levelup.open_as.take() {
+            m.title = ask.title;
+            if ask.perks_only {
+                let mut p = rules::PerkSheet::of_player(g, level);
+                p.count = ask.count.unwrap_or(1).max(0) as usize;
+                m.perk_due = true;
+                m.perks_only = true;
+                m.to_perks(p);
+                info!("levelup: opened on the perks page alone (ShowPerkMenu), {} to take", ask.count.unwrap_or(1));
+            } else {
+                m.perk_due = false;
+                if let Some(n) = ask.count {
+                    m.skills.points = n.max(0);
+                }
+                info!("levelup: opened on the skills page alone (ShowSkillMenu), {} points", m.skills.points);
+            }
+        }
+        g.showoff.b5.levelup.can_exit_early = false;
+        m.preview_perks = g.tweaks.preview_perks && !m.perks_only && !m.perk_due;
         info!("levelup: menu open, level {level}, {} skill points, perk {}", m.skills.points, if m.perk_due { "due" } else { "not due" });
+        // The player's tweak: nothing to spend on skills, so straight to the perks [design: docs/design/tweaks.md].
+        if g.tweaks.skip_skill_page_without_points && !m.perks_only && m.skills.points == 0 && m.perk_due {
+            info!("levelup: no skill points to spend, the perks page first (tweak)");
+            m.to_perks(rules::PerkSheet::of_player(g, level));
+        }
         m
     });
     sounds.write(UiSound { menu: UiMenu::LevelUp, event: UiEvent::Opened });
+}
+
+/// Each frame the menu is open: the page and the points go to the game (ShowOff's
+/// GetLevelUpMenuCurrentPage, GetLevelUpMenuPoints), and a page a script asks for
+/// (SetLevelUpMenuCurrentPage) is turned to: 1 as Continue, which closes the menu when no
+/// perk is due, 0 as Back, 2 as Done, each whatever points are left (`nvse_showoff5`).
+fn script_asks(st: &mut LevelUpMenu, script: &mut ScriptState, sim: &mut SimState, sounds: &mut MessageWriter<UiSound>) {
+    let Some(m) = st.open.as_ref() else { return };
+    let page = match m.page {
+        Page::Skills => 0u8,
+        Page::Perks => 1,
+    };
+    let perks_max = m.perks.as_ref().map_or(if m.perk_due { rules::PERKS_PER_LEVEL as i32 } else { 0 }, |p| p.count as i32);
+    let points = [m.skills.points, m.skills.points - m.skills.remaining(), perks_max, m.perks.as_ref().map_or(0, |p| p.chosen.len() as i32)];
+    let ask = with_game(script, sim, |g| {
+        let l = &mut g.showoff.b5.levelup;
+        l.page = Some(page);
+        l.points = points;
+        l.page_request.take()
+    })
+    .flatten();
+    let event = match (ask, page) {
+        (Some(1), 0) | (Some(2), _) => Some(press(st, script, sim, "a script (SetLevelUpMenuCurrentPage)", true, ask == Some(2))),
+        (Some(0), 1) => apply(st, script, sim, Op::Back, "a script (SetLevelUpMenuCurrentPage)"),
+        _ => None,
+    };
+    if let Some(event) = event {
+        st.dirty = true;
+        sounds.write(UiSound { menu: UiMenu::LevelUp, event });
+    }
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -171,8 +265,8 @@ fn input(
     mut st: ResMut<LevelUpMenu>,
     mut aid: ResMut<LevelUpAid>,
     time: AidTime,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut typed: MessageReader<KeyboardInput>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
     mut wheel: MessageReader<MouseWheel>,
     rows: Query<(&PointerState, &Row), Changed<PointerState>>,
     parts: Query<(&PointerState, &Part), Changed<PointerState>>,
@@ -180,9 +274,11 @@ fn input(
     script: Option<ResMut<ScriptState>>,
     sim: Option<ResMut<SimState>>,
     mut sounds: MessageWriter<UiSound>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
-    let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let typed: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     let wheel: f32 = wheel.read().map(|w| if w.unit == MouseScrollUnit::Line { w.y } else { w.y / 40.0 }).sum();
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     let mut ops: Vec<(Op, &str)> = Vec::new();
@@ -213,15 +309,19 @@ fn input(
                 ops.push((op, "key"));
             }
         }
-        // Left and Right with the keyboard's own repeat while held.
-        for k in typed.iter().filter(|k| k.state.is_pressed()) {
-            match k.logical_key {
-                Key::ArrowRight => ops.push((Op::Raise(None), "key")),
-                Key::ArrowLeft => ops.push((Op::Lower(None), "key")),
-                _ => {}
-            }
+        // Left and Right: the keyboard's, with its own repeat while held, and the
+        // controller's D-pad (issue #1910).
+        for right in crate::pad::sideways(&typed, &keys) {
+            ops.push((if right { Op::Raise(None) } else { Op::Lower(None) }, "key"));
         }
-        if wheel.abs() >= 1.0 {
+        // The player's tweak: on the skills page the wheel raises and lowers the chosen
+        // skill (the one under the pointer) instead of scrolling [design: docs/design/tweaks.md].
+        let wheel_sets = tweaks.as_ref().is_some_and(|t| t.levelup_wheel) && st.open.as_ref().is_some_and(|m| m.page == model::Page::Skills);
+        if wheel.abs() >= 1.0 && wheel_sets {
+            for _ in 0..wheel.abs().round() as i32 {
+                ops.push((if wheel > 0.0 { Op::Raise(None) } else { Op::Lower(None) }, "wheel"));
+            }
+        } else if wheel.abs() >= 1.0 {
             ops.push((Op::Scroll(-wheel.round() as i32), "wheel"));
         }
         for (i, r) in &rows {
@@ -370,8 +470,16 @@ fn apply(st: &mut LevelUpMenu, script: &mut ScriptState, sim: &mut SimState, op:
 
 /// Continue / Done (A): on to the perks, or done.
 fn press_continue(st: &mut LevelUpMenu, script: &mut ScriptState, sim: &mut SimState, how: &str) -> UiEvent {
+    press(st, script, sim, how, false, false)
+}
+
+/// Continue / Done, or a script's page change: `forced` turns the page whatever is left
+/// to allot, `done` closes the menu from any page. SetLevelUpMenuCanExitEarly 1 lets the
+/// player leave with points left too (`nvse_showoff5`).
+fn press(st: &mut LevelUpMenu, script: &mut ScriptState, sim: &mut SimState, how: &str, forced: bool, done: bool) -> UiEvent {
+    let early = with_game(script, sim, |g| g.showoff.b5.levelup.can_exit_early).unwrap_or(false);
     let Some(m) = st.open.as_mut() else { return UiEvent::Refused };
-    if !m.can_continue() {
+    if !m.can_continue() && !forced && !early {
         match m.page {
             Page::Skills => info!("levelup: Continue refused: {} points left", m.skills.remaining()),
             Page::Perks => info!("levelup: Done refused: no perk chosen"),
@@ -379,12 +487,18 @@ fn press_continue(st: &mut LevelUpMenu, script: &mut ScriptState, sim: &mut SimS
         return UiEvent::Refused;
     }
     let gains = with_game(script, sim, |g| m.skills.gains().iter().map(|&(s, d)| format!("{} +{d}", fnv_game::chargen::skill_name(g, s))).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-    if m.page == Page::Skills && m.perk_due {
+    if m.page == Page::Skills && (m.perk_due || m.preview_perks) && !done {
         let skills = m.skills.clone();
         let level = m.level;
+        // The player's tweak: a preview takes no perk [design: docs/design/tweaks.md].
+        let preview = !m.perk_due;
         let perks = with_game(script, sim, |g| {
             skills.apply(g);
-            rules::PerkSheet::of_player(g, level)
+            let mut p = rules::PerkSheet::of_player(g, level);
+            if preview {
+                p.count = 0;
+            }
+            p
         });
         let Some(perks) = perks else { return UiEvent::Refused };
         info!("levelup: skills {}; perks page: {} perks listed, {} can be taken", or_none(&gains), perks.perks.len(), perks.available.iter().filter(|&&a| a).count());
@@ -429,6 +543,7 @@ fn draw_menu(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
 ) {
     if !st.dirty {
         return;
@@ -445,7 +560,7 @@ fn draw_menu(
     let bc = crate::interface::bc_supported(formats.as_deref());
     let st = st.into_inner();
     let kit = st.kit.get_or_insert_with(|| chargen::draw::Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = chargen::draw::Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = chargen::draw::Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     let root = Node {
         position_type: PositionType::Absolute,
         width: Val::Percent(100.0),

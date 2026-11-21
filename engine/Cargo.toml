@@ -2,11 +2,11 @@
 # compile Bevy (docs/adr/0001-bevy-viewer.md, docs/design/layer3.md §2.2).
 [workspace]
 resolver = "2"
-members = ["nvf-assets", "nvf-play", "nvf-viewer", "nvforever"]
+members = ["nvf-assets", "nvf-play", "nvf-viewer", "nvforever", "nvf-shader-tests"]
 exclude = ["vendor/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx-shaders-spv"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.8.1"
 edition = "2021"
 license = "GPL-3.0-or-later"
 
@@ -14,9 +14,11 @@ license = "GPL-3.0-or-later"
 # Pinned exactly: upgrade deliberately, in its own commit, with a full parity-lab run.
 # pbr_specular_textures: normal-map alpha as the specular mask (docs/spec-notes/nif.md §6).
 # `debug`: errors name the command or system that failed (stray_commands.rs in nvforever).
-bevy = { version = "=0.20.1", features = ["pbr_specular_textures", "debug"] }
+# raw_vulkan_init: device extensions at creation (anti_lag.rs, #1778).
+bevy = { version = "=0.20.1", features = ["pbr_specular_textures", "debug", "raw_vulkan_init"] }
 fnv-nif = { path = "../crates/fnv-nif" }
 fnv-dds = { path = "../crates/fnv-dds" }
+fnv-pbr = { path = "../crates/fnv-pbr" }
 fnv-spt = { path = "../crates/fnv-spt" }
 fnv-font = { path = "../crates/fnv-font" }
 fnv-vfs = { path = "../crates/fnv-vfs" }
@@ -34,6 +36,8 @@ fnv-nav = { path = "../crates/fnv-nav" }
 fnv-ai = { path = "../crates/fnv-ai" }
 fnv-install = { path = "../crates/fnv-install" }
 fnv-util = { path = "../crates/fnv-util" }
+nvf-dlss-files = { path = "../crates/nvf-dlss-files" }
+nvf-settings-layout = { path = "../crates/nvf-settings-layout" }
 fnv-save = { path = "../crates/fnv-save" }
 infinitier_bik_decoder = "=0.0.14"
 fnv-voice = { path = "../crates/fnv-voice" }
@@ -49,6 +53,17 @@ texpresso = { version = "2.0.2", default-features = false }
 # line tables only, no variable info, so the optimised code is unchanged.
 debug = "line-tables-only"
 
+# For iterating and smoke runs (#1956): release with incremental compilation, in its own
+# folder (target/release-quick), so it never invalidates target/release. `cargo quick` (../.cargo/
+# config.toml) builds the engine with it. Measured 2026-11-12 (16 threads, Windows), a
+# one-line edit then rebuilding nvforever: in nvforever 111 -> 10 s, in nvf-play 237 ->
+# 20 s, in fnv-game 259 -> 23 s (with rust-lld, which the alias adds on Windows); the
+# auto-fly smoke ran at the same frame rate within noise. Codegen differs from release
+# (more, smaller codegen units): profile, measure and ship from `--release`.
+[profile.release-quick]
+inherits = "release"
+incremental = true
+
 [profile.dev]
 opt-level = 1
 
@@ -57,6 +72,12 @@ opt-level = 3
 
 # Patched dependencies (engine/vendor/README.md says what was changed and why).
 [patch.crates-io]
+bevy_winit = { path = "vendor/bevy_winit" }
 gpu-allocator = { path = "vendor/gpu-allocator" }
+gilrs = { path = "vendor/gilrs" }
 bevy_pbr = { path = "vendor/bevy_pbr" }
+bevy_post_process = { path = "vendor/bevy_post_process" }
 bevy_render = { path = "vendor/bevy_render" }
+bevy_shader = { path = "vendor/bevy_shader" }
+wgpu-hal = { path = "vendor/wgpu-hal" }
+naga = { path = "vendor/naga" }

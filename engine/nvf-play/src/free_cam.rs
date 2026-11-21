@@ -37,6 +37,10 @@ use crate::{space, PlaySet, PlayState, PlayerCamera};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 
+/// How fast Z and C turn the free camera under the Better Flycam tweak, radians a
+/// second [design: docs/design/tweaks.md].
+const FLYCAM_TURN: f32 = 1.5;
+
 /// The free camera's speed before the wheel and `sucsm`, units per second (the viewer's
 /// starting speed, `nvforever` `main.rs`) [decision].
 pub const FLY_SPEED: f32 = 800.0;
@@ -58,6 +62,9 @@ pub struct FreeCam {
     pub pitch: f32,
     /// The wheel's share of the speed.
     pub wheel: f32,
+    /// The mouse looks round only while the right button is held, leaving the pointer to
+    /// click with (editor mode, `crate::editor`).
+    pub look_on_button: bool,
     /// Where it left the player, and the player's feet then (game space).
     start: Vec3,
     feet: [f32; 3],
@@ -65,6 +72,8 @@ pub struct FreeCam {
     pov: Pov,
     /// `NVF_PLAY_TEST_FLY`.
     aid_speed: f32,
+    /// Flying forward by itself (the Better Flycam tweak's Q) [design: docs/design/tweaks.md].
+    auto: bool,
     /// The place last written to or taken from the game's TFC pose: position, yaw,
     /// pitch (Bevy). A different place is the viewer's move, written back.
     shared: Option<(Vec3, f32, f32)>,
@@ -198,19 +207,23 @@ fn take_requests(
 
 /// Fly the free camera and put the view there; after `place_camera`, so it wins.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn fly(
+pub(crate) fn fly(
     real: Res<Time<Real>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    (keys, buttons): (crate::pad::ActionButtons<KeyCode>, Res<ButtonInput<MouseButton>>),
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     (state, console, paused, menu, loading): (Res<State<PlayState>>, Res<Console>, Res<crate::pause::Paused>, Res<crate::menu::ActiveMenu>, Res<crate::loading::Loading>),
     script: Option<Res<ScriptState>>,
     mut free: ResMut<FreeCam>,
     mut cams: Query<&mut Transform, With<PlayerCamera>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    let keys = keys.snapshot();
     if !free.on {
+        free.auto = false;
         return;
     }
+    let better = tweaks.is_some_and(|t| t.better_flycam);
     let state_free = match *state.get() {
         PlayState::Playing => true,
         PlayState::Menu => free.holds_world(),
@@ -220,9 +233,11 @@ fn fly(
     let Ok(mut t) = cams.single_mut() else { return };
     if free.active {
         let f = &mut *free;
-        f.yaw -= motion.delta.x * LOOK_PER_PIXEL;
-        if motion.delta.y != 0.0 {
-            f.pitch = (f.pitch - motion.delta.y * LOOK_PER_PIXEL).clamp(-1.55, 1.55);
+        if !f.look_on_button || buttons.pressed(MouseButton::Right) {
+            f.yaw -= motion.delta.x * LOOK_PER_PIXEL;
+            if motion.delta.y != 0.0 {
+                f.pitch = (f.pitch - motion.delta.y * LOOK_PER_PIXEL).clamp(-1.55, 1.55);
+            }
         }
         if scroll.delta.y != 0.0 {
             f.wheel = (f.wheel * 1.2f32.powf(scroll.delta.y)).clamp(50.0 / FLY_SPEED, 50_000.0 / FLY_SPEED);
@@ -230,10 +245,33 @@ fn fly(
         let rot = Quat::from_euler(EulerRot::YXZ, f.yaw, f.pitch, 0.0);
         let (fwd, right) = (rot * Vec3::NEG_Z, rot * Vec3::X);
         let mut dir = Vec3::ZERO;
-        for (k, d) in [(KeyCode::KeyW, fwd), (KeyCode::KeyS, -fwd), (KeyCode::KeyD, right), (KeyCode::KeyA, -right), (KeyCode::KeyE, Vec3::Y), (KeyCode::KeyQ, -Vec3::Y)] {
+        // The player's tweak: Space and Ctrl fly up and down, Q flies on by itself, Z and C
+        // turn (docs/design/tweaks.md).
+        let moves: &[(KeyCode, Vec3)] = if better {
+            &[(KeyCode::KeyW, fwd), (KeyCode::KeyS, -fwd), (KeyCode::KeyD, right), (KeyCode::KeyA, -right), (KeyCode::Space, Vec3::Y), (KeyCode::ControlLeft, -Vec3::Y)]
+        } else {
+            &[(KeyCode::KeyW, fwd), (KeyCode::KeyS, -fwd), (KeyCode::KeyD, right), (KeyCode::KeyA, -right), (KeyCode::KeyE, Vec3::Y), (KeyCode::KeyQ, -Vec3::Y)]
+        };
+        for &(k, d) in moves {
             if keys.pressed(k) {
                 dir += d;
             }
+        }
+        if better {
+            if keys.just_pressed(KeyCode::KeyQ) {
+                f.auto = !f.auto;
+                info!("free camera: flies forward by itself {} (tweak)", if f.auto { "on" } else { "off" });
+            }
+            if keys.pressed(KeyCode::KeyS) {
+                f.auto = false;
+            }
+            if f.auto {
+                dir += fwd;
+            }
+            let turn = f32::from(i8::from(keys.pressed(KeyCode::KeyZ)) - i8::from(keys.pressed(KeyCode::KeyC)));
+            f.yaw += turn * FLYCAM_TURN * real.delta_secs().min(0.25);
+        } else {
+            f.auto = false;
         }
         let boost = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) { 5.0 } else { 1.0 };
         let mult = script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.ui.camera.fly_speed_mult).unwrap_or(1.0);
@@ -257,17 +295,70 @@ fn hold_world(free: Res<FreeCam>, console: Res<Console>, paused: Res<crate::paus
 
 /// `tm`: hide the HUD (with the compass), the crosshair and the corner and quest
 /// messages; their own systems show them again when it is undone.
+/// [design, #2659] Include the independent enemy piece (`hud.rs::spawn_hud`).
 #[allow(clippy::type_complexity)]
 fn hide_menus(
     hidden: Res<MenusHidden>,
     mut roots: Query<
         &mut Visibility,
-        Or<(With<crate::hud::HudRoot>, With<crate::reticle::Root>, With<crate::corner_messages::AreaRoot>, With<crate::quest_messages::AreaRoot>)>,
+        Or<(With<crate::hud::HudRoot>, With<crate::tiles::vanilla::EnemyPiece>, With<crate::reticle::Root>, With<crate::corner_messages::AreaRoot>, With<crate::quest_messages::AreaRoot>)>,
     >,
 ) {
     if hidden.0 {
         for mut v in &mut roots {
             v.set_if_neq(Visibility::Hidden);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tiles::vanilla::EnemyPiece;
+
+    #[test]
+    fn tm_hides_and_restores_the_independent_enemy_bar() {
+        use bevy::camera::visibility::{VisibilityPlugin, VisibilitySystems};
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, VisibilityPlugin))
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>()
+            .init_resource::<MenusHidden>()
+            .init_resource::<crate::hud::HudView>()
+            .add_systems(Update, |view: Res<crate::hud::HudView>, mut bars: Query<&mut Visibility, With<EnemyPiece>>| {
+                // [design: hud.rs::draw] Each frame the HUD writes its eligibility;
+                // the late tm override must win even after the console closes.
+                for mut visibility in &mut bars {
+                    *visibility = if view.enemy_shown { Visibility::Inherited } else { Visibility::Hidden };
+                }
+            })
+            .add_systems(PostUpdate, hide_menus.before(VisibilitySystems::VisibilityPropagate));
+        let screen = app.world_mut().spawn(Visibility::Inherited).id();
+        let bar = app.world_mut().spawn((EnemyPiece, Visibility::Hidden, ChildOf(screen))).id();
+        let name = app.world_mut().spawn((Visibility::Inherited, ChildOf(bar))).id();
+        let assert_bar = |app: &App, shown: bool| {
+            assert_eq!(*app.world().get::<Visibility>(bar).unwrap(), if shown { Visibility::Inherited } else { Visibility::Hidden });
+            assert_eq!(app.world().get::<InheritedVisibility>(name).unwrap().get(), shown);
+        };
+
+        app.world_mut().resource_mut::<crate::hud::HudView>().enemy_shown = true;
+        app.update();
+        assert_bar(&app, true);
+        app.world_mut().resource_mut::<MenusHidden>().0 = true;
+        for _ in 0..2 {
+            app.update();
+            assert_bar(&app, false);
+        }
+        app.world_mut().resource_mut::<MenusHidden>().0 = false;
+        app.update();
+        assert_bar(&app, true);
+
+        app.world_mut().resource_mut::<MenusHidden>().0 = true;
+        app.update();
+        app.world_mut().resource_mut::<crate::hud::HudView>().enemy_shown = false;
+        app.world_mut().resource_mut::<MenusHidden>().0 = false;
+        app.update();
+        assert_bar(&app, false);
     }
 }

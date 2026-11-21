@@ -2,7 +2,7 @@
 //! entry, leveled actors read at their reference's level, level modifiers, Never Resets.
 //! docs/spec-notes/encounter-zones.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -291,4 +291,69 @@ fn zone_levels_survive_a_snapshot() {
     let g2 = Game::restore(&f.data, world, GameConfig { strict: true, ..GameConfig::default() }, &s).unwrap();
     assert_eq!(g2.world.zone_level(FormId(ZONE)), Some(5));
     assert_eq!(g2.world.fixed_level(FormId(EASY)), Some(LevelAt { level: 2, all_levels: true }));
+}
+
+#[test]
+fn zone_respawns_getters_setters_and_cell_expiry_stay_consistent() {
+    let f = fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game, body: &str| {
+        g.run_query(&format!("Begin Function {{}}\n{body}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap()
+    };
+    let num = |g: &mut Game, expr: &str| match q(g, &format!("SetFunctionValue ({expr})")) {
+        fnv_script::vm::XVal::Num(n) => n,
+        other => panic!("{expr}: expected number, got {other:?}"),
+    };
+
+    // Authored baseline: TestZone respawns (flags=0), SafeZone never resets + match PC below min (flags=3).
+    assert_eq!(num(&mut g, "GetZoneRespawns TestZone"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneRespawns SafeZone"), 0.0);
+    assert_eq!(num(&mut g, "GetZoneFlag TestZone 1"), 0.0);
+    assert_eq!(num(&mut g, "GetZoneFlag SafeZone 1"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneFlag SafeZone 2"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneRespawns ZoneCell"), 0.0, "non-ECZN form returns 0");
+    assert!(!g.cell_never_resets(FormId(ZONE_CELL)));
+    assert!(g.cell_never_resets(FormId(SAFE_CELL)));
+
+    // Saved SetZoneRespawns updates GetZoneRespawns, GetZoneFlag bit 1, and cell_never_resets
+    // without clobbering unrelated flag bit 2.
+    q(&mut g, "SetZoneRespawns SafeZone 1\nSetZoneRespawns TestZone 0");
+    assert_eq!(num(&mut g, "GetZoneRespawns SafeZone"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneRespawns TestZone"), 0.0);
+    assert_eq!(num(&mut g, "GetZoneFlag SafeZone 1"), 0.0);
+    assert_eq!(num(&mut g, "GetZoneFlag SafeZone 2"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneFlag TestZone 1"), 1.0);
+    assert!(!g.cell_never_resets(FormId(SAFE_CELL)));
+    assert!(g.cell_never_resets(FormId(ZONE_CELL)));
+
+    // Session SetZoneFlag bit 1 overrides SetZoneRespawns for the current session and reaches
+    // both GetZoneRespawns and Game::cell_never_resets.
+    q(&mut g, "SetZoneFlag TestZone 1 0");
+    assert_eq!(num(&mut g, "GetZoneRespawns TestZone"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneFlag TestZone 1"), 0.0);
+    assert!(!g.cell_never_resets(FormId(ZONE_CELL)));
+
+    // Session SetCellEncounterZone reaches Game::cell_never_resets using live zone state.
+    assert!(!g.cell_never_resets(FormId(PLAIN_CELL)));
+    q(&mut g, "SetZoneFlag SafeZone 1 1\nSetCellEncounterZone PlainCell SafeZone");
+    assert!(g.cell_never_resets(FormId(PLAIN_CELL)));
+
+    // Save/restore keeps SetZoneRespawns while resetting session-only SetZoneFlag changes.
+    let snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.checked_snapshot().unwrap()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut restored = Game::restore(&f.data, world, GameConfig { strict: true, ..GameConfig::default() }, &snap).unwrap();
+    assert_eq!(num(&mut restored, "GetZoneRespawns SafeZone"), 1.0);
+    assert_eq!(num(&mut restored, "GetZoneRespawns TestZone"), 0.0);
+    assert_eq!(num(&mut restored, "GetZoneFlag SafeZone 1"), 0.0);
+    assert_eq!(num(&mut restored, "GetZoneFlag TestZone 1"), 1.0);
+    assert!(!restored.cell_never_resets(FormId(SAFE_CELL)));
+    assert!(restored.cell_never_resets(FormId(ZONE_CELL)));
+
+    // A later SetZoneRespawns supersedes an earlier session SetZoneFlag bit-1 override.
+    q(&mut restored, "SetZoneFlag TestZone 1 0");
+    assert_eq!(num(&mut restored, "GetZoneRespawns TestZone"), 1.0);
+    q(&mut restored, "SetZoneRespawns TestZone 0");
+    assert_eq!(num(&mut restored, "GetZoneRespawns TestZone"), 0.0);
+    assert_eq!(num(&mut restored, "GetZoneFlag TestZone 1"), 1.0);
+    assert!(restored.cell_never_resets(FormId(ZONE_CELL)));
 }

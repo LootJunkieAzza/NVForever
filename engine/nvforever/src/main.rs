@@ -24,10 +24,22 @@ macro_rules! eprintln {
 }
 
 mod activators;
+mod fos_start;
+mod reports;
+mod native_crash;
+mod exit_watch;
+#[cfg(target_os = "linux")]
+mod native_crash_unix;
 mod nif_mirror;
+mod nif_attachments;
+// Authored record builders are loaded once for the engine test binary.
+#[cfg(test)]
+#[path = "../../../crates/fnv-game/tests/common/mod.rs"]
+mod authored_test_records;
 mod anim_paths;
 mod actor_feet;
 mod tumble;
+mod turret_aim;
 mod actor_jumps;
 mod actor_materials;
 mod anim_objects;
@@ -38,12 +50,13 @@ mod actors;
 mod attack_anims;
 mod authored_pose;
 mod cell_buffer;
-mod clutter_pose;
 mod cell_resets;
+mod cloud_shadows;
 mod alert;
 mod anim_sounds;
 mod cpu_placement;
 mod crash;
+mod events_log;
 mod creature_pace;
 mod creature_stance;
 mod creator_view;
@@ -65,17 +78,26 @@ mod facegen;
 mod flashlight;
 mod eye_adapt;
 mod fog;
+mod haze;
 mod fly;
 mod foot_ik;
-mod fps_counter;
+mod anti_lag;
+mod dlss;
+mod dlss_download;
+mod nv_low_latency;
 mod frame_pace;
 mod frame_telemetry;
 mod blit_warm;
 mod handoff;
+mod distant_objects;
+mod full_detail;
 mod furniture;
+mod game_digest;
 mod graphics;
 mod grass;
+mod grass_fire_fx;
 mod head_look;
+mod rigid_head_probe;
 mod idles;
 mod lights;
 mod limbs;
@@ -83,6 +105,8 @@ mod lips;
 mod memory_budget;
 mod gpu_poll;
 mod pipeline_gate;
+mod pipeline_disk_cache;
+mod pipeline_prewarm;
 mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
@@ -102,6 +126,7 @@ mod destroyed;
 mod npc_grenades;
 mod npc_stimpaks;
 mod use_weapon;
+mod ui_attach;
 mod provoked;
 mod weapons;
 mod lodgen;
@@ -116,6 +141,8 @@ mod player_body;
 mod stealth_field;
 mod stray_commands;
 mod post;
+mod quality;
+mod quality_probe;
 mod particles;
 mod shot_fx;
 mod ragdoll;
@@ -124,46 +151,72 @@ mod wrecks;
 mod talk_clips;
 mod readahead;
 mod reflection;
+mod reflection_sky;
+mod minimap_render;
 mod refraction;
 mod residents;
 mod resurrect;
 mod appearance;
 mod script_look;
+mod script_sequences;
 mod ripples;
 mod settings;
 mod iron_sights;
 mod head_bob;
 mod view_sway;
 mod weapon_lower;
+mod sprint_view;
 mod setup;
+mod shadow_anchor;
 mod shadow_probe;
+mod shadow_rate;
 mod shadow_thin;
 mod shafts;
+mod heat_haze;
+mod sun_heightfield;
 mod imagespace;
 mod imposters;
 mod sky;
 mod start_times;
+mod sun_visibility;
 mod weather_fx;
 mod limping;
 mod sneaking;
 mod swimming;
 mod ssao;
+mod ssao_lighting;
 mod taa;
+mod fg_presenter;
+mod ffx_api;
+mod frame_gen;
 mod fsr;
+mod upscaler;
 mod speech_look;
+mod stream_pace;
 mod stress_sample;
 mod profile;
+mod perf_overlay;
 mod occlusion;
 mod rooms;
 mod terrain;
+mod terrain_surface;
+mod mesh_terrain_blend;
+mod terrain_lod;
+mod terrain_shadows;
+mod terrain_wireframe;
 mod texture_swap;
 mod effect_particles;
 mod effect_shaders;
+mod vats_highlight;
 mod tree;
 mod treelod;
+mod river_flow;
 mod underwater;
+mod underwater_caustics;
 mod vigor_view;
+mod walk_probe;
 mod water;
+mod weapon_models;
 mod window_icon;
 mod window_mode;
 mod world;
@@ -212,6 +265,13 @@ struct Args {
     /// its home; with --data, the base game and the DLC masters present).
     #[arg(long, num_args = 1.., default_values_t = MASTERS.map(String::from))]
     plugins: Vec<String>,
+    /// A Mod Organizer 2 instance folder: its profile's mods are merged over Data and its
+    /// plugins load, with MO2 closed (issue #1526).
+    #[arg(long, value_name = "INSTANCE")]
+    mo2: Option<PathBuf>,
+    /// The profile in that instance (default: the instance's selected_profile).
+    #[arg(long, value_name = "NAME")]
+    profile: Option<String>,
     /// Record schema directory.
     #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv"))]
     esm_schema: PathBuf,
@@ -257,10 +317,17 @@ struct Args {
     /// Override the weather's fog distances: "near,far" in game units.
     #[arg(long)]
     fog: Option<String>,
-    /// Distant LOD (terrain chunks, object blocks) out to this distance in game units
-    /// (the game's fBlockLoadDistance; default the owner's INI value) [hypothesis: lod.rs].
+    /// Distant object LOD blocks out to this distance in game units (the game's
+    /// fBlockLoadDistance; default the owner's INI value) [hypothesis: lod.rs]; the
+    /// terrain reaches at least as far. 0 drops only the object blocks: --no-lod turns
+    /// off all distant LOD (terrain, water, objects and trees).
     #[arg(long, default_value_t = 125_000.0)]
     lod_distance: f32,
+    /// Distant terrain LOD chunks (and the distant water on them) out to this distance in
+    /// game units, or to --lod-distance when that is larger (default calibrated at one
+    /// pose above Goodsprings, #3055) [observed + hypothesis: lod.rs].
+    #[arg(long, default_value_t = 250_000.0)]
+    lod_terrain_distance: f32,
     /// Finest terrain LOD (level 4) within this distance (fBlockLoadDistanceLow).
     #[arg(long, default_value_t = 50_000.0)]
     lod_near_distance: f32,
@@ -268,7 +335,9 @@ struct Args {
     /// (fSplitDistanceMult).
     #[arg(long, default_value_t = 1.5)]
     lod_split: f32,
-    /// Distant trees drawn as billboards out to this distance (fTreeLoadDistance); 0: none.
+    /// Distant trees drawn as billboards out to this distance (fTreeLoadDistance), at most
+    /// --lod-distance: the Tree distance slider's start (a kept or moved slider wins); 0:
+    /// none, whatever the slider.
     #[arg(long, default_value_t = 40_000.0)]
     tree_distance: f32,
     /// Do not draw distant LOD.
@@ -325,8 +394,10 @@ struct Args {
     /// frame cost and that flicker). Runs without --play (screenshots, the parity lab)
     /// keep them off: the original game casts no sun shadows from the world
     /// (docs/spec-notes/world.md §6, "Sun path and shadows").
-    #[arg(long)]
-    sun_shadows: bool,
+    /// `--sun-shadows=performance` chooses the cheaper mode (shadow_rate.rs); a bare
+    /// `--sun-shadows` or `=quality` the default one.
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "quality", require_equals = true)]
+    sun_shadows: Option<shadow_rate::SunShadowMode>,
     /// With --play: the sun casts no shadows (the settings page turns them on and off too).
     #[arg(long, conflicts_with = "sun_shadows")]
     no_sun_shadows: bool,
@@ -369,6 +440,16 @@ struct Args {
     /// docs/spec-notes/world.md §3 "Texture repeat"]).
     #[arg(long, default_value_t = 256.0)]
     terrain_tile: f32,
+    /// Draw and collide the landscape on its stored triangles, not smoothed (#2149,
+    /// `nvf_play::smooth_terrain`; the settings page's Smooth terrain row); the same as
+    /// `--smooth-terrain off`, and wins over it.
+    #[arg(long)]
+    no_smooth_terrain: bool,
+    /// How the landscape is smoothed: `off`, `2x2`, `4x4` (the default) or `4x4-near` (4 x 4
+    /// near the camera, 2 x 2 further; #2676, `nvf_play::smooth_terrain`). Once any setting is
+    /// saved, NVForever.ini's Smooth terrain row wins over this flag, as for every row.
+    #[arg(long, value_name = "off|2x2|4x4|4x4-near", value_parser = parse_smoothing)]
+    smooth_terrain: Option<nvf_play::smooth_terrain::Smoothing>,
     /// Do not draw models whose path contains any of these texts (diagnostics).
     #[arg(long, value_delimiter = ',')]
     hide: Vec<String>,
@@ -388,6 +469,12 @@ struct Args {
     /// horizontal) [hypothesis; docs/spec-notes/camera.md].
     #[arg(long, default_value_t = 75.0)]
     fov: f32,
+    /// The field of view the first-person arms and weapon are drawn with, degrees as --fov
+    /// counts them (fDefault1stPersonFOV, default 55; `player_body::FIRST_PERSON_FOV`):
+    /// smaller draws them bigger and closer, larger smaller and further off. The world's
+    /// view stays as --fov sets it.
+    #[arg(long, default_value_t = player_body::FIRST_PERSON_FOV)]
+    viewmodel_fov: f32,
     /// Added to the z of --pos (e.g. the eye height above a captured player position).
     #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
     eye_height: f32,
@@ -428,11 +515,25 @@ struct Args {
     /// `[Settings] cpu-cache-placement` for this run; without either, `auto`.
     #[arg(long, value_enum)]
     cpu_cache_placement: Option<cpu_placement::Mode>,
-    /// Show the frame rate counter in the top-right corner (fps_counter.rs; a switch on the
-    /// settings page too). Once any setting is saved, NVForever.ini's Frame rate counter
+    /// Show the frame rate counter, the performance overlay (perf_overlay/; a switch on the
+    /// settings page too, its rows as the settings give them). Once any setting is saved, NVForever.ini's Frame rate counter
     /// switch wins over this flag, as for every switch.
     #[arg(long)]
     fps: bool,
+    /// Latency reduction: AMD Anti-Lag or NVIDIA low latency through Vulkan, whichever the
+    /// GPU's driver has, the driver keeping the CPU from preparing frames ahead of the GPU
+    /// (anti_lag.rs, nv_low_latency.rs). Once any setting is saved,
+    /// NVForever.ini's Latency reduction switch wins over this flag, as for every switch.
+    #[arg(long)]
+    latency_reduction: bool,
+    /// Frame generation: `fsr` (the default with no value) for FSR 3.1's, a frame made between
+    /// each two real frames from optical flow and the motion FSR gets (frame_gen.rs; needs --fsr,
+    /// any mode, and vsync), or `dlss` for NVIDIA's DLSS Frame Generation through Streamline
+    /// (dlss/frame_gen.rs; needs DLSS's frame generation files, an upscaler and vsync off), or
+    /// `off`. Turns latency reduction on with it. Once any setting is saved, NVForever.ini's Frame
+    /// generation row wins over this flag, as for every row.
+    #[arg(long, num_args = 0..=1, default_missing_value = "fsr", value_parser = parse_frame_generation)]
+    frame_generation: Option<frame_gen::FrameGenKind>,
     /// With --play: draw the text overlay (the developer's position, loading counts and
     /// key help), which the game leaves off (owner, list 5 item 68); the settings page's
     /// Developer group turns it on and off too.
@@ -446,32 +547,73 @@ struct Args {
     /// runs (--screenshot, --timelapse, --frame-json, --run-seconds) always default to it.
     #[arg(long, value_enum)]
     graphics: Option<graphics::Preset>,
-    /// FSR 3.1 upscaling (no frame generation). Replaces other anti-aliasing while on.
-    /// Saved Graphics settings take precedence in normal play, as for other switches.
-    #[arg(long, value_enum, default_value = "off")]
-    fsr: graphics::FsrMode,
+    /// FSR 3.1 upscaling (frame generation: --frame-generation). Replaces other anti-aliasing while on.
+    /// Saved Graphics settings take precedence in normal play, as for other switches. The older
+    /// form of `--upscaler fsr --upscaler-quality <mode>` (`off`: no upscaler); given with
+    /// --upscaler, both must say the same. Off when neither is given.
+    #[arg(long, value_enum)]
+    fsr: Option<graphics::FsrMode>,
+    /// The temporal upscaler: off, fsr (FSR 3.1) or dlss (NVIDIA DLSS through Streamline, with
+    /// NVIDIA's files in the dlss folder beside the program; upscaler.rs, dlss/), at
+    /// --upscaler-quality. Saved Graphics settings take precedence in normal play, as for other
+    /// switches. Streamline is loaded when the start chooses DLSS or the files are in the dlss
+    /// folder; then every switch takes effect at once.
+    #[arg(long, value_enum)]
+    upscaler: Option<upscaler::Upscaler>,
+    /// The quality of --upscaler fsr or dlss (default: quality). Native AA reconstructs at
+    /// full resolution (DLSS: DLAA).
+    #[arg(long, value_enum)]
+    upscaler_quality: Option<upscaler::UpscaleQuality>,
+    /// The DLSS model: default (NVIDIA's pick for each mode) or NVIDIA's preset k, l, m or j
+    /// (upscaler.rs `DlssModel`, docs/dlss.md). Used while DLSS draws. Saved Graphics settings
+    /// take precedence in normal play, as for other switches. Default: default.
+    #[arg(long, value_enum)]
+    dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections) and choices (fxaa, smaa or taa instead of --msaa;
-    /// shadow-filter-hardware or shadow-filter-temporal), for comparing them one at a time.
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, and
+    /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
+    /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
+    /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
+    /// The switches on in vanilla are left on unless named off: no-glow, no-eye-adaptation,
+    /// no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
+    /// Ambient occlusion on at this level whatever the look (--graphics, --graphics-only)
+    /// says: `performance` (one slice direction a pixel instead of two, ssao.rs `AoLevel`) or
+    /// `quality` (also a bare `--ambient-occlusion`). The settings page's Ambient occlusion row
+    /// chooses Off, Performance or Quality too.
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "quality", require_equals = true)]
+    ambient_occlusion: Option<ssao::AoLevel>,
     /// Test aid: log the mean and the slowest frame time every this many seconds (real
     /// time), for measuring what a graphics switch costs; the picture is then not held to
     /// the display's refresh (no vsync).
     #[arg(long)]
     log_frame_times: Option<f32>,
+    /// Test aid with --log-frame-times: frames a second at most for this run (0: none), the
+    /// settings page's Frame rate limit, which --log-frame-times otherwise leaves off with
+    /// the page's row (frame_pace.rs). For checking a cap on purpose, e.g. DLSS Frame
+    /// Generation's Reflex limit (#2731, #2732: set before the window's swapchain exists).
+    #[arg(long, requires = "log_frame_times")]
+    frame_cap: Option<u32>,
     /// Test aid with --log-frame-times: after each logged period switch to the next of
     /// these sets of improvements, in a loop, starting with the first: `;`-separated,
     /// each `vanilla`, `enhanced` or keys as for --graphics-only; `no-sun-shadows` among
     /// a set's keys switches the sun's shadows off for it (e.g. `vanilla;no-sun-shadows`);
-    /// `shadow-distance=<units>`, `cascades=<n>` and `shadow-thin=<ratio>` change them.
+    /// `shadow-distance=<units>`, `cascades=<n>` (n cascades spaced as before #2843, not the
+    /// modes' layouts) and `shadow-thin=<ratio>` change them.
     #[arg(long, requires = "log_frame_times", allow_hyphen_values = true)]
     graphics_cycle: Option<String>,
     /// Play: the camera is the player, walking with collision, activating with E
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
     play: bool,
+    /// With --play: the physics rate for this run, over the settings page's Physics rate:
+    /// fixed steps a second, a whole number from 60 to 160, or `fps` for Match FPS: the
+    /// game's frame rate, up to what the display's pace allows (`display`, its old name, is
+    /// read as it too; nvf_play::phys_rate). For quick tests; not kept.
+    #[arg(long, value_name = "HZ|fps", value_parser = nvf_play::phys_rate::parse_arg)]
+    physics_hz: Option<nvf_play::phys_rate::RateChoice>,
     /// The free-camera explorer (a developer's view, no player) even when no other
     /// argument chooses a world; with no such argument the game opens on its main menu.
     #[arg(long, conflicts_with = "play")]
@@ -578,6 +720,10 @@ struct Args {
     /// Draw the navmesh near the camera and the travellers' paths.
     #[arg(long)]
     show_navmesh: bool,
+    /// Draw the loaded landscape's triangle edges over it (terrain_wireframe.rs; the
+    /// settings page's Debug row Terrain wireframe).
+    #[arg(long)]
+    terrain_wireframe: bool,
     /// With --play: draw the developer markers of shots: a cross at each impact and a
     /// line from the muzzle along each hitscan shot (settings page: Developer).
     #[arg(long)]
@@ -664,14 +810,66 @@ struct Args {
     /// alone as the original does; a switch of the settings page (player_body.rs).
     #[arg(long, requires = "play")]
     first_person_body: bool,
+    /// Weapon Inertia: the first-person arms and weapon lag behind turns and steps, bob,
+    /// breathe and recoil (view_sway.rs); off unless given (the owner, 2026-11-16: Advanced
+    /// Movement's parts off by default but Advanced Recoil); a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_weapon_sway")]
+    weapon_sway: bool,
     /// Keep the first-person arms and weapon still while turning and moving: no sway or
-    /// bob (view_sway.rs); a switch of the settings page.
+    /// bob (view_sway.rs), the default; a switch of the settings page.
     #[arg(long, requires = "play")]
     no_weapon_sway: bool,
+    /// Camera Motion: in first person the view bobs with each step, breathes and jolts when
+    /// hit (head_bob.rs); off unless given; a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_head_bob")]
+    head_bob: bool,
     /// No head bob in first person: the camera stays still while walking and running
-    /// (head_bob.rs); a switch of the settings page.
+    /// (head_bob.rs), the default; a switch of the settings page.
     #[arg(long, requires = "play")]
     no_head_bob: bool,
+    /// No advanced movement: none of the settings page's Advanced movement switches acts
+    /// (inertia, eased crouch, smooth weapon animations, weapon sway, head bob, the breath,
+    /// soft recoil, landing weight, hit jolt; nvf_play::inertia::MovementInertia::advanced),
+    /// as in the original; the main switch of that section.
+    #[arg(long, requires = "play")]
+    no_advanced_movement: bool,
+    /// Movement Inertia: speeding up, gliding to a stop, an eased crouch, landings that dip
+    /// (nvf_play::inertia); off unless given; a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_movement_inertia")]
+    movement_inertia: bool,
+    /// No movement inertia: full speed at once and an instant stop (nvf_play::inertia), the
+    /// default; a switch of the settings page.
+    #[arg(long, requires = "play")]
+    no_movement_inertia: bool,
+    /// Weapon Handling: drawing, putting away and aiming take longer by the weapon's weight
+    /// and the attributes (nvf_play::inertia); off unless given; a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_weapon_handling")]
+    weapon_handling: bool,
+    /// No Weapon Handling: drawing, putting away and aiming keep the game's own timing,
+    /// whatever the weapon weighs (nvf_play::inertia), the default; a switch of the settings
+    /// page.
+    #[arg(long, requires = "play")]
+    no_weapon_handling: bool,
+    /// Animation Smoothing: the first-person clips ease in and settle softly
+    /// (nvf_play::inertia); off unless given; a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_animation_smoothing")]
+    animation_smoothing: bool,
+    /// No Animation Smoothing: the original's clips (nvf_play::inertia), the default; a
+    /// switch of the settings page.
+    #[arg(long, requires = "play")]
+    no_animation_smoothing: bool,
+    /// No Advanced Recoil: the whole kick of a shot stays, as in the original
+    /// (nvf_play::inertia); a switch of the settings page (on by default).
+    #[arg(long, requires = "play")]
+    no_advanced_recoil: bool,
+    /// Sprint: the Sprint control (a key the player binds; none by default) runs faster for AP
+    /// (nvf_play::stance); off unless given; a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_sprint")]
+    sprint: bool,
+    /// No Sprint: the Sprint control does nothing (nvf_play::stance), the default; a switch of
+    /// the settings page.
+    #[arg(long, requires = "play")]
+    no_sprint: bool,
     /// Keep the first-person weapon up against walls and friendly actors close ahead
     /// (weapon_lower.rs); a switch of the settings page.
     #[arg(long, requires = "play")]
@@ -705,8 +903,9 @@ struct Args {
     #[arg(long)]
     no_dialogue_look: bool,
     /// With --play: in a conversation, bring the view back onto the actor each time the
-    /// choices appear. Off by default (owner decision 2026-10-10): only the opening turn
-    /// happens and the view is the player's own for the rest of the conversation.
+    /// choices appear (without the dialogue zoom, which keeps the view on the speaker).
+    /// Off by default (owner decision 2026-10-10): only the opening turn happens and the
+    /// view is the player's own for the rest of the conversation.
     #[arg(long)]
     dialogue_recentre: bool,
     /// Accepted for older command lines; not coming back is the default now.
@@ -737,6 +936,7 @@ fn parse_vec<const N: usize>(s: &str) -> Option<[f32; N]> {
 fn lod_settings(args: &Args) -> lod::LodSettings {
     lod::LodSettings {
         far: args.lod_distance.max(0.0),
+        terrain_far: args.lod_terrain_distance.max(0.0),
         near: args.lod_near_distance.max(0.0),
         split: args.lod_split.max(0.0),
         trees: args.tree_distance.max(0.0),
@@ -868,13 +1068,38 @@ fn task_pools(placed: Option<usize>) -> TaskPoolPlugin {
     if let Some(n) = std::env::var("NVF_PLAY_TEST_COMPUTE_THREADS").ok().and_then(|v| v.parse::<usize>().ok()).filter(|&n| n > 0) {
         task_pool_options.compute.min_threads = n;
         task_pool_options.compute.max_threads = n;
-        task_pool_options.max_total_threads = task_pool_options.max_total_threads.max(n + task_pool_options.io.max_threads + task_pool_options.async_compute.max_threads);
         info!("test aid NVF_PLAY_TEST_COMPUTE_THREADS: {n}");
     }
     TaskPoolPlugin { task_pool_options }
 }
 
+/// `--frame-generation`'s value (`frame_gen::FrameGenKind::parse`).
+fn parse_frame_generation(value: &str) -> Result<frame_gen::FrameGenKind, String> {
+    frame_gen::FrameGenKind::parse(value).ok_or_else(|| format!("{value:?} is none of fsr, dlss, off"))
+}
+
+fn parse_smoothing(value: &str) -> Result<nvf_play::smooth_terrain::Smoothing, String> {
+    nvf_play::smooth_terrain::Smoothing::parse(value).ok_or_else(|| format!("{value:?} is none of off, 2x2, 4x4, 4x4-near"))
+}
+
+/// Every allocation goes through crash.rs's allocator, which logs a failed one (#2755).
+#[global_allocator]
+static ALLOCATOR: crash::SaysWhenEmpty = crash::SaysWhenEmpty;
+
+/// The Mod Organizer 2 folders this run reads, for the reports' redaction (#3152): the
+/// `--mo2` instance (or the one that started this process) with its mods and overwrite
+/// folders.
+fn report_mo2_folders(args: &Args) -> Vec<(std::path::PathBuf, &'static str)> {
+    let Some(instance) = args.mo2.clone().or_else(fnv_install::mo2::instance_dir) else { return Vec::new() };
+    let layout = fnv_install::mo2::Layout::open(&instance, args.profile.as_deref()).ok();
+    reports::mo2_folders(&instance, layout.as_ref())
+}
+
 fn main() -> AppExit {
+    // Started as this run's exit watcher (exit_watch.rs): wait for the game's process, no game.
+    if exit_watch::run_if_watcher() {
+        return AppExit::Success;
+    }
     let mut line = with_default_mode(std::env::args().collect());
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
         line = with_schemas_beside(line, &dir);
@@ -886,26 +1111,32 @@ fn main() -> AppExit {
     }
     let mut args = Args::parse_from(&line);
     let _ = COMMAND_LINE.set(line);
+    // Taking over a load: tell the old run at once that this run takes part (#1903).
+    let handoff_marked = args.handoff.as_deref().map(handoff::mark_started);
     // On a processor with L3 domains of different sizes, the game's threads on the largest
     // (cpu_placement.rs): before any thread pool or other thread starts, so all of them
     // start there. Logged once the log is up.
-    let cpu_placed = cpu_placement::place(args.cpu_cache_placement);
+    let mut cpu_placed = cpu_placement::place(args.cpu_cache_placement);
+    // Rayon's global pool (the load-time data building) with the same budget, before its
+    // first use (#3148).
+    cpu_placed.size_rayon();
     if args.explore {
         eprintln!("explore: the free-camera explorer (--explore)");
     }
     let developer_data = args.data.is_some();
-    match setup::text_code_page() {
-        Ok(c) => {
+    let code_page_named = match setup::text_code_page() {
+        Ok((c, named)) => {
             if c != fnv_util::text::CodePage::default() {
                 eprintln!("setup: game text read as {c}");
             }
             fnv_util::text::set_code_page(c);
+            named
         }
         Err(e) => {
             eprintln!("error: {e}");
             return AppExit::error();
         }
-    }
+    };
     // The languages of NVForever's own words (#1443): beside the program, in the home.
     let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf));
     let home = fnv_install::EngineHome::default_root();
@@ -926,9 +1157,77 @@ fn main() -> AppExit {
     // also where the writer has none at hand (saves, test aids; #994).
     fnv_install::remember_game(&install);
     let default_plugins = args.plugins.iter().map(String::as_str).eq(MASTERS);
+    // A Mod Organizer 2 instance named on the command line (#1526): its selected (or
+    // `--profile`) profile's mods layer over Data and its plugins load, with MO2 closed.
+    let mo2 = match &args.mo2 {
+        Some(instance) => match fnv_install::mo2::Layout::open(instance, args.profile.as_deref()) {
+            Ok(l) => {
+                eprintln!("setup: Mod Organizer 2 instance: {} profile {} ({} mod folder(s))", l.mods.display(), l.profile_name(), l.mod_roots().len());
+                Some(l)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                return AppExit::error();
+            }
+        },
+        None => None,
+    };
+    // `--mo2` phase 2b: the profile's own saves and INI files. MO2's `settings.ini` keeps
+    // `LocalSaves` (saves in `<profile>/saves`, which MO2 maps over the game's own folder)
+    // and `LocalSettings` (the profile's copies of `Fallout.ini`/`FalloutPrefs.ini`);
+    // `initweaks.ini` holds the enabled mods' INI tweaks above them
+    // (docs/spec-notes/mod-organizer-profile.md).
+    let saves_dir = mo2.as_ref().and_then(|l| l.saves_dir());
+    if let Some(l) = &mo2 {
+        let inis = l.ini_texts();
+        if inis.is_empty() {
+            eprintln!("settings: the Mod Organizer 2 profile keeps no INI files; NVForever's own settings are used");
+        } else {
+            let names: Vec<String> = inis.iter().map(|(p, _)| p.file_name().unwrap_or_default().to_string_lossy().into_owned()).collect();
+            eprintln!("settings: INI text from the Mod Organizer 2 profile, lowest precedence first: {}", names.join(", "));
+            // The extender's INI functions read it (`nvf_play::script::set_ini_texts`).
+            nvf_play::script::set_ini_texts(inis.into_iter().map(|(_, t)| t).collect());
+        }
+        match &saves_dir {
+            Some(d) => eprintln!("saves: --load reads the Mod Organizer 2 profile's own folder ({}); NVForever's saves go to its own folder", d.display()),
+            None => eprintln!("saves: the profile keeps no local saves; --load uses NVForever's saves folder"),
+        }
+    }
+    if let Some(l) = &mo2 {
+        let (archives, listed) = match l.profile_archives() {
+            Some((list, _)) => {
+                let unlisted: Vec<String> = l.mod_archives().into_iter().filter(|a| !list.iter().any(|n| n.eq_ignore_ascii_case(a))).collect();
+                (unlisted, true)
+            }
+            None => (l.mod_archives(), false),
+        };
+        if !archives.is_empty() {
+            let shown: Vec<&str> = archives.iter().take(5).map(String::as_str).collect();
+            eprintln!(
+                "warning: {} mod archive(s) {} (#1526): {}{}",
+                archives.len(),
+                if listed { "are not ticked in the profile's archive list, so not mounted" } else { "cannot be mounted: the profile names no archive list" },
+                shown.join(", "),
+                if archives.len() > shown.len() { ", …" } else { "" }
+            );
+        }
+    }
     // A player's start (no --data, no --plugins): the home's own plugins.txt (setup.rs).
     // Developer and smoke runs keep the fixed masters below, whatever the list says.
-    if default_plugins && !developer_data {
+    // Under --mo2 the profile's list takes the home list's place (docs/mod-organizer-2.md).
+    if let (true, Some(l)) = (default_plugins, mo2.as_ref()) {
+        match l.profile_plugins() {
+            Ok(p) if !p.is_empty() => {
+                eprintln!("setup: plugins from the Mod Organizer 2 profile ({})", l.profile.display());
+                args.plugins = p;
+            }
+            Ok(_) => eprintln!("warning: the Mod Organizer 2 profile has no active plugins; loading the masters only"),
+            Err(e) => {
+                eprintln!("error: {e}");
+                return AppExit::error();
+            }
+        }
+    } else if default_plugins && !developer_data {
         match setup::plugin_list(&install) {
             Ok(p) => args.plugins = p,
             Err(e) => {
@@ -946,6 +1245,8 @@ fn main() -> AppExit {
     }
     // The run log and crash reports in NVForever's home (crash.rs).
     crash::install(args.data(), args.handoff.is_some());
+    // Player reports: the player's choice, asked once on a player's start (reports/).
+    reports::decide(developer_data, args.handoff.is_some());
     let fail = |e: String| {
         eprintln!("error: {e}");
         crash::early_exit(&e);
@@ -953,8 +1254,44 @@ fn main() -> AppExit {
     };
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
-    let opened = world::open_plugins(args.data(), &args.plugins);
+    // A mods folder's copy of a plugin is opened instead of Data's (fnv_install::plugins):
+    // NVForever's own mods folder, or an MO2 profile's mods from the highest priority down
+    // with its overwrite folder first (#1526).
+    let mods: Vec<PathBuf> = match &mo2 {
+        Some(l) => {
+            let mut roots = l.mod_roots();
+            roots.reverse();
+            roots
+        }
+        None => fnv_install::EngineHome::user().map(|h| h.mods()).into_iter().collect(),
+    };
+    // Test aid (reflections, #2981): the PBR reflection field's generated sets written into a
+    // fresh folder of this run under an explicit NVFOREVER_HOME, every file created new, then
+    // mounted over every other loose layer for this run only, so the mount has authored sets
+    // (nvf_assets pbr_field/reflect.rs `seed_mount_pack`). No mods folder is written.
+    let mount_pack: Option<PathBuf> = if nvf_assets::mount_pack_requested() {
+        match nvf_assets::seed_mount_pack() {
+            Ok((dir, n)) => {
+                eprintln!("pbr mount pack: {n} generated files written under {} (this run's own folder, mounted over every other loose layer)", dir.display());
+                Some(dir)
+            }
+            Err(e) => {
+                eprintln!("pbr mount pack: FAIL {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let opened = world::open_plugins(args.data(), &mods, &args.plugins);
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
+    // No setting names the code page: the plugins' own text says it (#1443).
+    if !code_page_named {
+        setup::guess_code_page(&opened.plugins);
+    }
+    // NVForever's own words in the language of the game's text, when the code page names
+    // one and a file of it was read (#1948); a `language=` in NVForever.ini still wins.
+    setup::follow_text_language();
     // `--load`: the save's place decides where the world starts (its worldspace before
     // the world is opened); its body waits for the scripts (nvf_play::save). It is read
     // in full now, remapped to the plugins opened and checked as the restore will
@@ -966,7 +1303,7 @@ fn main() -> AppExit {
         eprintln!("load: {why}; opening the main menu");
     }
     let pending = match args.load.clone() {
-        Some(name) => match start_from_save(&name, &opened, &mut args) {
+        Some(name) => match start_from_save(&name, &opened, &mut args, saves_dir.as_deref()) {
             Ok(p) => Some(p),
             Err(why) => {
                 eprintln!("load: {why}; opening the main menu");
@@ -979,23 +1316,65 @@ fn main() -> AppExit {
         None => None,
     };
     // NVForever.ini's `[Archive] SArchiveList`, in place of the shipped base list (#1142).
-    if let Some((list, from)) = nvf_play::game_start::archive_list_for_run() {
-        if fnv_vfs::set_archive_list(list.clone()).is_ok() {
-            if std::env::var(fnv_vfs::ARCHIVE_ORDER_ENV).is_ok_and(|v| !v.trim().is_empty()) {
-                eprintln!("vfs: SArchiveList from {from} not used: {} sets the whole order", fnv_vfs::ARCHIVE_ORDER_ENV);
-            } else {
-                eprintln!("vfs: SArchiveList from {from}: {}", list.join(", "));
-                // A name not in Data (a typo) is left out of the order: say so.
-                let present: Vec<String> = std::fs::read_dir(args.data())
-                    .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_ascii_lowercase()).collect())
-                    .unwrap_or_default();
-                for a in list.iter().filter(|a| !present.contains(&a.to_ascii_lowercase())) {
-                    eprintln!("vfs: warning: SArchiveList names {a}, which is not in {}: left out", args.data().display());
+    // Under `--mo2` the profile's list decides instead (below), so the INI's is not read at
+    // all: the VFS takes one list per run, and setting this one first would drop the
+    // profile's without a word (owner report 2026-11-18).
+    if mo2.is_none() {
+        if let Some((list, from)) = nvf_play::game_start::archive_list_for_run() {
+            if fnv_vfs::set_archive_list(list.clone()).is_ok() {
+                if std::env::var(fnv_vfs::ARCHIVE_ORDER_ENV).is_ok_and(|v| !v.trim().is_empty()) {
+                    eprintln!("vfs: SArchiveList from {from} not used: {} sets the whole order", fnv_vfs::ARCHIVE_ORDER_ENV);
+                } else {
+                    eprintln!("vfs: SArchiveList from {from}: {}", list.join(", "));
+                    // A name not in Data (a typo) is left out of the order: say so.
+                    let present: Vec<String> = std::fs::read_dir(args.data())
+                        .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_ascii_lowercase()).collect())
+                        .unwrap_or_default();
+                    for a in list.iter().filter(|a| !present.contains(&a.to_ascii_lowercase())) {
+                        eprintln!("vfs: warning: SArchiveList names {a}, which is not in {}: left out", args.data().display());
+                    }
                 }
             }
         }
     }
-    let game = match GameData::open_for_plugins(args.data(), &args.plugins, &args.nif_schema) {
+    // `--mo2`: the profile's own archive list (archives.txt, or its fallout.ini's
+    // SArchiveList) takes NVForever.ini's place, as MO2's Archives tab sets the game's list
+    // (#1526 phase 2).
+    if let Some(l) = &mo2 {
+        match l.profile_archives() {
+            Some((_, from)) if std::env::var(fnv_vfs::ARCHIVE_ORDER_ENV).is_ok_and(|v| !v.trim().is_empty()) => {
+                eprintln!("vfs: the Mod Organizer 2 profile's archive list from {} not used: {} sets the whole order", from.display(), fnv_vfs::ARCHIVE_ORDER_ENV);
+            }
+            Some((list, from)) => {
+                if fnv_vfs::set_archive_list(list.clone()).is_ok() {
+                    eprintln!("vfs: archive list from the Mod Organizer 2 profile ({})", from.display());
+                    for a in fnv_vfs::DEFAULT_ARCHIVE_LIST.iter().filter(|a| !list.iter().any(|n| n.eq_ignore_ascii_case(a))) {
+                        eprintln!("vfs: warning: the profile's archive list leaves out {a}; its files will be missing");
+                    }
+                }
+            }
+            None => {
+                if nvf_play::game_start::archive_list_for_run().is_some() {
+                    eprintln!("setup: the Mod Organizer 2 profile names no archive list; NVForever.ini's SArchiveList is not used under --mo2, so the shipped default is used");
+                } else {
+                    eprintln!("setup: the Mod Organizer 2 profile names no archive list; using the shipped default");
+                }
+            }
+        }
+    }
+    // The archives beside a plugin in the mods folder are mounted with it. The VFS takes
+    // the layers lowest precedence first (usvfs' merge order), unlike the plugin lookup
+    // above, which wants the overwrite folder first.
+    let game = match &mo2 {
+        Some(l) => {
+            // The mount pack's folder (test aid) as the highest layer, for this run only.
+            let mut roots = l.mod_roots();
+            roots.extend(mount_pack.iter().cloned());
+            GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
+        }
+        None => GameData::open_for_plugins_in_over(args.data(), mods.first().map(|p| p.as_path()), mount_pack.as_deref(), &args.plugins, &args.nif_schema),
+    };
+    let game = match game {
         Ok(g) => g,
         Err(e) => return fail(e),
     };
@@ -1006,12 +1385,36 @@ fn main() -> AppExit {
         crash::tell_player_at_start(&text, args.handoff.is_some());
         return fail(why);
     }
+    // Test aid NVF_PLAY_TEST_START_FOS: start where an original game's save stands (only
+    // read; fos_start.rs).
+    let fos_start = match std::env::var_os("NVF_PLAY_TEST_START_FOS").filter(|v| !v.is_empty()) {
+        Some(p) => match fos_start::read(std::path::Path::new(&p), &args.plugins) {
+            Ok(s) => Some(s),
+            Err(e) => return fail(format!("NVF_PLAY_TEST_START_FOS {}: {e}", std::path::Path::new(&p).display())),
+        },
+        None => None,
+    };
     let t0 = std::time::Instant::now();
-    let world = match WorldData::open(&args.esm_schema, opened, &args.world) {
+    let mut world = match WorldData::open(&args.esm_schema, opened, &args.world) {
         Ok(w) => w,
         Err(e) => return fail(e),
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
+    if let Some(s) = fos_start {
+        if world.index.worldspaces.contains_key(&s.at) {
+            world.set_world(s.at);
+            args.world = format!("0x{:08X}", s.at);
+        } else if world.index.cells.get(&s.at).is_some_and(|c| c.world.is_none()) {
+            args.cell = format!("0x{:08X}", s.at);
+        } else {
+            return fail(format!("NVF_PLAY_TEST_START_FOS: {:08X} is neither a worldspace nor an interior cell", s.at));
+        }
+        args.pos = Some(format!("{},{},{}", s.feet[0], s.feet[1], s.feet[2] + nvf_play::player::EYE_HEIGHT));
+        args.eye_height = 0.0;
+        args.heading = s.heading_deg;
+        // The log is not up yet: straight to the output.
+        eprintln!("test aid NVF_PLAY_TEST_START_FOS: start at {:08X}, feet {:?}, heading {:.1}", s.at, s.feet, s.heading_deg);
+    }
 
     // The main menu stands over a new game, held until New Game is chosen.
     if args.menu {
@@ -1057,6 +1460,9 @@ fn main() -> AppExit {
                     None => return fail(format!("no exterior cell {}", args.cell)),
                 },
             };
+            // A provisional camera seed 400 units over the stored centre vertex: the
+            // player is grounded later on the run's surface (`nvf_play::smooth_terrain`,
+            // fixed after the settings are read), at most its bound from this [design, #2149].
             let ground = world
                 .grid_cell(grid)
                 .and_then(|c| c.land)
@@ -1084,7 +1490,11 @@ fn main() -> AppExit {
     if let Some(saved) = pending.as_ref().and_then(|p| p.body.engine.extra.get(sky::SAVE_HOOK.key)) {
         sky_state.restore_saved(saved);
     }
-    sky_state.shadows = (args.sun_shadows || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
+    sky_state.shadows = (args.sun_shadows.is_some() || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
+    let performance_shadows = args.sun_shadows == Some(shadow_rate::SunShadowMode::Performance);
+    if performance_shadows {
+        sky_state.shadow_layout = sky::CascadeLayout::Performance;
+    }
     if args.shadow_distance > 0.0 {
         sky_state.shadow_distance = args.shadow_distance;
     }
@@ -1120,7 +1530,7 @@ fn main() -> AppExit {
         }
     }
     if let Some(id) = interior {
-        sky_state.interior = fnv_world::lighting::cell_lighting(world.lo, world.schema, id);
+        sky_state.interior = world::effective_cell_lighting(&world, None, id);
         sky_state.interior_grade = sky::SkyState::cell_grade(world.lo, world.schema, id);
     }
     if let Some(f) = args.fog.as_deref() {
@@ -1268,7 +1678,17 @@ fn main() -> AppExit {
         },
         None => graphics::Graphics::preset(graphics_preset(&args)),
     };
-    graphics.fsr = args.fsr.quality();
+    // The requested upscaler: the command line's (upscaler.rs `command_line_choice`).
+    let requested_upscaler = match upscaler::command_line_choice(args.fsr, args.upscaler, args.upscaler_quality) {
+        Ok(choice) => choice,
+        Err(e) => return fail(e),
+    };
+    graphics.upscaler = requested_upscaler;
+    graphics.dlss_model = args.dlss_model.unwrap_or_default();
+    if let Some(level) = args.ambient_occlusion {
+        graphics.ambient_occlusion = true;
+        graphics.ambient_occlusion_level = level;
+    }
     let frame_times = match (args.log_frame_times, args.graphics_cycle.as_deref()) {
         (None, _) => None,
         (Some(every), cycle) => {
@@ -1285,9 +1705,77 @@ fn main() -> AppExit {
     let mut app = App::new();
     // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
     app.set_error_handler(stray_commands::handler);
+    // NVF_FIXED_FRAME_TIME_MS=<ms>: every frame moves the clocks on by that much, whatever the
+    // real frame took (Bevy's `TimeUpdateStrategy::ManualDuration`, set before Bevy's time
+    // plugin, which keeps it), so the test aids reach the same view on the same frame in every
+    // run: renderer changes compared frame by frame (docs/design/fsr-upscaling.md, "Mip
+    // bias"). A diagnostic, not a setting.
+    if let Some(ms) = std::env::var("NVF_FIXED_FRAME_TIME_MS").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|ms| ms.is_finite() && *ms > 0.0) {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(ms / 1000.0)));
+        app.add_systems(Startup, move || info!("fixed frame time: every frame {ms} ms (NVF_FIXED_FRAME_TIME_MS)"));
+    }
+    // Asks for VK_AMD_anti_lag or VK_NV_low_latency2 when Bevy creates the device: before
+    // DefaultPlugins (anti_lag.rs, nv_low_latency.rs).
+    app.add_plugins(anti_lag::AntiLagInitPlugin);
+    // The upscaler this run starts with, before the renderer exists: Streamline must be loaded
+    // and initialised before the Vulkan instance is made (dlss/, #2198), so the settings' INI is
+    // read here by the rows' own rules and precedence, as `apply_stored` applies them at
+    // PostStartup (settings.rs `upscaler_after_ini`). The DLSS loader runs for a DLSS choice or
+    // when NVIDIA's four files are in the DLSS folder, so every later switch is live; the test
+    // aid NVF_DLSS_PRELOAD=1 runs it always, =0 only for DLSS (upscaler.rs, "Start").
+    // Whether the landscape is smoothed (#2149): the command line's state, before any cell
+    // loads; with --play the INI may change it at PostStartup (nvf_play::settings
+    // `fix_smooth_terrain`), still before the first cell.
+    nvf_play::smooth_terrain::set_setting(if args.no_smooth_terrain { nvf_play::smooth_terrain::Smoothing::Off } else { args.smooth_terrain.unwrap_or(nvf_play::smooth_terrain::Smoothing::DEFAULT) });
+    nvf_play::smooth_terrain::fix();
+    // Authored materials (#2981): the run's state, fixed before the first material is made
+    // (the command line's, then the INI's saved row by its precedence), so cached models
+    // never mix the two; the page's row changes the next start's.
+    let authored = settings::authored_after_ini(graphics.authored_materials, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::authored::set_enabled(authored);
+    app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
+    // Reflections on authored materials (#2981): the run's state by the same rule, fixed
+    // before the first NIF pipeline (the opt-in def and the metallic factor); the world
+    // camera's cube is made later, only where the mount has authored sets
+    // (reflection_sky.rs).
+    let reflections = settings::reflections_after_ini(graphics.authored_reflections, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::reflection_cube::set_enabled(reflections && authored);
+    app.add_systems(Startup, move || {
+        info!(
+            "authored reflections: {}",
+            match (reflections, authored) {
+                (true, true) => "on (authored materials reflect the world camera's cube where the mount has authored sets)",
+                (true, false) => "off (Authored materials is off)",
+                _ => "off (setting)",
+            }
+        )
+    });
+    app.add_plugins(reflection_sky::ReflectionSkyPlugin { row: reflections, authored });
+    let start_upscaler = {
+        let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
+        let ini = given.as_ref().and_then(|_| settings::settings_text_at_start()).map(|text| settings::UpscalerIni::read(&text));
+        settings::upscaler_after_ini(graphics.upscaler, ini.as_ref(), given.as_ref())
+    };
+    let startup = upscaler::UpscalerStartup::new(start_upscaler, std::env::var_os(upscaler::PRELOAD_ENV).as_deref(), upscaler::platform_supports_dlss(), dlss::bundle_present);
+    app.insert_resource(startup);
+    app.add_systems(Startup, move || info!("upscaler: {}", startup.describe()));
+    // The Frame generation choice this run starts with, by the row's rule (command line, then the
+    // INI): DLSS Frame Generation stays loaded from the start only for a DLSS choice (dlss/).
+    let start_frame_generation = {
+        let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
+        let ini = given.as_ref().and_then(|_| settings::settings_text_at_start());
+        settings::frame_generation_after_ini(args.frame_generation.unwrap_or_default(), ini.as_deref(), given.as_ref())
+    };
+    dlss::set_frame_generation_at_start(start_frame_generation == frame_gen::FrameGenKind::Dlss);
+    if startup.loads_streamline() {
+        app.add_plugins(dlss::DlssInitPlugin);
+    }
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
+            // Bevy's own renderer plugin, with the GPU the DLSS loader checked asked for by
+            // name when it pinned one (dlss/ "Adapter pin"); otherwise `RenderPlugin::default()`.
+            .set(dlss::render_plugin())
             .set(ImagePlugin {
                 default_sampler: ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,
@@ -1323,7 +1811,7 @@ fn main() -> AppExit {
             .disable::<bevy::ui_widgets::TabPlugin>()
             .disable::<bevy::input_focus::pointer_focus::PointerFocusPlugin>()
             // The console's lines go to the run log too (crash.rs).
-            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, ..default() })
+            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, filter: reports::log_filter(), ..default() })
             .set(WindowPlugin {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
@@ -1335,6 +1823,9 @@ fn main() -> AppExit {
                     visible: args.handoff.is_none(),
                     // Measuring frame times: not held to the display's refresh.
                     present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
+                    // `NVF_SWAPCHAIN_LATENCY=<n>`: frames the swapchain may queue (images: n + 1;
+                    // Bevy's 2 otherwise), for measuring frame generation's pacing.
+                    desired_maximum_frame_latency: std::env::var("NVF_SWAPCHAIN_LATENCY").ok().and_then(|v| v.trim().parse::<u32>().ok()).and_then(std::num::NonZeroU32::new),
                     ..default()
                 }),
                 ..default()
@@ -1342,12 +1833,25 @@ fn main() -> AppExit {
     )
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
-    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
-    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
-    .add_plugins(fps_counter::FpsCounterPlugin(args.fps))
-    // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
-    .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { sync: if args.log_frame_times.is_none() { frame_pace::DisplaySync::Vsync } else { frame_pace::DisplaySync::Off }, cap: 0 }))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))
+    // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
+    .add_plugins(sun_visibility::SunVisibilityPlugin)
+    // The ambient occlusion's shader for the lighting (imported only under its def).
+    .add_plugins(ssao_lighting::SsaoLightingPlugin)
+    .add_plugins(mesh_terrain_blend::MeshTerrainBlendPlugin)
+    // The switches the settings page weighs against the INI (`--play` only), for the
+    // frame split's start-time decision (perf_overlay/split.rs).
+    .add_plugins(perf_overlay::PerfOverlayPlugin(args.fps, play.is_some().then(|| settings::given_switches(&args, &command_line()))))
+    // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap unless
+    // --frame-cap asks for one (a measuring run only: the page's row decides otherwise).
+    .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { sync: if args.log_frame_times.is_none() { frame_pace::DisplaySync::Vsync } else { frame_pace::DisplaySync::Off }, cap: args.frame_cap.unwrap_or(0) }))
+    .add_plugins(anti_lag::AntiLagPlugin(args.latency_reduction))
+    // Defaults snapshots this command-line/default choice before apply_stored reads the INI.
+    .add_plugins(frame_gen::FrameGenPlugin(args.frame_generation.unwrap_or_default()))
     .add_plugins(blit_warm::BlitWarmPlugin)
+    // The driver's pipeline cache kept on disk (pipeline_disk_cache.rs).
+    .add_plugins(pipeline_disk_cache::PipelineDiskCachePlugin)
     // Lights clustered on the CPU, Bevy's own fallback: its GPU clustering made about six
     // new GPU buffers a frame (10,235 in 30 s at night against 4,060 on the CPU), GPU
     // memory made and freed every frame behind the night stalls (#897; wgpu trace,
@@ -1366,6 +1870,10 @@ fn main() -> AppExit {
     .add_plugins(draw_distance::DrawDistancePlugin(draw_distance::DrawDistances::new(&args)))
     // Small objects far away cast no sun shadows (shadow_thin.rs).
     .add_plugins(shadow_thin::ShadowThinPlugin(args.shadow_thin))
+    .add_plugins(shadow_rate::ShadowRatePlugin { performance: performance_shadows })
+    // The sun's cascades snapped to a grid anchored near the camera, then reached toward the sun
+    // behind the player's body (sky::SUN_REACH_BACK) and held, in that order (shadow_anchor.rs).
+    .add_plugins(shadow_anchor::ShadowAnchorPlugin)
     // Interiors draw the rooms seen through portals only (rooms.rs).
     .add_plugins(rooms::RoomsPlugin { off: args.no_room_culling, planes_off: args.no_occlusion_planes, planes_outdoors: args.occlusion_planes_outdoors })
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
@@ -1374,7 +1882,12 @@ fn main() -> AppExit {
     .insert_resource(screen_modifiers)
     .insert_resource(fly::AutoFly(args.auto_fly))
     .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen).with_origin(lod_origin))
+    // What each object block holds by cell (#3014, the distant objects read it).
+    .init_resource::<lod::BlockContents>()
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
+    // The terrain wireframe (#2149), off unless asked for: it builds nothing while off.
+    .add_plugins(terrain_wireframe::TerrainWireframePlugin { on: args.terrain_wireframe })
+    .insert_resource(terrain_wireframe::WireSource::of_records(world.lo, world.schema, world.index))
     .init_resource::<TerrainCache>()
     .init_resource::<imposters::Imposters>()
     .insert_resource(Streamer {
@@ -1402,6 +1915,7 @@ fn main() -> AppExit {
         centre: None,
         waiting: Vec::new(),
         model_overrides: Default::default(),
+        travels: 0,
     })
     .insert_resource(world)
     .init_resource::<nvf_assets::actor::ActorParts>()
@@ -1424,17 +1938,37 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
-    .add_systems(Update, cell_buffer::remember.after(world::stream))
+    .add_systems(Update, sky::tell_sky_colors.after(sky::update_sky))
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys.run_if(move || play.is_none()), sky::weather_region.after(nvf_play::PlaySet::Physics), sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, world::note_other_cameras.after(world::stream))
+    // 4 x 4 near's redraws by distance (#2676): after streaming spawned this frame's cells.
+    .add_plugins(terrain_lod::TerrainLodPlugin)
+    // The landscape's height map around the camera for terrain shadows (#2671); built only
+    // while the Terrain shadows row (or NVF_PLAY_DEBUG_SUN_HEIGHTFIELD) wants it (sun_heightfield.rs).
+    .add_plugins(sun_heightfield::SunHeightfieldPlugin)
+    // Terrain shadow heights from that map, on the GPU (#2671); the Terrain shadows row
+    // (terrain_shadows::follow_graphics) or NVF_PLAY_DEBUG_TERRAIN_SHADOWS turns them on,
+    // nothing allocated or dispatched while off (terrain_shadows.rs).
+    .add_plugins(terrain_shadows::TerrainShadowsPlugin)
+    .add_systems(Update, (cell_buffer::remember, cell_buffer::tell_game).chain().after(world::stream))
+    .add_systems(Update, world::script_markers.before(world::stream))
+    // The start's cells read ahead under its picture hold, before `stream` may run.
+    .add_systems(Update, world::read_ahead_under_hold.before(world::stream))
     .add_systems(Update, world::draw_waiting_actors.after(world::stream))
     // Actors of the next ring of cells read and prepared before they come into range.
     .insert_resource(readahead::ReadAhead::from_env())
     .add_systems(Update, readahead::read_ahead.run_if(world::world_not_held).after(world::stream).after(world::draw_waiting_actors))
     .add_systems(Last, readahead::report)
+    .init_resource::<stream_pace::StreamPace>()
+    .add_systems(First, stream_pace::follow)
+    .add_systems(Last, stream_pace::report)
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    .add_systems(Update, particles::sync_idle_materials.after(anim_objects::hold).before(nvf_assets::material_anim::bind_rig_materials))
     // Vertex morphs (waving flags, sagging wires): docs/spec-notes/vertex-morphs.md.
     .add_systems(Update, nvf_assets::morph::play_vertex_morphs.after(world::stream))
+    // [design, #2685] Manager morphs follow the active rig, including restored groups.
+    .add_systems(Update, nvf_assets::morph::play_sequence_morphs.after(advance_animations))
     .init_resource::<activators::ActivatorStats>()
     .add_systems(
         Update,
@@ -1446,25 +1980,41 @@ fn main() -> AppExit {
     .add_systems(Last, activators::report)
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_plugins(destroyed::DestroyedPlugin)
-    .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
+    // The full-detail scenery ring (#2701), off unless the settings or --graphics-only turn
+    // it on: draw-only cells beyond the loaded ones (full_detail.rs).
+    .add_plugins(full_detail::FullDetailPlugin)
+    // Distant objects (#3014), off unless the settings or --graphics-only turn it on:
+    // draw-only scenery beyond the ring the LOD blocks do not hold (distant_objects.rs).
+    .add_plugins(distant_objects::DistantObjectsPlugin)
+    // Test aid NVF_PLAY_TEST_GAME_DIGEST: the game's state at given times (game_digest.rs).
+    .add_plugins(game_digest::GameDigestPlugin)
+    .add_systems(Update, (doors::script_drawn, doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(PreUpdate, actors::take_background_work)
     .init_resource::<world::LateMeshes>()
     .add_systems(PreUpdate, (world::take_cell_work, world::respecialize_late_meshes).chain())
     .add_systems(Last, world::report)
-    .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
+    .add_systems(Update, (locomotion::walk_test, locomotion::script_turns, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     // Clips that drive actors' part materials (the Securitron screens), once posed.
     .add_systems(Update, actor_materials::pose.after(locomotion::drive))
+    .init_resource::<actor_materials::PlayerRigMaterials>()
     .add_systems(Update, actor_materials::pose_player.after(nvf_play::player::BodySet))
     .add_systems(Update, timelapse.after(sky::update_sky))
-    // The sun's cascades reach behind the player's body (sky::SUN_REACH_BACK).
     // Only the sun's casters that can shade the view's slice of each cascade (#1378).
+    // Placed models' and effect models' billboard nodes face the camera (#2549).
+    .add_systems(PostUpdate, world::face_camera.before(bevy::transform::TransformSystems::Propagate))
     .add_systems(PostUpdate, sky::sun_casters_over_slice.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
-    .add_systems(PostUpdate, sky::reach_toward_sun.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(bevy::light::SimulationLightSystems::UpdateLightFrusta))
+    .add_systems(PostUpdate, shadow_rate::share_mirror_casters.after(sky::sun_casters_over_slice).after(player_body::near_shade_casters))
+    // The sun's cascades' far bounds and texel sizes, logged when they change.
+    .add_systems(PostUpdate, sky::log_sun_cascades.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(shadow_anchor::anchor_cascades))
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
-    .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));
+    .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), mo2_folders: report_mo2_folders(&args), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
+    .add_systems(Last, (crash::note_place, crash::test_device_lost, events_log::note_context, stray_commands::report))
+    // After Bevy's window-closed exit, which writes AppExit in Last too: before it, closing
+    // the window left no clean-exit line and the run was reported as a native crash (#2203).
+    .add_systems(Last, crash::report_exit.after(bevy::window::ExitSystems));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
     }
@@ -1489,6 +2039,9 @@ fn main() -> AppExit {
     app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
     app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: args.dialogue_recentre && !args.no_dialogue_recentre });
     app.insert_resource(nvf_play::dialogue_zoom::ZoomSettings { enabled: !args.no_dialogue_zoom });
+    if let Some(hz) = args.physics_hz {
+        app.insert_resource(nvf_play::phys_rate::ForcedRate(hz));
+    }
     if let Some(p) = pending {
         app.insert_resource(p);
     }
@@ -1505,9 +2058,14 @@ fn main() -> AppExit {
         // Streaming follows the camera, which the player systems move: stream after them.
         // The loading screen sends the travel in the Input set and reads in `Last` whether
         // the renderer is done: both this frame.
+        // `--mo2` does not replace `SaveConfig`: the profile's `saves` folder is read for
+        // `--load` only (`start_from_save`), and every save NVForever makes goes to its own
+        // home folder, never into MO2's (maintainer decision 2026-11-18; #1526 phase 2b).
         app.add_plugins(nvf_play::PlayPlugin(data))
-            .add_systems(Update, (worldspace::switch, world::travel, world::cell_image_space).chain().after(nvf_play::PlaySet::Input).before(world::stream))
+            .add_systems(Update, (worldspace::switch, world::travel, world::cell_image_space, world::cell_lighting).chain().after(nvf_play::PlaySet::Input).before(world::stream).before(sky::weather_region))
             .add_plugins(pipeline_gate::PipelineGatePlugin)
+            // Meshes drawn unculled under the loading screen (pipeline_prewarm.rs).
+            .add_plugins(pipeline_prewarm::PipelinePrewarmPlugin)
             .add_systems(Update, world::loading_gate.after(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
         // Animation groups scripts play on objects (object_anims.rs).
@@ -1518,6 +2076,7 @@ fn main() -> AppExit {
         app.add_plugins(texture_swap::TextureSwapPlugin);
         // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
         app.add_plugins(effect_shaders::EffectShadersPlugin);
+        app.add_plugins(vats_highlight::VatsHighlightPlugin);
         // How many refracting meshes are in view, for the log (refraction.rs).
         app.add_plugins(refraction::RefractionPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
@@ -1545,6 +2104,8 @@ fn main() -> AppExit {
         };
         // Also with --no-head-tracking: the settings page can switch it on.
         app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
+        rigid_head_probe::install(&mut app);
+        app.add_plugins(turret_aim::TurretAimPlugin);
         // Also with --no-foot-ik: the settings page can switch it on.
         app.add_plugins(foot_ik::FootIkPlugin { enabled: !args.no_foot_ik });
         // Actors jumping and falling: their jump and landing clips (actor_jumps.rs); the
@@ -1555,8 +2116,18 @@ fn main() -> AppExit {
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
             // The Vigor Tester's machine: its camera and lights, the room behind it.
             app.add_plugins(vigor_view::VigorViewPlugin);
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway, head_bob: !args.no_head_bob, weapon_lower: !args.no_weapon_lower, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, wrecks::WrecksPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: args.weapon_sway, head_bob: args.head_bob, weapon_lower: !args.no_weapon_lower, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, wrecks::WrecksPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin, grass_fire_fx::GrassFireFxPlugin));
             app.insert_resource(nvf_play::aim_zoom::Scope3d { on: args.scope_3d, lens: false });
+            // Advanced Movement's parts are off unless switched on, Advanced Recoil on under
+            // the Global Toggle [design: the owner, 2026-11-16, "make sure all advanced
+            // movement features are off by default except the improved/advanced recoil"].
+            let mut inertia = nvf_play::inertia::MovementInertia::switched(args.movement_inertia);
+            inertia.weapon_handling = args.weapon_handling;
+            inertia.smooth = args.animation_smoothing;
+            inertia.recoil = !args.no_advanced_recoil;
+            inertia.sprint = args.sprint;
+            inertia.advanced = !args.no_advanced_movement;
+            app.insert_resource(inertia);
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
@@ -1568,6 +2139,8 @@ fn main() -> AppExit {
             // The player knocked down (player_knockdown.rs).
             app.add_plugins(player_knockdown::PlayerKnockdownPlugin);
             app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin, appearance::AppearancePlugin, zones::ZonesPlugin));
+            // Weapon models scripts set, drawn (weapon_models.rs).
+            app.add_plugins(weapon_models::WeaponModelsPlugin);
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
             if shadow_probe::enabled() {
@@ -1580,6 +2153,8 @@ fn main() -> AppExit {
             app.add_plugins(own_sounds::OwnSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
+            // AttachUIComponent's rects over their model nodes (ui_attach.rs, #1835).
+            app.add_plugins(ui_attach::UiAttachPlugin);
             // Who says a line to someone turns to them (speech_look.rs).
             app.add_plugins(speech_look::SpeechLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.
@@ -1604,6 +2179,8 @@ fn main() -> AppExit {
             app.add_plugins(actor_scale::ActorScalePlugin);
             // Creatures' own speeds and alert stance (creature_pace.rs).
             app.add_plugins(creature_pace::CreaturePacePlugin);
+            // How fast chosen actors walk (NVF_PLAY_TEST_WALK_PROBE; nothing without it).
+            app.add_plugins(walk_probe::WalkProbePlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
@@ -1628,7 +2205,8 @@ fn main() -> AppExit {
         }
     }
     if play.is_some() {
-        app.add_systems(Update, (script_weather, sky_follows_game).chain().before(sky::update_sky));
+        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game).chain().before(sky::update_sky));
+        app.add_systems(Update, settings::script_fov.before(nvf_play::PlaySet::Scripts));
         // The weather's sounds, precipitation and lightning (weather_fx.rs).
         app.add_plugins(weather_fx::WeatherFxPlugin);
     }
@@ -1643,7 +2221,8 @@ fn main() -> AppExit {
         // The props idles hold (anim_objects.rs): after the idles started and ended.
         app.init_resource::<anim_objects::AnimObjects>()
             .add_systems(Startup, anim_objects::read)
-            .add_systems(Update, anim_objects::hold.after(idles::drive))
+            .add_systems(Update, anim_objects::hold.after(idles::drive).before(advance_animations))
+            .add_systems(Update, idles::play_npc_sequences.after(idles::drive))
             .add_systems(Last, anim_objects::report);
     }
     app.init_resource::<idles::PlayerIdles>();
@@ -1669,7 +2248,7 @@ fn main() -> AppExit {
                 .add_systems(Startup, residents::log_startup)
                 .add_systems(Update, residents::drive.after(world::stream).after(readahead::read_ahead).after(nvf_play::PlaySet::Scripts).before(nav::drive))
                 .add_systems(Update, residents::melee_knockback::arrange.after(residents::drive).run_if(resource_exists::<nvf_play::MeleeKnockbackAid>))
-                .add_systems(Last, residents::report);
+                .add_systems(Last, residents::report.after(bevy::window::ExitSystems));
             // Patrols and sandboxes go on after a load where the save had them.
             if play.is_some() {
                 nvf_play::save::add_save_hook(&mut app, residents::SAVE_HOOK);
@@ -1710,7 +2289,10 @@ fn main() -> AppExit {
             // The start's loading screen does not count: the run's seconds are counted
             // from when it comes down (nvf_play::loading::StartCover).
             if !clocks.3.as_deref().is_some_and(|l| l.starting()) {
-                t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+                // (A clock running at no speed, the classic VATS style's full stop, counts
+                // real time as well.)
+                let still = clocks.0.is_paused() || nvf_play::pause::stands_still(false, clocks.0.relative_speed());
+                t.0 += if still { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
             }
             t.1 += 1;
             // The seconds a late start held the world test aids back (`--play` with
@@ -1771,10 +2353,12 @@ fn main() -> AppExit {
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
                     info!(
-                        "FaceGen: {} shapes morphed, {} faces textured, {} skins textured, {} shapes tinted in the shader ({:.1} ms making offsets, {:.1} ms reading .egt files), {} EGMs not matching their shape",
+                        "FaceGen: {} shapes morphed, {} faces textured, {} skins textured ({} offsets made ahead on a worker thread, {} of them drawn), {} shapes tinted in the shader ({:.1} ms making offsets, {:.1} ms reading .egt files), {} EGMs not matching their shape",
                         fg.morphed_shapes,
                         fg.faces_tinted,
                         fg.skins_tinted,
+                        fg.offsets_ahead,
+                        fg.offsets_ahead_used,
                         fg.shapes_tinted,
                         fg.offset_time.as_secs_f64() * 1e3,
                         fg.egt_time.as_secs_f64() * 1e3,
@@ -1786,8 +2370,13 @@ fn main() -> AppExit {
         };
         app.add_systems(Update, summary);
     }
+    if play.is_none() {
+        app.add_systems(Startup, || info!("{}", nvf_play::smooth_terrain::describe()));
+    }
     if play.is_some() {
         settings::register(&mut app);
+        dlss_download::add(&mut app);
+        quality_probe::register(&mut app);
         console_toggles::register(&mut app);
         app.init_resource::<handoff::Handoff>().add_systems(Update, (handoff::leave, handoff::reveal.after(world::loading_gate), handoff::hold_restore.after(handoff::reveal)));
         handoff::add_end_now(&mut app);
@@ -1795,7 +2384,19 @@ fn main() -> AppExit {
             app.insert_resource(handoff::LoadFailed(why)).add_systems(Update, handoff::tell_load_failed);
         }
         if let Some(file) = args.handoff.clone() {
+            match &handoff_marked {
+                Some(Err(e)) => warn!("handoff: started as the new run, but cannot tell the old run so ({}: {e}); it ends after {} s", handoff::started_marker(&file).display(), handoff::JOIN_WAIT_SECS),
+                _ => info!("handoff: started as the new run (ready file {})", file.display()),
+            }
             app.insert_resource(handoff::Hidden::new(file, args.window_maximized));
+            // The save waits from the first frame, not only once `hold_restore` has run:
+            // the first frame's Update takes seconds (7.2 s observed), long enough for the
+            // script data to come in during it, and `run_scripts` took it, putting the
+            // save back before the old run had ended, when it ran before `hold_restore`
+            // (#2210).
+            if let Some(mut s) = app.world_mut().get_resource_mut::<nvf_play::script::ScriptState>() {
+                s.held = true;
+            }
         }
         nvf_play::save::add_save_hook(&mut app, sky::SAVE_HOOK);
     }
@@ -1806,14 +2407,44 @@ fn main() -> AppExit {
             }
         });
     }
-    app.run()
+    // `Update` runs its systems one after another on the main thread (Bevy's
+    // single-threaded executor). The game's Update is some hundreds of small systems,
+    // most of them chained or sharing data, so the multithreaded executor found little to
+    // run side by side and its own work (a task per system, woken on another thread) cost
+    // more than the systems did: at Goodsprings the schedule took about 4.2 ms of the
+    // main thread around 1.5 ms of systems [observed 2026-11-10, Ryzen 7 7700X, release
+    // build, frames held by the CPU: Goodsprings 5.67 -> 5.36 ms, the Strip 5.93 -> 5.68 ms,
+    // a 25-a-side battle 10.72 -> 10.62 ms, the Prospector Saloon unchanged;
+    // docs/design/frame-rate-audit.md section 9]. Systems that split their own work over
+    // the task pools (transform propagation, par_iter) still do. The other schedules
+    // measured no different either way and keep Bevy's default.
+    // `NVF_PLAY_TEST_UPDATE_EXECUTOR=multi` (test aid) puts Bevy's default back, for
+    // measuring one against the other.
+    if std::env::var("NVF_PLAY_TEST_UPDATE_EXECUTOR").as_deref() != Ok("multi") {
+        app.edit_schedule(Update, |s| {
+            s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
+        });
+    }
+    let exit = app.run();
+    // The app and its renderer are gone; Streamline shut down before the device and instance it
+    // used (dlss/, "Shutdown"). Nothing when Streamline was not loaded.
+    dlss::shutdown();
+    exit
 }
 
 /// `--load <name>`: read the save in full for the plugins opened and start at its place
 /// (the world, cell, position, view, hour and weather of `args`); why not, when it cannot
 /// be loaded.
-fn start_from_save(name: &str, opened: &world::OpenedPlugins, args: &mut Args) -> Result<nvf_play::save::PendingLoad, String> {
-    let path = nvf_play::save::SaveConfig::default().path_of(name)?;
+fn start_from_save(name: &str, opened: &world::OpenedPlugins, args: &mut Args, saves: Option<&std::path::Path>) -> Result<nvf_play::save::PendingLoad, String> {
+    // `--mo2` with the profile's own saves: a bare name is looked up in the profile's
+    // folder for reading only (main, `saves_dir`); a path is used as given. Writes always
+    // use NVForever's own folder: this config is never put in the app (maintainer decision
+    // 2026-11-18).
+    let cfg = match saves {
+        Some(d) => nvf_play::save::SaveConfig::with_dir(Some(d.to_path_buf())),
+        None => nvf_play::save::SaveConfig::default(),
+    };
+    let path = cfg.path_of(name)?;
     let plugins: Vec<fnv_save::PluginEntry> = opened.plugins.iter().map(|p| fnv_save::PluginEntry { name: p.name.clone(), size: p.file_size }).collect();
     let (mut header, body, order) = nvf_play::save::read_for_load(&path, &plugins).map_err(|e| format!("--load {name}: {e}"))?;
     // A save made with another load order: the place's FormIDs move to the current one; a
@@ -1984,20 +2615,65 @@ models {} (failed {})  textures failed {}  terrain layers {}  quadrants without 
 }
 
 fn keys(
-    input: Res<ButtonInput<KeyCode>>,
+    input: nvf_play::pad::ActionButtons<KeyCode>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
-    mut n: Local<u32>,
+    (tweaks, bindings): (Option<Res<nvf_play::tweaks::TweakSettings>>, Option<Res<nvf_play::bindings::Bindings>>),
+    mut hidden: Option<ResMut<nvf_play::free_cam::MenusHidden>>,
+    mut held: Local<Option<(u8, bool, std::path::PathBuf)>>,
 ) {
+    let input = input.snapshot();
+    // A screenshot under the Shift Hides Menus tweak: the HUD goes for a few frames, the
+    // picture is taken in the third, and the HUD comes back as it was (docs/design/tweaks.md).
+    if let Some((frame, was, path)) = held.as_mut() {
+        *frame += 1;
+        if *frame == 3 {
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
+        }
+        if *frame >= 6 {
+            if let Some(h) = hidden.as_mut() {
+                h.0 = *was;
+            }
+            *held = None;
+        }
+        return;
+    }
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
-    if input.just_pressed(KeyCode::F12) {
-        *n += 1;
-        let path = format!("nvforever-{:03}.png", *n);
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+    // The Screenshot binding (F12 unless the player rebinds it, Controls > Additional Features):
+    // a shot in the home's screenshots folder at the first free number, through the write
+    // guard. It went to the working folder unguarded, and the count restarted at 1 each
+    // run, over the last run's shots [#1987].
+    // Without the game's bindings (the viewer), F12.
+    let shot = match bindings.as_deref() {
+        Some(b) => nvf_play::bindings::binding_just_pressed(Some(b), nvf_play::bindings::Control::Screenshot, |k| input.just_pressed(k), |_| false),
+        None => input.just_pressed(KeyCode::F12),
+    };
+    if shot {
+        let dir = fnv_install::EngineHome::user().map_or_else(|| std::path::PathBuf::from("."), |h| h.screenshots());
+        let path = fnv_install::first_unused(&dir, "nvforever-", "png");
+        let ready = fnv_install::guard_write(&path, None)
+            .map_err(|e| e.to_string())
+            .and_then(|()| std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display())));
+        let shift = input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        match ready {
+            Ok(()) => {
+                info!("screenshot: {}", path.display());
+                match hidden.as_mut().filter(|_| shift && tweaks.as_ref().is_some_and(|t| t.shift_screenshot_hides)) {
+                    Some(h) => {
+                        *held = Some((0, h.0, path));
+                        h.0 = true;
+                    }
+                    None => {
+                        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+                    }
+                }
+            }
+            Err(e) => warn!("screenshot not taken: {e}"),
+        }
     }
 }
 
@@ -2025,13 +2701,34 @@ fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, wor
     if g.take_weather_release() {
         sky.release_script_weather();
     }
+    report_script_weather(g, &sky);
+    // The scripts' wind and lightning (SetWindDirection, TriggerLightningFX;
+    // `fnv_game::nvse_jip12`); their climate and moons: `worldspace::script_sky`.
+    let wind = g.script_wind();
+    if sky.script_wind != wind {
+        sky.script_wind = wind;
+    }
+    if g.take_lightning() {
+        sky.lightning_request = true;
+    }
+}
+
+/// Publish this bridge pass's sky observation; clock/fade scheduling stays unchanged.
+fn report_script_weather(g: &mut fnv_game::Game<'_>, sky: &sky::SkyState) {
     let (shown, raining) = (fnv_sim::FormId(sky.weather.form_id), sky.raining());
     if g.weather.shown != Some(shown) || g.weather.raining != raining {
         g.set_shown_weather(shown, raining);
     }
+    // Progress changes even while the shown form and stable-rain flag do not.
+    g.set_shown_weather_sample(sky.fade, sky.weather.classification, sky.prev.is_none());
 }
 
-fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>) {
+fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>, hold: Option<ResMut<nvf_play::pipboy::data::travel::WeatherHold>>) {
+    // A short fast travel under the player's Improved Weather tweak keeps the weather.
+    if let Some(mut h) = hold.filter(|h| h.0) {
+        h.0 = false;
+        sky.keep_weather_once();
+    }
     // The weather lists' gating globals as the scripts set them (VStoryEventHooverDamBattleStarted).
     for id in sky.gate_globals() {
         if let Ok(v) = sim.world.global(fnv_sim::FormId(id)) {
@@ -2144,7 +2841,8 @@ struct AnimCost {
 
 fn advance_animations(
     time: Res<Time>,
-    playing: Query<&mut nvf_assets::anim_play::Playing>,
+    // A full-detail ring copy's idle stays still while its cell is hidden (full_detail.rs).
+    playing: Query<&mut nvf_assets::anim_play::Playing, Without<full_detail::RingDormant>>,
     transforms: Query<&mut Transform>,
     visibility: Query<&mut Visibility>,
     mut cost: ResMut<AnimCost>,
@@ -2222,11 +2920,46 @@ mod tests {
     }
 
     #[test]
+    fn dlss_model_takes_default_or_a_preset() {
+        use crate::upscaler::DlssModel;
+        assert_eq!(parse(&[]).dlss_model, None, "not given: the default model, the INI's in normal play");
+        for (name, model) in [("default", DlssModel::Default), ("j", DlssModel::J), ("k", DlssModel::K), ("l", DlssModel::L), ("m", DlssModel::M)] {
+            assert_eq!(parse(&["--dlss-model", name]).dlss_model, Some(model), "{name}");
+        }
+        assert_eq!(parse(&["--dlss-model=l"]).dlss_model, Some(DlssModel::L));
+        let line = |m: &str| with_default_mode(["nvforever", "--dlss-model", m].map(String::from).to_vec());
+        assert!(Args::try_parse_from(line("a")).is_err(), "removed presets are not offered");
+        assert!(Args::try_parse_from(line("n")).is_err());
+    }
+
+    #[test]
     fn no_arguments_open_the_main_menu() {
         for a in [&[][..], &["--data", "D"], &["--data=D", "--run-seconds", "20", "--size", "1600x900", "--no-music"]] {
             let args = parse(a);
             assert!(args.play && args.menu && !args.explore, "{a:?}");
         }
+    }
+
+    /// `--ambient-occlusion` alone means Quality, `=performance` the cheaper level; the value
+    /// needs its `=`, as `--sun-shadows`'s.
+    #[test]
+    fn ambient_occlusion_takes_an_optional_level() {
+        use crate::ssao::AoLevel;
+        assert_eq!(parse(&["--cell", "Goodsprings"]).ambient_occlusion, None);
+        assert_eq!(parse(&["--ambient-occlusion", "--cell", "Goodsprings"]).ambient_occlusion, Some(AoLevel::Quality));
+        assert_eq!(parse(&["--ambient-occlusion=performance"]).ambient_occlusion, Some(AoLevel::Performance));
+        assert_eq!(parse(&["--ambient-occlusion=quality", "--graphics", "vanilla"]).ambient_occlusion, Some(AoLevel::Quality));
+    }
+
+    /// `--sun-shadows` alone still means the default mode (Quality); `=performance` the
+    /// cheaper one; the value needs its `=`, so a following argument is never taken for it.
+    #[test]
+    fn sun_shadows_take_an_optional_mode() {
+        use crate::shadow_rate::SunShadowMode;
+        assert_eq!(parse(&["--cell", "Goodsprings"]).sun_shadows, None);
+        assert_eq!(parse(&["--sun-shadows", "--cell", "Goodsprings"]).sun_shadows, Some(SunShadowMode::Quality));
+        assert_eq!(parse(&["--sun-shadows=performance"]).sun_shadows, Some(SunShadowMode::Performance));
+        assert_eq!(parse(&["--sun-shadows=quality"]).sun_shadows, Some(SunShadowMode::Quality));
     }
 
     #[test]
@@ -2293,3 +3026,6 @@ mod tests {
         assert!((horizontal(16.0 / 9.0) - 91.31).abs() < 0.01);
     }
 }
+
+#[cfg(test)]
+mod mesh_blend_shader_tests;

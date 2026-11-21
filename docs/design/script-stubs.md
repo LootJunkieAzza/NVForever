@@ -56,14 +56,14 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 
 | Function | Opcode | Calls | Conditions | Over | Engine hook |
 |---|---|---|---|---|---|
-| ResetAI | 0x11FA | 711 | 0 | packages (`crate::ai`): the script package dropped, goal and unreachable packages forgotten, a Look let go, packages chosen again | the residents take the new package |
+| ResetAI | 0x11FA | 711 | 0 | packages (`crate::ai`): the script package dropped, goal and unreachable packages forgotten, a Look let go, packages chosen again; the AI is asked to take the package up afresh even when the same one is chosen (`RefExtra::ai_reset`, issue #2119) | the residents take the package up afresh: off its furniture by the exit clip, goal and walk gone, begun again (sitting down again when the package says so), a Dialogue package that had talked greets once more [design, actor-behaviour.md §5]; the original's seated RingoRef read GET_UP one loop after ResetAI, then TRAVEL [observed: owner-decision-captures.md od_06]; sleepers not established (od_06 (c)) |
 | StopLook / Look | 0x105D / 0x105C | 242 / 159 | 0 | `Game::script_look` | `nvforever` `script_look.rs`: a `LookOverride` over every other look (the player, an actor, or a marker's position); with `rotateBody` 1 the whole body turns to the target until StopLook [documented: GECK wiki Look]: `fnv_ai` turns an actor it runs at 145°/s and keeps it on the target to within a degree (`social::LOOK_TURN_RATE`, `Game::body_looks`); a walker walks on along its route with its body turned to the target and does not sit down until StopLook; after StopLook nothing turns the body back [observed: RingoRef, AI observer campaign `knockdown_look` 2026-10-19: 0° to 89° at 140–145°/s from the first frame, the body within 1° of the player while he walked 120 units to his chair, seated 9 samples after StopLook]. Without the AI (no `--play`) `script_look.rs` turns a standing actor on the spot with a conversation's turn (`dialogue_look::BodyTurn`, again whenever the target is 30° off its front) [design] |
 | IncrementScriptedChallenge | 0x1275 | 134 | 0 | `Game::challenge_step`: progress against the CHAL DATA threshold; a recurring one starts again from 0; completion runs the reward script and shows a corner message (challenges.md) | none |
 | GetCurrentAIProcedure | 0x108F | 32 | 64 | package type, what the AI layer has the actor do (`fnv_game::ai::AiPhase`: on the way 0, a sandbox's doing), goal met (17 DONE for the package types that end), getting up 21, combat (13), search (36), conversation (4); the codes from the AI observer's samples of the original (§3.16, packages.md §4, procedure codes) | `fnv_ai` tells the phase each update |
 | ForceActiveQuest | 0x11DD | 82 | 0 | `UiRequests::active_quest` | the Pip-Boy DATA page takes it (`pipboy data: active quest … (ForceActiveQuest)`) |
 | ForceTerminalBack | 0x1223 | 80 | 0 | `Terminals::back`, handed on by `terminal::choose` | the terminal goes back one level or closes; counted in the terminal summary |
 | IsSneaking | 0x111E | 35 | 33 | `Senses::motion` | `control::tell_scripts` (the player, every frame), `detection.rs` (everyone measured) |
-| GetLineOfSight | 0x101B | 49 | 0 | the detection last measured for the pair (`Detection::seen`: line of sight within ±95°) | `detection.rs` (already) |
+| GetLineOfSight | 0x101B | 49 | 0 | the detection last measured for the pair (`Detection::seen`: line of sight within ±95°); the player on a body: `Senses::camera_sees` (#3232) | `detection.rs` (already; bodies from the camera) |
 | IsMoving | 0x1019 | 0 | 49 | `Senses::anim` (the way told, §3.13), else `Senses::motion` (moving reads 1) | `anim_state.rs`, `detection.rs` |
 | GetCurrentAIPackage | 0x106E | 16 | 15 | package type codes; 5 combat, 29 search, 6 conversation | none |
 | AddSPECIALPoints | 0x1219 | 21 | 0 | `SpecialSheet::for_menu`: more points, the old values the floor; opens 1048 as its attributes page (levelup.md §8) | the attributes page opens with those rules (Intense Training) |
@@ -575,7 +575,7 @@ Notes on the most used:
   screen. No GECK wiki page. Implemented 2026-10-16: the game keeps the last texture per
   shape of each reference (`fnv_game::functions::misc::swap_texture`), the engine puts
   `textures\<texture>.dds` on the drawn shape of that name (nvforever `texture_swap.rs`);
-  `##` is dropped [hypothesis]. Not part of saves.
+  `##` is dropped [hypothesis], on both sides: the model keeps it on its shape names, so the end slides' `##gs01:0` matches gs01.nif's `##GS01:0` only with it dropped there too [observed: fnvtool nif decode; until 2026-11-12 it was dropped from the call only, and the model's own first slide stayed up, issue #2226]. Not part of saves.
 - **GetVATSValue** (250 conditions): implemented 2026-10-18 for VATS mode, NVForever's own
   mark and fire (docs/design/vats-mode.md §12): the marked shot leaving now, 0 otherwise.
   GetVATSMode with it (0 off, 1 marking, 4 firing).

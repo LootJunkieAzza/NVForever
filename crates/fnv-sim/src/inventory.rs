@@ -14,6 +14,10 @@
 //! menus list a stack as one row per condition and mods, and moving or equipping a row
 //! takes its own units [owner, 2026-10-16: six Varmint Rifles, one at 95 %, show as a row
 //! of five and a row of one; weapon-mods.md §3 for the mods].
+//!
+//! A live unit ([`Extra::live`], a planted explosive) is in its own group: counted and
+//! weighed with the rest, but no [`Pick`] names it, so nothing takes, equips or moves it
+//! but the blast ([`Inventory::take_live`]) [design, #1640; pickpocket.md §5].
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,6 +38,13 @@ pub struct Extra {
     /// GECK wiki GetEquippedWeaponModFlags; docs/spec-notes/weapon-mods.md §3].
     #[serde(skip_serializing_if = "is_zero", default)]
     pub mods: u8,
+    /// A live explosive the player planted in this holder's pocket (`fnv_game::pickpocket`,
+    /// docs/spec-notes/pickpocket.md §5): reserved for its blast, so no [`Pick`] names it
+    /// and no equip, use, drop, transfer or removal takes it; only
+    /// [`Inventory::take_live`] (the blast) and [`Inventory::set_live_count`] touch it
+    /// [design, #1640]. Absent from saves when false, so older saves read as before.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub live: bool,
 }
 
 fn is_zero(m: &u8) -> bool {
@@ -82,9 +93,10 @@ impl Extra {
         at.is_none_or(|c| self.condition_or_whole() == c)
     }
 
-    /// Whether this unit is one of those `pick` names.
+    /// Whether this unit is one of those `pick` names. A live unit ([`Extra::live`]) is
+    /// never picked.
     pub fn picked(&self, pick: Pick) -> bool {
-        self.is_at(pick.condition) && pick.mods.is_none_or(|m| self.mods == m)
+        !self.live && self.is_at(pick.condition) && pick.mods.is_none_or(|m| self.mods == m)
     }
 }
 
@@ -217,11 +229,46 @@ impl From<BTreeMap<FormId, StackRepr>> for Inventory {
 pub struct WeightRules {
     pub light: Option<(f32, f32)>,
     pub heavy_weapons: Option<(f32, f32)>,
+    /// The player's weightless tweaks (NVForever's settings, `fnv_game::tweaks`) [design: docs/design/tweaks.md]:
+    /// item kinds that weigh nothing ([`WEIGHTLESS_ARMOR`] …, bits), and armour or
+    /// power armour that weighs nothing while worn. Absent from older saves.
+    #[serde(default)]
+    pub weightless: u8,
+    #[serde(default)]
+    pub weightless_worn_armor: bool,
+    #[serde(default)]
+    pub weightless_worn_power_armor: bool,
+    /// The player's Hardcore Tweaks (`fnv_game::tweaks`): ammunition weighs (`Some(true)`)
+    /// or does not (`Some(false)`) whatever the Hardcore switch; `None` follows it
+    /// [design: docs/design/tweaks.md]. Absent from older saves.
+    #[serde(default)]
+    pub ammo_weight: Option<bool>,
 }
+
+/// [`WeightRules::weightless`]'s bits.
+pub const WEIGHTLESS_ARMOR: u8 = 1;
+pub const WEIGHTLESS_AID: u8 = 2;
+pub const WEIGHTLESS_AMMO: u8 = 4;
+pub const WEIGHTLESS_WEAPONS: u8 = 8;
+pub const WEIGHTLESS_MISC: u8 = 16;
 
 impl WeightRules {
     pub fn is_none(&self) -> bool {
-        self.light.is_none() && self.heavy_weapons.is_none()
+        self.light.is_none() && self.heavy_weapons.is_none() && self.weightless == 0 && !self.weightless_worn_armor && !self.weightless_worn_power_armor && self.ammo_weight.is_none()
+    }
+
+    /// Whether an item of `kind` weighs nothing under the weightless tweaks, `worn` and
+    /// `power_armor` saying how it is held.
+    pub fn weightless(&self, kind: ItemKind, worn: bool, power_armor: bool) -> bool {
+        let bit = match kind {
+            ItemKind::Armor => WEIGHTLESS_ARMOR,
+            ItemKind::Aid => WEIGHTLESS_AID,
+            ItemKind::Ammo => WEIGHTLESS_AMMO,
+            ItemKind::Weapon => WEIGHTLESS_WEAPONS,
+            ItemKind::Misc => WEIGHTLESS_MISC,
+            _ => 0,
+        };
+        self.weightless & bit != 0 || (kind == ItemKind::Armor && worn && (self.weightless_worn_armor || (power_armor && self.weightless_worn_power_armor)))
     }
 
     /// One unit's weight `w` (its mods applied) of an item of `kind`.
@@ -234,6 +281,15 @@ impl WeightRules {
         match self.light {
             Some((most, mult)) if w > 0.0 && w <= most => w * mult,
             _ => w,
+        }
+    }
+
+    /// Effective weight of one unit after both weightless tweaks and perk rules.
+    pub fn effective_unit(&self, w: f32, kind: ItemKind, worn: bool, power_armor: bool) -> f32 {
+        if self.weightless(kind, worn, power_armor) {
+            0.0
+        } else {
+            self.unit(w, kind)
         }
     }
 }
@@ -286,8 +342,91 @@ impl Inventory {
         self.take(item, n).iter().map(|g| g.1).sum()
     }
 
+    /// Every unit of `item` carried, live ones ([`Extra::live`]) included.
     pub fn count(&self, item: FormId) -> i32 {
         self.items.get(&item).map_or(0, Stack::total)
+    }
+
+    /// The units of `item` an action may take: all but the live ones.
+    pub fn free_count(&self, item: FormId) -> i32 {
+        self.items.get(&item).map_or(0, |s| s.groups.iter().filter(|g| !g.0.live).map(|g| g.1).sum())
+    }
+
+    /// The live units of `item` ([`Extra::live`]).
+    pub fn live_count(&self, item: FormId) -> i32 {
+        self.items.get(&item).map_or(0, |s| s.groups.iter().filter(|g| g.0.live).map(|g| g.1).sum())
+    }
+
+    /// [`Inventory::free_count`] per base item in FormID order, items with none left out:
+    /// what an actor may choose to use (a grenade to throw, a weapon to hold).
+    pub fn free_iter(&self) -> impl Iterator<Item = (FormId, i32)> + '_ {
+        self.items.keys().map(|&k| (k, self.free_count(k))).filter(|&(_, n)| n > 0)
+    }
+
+    /// The units of `item` that `pick` names ([`Extra::picked`]: live units never), what an
+    /// action on a menu row may move.
+    pub fn count_at(&self, item: FormId, pick: Pick) -> i32 {
+        self.items.get(&item).map_or(0, |s| s.groups.iter().filter(|g| g.0.picked(pick)).map(|g| g.1).sum())
+    }
+
+    /// Reserve one unit of `item` as live (a planted explosive), keeping its other extra
+    /// data: an unequipped one, plain units first, then the others in arrival order; when
+    /// every unit is equipped, an equipped one, which is taken off (a save from before live
+    /// units whose victim had put the planted grenade in its hands, #1640). Returns false
+    /// when no unit that is not live already is carried.
+    pub fn mark_live(&mut self, item: FormId) -> bool {
+        let Some(s) = self.items.get_mut(&item) else { return false };
+        let Some(i) = (0..s.groups.len()).filter(|&i| !s.groups[i].0.live).min_by_key(|&i| (s.groups[i].0.equipped, !s.groups[i].0.is_plain(), i)) else {
+            return false;
+        };
+        let e = s.groups[i].0;
+        s.groups[i].1 -= 1;
+        s.groups.retain(|g| g.1 > 0);
+        s.add(Extra { live: true, equipped: false, ..e }, 1);
+        true
+    }
+
+    /// Add the live units of `old` (planted explosives, [`Extra::live`]): an inventory
+    /// rebuilt in place of `old` (ResetInventory, a respawn, a restock, a new roll) keeps
+    /// them, so their plants still find them [design, #1640].
+    pub fn keep_live_of(&mut self, old: &Inventory) {
+        for (item, e, n) in old.groups().filter(|g| g.1.live) {
+            self.add_extra(item, n, e);
+        }
+    }
+
+    /// Whether any unit is live ([`Extra::live`]).
+    pub fn has_live(&self) -> bool {
+        self.groups().any(|g| g.1.live)
+    }
+
+    /// Remove one live unit of `item` (its blast). Returns false when none is live.
+    pub fn take_live(&mut self, item: FormId) -> bool {
+        let Some(s) = self.items.get_mut(&item) else { return false };
+        let Some(g) = s.groups.iter_mut().find(|g| g.0.live) else { return false };
+        g.1 -= 1;
+        s.groups.retain(|g| g.1 > 0);
+        if s.groups.is_empty() {
+            self.items.remove(&item);
+        }
+        true
+    }
+
+    /// Make `n` units of `item` live, as far as the carried units allow: more are
+    /// reserved ([`Inventory::mark_live`]) or live ones turned back into ordinary units
+    /// (merging with their like). Returns how many are live after.
+    pub fn set_live_count(&mut self, item: FormId, n: i32) -> i32 {
+        let n = n.max(0);
+        while self.live_count(item) < n && self.mark_live(item) {}
+        while self.live_count(item) > n {
+            let Some(s) = self.items.get_mut(&item) else { break };
+            let Some(g) = s.groups.iter_mut().find(|g| g.0.live) else { break };
+            let e = g.0;
+            g.1 -= 1;
+            s.groups.retain(|g| g.1 > 0);
+            s.add(Extra { live: false, ..e }, 1);
+        }
+        self.live_count(item)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -457,6 +596,7 @@ impl Inventory {
 
     /// [`Inventory::totals`] with a carrier's [`WeightRules`].
     pub fn totals_with(&self, forms: &FormStore, hardcore: bool, rules: &WeightRules) -> Totals {
+        let hardcore = rules.ammo_weight.unwrap_or(hardcore);
         let mut t = Totals::default();
         for (id, s) in &self.items {
             let (id, n) = (*id, s.total());
@@ -472,7 +612,7 @@ impl Inventory {
                         ) => {}
                         Some(_) => {
                             for &(e, c) in &s.groups {
-                                t.weight += rules.unit(i.weight_with_mods(e.mods).unwrap_or(0.0), i.kind) as f64 * c as f64;
+                                t.weight += rules.effective_unit(i.weight_with_mods(e.mods).unwrap_or(0.0), i.kind, e.equipped, i.power_armor) as f64 * c as f64;
                             }
                         }
                         None => t.unknown_weight.push(id),
@@ -504,7 +644,7 @@ mod tests {
 
     #[test]
     fn perk_weight_rules_halve_light_items_and_heavy_weapons() {
-        let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((10.0, 0.5)) };
+        let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((10.0, 0.5)), ..Default::default() };
         // Pack Rat: 2 or less halves, more stays; nothing weighs nothing.
         assert_eq!(rules.unit(2.0, ItemKind::Misc), 1.0);
         assert_eq!(rules.unit(0.5, ItemKind::Aid), 0.25);
@@ -518,6 +658,32 @@ mod tests {
         assert_eq!(rules.unit(1.0, ItemKind::Weapon), 0.5);
         assert!(WeightRules::default().is_none());
         assert_eq!(WeightRules::default().unit(3.0, ItemKind::Weapon), 3.0);
+    }
+
+    #[test]
+    fn the_hardcore_tweaks_rule_counts_as_a_rule() {
+        assert!(!WeightRules { ammo_weight: Some(false), ..Default::default() }.is_none());
+        assert!(WeightRules { ammo_weight: None, ..Default::default() }.is_none());
+    }
+
+    #[test]
+    fn weightless_tweaks_pick_kinds_and_worn_armor() {
+        let rules = WeightRules { weightless: WEIGHTLESS_AID | WEIGHTLESS_MISC, ..Default::default() };
+        assert!(!rules.is_none());
+        assert!(rules.weightless(ItemKind::Aid, false, false));
+        assert!(rules.weightless(ItemKind::Misc, false, false));
+        assert!(!rules.weightless(ItemKind::Weapon, false, false));
+        let worn = WeightRules { weightless_worn_power_armor: true, ..Default::default() };
+        assert!(worn.weightless(ItemKind::Armor, true, true));
+        assert!(!worn.weightless(ItemKind::Armor, false, true), "carried, not worn");
+        assert!(!worn.weightless(ItemKind::Armor, true, false), "not power armour");
+        let any = WeightRules { weightless_worn_armor: true, ..Default::default() };
+        assert!(any.weightless(ItemKind::Armor, true, false));
+        assert!(!WeightRules::default().weightless(ItemKind::Armor, true, true));
+        let combined = WeightRules { light: Some((2.0, 0.5)), weightless_worn_power_armor: true, ..Default::default() };
+        assert_eq!(combined.effective_unit(20.0, ItemKind::Armor, true, true), 0.0);
+        assert_eq!(combined.effective_unit(20.0, ItemKind::Armor, false, true), 20.0);
+        assert_eq!(combined.effective_unit(2.0, ItemKind::Armor, true, false), 1.0);
     }
 
     #[test]
@@ -708,6 +874,76 @@ mod tests {
         assert!(!inv.clear_equipped(gun));
         assert_eq!(serde_json::to_string(&inv).unwrap(), r#"{"0x00000020":2}"#);
         assert!(!Inventory::new().set_equipped(gun));
+    }
+
+    #[test]
+    fn a_live_unit_is_reserved_from_every_pick() {
+        let id = FormId(0x10);
+        let mut inv = Inventory::new();
+        inv.add(id, 2);
+        assert!(inv.mark_live(id));
+        assert_eq!((inv.count(id), inv.free_count(id), inv.live_count(id)), (2, 1, 1));
+        assert_eq!(inv.free_iter().collect::<Vec<_>>(), vec![(id, 1)]);
+        // Only the ordinary unit is taken, equipped or moved.
+        assert!(inv.set_equipped(id));
+        assert!(!inv.can_equip_at(id, Pick::ANY, false));
+        assert_eq!(inv.take(id, 5), vec![(Extra { equipped: true, ..Extra::default() }, 1)]);
+        assert_eq!(inv.take(id, 5), vec![]);
+        assert!(!inv.set_equipped(id) && !inv.has_sound(id));
+        assert_eq!(inv.count(id), 1);
+        assert_eq!(inv.free_iter().count(), 0);
+        // Kept through the serde form; absent when false.
+        let json = serde_json::to_string(&inv).unwrap();
+        assert!(json.contains("\"live\":true"), "{json}");
+        assert_eq!(serde_json::from_str::<Inventory>(&json).unwrap(), inv);
+        assert!(!serde_json::to_string(&Extra::default()).unwrap().contains("live"));
+        // The blast takes it once.
+        assert!(inv.take_live(id));
+        assert!(!inv.take_live(id));
+        assert!(inv.is_empty());
+    }
+
+    #[test]
+    fn the_live_count_is_set_from_the_plants() {
+        let id = FormId(0x10);
+        let worn = Extra { condition: Some(0.5), ..Extra::default() };
+        let mut inv = Inventory::new();
+        inv.add_extra(id, 1, worn);
+        inv.add(id, 1);
+        // The plain unit is reserved first, the worn one keeps its condition when it is.
+        assert!(inv.mark_live(id));
+        assert!(inv.groups().any(|g| g.1 == Extra { live: true, ..Extra::default() }));
+        assert_eq!(inv.set_live_count(id, 5), 2, "only what is carried");
+        assert!(inv.groups().any(|g| g.1 == Extra { live: true, ..worn }));
+        assert_eq!(inv.set_live_count(id, 0), 0);
+        assert_eq!((inv.count(id), inv.free_count(id)), (2, 2));
+        // Back to ordinary units, merged with their like.
+        assert_eq!(serde_json::to_value(&inv).unwrap()["0x00000010"]["groups"].as_array().unwrap().len(), 2);
+        assert!(!inv.mark_live(FormId(0x11)));
+        assert_eq!(inv.set_live_count(FormId(0x11), 1), 0);
+    }
+
+    #[test]
+    fn an_equipped_unit_is_reserved_last_and_taken_off() {
+        let id = FormId(0x10);
+        let mut inv = Inventory::new();
+        inv.add(id, 2);
+        assert!(inv.set_equipped(id));
+        // The unequipped unit first.
+        assert!(inv.mark_live(id));
+        assert!(inv.is_equipped(id));
+        // Then the equipped one, taken off.
+        assert!(inv.mark_live(id));
+        assert!(!inv.is_equipped(id));
+        assert_eq!((inv.live_count(id), inv.free_count(id)), (2, 0));
+        assert!(!inv.mark_live(id));
+        // A rebuilt inventory keeps them.
+        let mut fresh = Inventory::new();
+        fresh.add(id, 1);
+        fresh.keep_live_of(&inv);
+        assert!(fresh.has_live() && !Inventory::new().has_live());
+        assert_eq!((fresh.count(id), fresh.live_count(id)), (3, 2));
+        assert_eq!(fresh.count_at(id, Pick::ANY), 1);
     }
 
     proptest! {

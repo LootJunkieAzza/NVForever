@@ -18,7 +18,7 @@ use fnv_collide::{CollisionObject, Iso};
 use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
 use fnv_phys::{ref_collision_with, ModelCollision, PhysParams, PreparedRef, PreparedTerrain, RefCollisionOptions, RefPose};
-use fnv_world::land::{load_land, LandParts};
+use fnv_world::land_surface::{block_of, load_heights, LandIds, Surface, SurfaceSpec};
 use fnv_world::placed::{base_object, placement};
 use fnv_world::Placement;
 use nvf_assets::GameData;
@@ -38,7 +38,8 @@ type Objects = Arc<Vec<CollisionObject>>;
 /// sequences (`crate::doors`, [`AnimatedBodies`]), and for a model with collision the floors
 /// of its drawn geometry ([`DrawnFloors`]) and its node tree (to pose the objects,
 /// [`pose_stored`]), and its trigger volumes (phantoms on the Trigger layer, the traps'
-/// pressure boxes, `crate::script_trigger`); or why it could not be read.
+/// pressure boxes, `crate::script_trigger`, and on the Gas Trap layer, the gas clouds,
+/// `crate::gas_traps`); or why it could not be read.
 type ModelResult = Result<(Objects, Objects, Option<Arc<ModelAnim>>, Option<Arc<DrawnFloors>>, Option<Arc<NodeTree>>, Objects), String>;
 
 /// Collision per model path (lower case), shared by the loader thread and the main
@@ -97,7 +98,7 @@ impl ModelCache {
         self.read(data, path, times).ok().and_then(|(_, _, _, _, tree, _)| tree)
     }
 
-    /// A model's trigger volumes (phantoms on the Trigger layer), when it was read
+    /// A model's trigger volumes (phantoms on the Trigger and Gas Trap layers), when it was read
     /// already (by the cell loader); `None` while it was not.
     pub fn triggers(&self, path: &str) -> Option<Objects> {
         match self.slot(path).get() {
@@ -136,9 +137,12 @@ fn read_model(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult
 
 fn read_model_unguarded(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult {
     let schema = &*data.schema;
+    // Beside `times`: the same parts for the exit's summary of both readers (#3149).
+    let mut timed = nvf_assets::load_times::Timed::start(&nvf_assets::load_times::COLLISION);
     let t = Instant::now();
     let read = data.vfs.read(path);
     times.read += ms_since(t);
+    timed.read();
     let bytes = match read {
         None => return Err("not found".to_string()),
         Some(Err(e)) => return Err(e.to_string()),
@@ -146,13 +150,19 @@ fn read_model_unguarded(data: &GameData, path: &str, times: &mut LoadTimes) -> M
     };
     let t = Instant::now();
     let file = NifFile::parse(&bytes, Some(schema)).map_err(|e| e.to_string());
+    timed.parsed();
     let dec = file.as_ref().ok().map(|file| Decoded::new(file, &bytes, schema));
+    timed.decoded();
     times.parse += ms_since(t);
     let file = file?;
     let t = Instant::now();
     let (solid, phantoms, _) = fnv_collide::nif::collision_and_phantoms(&file, dec.as_ref().expect("decoded with the file"));
     let (water, rest): (Vec<CollisionObject>, Vec<CollisionObject>) = phantoms.into_iter().partition(|o| o.layer == fnv_phys::layers::WATER);
-    let triggers: Vec<CollisionObject> = rest.into_iter().filter(|o| o.layer == fnv_phys::layers::TRIGGER).collect();
+    // The Gas Trap layer's phantoms are the gas clouds' volumes (`TrapGasFire01.NIF`: a
+    // sphere phantom on layer 24 and nothing solid [observed: `fnvtool nif decode`]):
+    // kept with the triggers, so walking in, shots and blasts reach their scripts
+    // (`crate::gas_traps`, #2687).
+    let triggers: Vec<CollisionObject> = rest.into_iter().filter(|o| o.layer == fnv_phys::layers::TRIGGER || o.layer == fnv_phys::layers::GAS_TRAP).collect();
     let dec = dec.expect("decoded with the file");
     // Only a model with embedded sequences and a body physics does not move itself can
     // have collision that follows an animation.
@@ -186,6 +196,12 @@ pub struct Job {
     pub refs: Vec<u32>,
     /// The cell's LAND record (exterior squares with terrain).
     pub land: Option<u32>,
+    /// The LAND records of the cell and the eight around it (`fnv_world::land_surface::LandIds`):
+    /// a smoothed surface reads the neighbours' along its edges.
+    pub lands: LandIds,
+    /// The surface the terrain is built on (`crate::smooth_terrain::spec`, fixed for the
+    /// run and taken when the job is made: the worker never reads the settings).
+    pub surface: SurfaceSpec,
     /// References the simulation holds at another pose than their placement (position,
     /// Euler angles; `SimState::moved_pose`), by FormID: their collision is built there.
     pub poses: Vec<(u32, [f32; 3], [f32; 3])>,
@@ -289,7 +305,9 @@ pub struct Entry {
 /// A cell ready to insert.
 pub struct Prepared {
     pub cell: PhysCell,
-    pub heights: Option<Vec<f32>>,
+    /// The landscape surface the terrain collider was built on (exterior squares with
+    /// terrain): the LAND grid as stored or smoothed, as the renderer draws it.
+    pub surface: Option<Surface>,
     pub terrain: Option<PreparedTerrain>,
     /// The job's references, in its (FormID) order.
     pub refs: Vec<Entry>,
@@ -302,16 +320,19 @@ pub fn cell(src: &Source, job: &Job) -> Prepared {
     let mut times = LoadTimes::default();
     let d = &src.d;
     let mut out =
-        Prepared { cell: job.cell, heights: None, terrain: None, refs: Vec::with_capacity(job.refs.len()), times: LoadTimes::default() };
+        Prepared { cell: job.cell, surface: None, terrain: None, refs: Vec::with_capacity(job.refs.len()), times: LoadTimes::default() };
     if let (PhysCell::Exterior(x, y), Some(land)) = (job.cell, job.land) {
         let t = Instant::now();
-        out.heights = load_land(d.lo, d.schema, land, LandParts::HEIGHTS).and_then(|l| l.heights);
+        let mut ids = job.lands;
+        ids[1][1] = Some(land);
+        let heights = load_heights(d.lo, d.schema, &ids, job.surface.is_smoothed());
         times.records += ms_since(t);
-        if let Some(h) = &out.heights {
-            let t = Instant::now();
-            out.terrain = Some(PreparedTerrain::new(&src.params, (x, y), h));
-            times.shapes += ms_since(t);
+        let t = Instant::now();
+        out.surface = Surface::new(&block_of(&heights), job.surface);
+        if let Some(s) = &out.surface {
+            out.terrain = Some(PreparedTerrain::from_surface(&src.params, (x, y), s));
         }
+        times.shapes += ms_since(t);
     }
     for &r in &job.refs {
         let t = Instant::now();

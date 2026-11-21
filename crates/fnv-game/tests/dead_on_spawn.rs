@@ -2,7 +2,7 @@
 //! Base Health (NPC_) or Health (CREA) of 0 in the actor that supplies the stats, on a
 //! synthetic plugin (no game data).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

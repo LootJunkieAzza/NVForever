@@ -17,3 +17,13 @@
     let at = min(vec2<u32>(p.xy * vec2<f32>(resolution.xy) / vec2<f32>(resolution.zw)), resolution.xy - 1u);
     return vec4<f32>(0.0, 0.0, 0.0, textureLoad(source, at, 0).a);
 }
+
+// The luminance of FSR's output, at the render size (each texel the output filtered over its
+// area), kept for the next frame's reactive mask (fsr_reactive.wgsl `light_change`): what
+// FSR's history shows. At least 1e-4, so that 0 means "none" (the texture is cleared when
+// FSR did not reconstruct). At the render size it costs a fifth to a ninth of the display
+// size's bandwidth; the mask reads it at render-texel spacing anyway.
+@fragment fn luma(@builtin(position) p: vec4<f32>) -> @location(0) f32 {
+    let c = max(textureSampleLevel(source, linear_sampler, p.xy / vec2<f32>(resolution.xy), 0.0).rgb, vec3<f32>(0.0));
+    return max(dot(c, vec3<f32>(0.2126, 0.7152, 0.0722)), 1.0e-4);
+}

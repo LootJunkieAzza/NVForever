@@ -3,7 +3,7 @@
 //! typed item removal, actor flags from records, factions, ownership, destruction,
 //! regions, challenges and the calendar. docs/spec-notes/scripts.md §7.6.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -47,6 +47,7 @@ const WRLD: u32 = 0x900;
 const EXT_CELL: u32 = 0x910;
 const CELL: u32 = 0x200;
 const ACTI_REF: u32 = 0x300;
+const SECOND_ACTI_REF: u32 = 0x302;
 const CONT_REF: u32 = 0x301;
 const CHILD_REF: u32 = 0x320;
 const ADULT_REF: u32 = 0x321;
@@ -188,6 +189,7 @@ fn plugin_bytes() -> Vec<u8> {
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let refs = [
         placed(b"REFR", ACTI_REF, ACTI, [0.0; 3]),
+        placed(b"REFR", SECOND_ACTI_REF, ACTI, [100.0, 0.0, 0.0]),
         placed(b"REFR", CONT_REF, CONT, [0.0; 3]),
         placed(b"ACHR", CHILD_REF, NPC_CHILD, [0.0; 3]),
         placed(b"ACHR", ADULT_REF, NPC_ADULT, [0.0; 3]),
@@ -577,7 +579,7 @@ fn resurrect_generates_a_dead_actor_again_where_it_lies() {
     assert_eq!(g.world.peek(adult).unwrap().pos, [180.0, -10.0, 9.0]);
     assert!(g.teleported.contains(&adult));
     assert_eq!(g.rolls(adult), 1);
-    assert_eq!(g.take_resurrections(), vec![fnv_game::resurrect::Resurrection { actor: adult, animate: true, regenerated: true, rolls: 1 }]);
+    assert_eq!(g.take_resurrections(), vec![fnv_game::resurrect::Resurrection { actor: adult, animate: true, regenerated: true, rolls: 1, restocked: 0 }]);
     assert!(g.take_resurrections().is_empty());
 }
 
@@ -828,14 +830,15 @@ fn ownership_destruction_regions_challenges_and_calendar() {
     assert_eq!(call(&mut g, 0x1116, Some(ACTI_REF), &[r(F1)]), 1.0);
     call(&mut g, 0x118C, Some(ACTI_REF), &[]);
     assert_eq!(call(&mut g, 0x1116, Some(ACTI_REF), &[r(F1)]), 0.0);
-    // Destruction: no damage −1; 60 of 100 → stage 1; 40 more → stage 2, destroyed.
+    // Destruction: no damage −1; above every stage 0; 60 of 100 → index 1, GetDestructionStage
+    // 2 (counted from 1, #3053); 40 more → index 2 (3), destroyed.
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), -1.0);
     call(&mut g, 0x116C, Some(ACTI_REF), &[n(10.0)]);
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 0.0);
     call(&mut g, 0x116C, Some(ACTI_REF), &[n(50.0)]);
-    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 1.0);
-    call(&mut g, 0x116C, Some(ACTI_REF), &[n(40.0)]);
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
+    call(&mut g, 0x116C, Some(ACTI_REF), &[n(40.0)]);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 3.0);
     assert_eq!(call(&mut g, 0x10CB, Some(ACTI_REF), &[]), 1.0);
     call(&mut g, 0x11D8, Some(ACTI_REF), &[]);
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), -1.0);
@@ -886,7 +889,242 @@ fn destruction_stages_from_combat_damage() {
     let c = g.damage_object(acti, 100.0).unwrap();
     assert_eq!((c.after, c.destroyed), (2, true));
     assert!(g.damage_object(acti, 10.0).is_none());
-    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
+    // Index 2 counted from 1 (#3053).
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 3.0);
+}
+
+fn capped_destruction_fixture() -> Fixture {
+    use fnv_game::data::{DestructionDef, DestructionStage as Stage};
+    let mut f = fixture();
+    // Synthetic stages for the numerical regression; no model or script data needed.
+    let stages = [98, 95, 75].into_iter().enumerate().map(|(index, health_percent)| {
+        Stage {
+            health_percent,
+            index: index as u8,
+            flags: Stage::CAP_DAMAGE | if index == 2 { Stage::DISABLE | Stage::DESTROY } else { 0 },
+            self_damage_per_second: if index < 2 { 1 } else { 0 },
+            explosion: (index == 2).then_some(FormId(0x893)),
+            ..Stage::default()
+        }
+    }).collect();
+    f.data.destructibles.insert(FormId(ACTI), DestructionDef { health: 20, stages, ..DestructionDef::default() });
+    f
+}
+
+/// The Exploding Destructible Indicator tweak's list: an object burning toward a stage
+/// that explodes, until it gets there.
+#[test]
+fn a_burning_object_is_listed_until_it_explodes() {
+    let f = capped_destruction_fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    assert!(g.burning_explosives().is_empty());
+    // 0.5 of 20: stage 0 (98 %), which burns, its later stage 2 explodes.
+    g.damage_object(acti, 0.5).unwrap();
+    assert_eq!(g.burning_explosives(), [(acti, FormId(0x893))]);
+    for _ in 0..8 {
+        g.damage_object(acti, 20.0);
+    }
+    assert!(g.burning_explosives().is_empty());
+}
+
+/// #3053: GetDestructionStage counts the stage reached from 1, so Mothership Zeta's
+/// generator core (eight stages; index 6 at 5 % Cap Damage + Destroy, index 7 at 1 %
+/// Disable) reads 7 once destroyed, the value its script disables it at; a destroyed
+/// object takes no more damage (GECK wiki Destructible Object Stage), so 8 is not reached.
+#[test]
+fn get_destruction_stage_counts_from_one_as_the_zeta_core_needs() {
+    use fnv_game::data::{DestructionDef, DestructionStage as Stage};
+    let mut f = fixture();
+    let stages = [98, 90, 70, 40, 20, 10, 5, 1]
+        .into_iter()
+        .enumerate()
+        .map(|(i, health_percent)| Stage {
+            health_percent,
+            index: i as u8,
+            damage_stage: i as u8 + 1,
+            flags: match i {
+                6 => Stage::CAP_DAMAGE | Stage::DESTROY,
+                7 => Stage::DISABLE,
+                _ => 0,
+            },
+            ..Stage::default()
+        })
+        .collect();
+    f.data.destructibles.insert(FormId(ACTI), DestructionDef { health: 800, stages, ..DestructionDef::default() });
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), -1.0);
+    g.damage_object(acti, 20.0).unwrap();
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 1.0, "98 %: the first stage, 1");
+    let c = g.damage_object(acti, 1100.0).unwrap();
+    assert!(c.destroyed && !c.disabled);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 7.0, "the Destroy stage reads 7");
+    assert!(g.damage_object(acti, 100.0).is_none(), "destroyed: no more damage");
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 7.0);
+}
+
+fn destruction_roundtrip<'a>(f: &'a Fixture, g: &Game<'_>) -> Game<'a> {
+    let saved = serde_json::to_string(&g.snapshot()).unwrap();
+    let back = serde_json::from_str::<fnv_game::game::GameSnapshot>(&saved).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    Game::restore(&f.data, world, g.cfg, &back).unwrap()
+}
+
+#[test]
+fn cap_damage_allows_self_damage_to_reach_each_stage_once() {
+    let f = capped_destruction_fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    let first = g.damage_object(acti, 5.0).unwrap();
+    assert_eq!((first.before, first.after), (-1, 0));
+    assert_eq!(g.extra[&acti].damage, Some(0.4));
+    assert_eq!(g.extra[&acti].burning, Some(1.0));
+    assert!(first.explosions.is_empty());
+    assert!(!first.destroyed && !first.disabled);
+    for _ in 0..1000 {
+        assert!(g.destruction_tick(0.0001).is_empty());
+    }
+    assert!((g.extra[&acti].damage.unwrap() - 0.5).abs() < 1e-12);
+    let second = g.destruction_tick(2.0);
+    assert_eq!(second.len(), 1);
+    assert_eq!((second[0].0, second[0].1.before, second[0].1.after), (acti, 0, 1));
+    assert_eq!(g.extra[&acti].damage, Some(1.0));
+    assert_eq!(g.extra[&acti].burning, Some(1.0));
+    assert!(second[0].1.explosions.is_empty());
+    assert!(!second[0].1.destroyed && !second[0].1.disabled);
+    let last = g.destruction_tick(10.0);
+    assert_eq!(last.len(), 1);
+    assert_eq!((last[0].0, last[0].1.before, last[0].1.after), (acti, 1, 2));
+    assert_eq!(g.extra[&acti].damage, Some(5.0));
+    assert_eq!(last[0].1.explosions, [FormId(0x893)]);
+    assert!(last[0].1.destroyed && last[0].1.disabled);
+    assert!(g.extra[&acti].destroyed);
+    assert!(!g.world.get(acti).unwrap().enabled());
+    assert_eq!(g.extra[&acti].burning, None);
+    assert!(g.destruction_tick(100.0).is_empty());
+    assert!(g.damage_object(acti, 100.0).is_none());
+}
+
+#[test]
+fn cap_damage_continues_after_each_saved_threshold_including_old_rounding() {
+    let f = capped_destruction_fixture();
+    let acti = FormId(ACTI_REF);
+    for legacy in [false, true] {
+        let mut g = game(&f);
+        g.damage_object(acti, 5.0).unwrap();
+        for (stage, percent) in [98, 95, 75].into_iter().enumerate() {
+            if legacy {
+                g.extra.get_mut(&acti).unwrap().damage = Some(20.0 * (1.0 - f64::from(percent) / 100.0));
+            }
+            let damage = g.extra[&acti].damage;
+            g = destruction_roundtrip(&f, &g);
+            // The save's JSON may read a float back one unit in the last place off
+            // (serde_json without its float_roundtrip feature), as a real save does: the
+            // stage must hold through that, so compare loosely and go on from what loaded.
+            let loaded = g.extra[&acti].damage;
+            assert!((loaded.unwrap() - damage.unwrap()).abs() <= 1e-12, "{loaded:?} vs {damage:?}");
+            let damage = loaded;
+            assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), stage as f64 + 1.0);
+            if stage == 2 {
+                assert!(g.extra[&acti].destroyed);
+                assert!(!g.world.get(acti).unwrap().enabled());
+                assert!(g.destruction_tick(10.0).is_empty());
+                assert!(g.damage_object(acti, 10.0).is_none());
+                break;
+            }
+            assert_eq!(g.extra[&acti].burning, Some(1.0));
+            let zero = g.damage_object(acti, 0.0).unwrap();
+            assert_eq!((zero.before, zero.after), (stage as i32, stage as i32));
+            assert_eq!(g.extra[&acti].damage, damage);
+            assert!(g.destruction_tick(0.0).is_empty());
+            assert!(g.destruction_tick(0.01).is_empty());
+            assert!(g.extra[&acti].damage.unwrap() > damage.unwrap());
+            let next = if stage == 0 {
+                g.damage_object(acti, 10.0).unwrap()
+            } else {
+                let mut changes = g.destruction_tick(10.0);
+                assert_eq!(changes.len(), 1);
+                changes.remove(0).1
+            };
+            assert_eq!((next.before, next.after), (stage as i32, stage as i32 + 1));
+            assert_eq!(g.extra[&acti].damage, Some(if stage == 0 { 1.0 } else { 5.0 }));
+            assert_eq!(next.explosions, if stage == 0 { vec![] } else { vec![FormId(0x893)] });
+            assert_eq!((next.destroyed, next.disabled), (stage == 1, stage == 1));
+        }
+    }
+}
+
+#[test]
+fn cap_damage_and_stage_lookup_agree_for_roundoff_below_a_saved_threshold() {
+    let f = capped_destruction_fixture();
+    let acti = FormId(ACTI_REF);
+    for (stage, damage) in [0.4 - 1e-15, 1.0 - 1e-15].into_iter().enumerate() {
+        let mut g = game(&f);
+        g.damage_object(acti, 5.0).unwrap();
+        if stage == 1 {
+            g.damage_object(acti, 5.0).unwrap();
+        }
+        g.extra.get_mut(&acti).unwrap().damage = Some(damage);
+        g = destruction_roundtrip(&f, &g);
+        assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), stage as f64 + 1.0);
+        let next = g.damage_object(acti, 1e-6).unwrap();
+        assert_eq!((next.before, next.after), (stage as i32, stage as i32));
+        assert!(g.extra[&acti].damage.unwrap() > damage + 1e-7);
+        let next = g.damage_object(acti, 10.0).unwrap();
+        assert_eq!((next.before, next.after), (stage as i32, stage as i32 + 1));
+    }
+}
+
+#[test]
+fn cap_crossings_use_damage_even_when_the_stage_already_reads_zero() {
+    let f = capped_destruction_fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    let zero = g.damage_object(acti, 0.0).unwrap();
+    assert_eq!((zero.before, zero.after), (-1, 0));
+    assert_eq!(g.extra[&acti].damage, Some(0.0));
+    // Stage 0 is the fallback above every threshold (functions/objects.rs), so it
+    // cannot tell whether the first cap has been crossed [design].
+    let below = g.damage_object(acti, 0.4 - 1e-10).unwrap();
+    assert_eq!((below.before, below.after), (0, 0));
+    assert!(g.extra[&acti].damage.unwrap() < 0.4);
+    g.damage_object(acti, 5e-11).unwrap();
+    assert!(g.extra[&acti].damage.unwrap() < 0.4);
+    g.damage_object(acti, 10.0).unwrap();
+    assert_eq!(g.extra[&acti].damage, Some(0.4));
+    // A distinct, small interval below the later stage must not be rounded away: the
+    // script still reads index 0, counted from 1 (#3053).
+    g.damage_object(acti, 0.6 - 1e-10).unwrap();
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 1.0);
+    g.damage_object(acti, 5e-11).unwrap();
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 1.0);
+    let next = g.damage_object(acti, 10.0).unwrap();
+    assert_eq!((next.before, next.after), (0, 1));
+    assert_eq!(g.extra[&acti].damage, Some(1.0));
+}
+
+#[test]
+fn cap_damage_is_independent_for_two_references_across_a_save() {
+    let f = capped_destruction_fixture();
+    let mut g = game(&f);
+    let first = FormId(ACTI_REF);
+    let second = FormId(SECOND_ACTI_REF);
+    g.damage_object(first, 10.0).unwrap();
+    g.damage_object(first, 10.0).unwrap();
+    g.damage_object(second, 10.0).unwrap();
+    g = destruction_roundtrip(&f, &g);
+    assert_eq!((g.extra[&first].damage, g.extra[&second].damage), (Some(1.0), Some(0.4)));
+    let mut changes = g.destruction_tick(10.0);
+    changes.sort_by_key(|(r, _)| *r);
+    assert_eq!(changes.iter().map(|(r, c)| (*r, c.before, c.after)).collect::<Vec<_>>(), [(first, 1, 2), (second, 0, 1)]);
+    assert_eq!((g.extra[&first].damage, g.extra[&second].damage), (Some(5.0), Some(1.0)));
+    assert!(g.extra[&first].destroyed && !g.extra[&second].destroyed);
+    let last = g.destruction_tick(10.0);
+    assert_eq!(last.len(), 1);
+    assert_eq!((last[0].0, last[0].1.before, last[0].1.after), (second, 1, 2));
+    assert_eq!(last[0].1.explosions, [FormId(0x893)]);
+    assert!(g.destruction_tick(10.0).is_empty());
 }
 
 /// The model damage stage follows the destruction stage reached (the fixture's DSTDs
@@ -1431,6 +1669,28 @@ fn reset_3d_state_forgets_the_animation() {
     assert_eq!(g.anims.resets, vec![on]);
 }
 
+/// #2420: a tripwire's script plays `Forward` and activates itself, which asks "Open",
+/// a sequence its model lacks. The engine says so (`ObjectAnims::not_in_model`) and
+/// `Forward` is again what the sprung wire shows when drawn again; a name the model has
+/// and an unknown name the last ask does not carry change nothing.
+#[test]
+fn a_group_the_model_lacks_gives_back_the_one_it_replaced() {
+    let f = fixture();
+    let mut g = game(&f);
+    let on = FormId(ADULT_REF);
+    let ask = |g: &mut Game, group: u16, name: &str| g.ask_anim(fnv_game::anims::AnimRequest { on, group, name: Some(name.into()), start: fnv_game::anims::Start::Normal });
+    ask(&mut g, 1, "Forward");
+    ask(&mut g, 0xFF00, "Open");
+    assert_eq!(g.anims.asked(on), Some((0xFF00, "Open")));
+    g.anims.not_in_model(on, "Backward");
+    assert_eq!(g.anims.asked(on), Some((0xFF00, "Open")), "not the last asked: nothing changes");
+    g.anims.not_in_model(on, "open");
+    assert_eq!(g.anims.asked(on), Some((1, "Forward")), "the sprung wire shows Forward's end");
+    // Only one step back: a second missing name with nothing before it clears the ask.
+    g.anims.not_in_model(on, "Forward");
+    assert_eq!(g.anims.asked(on), None);
+}
+
 /// The HUD's compass leaves sneaking actors off (docs/spec-notes/hud.md §11): forced to
 /// sneak (SetForceSneak) or measured sneaking by the engine, an actor gets no tick; standing
 /// up again, or dead, as before.
@@ -1668,6 +1928,51 @@ fn the_player_detects_and_far_pairs_fight() {
     assert_eq!(call(&mut g, in_combat, Some(ADULT_REF), &[]), 1.0);
 }
 
+/// #3232: a dead actor is in no detection pair, so player.GetLineOfSight on a body read
+/// 0 and TTW's "Those!" (MS04Script: `Player.GetLOS FredWilksRef == 1` with Fred Wilks
+/// lying dead) never advanced. The engine tells which bodies the camera sees
+/// (`Game::set_camera_sights`); the player reads those, nobody else does.
+#[test]
+fn the_player_sees_a_body_in_the_cameras_view() {
+    use fnv_game::detection::{Settings, Situation};
+    let f = fixture();
+    let mut g = game(&f);
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    let get_los = 0x101B;
+    // Seen while alive (a detection pair, kept up to a second), then killed: the pair
+    // measured alive is no longer read; the camera's word on the body is.
+    let seen = Situation { distance: 300.0, exterior: true, line_of_sight: true, in_view: true, light: 80.0, ..Default::default() };
+    g.detect(&Settings::default(), FormId(PLAYER), FormId(ADULT_REF), &seen);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    call(&mut g, 0x108B, Some(ADULT_REF), &[r(PLAYER)]);
+    assert!(g.is_dead(FormId(ADULT_REF)));
+    assert!(g.detection.get(FormId(PLAYER), FormId(ADULT_REF)).is_some_and(|d| d.seen));
+    g.set_camera_sights([]);
+    // Dead and not measured: 0.
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    // In the camera's view with nothing between: 1, for the player only.
+    g.set_camera_sights([FormId(ADULT_REF)]);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    assert_eq!(call(&mut g, get_los, Some(CHILD_REF), &[r(ADULT_REF)]), 0.0);
+    // Behind a wall or behind the camera the engine does not name it: 0 again.
+    g.set_camera_sights([]);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    // A word not renewed goes stale (the engine stopped measuring: a load, a menu).
+    g.set_camera_sights([FormId(ADULT_REF)]);
+    g.time += fnv_game::functions::senses::CAMERA_SIGHT_SECONDS + 0.5;
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    // Disabled after the measurement, in the same frame: not seen [documented: GECK wiki
+    // GetLineOfSight]; enabled again, seen; its cell unloaded, not seen.
+    g.set_camera_sights([FormId(ADULT_REF)]);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    call(&mut g, 0x1022, Some(ADULT_REF), &[]);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    call(&mut g, 0x1021, Some(ADULT_REF), &[]);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    g.set_loaded(Default::default());
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+}
+
 #[test]
 fn show_repair_menu_opens_the_vendors_repair_services() {
     use fnv_game::repair::{RepairRequest, REPAIR_SERVICES_MENU};
@@ -1822,6 +2127,17 @@ fn ignored_parameters_are_honoured() {
     call(&mut g, 0x1022, Some(ACTI_REF), &[]);
     assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 1.0);
     call(&mut g, 0x1021, Some(ACTI_REF), &[n(0.0)]);
+    // A save during a hold: the reference is disabled on load (#1985); a save outside
+    // one writes nothing for it.
+    assert!(!serde_json::to_string(&g.snapshot()).unwrap().contains("fading_out"));
+    call(&mut g, 0x1022, Some(ACTI_REF), &[n(1.0)]);
+    let held = g.snapshot();
+    assert_eq!(held.fading_out, [acti].into());
+    assert!(held.sim.refs.get(&acti).is_none_or(|r| r.enabled()), "still enabled in the save itself");
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&held).unwrap()).unwrap();
+    let mut h = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default(), &back).unwrap();
+    assert_eq!(call(&mut h, 0x1023, Some(ACTI_REF), &[]), 1.0, "disabled after the load");
+    call(&mut g, 0x1021, Some(ACTI_REF), &[n(0.0)]);
 
     // EquipItem's NoUnequipFlag: the inventory cannot take it off; UnequipItem can, and
     // its NoEquipFlag keeps it off until EquipItem.
@@ -1973,6 +2289,36 @@ fn securitron_expression_survives_a_load() {
     v.as_object_mut().unwrap().remove("securitron_faces");
     let old: fnv_game::game::GameSnapshot = serde_json::from_value(v).unwrap();
     assert!(old.securitron_faces.is_empty());
+}
+
+/// #2797: a load stands every actor up, NPCs as the player (#1573): the saved furniture
+/// use is cleared, so GetSitting reads 0 and the seat is free until the engine seats the
+/// body again; the rest of the actor's saved state stays.
+#[test]
+fn a_load_clears_every_actors_furniture_use() {
+    use fnv_game::game::FurnitureUse;
+    let f = fixture();
+    let mut g = game(&f);
+    let (npc, chair) = (FormId(ADULT_REF), FormId(CONT_REF));
+    let seated = FurnitureUse { reference: chair, marker_id: 11, state: 3 };
+    g.set_furniture_use(npc, Some(seated));
+    g.set_furniture_use(FormId::PLAYER_REF, Some(FurnitureUse { reference: FormId(CREA_REF), marker_id: 12, state: 3 }));
+    g.extra.get_mut(&npc).unwrap().ai_off = true;
+    assert_eq!(call(&mut g, 0x109F, Some(ADULT_REF), &[]), 3.0, "GetSitting before the save");
+    let snap = g.snapshot();
+    assert_eq!(snap.extra[&npc].furniture, Some(seated), "the save itself is unchanged");
+    let json = serde_json::to_string(&snap).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut h = Game::restore(&f.data, world, GameConfig::default(), &back).unwrap();
+    assert_eq!(h.furniture_use(npc), None, "the NPC stands after the load");
+    assert_eq!(h.furniture_use(FormId::PLAYER_REF), None, "and the player too");
+    assert_eq!(call(&mut h, 0x109F, Some(ADULT_REF), &[]), 0.0, "GetSitting after the load");
+    assert!(!h.furniture_used_by_other(FormId::PLAYER_REF, chair), "the chair is free");
+    assert!(h.extra[&npc].ai_off, "the actor's other saved state stays");
+    // The engine seats it again and says so: GetSitting follows.
+    h.set_furniture_use(npc, Some(seated));
+    assert_eq!(call(&mut h, 0x109F, Some(ADULT_REF), &[]), 3.0);
 }
 
 /// Kill challenges count the player's kills by the record's filters, complete at the
@@ -2194,4 +2540,177 @@ fn a_planted_explosive_stays_an_item_on_a_child() {
     assert_eq!(g.plant_explosive(FormId(CHILD_REF), FormId(0x4330), frag), Err(fnv_game::pickpocket::NotLive::Child));
     assert!(g.pickpocket.planted.is_empty());
     assert_eq!(g.plant_explosive(FormId(ADULT_REF), FormId(0x4330), frag), Ok(()));
+}
+
+#[test]
+fn generic_form_functions_edit_a_form_list_in_place() {
+    // #1845: code 13 is a form list; an edit keeps the other members.
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), ctx()).unwrap();
+    let nth = |g: &mut Game, i: u32| q(g, &format!("SetFunctionValue (ListGetNthForm GunList {i})"));
+    let count = |g: &mut Game| q(g, "SetFunctionValue (ListGetCount GunList)");
+    q(&mut g, "GenericAddForm 13, GunList, Junk, -2");
+    assert_eq!(count(&mut g), XVal::Num(2.0));
+    assert_eq!((nth(&mut g, 0), nth(&mut g, 1)), (XVal::Ref(WEAP), XVal::Ref(MISC)), "added at the end");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, GunList, TestHolotape, 0)"), XVal::Ref(WEAP));
+    assert_eq!((nth(&mut g, 0), nth(&mut g, 1)), (XVal::Ref(NOTE), XVal::Ref(MISC)), "replaced in place");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, GunList, 0)"), XVal::Ref(NOTE));
+    assert_eq!(count(&mut g), XVal::Num(1.0));
+    assert_eq!(nth(&mut g, 0), XVal::Ref(MISC), "the other member stays");
+}
+
+#[test]
+fn luck_skill_setting_fallback_preserves_loaded_overrides() {
+    let mut f = fixture();
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("favdskillluckbonusmult".into())]), 0.5);
+    drop(g);
+    f.forms.settings.insert("favdskillluckbonusmult".into(), fnv_sim::settings::Setting::Float(0.75));
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("fAVDSkillLuckBonusMult".into())]), 0.75);
+    g.run_source("SetNumericGameSetting \"fAVDSkillLuckBonusMult\" 0.25", Default::default()).unwrap();
+    assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("fAVDSkillLuckBonusMult".into())]), 0.25);
+    let before = g.events.len();
+    let ctx = Ctx { unit: "owned setting".into(), opcode: 0x1100, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Str("fOwnedUnknownSetting".into())]);
+    assert!(g.events[before..].iter().any(|e| matches!(&e.kind, EventKind::CallFailed { error, .. } if error.contains("fOwnedUnknownSetting"))));
+
+}
+
+// IsActorDetected is catalogue-unnumbered: these controls go through the actual
+// compiler/decode/VM named call, not an opcode or a mirrored query helper.
+fn assert_actor_detected_query(g: &mut Game, target: u32, expected: f64) {
+    use fnv_game::game::RunCtx;
+    use fnv_script::vm::XVal;
+    let caller = if target == ADULT_REF { CHILD_REF } else { ADULT_REF };
+    let ctx = RunCtx { self_ref: Some(FormId(caller)), action_ref: Some(FormId(target)), ..Default::default() };
+    assert!(g.data.table.unnumbered.contains_key("isactordetected"));
+    assert_eq!(g.data.table.by_name("IsActorDetected"), None, "no invented native opcode");
+    assert_eq!(g.run_query("Begin Function {}\nSetFunctionValue GetActionRef\nEnd\n", ctx), Ok(XVal::Ref(target)), "real receiver admission");
+    let before = g.events.len();
+    let result = g.run_query("ref receiver\nBegin Function {}\nlet receiver := GetActionRef\nSetFunctionValue (receiver.IsActorDetected)\nEnd\n", ctx);
+    eprintln!("IsActorDetected target={target:08X} caller={caller:08X} result={result:?} events={:?}", &g.events[before..]);
+    assert_eq!(result, Ok(XVal::Num(expected)), "actual compiled explicit-receiver result");
+    assert!(!g.events[before..].iter().any(|e| matches!(e.kind,
+        EventKind::Stub { .. } | EventKind::Unhandled { .. } | EventKind::CallFailed { .. }
+        | EventKind::ScriptError { .. } | EventKind::Skipped { .. } | EventKind::ArgUnread { .. })),
+        "a stub's zero is not a successful negative: {:?}", &g.events[before..]);
+}
+
+fn actor_detected_seen(g: &mut Game, detector: u32, target: u32) {
+    use fnv_game::detection::{Band, Settings, Situation};
+    let seen = Situation { distance: 300.0, exterior: true, line_of_sight: true, in_view: true, light: 80.0, ..Default::default() };
+    let (d, _) = g.detect(&Settings::default(), FormId(detector), FormId(target), &seen);
+    assert_eq!(d.band, Band::Detected, "real detection producer precondition: {d:?}");
+}
+
+#[test]
+fn is_actor_detected_uses_incoming_pairs_and_explicit_receiver() {
+    let f = fixture();
+    let mut g = game(&f);
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    assert_actor_detected_query(&mut g, CHILD_REF, 0.0);
+    let mut cold = game(&f);
+    assert!(cold.detection.pairs.is_empty());
+    assert_actor_detected_query(&mut cold, ADULT_REF, 0.0);
+    actor_detected_seen(&mut cold, ADULT_REF, CHILD_REF);
+    assert_actor_detected_query(&mut cold, ADULT_REF, 0.0);
+    assert_actor_detected_query(&mut cold, CHILD_REF, 1.0);
+}
+
+#[test]
+fn is_actor_detected_excludes_player_and_self_but_keeps_teammates() {
+    let f = fixture();
+    let mut g = game(&f);
+    actor_detected_seen(&mut g, PLAYER, ADULT_REF);
+    assert_eq!(call(&mut g, 0x102D, Some(PLAYER), &[r(ADULT_REF)]), 1.0, "GetDetected still accepts player perception");
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    actor_detected_seen(&mut g, ADULT_REF, ADULT_REF);
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    actor_detected_seen(&mut g, CHILD_REF, PLAYER);
+    assert_actor_detected_query(&mut g, PLAYER, 0.0);
+    call(&mut g, 0x11C5, Some(CHILD_REF), &[n(1.0)]);
+    assert!(g.with_player(FormId(CHILD_REF)), "actual teammate setup");
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+}
+
+#[test]
+fn is_actor_detected_checks_any_typed_band_without_value_ordering() {
+    use fnv_game::detection::{Band, Detection};
+    let f = fixture();
+    let mut g = game(&f);
+    // The public typed cache accepts these authored rows. Query semantics must not
+    // assume that the largest numeric value has the only relevant band.
+    g.detection.record(FormId(CHILD_REF), FormId(ADULT_REF), Detection { value: 1.0, band: Band::Detected, ..Default::default() }, g.time);
+    g.detection.record(FormId(CREA_REF), FormId(ADULT_REF), Detection { value: 100.0, band: Band::Noticed, ..Default::default() }, g.time);
+    assert_eq!(g.detection.highest(FormId(ADULT_REF)).unwrap().1.band, Band::Noticed, "guard the max-value shortcut");
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    g.detection.forget(FormId(CHILD_REF));
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    g.detection.record(FormId(CREA_REF), FormId(ADULT_REF), Detection { value: -100.0, band: Band::Hidden, ..Default::default() }, g.time);
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+}
+
+#[test]
+fn is_actor_detected_reuses_overwrite_forget_and_owner_expiry() {
+    use fnv_game::detection::{Band, Settings, Situation};
+    let f = fixture();
+    let mut g = game(&f);
+    g.time = 10.0;
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    let unseen = Situation { distance: 300.0, exterior: true, line_of_sight: true, in_view: false, light: 80.0, ..Default::default() };
+    let (d, _) = g.detect(&Settings::default(), FormId(CHILD_REF), FormId(ADULT_REF), &unseen);
+    assert_ne!(d.band, Band::Detected, "real remeasurement, not a cache erase");
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    actor_detected_seen(&mut g, CREA_REF, PLAYER);
+    g.detection.forget(FormId(ADULT_REF));
+    assert!(g.detection.get(FormId(CREA_REF), FormId(PLAYER)).is_some(), "unrelated pair survives target-forget");
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    g.time = 10.75;
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    assert_eq!(call(&mut g, 0x102D, Some(CHILD_REF), &[r(ADULT_REF)]), 1.0, "no private query TTL");
+    g.detection.forget_older_than(10.0);
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    g.detection.forget_older_than(10.001);
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    assert_eq!(call(&mut g, 0x102D, Some(CHILD_REF), &[r(ADULT_REF)]), 0.0);
+}
+
+#[test]
+fn is_actor_detected_restore_is_cold_until_actual_remeasurement() {
+    let f = fixture();
+    let mut g = game(&f);
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    let snapshot = g.checked_snapshot().unwrap();
+    let world = World::restore(&f.forms, &f.refs, &snapshot.sim).unwrap();
+    let mut restored = Game::restore(&f.data, world, GameConfig { strict: true, ..GameConfig::default() }, &snapshot).unwrap();
+    assert!(restored.detection.pairs.is_empty());
+    assert_actor_detected_query(&mut restored, ADULT_REF, 0.0);
+    actor_detected_seen(&mut restored, CHILD_REF, ADULT_REF);
+    assert_actor_detected_query(&mut restored, ADULT_REF, 1.0);
+}
+
+#[test]
+fn is_actor_detected_keeps_get_detected_level_and_los_neighbors() {
+    use fnv_game::detection::{Band, Detection};
+    let f = fixture();
+    let mut g = game(&f);
+    for (band, value, expected, level) in [(Band::Hidden, -100.0, 0.0, 1.0), (Band::Noticed, -10.0, 0.0, 2.0), (Band::Detected, 10.0, 1.0, 3.0)] {
+        g.detection.record(FormId(CHILD_REF), FormId(ADULT_REF), Detection { value, band, seen: true, ..Default::default() }, g.time);
+        assert_actor_detected_query(&mut g, ADULT_REF, expected);
+        assert_eq!(call(&mut g, 0x102D, Some(CHILD_REF), &[r(ADULT_REF)]), expected);
+        assert_eq!(call(&mut g, 0x10B4, Some(CHILD_REF), &[r(ADULT_REF)]), level);
+        assert_eq!(call(&mut g, 0x101B, Some(CHILD_REF), &[r(ADULT_REF)]), 1.0, "line of sight is not the detection band");
+    }
 }

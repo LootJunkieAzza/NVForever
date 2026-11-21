@@ -287,7 +287,7 @@ struct Sweeps {
     hints: ImageHints,
     parts: Unused<String>,
     part_materials: Unused<(String, usize, String)>,
-    textures: Unused<(String, bool, bool)>,
+    textures: Unused<(String, crate::texture::TextureUsage, bool)>,
 }
 
 fn release_unused(

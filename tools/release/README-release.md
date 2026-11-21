@@ -10,6 +10,7 @@ NVForever only reads the game's `Data` folder and never writes into the game fol
 | File | What it is |
 |---|---|
 | `nvforever(.exe)` | the game: opens on the main menu; `--explore` for the free-camera explorer |
+| `nvforever-launcher(.exe)` | the launcher: news, Continue / Main menu, the settings, the load order and the game folder without starting the game |
 | `nvf-viewer(.exe)` | the asset viewer: meshes, textures and animations from your data |
 | `fnvtool(.exe)` | the command-line tool: setup, paths, archive and plugin inspection as JSON |
 | `nvforever.cmd` / `.sh`, `nvf-viewer.cmd` / `.sh` | launchers that point the programs at `schemas/` beside them |
@@ -37,6 +38,9 @@ nvf-viewer.cmd --mesh meshes\clutter\...
 The explorer used to be what `nvforever` opened without `--play`; it now needs `--explore`
 (or `--cell` / `--pos` without `--play`).
 
+The Linux programs need glibc 2.39 or newer (Ubuntu 24.04, Fedora 40 and later); on an
+older system they stop at once, before any window or log.
+
 On Linux use the `.sh` launchers and pass `--data` (or set `Path=` under `[Game]` in the
 home's `NVForever.ini`). Settings, saves, logs and crash reports go to
 `Documents\My Games\NVForever` (or `NVFOREVER_HOME`); caches to `%LOCALAPPDATA%\NVForever\cache`.
@@ -44,6 +48,16 @@ home's `NVForever.ini`). Settings, saves, logs and crash reports go to
 `nvforever` finds `schemas/` beside itself, so it runs with or without its launcher.
 Run `nvf-viewer` through its launcher (or pass `--esm-schema` and `--nif-schema`): its
 built-in schema defaults point at the build machine's checkout.
+
+## Reports
+
+The first start asks once whether NVForever may send a report after each session (the
+build, your PC's hardware and settings, your mod list, how it ran, the game's log and any
+crash). Nothing is sent unless you choose **Send reports**. Each report is written first to
+`Documents\My Games\NVForever\reports` and sent at the next start; no personal details and
+no saves are sent. Settings → Gameplay → Bug Reports turns it off or deletes what was sent;
+`NVF_REPORTS=0` turns it off for one run. Details: `docs/design/player-reports.md` in the
+repository.
 
 ## Mods
 

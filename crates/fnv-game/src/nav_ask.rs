@@ -18,6 +18,14 @@ pub trait NavAsk {
     /// and its flags (bits 0-3 the height in 16-unit steps, 4 left open, 5 right open, 6
     /// the edge slot) [documented: GetCoverPointsInRadius].
     fn cover(&self, at: [f32; 3], radius: f32) -> Vec<([f32; 3], u32)>;
+    /// The centre of a loaded navmesh triangle: the one whose area holds `at` seen from
+    /// above (`under`), else the nearest; `skip_disabled` leaves out disabled
+    /// triangles and `z_limit` those further than it up or down (JohnnyGuitar's
+    /// GetPointInNavMesh and GetNearestNavMeshTriangle, `crate::nvse_jg10`). None by
+    /// default: an answerer that does not know triangles.
+    fn triangle(&self, _at: [f32; 3], _under: bool, _skip_disabled: bool, _z_limit: Option<f32>) -> Option<[f32; 3]> {
+        None
+    }
 }
 
 thread_local! {
@@ -26,17 +34,34 @@ thread_local! {
 
 /// Run `body` with `nav` answering on this thread.
 pub fn with_nav<R>(nav: &dyn NavAsk, body: impl FnOnce() -> R) -> R {
+    // SAFETY: the pointer is only read by `ask` while `body` runs on this thread (or on a
+    // thread a nested script run moved to while this one waits, `Game::nested`), and
+    // `lend` takes it back out when `body` returns or unwinds, so it never outlives the
+    // borrow of `nav`.
+    let p = unsafe { std::mem::transmute::<*const (dyn NavAsk + '_), *const (dyn NavAsk + 'static)>(nav as *const dyn NavAsk) };
+    unsafe { lend(Some(p), body) }
+}
+
+/// The answerer lent on this thread now, to carry to the thread a nested script run
+/// moves to (`Game::nested`).
+pub(crate) fn lent() -> Option<*const (dyn NavAsk + 'static)> {
+    NAV.with(|c| c.get())
+}
+
+/// Run `body` with `p` (from [`lent`] or [`with_nav`]) answering on this thread, the one
+/// before put back when it returns or unwinds.
+///
+/// # Safety
+/// The answerer `p` points to must stay alive, and be used by no other thread, while
+/// `body` runs.
+pub(crate) unsafe fn lend<R>(p: Option<*const (dyn NavAsk + 'static)>, body: impl FnOnce() -> R) -> R {
     struct Restore(Option<*const (dyn NavAsk + 'static)>);
     impl Drop for Restore {
         fn drop(&mut self) {
             NAV.with(|c| c.set(self.0));
         }
     }
-    // SAFETY: the pointer is only read by `ask` while `body` runs on this thread, and
-    // `Restore` takes it back out when `body` returns or unwinds, so it never outlives the
-    // borrow of `nav`.
-    let p = unsafe { std::mem::transmute::<*const (dyn NavAsk + '_), *const (dyn NavAsk + 'static)>(nav as *const dyn NavAsk) };
-    let _restore = Restore(NAV.with(|c| c.replace(Some(p))));
+    let _restore = Restore(NAV.with(|c| c.replace(p)));
     body()
 }
 
@@ -57,6 +82,11 @@ pub fn path(from: [f32; 3], to: [f32; 3]) -> Option<Vec<[f32; 3]>> {
 /// [`NavAsk::on_navmesh`]; false without an answerer.
 pub fn on_navmesh(at: [f32; 3], near: Option<u32>) -> bool {
     ask(|n| n.on_navmesh(at, near)).unwrap_or(false)
+}
+
+/// [`NavAsk::triangle`]; none without an answerer.
+pub fn triangle(at: [f32; 3], under: bool, skip_disabled: bool, z_limit: Option<f32>) -> Option<[f32; 3]> {
+    ask(|n| n.triangle(at, under, skip_disabled, z_limit)).flatten()
 }
 
 /// [`NavAsk::cover`]; none without an answerer.

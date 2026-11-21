@@ -7,7 +7,7 @@
 //! The menu files and the script are written for the test in MCM's shape (menu-xml.md
 //! §10); no game or mod data is used.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -150,4 +150,159 @@ fn an_mcm_menu_script_runs_against_the_start_menu() {
     g.frames(5);
     assert_eq!(shown(&g), before);
     assert!(g.ui_tree.menu("StartMenu").is_none());
+}
+
+/// MCM's tiles in its file order (menu-xml.md §10): Options, Scale, List, Trigger, ModList;
+/// written for the test.
+fn list_files() -> MemSource {
+    let options = (1..=2).map(|i| format!(r#"<hotrect name="Option{i}"> <depth> 13 </depth> <image name="image"> <depth> 12 </depth> </image> </hotrect>"#)).collect::<String>();
+    let items = (1..=3).map(|i| format!(r#"<hotrect name="Item{i}"> <alpha> 0 </alpha> <text name="text"> <string> </string> </text> </hotrect>"#)).collect::<String>();
+    let mods = (1..=23).map(|i| format!(r#"<hotrect name="Mod{i}"> <_enable> 0 </_enable> <_modIndex> 0 </_modIndex> <_modIndex2> 0 </_modIndex2> <_subID> 0 </_subID> <text name="text"> <string> </string> <width> {} </width> </text> </hotrect>"#, 10 + i)).collect::<String>();
+    let subs = (1..=10).map(|i| format!(r#"<hotrect name="SubMenu{i}"> <_enable> 0 </_enable> <text name="text"> <string> </string> <width> {} </width> </text> </hotrect>"#, 100 + i)).collect::<String>();
+    MemSource::default()
+        .with(r"menus\options\start_menu.xml", r#"<menu name="StartMenu"> <class> &StartMenu; </class> <include src="includes_StartMenu.xml"/> </menu>"#)
+        .with(r"menus\prefabs\includes_StartMenu.xml", r#"<include src="MCM\MCM.xml"/>"#)
+        .with(
+            r"menus\prefabs\MCM\MCM.xml",
+            &format!(
+                r#"<rect name="MCM"> <rect name="MCM_Options"> {options} <hotrect name="ArrowUp"> <depth> 13 </depth> </hotrect> </rect>
+                   <rect name="MCM_Scale"/> <rect name="MCM_List"> <alpha> 255 </alpha> {items} </rect> <hotrect name="MCM_Trigger"/>
+                   <rect name="MCM_ModList"> {mods} {subs} <hotrect name="ArrowUp"> <y> 5 </y> </hotrect> </rect> </rect>"#
+            ),
+        )
+}
+
+#[test]
+fn mcms_list_functions_set_its_rows_as_the_original_did() {
+    use fnv_game::ui_functions::call;
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    g.new_game();
+    let src = list_files();
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g, Box::new(src), paths);
+    g.menu = Some(menus::START);
+    ui_loading::sync(&mut g, true, false);
+    let n = |v: f64| XVal::Num(v);
+    let s = |v: &str| XVal::Str(v.to_string());
+    let get = |g: &Game, p: &str| g.ui_tree.get_float(&format!("StartMenu/MCM/{p}"));
+    let text = |g: &Game, p: &str| g.ui_tree.get_string(&format!("StartMenu/MCM/{p}")).unwrap_or_default();
+
+    // [observed: job mcm976e, menu-xml.md §10.2] `3 1 2 "alpha" 77`: Item1 and Item2, not
+    // Item3, not MCM_List; `3 3 2`: nothing; `3 0 1`: Item1 only; a missing trait stays
+    // missing; a path below the row reaches its child.
+    call(&mut g, "SetMCMFloatMass", &[n(3.0), n(1.0), n(2.0), s("alpha"), n(77.0)]).unwrap().unwrap();
+    assert_eq!([get(&g, "MCM_List/Item1/alpha"), get(&g, "MCM_List/Item2/alpha"), get(&g, "MCM_List/Item3/alpha"), get(&g, "MCM_List/alpha")], [Some(77.0), Some(77.0), Some(0.0), Some(255.0)]);
+    call(&mut g, "SetMCMFloatMass", &[n(3.0), n(3.0), n(2.0), s("alpha"), n(55.0)]);
+    assert_eq!([get(&g, "MCM_List/Item2/alpha"), get(&g, "MCM_List/Item3/alpha")], [Some(77.0), Some(0.0)]);
+    call(&mut g, "SetMCMFloatMass", &[n(3.0), n(0.0), n(1.0), s("alpha"), n(66.0)]);
+    assert_eq!([get(&g, "MCM_List/Item1/alpha"), get(&g, "MCM_List/Item2/alpha"), get(&g, "MCM_List/alpha")], [Some(66.0), Some(77.0), Some(255.0)]);
+    call(&mut g, "SetMCMFloatMass", &[n(3.0), n(1.0), n(2.0), s("_nvfm"), n(7.0)]);
+    assert_eq!(get(&g, "MCM_List/Item1/_nvfm"), None);
+    call(&mut g, "SetMCMFloatMass", &[n(1.0), n(1.0), n(2.0), s("image/depth"), n(21.0)]);
+    assert_eq!([get(&g, "MCM_Options/Option1/image/depth"), get(&g, "MCM_Options/Option2/image/depth"), get(&g, "MCM_Options/Option1/depth")], [Some(21.0), Some(21.0), Some(13.0)]);
+
+    // SetMCMStringMass: the same rows, the text formatted by the VM before (here plain).
+    call(&mut g, "SetMCMStringMass", &[n(3.0), n(1.0), n(2.0), s("text/string"), s("nvf")]);
+    assert_eq!([text(&g, "MCM_List/Item1/text/string"), text(&g, "MCM_List/Item2/text/string"), text(&g, "MCM_List/Item3/text/string")], ["nvf", "nvf", ""]);
+
+    // SetMCMModList row enable modIndex value form: Mod22 gets the name and the three
+    // numbers. The form here has no name: the string is emptied as GetName's would be.
+    call(&mut g, "SetMCMModList", &[n(22.0), n(1.0), n(6.0), n(5.0), XVal::Ref(0)]);
+    assert_eq!([get(&g, "MCM_ModList/Mod22/_enable"), get(&g, "MCM_ModList/Mod22/_modIndex"), get(&g, "MCM_ModList/Mod22/_modIndex2"), get(&g, "MCM_ModList/Mod22/_subID")], [Some(1.0), Some(6.0), Some(5.0), Some(0.0)]);
+    call(&mut g, "SetMCMModList", &[n(22.0), n(2.0), n(7.0), n(9.0), XVal::Ref(0)]);
+    assert_eq!([get(&g, "MCM_ModList/Mod22/_enable"), get(&g, "MCM_ModList/Mod22/_modIndex2")], [Some(2.0), Some(9.0)]);
+    // Past Mod23 nothing changes: SubMenu1, the next child, keeps its own (MCM's loop calls
+    // it for every mod; Begin Again's 27 wrote mod names into SubMenu1-4).
+    let sub = get(&g, "MCM_ModList/SubMenu1/_enable");
+    call(&mut g, "SetMCMModList", &[n(24.0), n(1.0), n(7.0), n(9.0), XVal::Ref(0)]);
+    assert_eq!([get(&g, "MCM_ModList/SubMenu1/_enable"), get(&g, "MCM_ModList/SubMenu1/_modIndex")], [sub, None]);
+
+    // GetMCMListWidth: list 1 a mod row's text width, list 2 a sub-menu row's, else 0.
+    let width = |g: &mut Game, list: f64, row: f64| match call(g, "GetMCMListWidth", &[n(list), n(row)]) {
+        Some(Ok(XVal::Num(w))) => w,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!([width(&mut g, 1.0, 1.0), width(&mut g, 1.0, 23.0), width(&mut g, 2.0, 1.0), width(&mut g, 2.0, 10.0)], [11.0, 33.0, 101.0, 110.0]);
+    assert_eq!([width(&mut g, 1.0, 0.0), width(&mut g, 3.0, 1.0), width(&mut g, 1.0, 24.0)], [0.0, 0.0, 0.0]);
+
+    // The shorthands take a path below the tile, as MCM's scripts pass (`"ArrowUp/y"`).
+    match call(&mut g, "GetMCMFloat", &[n(5.0), n(0.0), s("ArrowUp/y")]) {
+        Some(Ok(XVal::Num(y))) => assert_eq!(y, 5.0),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A page filled in the guide's way, by place (`*:N` from the first child, from 1)
+/// [documented: MCM Guide v6, The Options Panel, Using Lists; docs/spec-notes/mcm.md §2.1]:
+/// the extender's four reach MCM's children in file order, JIP's `…Alt` count from the
+/// last (hud.md §14.8).
+#[test]
+fn a_guide_style_page_by_place_reaches_its_rows() {
+    use fnv_game::ui_functions::call;
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    g.new_game();
+    let src = list_files();
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g, Box::new(src), paths);
+    g.menu = Some(menus::START);
+    ui_loading::sync(&mut g, true, false);
+    let n = |v: f64| XVal::Num(v);
+    let s = |v: &str| XVal::Str(v.to_string());
+    let num = |r: Option<Result<XVal, String>>| match r {
+        Some(Ok(XVal::Num(v))) => v,
+        other => panic!("{other:?}"),
+    };
+    // `*:1/*:2` is Option2 of MCM_Options, MCM's first child.
+    assert_eq!(num(call(&mut g, "SetUIFloat", &[s("StartMenu/MCM/*:1/*:2/depth"), n(20.0)])), 1.0);
+    assert_eq!(g.ui_tree.get_float("StartMenu/MCM/MCM_Options/Option2/depth"), Some(20.0));
+    assert_eq!(g.ui_tree.get_float("StartMenu/MCM/MCM_Options/Option1/depth"), Some(13.0));
+    // `*:3/*:2/text/string` is Item2's text in MCM_List, the third child.
+    call(&mut g, "SetUIString", &[s("StartMenu/MCM/*:3/*:2/text/string"), s("Setting 2")]).unwrap().unwrap();
+    assert_eq!(g.ui_tree.get_string("StartMenu/MCM/MCM_List/Item2/text/string").as_deref(), Some("Setting 2"));
+    call(&mut g, "SetUIStringEx", &[s("StartMenu/MCM/*:3/*:1/text/string"), s("Setting 1")]).unwrap().unwrap();
+    assert_eq!(g.ui_tree.get_string("StartMenu/MCM/MCM_List/Item1/text/string").as_deref(), Some("Setting 1"));
+    // GetUIFloat reads the same places. Of these five children MCM_ModList, the last, is
+    // `*:0`, and `*:5` is none, as `*:8` of the pause column's eight was [observed:
+    // menu-xml.md §10.1] (in MCM's own nineteen it is `*:5`).
+    assert_eq!(num(call(&mut g, "GetUIFloat", &[s("StartMenu/MCM/*:1/*:2/depth")])), 20.0);
+    assert_eq!(num(call(&mut g, "GetUIFloat", &[s("StartMenu/MCM/*:0/ArrowUp/y")])), 5.0);
+    assert_eq!(num(call(&mut g, "GetUIFloat", &[s("StartMenu/MCM/*:5/ArrowUp/y")])), -999.0);
+    // JIP's from the last, from 0: `*:4` of five is the first, MCM_Options.
+    assert_eq!(num(call(&mut g, "GetUIFloatAlt", &[s("StartMenu/MCM/*:4/*:1/depth")])), 20.0);
+    // A place past the one before the last is none: GetUIFloat's -999, SetUIFloat 0.
+    assert_eq!(num(call(&mut g, "GetUIFloat", &[s("StartMenu/MCM/*:5/*:99/depth")])), -999.0);
+    assert_eq!(num(call(&mut g, "SetUIFloat", &[s("StartMenu/MCM/*:9/depth"), n(1.0)])), 0.0);
+}
+
+/// JIP Companions Command & Control's `iJIPCCCModIndex` is its own load index once a game
+/// is made (`fnv_game::jip_ccc`, docs/spec-notes/mcm.md §4); a load order without CCC, or
+/// CCC without the global, is left alone.
+#[test]
+fn ccc_mod_index_global_is_its_load_index() {
+    let glob = |edid: &str| record(b"GLOB", 0, 0x0800, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b's']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    let build = |name: &str, edid: &str| {
+        let plugin = [tes4(), top(b"GLOB", &glob(edid))].concat();
+        let plugins = vec![Plugin::parse(&tes4(), "Base.esm".into()).unwrap(), Plugin::parse(&tes4(), "Other.esp".into()).unwrap(), Plugin::parse(&plugin, name.into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        let forms = FormStore::build(&lo, &schema);
+        let refs = RefTable::build(&lo, &schema);
+        let data = GameData::build(&lo, &schema, FunctionTable::load(&p).unwrap(), &j, &refs);
+        (data, forms, refs)
+    };
+    let value = |name: &str, edid: &str| {
+        let (data, forms, refs) = build(name, edid);
+        let g = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig::default());
+        let (id, _) = g.world.forms.global_by_edid(edid).unwrap();
+        g.world.global(id).unwrap()
+    };
+    assert_eq!(value(fnv_game::jip_ccc::PLUGIN, fnv_game::jip_ccc::MOD_INDEX_GLOBAL), 2.0);
+    assert_eq!(value("Someone Else.esp", fnv_game::jip_ccc::MOD_INDEX_GLOBAL), 0.0);
+    assert_eq!(value(fnv_game::jip_ccc::PLUGIN, "iSomethingElse"), 0.0);
 }

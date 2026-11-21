@@ -401,5 +401,51 @@ a new game after leaving, "locked for good", and "locked out for good" on return
 | a wrong word, the last one locking the terminal | `UIHackingPassBad` |
 
 Not played: `UIHackingCharSingle` / `…Multiple` (`…\char\single\`, `…\multiple\`,
-[hypothesis: the text typing out, which is not built]) and the fan hum loop
-`UIHackingFanHumLP`.
+[hypothesis: the text typing out, which is not built]), the loop `UIHackingCharScrollLP`
+[observed: FalloutNV.esm SOUN, named in issue #2216; what it is for is not known] and the
+fan hum loop `UIHackingFanHumLP`.
+
+The pointer's hover sound is held to a rate [design, #2216]: the cursor follows the
+pointer onto every character at once, but its `UiEvent::Focus` (`UIHackingCharScroll`) is
+asked for at most once every 70 ms of real time (`nvf_play::terminal::HOVER_SOUND_GAP`, the record's 66.6 ms click
+[observed: measured from the file, issue #2216] rounded up); the moves in between make no
+sound, and it is not played late. The rule holds the requests, not the device: a request
+whose file is still being read waits for it, so two asked 70 ms apart can start together
+(`nvf_play::sfx`). Leaving the dump does not start the wait again; a new
+hacking game starts without it. Keys (one move a press) and the menu's rows always sound.
+Without it a sweep started a copy every frame the pointer reached another character, a
+run of pops at the frame rate. Check: `NVF_PLAY_TEST_TERMINAL=…,point:<index>,…` and the
+exit line "terminal hover: P changed points, F focus sounds, S suppressed" (smoke
+`hacking-hover-sound`).
+
+Open question (for the original): what plays, and how often, while the mouse sweeps
+across the dump — `UIHackingCharScroll` at a capped rate, one of the unplayed records
+above (`UIHackingCharSingle`, `…Multiple`, the loop `UIHackingCharScrollLP`), or
+something else — and whether moving onto a lone character sounds differently from moving
+onto a word. Until it is answered the record and the 70 ms rule stay as above
+[hypothesis / design].
+
+## 10. Hacking tweaks (`bImprovedHacking`)
+
+[documented: Stewie's Tweaks public readme and Nexus Mods 9.50 changelog] Under
+`bImprovedHacking`, `bMarkGuessesAsDuds` blanks denied guesses to `.` in the dump,
+`bMarkGuessesAsDudsKeepMatchingCharacters` (added in Stewie 9.50) retains letters at
+positions that match the password (for example `A.S..ING`), `bCompactGuesses` logs a
+wrong guess on one line without the denied line (for example `HORIZON (1/7)`), and
+`iAllowanceReplenishedBonus` adds bonus attempts on Replenished instead of resetting to
+the maximum (`4`).
+
+[design] `HackRules` (`crates/fnv-game/src/hacking.rs`, populated via
+`HackRules::from_tweaks` in `engine/nvf-play/src/terminal.rs`) implements these four
+options beside the existing four switches, all off / `0` by default. Marking a wrong
+guess as a dud sets `Word::removed = true` so the word is no longer selectable as a
+`Target::Word` and bracket-pair dud removal skips it; retained matching characters stay
+alphabetic in `Puzzle::chars` so they do not allow spurious bracket pairs across a
+removed word.
+
+[hypothesis] Exact interaction between `bMarkGuessesAsDudsKeepMatchingCharacters` when
+`bMarkGuessesAsDuds` is off (NVForever treats it as a sub-option that only applies when
+`mark_guesses_as_duds` is enabled), `iAllowanceReplenishedBonus` interacting with
+`dud_when_full` when attempts already meet or exceed `ATTEMPTS`, and single-line log
+clipping for compact guesses longer than 12 characters have not been observed in the
+original plugin.

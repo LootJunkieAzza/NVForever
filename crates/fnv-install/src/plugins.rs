@@ -25,15 +25,29 @@
 //! files [hypothesis: the extension stands for the header's master flag, true of the
 //! game's own files]. Lines are never removed: a plugin no longer in `Data` is skipped
 //! with a warning, and comes back on if the file returns.
+//!
+//! Plugins in NVForever's own mods folder (`<home>\mods\`, [`EngineHome::mods`]) count as
+//! present too, and get their lines the same way. A plugin there is opened instead of a
+//! plugin of the same name in `Data` ([`plugin_path`]), so a mod can replace a file of the
+//! game's without touching it [design].
+//!
+//! **Language plugins** (#1443): a localized install can keep the English masters and put
+//! its text in one more plugin per master, `<master>_lang.esp` [observed: a Russian
+//! install, docs/spec-notes/fonts.md §2.1]. Such a plugin of one of the game's masters
+//! ([`is_language_plugin`]) gets its new line on, like the masters, after the `.esm`
+//! lines and the language plugins already listed, so the masters' text is replaced but
+//! mods listed later still win; in a new list they follow the masters in the masters'
+//! order [design].
 
-use crate::{guard_write, EngineHome, GameInstall, InstallError, ADDON_MASTERS};
+use crate::{child_ci, guard_write, EngineHome, GameInstall, InstallError, ADDON_MASTERS};
+use std::path::{Path, PathBuf};
 
 /// The list's file in the home.
 pub const PLUGINS_FILE: &str = "plugins.txt";
 
 const HEADER: &str = "; NVForever's plugins, in load order (top loads first). A * in front of a plugin turns\n\
 ; it on; take the * away to turn it off, or move a line to change the order. Plugins new\n\
-; in the game's Data folder are added at the next start, turned off.\n\
+; in the game's Data folder or NVForever's mods folder are added at the next start, turned off.\n\
 ; NVForever has its own list: the original game's plugins.txt is not read or changed.\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,11 +64,14 @@ pub struct PluginList {
 /// What [`sync`] found: the plugins to load, in order, and what the player should hear.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PluginSync {
-    /// The active plugins present in `Data`, in load order; `FalloutNV.esm` first.
+    /// The active plugins present in `Data` or the mods folder, in load order;
+    /// `FalloutNV.esm` first.
     pub load: Vec<String>,
+    /// Those of `load` opened from the mods folder ([`plugin_path`]).
+    pub from_mods: Vec<String>,
     /// Plugins given a line this time (new in `Data`, or the list was just made).
     pub added: Vec<String>,
-    /// Active lines whose file is not in `Data`.
+    /// Active lines whose file is in neither `Data` nor the mods folder.
     pub missing: Vec<String>,
     /// `FalloutNV.esm` was off or not first in the file; it is loaded first anyway.
     pub base_forced: bool,
@@ -76,6 +93,32 @@ fn is_game_master(name: &str) -> bool {
     name.eq_ignore_ascii_case("FalloutNV.esm") || ADDON_MASTERS.iter().any(|m| m.eq_ignore_ascii_case(name))
 }
 
+/// The language plugin of one of the game's masters: `<master>_lang.esp`, e.g.
+/// `FalloutNV_lang.esp`, `DeadMoney_lang.esp` (module notes).
+pub fn is_language_plugin(name: &str) -> bool {
+    language_master_rank(name).is_some()
+}
+
+/// The rank ([`master_rank`]) of the master a language plugin belongs to.
+fn language_master_rank(name: &str) -> Option<usize> {
+    let l = name.to_ascii_lowercase();
+    let stem = l.strip_suffix("_lang.esp")?;
+    let rank = master_rank(&format!("{stem}.esm"));
+    (rank != usize::MAX).then_some(rank)
+}
+
+/// Where a plugin sorts in a new list: the game's masters in their order, the other
+/// `.esm` files, the language plugins in their masters' order, the other `.esp` files.
+fn sort_key(name: &str) -> (u8, usize, String) {
+    let lower = name.to_ascii_lowercase();
+    match (master_rank(name), language_master_rank(name)) {
+        (r, _) if r != usize::MAX => (0, r, lower),
+        (_, Some(r)) => (2, r, lower),
+        _ if is_esm(name) => (1, 0, lower),
+        _ => (3, 0, lower),
+    }
+}
+
 /// Where a game master sorts among the others: `FalloutNV.esm`, then [`ADDON_MASTERS`].
 fn master_rank(name: &str) -> usize {
     if name.eq_ignore_ascii_case("FalloutNV.esm") {
@@ -84,18 +127,57 @@ fn master_rank(name: &str) -> usize {
     ADDON_MASTERS.iter().position(|m| m.eq_ignore_ascii_case(name)).map_or(usize::MAX, |i| i + 1)
 }
 
-/// The `.esm` and `.esp` files in the game's `Data`, as named there: the game's masters in
-/// their order, then the other `.esm` files, then the `.esp` files, each by name.
-pub fn data_plugins(game: &GameInstall) -> Result<Vec<String>, InstallError> {
-    let rd = std::fs::read_dir(&game.data).map_err(|e| InstallError::Io(game.data.clone(), e))?;
-    let mut names: Vec<String> = rd
+/// The `.esm` and `.esp` files in `dir`, as named there.
+fn plugins_in(dir: &Path) -> std::io::Result<Vec<String>> {
+    Ok(std::fs::read_dir(dir)?
         .flatten()
         .filter(|e| e.path().is_file())
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .filter(|n| is_plugin(n))
-        .collect();
-    names.sort_by_key(|n| (master_rank(n), !is_esm(n), n.to_ascii_lowercase()));
+        .collect())
+}
+
+/// The game's masters in their order, then the other `.esm` files, then the language
+/// plugins in their masters' order, then the other `.esp` files by name.
+fn sort_plugins(names: &mut [String]) {
+    names.sort_by_key(|n| sort_key(n));
+}
+
+/// The `.esm` and `.esp` files in the game's `Data`, as named there, in [`sort_plugins`]' order.
+pub fn data_plugins(game: &GameInstall) -> Result<Vec<String>, InstallError> {
+    let mut names = plugins_in(&game.data).map_err(|e| InstallError::Io(game.data.clone(), e))?;
+    sort_plugins(&mut names);
     Ok(names)
+}
+
+/// The plugins of `Data` and of the mods folder `mods` together, in [`data_plugins`]'
+/// order; a name in both is listed once, as the mods folder names it. A missing mods
+/// folder has no plugins.
+pub fn present_plugins(game: &GameInstall, mods: &Path) -> Result<Vec<String>, InstallError> {
+    let mut names = match plugins_in(mods) {
+        Ok(n) => n,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(InstallError::Io(mods.to_path_buf(), e)),
+    };
+    for d in plugins_in(&game.data).map_err(|e| InstallError::Io(game.data.clone(), e))? {
+        if !names.iter().any(|n| n.eq_ignore_ascii_case(&d)) {
+            names.push(d);
+        }
+    }
+    sort_plugins(&mut names);
+    Ok(names)
+}
+
+/// The file to open for plugin `name`: the mods folder's copy when `mods` has one (any
+/// case), else `Data`'s (any case), else `data/name`.
+pub fn plugin_path(data: &Path, mods: Option<&Path>, name: &str) -> PathBuf {
+    mods.and_then(|m| child_ci(m, name)).or_else(|| child_ci(data, name)).unwrap_or_else(|| data.join(name))
+}
+
+/// [`plugin_path`] over the mods folders `roots`, highest precedence first (issue #1526:
+/// an MO2 profile's overwrite folder, then its mods from the highest priority down).
+pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
+    roots.iter().find_map(|r| child_ci(r, name)).or_else(|| child_ci(data, name)).unwrap_or_else(|| data.join(name))
 }
 
 impl PluginList {
@@ -133,17 +215,22 @@ impl PluginList {
     }
 
     /// Gives each of `present` (in [`data_plugins`]' order) without a line one: a game
-    /// master on, anything else off; an `.esm` after the last `.esm` line, an `.esp` at
-    /// the end. Returns the names added.
+    /// master or a language plugin on, anything else off; an `.esm` after the last `.esm`
+    /// line, a language plugin after the last `.esm` or language plugin line, another
+    /// `.esp` at the end. Returns the names added.
     pub fn add_new(&mut self, present: &[String]) -> Vec<String> {
         let mut added = Vec::new();
         for name in present {
             if self.contains(name) {
                 continue;
             }
-            let entry = PluginEntry { name: name.clone(), active: is_game_master(name) };
+            let language = is_language_plugin(name);
+            let entry = PluginEntry { name: name.clone(), active: is_game_master(name) || language };
             if is_esm(name) {
                 let at = self.entries.iter().rposition(|e| is_esm(&e.name)).map_or(0, |i| i + 1);
+                self.entries.insert(at, entry);
+            } else if language {
+                let at = self.entries.iter().rposition(|e| is_esm(&e.name) || is_language_plugin(&e.name)).map_or(0, |i| i + 1);
                 self.entries.insert(at, entry);
             } else {
                 self.entries.push(entry);
@@ -181,8 +268,30 @@ impl EngineHome {
     }
 }
 
+/// Turns plugin `name` on in the home's list (a new line at the end when it has none), as
+/// editor mode does for a plugin it saved into the mods folder. Returns whether the list
+/// changed.
+pub fn turn_on(home: &EngineHome, name: &str) -> Result<bool, InstallError> {
+    let path = home.plugins_file();
+    let mut list = match std::fs::read_to_string(&path) {
+        Ok(t) => PluginList::parse(&t),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => PluginList::default(),
+        Err(e) => return Err(InstallError::Io(path, e)),
+    };
+    match list.entries.iter_mut().find(|e| e.name.eq_ignore_ascii_case(name)) {
+        Some(e) if e.active => return Ok(false),
+        Some(e) => e.active = true,
+        None => list.entries.push(PluginEntry { name: name.to_string(), active: true }),
+    }
+    guard_write(&path, None)?;
+    std::fs::create_dir_all(&home.root).map_err(|e| InstallError::Io(home.root.clone(), e))?;
+    std::fs::write(&path, list.to_text()).map_err(|e| InstallError::Io(path.clone(), e))?;
+    Ok(true)
+}
+
 /// Reads the home's plugin list (made when there is none), gives the plugins new in
-/// `Data` their lines, writes it back when that changed it, and returns what to load.
+/// `Data` or the home's mods folder their lines, writes it back when that changed it, and
+/// returns what to load.
 pub fn sync(home: &EngineHome, game: &GameInstall) -> Result<PluginSync, InstallError> {
     let path = home.plugins_file();
     let mut list = match std::fs::read_to_string(&path) {
@@ -190,16 +299,18 @@ pub fn sync(home: &EngineHome, game: &GameInstall) -> Result<PluginSync, Install
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => PluginList::default(),
         Err(e) => return Err(InstallError::Io(path, e)),
     };
-    let present = data_plugins(game)?;
+    let mods = home.mods();
+    let present = present_plugins(game, &mods)?;
     let added = list.add_new(&present);
     let written = !added.is_empty() || !path.exists();
     if written {
         guard_write(&path, Some(game))?;
         std::fs::create_dir_all(&home.root).map_err(|e| InstallError::Io(home.root.clone(), e))?;
-        std::fs::write(&path, list.to_text()).map_err(|e| InstallError::Io(path.clone(), e))?;
+        crate::write_whole(&path, list.to_text().as_bytes())?;
     }
     let (load, missing, base_forced) = list.load_order(&present);
-    Ok(PluginSync { load, added, missing, base_forced, written })
+    let from_mods = load.iter().filter(|n| child_ci(&mods, n).is_some()).cloned().collect();
+    Ok(PluginSync { load, from_mods, added, missing, base_forced, written })
 }
 
 #[cfg(test)]
@@ -232,6 +343,38 @@ mod tests {
         let text = l.to_text();
         let body: Vec<&str> = text.lines().filter(|s| !s.starts_with(';')).collect();
         assert_eq!(body, ["*FalloutNV.esm", "*HonestHearts.esm", "ModMaster.esm", "*Old.esp", "New.esp"]);
+    }
+
+    #[test]
+    fn language_plugins_are_the_game_masters_own() {
+        for n in ["FalloutNV_lang.esp", "falloutnv_LANG.ESP", "DeadMoney_lang.esp", "CaravanPack_lang.esp"] {
+            assert!(is_language_plugin(n), "{n}");
+        }
+        for n in ["MyMod_lang.esp", "FalloutNV_lang.esm", "FalloutNV.esp", "_lang.esp", "FalloutNV-lang.esp"] {
+            assert!(!is_language_plugin(n), "{n}");
+        }
+    }
+
+    #[test]
+    fn language_plugins_follow_the_masters_and_are_on() {
+        // A new list: in Data's order, the language plugins after the masters and the other
+        // .esm files, in the masters' order, before the other .esp files.
+        let mut present = names(&["Zed.esp", "DeadMoney_lang.esp", "Mod.esm", "FalloutNV_lang.esp", "Aaa.esp", "DeadMoney.esm", "FalloutNV.esm"]);
+        present.sort_by_key(|n| sort_key(n));
+        assert_eq!(present, names(&["FalloutNV.esm", "DeadMoney.esm", "Mod.esm", "FalloutNV_lang.esp", "DeadMoney_lang.esp", "Aaa.esp", "Zed.esp"]));
+        let mut l = PluginList::default();
+        l.add_new(&present);
+        let body: Vec<String> = l.to_text().lines().filter(|s| !s.starts_with(';')).map(str::to_string).collect();
+        assert_eq!(body, ["*FalloutNV.esm", "*DeadMoney.esm", "Mod.esm", "*FalloutNV_lang.esp", "*DeadMoney_lang.esp", "Aaa.esp", "Zed.esp"]);
+        // In a list with mods, a new language plugin goes before them, so they still win.
+        let mut l = PluginList::parse("*FalloutNV.esm\n*Mod.esp\n");
+        assert_eq!(l.add_new(&names(&["FalloutNV.esm", "FalloutNV_lang.esp", "Mod.esp"])), names(&["FalloutNV_lang.esp"]));
+        let body: Vec<String> = l.to_text().lines().filter(|s| !s.starts_with(';')).map(str::to_string).collect();
+        assert_eq!(body, ["*FalloutNV.esm", "*FalloutNV_lang.esp", "*Mod.esp"]);
+        // A line the player turned off stays off.
+        let mut l = PluginList::parse("*FalloutNV.esm\nFalloutNV_lang.esp\n");
+        assert!(l.add_new(&names(&["FalloutNV.esm", "FalloutNV_lang.esp"])).is_empty());
+        assert!(!l.entries[1].active);
     }
 
     #[test]
@@ -268,6 +411,58 @@ mod tests {
         let s = sync(&home, &game).unwrap();
         assert_eq!(s.added, names(&["Later.esp"]));
         assert!(std::fs::read_to_string(home.plugins_file()).unwrap().ends_with("*Mod.esp\nLater.esp\n"));
+        std::fs::remove_dir_all(&t).ok();
+    }
+
+    #[test]
+    fn turn_on_adds_or_switches_a_line() {
+        let t = std::env::temp_dir().join(format!("nvf-plugins-on-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let home = EngineHome::new(t.join("home"));
+        assert!(turn_on(&home, "Edits.esp").unwrap());
+        std::fs::write(home.plugins_file(), "*FalloutNV.esm
+Edits.esp
+").unwrap();
+        assert!(turn_on(&home, "edits.esp").unwrap());
+        assert!(!turn_on(&home, "Edits.esp").unwrap());
+        let l = PluginList::parse(&std::fs::read_to_string(home.plugins_file()).unwrap());
+        assert_eq!(l.entries, vec![PluginEntry { name: "FalloutNV.esm".into(), active: true }, PluginEntry { name: "Edits.esp".into(), active: true }]);
+        std::fs::remove_dir_all(&t).ok();
+    }
+
+    #[test]
+    fn mods_folder_plugins_are_listed_and_win_over_data() {
+        let t = std::env::temp_dir().join(format!("nvf-plugins-mods-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let data = t.join("game").join("Data");
+        std::fs::create_dir_all(&data).unwrap();
+        for f in ["FalloutNV.esm", "Mod.esp"] {
+            std::fs::write(data.join(f), b"TES4").unwrap();
+        }
+        let game = GameInstall::open(t.join("game")).unwrap();
+        let home = EngineHome::new(t.join("home"));
+        // No mods folder yet: only Data's plugins.
+        assert_eq!(present_plugins(&game, &home.mods()).unwrap(), names(&["FalloutNV.esm", "Mod.esp"]));
+        std::fs::create_dir_all(home.mods()).unwrap();
+        for f in ["Edit.esp", "mod.esp", "Notes.txt"] {
+            std::fs::write(home.mods().join(f), b"TES4").unwrap();
+        }
+        // Mod.esp in both: listed once, as the mods folder names it.
+        assert_eq!(present_plugins(&game, &home.mods()).unwrap(), names(&["FalloutNV.esm", "Edit.esp", "mod.esp"]));
+        let s = sync(&home, &game).unwrap();
+        assert_eq!(s.added, names(&["FalloutNV.esm", "Edit.esp", "mod.esp"]));
+        std::fs::write(home.plugins_file(), "*FalloutNV.esm\n*Mod.esp\n*Edit.esp\n").unwrap();
+        let s = sync(&home, &game).unwrap();
+        assert_eq!(s.load, names(&["FalloutNV.esm", "mod.esp", "Edit.esp"]));
+        assert_eq!(s.from_mods, names(&["mod.esp", "Edit.esp"]));
+        assert!(s.missing.is_empty());
+        // The mods folder's copy is the one opened; Data's otherwise.
+        // (On a case-insensitive file system the exact name exists too; either names the file.)
+        let p = plugin_path(&data, Some(&home.mods()), "Mod.esp");
+        assert_eq!(p.parent(), Some(home.mods().as_path()));
+        assert!(p.file_name().unwrap().to_string_lossy().eq_ignore_ascii_case("mod.esp"));
+        assert_eq!(plugin_path(&data, Some(&home.mods()), "FalloutNV.esm"), data.join("FalloutNV.esm"));
+        assert_eq!(plugin_path(&data, None, "Mod.esp"), data.join("Mod.esp"));
         std::fs::remove_dir_all(&t).ok();
     }
 }

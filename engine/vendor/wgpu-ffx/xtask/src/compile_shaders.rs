@@ -21,7 +21,8 @@ USAGE:
     xtask compile-shaders [OPTIONS]
 
 OPTIONS:
-    -h, --help    Print help information
+    -h, --help         Print help information
+    --only <NAME>      Compile only the effect in wgpu-ffx-shaders-spv/src/<NAME> (repeatable)
 "#;
 
 const SDK_BASE_PATH: &str = "shaders/src";
@@ -117,6 +118,13 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
         return Ok(());
     }
 
+    // NVForever: `--only` keeps the other effects' committed SPIR-V untouched (a newer glslc
+    // gives different bytes for unchanged sources).
+    let mut only: Vec<String> = Vec::new();
+    while let Some(name) = args.opt_value_from_str::<_, String>("--only")? {
+        only.push(name);
+    }
+
     let remaining = args.finish();
     if !remaining.is_empty() {
         return Err(anyhow::anyhow!("Unexpected arguments: {remaining:?}"));
@@ -124,7 +132,14 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
 
     println!("Compiling shaders...");
 
-    let shader_configs = discover_shader_configs()?;
+    let mut shader_configs = discover_shader_configs()?;
+    if !only.is_empty() {
+        shader_configs.retain(|c| {
+            c.output_directory
+                .file_name()
+                .is_some_and(|name| only.iter().any(|o| o == name))
+        });
+    }
 
     if shader_configs.is_empty() {
         println!("No perm.toml files found in shaders/ directory");

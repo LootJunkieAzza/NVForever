@@ -72,9 +72,10 @@ const LENS_WORLD_PX: u32 = 768;
 /// 3D scopes: the reticle drawn this far in front of the world disc (model units).
 const RETICLE_LIFT: f32 = 0.02;
 
-/// The second world camera of a 3D scope.
+/// The second world camera of a 3D scope (it takes the sun visibility too:
+/// sun_visibility.rs).
 #[derive(Component)]
-struct LensCamera;
+pub(crate) struct LensCamera;
 
 pub struct ScopeViewPlugin;
 
@@ -357,8 +358,10 @@ fn lens_camera(
 }
 
 /// Hold the night-vision scope's modifier on the screen while it gives night vision.
-fn night_vision(scope: Res<Scope>, sky: Option<Res<SkyState>>, world: Option<Res<WorldData>>, mut mods: ResMut<ScreenModifiers>, mut state: Local<(Option<Option<u32>>, bool, bool)>) {
-    let night = sky.as_deref().is_some_and(|s| s.interior.is_some() || is_night(s.hour, s.climate.sunrise.0, s.climate.sunset.1));
+fn night_vision(scope: Res<Scope>, sky: Option<Res<SkyState>>, world: Option<Res<WorldData>>, mut mods: ResMut<ScreenModifiers>, mut state: Local<(Option<Option<u32>>, bool, bool)>, tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>) {
+    // The player's Night Vision Toggle tweak's By Day Too [design: docs/design/tweaks.md].
+    let by_day = tweaks.as_ref().is_some_and(|t| t.night_vision_toggle && t.night_vision_by_day);
+    let night = by_day || sky.as_deref().is_some_and(|s| s.interior.is_some() || is_night(s.hour, s.climate.sunrise.0, s.climate.sunset.1));
     let on = scope.on && scope.night_vision && night;
     // A 3D scope gives its night vision in the lens only [design].
     let lens = on && scope.lens_3d;
@@ -446,6 +449,7 @@ fn sway(
     mut player: ResMut<Player>,
     mut lens_sway: ResMut<nvf_play::aim_zoom::LensSway>,
     mut st: Local<SwayState>,
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
 ) {
     let want = if scope.on {
         if st.wobble.is_none() {
@@ -463,6 +467,9 @@ fn sway(
         let spread = combat.player_spread.unwrap_or(0.0);
         let attacking = combat.since_last_shot() < ATTACK_SECONDS;
         let radius = spread * SPREAD_TO_DEG / 2.0 * setting("fGunWobbleMultScope", 1.0) * if attacking { 1.0 } else { setting("fNonAttackGunWobbleMult", 0.5) };
+        // The player's Hold Breath tweak steadies it (docs/design/tweaks.md).
+        let held = nvf_play::tweaks::BREATH_HELD.load(std::sync::atomic::Ordering::Relaxed);
+        let radius = if held { radius * tweaks.as_ref().map_or(1.0, |t| t.breath_sway) } else { radius };
         if !st.told {
             st.told = true;
             info!("scope sway: PSp {spread:.3}, radius {radius:.2}°");

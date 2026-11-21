@@ -230,8 +230,9 @@ item 33).
 ## 7. Test version (built 2026-10-26)
 
 At the owner's request ("a test version with a gameplay switch"), a first cut is built.
-It is off by default: the **"3D scopes (test)"** switch is on the settings page next to
-True iron sights, and `--scope-3d` on the command line turns it on.
+It is off by default: the **"3D scopes (test)"** switch is on the settings page (registered
+next to True iron sights in the Gameplay group, shown under Debug since #1953:
+settings-page.md), and `--scope-3d` on the command line turns it on.
 
 - **Lens table** (`nvforever/src/scope_lens.rs`) [observed: measured as in §2]: the
   sniper rifles (3 models), the trail carbine scope, the hunting rifle scope (4 models),

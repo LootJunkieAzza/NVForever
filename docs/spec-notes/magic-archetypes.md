@@ -75,8 +75,9 @@ tags as in the charter.
   [documented: paralysis is a knockout and a ragdoll, §1; hypothesis: the length is the
   effect's]. GetKnockedState reads 1 while it lies [documented]. The player is paralysed
   as it is knocked down (unconscious.md §5.4) [hypothesis]. A paralysed actor that is
-  knocked out (essential, fatigue) stays down for the stronger cause; a push while it
-  lies throws the body again. "No Knockdowns" and Immobile actors are paralysed all the
+  knocked out (essential, fatigue) stays down for the stronger cause, and still until the
+  Paralysis effect ends when that outlasts the cause's own time [hypothesis]; a push
+  while it lies throws the body again. "No Knockdowns" and Immobile actors are paralysed all the
   same [hypothesis: the flag names knockdowns, not paralysis].
 - **Cure Paralysis** (30): ends the target's Paralysis effects [hypothesis from the name].
 - **Cure Poison** (32): ends the target's effects that come from a spell of type Poison

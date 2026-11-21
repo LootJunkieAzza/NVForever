@@ -16,6 +16,27 @@ impl Game<'_> {
         self.extra.entry(actor).or_default().furniture = using;
     }
 
+    /// Whether an actor other than `actor` is on (or getting on or off) the furniture
+    /// `reference`: the player or any actor the engine seats, not only the AI's own
+    /// (`fnv_ai`'s kept furniture). A seat the player took is not free for a Find or Use
+    /// Item At package (the G.O.A.T., CG03: Paul went to the desk the player sat at).
+    pub fn furniture_used_by_other(&self, actor: FormId, reference: FormId) -> bool {
+        self.extra.iter().any(|(a, e)| *a != actor && e.furniture.is_some_and(|u| u.reference == reference))
+    }
+
+    /// A load stands every actor up, the player and each NPC alike: the saved furniture
+    /// use is cleared, so GetSitting and its kin read 0 (and the furniture is free) until
+    /// the engine seats the body again and says so through [`Game::set_furniture_use`]
+    /// (`furniture: … goes to` / `is back on`). The engine's seats and the AI's furniture
+    /// in use are not saved (docs/design/save-load.md §3.3, §3.4), and a load starts a new
+    /// run, so no body is on furniture as the game's state is restored [design, #2797;
+    /// the player's half #1573]. Called by [`Game::restore`].
+    pub(crate) fn stand_everyone_up(&mut self) {
+        for e in self.extra.values_mut() {
+            e.furniture = None;
+        }
+    }
+
     pub fn furniture_use(&self, actor: FormId) -> Option<FurnitureUse> {
         self.extra.get(&actor).and_then(|e| e.furniture)
     }
@@ -77,7 +98,7 @@ fn used(g: &Game, actor: FormId) -> Option<FormId> {
 /// `items::form_type_code` gives, and ACTI 21, TACT 22, TERM 23, CONT 27, DOOR 28,
 /// FLOR 38, FURN 39 [hypothesis: the same numbering continued; a shipped idle condition
 /// asks `GetIsUsedItemType 0x15` of seated actors, furniture.md §8].
-fn used_type_code(sig: &[u8; 4]) -> Option<i32> {
+pub(crate) fn used_type_code(sig: &[u8; 4]) -> Option<i32> {
     Some(match sig {
         b"ACTI" => 21,
         b"TACT" => 22,
@@ -141,7 +162,15 @@ pub fn get_is_used_item_equip_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<
 
 /// `actor.GetUsedItemActivate`: 1 while the actor uses something ([`used`])
 /// [documented: GECK wiki GetUsedItemActivate, "Returns true if the actor is
-/// using/activating an item(?)"; the page is marked incomplete].
+/// using/activating an item(?)"; the page is marked incomplete]. Inside the walk of the
+/// player's activation idle ([`Game::activate_idle`]) it is also 1 while that actor is
+/// activating something ([`Game::activating`], the window IsWaterObject reads), so the
+/// tree's `ActivateIdles` root, whose one condition it is, opens for the drink (the
+/// wiki's notes: "to check whether an actor is activating something"; idles.md §16)
+/// [documented: fnvtool esm decode, FalloutNV.esm 0x00003BDC; design, #2349: everywhere
+/// else, scripts, quests, dialogue, packages and the NPCs' idle walks, its answer is
+/// unchanged].
 pub fn get_used_item_activate(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    yes(used(g, ctx.subject()?).is_some())
+    let s = ctx.subject()?;
+    yes(used(g, s).is_some() || (g.activate_walk == Some(s) && g.activating(s).is_some()))
 }

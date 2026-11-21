@@ -215,6 +215,56 @@ pub fn armour_foley(lo: &LoadOrder, schema: &Schema, armo: u32) -> Vec<FoleySoun
     Vec::new()
 }
 
+/// The footfall a worn armour adds beside the ground's step (observer check 128, #2541):
+/// at each `Enum: Left`/`Right` key an actor in armour with the Power Armor flag plays
+/// `FSTArmorPowerL`/`R`, one in armour with the Heavy flag (and not Power Armor)
+/// `FSTArmorL`/`R`; the ground's step still plays [observed: in-game probe 2026-11-14,
+/// Blue Moon sandbox, IsSoundPlaying sampled on walking actors: Doc Mitchell in T-45d
+/// (Power Armor and Heavy) FSTArmorPowerL/R beside FSTConcSolidWalkL/R; an NCR heavy
+/// trooper in ArmorPowerNCRSalvaged (Heavy only) FSTArmorL/R; no armour neither;
+/// FSTArmorPowerWalkL/R never played, walking or not]. Medium armour, running and the
+/// player were not measured [hypothesis: the same rule].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArmourStep {
+    Power,
+    Heavy,
+}
+
+impl ArmourStep {
+    /// The SOUN editor ID for a footfall on `side`.
+    pub fn record(self, side: Side) -> &'static str {
+        match (self, side) {
+            (ArmourStep::Power, Side::Left) => "FSTArmorPowerL",
+            (ArmourStep::Power, Side::Right) => "FSTArmorPowerR",
+            (ArmourStep::Heavy, Side::Left) => "FSTArmorL",
+            (ArmourStep::Heavy, Side::Right) => "FSTArmorR",
+        }
+    }
+
+    /// Of several worn pieces' steps, the one that sounds: power armour's over heavy's
+    /// [design: one armour footfall per step].
+    pub fn of_worn(pieces: impl IntoIterator<Item = Option<ArmourStep>>) -> Option<ArmourStep> {
+        pieces.into_iter().flatten().max_by_key(|s| matches!(s, ArmourStep::Power))
+    }
+}
+
+/// An armour's footfall by its general flags (ARMO BMDT): Power Armor, else Heavy.
+pub fn armour_step(lo: &LoadOrder, schema: &Schema, armo: u32) -> Option<ArmourStep> {
+    let f = winner(lo, armo).and_then(|(pi, r)| Fields::new(r, pi, schema).ok())?;
+    if &f.sig != b"ARMO" {
+        return None;
+    }
+    let bmdt = f.subs.iter().find(|s| &s.sig == b"BMDT").and_then(|s| f.decode(s))?;
+    let flags = bmdt.get("general_flags")?;
+    if fnv_sim::extract::has_flag(flags, "Power Armor") {
+        Some(ArmourStep::Power)
+    } else if fnv_sim::extract::has_flag(flags, "Heavy") {
+        Some(ArmourStep::Heavy)
+    } else {
+        None
+    }
+}
+
 /// The sound of an armour's for a rustle key, if it has one.
 pub fn foley_for(sounds: &[FoleySound], armor: bool, gait: Gait) -> Option<&FoleySound> {
     sounds.iter().find(|s| s.armor == armor && s.gait == Some(gait))
@@ -394,6 +444,15 @@ pub fn land_texture_material(lo: &LoadOrder, schema: &Schema, ltex: u32) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn armour_steps_name_their_records_and_power_armour_wins() {
+        assert_eq!(ArmourStep::Power.record(Side::Left), "FSTArmorPowerL");
+        assert_eq!(ArmourStep::Heavy.record(Side::Right), "FSTArmorR");
+        assert_eq!(ArmourStep::of_worn([None, Some(ArmourStep::Heavy), Some(ArmourStep::Power)]), Some(ArmourStep::Power));
+        assert_eq!(ArmourStep::of_worn([Some(ArmourStep::Heavy), None]), Some(ArmourStep::Heavy));
+        assert_eq!(ArmourStep::of_worn([None, None]), None);
+    }
 
     fn keys(v: &[(f32, &str)]) -> Vec<(f32, String)> {
         v.iter().map(|&(t, k)| (t, k.to_string())).collect()

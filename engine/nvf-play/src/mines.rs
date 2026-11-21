@@ -6,7 +6,9 @@
 //!   plugins' PGRE (about 300, listed once), and references created at run time when a
 //!   thrown mine comes to rest (`crate::combat`'s `SettledMine`): put in the world at once
 //!   where it lies, owned by whoever put it down, armed from then on [owner 2026-10-19:
-//!   "your own mines arm immediately after leaving the player hand"]. A mine counts while
+//!   "your own mines arm immediately after leaving the player hand"]. A C-4 charge at
+//!   rest is placed the same way (a reference, saved, of its cell), but is no mine: it
+//!   waits for `DetonatePlacedExplosives` (`crate::combat`, #1986). A mine counts while
 //!   its cell is loaded (it has collision: `PhysState::ref_cell`, `PhysState::created`).
 //! - **Set off.** A live actor (not dead) within the trigger radius that the mine does not
 //!   spare (`fnv_game::functions::mine_spares`: its owner, the owner's faction and
@@ -67,6 +69,9 @@ pub struct Mines {
     /// The weapons that are mines (their projectile is one).
     items: HashSet<FormId>,
     placed: Vec<FormId>,
+    /// Mines to set off at once (a failed disarm under the player's Disarm Requires
+    /// Skill tweak) [design: docs/design/tweaks.md].
+    pub set_off: Vec<FormId>,
     rules: MineRules,
     /// Mines whose fuse burns.
     burning: HashMap<FormId, Burning>,
@@ -82,6 +87,8 @@ pub struct Mines {
 
 struct Burning {
     fuse: Fuse,
+    /// Who set it off, when someone did.
+    by: Option<FormId>,
 }
 
 impl Mines {
@@ -89,9 +96,22 @@ impl Mines {
     pub fn live(&self) -> usize {
         self.live.len()
     }
+
+    /// Whether `mine` is a live mine of the loaded cells.
+    pub fn is_live(&self, mine: FormId) -> bool {
+        self.live.contains_key(&mine)
+    }
 }
 
 /// A point's distance from an actor's upright body, feet to head.
+/// The Contact Mines tweak: a mine this close to an actor's upright axis (game units)
+/// is stood on, and goes off with no fuse [design: docs/design/tweaks.md]; about a body's half width, our choice.
+const CONTACT_DISTANCE: f32 = 24.0;
+
+/// The sound level of a mine's blast as a detection event (the Mine Blasts Are Heard
+/// tweak): the detection settings' loud sound [design: docs/design/tweaks.md].
+const MINE_BLAST_LEVEL: f64 = 100.0;
+
 fn body_distance(p: V3, feet: V3, height: f32) -> f32 {
     let z = p[2].clamp(feet[2], feet[2] + height.max(0.0));
     vec::len(vec::sub(p, [feet[0], feet[1], z]))
@@ -122,6 +142,10 @@ pub(crate) fn tick(
 ) {
     let dt = time.delta_secs();
     let m = &mut *mines;
+    for id in std::mem::take(&mut m.set_off) {
+        info!("mines: mine {id} set off by a failed disarm (tweak)");
+        m.burning.insert(id, Burning { fuse: Fuse::new(0.0), by: Some(FormId::PLAYER_REF) });
+    }
     if m.kinds.is_none() {
         let kinds: HashSet<FormId> = c.forms.projectiles.iter().filter(|(_, p)| is_mine(p)).map(|(&id, _)| id).collect();
         m.placed = sim.refs.refs.values().filter(|r| &r.sig == b"PGRE" && kinds.contains(&r.base)).map(|r| r.id).collect();
@@ -141,6 +165,12 @@ pub(crate) fn tick(
                     r.extra.owner = Some(s.actor);
                 }
                 changed.write(RefChanged::new(id.0));
+                // A charge that waits for its detonator (C-4, #1986): a reference too, so
+                // it is saved and stays in its cell; `crate::combat` sets it off.
+                if c.forms.projectiles.get(&s.proj).is_some_and(|p| p.has("Detonates")) {
+                    info!("explosives: {} put down charge {id} ({}) at ({:.0}, {:.0}, {:.0}), waiting for its detonator", s.actor, s.proj, s.point[0], s.point[1], s.point[2]);
+                    continue;
+                }
                 info!("mines: {} put down mine {id} ({}) at ({:.0}, {:.0}, {:.0}), armed", s.actor, s.proj, s.point[0], s.point[1], s.point[2]);
             }
             Err(e) => warn!("mines: a thrown mine could not be placed: {e}"),
@@ -227,7 +257,13 @@ pub(crate) fn tick(
             // Set 0, so no part chance is rolled].
             let mut by = None;
             for (a, d) in near {
-                let chance = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(1.0, |rt| with_world(rt, &mut sim, |rt| rt.game.entry_point(a, fnv_game::perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0).0));
+                // The player's tweak: a teammate is spared when the player would be [design: docs/design/tweaks.md].
+                let chance = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(1.0, |rt| {
+                    with_world(rt, &mut sim, |rt| {
+                        let who = if rt.game.tweaks.light_step_companions && rt.game.is_teammate(a) { FormId::PLAYER_REF } else { a };
+                        rt.game.entry_point(who, fnv_game::perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0).0
+                    })
+                });
                 if chance <= 0.0 {
                     if m.spared.insert((id, a)) {
                         info!("mines: {a} does not set off mine {id} at {d:.0} units (Calculate Mine Explode Chance {chance}: Light Step)");
@@ -240,9 +276,11 @@ pub(crate) fn tick(
             if let Some((a, d)) = by {
                 // Without scripts there are no actor values: a middling skill [design].
                 let skill = actor_av(script.as_deref_mut(), &mut sim, a, fnv_game::actor_values::EXPLOSIVES).unwrap_or(50.0);
-                let secs = m.rules.fuse(&p, skill);
+                // The player's tweak: a mine stood on goes off at once [design: docs/design/tweaks.md].
+                let contact = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| if a == FormId::PLAYER_REF { rt.game.tweaks.contact_mines_player } else { rt.game.tweaks.contact_mines_npcs });
+                let secs = if contact && d <= CONTACT_DISTANCE { 0.0 } else { m.rules.fuse(&p, skill) };
                 info!("mines: {a} sets off mine {id} at {d:.0} units (trigger radius {radius:.0}): fuse {secs:.2} s at Explosives {skill:.0}");
-                m.burning.insert(id, Burning { fuse: Fuse::new(secs) });
+                m.burning.insert(id, Burning { fuse: Fuse::new(secs), by: Some(a) });
             }
         }
         let Some(b) = m.burning.get_mut(&id) else {
@@ -257,7 +295,7 @@ pub(crate) fn tick(
                 }
             }
             FuseStep::Done => {
-                m.burning.remove(&id);
+                let by = m.burning.remove(&id).and_then(|b| b.by);
                 if let Err(e) = sim.world.set_enabled(id, false) {
                     warn!("mines: mine {id} could not be disabled: {e}");
                 }
@@ -269,6 +307,14 @@ pub(crate) fn tick(
                     Some(e) => {
                         c.mine_explodes(e, [pos[0], pos[1], pos[2] + DESTRUCTION_BLAST_HEIGHT], owner.zip(weapon));
                         info!("mines: mine {id} goes off");
+                        // The player's tweak: the blast is an explosion event the actors
+                        // near measure as any other, its owner whoever put the mine down,
+                        // else whoever set it off [design: docs/design/tweaks.md].
+                        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.mine_blasts_heard) {
+                            if let Some(by) = owner.or(by) {
+                                rt.game.queue_detection_event(fnv_game::awareness::DetectionEvent { owner: by, at: pos, level: MINE_BLAST_LEVEL, kind: fnv_game::awareness::EventType::Explosion });
+                            }
+                        }
                     }
                     None => warn!("mines: mine {id} has no explosion"),
                 }
@@ -283,6 +329,8 @@ pub(crate) fn tick(
     // Scripts' GetMineArmed (`fnv_game::nvse_gaps`): live mines not going off and not
     // the player's.
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        // GetMineArmedEx (`fnv_game::nvse_jg6`): the player's live mines too.
+        rt.game.other.jg6.armed_mines_all = live.keys().filter(|id| !m.burning.contains_key(id)).copied().collect();
         rt.game.gaps.armed_mines = live
             .keys()
             .filter(|id| !m.burning.contains_key(id) && sim.world.peek(**id).and_then(|r| r.extra.owner) != Some(FormId::PLAYER_REF))

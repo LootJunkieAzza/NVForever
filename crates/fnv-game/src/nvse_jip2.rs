@@ -37,6 +37,12 @@ pub struct PlayerTold {
     pub auto_move: bool,
     /// Block held with a gun out (aiming down the sights).
     pub aiming: bool,
+    /// The sights are up now: a gun with sights in hand, ready, Block held, and no reload
+    /// or jam holding them down (the engine's `Combat::player_sights_up`); false while a
+    /// melee weapon blocks. For SUP's HUD bars' aiming condition (`crate::ui_hudbar`).
+    pub sights_up: bool,
+    /// A kill camera (`nvf_play::kill_cam::KillCam::kill_playing`) currently has the view.
+    pub kill_cam: bool,
     pub pad: Pad,
 }
 
@@ -108,7 +114,7 @@ impl Game<'_> {
     }
 
     /// Put a reference at a place, as MoveTo does (`functions::refs::move_ref`).
-    fn place_ref(&mut self, r: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> bool {
+    pub(crate) fn place_ref(&mut self, r: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> bool {
         let cell = cell.map(|c| self.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
         let Ok(s) = self.world.get(r) else { return false };
         s.cell = cell;
@@ -218,8 +224,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let aiming = g.jip2.told.aiming && w.is_some();
             yes(aiming && (scoped == (name == "getpcusingscope")))
         }
-        // NVForever has no kill camera [hypothesis: VATS and its kill cam are not built].
-        "isinkillcam" => zero,
+        // Live kill-camera state reported each frame by the engine (`KillCam::kill_playing`)
+        // [documented: GECK wiki IsInKillCam; design: classic VATS attack cameras are excluded].
+        "isinkillcam" => yes(g.jip2.told.kill_cam),
         "isincharGen" | "isinchargen" => zero,
         // In water: the physics' swimming state [hypothesis: wading is not told];
         // immersion 1 when swimming, else 0 [hypothesis].
@@ -330,15 +337,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getnthperkentryvalue1" | "setnthperkentryvalue1" => {
             let Some(p) = form(args, 0) else { return Some(Ok(XVal::Num(-1.0))) };
             let Ok(i) = usize::try_from(num(args, 1, -1.0) as i64) else { return Some(Ok(XVal::Num(-1.0))) };
-            let rec = g.data.perks.get(&p).and_then(|d| d.entries.get(i)).map(|e| match &e.effect {
+            let rec = crate::nvse_lu3::nth_entry_of(g, p, i as f64).map(|e| match &e.effect {
                 crate::data::PerkEffect::EntryPoint(ep) => ep.value,
                 _ => None,
             });
             match (name, rec) {
                 (_, None) => XVal::Num(-1.0),
-                ("getnthperkentryvalue1", Some(v)) => XVal::Num(f64::from(g.jip2.perk_values.get(&(p, i)).copied().or(v).unwrap_or(0.0))),
+                ("getnthperkentryvalue1", Some(v)) => XVal::Num(f64::from(v.unwrap_or(0.0))),
+                // Into the perk's session copy that the entry points read (the one LU's
+                // perk functions edit, `crate::nvse_lu3`), so the new value takes effect
+                // [documented: SetNthPerkEntryValue1, "sets the value"; Enhanced Movement
+                // sets its sprint speed perk's Modify Run Speed factor so, #2275].
                 _ => {
-                    g.jip2.perk_values.insert((p, i), num(args, 2, 0.0) as f32);
+                    let v = num(args, 2, 0.0) as f32;
+                    if let Some(e) = crate::nvse_lu3::perk_entry_mut(g, p, i as f64) {
+                        if let crate::data::PerkEffect::EntryPoint(ep) = &mut e.effect {
+                            ep.value = Some(v);
+                        }
+                    }
                     zero
                 }
             }
@@ -364,8 +380,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         "getkiller" => XVal::Ref(subject.and_then(|a| g.extra.get(&a)).and_then(|e| e.killer).map_or(0, |k| k.0)),
+        // Without a value the current one is applied again [documented: SetSpeedMult]; the
+        // engine reads Speed Mult every frame, so there is nothing more to do.
         "setspeedmult" => {
             let a = subject.unwrap_or(FormId(0));
+            if args.is_empty() {
+                return Some(Ok(zero));
+            }
             let v = num(args, 0, 100.0);
             if let Err(e) = crate::functions::console::call_words(g, Some(a), "SetActorValue", &["SpeedMult".into(), format!("{v}")], "SetSpeedMult") {
                 return Some(Err(e));
@@ -430,8 +451,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (a, b, t) = (num(args, 0, 0.0), num(args, 1, 0.0), num(args, 2, 0.0));
             XVal::Num(a + (b - a) * t)
         }
-        // The Pip-Boy's mode [hypothesis: 0 while it is closed, as observed].
-        "getpipboymode" => zero,
+        // The Pip-Boy's mode: 0 closed, 1/2 opening, 3 opened, 4/5 closing [documented:
+        // GECK wiki GetPipBoyMode]. NVForever reports 3 whenever any Pip-Boy page is open
+        // (`Game::menu_open(menus::PIPBOY)`, including underneath a tutorial overlay) and
+        // 0 otherwise [hypothesis: opening/closing animation modes 1/2/4/5 are not emitted].
+        "getpipboymode" => XVal::Num(if g.menu_open(crate::game::menus::PIPBOY) { 3.0 } else { 0.0 }),
         // [observed: an unknown stat is -1, and ModExtraMiscStat did not create one]
         "getextramiscstat" => XVal::Num(g.jip2.misc_stats.get(&text(args, 0).to_ascii_lowercase()).copied().unwrap_or(-1.0)),
         // ModExtraMiscStat and InitExtraMiscStat: `crate::nvse_ttw`.
@@ -450,6 +474,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     // AuxTimerTimeToCountdown and the update handlers, then the start
                     // handlers [documented: AuxTimerStart; SetOnAuxTimerStartHandler].
                     g.showoff.countdowns.insert(key.clone(), (num(args, 1, 0.0), num(args, 2, 7.0) as i64 as u32));
+                    g.showoff.timer_mods.insert(key.clone(), g.other.plugin.to_ascii_lowercase());
                     g.aux_timer_started(key.0, &key.1);
                     XVal::Num(1.0)
                 }
