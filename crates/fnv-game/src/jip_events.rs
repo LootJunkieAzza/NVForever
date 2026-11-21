@@ -46,6 +46,34 @@ pub struct JipEvents {
     pub kept: JipKept,
 }
 
+impl JipEvents {
+    /// Carry active main-loop registrar metadata across `Game::take_session`.
+    pub(crate) fn take_main_loop_registrars(
+        &self,
+        kept: &[MainLoop],
+    ) -> (std::collections::HashMap<u64, Arc<Registrar>>, u64) {
+        let mut out = std::collections::HashMap::new();
+        for m in kept {
+            if let Some(r) = self.registrars.get(&m.seq) {
+                out.insert(m.seq, Arc::clone(r));
+            }
+        }
+        (out, self.seq)
+    }
+
+    /// Restore carried main-loop registrar metadata and advance `seq` so new
+    /// registrations in the restored `Game` never collide with carried `MainLoop.seq`.
+    pub(crate) fn restore_main_loop_registrars(
+        &mut self,
+        registrars: std::collections::HashMap<u64, Arc<Registrar>>,
+        seq: u64,
+    ) {
+        let max_kept = self.main_loop.iter().map(|m| m.seq).max().unwrap_or(0);
+        self.seq = self.seq.max(seq).max(max_kept);
+        self.registrars.extend(registrars);
+    }
+}
+
 /// JIP's settings that last until the game is quit (`crate::nvse_ttw`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct JipKept {

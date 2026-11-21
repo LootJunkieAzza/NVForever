@@ -94,11 +94,12 @@ default 3]` [documented: SetGameMainLoopCallback].
   [observed: loop.ran, loop.this]. How many times per frame was not measured: a capture
   query does not run on every game frame.
 - Zero/null callable registration (`XVal::Ref(0)` or `XVal::Num(0.0)`): NVForever
-  refuses to enqueue a form-zero main-loop callback and emits one `HandlerFailed`
-  diagnostic carrying registrar provenance at registration time rather than dispatching
-  form zero every frame (#2603) [design; native handling of null `SetGameMainLoopCallback`
-  callable tokens is unobserved]. Active main-loop registrations also retain registrar
-  provenance for runtime dispatch errors.
+  refuses to enqueue a form-zero main-loop callback and emits one `ScriptError` plus
+  structured warning via `handler_failed_with_registrar` (carrying registrar provenance)
+  at registration time rather than dispatching form zero every frame (#2603) [design;
+  native handling of null `SetGameMainLoopCallback` callable tokens is unobserved].
+  Active main-loop registrations also retain registrar provenance (including across
+  `take_session`/`put_session` handoff) for runtime dispatch errors.
 
 ## 4. Evidence still to get
 

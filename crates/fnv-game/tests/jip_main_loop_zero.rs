@@ -23,6 +23,7 @@ use tracing_subscriber::{
 };
 
 const COUNTER: FormId = FormId(0x0000_0810);
+const LOOP_FN: u32 = 0x0000_0820;
 
 type Fields = BTreeMap<String, serde_json::Value>;
 
@@ -68,7 +69,68 @@ struct Fixture {
     refs: RefTable,
 }
 
+struct LoopNames;
+impl fnv_script::compile::Env for LoopNames {
+    fn form(&self, name: &str) -> Option<fnv_script::compile::FormInfo> {
+        match name {
+            "OwnMainLoopCounter" => Some(fnv_script::compile::FormInfo {
+                form: COUNTER.0,
+                sig: *b"GLOB",
+            }),
+            "OwnedLoopFn" => Some(fnv_script::compile::FormInfo {
+                form: LOOP_FN,
+                sig: *b"SCPT",
+            }),
+            _ => None,
+        }
+    }
+    fn info(&self, form: u32) -> Option<fnv_script::compile::FormInfo> {
+        match form {
+            x if x == COUNTER.0 => Some(fnv_script::compile::FormInfo {
+                form,
+                sig: *b"GLOB",
+            }),
+            LOOP_FN => Some(fnv_script::compile::FormInfo {
+                form,
+                sig: *b"SCPT",
+            }),
+            _ => None,
+        }
+    }
+    fn editor_id(&self, _: u32) -> Option<String> {
+        None
+    }
+    fn local_form(&self, form: u32) -> Option<u32> {
+        Some(form)
+    }
+    fn script_vars(&self, _: u32) -> Option<Vec<fnv_script::VarDecl>> {
+        None
+    }
+}
+
 fn fixture() -> Fixture {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+    let schema = Schema::load_dir(root.join("fnv")).unwrap();
+    let functions = root.join("script/functions.json");
+    let table = FunctionTable::load(&functions).unwrap();
+    let json = serde_json::from_str(&std::fs::read_to_string(&functions).unwrap()).unwrap();
+
+    let text = "scn OwnedLoopFn\nBegin Function {}\nSet OwnMainLoopCounter to OwnMainLoopCounter + 1\nEnd\n";
+    let compiled = fnv_script::compile::compile(text, &table, &LoopNames, None);
+    assert!(compiled.errors().next().is_none(), "{:?}", compiled.diags);
+    let refs: Vec<u32> = compiled
+        .refs
+        .iter()
+        .map(|r| match r {
+            fnv_script::unit::RefSlot::Form(f) => *f,
+            _ => panic!("unexpected ref slot"),
+        })
+        .collect();
+    let mut scpt_fields = vec![sub(b"EDID", z("OwnedLoopFn"))];
+    scpt_fields.extend(unit(0, &compiled.bytes, &[], &refs));
+    scpt_fields.push(sub(b"SCTX", text.as_bytes().to_vec()));
+    let scpt = record(b"SCPT", 0, LOOP_FN, &scpt_fields);
+
     let global = record(
         b"GLOB",
         0,
@@ -80,16 +142,18 @@ fn fixture() -> Fixture {
         ],
     );
     let npc = record(b"NPC_", 0, 7, &[sub(b"EDID", z("Player"))]);
-    let bytes = [tes4(), top(b"GLOB", &global), top(b"NPC_", &npc)].concat();
+    let bytes = [
+        tes4(),
+        top(b"GLOB", &global),
+        top(b"NPC_", &npc),
+        top(b"SCPT", &scpt),
+    ]
+    .concat();
     let plugins = [Plugin::parse(&bytes, "OwnedMainLoop.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
-    let schema = Schema::load_dir(root.join("fnv")).unwrap();
-    let functions = root.join("script/functions.json");
-    let json = serde_json::from_str(&std::fs::read_to_string(&functions).unwrap()).unwrap();
     let forms = FormStore::build(&lo, &schema);
     let refs = RefTable::build(&lo, &schema);
-    let data = GameData::build(&lo, &schema, FunctionTable::load(&functions).unwrap(), &json, &refs);
+    let data = GameData::build(&lo, &schema, table, &json, &refs);
     Fixture { data, forms, refs }
 }
 
@@ -261,4 +325,75 @@ fn valid_main_loop_registration_reregistration_removal_and_session_load_stay_int
         "flag 8 main-loop callback must be dropped on session load"
     );
     assert!(script_errors_since(&g2, 0).is_empty());
+}
+
+#[test]
+fn persistent_main_loop_keeps_its_registrar_and_does_not_collide_after_session_handoff() {
+    let f = fixture();
+    let mut g1 = game(&f);
+
+    // Register persistent (no flag 8) authored SCPT main-loop callback in g1 (seq = 1).
+    g1.run_query(
+        "Begin Function {}\nSetGameMainLoopCallback OwnedLoopFn 1 1 1\nEnd",
+        RunCtx {
+            self_ref: Some(FormId::PLAYER_REF),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let session = g1.take_session();
+
+    // Hand off into fresh g2: carried MainLoop must keep running AND advance jip.seq.
+    let mut g2 = game(&f);
+    g2.put_session(session);
+    g2.tick();
+    assert_eq!(
+        g2.world.global(COUNTER).unwrap(),
+        1.0,
+        "persistent SCPT main-loop callback must survive session handoff"
+    );
+
+    // Register a new JIP handler in g2 with a non-script callable (Player NPC_); its seq
+    // must be > 1 so it cannot collide with the carried MainLoop's seq = 1.
+    g2.run_query(
+        "Begin Function {}\nSetOnHitEventHandler Player 1\nEnd",
+        RunCtx {
+            self_ref: Some(FormId::PLAYER_REF),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // Removing the carried MainLoop must NOT delete the new JIP handler's registrar.
+    g2.run_query(
+        "Begin Function {}\nSetGameMainLoopCallback OwnedLoopFn 0\nEnd",
+        RunCtx::default(),
+    )
+    .unwrap();
+
+    let warnings = capture_warnings(|| {
+        g2.jip_event("hit", Some(FormId::PLAYER_REF), Vec::new());
+    });
+    assert_eq!(
+        warnings.len(),
+        1,
+        "expected one failure warning for the non-script hit handler, got {warnings:?}"
+    );
+    let ctx = warnings[0]
+        .get("handler_context")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let kind = warnings[0]
+        .get("registrar_kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        ctx.contains("registration=2"),
+        "new handler in restored Game must not collide with carried MainLoop seq=1: {ctx}"
+    );
+    assert_ne!(
+        kind, "unavailable",
+        "removing carried MainLoop must not erase the new handler's registrar: {:?}",
+        warnings[0]
+    );
 }

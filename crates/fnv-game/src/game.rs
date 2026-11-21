@@ -2378,6 +2378,9 @@ pub struct Session {
     /// [documented: SetGameMainLoopCallback, 8 "auto-remove on load game"; observed:
     /// save-read, runtime lambdas did not run after a load, flag 8 or not].
     main_loop: Vec<crate::jip_events::MainLoop>,
+    /// Registrar provenance for carried `main_loop` entries plus the prior `JipEvents.seq`.
+    main_loop_registrars: std::collections::HashMap<u64, std::sync::Arc<crate::jip_provenance::Registrar>>,
+    jip_seq: u64,
     restarted_seen: BTreeSet<String>,
     handler_seq: u64,
     /// ppNVSE's instance and item-mod handlers, and the instances to deconstruct.
@@ -3771,7 +3774,7 @@ impl<'a> Game<'a> {
             .filter(|h| h.filters.iter().all(|(_, v)| !matches!(v, fnv_script::vm::XVal::Array(_))))
             .cloned()
             .collect();
-        let main_loop = self
+        let main_loop: Vec<_> = self
             .jip
             .main_loop
             .iter()
@@ -3782,15 +3785,17 @@ impl<'a> Game<'a> {
                 m
             })
             .collect();
+        let (main_loop_registrars, jip_seq) = self.jip.take_main_loop_registrars(&main_loop);
         let pp = self.pp_take_session();
         let sr_registered = self.sr.take_registered();
-        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits) }
+        Session { handlers, main_loop, main_loop_registrars, jip_seq, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits) }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
     pub fn put_session(&mut self, s: Session) {
         self.handlers = s.handlers;
         self.jip.main_loop = s.main_loop;
+        self.jip.restore_main_loop_registrars(s.main_loop_registrars, s.jip_seq);
         for callback in &mut self.jip.main_loop {
             callback.last_clock = functions::clock_now(self.time);
         }
