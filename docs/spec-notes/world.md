@@ -1432,6 +1432,29 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   shows only within Snell's window (refractive index 1.33) and the surface reflects the
   water body outside it. The under fog "amount" is unused. Unknown: the roles of ANAM
   opacity, sun power and the four unnamed leading DNAM floats.
+- **Planar-reflection camera visibility** [design]: for nearby water at the selected
+  plane in the main camera's view, count fragments that pass the opaque-depth check.
+  The one-in-16 sample grid rotates through all 16 offsets so it does not always miss
+  the same narrow strip. Reset the shared counter before drawing and read it back after
+  the draw with the probe generation, source frame and time. A change in world, plane
+  height or CPU view eligibility retires the previous probe. Late or out-of-order
+  results cannot qualify a new plane or make missing frames count as empty.
+  A recent positive sample starts the mirror; after two seconds with no result for the
+  probe the CPU view test can start it alone. While active, the mirror survives short
+  gaps in coverage. It shuts down after at least four seconds of consecutive zero
+  results spanning a full sample cycle, or one second out of the CPU view. No eligible
+  plane, hidden water, or a disabled mirror shuts it down immediately. The camera and
+  material switch in the same frame, and the mirror draws before the main view.
+  In the 2026-11-18 NVForever playtest near SewerMainlineExit and the Potomac, 15 camera
+  shutdowns were attributed to the sampled-pixel gate, and two to no nearby water.
+  That switches the selected plane between mirror and sky/screen-space reflections;
+  it does not establish the cause of individual-object flicker or coplanar artifacts.
+  SSR was enabled; the DLSS Quality request fell back to Off (missing runtime files).
+  CPU tests deliver authored completion packets to the scheduled observer, with the
+  actual water-plane/material producer and camera consumer. They do not execute the
+  shader, GPU copy or asynchronous map. Visual confirmation still requires the river
+  turnout replay with mirror on/off and SSR held fixed, separate object captures, and
+  controls for offscreen/occluded water and active DLSS.
 - **Depth falloff** (2026-10-24, ESM audit gap 27): DNAM "Depth Falloff Start" and
   "End", "where the alpha fadeoff begins (used for edges of the water, to blend it
   smoothly with the land)" and "where the alpha fadeoff ends" [documented: GECK wiki

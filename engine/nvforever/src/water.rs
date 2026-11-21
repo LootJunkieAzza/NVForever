@@ -122,8 +122,8 @@ pub struct WaterParams {
     /// Shore fade: the depth falloff's start and end in units of water crossed, and 1
     /// when the type has one (`fnv_world::sky::Water::edge_falloff`).
     pub edge: Vec4,
-    /// Bevy y of the water whose drawn pixels are counted ([`WaterMaterial::seen`]), and 1
-    /// while counting (`crate::reflection`, #1060).
+    /// Visibility probe: Bevy y of the plane, whether to count it, and the two 16-bit
+    /// halves of the probe generation (`crate::reflection`, #1060).
     pub seen_plane: Vec4,
     /// Direction toward the outdoor sun (Bevy axes) and daylight strength.
     pub water_sun: Vec4,
@@ -145,11 +145,9 @@ pub struct WaterMaterial {
     /// R32Float ripple heights (not filterable: the shader interpolates).
     #[texture(5, sample_type = "float", filterable = false)]
     pub ripples: Option<Handle<Image>>,
-    /// One u32 the shader adds to for drawn water pixels at `seen_plane`'s height that no
-    /// opaque surface hides (one pixel in 16), shared by every water material and read back
-    /// by `crate::reflection` (#1060). It only grows (wrapping): water was drawn between
-    /// two readbacks when the value changed. A storage buffer in the fragment stage: the
-    /// desktop adapters NVForever runs on have them; WebGL2 does not [design].
+    /// Shared visibility packet: an atomic fragment count followed by the probe
+    /// generation, source frame and source time written by `crate::reflection`.
+    /// It requires storage buffers in the fragment stage (not available in WebGL2).
     #[storage(6, visibility(fragment))]
     pub seen: Handle<ShaderBuffer>,
 }
@@ -319,8 +317,8 @@ pub fn water_material(world: &WorldData, wid: u32, reflects: bool, placed: bool,
         .cache
         .seen
         .get_or_insert_with(|| {
-            let mut b = ShaderBuffer::from(vec![0u32]);
-            b.buffer_usage |= BufferUsages::COPY_SRC;
+            let mut b = ShaderBuffer::from(vec![0u32; 4]);
+            b.buffer_usage |= BufferUsages::COPY_SRC | BufferUsages::COPY_DST;
             buffers.add(b)
         })
         .clone();
