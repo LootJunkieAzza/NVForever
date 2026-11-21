@@ -1675,13 +1675,16 @@ impl App {
         ui.label(RichText::new("NEW GAME START").small().strong().color(theme::GOLD_TEXT));
         card(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. Saved with the button above. There is no Clear button.").small().color(WEAK));
+            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. Clear puts the fields back to the New Vegas opening. Save writes them.").small().color(WEAK));
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("Quest").small());
                 ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("quest id").desired_width(120.0));
                 ui.label(RichText::new("Film").small());
                 ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text("fnvintro.bik").desired_width(160.0));
                 ui.checkbox(&mut self.start_edit.no_film, "No intro film");
+                if ui.add_enabled(self.start_edit != crate::start::Fields::default(), egui::Button::new("Clear")).on_hover_text("Back to the New Vegas opening. Save to keep it.").clicked() {
+                    self.start_edit = crate::start::Fields::default();
+                }
             });
         });
         ui.add_space(4.0);
