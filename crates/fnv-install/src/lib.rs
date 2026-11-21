@@ -413,9 +413,9 @@ pub fn guard_write(path: &Path, game: Option<&GameInstall>) -> Result<(), Instal
 /// ```
 ///
 /// `Path` is the original game's install folder (the one holding `Data`), read-only input.
-/// `CodePage` is the code page of the game's 8-bit text (`fnv_util::text`, #1439): 1252
-/// (the default, English installs), 1251 (Russian) or 1250 (Central European); written
-/// only by hand, never by [`Config::save`].
+/// `CodePage` is the encoding of the game's text (`fnv_util::text`, #1439): 1252
+/// (the default, English installs), 1251 (Russian), 1250 (Central European), or
+/// 936 (GB18030/GBK for simplified Chinese). [`Config::save`] preserves this setting.
 /// Saving changes only the keys it owns and keeps every other line, so the file can carry
 /// comments and settings of later builds.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -821,12 +821,13 @@ mod tests {
 
     #[test]
     fn code_page_is_read_and_kept() {
-        let c = Config::from_ini("[Game]\nPath=C:\\FNV\n\n[Text]\nCodePage = 1251\n");
-        assert_eq!(c.code_page.as_deref(), Some("1251"));
         assert_eq!(Config::from_ini("[Text]\nCodePage=\n").code_page, None);
-        // Saving the game folder keeps the hand-written code page.
-        let again = Config { game_dir: Some(PathBuf::from("D:\\FNV")), ..Config::default() }.to_ini("[Text]\nCodePage=1251\n");
-        assert_eq!(Config::from_ini(&again).code_page.as_deref(), Some("1251"));
+        for page in ["1251", "936"] {
+            let ini = format!("[Game]\nPath=C:\\FNV\n\n[Text]\nCodePage = {page}\n");
+            assert_eq!(Config::from_ini(&ini).code_page.as_deref(), Some(page));
+            let again = Config { game_dir: Some(PathBuf::from("D:\\FNV")), ..Config::default() }.to_ini(&ini);
+            assert_eq!(Config::from_ini(&again).code_page.as_deref(), Some(page));
+        }
     }
 
     #[test]

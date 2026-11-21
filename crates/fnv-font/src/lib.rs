@@ -404,6 +404,8 @@ mod tests {
         assert_eq!(code_in('ż', Windows1250), 0xBF);
         assert_eq!(code_in('é', Windows1252), 0xE9);
         assert_eq!(code_in('\u{2019}', Windows1251), 0x92);
+        assert_eq!(code_in('A', Windows936), b'A');
+        assert_eq!(code_in('中', Windows936), b'?');
     }
 
     #[test]

@@ -10,6 +10,8 @@
 //! is taken for Cyrillic [design; hypothesis: one Russian install looked at, where its
 //! language plugins' names and lines are]. Windows-1250 is not told apart from 1252: the
 //! letters of Polish or Czech text are mostly ASCII as well, so it is still set by hand.
+//! For 936, valid GBK pairs need independent evidence: ordinary Russian bytes can
+//! also decode to Han. See the simplified Chinese heuristic in fonts.md §2.1.
 
 use crate::raw::{record_flags, visit_records};
 use crate::Plugin;
@@ -28,6 +30,7 @@ pub struct PluginText {
     pub letters: usize,
     /// Of them, the codes 0xC0 to 0xFF.
     pub high: usize,
+    gbk: GbkSample,
 }
 
 impl PluginText {
@@ -35,21 +38,99 @@ impl PluginText {
     pub fn looks_cyrillic(&self) -> bool {
         self.high >= MIN_HIGH && self.high * 2 >= self.letters
     }
+
+    fn candidate(&self) -> Option<CodePage> {
+        if self.gbk.looks_gbk() {
+            Some(CodePage::Windows936)
+        } else {
+            self.looks_cyrillic().then_some(CodePage::Windows1251)
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+struct GbkSample {
+    non_ascii: usize,
+    valid_non_ascii: usize,
+    pairs: usize,
+    han_pairs: usize,
+    distinctive_pairs: usize,
+}
+
+impl GbkSample {
+    fn read(&mut self, text: &[u8]) {
+        let text = text.split(|&b| b == 0).next().unwrap_or_default();
+        let high = text.iter().filter(|b| !b.is_ascii()).count();
+        self.non_ascii += high;
+        if high == 0 {
+            return;
+        }
+        let Some(decoded) = CodePage::Windows936.decode_strict(text) else {
+            return;
+        };
+        self.valid_non_ascii += high;
+        let mut bytes = text.iter().copied();
+        for ch in decoded.chars() {
+            let lead = bytes.next().expect("validated GB18030 code point");
+            // The WHATWG GB18030 decoder accepts 0x80 as a one-byte euro sign.
+            if lead <= 0x80 {
+                continue;
+            }
+            let trail = bytes.next().expect("validated GB18030 lead byte");
+            if trail.is_ascii_digit() {
+                bytes.nth(1); // skip the last two bytes of a validated four-byte sequence
+                continue;
+            }
+            self.pairs += 1;
+            if matches!(
+                ch,
+                '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}' | '\u{F900}'..='\u{FAFF}'
+            ) {
+                self.han_pairs += 1;
+            }
+            if outside_russian_alphabet(lead) || outside_russian_alphabet(trail) {
+                self.distinctive_pairs += 1;
+            }
+        }
+    }
+
+    fn looks_gbk(&self) -> bool {
+        self.pairs >= 50
+            && self.valid_non_ascii * 10 >= self.non_ascii * 9
+            && self.han_pairs * 2 >= self.pairs
+            && self.distinctive_pairs * 5 >= self.pairs
+    }
+}
+
+/// A byte that Windows-1251 uses for a Cyrillic letter outside the Russian alphabet.
+fn outside_russian_alphabet(byte: u8) -> bool {
+    matches!(CodePage::Windows1251.char_of(byte), 'Ђ'..='Џ' | 'ђ'..='џ' | 'Ґ' | 'ґ')
 }
 
 /// The guess and what it was made from.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Guess {
-    /// Windows-1251 when the Cyrillic-looking plugins hold more high letters than the
-    /// others; None: nothing to change from the default.
+    /// A page supported by enough sampled plugin text, if any.
     pub code_page: Option<CodePage>,
     pub plugins: Vec<PluginText>,
 }
 
 impl Guess {
-    /// The plugins that looked Cyrillic, by name.
+    /// The plugins that met the Windows-1251 letter-byte heuristic, by name.
     pub fn cyrillic(&self) -> Vec<&str> {
         self.plugins.iter().filter(|p| p.looks_cyrillic()).map(|p| p.plugin.as_str()).collect()
+    }
+
+    /// The plugins that support the selected page, by name.
+    pub fn supporting_plugins(&self) -> Vec<&str> {
+        let Some(page) = self.code_page else {
+            return Vec::new();
+        };
+        self.plugins
+            .iter()
+            .filter(|p| p.candidate() == Some(page))
+            .map(|p| p.plugin.as_str())
+            .collect()
     }
 }
 
@@ -76,6 +157,8 @@ pub fn plugin_text(plugin: &Plugin) -> PluginText {
                 let (l, h) = count(data);
                 out.letters += l;
                 out.high += h;
+                let gbk_len = data.len().min(SAMPLE_BYTES.saturating_sub(read));
+                out.gbk.read(&data[..gbk_len]);
                 read += data.len();
             }
         });
@@ -90,7 +173,23 @@ pub fn guess(plugins: &[Plugin]) -> Guess {
 }
 
 fn decide(plugins: &[PluginText]) -> Option<CodePage> {
-    let (cyrillic, other) = plugins.iter().fold((0, 0), |(c, o), p| if p.looks_cyrillic() { (c + p.high, o) } else { (c, o + p.high) });
+    let (gbk, other) = plugins.iter().fold((0, 0), |(g, o), p| {
+        if p.gbk.looks_gbk() {
+            (g + p.gbk.non_ascii, o)
+        } else {
+            (g, o + p.gbk.non_ascii)
+        }
+    });
+    if gbk > other {
+        return Some(CodePage::Windows936);
+    }
+    let (cyrillic, other) = plugins.iter().fold((0, 0), |(c, o), p| {
+        if p.candidate() == Some(CodePage::Windows1251) {
+            (c + p.high, o)
+        } else {
+            (c, o + p.high)
+        }
+    });
     (cyrillic > other).then_some(CodePage::Windows1251)
 }
 
@@ -101,7 +200,9 @@ mod tests {
     fn text(name: &str, s: &str, page: CodePage) -> PluginText {
         let bytes = page.encode(&s.repeat(40)).unwrap();
         let (letters, high) = count(&bytes);
-        PluginText { plugin: name.into(), letters, high }
+        let mut gbk = GbkSample::default();
+        gbk.read(&bytes);
+        PluginText { plugin: name.into(), letters, high, gbk }
     }
 
     #[test]
@@ -112,6 +213,12 @@ mod tests {
         assert!(!text("de", "Größe Ärztetasche für Überlebende", Windows1252).looks_cyrillic());
         assert!(!text("pl", "Torba lekarska, żółć i źdźbło", Windows1250).looks_cyrillic());
         assert!(!text("en", "Stimpak Doctor's Bag", Windows1252).looks_cyrillic());
+        let russian = text(
+            "park",
+            "«Утром я видел ёжика, а вечером — лису».",
+            Windows1251,
+        );
+        assert_eq!(decide(&[russian]), Some(Windows1251));
         // A few high letters are not enough to count.
         assert!(!text("short", "Ж", Windows1251).looks_cyrillic());
     }
@@ -126,8 +233,8 @@ mod tests {
         assert_eq!(decide(&[en.clone(), ru.clone()]), Some(Windows1251));
         assert_eq!(decide(&[en, fr.clone()]), None);
         // A Western mod with more high letters than the Russian one outweighs it.
-        let small_ru = PluginText { plugin: "ru".into(), letters: 150, high: 140 };
-        let big_fr = PluginText { plugin: "fr".into(), letters: 10_000, high: 900 };
+        let small_ru = PluginText { plugin: "ru".into(), letters: 150, high: 140, ..Default::default() };
+        let big_fr = PluginText { plugin: "fr".into(), letters: 10_000, high: 900, ..Default::default() };
         assert_eq!(decide(&[small_ru, big_fr]), None);
         assert_eq!(decide(&[]), None);
     }
@@ -136,5 +243,23 @@ mod tests {
     fn letters_are_counted() {
         assert_eq!(count(b"Ab c1!"), (3, 0));
         assert_eq!(count(&[0xC0, 0xFF, b'a', 0xA8, 0x20]), (3, 2));
+    }
+
+    #[test]
+    fn gbk_evidence_counts_two_byte_pairs_in_whole_fields() {
+        let mut sample = GbkSample::default();
+        sample.read(b"\x80\xd6\xd0\x95\x32\x82\x36\x81\x40\0\xff");
+        assert_eq!(sample.non_ascii, 6);
+        assert_eq!(sample.valid_non_ascii, 6);
+        assert_eq!(sample.pairs, 2);
+        assert_eq!(sample.han_pairs, 2);
+        assert_eq!(sample.distinctive_pairs, 1);
+
+        sample.read(b"\x81");
+        sample.read(b"@");
+        assert_eq!(sample.non_ascii, 7);
+        assert_eq!(sample.valid_non_ascii, 6);
+        assert_eq!(sample.pairs, 2);
+        assert!(!sample.looks_gbk());
     }
 }

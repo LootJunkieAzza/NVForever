@@ -11095,6 +11095,19 @@ expect = [
 forbid = [{ text = "explore: the free-camera explorer", label = "not the explorer" }]
 
 [[scenario]]
+name = "code-page-936"
+source = "#1443: explicit code page 936 selects the GB18030 codec and starts the game"
+areas = ["main-menu", "settings"]
+paths = ["crates/fnv-util/src/lib.rs", "crates/fnv-esm/src/text_guess.rs", "engine/nvforever/src/setup.rs"]
+env = { NVFOREVER_HOME = "code-page-936-home", NVF_CODE_PAGE = "936" }
+args = ["--play", "--menu", "--no-voice"]
+run_seconds = 8
+order = [[
+  "setup: game text read as windows-936 (GB18030/GBK)",
+  { re = 'main menu: open \(', label = "the main menu opens with code page 936" },
+]]
+
+[[scenario]]
 name = "menus-look"
 source = "owner todo 5 items 8, 19, 51: the pause menu in the original's look (column, highlight box, settings categories, quit question, load page), the game's pointer, the wait menu in the HUD's colour and fonts; frames pause_main/quit/settings/load.png and wait_menu.png in the working folder"
 areas = ["main-menu", "save"]

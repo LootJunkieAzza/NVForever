@@ -59,16 +59,17 @@ Russian install showed is in "Seen in a Russian install" below.
   (Windows-1251 for Russian, Windows-1250 for Polish and Czech). So a Cyrillic letter
   is drawn with the glyph at its 1251 code [hypothesis: no localized `.fnt`, texture
   or plugin looked at].
-- **What NVForever does.** All the game's 8-bit text (plugin strings, script strings,
+- **What NVForever does.** The game's encoded text (plugin strings, script strings,
   archive and model names, settings, menu files that are not UTF-8, credits, the
   terminal word list) is read in one code page per run, and a character is set with the
-  glyph at its code in that code page (`fnv_util::text`, `fnv_font::code_of`). Typed
-  text (console, character name) takes only the characters that code page has. Archive
+  glyph at its single-byte code (`fnv_util::text`, `fnv_font::code_of`). Typed
+  text (console, character name, settings search) takes only characters with a
+  single-byte glyph code. With 936 those slots cover ASCII [design]. Archive
   and model names use the same code page as the plugins, so a path in a plugin still
   finds its file [hypothesis: that a localized install's file names use the plugins'
-  code page; every vanilla English name is ASCII, the same in all three code pages].
+  code page; every vanilla English name is ASCII, the same in all supported code pages].
 - **How it is chosen.** `NVF_CODE_PAGE`, else `[Text] CodePage=` in NVForever's own
-  `NVForever.ini` (1252, 1251 or 1250), else read from the plugins' text, else
+  `NVForever.ini` (1252, 1251, 1250 or 936), else read from the plugins' text, else
   Windows-1252 (the English install's, the release this engine targets) [hypothesis].
   No setting of the install names it: a Russian install's `Fallout_default.ini` says
   `sLanguage=ENGLISH` [observed: the owner's Russian install, 2026-11-08]. So the text
@@ -77,18 +78,40 @@ Russian install showed is in "Seen in a Russian install" below.
   is Cyrillic in Windows-1251, where those bytes are the Cyrillic letters [documented:
   WHATWG windows-1251 index], and Western European text has only its few accented
   letters there; 1251 is chosen when such plugins hold more of those bytes than the
-  others [design; hypothesis: one Russian install looked at]. Windows-1250 is not told
-  apart from 1252 this way and is still set by hand. The start's log says when the
+  others [design; hypothesis: one Russian install looked at]. The simplified Chinese
+  check below takes precedence when its plugins hold most of the sampled non-ASCII
+  text [design]. Windows-1250 is still set by hand. The start's log says when the
   plugins chose it. The game's language plugins (`<master>_lang.esp`) are turned on in
   NVForever's plugin list when it first lists them (`fnv_install::plugins`).
   NVForever's own words (`lang/`) follow: a run whose code page is Windows-1251 starts
   in Russian when `lang/ru.toml` is there and NVForever.ini keeps no `language=`
   (`fnv_util::words::follow_code_page`, #1948) [design; hypothesis: 1251 means
-  Russian, the one Cyrillic release; 1250 and 1252 name no language].
-- **Every code page here maps all 256 bytes** to a character (the WHATWG tables in
+  Russian, the one Cyrillic release; 1250, 1252 and 936 name no language].
+- **Each Windows-125x code page maps all 256 bytes** to a character (the WHATWG tables in
   `encoding_rs`; an undefined slot becomes the C1 control of the same value), so text read
   and written again keeps its bytes [documented: WHATWG Encoding Standard, the
   windows-1250/1251/1252 indexes].
+
+**Simplified Chinese.** Microsoft assigns 936 to its simplified Chinese code page and
+54936 to GB18030 [documented: [Microsoft code page identifiers](https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers)].
+NVForever accepts `936`, `gbk` and `gb18030` for one setting. It uses the GB18030
+codec for ASCII, GBK double-byte characters and GB18030 four-byte characters. Invalid
+sequences decode with a replacement character [design].
+The GBK and GB18030 decoders share the same rules
+[documented: [WHATWG Encoding Standard §10](https://encoding.spec.whatwg.org/#legacy-multi-byte-chinese-(simplified)-encodings)].
+
+For automatic selection, a plugin needs at least 50 valid double-byte pairs and at
+least 90% of its non-ASCII sample bytes must be in fields that decode without errors.
+At least half of its decoded double-byte characters must be Han, and at least one in
+five pairs must contain a byte that Windows-1251 uses for a Cyrillic letter outside
+the Russian alphabet. Ordinary Russian text can otherwise be valid GBK and even
+decode to Han. Those bytes are identified using the
+[WHATWG Windows-1251 index](https://encoding.spec.whatwg.org/index-windows-1251.txt)
+[documented]. These thresholds are an engine heuristic [design; hypothesis: checked
+with authored Chinese and Russian samples]. Set `CodePage=936` if the sample is
+short, ambiguous, or mostly four-byte characters. Also set it for plugins with GBK
+or GB18030 master filenames containing non-ASCII characters. The loader reads master
+names from plugin headers before it can guess the code page [design].
 
 **Seen in a Russian install** [observed: the owner's Russian install, 2026-11-08, read
 with `fnvtool` and looked at as pictures; one install, not a Steam download]:

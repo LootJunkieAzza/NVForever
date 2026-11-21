@@ -108,6 +108,44 @@ fn parse_header_and_roundtrip() {
 }
 
 #[test]
+fn guesses_gbk_and_cyrillic_from_plugin_text() {
+    use fnv_esm::text_guess::guess;
+    use fnv_util::text::CodePage::{Windows1251, Windows936};
+
+    let plugin = |name: &str, title: &[u8], line: &[u8]| {
+        let mut file = tes4(&[], 2, &[]);
+        let mut subs = vec![sub(b"FULL", &[title, b"\0"].concat())];
+        subs.extend((0..12).map(|_| sub(b"NAM1", &[line, b"\0"].concat())));
+        let info = record(b"INFO", 0, 0x800, &write_subrecords(&subs));
+        file.extend(group(b"INFO", 0, &info));
+        Plugin::parse(&file, name.into()).unwrap()
+    };
+    let chinese = Windows936
+        .encode("清晨我们沿着河岸散步，看到远处的山丘上升起一片薄雾。小路两边长满了青草，路旁的石桥通向村里。")
+        .unwrap();
+    let chinese = plugin("River.esp", b"River path", &chinese);
+
+    // Even a whole Russian field with legal GBK pairs and Han characters is ambiguous.
+    let russian = Windows1251
+        .encode("Дома было тихо. Лена пила воду.")
+        .unwrap();
+    assert!(Windows936.decode_strict(&russian).unwrap().contains('念'));
+    let russian = plugin("Quiet.esp", b"Quiet house", &russian);
+
+    let english = plugin(
+        "Museum.esp",
+        b"Museum",
+        b"The museum is open this afternoon.",
+    );
+    let cyrillic = guess(std::slice::from_ref(&russian));
+    assert_eq!(cyrillic.code_page, Some(Windows1251));
+    assert_eq!(cyrillic.supporting_plugins(), ["Quiet.esp"]);
+    let gbk = guess(&[english, russian, chinese]);
+    assert_eq!(gbk.code_page, Some(Windows936));
+    assert_eq!(gbk.supporting_plugins(), ["River.esp"]);
+}
+
+#[test]
 fn load_order_overrides_and_remap() {
     let plugins = vec![
         Plugin::parse(&master(), "Master.esm".into()).unwrap(),
