@@ -34,8 +34,9 @@ pub fn tile_id(ui: &Ui, tile: TileId) -> f64 {
 /// One frame of tile input for `menus` (back to front), then the script events:
 /// SetOnMouseoverChangeEventHandler's when the highlight moved (with the menu ID of the
 /// tile now highlighted, else of the one left) and SetOnMenuClickEventHandler's for each
-/// click [documented: their pages, jip-events.md §2]. A template list row's name is passed
-/// without the `:<index>` the original adds [hypothesis: not built yet].
+/// click [documented: their pages, jip-events.md §2]. Repeated same-named sibling tiles
+/// carry `:<index>` (0-based in child order, `Ui::indexed_name_of` / `Ui::indexed_path_of`)
+/// [documented: SetOnMenuClickEventHandler; hypothesis: 0-based among same-named siblings].
 pub fn step(g: &mut Game, menus: &[TileId], input: &Input, measure: &Measure<'_>) -> Report {
     let report = g.ui_pointer.step(&mut g.ui_tree, menus, input, measure);
     if let Some((from, to)) = report.over {
@@ -50,7 +51,7 @@ pub fn step(g: &mut Game, menus: &[TileId], input: &Input, measure: &Measure<'_>
         }
         let ui = &g.ui_tree;
         let menu = ui.tile(ui.root_of(click.tile)).name.clone();
-        let (path, mid, id, name) = (ui.path_of(click.tile), menu_id(ui, click.tile), tile_id(ui, click.tile), ui.tile(click.tile).name.clone());
+        let (path, mid, id, name) = (ui.indexed_path_of(click.tile), menu_id(ui, click.tile), tile_id(ui, click.tile), ui.indexed_name_of(click.tile));
         g.jip_menu_click(&menu, &path, mid, id, &name);
     }
     report

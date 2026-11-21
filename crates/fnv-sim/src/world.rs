@@ -217,7 +217,9 @@ pub struct RefState {
     pub dropped_by: Option<FormId>,
     /// A reference created at run time ([`World::place`]): the cell and position it was
     /// created at, its editor location for packages and `GetStartingPos`-like questions
-    /// that a placed reference answers from the plugins (#2278) [hypothesis].
+    /// that a placed reference answers from the plugins (#2278) [hypothesis]. Saved with
+    /// the reference; a created actor of an older save without it takes its saved place
+    /// on a load (`World::made_at_from_saved_place`, #3042).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub made_at: Option<(Option<FormId>, [f32; 3])>,
     /// A shot's temporary reference for scripts (`fnv_game::nvse_proj`): the engine draws
@@ -434,7 +436,9 @@ pub struct Snapshot {
 /// console's SetGameSetting, which changes the same setting, alike]; leveled lists edited
 /// by script [documented: LU's leveled-list functions, "not savebaked"]; base containers
 /// edited by script [documented: BaseAddItem, "will only persist for the duration of the
-/// game session"; hypothesis: BaseRemoveItem, whose page says nothing, alike].
+/// game session"; hypothesis: BaseRemoveItem, whose page says nothing, alike]; container
+/// Respawns flag overrides (`SetContainerRespawns`) [hypothesis: session-only, like
+/// `base_edits`].
 ///
 /// "The session" is one run of the program. The runner's SaveLoad and any restore within
 /// a run keep them; the engine's load while playing starts NVForever again with `--load`
@@ -447,11 +451,15 @@ pub struct WorldSession {
     setting_changes: BTreeMap<String, crate::settings::Setting>,
     leveled_edits: BTreeMap<FormId, crate::forms::LeveledList>,
     base_edits: BTreeMap<FormId, Vec<crate::forms::Entry>>,
+    container_respawns: BTreeMap<FormId, bool>,
 }
 
 impl WorldSession {
     pub fn is_empty(&self) -> bool {
-        self.setting_changes.is_empty() && self.leveled_edits.is_empty() && self.base_edits.is_empty()
+        self.setting_changes.is_empty()
+            && self.leveled_edits.is_empty()
+            && self.base_edits.is_empty()
+            && self.container_respawns.is_empty()
     }
 }
 
@@ -580,6 +588,11 @@ pub struct World<'a> {
     /// world starts from a number no other world of this process used, as
     /// `lock_serial`.
     presence_serial: u64,
+    /// Session-only `SetContainerRespawns` overrides: container base → whether it respawns,
+    /// over its `CONT` record's `Respawns` flag (`World::container_respawns`,
+    /// `World::set_container_respawns`). Kept for the session, not saved ([`WorldSession`])
+    /// [hypothesis: session-only, like `base_edits`].
+    container_respawns: BTreeMap<FormId, bool>,
     /// ShowOff's SetEnableParent: a reference's enable parent for the session in place of
     /// its XESP (`None`: removed) [documented: SetEnableParent]. Not saved [hypothesis: the
     /// page does not say the change is savebaked].
@@ -627,6 +640,7 @@ impl<'a> World<'a> {
             deleted_created: BTreeMap::new(),
             lock_serial: serial,
             presence_serial: serial,
+            container_respawns: BTreeMap::new(),
             enable_parent_edits: BTreeMap::new(),
             own_enable: std::collections::BTreeSet::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
@@ -998,14 +1012,31 @@ impl<'a> World<'a> {
         Ok(done)
     }
 
+    /// Whether container base form `base` currently has the Respawns flag, reading
+    /// session `SetContainerRespawns` overrides before the authored `CONT` record; `false`
+    /// for non-containers.
+    pub fn container_respawns(&self, base: FormId) -> bool {
+        let Some(BaseData::Container(c)) = self.forms.get(base).map(|b| &b.data) else {
+            return false;
+        };
+        self.container_respawns.get(&base).copied().unwrap_or(c.respawns)
+    }
+
+    /// `SetContainerRespawns flag [container]`: override `base`'s Respawns flag for the
+    /// current session when `base` is a `CONT` record; ignored for non-containers.
+    pub fn set_container_respawns(&mut self, base: FormId, respawns: bool) {
+        if matches!(self.forms.get(base).map(|b| &b.data), Some(BaseData::Container(_))) {
+            self.container_respawns.insert(base, respawns);
+        }
+    }
+
     /// Whether `id` is a merchant container that restocks: an actor names it in XMRC and
-    /// its base has the Respawns flag. [observed in game: Primm's merchant box 0x0017409C,
-    /// whose base lacks the flag, never refilled in 7 days of daily reads
-    /// (`bl_primm_restock`); Ringo's 0x001629C0, with the flag, did;
-    /// docs/spec-notes/simulation.md §3]
+    /// its base has the Respawns flag (including session `SetContainerRespawns` overrides).
+    /// [observed in game: Primm's merchant box 0x0017409C, whose base lacks the flag, never
+    /// refilled in 7 days of daily reads (`bl_primm_restock`); Ringo's 0x001629C0, with the
+    /// flag, did; docs/spec-notes/simulation.md §3]
     fn restocks(&self, id: FormId, base: FormId) -> bool {
-        self.placed.is_merchant_container(id)
-            && matches!(self.forms.get(base).map(|b| &b.data), Some(BaseData::Container(c)) if c.respawns)
+        self.placed.is_merchant_container(id) && self.container_respawns(base)
     }
 
     /// Merchant restocks at the midnights in (`from`, `to`] (GameDaysPassed crossing a
@@ -1913,8 +1944,6 @@ impl<'a> World<'a> {
     /// authored state now, as [`World::attach_cell`] does after the respawn delay (a
     /// script's ResetInterior). Returns the containers reset.
     pub fn reset_containers(&mut self, cell: FormId) -> Vec<FormId> {
-        let forms = self.forms;
-        let respawns = |base: FormId| matches!(forms.get(base).map(|b| &b.data), Some(BaseData::Container(c)) if c.respawns);
         let reset: Vec<FormId> = self
             .placed
             .by_cell
@@ -1922,7 +1951,7 @@ impl<'a> World<'a> {
             .into_iter()
             .flatten()
             .copied()
-            .filter(|id| self.refs.get(id).is_some_and(|s| respawns(s.base)))
+            .filter(|id| self.refs.get(id).is_some_and(|s| self.container_respawns(s.base)))
             .collect();
         for id in &reset {
             self.refs.remove(id);
@@ -2425,6 +2454,7 @@ impl<'a> World<'a> {
             setting_changes: std::mem::take(&mut self.setting_changes),
             leveled_edits: std::mem::take(&mut self.leveled_edits),
             base_edits: std::mem::take(&mut self.base_edits),
+            container_respawns: std::mem::take(&mut self.container_respawns),
         }
     }
 
@@ -2433,6 +2463,7 @@ impl<'a> World<'a> {
         self.setting_changes = s.setting_changes;
         self.leveled_edits = s.leveled_edits;
         self.base_edits = s.base_edits;
+        self.container_respawns = s.container_respawns;
     }
 
     pub fn restore(forms: &'a FormStore, placed: &'a RefTable, s: &Snapshot) -> Result<World<'a>, String> {
@@ -2458,6 +2489,27 @@ impl<'a> World<'a> {
         w.power_armor_training = s.power_armor_training;
         w.carry_bonus = s.carry_bonus.clone();
         w.weight_rules = s.weight_rules.clone();
+        w.made_at_from_saved_place();
         Ok(w)
+    }
+
+    /// A created actor of a save written before [`RefState::made_at`] existed (#2278
+    /// came with 0.8.0) has no creation place, and kept none in every save after: its
+    /// packages near the editor location failed after each load (#3042). It takes the
+    /// place it was saved at, the nearest fact the save holds [decision]. That is only an
+    /// approximation of where it was made: combat, following someone or a scripted MoveTo
+    /// may have moved it before the save, and then it is anchored where it stood.
+    /// Only actors (NPC_, CREA and the leveled actor lists placed as themselves), because
+    /// a dropped item has no creation place by design ([`World::drop_item`]); every actor
+    /// [`World::place`] makes has one, so `None` on a present created actor marks the
+    /// older save, and the snapshot format stays `fnv.sim.state/1` (save-load.md §4).
+    fn made_at_from_saved_place(&mut self) {
+        let forms = self.forms;
+        let actor = |base: FormId| matches!(forms.sig(base).as_ref(), Some(b"NPC_" | b"CREA" | b"LVLN" | b"LVLC"));
+        for (_, s) in self.refs.range_mut(FormId::FIRST_DYNAMIC..) {
+            if s.made_at.is_none() && !s.deleted && actor(s.base) {
+                s.made_at = Some((s.cell, s.pos));
+            }
+        }
     }
 }

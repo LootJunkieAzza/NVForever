@@ -600,11 +600,10 @@ fn window(s: &str, at: usize) -> &str {
 
 /// #2981: the NIF forward shader with the authored materials' debug defs.
 ///
-/// What it proves: with each `NVF_PBR_VIEW` mode's defs, with `NVF_PBR_METALLIC`, and with a
-/// view and metallic together, the shader composes and naga validates it, bindless or not,
-/// ordinary or blend type, with and without UVs (`VERTEX_UVS`) and a normal map
-/// (`STANDARD_MATERIAL_NORMAL_MAP`); each such variant declares something the off variant
-/// does not. With none of those defs, the composed shader declares exactly what the same
+/// What it proves: the authored debug views and parallax variants compose and validate,
+/// bindless or not, ordinary or blend, without UVs and with UVs and tangents (with or
+/// without a normal map). The mask switch changes the shader only when UVs are present.
+/// With none of the debug defs, the composed shader declares exactly what the same
 /// source declares with its debug lines stripped (`without_pbr_debug`), declaration by
 /// declaration, each verbatim, in any order.
 ///
@@ -629,13 +628,19 @@ fn nif_forward_composes_with_the_authored_debug_defs_and_is_unchanged_without_th
     use nvf_assets::nif_surface_blend::HeightLayout;
     for bindless in [false, true] {
         for blend in [false, true] {
-            for mapped in [false, true] {
+            for (uvs, normal_map) in [(false, false), (true, false), (true, true)] {
                 let mut base = nif_defs(bindless, blend, false, false, HeightLayout::STORED);
-                if mapped {
-                    base.extend(["VERTEX_UVS".into(), "STANDARD_MATERIAL_NORMAL_MAP".into()]);
+                if uvs {
+                    base.push("VERTEX_UVS".into());
+                } else {
+                    base.retain(|d| *d != ShaderDefVal::from("VERTEX_UVS_A"));
                 }
-                let key = format!("bindless={bindless} blend={blend} uvs+normal map={mapped}");
-                let off = declarations(&compose(&modules, entry, &base));
+                if normal_map {
+                    base.push("STANDARD_MATERIAL_NORMAL_MAP".into());
+                }
+                let key = format!("bindless={bindless} blend={blend} uvs={uvs} normal_map={normal_map}");
+                let composed = compose(&modules, entry, &base);
+                let off = declarations(&composed);
                 if let Some(d) = declaration_difference(&off, &declarations(&compose(&before, entry, &base))) {
                     panic!("{key}: off is not the shader without the debug code; {d}");
                 }
@@ -646,6 +651,24 @@ fn nif_forward_composes_with_the_authored_debug_defs_and_is_unchanged_without_th
                     let mut defs = base.clone();
                     defs.extend(set.iter().map(|d| ShaderDefVal::from(*d)));
                     assert!(declaration_difference(&declarations(&compose(&modules, entry, &defs)), &off).is_some(), "{key} {set:?}: the defs change no declaration");
+                }
+                // The march needs coordinates and tangents, independently of a normal map.
+                assert_eq!(composed.contains("1.0 - height"), uvs, "{key}: the march inverts the stored height");
+                if !bindless {
+                    assert_eq!(texture_bindings(&composed).contains(&(3, 11)), uvs, "{key}: the march reads the depth map");
+                }
+                for extra in [&[][..], &["NVF_PBR_VIEW", "NVF_PBR_VIEW_HEIGHT"], &["RELIEF_MAPPING"], &["RELIEF_MAPPING", "NVF_PBR_VIEW", "NVF_PBR_VIEW_HEIGHT"]] {
+                    let mut defs = base.clone();
+                    defs.extend(extra.iter().map(|d| ShaderDefVal::from(*d)));
+                    let without_mask = declarations(&compose(&modules, entry, &defs));
+                    if extra.len() == 1 && extra.contains(&"RELIEF_MAPPING") {
+                        assert_eq!(declaration_difference(&without_mask, &off).is_some(), uvs, "{key}: the relief key changes the march");
+                    }
+                    // Isolate the mask's contribution from the height view or relief key.
+                    defs.push(nvf_assets::nif_material::PARALLAX_MASK_DEF.into());
+                    let masked = compose(&modules, entry, &defs);
+                    assert_eq!(masked.contains("unshifted_alpha"), uvs, "{key} {extra:?}: the mask reads unshifted alpha where UVs exist");
+                    assert_eq!(declaration_difference(&declarations(&masked), &without_mask).is_some(), uvs, "{key} {extra:?}: the mask changes the shader only with UVs");
                 }
             }
         }

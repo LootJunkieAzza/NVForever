@@ -332,11 +332,10 @@ impl Ai {
         self.face_listeners(game, dt);
         // A script's Look turning the body wins over facing a listener: last.
         self.face_looks(game, dt);
-        let data = game.data;
         let now = game.time;
         let mut free: Vec<Free> = Vec::new();
         for (&actor, a) in &self.agents {
-            let Some(def) = a.package.and_then(|p| data.package_defs.get(&p)) else { continue };
+            let Some(def) = a.package.and_then(|p| game.package_def(&p)) else { continue };
             let busy = a.activity == Activity::Travelling || a.talk.is_some() || a.chat.is_some() || a.search.is_some() || def.ty == PackageType::Sleep;
             // Only actors in the loaded area talk (`crate::process`).
             if busy || !self.is_high(actor) || !here(game, actor) || game.is_talking(actor) || game.in_actor_conversation(actor) {
@@ -533,11 +532,10 @@ impl Ai {
     /// allowing `behaviour`, not asleep, talking or in a combat state. Walking ones too: a
     /// shot or a fight is reacted to on the way.
     fn onlookers(&self, game: &Game, player: Place, behaviour: u16) -> Vec<(FormId, Place, f32)> {
-        let data = game.data;
         self.agents
             .iter()
             .filter(|(id, a)| a.walker.space == player.space && self.is_high(**id) && here(game, **id) && a.chat.is_none() && a.talk.is_none())
-            .filter(|(_, a)| a.package.and_then(|p| data.package_defs.get(&p)).is_some_and(|d| allows(d, behaviour) && d.ty != PackageType::Sleep))
+            .filter(|(_, a)| a.package.and_then(|p| game.package_def(&p)).is_some_and(|d| allows(d, behaviour) && d.ty != PackageType::Sleep))
             .filter(|(id, _)| !in_combat(game, **id) && !game.is_talking(**id))
             .map(|(id, a)| (*id, Place { space: a.walker.space, pos: a.walker.feet }, dist(a.walker.feet, player.pos)))
             .filter(|(_, _, d)| *d <= REACT_DISTANCE)
@@ -575,7 +573,7 @@ impl Ai {
     /// the player, and an ally or friend of the fighter by their factions (who will join
     /// it) [design: review of #1216].
     fn takes_sides(&self, game: &Game, actor: FormId, fighter: FormId) -> bool {
-        let follows = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| game.data.package_defs.get(&p)).is_some_and(|d| matches!(d.ty, PackageType::Follow | PackageType::Accompany));
+        let follows = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| game.package_def(&p)).is_some_and(|d| matches!(d.ty, PackageType::Follow | PackageType::Accompany));
         game.is_teammate(actor) || follows || fnv_game::functions::faction_relation(game, actor, fighter) >= 2
     }
 
@@ -604,12 +602,11 @@ impl Ai {
             }
         }
         // Spectators too close run, wherever the player is.
-        let data = game.data;
         let close: Vec<(FormId, FormId, [f32; 3], f32)> = self
             .agents
             .iter()
             .filter(|(id, a)| self.is_high(**id) && here(game, **id) && a.chat.is_none() && a.talk.is_none() && a.search.is_none() && !self.social.fleeing.contains_key(id))
-            .filter(|(_, a)| a.package.and_then(|p| data.package_defs.get(&p)).is_some_and(|d| allows(d, fallout::OBSERVE_COMBAT) && d.ty != PackageType::Sleep))
+            .filter(|(_, a)| a.package.and_then(|p| game.package_def(&p)).is_some_and(|d| allows(d, fallout::OBSERVE_COMBAT) && d.ty != PackageType::Sleep))
             .filter(|(id, _)| !in_combat(game, **id) && !game.is_talking(**id))
             .filter_map(|(id, a)| {
                 let place = Place { space: a.walker.space, pos: a.walker.feet };

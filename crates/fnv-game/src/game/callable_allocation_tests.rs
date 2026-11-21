@@ -206,6 +206,63 @@ fn package_setters_called_again_with_the_same_values_make_no_new_copy() {
     assert_eq!(g.package_overrides.len(), 1);
 }
 
+/// SetPackageFlag writes through `Game::change_package` (so every `Game::package_def`
+/// consumer sees it and repeated no-ops keep one allocation per #3150), and authored
+/// package overrides survive same-run save loads via `Game::Session` while resetting on a
+/// fresh-run restore (and synthetic TravelToRef packages are never carried across loads).
+#[test]
+fn set_package_flag_uses_package_overrides_and_survives_same_run_session_only() {
+    use crate::package::{flags, PackageDef, Target, TargetKind};
+    use fnv_script::vm::XVal;
+    let (forms, refs, mut data) = fixture();
+    let p = FormId(0x840);
+    data.package_defs.insert(p, PackageDef { target: Some(Target { kind: TargetKind::LinkedReference, count_distance: 3 }), ..Default::default() });
+    let mut g = Game::new(&data, World::new(&forms, &refs, Default::default()), Default::default());
+    let gaps = |g: &mut Game<'_>, name: &str, args: &[XVal]| crate::nvse_gaps::call(g, &Default::default(), name, None, args);
+    let other = |g: &mut Game<'_>, name: &str, args: &[XVal]| crate::nvse_other::call(g, &Default::default(), name, None, args);
+
+    // No-op SetPackageFlag (clearing an already-clear bit) creates no override copy.
+    assert_eq!(gaps(&mut g, "getpackageflag", &[XVal::Ref(p.0), XVal::Num(13.0)]), Some(Ok(XVal::Num(0.0))));
+    assert_eq!(gaps(&mut g, "setpackageflag", &[XVal::Ref(p.0), XVal::Num(13.0), XVal::Num(0.0)]), Some(Ok(XVal::Num(0.0))));
+    assert!(g.package_overrides.is_empty());
+
+    // Setting ALWAYS_RUN (bit 13) + location radius updates Game::package_def; repeated calls do not reallocate.
+    assert_eq!(gaps(&mut g, "setpackageflag", &[XVal::Ref(p.0), XVal::Num(13.0), XVal::Num(1.0)]), Some(Ok(XVal::Num(0.0))));
+    assert!(other(&mut g, "setpackagelocationradius", &[XVal::Ref(p.0), XVal::Num(512.0)]).is_some());
+    assert_eq!(gaps(&mut g, "getpackageflag", &[XVal::Ref(p.0), XVal::Num(13.0)]), Some(Ok(XVal::Num(1.0))));
+    assert!(g.package_def(&p).unwrap().has(flags::ALWAYS_RUN));
+    let ptr: *const PackageDef = g.package_def(&p).unwrap();
+    for _ in 0..1000 {
+        gaps(&mut g, "setpackageflag", &[XVal::Ref(p.0), XVal::Num(13.0), XVal::Num(1.0)]);
+    }
+    assert!(std::ptr::eq(g.package_def(&p).unwrap(), ptr));
+
+    // A synthetic TravelToRef package is readable via GetPackageFlag, but must not be carried in Game::Session.
+    assert_eq!(
+        crate::nvse_jip13::call(&mut g, &Default::default(), "traveltoref", Some(FormId::PLAYER_REF), &[XVal::Ref(1), XVal::Num(1.0)]),
+        Some(Ok(XVal::Num(0.0)))
+    );
+    let made = g.extra[&FormId::PLAYER_REF].script_package.unwrap();
+    assert_eq!(gaps(&mut g, "getpackageflag", &[XVal::Ref(made.0), XVal::Num(13.0)]), Some(Ok(XVal::Num(1.0))));
+
+    // Fresh-run restore without put_session resets authored overrides and drops synthetic packages.
+    let snap = g.snapshot();
+    let mut fresh = Game::restore(&data, World::restore(&forms, &refs, &snap.sim).unwrap(), Default::default(), &snap).unwrap();
+    assert_eq!(gaps(&mut fresh, "getpackageflag", &[XVal::Ref(p.0), XVal::Num(13.0)]), Some(Ok(XVal::Num(0.0))));
+    assert!(!fresh.package_def(&p).unwrap().has(flags::ALWAYS_RUN));
+    assert_eq!(fresh.package_def(&p).unwrap().location, None);
+    assert!(fresh.package_def(&made).is_none());
+
+    // Same-run save load transfers authored overrides through Game::Session, excluding synthetic packages.
+    let session = g.take_session();
+    let mut same_run = Game::restore(&data, World::restore(&forms, &refs, &snap.sim).unwrap(), Default::default(), &snap).unwrap();
+    same_run.put_session(session);
+    assert_eq!(gaps(&mut same_run, "getpackageflag", &[XVal::Ref(p.0), XVal::Num(13.0)]), Some(Ok(XVal::Num(1.0))));
+    assert!(same_run.package_def(&p).unwrap().has(flags::ALWAYS_RUN));
+    assert_eq!(same_run.package_def(&p).unwrap().location.map(|l| l.radius), Some(512));
+    assert!(same_run.package_def(&made).is_none());
+}
+
 fn fixture() -> (fnv_sim::FormStore, fnv_sim::RefTable, GameData) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
     let path = root.join("script/functions.json");

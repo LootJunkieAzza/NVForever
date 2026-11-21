@@ -60,7 +60,7 @@ page below].
 | SetOnTriggerDownEventHandler / …TriggerUp… | 0 left, 1 right | the trigger | a controller trigger is pressed / released [documented; Controller.xml] |
 | SetOnMenuOpenEventHandler / …MenuClose… | menu ID (optional: any menu) | the menu ID | a menu opens / closes. It must be a **specific** menu ID: a menu *type* such as 1 errors or crashes [documented] |
 | SetOnMouseoverChangeEventHandler | menu ID (optional) | the menu ID | the highlighted item in that menu changes [documented] |
-| SetOnMenuClickEventHandler | tile path: `"Menu#<id>"`, a full path or a prefix | menu ID, tile id (-1 if none), tile name **lower-case**; list items get `:<index>` | a matching tile is clicked [documented] |
+| SetOnMenuClickEventHandler | tile path: `"Menu#<id>"`, a full path, a prefix, or `*` / `:<index>` segments | menu ID, tile id (-1 if none), tile name **lower-case**; repeated same-named sibling tiles get `:<index>` (`Ui::indexed_name_of` / `Ui::indexed_path_of`) | a matching tile is clicked [documented; hypothesis: 0-based index among same-named siblings; `*` wildcard and slash/case-insensitive filter deduplication/removal] |
 
 Observed with SetOnHealthDamageEventHandler on the player and `DamageAV Health 1`:
 - The handler gets -1 as the amount, and the actor is the calling reference (GetSelf is

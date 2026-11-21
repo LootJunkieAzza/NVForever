@@ -81,6 +81,8 @@ added. [hypothesis] The original plugin matches names the same way; not observed
 | `bIndividialItemStats:Tweaks` | `Tweaks::single_item_figures`; the Pip-Boy item figures choose one item or the stack's count |
 | `bDisableStealthEffectInPipboy:Tweaks` | `Tweaks::no_stealth_shimmer_in_pipboy`; disables the stealth shimmer while the Pip-Boy is open |
 | `bKeepPipboyLightOnCellChange:Tweaks` | `1` when bound; NVForever already keeps the Pip-Boy light on across cell changes ([tweaks](../design/tweaks.md)) |
+| `bWeightlessWornArmor:Tweaks` | `Tweaks::weightless_worn_armor`; worn armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
+| `bWeightlessWornPowerArmor:Tweaks` | `Tweaks::weightless_worn_power_armor`; worn power armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
 
 [hypothesis] The ammo query retains the child choice while its parent is disabled,
 as the plugin's own file keeps both keys; not observed in the original game. Its answer

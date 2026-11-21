@@ -345,7 +345,7 @@ example), and a pack should not rely on that.
 |---|---|
 | `dds-unreadable` | a `_orm`, `_n` or `_p` whose header does not parse (not DDS, cut inside its headers), or that counts more than 32 mip levels |
 | `bad-header-size` | a header whose own size field is not 124, or whose pixel format's size field is not 32 (docs/spec-notes/dds.md) |
-| `format-not-allowed` | a format not in the member's list: `_orm` BC7, BC1, BC3; `_n` BC5 (unsigned or signed), BC7, BC1, BC3; `_p` BC4 (unsigned or signed), BC1, BC3 (an `_SRGB` DX10 code counts as its format) |
+| `format-not-allowed` | a format not in the member's list: `_orm` BC7, BC1, BC3; `_n` BC5 (unsigned or signed), BC7, BC1, BC3; `_p` BC4 unsigned, BC1, BC3 (an `_SRGB` DX10 code counts as its format). Signed BC4 (`BC4_SNORM`, FourCC `BC4S`) is refused for `_p`: heights run from 0 to 1, and the engine's loader refuses a signed `_p` too |
 | `not-single-2d` | a cube map, a volume, a DX10 array of more than one texture or a 1D texture |
 | `bad-size` | a side of 0 or above 16384 |
 | `not-block-aligned` | a top level whose width or height is not a multiple of 4 |

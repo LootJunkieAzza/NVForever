@@ -217,6 +217,9 @@ fn scalars_valid() {
     assert_eq!((empty.scalars, empty.warnings.len()), (Scalars::default(), 0));
     assert_eq!(empty.scalars.roughness_scale_or_default(), DEFAULT_ROUGHNESS_SCALE);
     assert_eq!(empty.scalars.reflectance_or_default(), DEFAULT_REFLECTANCE);
+    assert_eq!(empty.scalars.parallax_depth_or_default(), DEFAULT_PARALLAX_DEPTH);
+    assert_eq!(f.scalars.parallax_depth_or_default(), 0.05);
+    assert!(PARALLAX_DEPTH_RANGE.contains(&DEFAULT_PARALLAX_DEPTH));
     let bom = parse_scalars(b"\xEF\xBB\xBF# metal sheet\nreflectance = 0.25\n");
     assert_eq!((bom.scalars.reflectance, bom.warnings.len()), (Some(0.25), 0));
 }
@@ -242,14 +245,22 @@ fn scalars_unknown_keys_and_wrong_types_warn() {
 #[test]
 fn scalars_out_of_range_are_clamped() {
     let f = parse_scalars(b"parallax_depth = 1.5\nroughness_scale = -1\nreflectance = 1.2\n");
-    assert_eq!(f.scalars, Scalars { parallax_depth: Some(0.25), roughness_scale: Some(0.0), reflectance: Some(1.0) });
+    assert_eq!(f.scalars, Scalars { parallax_depth: Some(0.08), roughness_scale: Some(0.0), reflectance: Some(1.0) });
     assert_eq!(
         f.warnings,
-        ["`parallax_depth` = 1.5 is outside 0 to 0.25: clamped to 0.25", "`reflectance` = 1.2 is outside 0 to 1: clamped to 1", "`roughness_scale` = -1 is outside 0 to 2: clamped to 0",]
+        ["`parallax_depth` = 1.5 is outside 0 to 0.08: clamped to 0.08", "`reflectance` = 1.2 is outside 0 to 1: clamped to 1", "`roughness_scale` = -1 is outside 0 to 2: clamped to 0",]
     );
-    // The ends of a range are inside it.
-    let ends = parse_scalars(b"parallax_depth = 0.25\nroughness_scale = 2\nreflectance = 1.0\n");
+    // The ends of a range are inside it, 0.08 too (judged in f32, the type it is kept in).
+    let ends = parse_scalars(b"parallax_depth = 0.08\nroughness_scale = 2\nreflectance = 1.0\n");
     assert!(ends.warnings.is_empty(), "{:?}", ends.warnings);
+    assert_eq!(ends.scalars.parallax_depth, Some(0.08));
+    // The old upper end (0.25) and the depths between are clamped now.
+    for text in ["0.25", "0.1"] {
+        let f = parse_scalars(format!("parallax_depth = {text}\n").as_bytes());
+        assert_eq!(f.scalars.parallax_depth, Some(0.08), "{text}");
+        assert_eq!(f.warnings, [format!("`parallax_depth` = {text} is outside 0 to 0.08: clamped to 0.08")], "{text}");
+    }
+    assert_eq!(*PARALLAX_DEPTH_RANGE.end(), 0.08);
 }
 
 #[test]

@@ -250,9 +250,23 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let p: Vec<f64> = (0..6).map(|k| num(args, k, 0.0)).collect();
             XVal::Num(((p[3] - p[0]).powi(2) + (p[4] - p[1]).powi(2) + (p[5] - p[2]).powi(2)).sqrt())
         }
-        // Forms only the masters define [observed: plugins1, the stimpak 0 and 0;
-        // hypothesis: NVForever does not follow overrides by index here].
-        "getformoverrideindex" | "isformoverridden" => zero,
+        // Load-order override queries backed by `GameData::form_overrides`
+        // [documented: GECK wiki GetFormOverrideIndex, IsFormOverridden;
+        // observed: plugins1, non-overridden Stimpak returns 0 and 0].
+        "isformoverridden" => yes(form(args, 0).or(subject).is_some_and(|f| g.data.is_form_overridden(f))),
+        "getformoverrideindex" => {
+            let Some(f) = form(args, 0).or(subject) else { return Some(Ok(XVal::Num(-1.0))) };
+            let idx = if let Some(i) = g.data.form_override_index(f) {
+                f64::from(i)
+            } else if f.0 >> 24 >= 0xFE {
+                255.0
+            } else if g.world.placed.get(f).is_some() {
+                f64::from(f.0 >> 24)
+            } else {
+                -1.0
+            };
+            XVal::Num(idx)
+        }
         // ZNAM; Set… for the session, none leaving the sound [observed: plugins2, the
         // beep reads back, a null set does not clear it].
         "getputdownsound" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "ZNAM", "")) {

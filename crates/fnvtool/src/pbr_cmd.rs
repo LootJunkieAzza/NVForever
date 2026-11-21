@@ -653,7 +653,7 @@ mod tests {
         put(&pbr, "w/srgb_orm.dds", &dx10_dds(99, 4, 4, 3, 0));
         put(&pbr, "w/lonely_n.dds", &dx10_dds(83, 4, 4, 3, 0));
         put(&pbr, "w/readme.txt", b"notes");
-        put(&pbr, "w/odd.toml", b"normal_strength = 2\nreflectance = 3\n");
+        put(&pbr, "w/odd.toml", b"normal_strength = 2\nparallax_depth = 0.1\nreflectance = 3\n");
         put(&pbr, "w/odd_p.dds", &dx10_dds(80, 4, 4, 3, 0));
         put(&pbr, "w/future_albedo.dds", b"reserved");
         put(&pbr, "w/future_orm.dds", &dx10_dds(98, 4, 4, 3, 0));
@@ -683,6 +683,7 @@ mod tests {
             (w, "not-power-of-two", p("w\\npot_orm.dds")),
             (w, "scalar-ignored-or-clamped", p("w\\odd.toml")),
             (w, "scalar-ignored-or-clamped", p("w\\odd.toml")),
+            (w, "scalar-ignored-or-clamped", p("w\\odd.toml")),
             (w, "unmatched-file", p("w\\readme.txt")),
             (w, "srgb-linear-member", p("w\\srgb_orm.dds")),
             (w, "trailing-bytes", p("w\\trailing_orm.dds")),
@@ -697,7 +698,11 @@ mod tests {
         assert_eq!(v["ok"], false);
         assert_eq!(o.failure.as_deref(), Some("11 error(s) in the pack (see `findings`)"));
         let t = &v["totals"];
-        assert_eq!((t["errors"].as_u64(), t["warnings"].as_u64()), (Some(11), Some(9)));
+        assert_eq!((t["errors"].as_u64(), t["warnings"].as_u64()), (Some(11), Some(10)));
+        // A depth above 0.08 (the bound since the pictures of 2026-11-20) is clamped, and the
+        // message says to what.
+        let depth: Vec<&str> = v["findings"].as_array().unwrap().iter().filter_map(|f| f["message"].as_str()).filter(|m| m.contains("parallax_depth")).collect();
+        assert_eq!(depth, ["Scalar file: `parallax_depth` = 0.1 is outside 0 to 0.08: clamped to 0.08."]);
         assert_eq!(t["sets"], json!({"total": 20, "authored": 17, "height_only": 2, "incomplete": 1}));
         assert_eq!(t["unmatched"], 1);
         assert_eq!(t["members"]["normal"], json!({"files": 2, "formats": {"BC5_UNORM": 2}, "largest_side": 16}));

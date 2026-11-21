@@ -1074,8 +1074,8 @@ impl TextureSource for Stores<'_> {
     fn resolve(&self, raw_path: &str) -> String {
         self.textures.resolve(raw_path)
     }
-    fn authored(&mut self, resolved_diffuse: &str) -> Option<crate::authored::AuthoredSet> {
-        self.textures.authored(resolved_diffuse)
+    fn pbr_set(&mut self, resolved_diffuse: &str) -> Option<crate::authored::PbrSet> {
+        self.textures.pbr_set(resolved_diffuse)
     }
     fn authored_on(&self) -> bool {
         self.textures.authored_on()
@@ -1163,12 +1163,12 @@ impl TextureSource for Deferred {
     fn authored_on(&self) -> bool {
         crate::authored::enabled()
     }
-    fn authored(&mut self, resolved_diffuse: &str) -> Option<crate::authored::AuthoredSet> {
+    fn pbr_set(&mut self, resolved_diffuse: &str) -> Option<crate::authored::PbrSet> {
         let (data, cached, workers, images, bc, unmasked) = (&self.data, &self.cached, &self.workers, &self.providers.images, self.bc_supported, &mut self.unmasked);
         crate::authored::find(data, crate::authored::enabled(), resolved_diffuse, &workers.authored, |path, usage| {
-            let (h, _, no_alpha) = worker_texture_exact(path, usage, data, cached, workers, images, bc)?;
+            let (h, format, no_alpha) = worker_texture_exact(path, usage, data, cached, workers, images, bc)?;
             unmasked.insert(h.id(), no_alpha);
-            Some(h)
+            Some((h, Some(format)))
         })
     }
 }
@@ -1426,6 +1426,8 @@ impl ModelCtx<'_> {
             data: (*self.data).clone(),
             providers,
             cached,
+            // The producer cache also owns this pool's authored DDS source metadata.
+            // A snapshot hit reuses it without decoding or re-reading the DDS.
             workers: self.textures.workers.clone(),
             bc_supported: self.formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC)),
             unmasked: HashMap::new(),
@@ -1580,6 +1582,10 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     let bytes = game.read(path).ok_or("not in any archive")?;
     let schema = game.schema.clone();
     let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
+    if file.size_table_ignored {
+        // Its size table is wrong; the blocks were split by decoding them (#3198).
+        bevy::log::info!("model: {path}: its block-size table does not fit its blocks; read block by block");
+    }
     let dec = Decoded::new(&file, &bytes, &schema);
     let objects = scene_objects(&file, &dec);
     let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
@@ -2214,20 +2220,73 @@ mod bc5_model_tests {
             cached: Arc::new(TextureSnapshot::new()), workers: cache.workers.clone(), bc_supported: true,
             unmasked: HashMap::new(), out: DeferredAssets::default(),
         };
+        use crate::authored::PbrSet;
         let key = deferred.resolve("walls/brick.dds");
-        let set = deferred.authored(&key).expect("authored set on the worker");
+        let found = deferred.pbr_set(&key).expect("authored set on the worker");
+        let set = found.authored().cloned().expect("authored");
         let normal = set.normal.clone().expect("_n");
         assert!(deferred.lacks_alpha(&normal), "two channels hold no mask");
         assert_eq!(set.scalars.roughness_scale, Some(0.5));
-        assert!(deferred.authored(&deferred.resolve("walls/stone.dds")).is_none());
-        assert_eq!(cache.take_workers(&mut images, 1.0), 2, "_orm and _n, once each");
+        // A height-only set: its `_p` by its exact path, in the linear role, on the worker.
+        let stone_key = deferred.resolve("walls/stone.dds");
+        let stone = deferred.pbr_set(&stone_key).expect("height-only set on the worker");
+        assert!(matches!(stone, PbrSet::HeightOnly(_)));
+        let depth_map = stone.height().and_then(|h| h.depth_map.clone()).expect("_p");
+        assert_eq!(cache.take_workers(&mut images, 1.0), 3, "_orm, _n and _p, once each");
         assert_eq!(images.get(&set.orm).unwrap().texture_descriptor.format, TextureFormat::Bc7RgbaUnorm);
         assert_eq!(images.get(&normal).unwrap().texture_descriptor.format, TextureFormat::Bc5RgUnorm);
-        let main = StoreTextures { textures: &mut cache, data: &pack.data, images: &mut images, formats: None }.authored(&key);
-        assert_eq!(main.as_ref(), Some(&set), "the main thread adopts the worker's handles");
+        assert_eq!(images.get(&depth_map).unwrap().texture_descriptor.format, TextureFormat::Bc4RUnorm);
+        assert!(deferred.pbr_set(&deferred.resolve("walls/signed.dds")).is_none(), "the worker refuses a signed _p as the main thread does");
+        let mut main = StoreTextures { textures: &mut cache, data: &pack.data, images: &mut images, formats: None };
+        assert_eq!(main.pbr_set(&key).as_ref(), Some(&found), "the main thread adopts the worker's handles");
+        assert_eq!(main.pbr_set(&stone_key).as_ref(), Some(&stone), "the worker's _p too");
         deferred.cached = Arc::new(cache.snapshot(&images));
         deferred.workers = Arc::new(WorkerTextures::default());
-        assert_eq!(deferred.authored(&key), Some(set));
+        assert_eq!(deferred.pbr_set(&key), Some(found));
+        assert_eq!(deferred.pbr_set(&stone_key), Some(stone));
         assert!(deferred.workers.entries_len() == 0, "a snapshot hit decodes nothing");
+    }
+
+    #[test]
+    fn shared_texture_snapshot_preserves_cpu_decoded_height_validation() {
+        use crate::release::{ImageHints, KeepLimits, Unused};
+
+        let pack = crate::authored::tests::Pack::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::<Image>::default();
+        let mut deferred = Deferred {
+            data: pack.data.clone(),
+            providers: Providers {
+                meshes: Assets::<Mesh>::default().get_handle_provider(),
+                materials: Assets::<NifMaterial>::default().get_handle_provider(),
+                bindposes: Assets::<SkinnedMeshInverseBindposes>::default().get_handle_provider(),
+                images: images.get_handle_provider(),
+            },
+            cached: Arc::new(TextureSnapshot::new()),
+            workers: cache.workers.clone(),
+            bc_supported: false,
+            unmasked: HashMap::new(),
+            out: DeferredAssets::default(),
+        };
+        let aligned = deferred.resolve("walls/stone.dds");
+        let off_grid = deferred.resolve("walls/oddbc4.dds");
+        let expected = deferred.pbr_set(&aligned).expect("aligned unsigned BC4 is valid on the CPU path");
+        assert!(deferred.pbr_set(&off_grid).is_none(), "off-grid unsigned BC4 is refused");
+        assert_eq!(cache.take_workers(&mut images, 1.0), 2);
+
+        let snapshot = cache.snapshot(&images);
+        for path in [r"textures\pbr\walls\stone_p.dds", r"textures\pbr\walls\oddbc4_p.dds"] {
+            let (_, format, _) = &snapshot[&(path.to_string(), TextureUsage::Linear)];
+            assert_eq!(*format, TextureFormat::R8Unorm, "both files take the CPU fallback");
+        }
+        deferred.cached = Arc::new(snapshot);
+
+        // Retire the published worker entries, leaving only the snapshot and the shared
+        // source metadata. The decoded format alone cannot distinguish the two files.
+        cache.release(&mut Unused::default(), &ImageHints::default(), 32.0, KeepLimits::default());
+        assert_eq!(deferred.workers.entries_len(), 0);
+        assert_eq!(deferred.pbr_set(&aligned), Some(expected));
+        assert!(deferred.pbr_set(&off_grid).is_none(), "the cached size still rejects off-grid BC4");
+        assert_eq!(deferred.workers.entries_len(), 0, "snapshot hits decode nothing");
     }
 }

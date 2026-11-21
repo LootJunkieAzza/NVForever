@@ -64,9 +64,9 @@ probes, 2026-11-08, for JIP's list getters; hypothesis: the same here].
 | IsEquippedWeaponSilenced | 1 VNAM Sound Level "Silent", 2 a Silence or Suppressor mod attached, 0 [documented; hypothesis: "silenced by default" is the sound level] |
 | TestEquippedSlots `armor` | whether its BMDT biped slots overlap those of an armour the actor wears [documented] |
 | SetNoUnequip `flag` | on the inventory reference of an equipped item: the world's NoUnequip lock (saved with the world), or off [documented] |
-| GetArmorEffectiveDR, GetArmorEffectiveDT | DNAM DR or DT times `1 − (0.5 − condition) × penalty` below half condition (SetArmorConditionPenalty's penalty, else 1), of an inventory reference or a placed armour [documented: SetArmorConditionPenalty's formula] |
+| GetArmorEffectiveDR, GetArmorEffectiveDT | DNAM DR or DT times `1 − (0.5 − condition) × penalty` clamped at 0 below half condition (`Game::armor_condition_mult`: SetArmorConditionPenalty's penalty, else Stewie's `Tweaks::armor_condition_penalty`, default 1), of an inventory reference or a placed armour [documented: SetArmorConditionPenalty's formula; design: docs/design/tweaks.md] |
 | GetArmourPenetrated | whether the actor's last hit's damage before armour was above its DT; the engine tells it before the hit is dealt (`Game::note_armour_hit`), so OnHit reads this hit's [documented] |
-| SetConditionDamagePenalty `mult` | the weapon damage penalty below 75 % condition, `1 − (0.75 − condition) × mult` [documented]; the engine's damage rules take it (`Rules::condition_damage_penalty`) |
+| SetConditionDamagePenalty `mult` | the weapon damage penalty below 75 % condition, `1 − (0.75 − condition) × mult` [documented]; the engine's damage rules (`Rules::condition_damage_penalty`) and `Game::weapon_condition_mult` (also honoring Stewie's `no_condition_damage_penalty` and `no_condition_damage_buffer` tweaks [design: docs/design/tweaks.md]) take it |
 
 ## 5. Bases, the dead and hardcore
 

@@ -158,6 +158,19 @@ what it does to the call: open.
 - **Not saved**: loading a game drops every queued call; scripts re-queue them on load
   [documented: each page]. This is a persistence rule NVForever must copy (ext-save.md).
 
+[design] `crates/fnv-game/src/delayed.rs` tracks remaining seconds (`AfterSeconds`,
+`ForSeconds`, `WhilePerSeconds`) and remaining frames (`AfterFrames`) rather than an
+absolute deadline on `Game::time` / `Game::frame`. Each eligible frame (`runs_now`)
+decrements seconds by `cfg.frame_seconds` (0 while `FreezeTime` holds) so `runWhen` 1
+and 2 count down in MenuMode as documented, while paused menus (`menus::CONSOLE` 3,
+`menus::TITLE` 4, `menus::START` 1013, and `start_frames`) hold both `runWhen == 2`
+timers and `flags & 16` (`DontRunWhilePaused`) condition callbacks without advancing
+their countdown or evaluating/dropping their condition.
+
+[hypothesis] Whether `runWhen` values above 2 behave identically to `runWhen == 2`,
+whether `FreezeTime` halts `CallAfterSeconds` in MenuMode, and the exact sub-frame
+tie-breaking at `0.0` seconds have not been observed in the original game.
+
 ## 7. Open (to observe), collected
 
 Parameter separators; other blocks in a function script; argument count and type

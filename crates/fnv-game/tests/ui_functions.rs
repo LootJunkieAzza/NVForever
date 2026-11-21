@@ -510,3 +510,125 @@ fn a_huge_click_count_is_capped() {
     assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(5.0)])), 1.0);
     assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), 5);
 }
+
+#[test]
+fn barter_and_container_menu_click_handlers_support_wildcards_indices_and_removal() {
+    use fnv_game::game::RunCtx;
+    use fnv_game::ui_input;
+    use fnv_ui::input::{no_measure, Input};
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Keep Stewie plugin gate pinned at 941 while building #3184 menu-click consumers.
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")\nEnd\n", RunCtx::default()).unwrap(),
+        XVal::Num(941.0),
+    );
+
+    let src = MemSource::default()
+        .with(
+            "menus\\barter_menu.xml",
+            r#"<menu name="BarterMenu">
+                <class> &BarterMenu; </class>
+                <_lastMenu> 0 </_lastMenu>
+                <_lastId> 0 </_lastId>
+                <_lastName> </_lastName>
+                <_wildHits> 0 </_wildHits>
+                <_idx1Hits> 0 </_idx1Hits>
+                <_prefixHits> 0 </_prefixHits>
+                <rect name="BarterCategories">
+                    <x> 0 </x> <y> 0 </y> <width> 300 </width> <height> 100 </height>
+                    <hotrect name="BC_Category">
+                        <id> 10 </id> <target> 1 </target>
+                        <x> 0 </x> <y> 0 </y> <width> 80 </width> <height> 40 </height>
+                    </hotrect>
+                    <hotrect name="BC_Category">
+                        <id> 11 </id> <target> 1 </target>
+                        <x> 100 </x> <y> 0 </y> <width> 80 </width> <height> 40 </height>
+                    </hotrect>
+                    <hotrect name="BC_Category">
+                        <id> 12 </id> <target> 1 </target>
+                        <x> 200 </x> <y> 0 </y> <width> 80 </width> <height> 40 </height>
+                    </hotrect>
+                </rect>
+            </menu>"#,
+        )
+        .with(
+            "menus\\container_menu.xml",
+            r#"<menu name="ContainerMenu">
+                <class> &ContainerMenu; </class>
+                <_hits> 0 </_hits>
+                <_menuId> 0 </_menuId>
+                <hotrect name="CM_TakeAll">
+                    <id> 20 </id> <target> 1 </target>
+                    <x> 10 </x> <y> 10 </y> <width> 80 </width> <height> 40 </height>
+                </hotrect>
+            </menu>"#,
+        );
+    let barter = g.ui_tree.load_menu(&src, "menus\\barter_menu.xml").unwrap();
+    let container = g.ui_tree.load_menu(&src, "menus\\container_menu.xml").unwrap();
+    g.ui_tree.update();
+
+    query(
+        &mut g,
+        r#"SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+SetUIFloat "BarterMenu/_lastMenu" m
+SetUIFloat "BarterMenu/_lastId" t
+SetUIString "BarterMenu/_lastName" sN
+ModUIFloat "BarterMenu/_wildHits" 1
+End) 1 "BarterMenu/*/BC_Category"
+SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "BarterMenu/_idx1Hits" 1
+End) 1 "BarterMenu/BarterCategories/BC_Category:1"
+SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "ContainerMenu/_hits" 1
+SetUIFloat "ContainerMenu/_menuId" m
+End) 1 "ContainerMenu#20""#,
+    );
+
+    // Register a UDF on a prefix path, then test slash/case-insensitive removal below.
+    query(
+        &mut g,
+        r#"ref f
+let f := (Begin Function {int m, int t, string_var sN}
+ModUIFloat "BarterMenu/_prefixHits" 1
+End)
+PlayerREF.AuxVarSetRef "bc_prefix_udf" f 0
+SetOnMenuClickEventHandler f 1 "BarterMenu/BarterCategories""#,
+    );
+
+    // Click sibling 0 (id 10): wildcard and prefix fire, index-1 handler does not; name is "bc_category:0".
+    ui_input::step(&mut g, &[barter], &Input { press: true, ..pointer_at(40.0, 20.0) }, &no_measure);
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_lastMenu"), Some(1053.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_lastId"), Some(10.0));
+    assert_eq!(g.ui_tree.get_string("BarterMenu/_lastName").as_deref(), Some("bc_category:0"));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_wildHits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_idx1Hits"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_prefixHits"), Some(1.0));
+
+    // Click sibling 1 (id 11): all three handlers fire; name is "bc_category:1".
+    ui_input::step(&mut g, &[barter], &Input { press: true, ..pointer_at(140.0, 20.0) }, &no_measure);
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_lastId"), Some(11.0));
+    assert_eq!(g.ui_tree.get_string("BarterMenu/_lastName").as_deref(), Some("bc_category:1"));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_wildHits"), Some(2.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_idx1Hits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_prefixHits"), Some(2.0));
+
+    // Remove the prefix handler using mixed case + backslash: sibling 2 click must NOT increment _prefixHits.
+    query(
+        &mut g,
+        r#"ref f
+let f := PlayerREF.AuxVarGetRef "bc_prefix_udf" 0
+SetOnMenuClickEventHandler f 0 "bartermenu\BARTERCATEGORIES""#,
+    );
+    ui_input::step(&mut g, &[barter], &Input { press: true, ..pointer_at(240.0, 20.0) }, &no_measure);
+    assert_eq!(g.ui_tree.get_string("BarterMenu/_lastName").as_deref(), Some("bc_category:2"));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_wildHits"), Some(3.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_idx1Hits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_prefixHits"), Some(2.0));
+
+    // ContainerMenu (1008) click via Menu#id.
+    ui_input::step(&mut g, &[container], &Input { press: true, ..pointer_at(40.0, 25.0) }, &no_measure);
+    assert_eq!(g.ui_tree.get_float("ContainerMenu/_hits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("ContainerMenu/_menuId"), Some(1008.0));
+}

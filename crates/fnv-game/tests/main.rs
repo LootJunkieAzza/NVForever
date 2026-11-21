@@ -23,6 +23,7 @@ mod build_identity;
 mod camera_paths;
 mod caravan_data;
 mod clone_calling_reference;
+mod cloned_sound_traits;
 mod combat_blocks;
 mod combat_lines_data;
 mod combat_transitions;
@@ -33,6 +34,7 @@ mod critical_player_state;
 mod csty_session;
 mod crippled_limbs_data;
 mod dead_on_spawn;
+mod delayed_calls;
 mod death_items;
 mod destruction_stage_blocks;
 mod dialogue_data;
@@ -160,6 +162,7 @@ fn every_test_file_is_built() {
 
 mod callable_identity;
 mod em_clearance;
+mod form_override_queries;
 mod is_in_kill_cam;
 mod preactivation_events;
 mod preactivation_mutation;

@@ -130,6 +130,37 @@ not decode yet.
 - `GetSoundFlag sound id` [documented: IDs 0–13]: SNDD flags (SNDX in older records),
   bits the schema names the same way. EMTMedicalBeep01: loop (4) 1, 2D (6) 0.
 
+### 9.1 `TempCloneForm` SOUN aliases and engine sound overrides
+
+- [documented: GECK wiki `TempCloneForm`, `SetSoundSourceFile`, `SetSoundTraitNumeric`]
+  A temporary clone of a `SOUN` record keeps its own FormID while inheriting the
+  original sound's `FNAM` path and `SNDD` traits. Session overrides via
+  `SetSoundSourceFile` and `SetSoundTraitNumeric` apply to the target FormID without
+  mutating the original.
+- [design] `TempCloneForm` snapshots the source form's active `SetSoundSourceFile` and
+  `SetSoundTraitNumeric` (`0..=12`) overrides onto the new clone at creation time
+  (`Game::snapshot_sound_traits`), and `Game::sound_source_override` /
+  `Game::sound_trait_override` read only the queried FormID's own entry before falling
+  back to the authored ESM `FNAM` / `SNDD` record. Pre-clone edits on an original or
+  parent clone carry onto newly created clones, while post-clone edits on the original
+  or parent clone stay isolated from already-created clones (e.g., silencing an original
+  `SOUN` with trait `3 = -99` after cloning a playable copy).
+  `engine/nvf-play/src/world_sounds.rs` (`sync_script_sounds`) runs in `PlaySet::Sync`
+  (before `SfxSet` resolves `PlaySound` requests): it materializes cloned `SOUN` entries
+  in `sfx.forms.sounds` from their original's authored `Sound` with `edid = None`
+  (preventing accidental EDID-lookup collisions), applies `SetSoundSourceFile` (mapping
+  empty/whitespace paths to `sound.file = None` so empty-path shadowing silences
+  playback cleanly) and `SetSoundTraitNumeric` traits `0..=11` (`min_distance`,
+  `max_distance`, `frequency_adjust_percent`, `static_attenuation_db`, `stop_hour`,
+  `start_hour`, `attenuation_curve[0..5]`, `reverb_attenuation_percent`) to both
+  authored and cloned `SOUN` entries, and restores mutated authored `SOUN`s while
+  pruning all stale clones across sessions (including when a new session reuses a
+  deterministic clone FormID such as `0x00FE_0000` for a non-`SOUN` form).
+- [hypothesis] Trait `12` (`priority`) is stored by `SetSoundTraitNumeric` / read by
+  `GetSoundTraitNumeric` in `fnv-game` but is not yet carried on `fnv_combat::fx::Sound`.
+  Clone-of-clone override snapshotting and original-game audio parity remain unqualified
+  against original-game captures.
+
 ## 10. Game-state getters
 
 - `GetGameDifficulty`, `SetGameDifficulty n` [documented: 0 very easy … 4 very hard]:

@@ -63,7 +63,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | ForceActiveQuest | 0x11DD | 82 | 0 | `UiRequests::active_quest` | the Pip-Boy DATA page takes it (`pipboy data: active quest … (ForceActiveQuest)`) |
 | ForceTerminalBack | 0x1223 | 80 | 0 | `Terminals::back`, handed on by `terminal::choose` | the terminal goes back one level or closes; counted in the terminal summary |
 | IsSneaking | 0x111E | 35 | 33 | `Senses::motion` | `control::tell_scripts` (the player, every frame), `detection.rs` (everyone measured) |
-| GetLineOfSight | 0x101B | 49 | 0 | the detection last measured for the pair (`Detection::seen`: line of sight within ±95°) | `detection.rs` (already) |
+| GetLineOfSight | 0x101B | 49 | 0 | the detection last measured for the pair (`Detection::seen`: line of sight within ±95°); the player on a body: `Senses::camera_sees` (#3232) | `detection.rs` (already; bodies from the camera) |
 | IsMoving | 0x1019 | 0 | 49 | `Senses::anim` (the way told, §3.13), else `Senses::motion` (moving reads 1) | `anim_state.rs`, `detection.rs` |
 | GetCurrentAIPackage | 0x106E | 16 | 15 | package type codes; 5 combat, 29 search, 6 conversation | none |
 | AddSPECIALPoints | 0x1219 | 21 | 0 | `SpecialSheet::for_menu`: more points, the old values the floor; opens 1048 as its attributes page (levelup.md §8) | the attributes page opens with those rules (Intense Training) |

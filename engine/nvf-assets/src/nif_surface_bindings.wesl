@@ -1067,6 +1067,15 @@ fn occlusion_texel(instance_index: u32, uv: vec2<f32>, bias: f32) -> f32 {
     @if(!BINDLESS) return textureSampleBias(pbr_bindings::occlusion_texture, pbr_bindings::occlusion_sampler, uv, bias).r;
 }
 
+// The depth map's red channel (the authored height map as stored: 1 high, 0 low, #2981)
+// sampled at `uv` with the view's mip bias `bias` (the authored materials' height view,
+// nif_material.wesl "NVF_PBR_VIEW"); the caller checks the material has one.
+fn height_texel(instance_index: u32, uv: vec2<f32>, bias: f32) -> f32 {
+    @if(BINDLESS) let i = material_indices[material_slot(instance_index)];
+    @if(BINDLESS) return textureSampleBias(bindless_textures_2d[i.depth_map_texture], bindless_samplers_filtering[i.depth_map_sampler], uv, bias).r;
+    @if(!BINDLESS) return textureSampleBias(pbr_bindings::depth_map_texture, pbr_bindings::depth_map_sampler, uv, bias).r;
+}
+
 // The normal map sampled at `uv`.
 fn normal_map_texel(instance_index: u32, uv: vec2<f32>) -> vec4<f32> {
     @if(BINDLESS) let i = material_indices[material_slot(instance_index)];

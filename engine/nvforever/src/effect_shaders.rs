@@ -383,6 +383,16 @@ fn overlay_material(s: &EffectShader, color: [u8; 3], texture: Option<Handle<Ima
     m
 }
 
+/// A reference's drawn meshes an effect shader covers: not the overlays themselves, nor
+/// the full-detail ring's draw-only copies (`nvf_play::DrawOnly`, full_detail.rs, #2701):
+/// a scripted effect, its add-on models and its particles go on the loaded reference only.
+type Coverable<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static RefVisual, &'static Mesh3d, Option<&'static SkinnedMesh>, Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>),
+    (Without<Overlay>, Without<nvf_play::DrawOnly>),
+>;
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn play(
     mut commands: Commands,
@@ -391,7 +401,7 @@ fn play(
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut st: ResMut<Shaders>,
-    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, Option<&MeshMaterial3d<NifMaterial>>, Option<&crate::mesh_terrain_blend::BlendShape>), Without<Overlay>>,
+    drawn: Coverable,
     drawings: Query<&nvf_assets::nif_material::MaterialOverride>,
     (body, children, body_meshes): (
         Option<Res<crate::player_body::PlayerBody>>,
@@ -567,6 +577,8 @@ fn play(
                     m.base.alpha_mode = AlphaMode::Mask(0.0);
                     m.extension.hard_edges = true;
                 }
+                // #2981: a holed copy is alpha-tested, so an authored height map comes off.
+                nvf_assets::authored::recheck_height(&mut m);
                 let copy = models.materials.add(m);
                 commands.entity(e).try_insert(MeshMaterial3d(copy.clone()));
                 if let Some((_, old)) = a.holed.insert(e, (current.clone(), copy)) {
@@ -696,7 +708,7 @@ pub(crate) fn cover(
     mut st: ResMut<Shaders>,
     mut materials: ResMut<Assets<NifMaterial>>,
     script: Option<Res<ScriptState>>,
-    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, Option<&MeshMaterial3d<NifMaterial>>, Option<&crate::mesh_terrain_blend::BlendShape>), Without<Overlay>>,
+    drawn: Coverable,
     body: Option<Res<crate::player_body::PlayerBody>>,
     children: Query<&Children>,
     body_meshes: Query<(&Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), (Without<Overlay>, Without<RefVisual>)>,
@@ -925,13 +937,22 @@ pub(crate) struct AlphaDrawing<'w, 's> {
     materials: ResMut<'w, Assets<NifMaterial>>,
     #[allow(clippy::type_complexity)]
     drawn: Query<'w, 's, (Entity, &'static RefVisual, Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>, Option<&'static Faded>, Option<&'static nvf_assets::nif_material::MaterialOverride>), Without<Overlay>>,
+    /// The meshes of `drawn` still wearing a see-through copy.
+    #[allow(clippy::type_complexity)]
+    still_faded: Query<'w, 's, (), (With<Faded>, With<RefVisual>, Without<Overlay>)>,
 }
 
 impl AlphaDrawing<'_, '_> {
     pub(crate) fn sync(&mut self, alpha: &std::collections::BTreeMap<FormId, f32>) -> HashMap<u32, (f32, u32)> {
-        let Self { commands, st, materials, drawn } = self;
-        let st = &mut **st;
+        let Self { commands, st, materials, drawn, still_faded } = self;
         let mut changed: HashMap<u32, (f32, u32)> = HashMap::new();
+        // No actor see-through and no mesh left to give its material back: the walk over
+        // every drawn mesh would change nothing. A mesh still `Faded` keeps the walk going
+        // until it has its material back (the frame after its actor's alpha went).
+        if alpha.is_empty() && still_faded.is_empty() {
+            return changed;
+        }
+        let st = &mut **st;
         for (e, rv, mat, blend, faded, drawing) in &*drawn {
             let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { continue };
             let want = alpha.get(&FormId(rv.0)).copied();
@@ -958,6 +979,8 @@ impl AlphaDrawing<'_, '_> {
                             if matches!(m.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
                                 m.base.alpha_mode = AlphaMode::Blend;
                             }
+                            // #2981: a blended copy draws no authored height map.
+                            nvf_assets::authored::recheck_height(&mut m);
                             let c = m.base.base_color.alpha();
                             m.base.base_color.set_alpha(c * a);
                             let h = materials.add(m);
@@ -1028,6 +1051,19 @@ mod tests {
     use bevy::math::Affine2;
     use nvf_assets::nif_material::{Falloff, NO_HOLES};
 
+    /// #2701: a scripted effect never covers the full-detail ring's draw-only copy of a
+    /// reference, only the loaded reference's meshes.
+    #[test]
+    fn effects_cover_no_draw_only_meshes() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.spawn((RefVisual(5), Mesh3d(Handle::default())));
+        world.spawn((RefVisual(5), Mesh3d(Handle::default()), nvf_play::DrawOnly));
+        world.spawn((RefVisual(5), Mesh3d(Handle::default()), Overlay));
+        let n = world.run_system_once(|q: Coverable| q.iter().count()).unwrap();
+        assert_eq!(n, 1);
+    }
+
     #[test]
     fn overlays_take_the_mesh_layer_or_the_default_world_layer() {
         assert_eq!(overlay_layers(None), RenderLayers::default());
@@ -1069,6 +1105,55 @@ mod tests {
         assert_eq!(world.get::<Visibility>(holder), Some(&Visibility::Hidden));
         assert_eq!(world.get::<PlayerEffectEmitter>(emitter).map(|p| p.0), Some(crate::player_body::EffectPart::Head));
         assert!(world.get::<PlayerEffectEmitter>(other).is_none());
+    }
+
+    #[derive(Resource, Default)]
+    struct Alphas(std::collections::BTreeMap<FormId, f32>);
+
+    #[derive(Resource, Default)]
+    struct Writes(usize);
+
+    #[test]
+    fn actor_alpha_restores_the_frame_after_it_clears_and_writes_nothing_when_idle() {
+        let mut app = App::new();
+        app.init_resource::<Assets<NifMaterial>>()
+            .init_resource::<Shaders>()
+            .init_resource::<Alphas>()
+            .init_resource::<Writes>()
+            .add_systems(Update, (
+                |alpha: Res<Alphas>, mut drawing: AlphaDrawing| {
+                    drawing.sync(&alpha.0);
+                },
+                |changed: Query<Entity, Changed<MeshMaterial3d<NifMaterial>>>, mut writes: ResMut<Writes>| writes.0 = changed.iter().count(),
+            ).chain());
+        let original = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(nif_material(StandardMaterial::default()));
+        let reference = 0xFF00_0001;
+        let mesh = app.world_mut().spawn((RefVisual(reference), MeshMaterial3d(original.clone()))).id();
+        let worn = |app: &App| app.world().get::<MeshMaterial3d<NifMaterial>>(mesh).unwrap().0.clone();
+        app.update();
+        // Nothing see-through: no write, no copy.
+        for _ in 0..2 {
+            app.update();
+            assert_eq!(app.world().resource::<Writes>().0, 0);
+            assert_eq!(worn(&app), original);
+            assert!(app.world().get::<Faded>(mesh).is_none());
+        }
+        app.world_mut().resource_mut::<Alphas>().0.insert(FormId(reference), 0.5);
+        app.update();
+        assert_eq!(app.world().resource::<Writes>().0, 1);
+        assert_ne!(worn(&app), original);
+        assert!(app.world().get::<Faded>(mesh).is_some());
+        // The alpha goes: the next frame gives the material back, then nothing more.
+        app.world_mut().resource_mut::<Alphas>().0.clear();
+        app.update();
+        assert_eq!(app.world().resource::<Writes>().0, 1);
+        assert_eq!(worn(&app), original);
+        assert!(app.world().get::<Faded>(mesh).is_none());
+        for _ in 0..2 {
+            app.update();
+            assert_eq!(app.world().resource::<Writes>().0, 0);
+            assert_eq!(worn(&app), original);
+        }
     }
 
     fn material_app() -> (App, Handle<NifMaterial>) {

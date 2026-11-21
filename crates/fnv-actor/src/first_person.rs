@@ -27,9 +27,17 @@
 //!   ([`is_arm_body_part`], [`arms_by_partition`]) [observed: their partitions' bones and
 //!   extents, docs/spec-notes/actors.md §1.2; hypothesis: the original draws those
 //!   sleeves in first person, as it draws a jumpsuit's].
+//! - A held weapon's own addons (WEAP BIPL, the hand-to-hand weapons' hand models) are
+//!   worn by the arms only when the weapon has no model of its own for the first-person
+//!   view ([`wears_weapon_addons`], #3226): the Bladed Gauntlet, the knuckles and the
+//!   other fist weapons with no MODL are drawn by their addon alone; a weapon with a
+//!   MODL or a first-person model (the power fist's rigid gauntlet) is drawn by that
+//!   model over the arms' bare hand, as before.
 
+use crate::records::Weapon;
 use crate::resolve::{slot, Appearance, Part};
 use crate::ActorForms;
+use fnv_sim::FormId;
 
 /// The first-person skeleton [observed: the only non-`.kf` file in
 /// `meshes\characters\_1stperson`].
@@ -113,6 +121,51 @@ pub fn shape_shows(show: Option<Show>, name: Option<&str>) -> bool {
         Some(Show::Arms) => name.is_some_and(is_first_person_shape),
         None => false,
     }
+}
+
+/// Whether the first-person arms wear held weapon `w`'s own addons (WEAP BIPL,
+/// [`Weapon::addons`]): it has some and no model for the first-person view
+/// ([`Weapon::model_for`] with no mods on: no WNAM "1st Person Model", no MODL). An ARMA
+/// has no first-person model of its own, only a male and a female biped model
+/// [documented: GECK wiki ArmorAddon; `schemas/fnv/objects.json` ARMA], so its biped
+/// model is the one worn, a `…1st.nif` beside it taking its place as for any hand part
+/// ([`appearance`]; none of the fist weapons' addon models has one [documented: asset
+/// inspection, archive listings]). In FalloutNV.esm and the add-ons 21 weapons have a
+/// BIPL and no MODL, all hand-to-hand weapons whose only model besides the ground object
+/// is a Right Hand addon (the Bladed Gauntlet's `ARMABladedGuantlet`, the brass and
+/// spiked knuckles, the deathclaw, mantis and yao guai gauntlets, Old World Blues'
+/// gloves, …) [documented: record decode]. With the weapon's addons left off, the
+/// first-person view drew nothing of the Bladed Gauntlet (#3226, [observed: a player's
+/// log]); the others have the same record shape [hypothesis: the same happened to
+/// them]. [hypothesis: the original draws the addon on the first-person arms, as it does
+/// on the third-person body.] A weapon with a model of its
+/// own (the power fist's `PowerFistRigid.NIF`, the boxing gloves, the Shishkebab) keeps
+/// the bare hand under that model in first person, as before [hypothesis].
+pub fn wears_weapon_addons(w: &Weapon) -> bool {
+    !w.addons.is_empty() && w.model_for(true, 0).is_none()
+}
+
+/// The items the first-person rig is dressed in, of those `worn` (armour and the held
+/// weapon, as given to the resolver): all but a weapon with addons the arms do not wear
+/// ([`wears_weapon_addons`]). The resolver gives a kept weapon's addons their slots as on
+/// the third-person body: the race's hand and a worn addon on the same slot (an outfit's
+/// glove) give way to them, one hand model per hand.
+pub fn first_person_worn(actors: &ActorForms, worn: &[FormId]) -> Vec<FormId> {
+    worn.iter().copied().filter(|id| actors.weapons.get(id).is_none_or(|w| w.addons.is_empty() || wears_weapon_addons(w))).collect()
+}
+
+/// The addons (members of an ARMO's or a WEAP's BIPL) of the items `worn` that
+/// appearance `a` draws, in its parts' order, each once.
+pub fn worn_addons(actors: &ActorForms, worn: &[FormId], a: &Appearance) -> Vec<FormId> {
+    let lists = |w: &FormId| actors.armors.get(w).map(|x| &x.addons).or_else(|| actors.weapons.get(w).map(|x| &x.addons));
+    let listed = |id: &FormId| worn.iter().any(|w| lists(w).is_some_and(|l| l.contains(id)));
+    let mut out: Vec<FormId> = Vec::new();
+    for p in a.parts.iter().filter(|p| p.role == "armor") {
+        if listed(&p.form) && !out.contains(&p.form) {
+            out.push(p.form);
+        }
+    }
+    out
 }
 
 /// The appearance the first-person rig draws: the parts that show, hands swapped for

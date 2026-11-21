@@ -74,6 +74,9 @@ pub fn drawn_affine(sim: &SimState, phys: &PhysState, id: u32, p: &fnv_sim::refs
 
 type Drawn<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Transform, Option<&'static mut Baked>, &'static ChildOf)>;
 
+/// The cells drawn references hang from: the game's and the full-detail ring's draw-only ones.
+type CellParents = (Or<(With<RenderCell>, With<crate::DrawOnlyCell>)>, Without<RefVisual>);
+
 /// The entities [`follow`] moves for each reference it has moved, so that the references
 /// drawn between physics steps every frame are not looked for among every drawn entity
 /// each time. A reference's list is found again when an entity of it appears or one of
@@ -91,7 +94,7 @@ fn follow(
     added: Query<&RefVisual, Added<RefVisual>>,
     mut drawn: Drawn,
     all: Query<(Entity, &RefVisual), With<ChildOf>>,
-    cells: Query<&Transform, (With<RenderCell>, Without<RefVisual>)>,
+    cells: Query<&Transform, CellParents>,
     mut found: Local<Found>,
 ) {
     let mut ids: BTreeSet<u32> = phys.moved_now.iter().copied().collect();

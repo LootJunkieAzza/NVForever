@@ -2436,6 +2436,25 @@ impl GameData {
         idx.into_iter().filter_map(|i| self.load_order.get(usize::from(i)).cloned()).collect()
     }
 
+    /// Whether `form` is overridden by at least one plugin after its defining plugin in
+    /// the load order (`IsFormOverridden`).
+    pub fn is_form_overridden(&self, form: FormId) -> bool {
+        self.form_overrides.get(&form).is_some_and(|v| v.len() > 1)
+    }
+
+    /// The load-order index of the winning (last) plugin that defines or overrides
+    /// `form` (`GetFormOverrideIndex`), or `None` when `form` is not known from any
+    /// plugin in `GameData`.
+    pub fn form_override_index(&self, form: FormId) -> Option<u8> {
+        if let Some(last) = self.form_overrides.get(&form).and_then(|v| v.last().copied()) {
+            return Some(last);
+        }
+        if (form.0 >> 24) < 0xFE && self.sig(form).is_some() {
+            return Some((form.0 >> 24) as u8);
+        }
+        None
+    }
+
     pub fn by_edid(&self, edid: &str) -> Option<FormId> {
         self.edids.get(&edid.to_ascii_lowercase()).copied()
     }

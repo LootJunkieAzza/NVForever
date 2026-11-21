@@ -7111,3 +7111,46 @@ fn load_door_lock_reaches_both_nav_directions_and_resyncs() {
     s.run(40.0);
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].walker.space, B);
 }
+
+#[test]
+fn set_package_flag_location_and_travel_to_ref_reach_ai_carry() {
+    let f = fixture();
+    let trip_running = |s: &Sim| -> Option<bool> {
+        s.events(R_TRAVEL).iter().find_map(|e| match e {
+            AiEvent::Trip { running, .. } => Some(*running),
+            _ => None,
+        })
+    };
+
+    // Baseline: TravelToB does not have ALWAYS_RUN, so R_TRAVEL walks (running == false).
+    let mut baseline = sim(&f, &[R_TRAVEL]);
+    baseline.run(1.0);
+    assert_eq!(trip_running(&baseline), Some(false));
+
+    // SetPackageFlag bit 13 (ALWAYS_RUN) + SetPackageLocationReference to MarkA reach Ai::begin and Ai::plan.
+    let mut edited = sim(&f, &[R_TRAVEL]);
+    edited
+        .game
+        .run_query("Begin Function { }\nSetPackageFlag TravelToB 13 1\nSetPackageLocationReference TravelToB MarkA\nEnd\n", Default::default())
+        .unwrap();
+    edited.run(10.0);
+    assert_eq!(trip_running(&edited), Some(true));
+    assert_eq!(edited.ai.agents[&FormId(R_TRAVEL)].walker.space, A);
+    assert!(dist(edited.feet(R_TRAVEL), [350.0, 350.0, 0.0]) < 20.0, "moved to MarkA: {:?}", edited.feet(R_TRAVEL));
+
+    // Synthetic TravelToRef package lives only in Game::package_overrides (not GameData::package_defs)
+    // and now reaches Ai::begin and Ai::plan with ALWAYS_RUN (flag 1).
+    let mut travel = sim(&f, &[R_LONER]);
+    let ctx = fnv_game::game::RunCtx { self_ref: Some(FormId(R_LONER)), ..Default::default() };
+    travel
+        .game
+        .run_query("Begin Function { }\nTravelToRef MarkA 1\nEnd\n", ctx)
+        .unwrap();
+    travel.run(10.0);
+    let loner_running = travel.events(R_LONER).iter().find_map(|e| match e {
+        AiEvent::Trip { running, .. } => Some(*running),
+        _ => None,
+    });
+    assert_eq!(loner_running, Some(true));
+    assert!(dist(travel.feet(R_LONER), [350.0, 350.0, 0.0]) < 80.0, "TravelToRef moved R_LONER to MarkA: {:?}", travel.feet(R_LONER));
+}

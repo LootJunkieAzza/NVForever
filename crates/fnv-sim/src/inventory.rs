@@ -283,6 +283,15 @@ impl WeightRules {
             _ => w,
         }
     }
+
+    /// Effective weight of one unit after both weightless tweaks and perk rules.
+    pub fn effective_unit(&self, w: f32, kind: ItemKind, worn: bool, power_armor: bool) -> f32 {
+        if self.weightless(kind, worn, power_armor) {
+            0.0
+        } else {
+            self.unit(w, kind)
+        }
+    }
 }
 
 /// Total weight and value, with the items whose weight or value is not known yet.
@@ -603,10 +612,7 @@ impl Inventory {
                         ) => {}
                         Some(_) => {
                             for &(e, c) in &s.groups {
-                                if rules.weightless(i.kind, e.equipped, i.power_armor) {
-                                    continue;
-                                }
-                                t.weight += rules.unit(i.weight_with_mods(e.mods).unwrap_or(0.0), i.kind) as f64 * c as f64;
+                                t.weight += rules.effective_unit(i.weight_with_mods(e.mods).unwrap_or(0.0), i.kind, e.equipped, i.power_armor) as f64 * c as f64;
                             }
                         }
                         None => t.unknown_weight.push(id),
@@ -674,6 +680,10 @@ mod tests {
         let any = WeightRules { weightless_worn_armor: true, ..Default::default() };
         assert!(any.weightless(ItemKind::Armor, true, false));
         assert!(!WeightRules::default().weightless(ItemKind::Armor, true, true));
+        let combined = WeightRules { light: Some((2.0, 0.5)), weightless_worn_power_armor: true, ..Default::default() };
+        assert_eq!(combined.effective_unit(20.0, ItemKind::Armor, true, true), 0.0);
+        assert_eq!(combined.effective_unit(20.0, ItemKind::Armor, false, true), 20.0);
+        assert_eq!(combined.effective_unit(2.0, ItemKind::Armor, true, false), 1.0);
     }
 
     #[test]

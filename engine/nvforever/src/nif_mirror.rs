@@ -75,6 +75,39 @@ struct FileNode {
 
 /// A model file's nodes and shapes (under meshes), depth first from its root, children in
 /// stored order, as `walk` tells drawn ones.
+/// A reference's node tree from its model file's nodes (`file`): names (a repeated name
+/// as "name:0", "name:1" …), parents and local transforms, with the scripts' held
+/// transforms and materials over them.
+fn file_scene(
+    r: FormId,
+    file: &[FileNode],
+    table: &HashMap<String, [f32; 9]>,
+    held: &HashMap<(u32, ModelView, String), Held>,
+    materials: &HashMap<(u32, ModelView, String), [f32; 9]>,
+) -> Vec<SceneNode> {
+    let mut seen: HashMap<String, u32> = HashMap::new();
+    file.iter()
+        .map(|f| {
+            let n = seen.entry(f.name.to_ascii_lowercase()).or_insert(0);
+            let shown = if *n == 0 { f.name.clone() } else { format!("{}:{}", f.name, *n - 1) };
+            *n += 1;
+            let h = held.get(&(r.0, ModelView::Reference, shown.clone())).copied().unwrap_or_default();
+            let (z, y, x) = h.rotation.unwrap_or(f.rotation).to_euler(EulerRot::ZYX);
+            let material = materials.get(&(r.0, ModelView::Reference, shown.clone())).or_else(|| table.get(&f.name)).copied();
+            SceneNode {
+                name: shown,
+                parent: f.parent,
+                translation: h.translation.unwrap_or(f.translation).to_array(),
+                rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+                scale: h.scale.unwrap_or(f.scale),
+                flags: 0,
+                material,
+                info: None,
+            }
+        })
+        .collect()
+}
+
 fn file_tree(data: &GameData, model: &str) -> Vec<FileNode> {
     let mut out = Vec::new();
     if model.is_empty() {
@@ -243,7 +276,9 @@ struct OrderedHeld {
     order: [u64; 3],
 }
 
-pub(crate) type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'static ChildOf>), crate::lights::NotLightSource>;
+/// Draw-only entities (the full-detail ring, `nvf_play::DrawOnly`) are not the game's: the
+/// scripts' NIF functions never find them.
+pub(crate) type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'static ChildOf>), (crate::lights::NotLightSource, Without<nvf_play::DrawOnly>)>;
 
 /// Distinguish an explicit NIF rename from factory entity labels on actor roots.
 /// The marker dies with the entity; it is not a FormId/name override for a new rig.
@@ -751,28 +786,7 @@ fn mirror_game(
             let Some(d) = data.as_deref() else { continue };
             let file = files.entry(model.clone()).or_insert_with(|| file_tree(d, &model));
             let table = tables.entry(model.clone()).or_insert_with(|| material_table(d, &model));
-            let mut seen: HashMap<String, u32> = HashMap::new();
-            let tree: Vec<SceneNode> = file
-                .iter()
-                .map(|f| {
-                    let n = seen.entry(f.name.to_ascii_lowercase()).or_insert(0);
-                    let shown = if *n == 0 { f.name.clone() } else { format!("{}:{}", f.name, *n - 1) };
-                    *n += 1;
-                    let h = held.get(&(r.0, ModelView::Reference, shown.clone())).copied().unwrap_or_default();
-                    let (z, y, x) = h.rotation.unwrap_or(f.rotation).to_euler(EulerRot::ZYX);
-                    let material = materials.get(&(r.0, ModelView::Reference, shown.clone())).or_else(|| table.get(&f.name)).copied();
-                    SceneNode {
-                        name: shown,
-                        parent: f.parent,
-                        translation: h.translation.unwrap_or(f.translation).to_array(),
-                        rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
-                        scale: h.scale.unwrap_or(f.scale),
-                        flags: 0,
-                        material,
-                        info: None,
-                    }
-                })
-                .collect();
+            let tree = file_scene(r, file, table, held, materials);
             if logged.insert(r.0 ^ 0x4000_0000) {
                 info!("nif mirror: {:08X} told from its model file {model:?} (drawn flat), {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
@@ -847,6 +861,22 @@ fn mirror_game(
                     })
                 })
                 .collect();
+            // A model drawn without its nodes' names, or without node entities (a cell model's,
+            // TestTraps' pitching machine, #3128), is told from its file instead, as
+            // a flat-drawn item is, so scripts and FireWeapon find its nodes by name.
+            let unnamed = tree.iter().all(|n| n.name.is_empty() || n.name.starts_with(':'));
+            if let (true, ModelView::Reference, Some(d), Some(model)) = (unnamed, view, data.as_deref(), model.as_deref()) {
+                let file = files.entry(model.to_string()).or_insert_with(|| file_tree(d, model));
+                if !file.is_empty() {
+                    let table = tables.entry(model.to_string()).or_insert_with(|| material_table(d, model));
+                    let tree = file_scene(r, file, table, held, materials);
+                    if logged.insert(r.0 ^ 0x2000_0000) {
+                        info!("nif mirror: {:08X} drawn without node names: told from its model file {model:?}, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
+                    }
+                    game.scene.set_tree(r, tree);
+                    continue;
+                }
+            }
             if logged.insert(r.0 | 0x8000_0000) {
                 info!("nif mirror: {:08X} told, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
@@ -892,7 +922,7 @@ mod tests {
     #[test]
     fn a_material_edit_keeps_an_authored_roughness_and_restores_the_scripted_gloss() {
         use nvf_assets::authored::{restore, LegacyLook, AUTHORED_MARK};
-        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None };
+        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None };
         let mut m = nvf_assets::nif_material(StandardMaterial { perceptual_roughness: 0.8, reflectance: 0.5, ..default() });
         m.extension.emissive_rule.w = AUTHORED_MARK;
         m.extension.legacy = Some(look.clone());
@@ -924,7 +954,7 @@ mod tests {
     #[test]
     fn an_alpha_edit_keeps_an_authored_highlight_whatever_the_stored_specular_colour() {
         use nvf_assets::authored::{restore, LegacyLook, AUTHORED_MARK};
-        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None };
+        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None };
         let black = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.5, 1.0];
         let mut m = nvf_assets::nif_material(StandardMaterial { reflectance: 0.5, ..default() });
         m.extension.emissive_rule.w = AUTHORED_MARK;
@@ -966,6 +996,22 @@ mod tests {
         assert_eq!(root(&mut world), None, "its light sources alone");
         let drawn = world.spawn((Transform::IDENTITY, RefVisual(R))).id();
         assert_eq!(root(&mut world), Some(drawn), "not a light source beside it");
+    }
+
+    /// #2701: the full-detail ring's draw-only copy of a reference (`nvf_play::DrawOnly`) is
+    /// never what the scripts' NIF functions find: only the loaded cell's own entity.
+    #[test]
+    fn a_draw_only_entity_is_not_a_references_root() {
+        const R: u32 = 0x302;
+        fn root(world: &mut World) -> Option<Entity> {
+            world.run_system_once(|rigs: Rigs, visuals: Visuals| root_of(R, ModelView::Reference, &rigs, &visuals)).unwrap()
+        }
+        let mut world = World::new();
+        world.spawn((Transform::IDENTITY, RefVisual(R), nvf_play::DrawOnly));
+        assert_eq!(root(&mut world), None, "the ring's copy alone");
+        assert_eq!(world.run_system_once(|v: Visuals| v.iter().count()).unwrap(), 0);
+        let drawn = world.spawn((Transform::IDENTITY, RefVisual(R))).id();
+        assert_eq!(root(&mut world), Some(drawn), "the loaded cell's entity");
     }
 
     #[test]

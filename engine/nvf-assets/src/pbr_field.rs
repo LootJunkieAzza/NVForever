@@ -25,6 +25,29 @@
 //! panel's mean and the signed differences. The thresholds are an engineering policy set
 //! from real readbacks (below); nothing here is a fact about the game.
 //!
+//! Two more panels (stage 4, height maps), judged apart from the five: `height` and
+//! `height-control`, the same quad tilted about Y by [`TILT_DEGREES`] (only these two; the
+//! camera and the five panels are as before), the same diffuse (a narrow bright stripe at
+//! U 0.5 on a dark ground) under two names; `height` has a height-only set whose `_p` is
+//! white (high) in its upper half and black (low) in its lower half, at depth
+//! [`HEIGHT_DEPTH`]; the control has none. The camera is orthographic, so the control is the
+//! identical tilted frame without `_p`. Per band the stripe's centre is measured in both
+//! panels, away from the band boundary: with the setting on, the low band's stripe must move
+//! to within [`SHIFT_TOLERANCE`] pixels of what the tangent-space view predicts
+//! ([`predicted_low_shift`]: towards decreasing mesh U here) and the high band's must stay
+//! within [`STILL`]; with it off, neither moves more than [`STILL`]. A wrong sign or no
+//! movement fails. The height panels report on their own lines (`pbr field height: ...`,
+//! the shifts in pixels, the brightest value and the ground level on every readback, a PASS
+//! or FAIL per readback and a final PASS), so a height problem never fails the five panels'
+//! verdict or their scenarios. [observed, field only, on `b4660af00`, the main session's
+//! first GPU run (setting on), at the depth of then (0.1) and the occlusion method of then:
+//! high +0.00 px, low −9.76 px against the predicted −9.81;
+//! stripe centres height 64.00/54.24, control 64.00/64.00 px (high/low band); the then sRGB
+//! 230 stripe clipped at 255, so the stripe and its ground were darkened (sRGB 180 on 90).]
+//! The thresholds are an engineering policy set from that readback with margins. The depth
+//! is 0.08 since the scalar range was cut to it (prediction −7.84 px) and the method relief
+//! with 4 steps (both 2026-11-20); the field has not been run at them yet.
+//!
 //! [observed, on `7e2de4be1`, the main session's runs: on, plain 103, lit 67, dark 38,
 //! reference 67, flat 103; off, plain, lit, dark and flat 103, reference 60.] Two of these
 //! values have explanations that are [inferred], not isolated by a control: `flat` draws as
@@ -60,8 +83,11 @@ use crate::texture::{worker_texture_exact, TextureSnapshot, TextureUsage};
 
 const LAYER: usize = 30;
 const PANEL: usize = 128;
+/// The panels judged by mean luminance (stage 3).
 const PANELS: usize = 5;
-const WIDTH: usize = PANEL * PANELS;
+/// Every panel: the five, then the height panel and its control (stage 4).
+const TOTAL: usize = PANELS + 2;
+const WIDTH: usize = PANEL * TOTAL;
 const HEIGHT: usize = PANEL;
 /// The judged region of each panel: its middle half, away from the edges.
 const ROI: std::ops::Range<usize> = 32..96;
@@ -71,6 +97,60 @@ const LIT_PANEL: usize = 1;
 const DARK: usize = 2;
 const REFERENCE: usize = 3;
 const FLAT: usize = 4;
+const HEIGHT_PANEL: usize = 5;
+const CONTROL_PANEL: usize = 6;
+/// Every panel's name (the files drop the hyphen: `heightcontrol.dds`).
+const ALL_NAMES: [&str; TOTAL] = ["plain", "lit", "dark", "reference", "flat", "height", "height-control"];
+
+/// The height panels' tilt about Y: their +U edge turns away from the camera, so the
+/// tangent-space view has a negative X and the march's samples move to larger U with depth
+/// (vendored `parallax_mapping.wesl`, `pbr_fragment.wesl`).
+const TILT_DEGREES: f32 = 50.0;
+/// The height-only set's depth (its scalar file's `parallax_depth`): the scalar range's
+/// upper end (`fnv_pbr::PARALLAX_DEPTH_RANGE`, 0.08 since the pictures of 2026-11-20; the
+/// field ran at 0.1 before), so the low band's stripe travels several pixels
+/// ([`predicted_low_shift`], about 7.8).
+const HEIGHT_DEPTH: f32 = 0.08;
+/// The stripe diffuse (64 x 64): ground and stripe colours (sRGB) and the stripe's columns,
+/// centred on U 0.5. Mid values: an sRGB 230 stripe read 255 on the tilted panel (module
+/// notes, observed); the five panels' grey 160 reads 103 flat on, and the tilted panels take
+/// more of the light, so 180 should read about 150-200 and the ground (90) about 35-45
+/// [estimate from those two readings, to be confirmed by the next run's logged values].
+const STRIPE_SIDE: u32 = 64;
+const STRIPE_GROUND: [u8; 4] = [90, 90, 90, 255];
+const STRIPE: [u8; 4] = [180, 180, 180, 255];
+const STRIPE_TEXELS: std::ops::Range<u32> = 30..34;
+/// The `_p` (BC4 unsigned, 16 x 16): 255 (high) in the upper half, 0 (low) in the lower.
+const HEIGHT_SIDE: u32 = 16;
+/// The judged rows of each band (screen top is texture V 0, the high band), away from the
+/// boundary at 64 and from the wrap at the top and bottom edges; the columns searched for
+/// the stripe, inside the tilted quad (about 82 pixels wide, centred).
+const HIGH_ROWS: std::ops::Range<usize> = 16..48;
+const LOW_ROWS: std::ops::Range<usize> = 80..112;
+const STRIPE_COLUMNS: std::ops::Range<usize> = 28..100;
+
+/// The height comparator [engineering policy, set from the readback of `b4660af00` (module
+/// notes: low −9.76 against −9.81, high +0.00, control 64.00/64.00) with margins]: the low
+/// band's shift (height panel minus control, pixels) within `SHIFT_TOLERANCE` of the
+/// prediction, and of its sign (more than `STILL` that way); the high band's within `STILL`
+/// (off: both within `STILL`); each control stripe within `STILL` of the panel's middle and
+/// of the other band's; a row's stripe at least `MIN_CONTRAST` above its ground; no channel
+/// of the judged rows at `CLIP`.
+const SHIFT_TOLERANCE: f64 = 2.5;
+const STILL: f64 = 1.5;
+const MIN_CONTRAST: f64 = 20.0;
+
+/// The low band's predicted stripe shift in pixels (height panel minus control): the march
+/// ends at depth 1 (height 0) where its UV offset is `depth × Vt.x / Vt.z` against the view,
+/// `Vt` the view direction in tangent space (here `Vt.x = −sin tilt`, `Vt.z = cos tilt`), and
+/// one U spans `PANEL × cos tilt` pixels: `−depth × sin tilt × PANEL` [derived from the
+/// vendored shader; not measured]. The relief method's search (the default, `relief:4`)
+/// stops within its last halving of depth 1, here about 1 % short of it (about 0.1 px),
+/// well inside [`SHIFT_TOLERANCE`]; the occlusion method's interpolation lands on it [derived
+/// from `parallaxed_uv` for the flat low band; not measured].
+fn predicted_low_shift() -> f64 {
+    -f64::from(HEIGHT_DEPTH) * f64::from(TILT_DEGREES.to_radians().sin()) * PANEL as f64
+}
 
 /// The diffuse (sRGB grey 160), the two ORMs (occlusion 1 and 40/255; roughness 1, metallic
 /// 0) and the normal (X 0, Y 0.6, Z 0.8) as generated texels, RGBA byte order.
@@ -84,13 +164,15 @@ const DIFFUSE_SIDE: u32 = 8;
 const ORM_SIDE: u32 = 16;
 const NORMAL_SIDE: u32 = 32;
 const N_PATHS: [&str; 2] = ["textures\\pbr\\field\\lit_n.dds", "textures\\pbr\\field\\dark_n.dds"];
-const PBR_FILES: [&str; 6] = [
+const HEIGHT_PATH: &str = "textures\\pbr\\field\\height_p.dds";
+const PBR_FILES: [&str; 7] = [
     "textures\\pbr\\field\\lit_orm.dds",
     "textures\\pbr\\field\\lit_n.dds",
     "textures\\pbr\\field\\dark_orm.dds",
     "textures\\pbr\\field\\dark_n.dds",
     "textures\\pbr\\field\\reference_orm.dds",
     "textures\\pbr\\field\\flat_orm.dds",
+    HEIGHT_PATH,
 ];
 /// The direction the light comes from (normalised in use).
 const LIGHT_FROM: Vec3 = Vec3::new(0.5, 0.5, 0.7);
@@ -132,11 +214,16 @@ struct Field {
     completed: u8,
     after_frame: u64,
     done: bool,
+    /// Readbacks whose height panels passed their own comparator ([`judge_height`]).
+    height_passes: u8,
 }
 
 struct Scene {
     entities: Vec<Entity>,
     target: Handle<Image>,
+    /// The height panels' materials passed their check ([`check_height_panels`]); a failure
+    /// is reported on a height line and leaves the five panels' verdict alone.
+    height_ok: bool,
 }
 
 pub(crate) fn install(app: &mut App) {
@@ -153,7 +240,7 @@ pub(crate) fn install(app: &mut App) {
     render.insert_resource(frames.clone()).add_systems(Render, count_rendered.in_set(RenderSystems::Cleanup));
     app.add_plugins(ExtractComponentPlugin::<FieldCamera>::default())
         .insert_resource(frames)
-        .insert_resource(Field { started: None, output: None, scene: None, on: false, pending: None, completed: 0, after_frame: 0, done: false })
+        .insert_resource(Field { started: None, output: None, scene: None, on: false, pending: None, completed: 0, after_frame: 0, done: false, height_passes: 0 })
         .add_systems(Update, tick);
 }
 
@@ -250,7 +337,7 @@ fn mesh() -> Mesh {
 
 /// The NIF texture paths of a panel's shape (diffuse, then the game's normal map).
 fn panel_textures(name: &str) -> Vec<String> {
-    let mut t = vec![format!("textures\\field\\{name}.dds")];
+    let mut t = vec![format!("textures\\field\\{}.dds", name.replace('-', ""))];
     if name == "reference" {
         t.push("textures\\field\\reference_n.dds".into());
     }
@@ -262,7 +349,7 @@ fn make_scene(world: &mut World, data: &GameData, on: bool) -> Result<Scene, Str
     let support = CompressedImageFormatSupport(formats);
     let bc = formats.contains(CompressedImageFormats::BC);
     let mut cache = TextureCache::default();
-    let prepared = world.resource_scope(|_, mut images: Mut<Assets<Image>>| -> Result<Vec<(Mesh, NifMaterial)>, String> {
+    let prepared = world.resource_scope(|_, mut images: Mut<Assets<Image>>| -> Result<(Vec<(Mesh, NifMaterial)>, bool), String> {
         // The authored `_n` maps decoded on a worker thread under reserved handles, as a model
         // prepared there would have them, then adopted by the main thread's build (off: the
         // material path reads no file under textures\pbr\).
@@ -279,8 +366,8 @@ fn make_scene(world: &mut World, data: &GameData, on: bool) -> Result<Scene, Str
             }
             cache.take_workers(&mut images, 0.0);
         }
-        let mut prepared = Vec::with_capacity(PANELS);
-        for name in NAMES {
+        let mut prepared = Vec::with_capacity(TOTAL);
+        for name in ALL_NAMES {
             let mut mesh = mesh();
             let mut props = Props::default();
             props.textures = panel_textures(name);
@@ -347,19 +434,37 @@ fn make_scene(world: &mut World, data: &GameData, on: bool) -> Result<Scene, Str
             }
             info!("pbr field: setting off, no index built and no textures\\pbr\\ file loaded by the material path (the fixture's own check reads the generated files first)");
         }
-        Ok(prepared)
+        // The height panels report on their own lines, never failing the five's checks.
+        let height_ok = match check_height_panels(m[HEIGHT_PANEL], m[CONTROL_PANEL], on, size) {
+            Ok(note) => {
+                info!("pbr field height: panels (height, height-control) tilted {TILT_DEGREES} degrees about Y: {note}");
+                true
+            }
+            Err(why) => {
+                error!("pbr field height: FAIL materials: {why}");
+                false
+            }
+        };
+        Ok((prepared, height_ok))
     })?;
+    let (prepared, height_ok) = prepared;
     info!("pbr field: actual NIF material source, {PANELS} panels ({}), setting {}, BC {}", NAMES.join(", "), if on { "on" } else { "off" }, if bc { "yes" } else { "no" });
     let mut image = Image::new_target_texture(WIDTH as u32, HEIGHT as u32, TextureFormat::Rgba8Unorm, None);
     image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     let target = world.resource_mut::<Assets<Image>>().add(image);
-    let mut entities = Vec::with_capacity(PANELS + 2);
-    let middle = (PANELS as f32 - 1.0) / 2.0;
+    let mut entities = Vec::with_capacity(TOTAL + 2);
+    // The camera is orthographic and looks straight down -Z: a panel's picture does not
+    // depend on where along X it stands, so the five draw as before.
+    let middle = (TOTAL as f32 - 1.0) / 2.0;
     for (i, (mesh, material)) in prepared.into_iter().enumerate() {
         let mesh = world.resource_mut::<Assets<Mesh>>().add(mesh);
         let material = world.resource_mut::<Assets<NifMaterial>>().add(material);
-        entities.push(world.spawn((FieldOwned, Name::new(format!("PBR field panel {}", NAMES[i])), Mesh3d(mesh), MeshMaterial3d(material),
-            Transform::from_xyz((i as f32 - middle) * 2.0, 0.0, 0.0), RenderLayers::layer(LAYER))).id());
+        let mut at = Transform::from_xyz((i as f32 - middle) * 2.0, 0.0, 0.0);
+        if i >= PANELS {
+            at.rotation = Quat::from_rotation_y(TILT_DEGREES.to_radians());
+        }
+        entities.push(world.spawn((FieldOwned, Name::new(format!("PBR field panel {}", ALL_NAMES[i])), Mesh3d(mesh), MeshMaterial3d(material),
+            at, RenderLayers::layer(LAYER))).id());
     }
     // One directional light for every panel, with a Y component: the normal's Y tilt (and its
     // sign) changes N·L.
@@ -369,11 +474,56 @@ fn make_scene(world: &mut World, data: &GameData, on: bool) -> Result<Scene, Str
     entities.push(world.spawn((FieldOwned, FieldCamera, Name::new("PBR field camera"), Camera3d::default(),
         Camera { order: -101, clear_color: ClearColorConfig::Custom(Color::BLACK), ..default() },
         RenderTarget::Image(target.clone().into()),
-        Projection::Orthographic(OrthographicProjection { scaling_mode: ScalingMode::Fixed { width: (2 * PANELS) as f32, height: 2.0 }, near: 0.1, far: 10.0, ..OrthographicProjection::default_3d() }),
+        Projection::Orthographic(OrthographicProjection { scaling_mode: ScalingMode::Fixed { width: (2 * TOTAL) as f32, height: 2.0 }, near: 0.1, far: 10.0, ..OrthographicProjection::default_3d() }),
         Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
         Exposure { ev100: 0.0 }, AmbientLight { color: Color::WHITE, brightness: 1.0, ..default() },
         Tonemapping::None, DebandDither::Disabled, Msaa::Off, RenderLayers::layer(LAYER))).id());
-    Ok(Scene { entities, target })
+    Ok(Scene { entities, target, height_ok })
+}
+
+/// The height panel's and its control's materials: on, the height panel carries the
+/// height-only set's `_p` as its depth map (BC4 unsigned, or R8 without BC support) at
+/// [`HEIGHT_DEPTH`] with the run's method and layers (the authored defaults unless a
+/// development switch is set), no authored mark, tangents on its
+/// drawn mesh, and differs from the control in nothing else but its diffuse; off, neither has
+/// a depth map and they differ only in their diffuse. The note for the log line.
+fn check_height_panels(height: &NifMaterial, control: &NifMaterial, on: bool, size: impl Fn(&Option<Handle<Image>>) -> Option<(UVec2, TextureFormat)>) -> Result<String, String> {
+    // The run's method and layers: the defaults unless a development switch is set
+    // (crate::authored::parallax_method, parallax_layers).
+    use crate::authored::{parallax_layers, parallax_method, parallax_method_name, Parallax};
+    let without = |m: &NifMaterial| {
+        let mut b = m.base.clone();
+        b.base_color_texture = None;
+        Parallax::default().put(&mut b);
+        format!("{b:?}")
+    };
+    if without(height) != without(control) || control.base.depth_map.is_some() || crate::authored::is_authored(height) || crate::authored::is_authored(control) {
+        return Err("height panels: the height panel and its control differ in more than the diffuse and the depth map".into());
+    }
+    if !on {
+        if height.base.depth_map.is_some() {
+            return Err("setting off: the height panel carries a depth map".into());
+        }
+        return Ok("setting off, neither has a depth map".into());
+    }
+    let format = size(&height.base.depth_map);
+    let want = [TextureFormat::Bc4RUnorm, TextureFormat::R8Unorm];
+    let b = &height.base;
+    if !format.is_some_and(|(side, f)| side == UVec2::splat(HEIGHT_SIDE) && want.contains(&f))
+        || b.parallax_depth_scale != HEIGHT_DEPTH
+        || b.parallax_mapping_method != parallax_method()
+        || b.max_parallax_layer_count != parallax_layers()
+        || !height.extension.legacy.as_ref().is_some_and(|l| l.tangents)
+    {
+        return Err(format!("height panel: expected the _p ({HEIGHT_SIDE}x{HEIGHT_SIDE}, unsigned) at depth {HEIGHT_DEPTH} with tangents, got {format:?}, depth {}, {:?}, {} layers", b.parallax_depth_scale, b.parallax_mapping_method, b.max_parallax_layer_count));
+    }
+    Ok(format!(
+        "the height-only set's _p ({:?}) at depth {HEIGHT_DEPTH}, {}, {} layers, on height; none on its control; predicted low-band shift {:+.2} px",
+        format.map(|f| f.1),
+        parallax_method_name(parallax_method()),
+        parallax_layers(),
+        predicted_low_shift()
+    ))
 }
 
 fn received(
@@ -388,16 +538,31 @@ fn received(
     let ordinal = field.completed + 1;
     let frame = frames.0.load(Ordering::Acquire);
     let measured = measure(&event.data);
+    // The height panels' verdict, on their own lines (module notes): it never decides the
+    // five panels' verdict below.
+    let mut height_verdict = "not measured".to_string();
     if let Ok(r) = &measured {
         info!("pbr field: readback {ordinal} means {}", r.describe());
+        info!("pbr field height: readback {ordinal} {}", r.height.describe());
+        match judge_height(&r.height, field.on) {
+            Ok(()) => {
+                info!("pbr field height: readback {ordinal} PASS");
+                field.height_passes += 1;
+                height_verdict = "PASS".into();
+            }
+            Err(why) => {
+                error!("pbr field height: FAIL readback {ordinal}: {why}");
+                height_verdict = format!("FAIL {why}");
+            }
+        }
     }
     let result = if layers.iter().any(|(layers, anchor)| foreign_layer(layers, anchor)) {
         Err("foreign recipient in isolated render layer at completion".into())
     } else {
-        measured.and_then(|r| judge(r, field.on))
+        measured.and_then(|r| judge_panels(r, field.on))
     };
     let saved = field.output.as_ref().ok_or_else(|| "missing output directory".to_string())
-        .and_then(|out| save_readback(out, ordinal, frame, &event.data, &result).map_err(|e| format!("save readback: {e}")));
+        .and_then(|out| save_readback(out, ordinal, frame, &event.data, &result, &height_verdict).map_err(|e| format!("save readback: {e}")));
     if let Err(reason) = saved.and(result.map(|_| ())) {
         error!("pbr field: FAIL readback {ordinal}: {reason}");
         field.done = true;
@@ -414,6 +579,12 @@ fn received(
         } else {
             info!("pbr field: setting off, plain-material panels identical and the reference distinct PASS");
         }
+        let height_ok = field.scene.as_ref().is_some_and(|s| s.height_ok) && field.height_passes == 2;
+        match (height_ok, field.on) {
+            (true, true) => info!("pbr field height: the height map moves the low band's stripe the predicted way and leaves the high band's in place PASS"),
+            (true, false) => info!("pbr field height: setting off, no depth map on either panel, both stripes straight PASS"),
+            (false, _) => error!("pbr field height: FAIL {} of 2 readbacks passed (materials {})", field.height_passes, if field.scene.as_ref().is_some_and(|s| s.height_ok) { "as expected" } else { "refused" }),
+        }
         field.done = true;
     }
 }
@@ -424,6 +595,124 @@ fn received(
 struct Report {
     mean: [f64; PANELS],
     brightest: [u8; PANELS],
+    height: HeightReport,
+}
+
+/// What a readback measured of the height panels: the stripe's centre (pixels from the
+/// panel's left edge, mean over the band's rows) in the high and the low band of the height
+/// panel and of its control (`None`: some row showed no stripe), the brightest channel value
+/// in the two panels' judged rows and their ground level (the mean of each judged row's
+/// darkest luminance).
+#[derive(Debug, PartialEq)]
+struct HeightReport {
+    height: [Option<f64>; 2],
+    control: [Option<f64>; 2],
+    brightest: u8,
+    ground: f64,
+}
+
+impl HeightReport {
+    /// The shift of each band (height panel minus control), `[high, low]`.
+    fn shifts(&self) -> Option<[f64; 2]> {
+        Some([self.height[0]? - self.control[0]?, self.height[1]? - self.control[1]?])
+    }
+
+    /// The shifts in pixels, the prediction and the centres, for the log.
+    fn describe(&self) -> String {
+        let c = |v: Option<f64>| v.map_or("none".to_string(), |v| format!("{v:.2}"));
+        let shifts = self.shifts().map_or("no stripe found".to_string(), |[high, low]| format!("high={high:+.2} px low={low:+.2} px"));
+        format!(
+            "{shifts} (predicted low {:+.2} px, high 0); centres height {}/{} control {}/{} px (high/low band); brightest {}, ground {:.1}",
+            predicted_low_shift(),
+            c(self.height[0]),
+            c(self.height[1]),
+            c(self.control[0]),
+            c(self.control[1]),
+            self.brightest,
+            self.ground
+        )
+    }
+}
+
+/// The stripe's centre in `panel` over `rows`: per row, the luminance-weighted centre of the
+/// texels above the half-way value between the row's darkest and brightest in
+/// [`STRIPE_COLUMNS`], averaged over the rows; `None` when a row's stripe stands less than
+/// [`MIN_CONTRAST`] above its ground.
+fn stripe_centre(bytes: &[u8], panel: usize, rows: std::ops::Range<usize>) -> Option<f64> {
+    let mut sum = 0.0;
+    let count = rows.len();
+    for y in rows {
+        let row: Vec<(usize, f64)> = STRIPE_COLUMNS.map(|x| (x, luminance(bytes, panel, x, y))).collect();
+        let (lo, hi) = row.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &(_, v)| (lo.min(v), hi.max(v)));
+        if hi - lo < MIN_CONTRAST {
+            return None;
+        }
+        let half = (lo + hi) / 2.0;
+        let (weighted, weight) = row.iter().filter(|(_, v)| *v > half).fold((0.0, 0.0), |(s, w), &(x, v)| (s + (x as f64 + 0.5) * (v - half), w + (v - half)));
+        sum += weighted / weight;
+    }
+    Some(sum / count as f64)
+}
+
+/// The luminance of the texel at (`x`, `y`) of `panel`.
+fn luminance(bytes: &[u8], panel: usize, x: usize, y: usize) -> f64 {
+    let i = (y * WIDTH + panel * PANEL + x) * 4;
+    0.2126 * f64::from(bytes[i]) + 0.7152 * f64::from(bytes[i + 1]) + 0.0722 * f64::from(bytes[i + 2])
+}
+
+fn measure_height(bytes: &[u8]) -> HeightReport {
+    let (mut brightest, mut ground, mut rows) = (0u8, 0.0, 0usize);
+    for panel in [HEIGHT_PANEL, CONTROL_PANEL] {
+        for y in HIGH_ROWS.chain(LOW_ROWS) {
+            let mut darkest = f64::MAX;
+            for x in STRIPE_COLUMNS {
+                let i = (y * WIDTH + panel * PANEL + x) * 4;
+                brightest = brightest.max(bytes[i]).max(bytes[i + 1]).max(bytes[i + 2]);
+                darkest = darkest.min(luminance(bytes, panel, x, y));
+            }
+            ground += darkest;
+            rows += 1;
+        }
+    }
+    HeightReport {
+        height: [stripe_centre(bytes, HEIGHT_PANEL, HIGH_ROWS), stripe_centre(bytes, HEIGHT_PANEL, LOW_ROWS)],
+        control: [stripe_centre(bytes, CONTROL_PANEL, HIGH_ROWS), stripe_centre(bytes, CONTROL_PANEL, LOW_ROWS)],
+        brightest,
+        ground: ground / rows as f64,
+    }
+}
+
+/// The height comparator (module notes) on a measured frame.
+fn judge_height(h: &HeightReport, on: bool) -> Result<(), String> {
+    let fail = |why: &str| Err(format!("height comparator ({}): {why}; {}", if on { "on" } else { "off" }, h.describe()));
+    let Some([high, low]) = h.shifts() else { return fail("a band shows no stripe") };
+    if h.brightest >= CLIP {
+        return fail("clipped");
+    }
+    let middle = PANEL as f64 / 2.0;
+    let (c_high, c_low) = (h.control[0].unwrap_or(0.0), h.control[1].unwrap_or(0.0));
+    if (c_high - middle).abs() > STILL || (c_low - middle).abs() > STILL || (c_high - c_low).abs() > STILL {
+        return fail("the control's stripe is not straight down the middle");
+    }
+    if high.abs() > STILL {
+        return fail("the high band's stripe moved");
+    }
+    if on {
+        let predicted = predicted_low_shift();
+        let along = low * predicted.signum();
+        if along < -STILL {
+            return fail("the low band's stripe moved the wrong way");
+        }
+        if along <= STILL {
+            return fail("the low band's stripe did not move");
+        }
+        if (low - predicted).abs() > SHIFT_TOLERANCE {
+            return fail("the low band's stripe moved, but not by the predicted amount");
+        }
+    } else if low.abs() > STILL {
+        return fail("setting off, the low band's stripe moved");
+    }
+    Ok(())
 }
 
 impl Report {
@@ -454,7 +743,7 @@ fn measure(bytes: &[u8]) -> Result<Report, String> {
     if bytes.as_chunks::<4>().0.iter().any(|p| p[3] != 255) {
         return Err("nonopaque target alpha".into());
     }
-    let mut report = Report { mean: [0.0; PANELS], brightest: [0; PANELS] };
+    let mut report = Report { mean: [0.0; PANELS], brightest: [0; PANELS], height: measure_height(bytes) };
     for panel in 0..PANELS {
         let mut sum = 0.0;
         for y in ROI {
@@ -473,8 +762,8 @@ fn measure(bytes: &[u8]) -> Result<Report, String> {
     Ok(report)
 }
 
-/// The comparator (module notes) on a measured frame.
-fn judge(report: Report, on: bool) -> Result<Report, String> {
+/// The five panels' comparator (module notes).
+fn judge_panels(report: Report, on: bool) -> Result<Report, String> {
     let m = &report.mean;
     let pass = if on {
         // The signs as observed: the tilted normal draws darker than the flat one.
@@ -485,9 +774,11 @@ fn judge(report: Report, on: bool) -> Result<Report, String> {
     if pass { Ok(report) } else { Err(format!("comparator ({}): {}", if on { "on" } else { "off" }, report.describe())) }
 }
 
+/// The five panels' comparator on a frame (tests; the height panels are judged by
+/// [`judge_height`]).
 #[cfg(test)]
 fn compare(bytes: &[u8], on: bool) -> Result<Report, String> {
-    measure(bytes).and_then(|r| judge(r, on))
+    measure(bytes).and_then(|r| judge_panels(r, on))
 }
 
 fn create_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -518,13 +809,13 @@ fn new_output(home: &Path, stamp: u128, process: u32) -> std::io::Result<PathBuf
     Err(std::io::Error::other("output reservation collision limit"))
 }
 
-fn save_readback(out: &Path, ordinal: u8, frame: u64, bytes: &[u8], report: &Result<Report, String>) -> std::io::Result<()> {
+fn save_readback(out: &Path, ordinal: u8, frame: u64, bytes: &[u8], report: &Result<Report, String>, height_verdict: &str) -> std::io::Result<()> {
     create_file(&out.join(format!("readback-{ordinal}.rgba")), bytes)?;
     let described = match report {
-        Ok(r) => r.describe(),
+        Ok(r) => format!("{}\nheight: {}\nheight verdict: {height_verdict}", r.describe(), r.height.describe()),
         Err(e) => e.clone(),
     };
-    create_file(&out.join(format!("readback-{ordinal}.txt")), format!("submitted render frames at receipt: {frame}\npanels: {NAMES:?}\n{described}\n").as_bytes())?;
+    create_file(&out.join(format!("readback-{ordinal}.txt")), format!("submitted render frames at receipt: {frame}\npanels: {ALL_NAMES:?}\n{described}\n").as_bytes())?;
     if bytes.len() == WIDTH * HEIGHT * 4 {
         let mut ppm = format!("P6\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
         for pixel in bytes.as_chunks::<4>().0 {
@@ -574,11 +865,43 @@ fn bc5(side: u32, xy: [u8; 2]) -> Vec<u8> {
     b
 }
 
+/// The height panels' diffuse: [`STRIPE_GROUND`] with a [`STRIPE`] over the columns
+/// [`STRIPE_TEXELS`], every row alike.
+fn stripe() -> Vec<u8> {
+    let mut b = header(STRIPE_SIDE, None);
+    for _ in 0..STRIPE_SIDE {
+        for x in 0..STRIPE_SIDE {
+            b.extend_from_slice(if STRIPE_TEXELS.contains(&x) { &STRIPE } else { &STRIPE_GROUND });
+        }
+    }
+    b
+}
+
+/// The height-only set's `_p`: unsigned BC4 (`BC4U`), 255 in the upper half's blocks and 0
+/// in the lower half's, each block one value (endpoint 0, every index 0) [documented: a BC4
+/// block is two endpoint bytes and 48 bits of 3-bit indices].
+fn height_bc4() -> Vec<u8> {
+    let mut b = header(HEIGHT_SIDE, Some(b"BC4U"));
+    let blocks = HEIGHT_SIDE / 4;
+    for row in 0..blocks {
+        let v = if row < blocks / 2 { 255 } else { 0 };
+        for _ in 0..blocks {
+            b.extend_from_slice(&[v, 0, 0, 0, 0, 0, 0, 0]);
+        }
+    }
+    b
+}
+
 /// Every generated file, by its path under the output folder.
 fn fixture() -> Vec<(&'static str, Vec<u8>)> {
     let diffuse = rgba(DIFFUSE_SIDE, DIFFUSE);
     let (open, dark, normal) = (rgba(ORM_SIDE, ORM_OPEN), rgba(ORM_SIDE, ORM_DARK), bc5(NORMAL_SIDE, NORMAL_XY));
+    let striped = stripe();
     vec![
+        ("textures/field/height.dds", striped.clone()),
+        ("textures/field/heightcontrol.dds", striped),
+        ("textures/pbr/field/height_p.dds", height_bc4()),
+        ("textures/pbr/field/height.toml", format!("parallax_depth = {HEIGHT_DEPTH}\n").into_bytes()),
         ("textures/field/plain.dds", diffuse.clone()),
         ("textures/field/lit.dds", diffuse.clone()),
         ("textures/field/dark.dds", diffuse.clone()),
@@ -600,7 +923,7 @@ fn write_fixture(out: &Path) -> std::io::Result<()> {
     for (rel, bytes) in fixture() {
         create_file(&out.join(rel), &bytes)?;
     }
-    create_file(&out.join("scene.txt"), format!("{PANELS} panels ({}), each a 2x2 quad with normal (0,0,1) and UVs; one directional light from {LIGHT_FROM:?} (normalised), illuminance 4; ambient white, brightness 1; exposure ev100 0; no tonemapping\n", NAMES.join(", ")).as_bytes())
+    create_file(&out.join("scene.txt"), format!("{PANELS} panels ({}), each a 2x2 quad with normal (0,0,1) and UVs; one directional light from {LIGHT_FROM:?} (normalised), illuminance 4; ambient white, brightness 1; exposure ev100 0; no tonemapping; then the height panels (height, height-control), the same quad tilted {TILT_DEGREES} degrees about Y, a stripe diffuse; height has a height-only set (_p high above, low below, depth {HEIGHT_DEPTH})\n", NAMES.join(", ")).as_bytes())
 }
 
 #[cfg(test)]

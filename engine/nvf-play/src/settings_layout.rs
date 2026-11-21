@@ -305,8 +305,9 @@ mod tests {
     /// Inertia and Camera Motion in place of weapon sway and head bob, #2843's Shadow
     /// resolution row, Gore Shake and #2670's Cloud shadows; #2661's mesh terrain blend row, the
     /// Quick Loot rows; #2965's heat haze row; #2675's desert haze row; Sprint; #2671's terrain
-    /// shadows row; #2981's authored materials row; the Flashlight rows), by the group it registers with.
-    const KNOWN: [(&str, &str); 151] = [
+    /// shadows row; #2981's authored materials row; #2701's full-detail scenery row; #3014's
+    /// distant objects row; the Flashlight rows), by the group it registers with.
+    const KNOWN: [(&str, &str); 153] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -425,6 +426,8 @@ mod tests {
         ("terrain-height-blend", "Graphics"),
         ("terrain-anti-tiling", "Graphics"),
         ("mesh-terrain-blend", "Graphics"),
+        ("full-detail", "Graphics"),
+        ("distant-objects", "Graphics"),
         ("smooth-terrain", "Graphics"),
         ("light-shafts", "Graphics"),
         ("heat-haze", "Graphics"),
@@ -569,7 +572,8 @@ mod tests {
         mark-recurring-challenges hide-hotkeyed-containers hide-hotkeyed-barter hide-hotkeyed-repair \
         map-zoom-at-pointer console-homes shift-screenshot-hides print-plugin-names \
         weapon-requirements-matter console-model-details back-pace strafe-pace hack-no-single-chars \
-        hack-no-repeat-words hack-dud-when-full hack-spare-guessed run-overencumbered over-run-ap over-jump-ap \
+        hack-no-repeat-words hack-dud-when-full hack-spare-guessed hack-mark-guesses-as-duds \
+        hack-keep-matching-chars hack-compact-guesses hack-replenish-bonus run-overencumbered over-run-ap over-jump-ap \
         npc-melee-part-damage disarm-needs-skill disarm-mult disarm-explode-mult cap-skills-by-special skill-cap-base \
         skill-cap-per-special skill-cap-per-luck skill-cap-most cap-skills-spare-tagged hold-breath breath-sway \
         breath-ap scope-wheel-zoom wheel-cycles-hotkeys dpad-cycles-hotkeys keys-with-pad double-tap-ammo \
@@ -776,8 +780,8 @@ mod tests {
     #[test]
     fn every_tweak_of_1892_has_its_group_and_category() {
         let tweaks = tweak_rows();
-        // 560 less the console and screenshot keys, bindings since 2026-11-16 (Controls).
-        assert_eq!(tweaks.len(), 558);
+        // 564 less the console and screenshot keys, bindings since 2026-11-16 (Controls).
+        assert_eq!(tweaks.len(), 562);
         let mut rows: Vec<(&'static str, &'static str)> = KNOWN.to_vec();
         rows.extend(&tweaks);
         let list = registry(&rows);
@@ -798,6 +802,7 @@ mod tests {
         let next = |k: &str| list[l.ordered_settings().skip_while(|&i| list[i].key != k).nth(1).unwrap()].key;
         assert_eq!(next("tweak-take-all-confirm"), "tweak-take-all-confirm-min");
         assert_eq!(next("tweak-revive-companions"), "tweak-revive-down-seconds");
+        assert_eq!(next("tweak-hack-mark-guesses-as-duds"), "tweak-hack-keep-matching-chars");
         // The engine's own tabs are as they were.
         assert_eq!(keys(&list, &l, "Audio"), keys(&registry(&KNOWN), &resolve_layout(&registry(&KNOWN)), "Audio"));
     }

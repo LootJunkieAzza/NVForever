@@ -137,7 +137,17 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   entries carry nothing for them [observed by the owner in game, 2026-10-08]; non-item entries stay
   [hypothesis].
 - **CONT DATA**: flags u8 (bit 1 "Respawns"), weight f32 [documented: xEdit]. 3,417
-  container bases; 177 respawn; 845 have no CNTO [observed].
+  container bases; 177 respawn; 845 have no CNTO [observed]. Session-only
+  `SetContainerRespawns` / `GetContainerRespawns` (`World::set_container_respawns`,
+  `World::container_respawns`, `nvse_gaps.rs`) override a `CONT` base's Respawns
+  flag for the current session (non-containers are ignored; carried across a
+  same-run load via `WorldSession` / `World::take_session` / `World::put_session`,
+  not saved in `Snapshot`) [documented: GECK wiki `SetContainerRespawns` /
+  `GetContainerRespawns`, base-form flag toggle; observed: `gaps8`, value-first
+  returns 0 and reads back; hypothesis: session-only lifetime, like `base_edits`]
+  and are read by `World::reset_containers` (timed cell respawn and `ResetInterior`)
+  as well as `World::restocks` (merchant container restocking) [hypothesis: live
+  container-respawn consumers read the updated `CONT` Respawns flag].
 - **Respawn**: when a cell is loaded again after staying unloaded for at least the
   respawn delay, its containers whose base has the Respawns flag return to their
   authored state (new leveled roll, anything left inside lost; lock restored
@@ -738,6 +748,33 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
     searched; with no such box the body is picked by its box as before (#3125) [design].
     The console's click keeps the plain nearest rule. Collision on the trigger layer (12)
     does not block the ray [hypothesis].
+  - **A bed someone lies on yields to the sleeper**: when the target chosen above is a bed
+    an actor other than the player is on (a bed marker, IDs 1 to 9, at any stage of
+    getting on, sleeping or getting off; furniture.md §2) and that actor's body is within
+    the reach of the eye, the target is that actor, logged `by Occupant`, its distance
+    the body's: the nearest of its posed bones (the parts the renderer publishes for hit
+    volumes, which follow the lying body), else of its render boxes. No hit on the body
+    itself is asked for. A sleeper beyond the reach (the bed aimed at by its far end), or
+    one that cannot be activated now, leaves the bed the target. A free bed is the target
+    as before, and a bed in use offers the player nothing, being one user per reference
+    (furniture.md §5, item 3) [design, #3231: the bed's box encloses the mattress, so the
+    ray enters it before the sleeper's rough box, and the bed won; what the original
+    targets on a sleeper is not captured]. Chairs and benches are not included: a bench's
+    free seat stays usable beside a sitter. Scripts still see the bed: GetCrosshairRef
+    reports the raw collision hit.
+    - What activating the sleeper does: only one fully settled on the bed (GetSleeping 3,
+      `Game::asleep`) takes the wake-and-talk path (`ByHand::Woken`): it gets up and the
+      conversation starts once it is off the bed, or after `WAKE_TALK_SECONDS` (8 s of
+      game time) when the exit is slower, then with it still on the bed. One still
+      getting on or already getting off is talked to at once, as any actor, by the
+      ordinary dialogue [design].
+    - Squire Maxson (a child, TTW's CitadelBRing) was seen lying across the middle of a
+      wide bed rather than on one side (#3231's second report) [observed: the report's
+      screenshot]. Unresolved: whether the bed's entry marker and the clips' offsets put
+      him there as the original would, or the clip choice, which asks the IDLE tree for
+      an adult body (`child: false`, engine/nvforever/src/furniture.rs `user`), gives a
+      child an adult's bed clips [hypothesis; to settle by comparing the marker and the
+      pose with the original].
   - **What is offered**: references the simulation considers present (not taken, enabled)
     whose base is an item, container, door, actor or placed explosive with a weapon to
     give; activators and furniture only with a display name (FULL) [hypothesis: unnamed

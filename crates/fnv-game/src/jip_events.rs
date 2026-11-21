@@ -213,6 +213,30 @@ fn slots(event: &str) -> &'static [Slot] {
     }
 }
 
+fn normalize_click_filter(p: &str) -> String {
+    if let Some((m, n)) = p.split_once('#') {
+        return format!("{}#{}", m.trim().to_ascii_lowercase(), n.trim());
+    }
+    p.split(['/', '\\'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn click_segment_matches(want: &str, have: &str) -> bool {
+    fn split_idx(s: &str) -> (&str, Option<&str>) {
+        match s.rsplit_once(':') {
+            Some((base, idx)) if !idx.is_empty() && idx.bytes().all(|b| b.is_ascii_digit()) => (base, Some(idx)),
+            _ => (s, None),
+        }
+    }
+    let (w_name, w_idx) = split_idx(want);
+    let (h_name, h_idx) = split_idx(have);
+    (w_name == "*" || w_name == h_name) && (w_idx.is_none() || w_idx == h_idx)
+}
+
 /// Whether a SetOnMenuClickEventHandler tile path names this tile (see
 /// [`Game::jip_menu_click`]).
 pub fn click_path_matches(filter: &str, menu: &str, path: &str, id: f64) -> bool {
@@ -221,7 +245,7 @@ pub fn click_path_matches(filter: &str, menu: &str, path: &str, id: f64) -> bool
     }
     let segs = |p: &str| p.split(['/', '\\']).map(str::trim).filter(|s| !s.is_empty()).map(str::to_ascii_lowercase).collect::<Vec<_>>();
     let (want, have) = (segs(filter), segs(path));
-    !want.is_empty() && want.len() <= have.len() && want.iter().zip(&have).all(|(a, b)| a == b)
+    !want.is_empty() && want.len() <= have.len() && want.iter().zip(&have).all(|(a, b)| click_segment_matches(a, b))
 }
 
 impl Game<'_> {
@@ -234,8 +258,16 @@ impl Game<'_> {
     /// removes it with no key before registering again or when the sprint is turned off,
     /// observed in its script source; issue #2952]. Returns whether anything changed.
     pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, filters: Vec<XVal>, registrar: Option<Arc<Registrar>>) -> bool {
-        let same = |h: &JipHandler| h.event == event && h.func == func && h.filters == filters;
-        let removed = |h: &JipHandler| h.event == event && h.func == func && h.filters.starts_with(&filters);
+        let filters_eq = |a: &XVal, b: &XVal| match (event.as_str(), a, b) {
+            ("menuclick", XVal::Str(sa), XVal::Str(sb)) => normalize_click_filter(sa) == normalize_click_filter(sb),
+            _ => a == b,
+        };
+        let same = |h: &JipHandler| {
+            h.event == event && h.func == func && h.filters.len() == filters.len() && h.filters.iter().zip(&filters).all(|(a, b)| filters_eq(a, b))
+        };
+        let removed = |h: &JipHandler| {
+            h.event == event && h.func == func && h.filters.len() >= filters.len() && h.filters.iter().zip(&filters).all(|(a, b)| filters_eq(a, b))
+        };
         if add {
             if self.jip.handlers.iter().any(same) {
                 return true;
@@ -623,5 +655,25 @@ impl Game<'_> {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod click_path_tests {
+    use super::*;
+
+    #[test]
+    fn click_path_matches_wildcards_and_indices() {
+        let path = "BarterMenu/BarterCategories/BC_Category:1";
+        assert!(click_path_matches("BarterMenu/BarterCategories", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("BarterMenu\\BarterCategories\\BC_Category", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("BarterMenu/*/BC_Category", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("BarterMenu/*/BC_Category:1", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("BarterMenu/*/*:1", "BarterMenu", path, -1.0));
+        assert!(!click_path_matches("BarterMenu/*/BC_Category:0", "BarterMenu", path, -1.0));
+        assert!(!click_path_matches("BarterMenu/*/*:2", "BarterMenu", path, -1.0));
+        assert!(!click_path_matches("ContainerMenu/BarterCategories", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("bartermenu#12", "BarterMenu", path, 12.0));
+        assert!(!click_path_matches("bartermenu#12", "BarterMenu", path, -1.0));
     }
 }

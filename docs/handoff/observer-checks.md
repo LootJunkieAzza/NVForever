@@ -3432,6 +3432,27 @@ already talking takes over at once, same topic or another; nothing is queued or 
      DLC04DarMuckBubble (0x0A012C5E: index 1, damage stage 3, at 40 %): damage one to under
      40 % with the console (`DamageObject`) and print `GetDestructionStage` (2 or 3).
 
+## Added 2026-11-21 (greetings of two quests at equal priority, #3199, #3061)
+
+248. **Which greeting does an actor say when two quests of the same priority both have
+     one it can say?** (P1: All or Nothing cannot be finished on House's path without the
+     answer; #3199, #3061, dialogue.md §7 item A.) The runtime takes the one stored first
+     (rule 2, an owner statement of 2026-10-10). Two cases where the shipped quest needs
+     the later one [observed: records]:
+     - On House's path, install the override chip in the Hoover Dam control room
+       (VHDControlOverrideBoxSCRIPT runs `VHDMainControlPanel1REF.StartConversation
+       Player, Greeting`). Does the panel say 0x001554D8 ("I knew you'd make it.
+       Resourceful, as always."; VHDHouseBattle, Say Once) or House's generic Lucky 38
+       greeting 0x00125EBD ("The Legion's assault could begin at any moment.";
+       VDialogueMrHouse)? Both quests are priority 55; the generic line is stored first.
+     - In Fallout 3 (or TTW), talk to Doctor Zimmer in Rivet City before The Replicated
+       Man starts: the hire line 0x0002026A (MS08, Say Once) or MS08Fin's goodbye
+       0x000C84FF ("Our dealings are done...")? Both priority 50; the goodbye is stored first.
+     Our [hypothesis]: at equal priority a Say Once line of one quest wins over another
+     quest's plain line. If both come out as the quests need, any further pair that tells
+     "Say Once first" from "later quest first" (the second case has the earlier quest win)
+     is worth a frame.
+
 ## Added 2026-11-15 (the Camp McCarran observation window, #2462)
 
 249. **How does the observation window at Camp McCarran look from each side?** (P3;

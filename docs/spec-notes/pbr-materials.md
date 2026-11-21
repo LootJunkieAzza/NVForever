@@ -33,16 +33,16 @@ These choices are settled; pack authors and later versions can rely on them.
 | Path rules, member names, the index of sets a load order supplies | **implemented** (`crates/fnv-pbr`; `GameData::pbr_index` in `engine/nvf-assets/src/data.rs` builds it on first use and logs one line of counts; materials ask for it only while the Authored materials setting is on) |
 | `fnvtool pbr list` (which sets a load order has, and which archive or folder supplies each file) | **implemented** (`crates/fnvtool/src/pbr_cmd.rs`, docs/cli-contract.md) |
 | Scalar file reading (`<stem>.toml`) | **implemented**; read once per mount, by the first shape that asks (stage 3) [documented: `engine/nvf-assets/src/data.rs` `GameData::pbr_scalars`] |
-| Reading members' pixels | `_orm` (linear) and `_n` (two-channel normal role, `TextureUsage::NormalTwoChannel`) **implemented** (stage 3); `_p` **planned** (stage 4); `_albedo` stays reserved |
+| Reading members' pixels | `_orm` (linear) and `_n` (two-channel normal role, `TextureUsage::NormalTwoChannel`) **implemented** (stage 3); `_p` (linear, unsigned only) **implemented** (stage 4); `_albedo` stays reserved |
 | Reading BC7 and BC4 files (DDS with the DX10 header, or legacy `BC4U` / `BC4S`) | stage 1 of #2981 (`crates/fnv-dds`) |
 | Drawing a surface with its set (ORM, normal) | **implemented** in source (stage 3) [documented: `engine/nvf-assets/src/nif_spawn.rs` `shape_material`, `authored.rs` `retexture`]; the setting Authored materials (`authored-materials`, on by default, read at the start; `--graphics-only no-authored-materials`). Its check is the field test `pbr-authored-field` (below). A sample pack was drawn in the game with the setting off and on by the main session as of head `bebd7841a` (pictures not committed; they show the pack's own values, and no reference look exists to judge them by); those pictures are owed again after the fixes that followed that head |
-| Height maps (`_p`, parallax) | **planned** (stage 4, with #2979) |
+| Height maps (`_p`, parallax) | **implemented** (stage 4, below: "Height maps"). The game's own height slot (#2979) is not read |
 | Metallic | read with the ORM but **held at 0** (stage 3, implemented) until the engine has a reflection source (stage 5) |
 | A pack validator (`fnvtool pbr check`, `fnvtool pbr selftest`) | **implemented** (`crates/fnvtool/src/pbr_check.rs`, docs/cli-contract.md `fnv.pbr.check/1`) |
 
 Sections marked "planned" describe how the engine will use a set once those stages land.
 Wherever this note says a member "will be read" or "will be accepted", stage 3 does so for
-`_orm` and `_n`; `_p` waits for stage 4.
+`_orm` and `_n`, and stage 4 for `_p`.
 
 ## Layout
 
@@ -128,6 +128,10 @@ them correctly.
 - Recommended formats: `_orm` **BC7** (or BC1 when its quality is enough), `_n` **BC5**
   (unsigned), `_p` **BC4** (unsigned). BC1 and BC3 will be accepted for `_orm` and `_n`
   from stage 3, and for `_p` when height maps land (stage 4); `_albedo` stays reserved.
+- [design] `_p` must be **unsigned**: signed BC4 (`BC4_SNORM`, FourCC `BC4S`) is refused,
+  by `fnvtool pbr check` (an error) and by the engine (one warning; the rest of an authored
+  set still applies). A height runs from 0 (lowest) to 1 (highest); a signed sample below 0
+  would read deeper than the deepest layer. Signed BC5 stays allowed for `_n`.
   [documented: Microsoft, "Texture Block Compression in Direct3D 11": BC4 stores one channel
   and BC5 two in 4x4-texel blocks of 8 and 16 bytes; BC7 stores RGB or RGBA in 16-byte
   blocks]
@@ -138,7 +142,10 @@ them correctly.
   "Programming Guide for DDS"; docs/spec-notes/dds.md, docs/spec-notes/dds-bc5.md]. The
   engine reads the DX10 header and the BC4 FourCCs from stage 1 of #2981 on.
 - [design] The **top level's width and height must be multiples of 4**. The engine has no CPU
-  decoder for BC7, so a file it cannot upload whole will be refused rather than decoded.
+  decoder for BC7, so a file it cannot upload whole will be refused rather than decoded. A
+  `_p` off the grid is refused by the engine too (stage 4: one warning naming the
+  file and its size), though it could decode one, so the engine and `fnvtool pbr check`
+  agree on it.
 - [design] Ship **full mip chains**, down to 1x1. Smaller mip levels need not be multiples of 4.
 - [design] Each member's size is its own: an ORM at 2048 beside a 1024 diffuse and a 4096
   normal map is fine. Nothing ties the sizes together.
@@ -155,7 +162,7 @@ A TOML file of plain keys, all optional:
 
 | Key | Meaning | Range | Default |
 |---|---|---|---|
-| `parallax_depth` | depth of the height map's darkest point below the surface, in UV units (planned, stage 4) | 0 to 0.25 | the engine's own depth |
+| `parallax_depth` | depth of the height map's darkest point below the surface, in UV units (stage 4); 0 draws no height map | 0 to 0.08 | 0.03 (`fnv_pbr::DEFAULT_PARALLAX_DEPTH`) |
 | `roughness_scale` | multiplies the ORM's roughness; the product is held to 0..1 when drawn, and to 0.089..1 for the highlight's shape (below) | 0 to 2 | 1.0 |
 | `reflectance` | the highlight strength of non-metals; F0 = 0.16 x reflectance² (0 to 16 %) | 0 to 1 | 0.5 (F0 4 %) |
 
@@ -165,9 +172,20 @@ roughness_scale = 0.9
 reflectance = 0.35
 ```
 
+[design: banding and wall streaks in the main session's pictures from 0.06 on a 512 map]
+`parallax_depth` stops at **0.08** (it went to 0.25 before 2026-11-20). On a tiled floor
+with missing patches (set `offrmfloor01`, a 512 BC4 `_p` derived from the game's normal
+map), 0.015 looked convincing; at 0.06 the occlusion method drew stair-step bands on every
+patch edge, and the relief method, which removes the bands, drew vertical streaks on the
+patch walls instead: texels stretched over a near-vertical wall of a map with nearly two
+levels, a property of the map that no march fixes [observed: those pictures, 2026-11-20].
+A deeper relief wants a map with gentle slopes and more texels, which the bound leaves to
+a later look rather than allowing by default.
+
 [design] Reading is lenient (`fnv_pbr::parse_scalars`): an integer counts as a number; an
 unknown key, a table, or a value that is not a finite number is ignored with a warning; a
-number outside its range is clamped into it with a warning; a file that is not UTF-8 or
+number outside its range is clamped into it with a warning (judged as the 32-bit float the
+value is kept in, so an end written as it is, `0.08`, is inside); a file that is not UTF-8 or
 not TOML is ignored whole with a warning. A UTF-8 byte order mark is accepted.
 `normal_strength` is not a key: bake the strength into the normal map.
 
@@ -268,19 +286,211 @@ beyond the field test below):
   thresholds, and `rorschach-cards`.]
 - Calibration aids, off by default, read at the start [documented: `authored.rs` `PbrView`,
   `metallic_debug`; `engine/nvf-assets/src/nif_material.wesl`]: `NVF_PBR_VIEW` =
-  `roughness`, `metallic`, `occlusion`, `normal` or `authored` draws that input in place of
-  the lit colour of forward-drawn lit NIF surfaces. Refracting shapes return before the
+  `roughness`, `metallic`, `occlusion`, `normal`, `authored` or (stage 4) `height`
+  draws that input in place of the lit colour of forward-drawn lit NIF surfaces. Refracting shapes return before the
   view; additive draws add the view's colour by their alpha and multiplied draws stay
   neutral, so effects fade out of it; depth and coverage are unchanged.
   `NVF_PBR_METALLIC=1` builds authored materials metallic by the ORM's blue channel and keeps
   a metal's ambient highlight, a preview of a later metallic stage [design].
 - On the app's exit the log has one line `authored materials summary: ...` (or
   `authored materials summary: off (setting)`): counts of build events, not of visible
-  shapes: material builds that applied a set, the distinct set stems seen at those builds,
+  shapes: material builds that applied an ORM set, the distinct ORM set stems seen at those
+  builds (with stage 4 also the builds that applied a height-only set's height map),
   builds that skipped a set for one of the recorded reasons (other misses are not counted),
   `_orm` load failures (at a build or a swap alike), role copies made legacy, and calls of
   `retexture` on a shape with a saved legacy look [documented: `authored.rs` `Stats`, `report`].
   Rebuilt or discarded materials count again.
+
+## Height maps (stage 4)
+
+What the branch's source does with a set's `_p`, as written; not compared with any running
+game beyond the field test below [documented: `engine/nvf-assets/src/authored.rs`
+`find`, `height_gate`, `apply_height`, `take_off`, `retexture`, `recheck_height`;
+`engine/nvf-assets/src/nif_spawn.rs` `shape_material_inner`].
+
+- [design] **Which sets.** An authored set's `_p` and a **height-only** set (`_p` without
+  `_orm`) both give a height map. A height-only set changes nothing else on the material:
+  the game's roughness, highlight, normal map and specular mask stay, the authored mark stays
+  clear (so a script's glossiness and specular colour still apply), and its `_n` and its other
+  scalars are ignored. The first-person rule of "Layout" holds: a `1stperson` texture's own
+  height-only set wins, and the plain texture's set is not used behind it.
+- [design] **Which shapes.** Those that may take a set at all (above), and of them only
+  shapes that are **opaque** (no alpha test, no blend, no blended cut-out, no hair; an
+  alpha test is allowed under the development switch `NVF_PBR_PARALLAX_MASK`, below),
+  **single-sided**, **not decals**, with texture coordinates and **tangents on the drawn
+  mesh**. Tangents are made for a shape whose first need for them is its `_p`; a copy of a
+  drawn mesh (an actor part's kept mesh) and a swap onto a drawn mesh use the tangents it has
+  (recorded in the legacy look), and draw no height map without them. Copies that stop
+  qualifying drop it: an effect shader's holes (which make an opaque copy `Mask(0)`), the
+  fades' blended copies (nvforever `effect_shaders.rs`, nvf-play `fade.rs`) and a cloak's
+  refracting copy (`nif_spawn::refraction_material`, used by nvforever `stealth_field.rs`
+  for the player and actors alike); unlit copies (Pip-Boy, terminal glass and glare) and
+  shapes made the game's own for a role found later (skin, face, hair model) drop it with
+  the rest of the set. The engine tracks the overlay on the material
+  (`NifSurface::height_overlay`) and touches the parallax fields only where it put one on. A mount with only height-only sets still runs
+  the actors' role exclusions (`mount_has_sets` counts every active set).
+- [design] **How it is drawn.** As Bevy's parallax: `StandardMaterial::depth_map` = the
+  `_p`, `parallax_depth_scale` = `parallax_depth` (default 0.03), the **relief method with 4
+  refinement steps** (`PARALLAX_METHOD`: a march through at most **8 layers**,
+  `MAX_PARALLAX_LAYERS`, Bevy's default being 16, then a binary search between the last two
+  layers, halving the step 4 times, one read each); the development switches below change
+  the method and the layers for a run. Why relief: in the main session's pictures of
+  2026-11-20 (a tiled floor with missing patches, set `offrmfloor01`, a 512 BC4 `_p`), the
+  occlusion method at 8 layers showed the first layering on long patch edges at a low angle
+  from depth 0.03 and stair-step bands on every patch edge at 0.06; 16 and 32 layers made
+  the bands finer without removing them, while `relief:4` at 8 layers removed them at 0.03
+  [observed: those pictures; the frame cost of either is not measured cleanly]. Relief is a
+  pipeline variant (`RELIEF_MAPPING`, Bevy's `StandardMaterialKey`), so height-mapped
+  materials get pipelines of their own. A depth of 0 means no height map: the `_p` is not
+  even loaded. The
+  base colour, alpha, glow, ORM and the forward-sampled normal are read at the shifted
+  coordinates; the geometry, its depth and its shadow do not move.
+- [design] **Height, not depth.** The file stores height (white high); Bevy's march reads
+  depth (white deepest). The engine inverts once, in the vendored
+  `engine/vendor/bevy_pbr/src/render/parallax_mapping.wesl` `sample_depth_map` (both its
+  bindless and its ordinary sample, `1 - r`; engine/vendor/README.md). No other material in
+  the engine sets a depth map.
+- [design] **Signed `_p` is refused** (one warning per file; an authored set keeps its other
+  maps), as `fnvtool pbr check` refuses it ("Compression and sizes"); so is a `_p` whose file
+  is in any format other than those the validator allows for it (BC4 unsigned, DXT1/BC1,
+  DXT5/BC3), judged by the file's own format as decoded, so a DXT3 file is refused whether it
+  went up as BC2 blocks or, off the 4-texel grid, decoded to `Rgba8Unorm`; and a `_p` that went
+  up in a format a height map does not take, or whose format the engine could not tell
+  [documented: `authored.rs` `height_source_ok`, `height_format_ok`]. The warning names the
+  file's own format (`BC5_SNORM`, `DXT3`). A `_p` whose top level has a side that is not a
+  multiple of 4 is refused as well, with one warning naming the file and its size, as the
+  validator refuses it (`not-block-aligned`), although the engine could decode an allowed
+  format off the grid on the CPU [documented: `authored.rs` `height_size_refusal`]. The size
+  is the file's own, noted when it is decoded (`note_source`); a `_p` whose source the
+  engine did not note is judged by its uploaded format only.
+- [design] **Development switches** (aids for choosing the method, the layers and the
+  alpha-tested rule by picture and by frame time without a rebuild; off by default, read once
+  at the start, a line in the log when one is set; text that is garbage or out of range is
+  refused with one warning and the default is kept) [documented: `authored.rs`
+  `parallax_layers`, `parallax_method`, `parallax_mask`, `parse_parallax_*`]:
+  - `NVF_PBR_PARALLAX_LAYERS=<n>`, a whole number from 2 to 64: the most layers the march
+    takes, in place of 8. At a head-on view the march still takes one layer (Bevy mixes the
+    count from the most down to 1 by the view's steepness).
+  - `NVF_PBR_PARALLAX_METHOD=occlusion | relief:<steps>`, steps from 1 to 8: Bevy's
+    `ParallaxMappingMethod`. `relief:<steps>` (the default is `relief:4`) runs a binary
+    search between the last two layers after the march, halving the step `steps` times, one
+    read each; `occlusion` instead reads once more and interpolates between them, the
+    cheaper method kept for comparing pictures and frame times (vendored
+    `parallax_mapping.wesl` `parallaxed_uv`).
+  - `NVF_PBR_PARALLAX_MASK=1`: alpha-tested shapes (`AlphaMode::Mask`) may take a height
+    map as opaque ones do (they gain tangents for it the same way); blended shapes stay
+    refused. Every depth-only pass reads the cut-out's alpha at the **unshifted**
+    coordinates: the NIF depth and motion prepass (`nif_prepass.wesl` `test_fragment`), Bevy's
+    own prepass fragment (`prepass_sample_color_and_alpha_discard`) and the shadow passes;
+    none of them can march, since a depth-only prepass carries no normal or tangent
+    (vendored `prepass/io.wesl`: `world_normal`, `world_tangent` only with a normal or deferred
+    prepass). The main pass, which samples the base colour at the shifted coordinates, would
+    test the shifted texel's alpha and cut a different outline; with a depth prepass it tests
+    depth for equality (`nif_material.rs` `depth_equal`), so a fragment the prepass kept and
+    the main pass cut would leave a hole showing the clear colour, and one the prepass cut is
+    never drawn. Under the switch the main pass therefore reads the alpha again at the
+    unshifted coordinates (material × vertex × texel, as the prepass does) and tests that
+    (nif_material.wesl, shader def `NVF_PBR_PARALLAX_MASK`): every pass cuts the same
+    outline, and the colour, normal and ORM inside it are the shifted texels'. The outline
+    does not move with the relief: near the cut, the shifted colour may come from texels the
+    cut leaves transparent (drawn opaque). A multisampled view whose prepass writes the soft
+    edge (`PREPASS_COVERAGE`) does no alpha test in the main pass at all and agrees already.
+- Checking it: `NVF_PBR_VIEW=height` draws the height as stored (white high, the original
+  height, not the inverted depth), read at the unshifted coordinates, and dark blue on shapes
+  without a depth map. The exit summary line adds the builds that applied a height-only
+  set's height map, the builds that applied any height map, the swaps to a loaded height-only
+  set (a match with a depth of 0 or a `_p` that did not load counts as a swap to the legacy
+  look) and of them those that put its map on, the height maps not put on at a build or swap
+  by reason (alpha-tested and blended counted apart), `_p` files that did not load or were refused (signed, in no height map's
+  format or a side not a multiple of 4), and later copies that dropped one.
+  The smoke scenario `pbr-authored-field-height` (the same field, `NVF_PLAY_TEST_PBR_FIELD=1`)
+  draws two more panels tilted 50 degrees about Y: `height` (a height-only set whose `_p` is
+  high above and low below, depth 0.08, the scalar range's end; 0.1 before the range was
+  cut) and its control without one; it measures a narrow
+  stripe's centre in both bands of both panels and wants the low band's stripe moved towards
+  decreasing mesh U by the prediction from the shader's geometry (−depth × sin tilt × 128 =
+  −7.84 pixels; −9.81 at 0.1) within 2.5 pixels (the relief search stops about 1 % short of
+  the flat band's depth, about 0.1 pixel), and the high band's and the control's within 1.5 of their
+  place; with the setting off (`pbr-authored-field-off`) neither panel has a depth map and
+  neither stripe moves more than 1.5. The height panels report on their own lines
+  (`pbr field height: ...`: the shifts, the brightest value and the ground level per
+  readback, a verdict per readback, a final PASS), so they never fail the five panels'
+  verdict. [observed, field only, on `b4660af00`, the main session's first GPU run with the
+  setting on: high +0.00 px, low −9.76 px against −9.81; stripe centres 64.00/54.24 (height)
+  and 64.00/64.00 (control); the sRGB 230 stripe then read 255 and failed the clip check, so
+  the stripe and ground were darkened to sRGB 180 on 90; that run used depth 0.1 and
+  occlusion mapping.] [observed, two readbacks at `ca0e10c9e` with depth 0.08 and four
+  relief steps after eight layers: high +0.13 px, low −7.86 px against −7.84; the control
+  stayed centred at 64.00/64.00 and both readbacks passed.] The thresholds are an
+  engineering policy set from the first readback with margins.
+
+### Height maps: guidance for pack authors (stage 4)
+
+[design, from the main session's pictures of 2026-11-20 named below]
+
+- **Height maps are for tiling surfaces**: floors, walls, paving, where the texture repeats
+  across the shape and every shifted read lands on more of the same texture.
+- **An atlas sheet** (one texture holding several pieces, each mesh using its own island)
+  takes a height map only with **padding between the islands**, and the filler around an
+  island must **never drop to height 0**: extend each island's edge height outwards into
+  the filler. The shift grows at grazing view angles and can exceed `parallax_depth`. It
+  can cross an island's border and read the filler. A filler at 0 draws as a deep
+  trench at the piece's edge. [observed: with `NVF_PBR_PARALLAX_MASK=1`, a street's
+  alpha-tested sidewalk pieces drawn from an atlas sheet showed thin dark lines across a
+  slab and broken pixels at a piece's end; the relief itself looked right. That is the
+  sheet's missing padding, not the alpha test.]
+- **Depth**: start low. On a 512 floor map with nearly two levels (patches missing from
+  tiles), 0.015 looked convincing and 0.03 (the default) showed the method's limits only at
+  low angles; 0.06 drew stair-step bands (occlusion) or vertical streaks on the patch walls
+  (relief) [observed: set `offrmfloor01`, 2026-11-20], hence the bound of 0.08. Gentle
+  slopes take a deeper relief than walls between two flat levels; a map with near-vertical
+  walls stretches a few texels over the whole wall at any depth.
+- **Alpha-tested shapes** take no height map by default (`NVF_PBR_PARALLAX_MASK=1` is a
+  development switch); blended, double-sided and decal shapes never do. A `_p` for a
+  texture used only by such shapes is loaded for nothing.
+
+### Known limits (stage 4)
+
+[documented: the files named; none measured]
+
+- **The normal prepass.** Bevy's normal prepass samples the normal map at the unshifted
+  coordinates, and a single-sampled view with `NORMAL_PREPASS` may reuse that normal in the
+  main pass (`LOAD_PREPASS_NORMALS`, vendored `pbr_fragment.wesl`, `pbr_prepass_functions.wesl`).
+  NVForever's views never ask for a normal or deferred prepass: the cameras carry only
+  `DepthPrepass` and, with an upscaler, `MotionVectorPrepass` (`engine/nvforever/src/main.rs`,
+  `graphics.rs`, `scope_view.rs`, `fsr.rs`, `upscaler.rs`), so a NIF surface's main pass
+  always samples its normal itself, at the shifted coordinates. A view that ever adds
+  `NormalPrepass` (Bevy's SSAO requires it) would light a height-mapped surface with the
+  unshifted normal; nothing guards against it.
+- **Top mip level on every read.** The march reads the depth map with
+  `textureSampleLevel(..., 0.0)` on every step (Bevy's choice, for the DX12 compiler), so
+  distant height-mapped surfaces read the full-size map: a cost and a source of shimmer that
+  mip filtering does not remove. The frame-time cost of up to 8 layers on close, grazing,
+  screen-filling surfaces is not measured.
+- **Double-sided shapes** are left out: the march takes the incoming tangent frame without
+  turning it for back faces and divides by `|Vt.z|`.
+- **Cut-outs and blends** are left out: the depth prepass, the shadow passes and the holes
+  test read alpha at the unshifted coordinates, so a cut-out's edge would not follow the
+  shifted texels. A fading or holed copy therefore loses its relief while it fades. Cut-outs
+  may take one under `NVF_PBR_PARALLAX_MASK` (above), their edge kept unshifted in every pass;
+  the switch stays off by default [design: under it a street's 79 sidewalk builds took their
+  height map and looked right but for an atlas sheet's filler (guidance above), and the
+  outline that does not move with the relief has not been judged on more shapes].
+- **Atlas sheets without padding** read their filler at an island's border (guidance
+  above); nothing in the engine detects or guards against it.
+- The occlusion debug view rereads the ORM at the unshifted coordinates; the FaceGen tint,
+  the Pip-Boy screen and the holes test also read at unshifted coordinates (none of them
+  takes a height map today).
+- **Unmeasured:** the cost on a close first-person weapon and on grazing, screen-filling
+  surfaces, and the relief search's cost over the occlusion method's. One reading on a
+  noisy machine (a floor filling a 1080p frame, occlusion at 8 layers, a fast desktop GPU)
+  put the march between about +0.2 ms and +1.5 ms on a 2.2 ms frame [observed: the main
+  session, 2026-11-20; not a clean measurement]. The picture comparison of 8, 16 and 32
+  layers and of `relief:4` is in "How it is drawn" above.
+- **What the field proves:** the signed displacement of two flat height bands (the low band
+  moves by the predicted amount the predicted way, the high band stays). It does not test
+  the march on varying heights (slopes, steps inside the band, self-occlusion), where an
+  implementation that only got the two flat ends right would still pass.
 
 ### Known limits (stage 3)
 

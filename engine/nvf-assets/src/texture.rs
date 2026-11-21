@@ -53,12 +53,15 @@ struct DecodedTexture {
     lacks_alpha: bool,
     /// The file's DX10 header names an `_SRGB` format (a hint only; the role decides).
     srgb_code: bool,
+    /// The file's own format, before any decode on the CPU (`None`: not decoded from a DDS
+    /// file here). An authored `_p` is judged by it (`crate::authored::note_source`).
+    source: Option<Format>,
 }
 
 impl From<Image> for DecodedTexture {
     fn from(image: Image) -> Self {
         let lacks_alpha = crate::nif_spawn::format_lacks_alpha(image.texture_descriptor.format);
-        Self { image, lacks_alpha, srgb_code: false }
+        Self { image, lacks_alpha, srgb_code: false, source: None }
     }
 }
 
@@ -174,6 +177,8 @@ fn worker_texture_key(
         let mut decoded = decode(&bytes, cube, usage, bc_supported)?;
         decoded.image.texture_descriptor.label = Some(folder_label(path));
         crate::authored::srgb_warning(&workers.authored, path, usage, decoded.srgb_code);
+        let size = decoded.image.texture_descriptor.size;
+        crate::authored::note_source(&workers.authored, path, decoded.source, (size.width, size.height));
         Ok(decoded)
     })
 }
@@ -422,7 +427,7 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
         || matches!(dds.format, Format::Bc5U | Format::Bc5S | Format::Bc4U | Format::Bc4S)
         || (dds.format == Format::Dxt1 && dds.header.dx10.is_some())
         || crate::nif_spawn::format_lacks_alpha(format);
-    Ok(DecodedTexture { image: img, lacks_alpha, srgb_code: dds.srgb_hint() == Some(true) })
+    Ok(DecodedTexture { image: img, lacks_alpha, srgb_code: dds.srgb_hint() == Some(true), source: Some(dds.format) })
 }
 
 fn normal_byte(value: f32) -> u8 {
@@ -829,9 +834,11 @@ impl TextureCache {
         };
         drop(decode_span);
         let handle = match result {
-            Ok(DecodedTexture { mut image, lacks_alpha, srgb_code }) => {
+            Ok(DecodedTexture { mut image, lacks_alpha, srgb_code, source }) => {
                 image.texture_descriptor.label = Some(folder_label(file));
                 crate::authored::srgb_warning(&self.workers.authored, file, usage, srgb_code);
+                let size = image.texture_descriptor.size;
+                crate::authored::note_source(&self.workers.authored, file, source, (size.width, size.height));
                 if clamp {
                     if let ImageSampler::Descriptor(d) = &mut image.sampler {
                         d.address_mode_u = ImageAddressMode::ClampToEdge;

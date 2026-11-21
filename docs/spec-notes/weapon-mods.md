@@ -333,6 +333,15 @@ for each effect, and how it fits a long description.
 - Scripts' view: GetWeaponHasMod-style functions are NVSE/JIP (not vanilla) and not
   built. GetMenuTargetRef 1061 answers the weapon being modded and GetSelectedItemRef
   the highlighted mod (or the weapon), as inventory references (ext-menus.md).
+  `GetCalculatedWeaponDamage` and `GetCalculatedWeaponDPS` (`crate::nvse_gaps`) resolve
+  inventory references (using the owning actor's stats when held by an actor, else the
+  player's) and world-placed weapon references (using the player's stats) in addition to
+  actor/base-form calls [documented: GECK wiki GetCalculatedWeaponDamage], and apply
+  attached `Increase Weapon Damage` (1) / `Increase Rate of Fire` (8) mods, condition
+  scaling (`SetConditionDamagePenalty`, `Tweaks::no_condition_damage_penalty`,
+  `Tweaks::no_condition_damage_buffer`), and `Tweaks::crit_damage_scale` [hypothesis:
+  exact ammo/perk interactions in `GetCalculatedWeaponDamage` remain unbuilt; observer
+  check].
 
 ## 7. The mod shoot sounds (ESM gap audit row 12)
 

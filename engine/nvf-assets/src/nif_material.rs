@@ -392,6 +392,13 @@ pub fn depth_equal(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipe
 /// views that have the occlusion's bindings: engine/vendor/README.md).
 pub const AMBIENT_OCCLUSION_DEF: &str = "NVF_AMBIENT_OCCLUSION";
 
+/// The main pass's shader def of the alpha-tested parallax switch (crate::authored
+/// `parallax_mask`, a development aid, off by default): nif_material.wesl then tests the cut of
+/// an alpha-tested shape with a depth map at the unshifted coordinates, where the depth-only
+/// passes (nif_prepass.wesl, Bevy's prepass, the shadow passes) test it, instead of at the
+/// shifted ones the base colour is read at.
+pub const PARALLAX_MASK_DEF: &str = "NVF_PBR_PARALLAX_MASK";
+
 /// A pipeline that must not take the ambient occlusion although bevy_pbr's rule gives it the
 /// def: its surface is not the one the depth prepass holds (water, a refracting shape), so
 /// the texels under it are another surface's (the bed's, the wall's behind), or a material
@@ -549,6 +556,11 @@ pub struct NifSurface {
     /// kept for shapes that may take one, so a change of diffuse can apply the new one's set
     /// or go back; `None` for every other material. CPU only.
     pub legacy: Option<crate::authored::LegacyLook>,
+    /// An authored height map (#2981 stage 4) is on the material: `crate::authored` put its
+    /// depth map and parallax settings over the legacy look's (`apply_height`), and takes
+    /// them off only while this is set. Tracked explicitly, not by comparing handles, so a
+    /// baseline depth map of the game's own (#2979) would never be mistaken for one. CPU only.
+    pub height_overlay: bool,
     /// Window environment map (`nif_spawn::window_env`; docs/spec-notes/nif.md §6 "Window
     /// glass and environment maps"): x the scale of the reflection (0: none), y 1 when
     /// [`env_mask`](Self::env_mask) is set; z, w unused. The reflection, the cube read in
@@ -671,6 +683,7 @@ impl Default for NifSurface {
             terrain_repeat: 0.0,
             anti_tiling: false,
             legacy: None,
+            height_overlay: false,
             env: Vec4::ZERO,
             env_cube: None,
             env_mask: None,
@@ -788,12 +801,16 @@ impl MaterialExtension for NifSurface {
         // A channel view of the authored materials' inputs (crate::authored::PbrView; off
         // unless NVF_PBR_VIEW is set at the start): the main pass's colour only.
         // The metallic debug switch (crate::authored::metallic_debug; off unless
-        // NVF_PBR_METALLIC=1 at the start) likewise.
+        // NVF_PBR_METALLIC=1 at the start) likewise, and the alpha-tested parallax switch
+        // (crate::authored::parallax_mask; off unless NVF_PBR_PARALLAX_MASK=1): its main pass
+        // tests an alpha-tested height-mapped shape's cut at the unshifted coordinates, as the
+        // depth-only passes do, which need no def for it.
         let metallic_def: &[&str] = if crate::authored::metallic_debug() { &["NVF_PBR_METALLIC"] } else { &[] };
+        let mask_def: &[&str] = if crate::authored::parallax_mask() { &[PARALLAX_MASK_DEF] } else { &[] };
         let view_defs = crate::authored::view().shader_defs();
-        if !(view_defs.is_empty() && metallic_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        if !(view_defs.is_empty() && metallic_def.is_empty() && mask_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(fragment) = descriptor.fragment.as_mut() {
-                fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).map(|d| ShaderDefVal::from(*d)));
+                fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).chain(mask_def).map(|d| ShaderDefVal::from(*d)));
             }
         }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
@@ -1057,6 +1074,9 @@ impl Plugin for NifMaterialPlugin {
         // The authored materials' debug switches are read once, at the start.
         crate::authored::view();
         crate::authored::metallic_debug();
+        crate::authored::parallax_layers();
+        crate::authored::parallax_method();
+        crate::authored::parallax_mask();
         app.add_systems(Last, crate::authored::report);
         crate::bc5_field::install(app);
         crate::pbr_field::install(app);

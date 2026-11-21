@@ -2119,7 +2119,7 @@ impl Ai {
     #[allow(clippy::too_many_arguments)]
     fn follow_speed(&self, game: &Game, actor: FormId, package: FormId, away: f32, keep: f32, lead_away: f32, target_pace: Option<f32>) -> (f32, bool) {
         let behind = (away - keep).max(lead_away - keep);
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || behind > FOLLOW_RUN_BEHIND;
+        let running = game.package_def(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || behind > FOLLOW_RUN_BEHIND;
         let speed = match target_pace {
             Some(v) if !running => keep_step_speed(v, away, keep, self.pace(game, actor, false), self.pace(game, actor, true)),
             _ => self.pace(game, actor, running) * catch_up(behind),
@@ -2169,7 +2169,7 @@ impl Ai {
     /// aside like any other that cannot be reached.
     #[allow(clippy::too_many_arguments)]
     fn approach(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, talk: &Talk, target: Place, first: bool) {
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
+        let running = game.package_def(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, running);
         let own = Ai::walk_pace_of(game, actor, running, speed);
@@ -2467,7 +2467,7 @@ impl Ai {
     fn settle(&mut self, game: &mut Game, actor: FormId) {
         let a = &self.agents[&actor];
         let Some(package) = a.package else { return };
-        let Some(def) = game.data.package_defs.get(&package) else { return };
+        let Some(def) = game.package_def(&package) else { return };
         let at = Place { space: a.walker.space, pos: a.walker.feet };
         // A guard wanders round its location's place; "near current location" and the
         // other places without one, round where it settled [design, #2027].
@@ -2503,8 +2503,7 @@ impl Ai {
     /// is below `fRadiationResistanceAvoidLevel` (50 in FalloutNV.esm) [hypothesis: the
     /// setting's name: who resists that much need not keep away].
     fn avoids_radiation(&self, game: &mut Game, actor: FormId) -> bool {
-        let data = game.data;
-        let Some(def) = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| data.package_defs.get(&p)) else { return false };
+        let Some(def) = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| game.package_def(&p)) else { return false };
         if !crate::social::allows(def, fallout::AVOID_RADIATION) {
             return false;
         }
@@ -2718,7 +2717,7 @@ impl Ai {
 
     /// The package is new: work out its goal and set off.
     fn begin(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId) {
-        let Some(def) = game.data.package_defs.get(&package) else { return };
+        let Some(def) = game.package_def(&package) else { return };
         let goal = goal::resolve(game, nav, actor, def);
         // A Use Weapon package's weapon use, unless a script's comes first.
         if def.ty == PackageType::UseWeapon && game.weapon_use(actor).is_none_or(|w| w.source != Source::Script) {
@@ -2802,7 +2801,7 @@ impl Ai {
     /// records, PrimmDeputyScript; owner's playtest list 7 item 30, he stood beside the
     /// marker]. Farther, it stays where it stands.
     fn begin_in_place(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId) {
-        let Some(def) = game.data.package_defs.get(&package) else { return };
+        let Some(def) = game.package_def(&package) else { return };
         let goal = goal::resolve(game, nav, actor, def);
         let feet = Place { space: self.agents[&actor].walker.space, pos: self.agents[&actor].walker.feet };
         let at = |place: &Goal| match place {
@@ -2910,7 +2909,7 @@ impl Ai {
         // Pretend In Combat: it goes as in a fight, running [our choice; documented: the
         // actor "move[s] from cover point to cover point", Combat Package Flags, which
         // is not built].
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN) || d.has(flags::PRETEND_IN_COMBAT));
+        let running = game.package_def(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN) || d.has(flags::PRETEND_IN_COMBAT));
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, running);
         let own = Ai::walk_pace_of(game, actor, running, speed);

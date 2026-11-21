@@ -219,6 +219,8 @@ fn step(
         if matches!(m.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
             m.base.alpha_mode = AlphaMode::Blend;
         }
+        // #2981: a blended copy draws no authored height map.
+        nvf_assets::authored::recheck_height(&mut m);
         m.base.base_color.set_alpha(base * alpha);
         let h = materials.add(m);
         commands.entity(e).insert((MeshMaterial3d(h.clone()), Fading { original: copy, copy: h, alpha: base, cut }));
