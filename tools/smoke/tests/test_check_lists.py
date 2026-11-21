@@ -3,7 +3,7 @@
 `python tools/smoke run --checks` runs), and the command blocks of CLAUDE.md,
 CONTRIBUTING.md and docs/development.md. This test reads each as a list of commands
 (cargo test, clippy and deny, and the Python suites), written the same way —
-`(cd engine && cargo test --release --locked)` for a command run in engine/ — and checks
+`(cd engine && cargo test --release --locked --no-fail-fast)` for a command run in engine/ — and checks
 that the docs and CI give the same commands in the same order, and the `[[check]]` entries
 the same set."""
 
@@ -76,7 +76,7 @@ class CheckLists(unittest.TestCase):
         self.ci = from_ci((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
 
     def test_ci_has_the_checks(self):
-        self.assertIn("(cd engine && cargo test --release --locked)", self.ci)
+        self.assertIn("(cd engine && cargo test --release --locked --no-fail-fast)", self.ci)
         self.assertIn("cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources", self.ci)
         self.assertEqual(len(self.ci), len(set(self.ci)), self.ci)
 

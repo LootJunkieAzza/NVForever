@@ -121,6 +121,18 @@ pub struct ChargenMenus {
     tiles_draw: bool,
     kit: Option<draw::Kit>,
 }
+impl ChargenMenus {
+    /// The name (or a script's text input) field is open and not yet answered.
+    pub fn name_open(&self) -> bool { matches!(self.open, Some(OpenMenu::Name(_))) && !self.answered }
+    #[cfg(test)]
+    pub(crate) fn open_name_for_test(&mut self) {
+        self.open = Some(OpenMenu::Name(NameMenu { text: String::new(), hover_ok: false, prompt: String::new(),
+            ok: String::new(), script: None, limit: 30 }));
+        self.answered = false;
+    }
+    #[cfg(test)]
+    pub(crate) fn answer_for_test(&mut self) { self.answered = true; }
+}
 
 /// [design] The open trait or tag-skill list, as the tile drawing reads it. The sheet
 /// stays [`ListMenu`]'s: the drawing never makes one of its own, as the sheets' constructors

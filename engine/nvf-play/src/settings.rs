@@ -601,6 +601,22 @@ impl Settings {
     }
 }
 
+type IniMigration = fn(&str) -> String;
+
+/// A versioned row migration changes only the virtual text supplied to the
+/// existing INI parsers. Reading settings never writes the user's file.
+#[derive(Resource, Default)]
+struct IniMigrations(Vec<(&'static str, IniMigration)>);
+
+/// Register one idempotent virtual-text migration before stored rows are parsed.
+/// Re-registering an owner key replaces its hook without duplicating application.
+pub fn add_ini_migration(app: &mut App, key: &'static str, migrate: fn(&str) -> String) {
+    app.init_resource::<IniMigrations>();
+    let mut migrations=app.world_mut().resource_mut::<IniMigrations>();
+    if let Some(old)=migrations.0.iter_mut().find(|(owner,_)|*owner==key) {old.1=migrate;}
+    else {migrations.0.push((key,migrate));}
+}
+
 /// Register a switch of the settings page.
 pub fn add_setting(app: &mut App, s: Setting) {
     app.init_resource::<Settings>();
@@ -1130,7 +1146,7 @@ pub fn apply_stored(world: &mut World) {
     world.insert_resource(StartStates(start));
     world.insert_resource(StartChoices(choices));
     let Some(path) = world.get_resource::<SettingsFile>().and_then(|f| f.0.clone()) else { return };
-    let text = match std::fs::read_to_string(&path) {
+    let mut text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
         Err(e) => {
@@ -1138,6 +1154,9 @@ pub fn apply_stored(world: &mut World) {
             return;
         }
     };
+    if let Some(migrations)=world.get_resource::<IniMigrations>() {
+        for (_,migrate) in &migrations.0 {text=migrate(&text);}
+    }
     // An older row's value as the values of the rows that took over from it (set_older_split).
     let text = world.resource::<Settings>().split_older(&text);
     let list = world.resource::<Settings>().list().to_vec();

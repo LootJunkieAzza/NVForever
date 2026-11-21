@@ -21,6 +21,261 @@ playthrough, is gathered in [outstanding.md](outstanding.md).
   original game can settle in [observer-checks](handoff/observer-checks.md), and every
   guess is still in its spec note.
 
+Experimental Android platform work (#2436): [ARM64 app, read-only game import,
+startup, process restart and icon touch controls with layout editing](design/android.md).
+The first test APK was installed and reached the opening interior. An exterior-arrival
+physics assertion exposed a [query-refresh registration defect](spec-notes/query-refresh-island-lifecycle.md);
+the physics regression checks pass with the integrated Rapier 0.36.1 backend,
+with device confirmation pending. Full
+gameplay, lifecycle and performance acceptance remain open. This is not a qualified
+Android release. [Build and touch-control instructions](android.md).
+
+The Android port shares Mobile settings placement and dependency rules between the
+pause menu and the launcher. The debug and release sources omit the LAN uploader,
+and Android runs do not collect or send player reports. Built APK verification
+and physical-device qualification remain separate.
+
+Historical Android validation R43 was at source `1c1b96bb`, actual checkout `a53b0978`
+with Main `98fb59a9` and the same source tree. Core passed 3,472 tests with five
+ignored; Tools and strict root/engine Clippy passed. Play passed 2,374 and failed
+three; the wrapper passed 1,559 with no failures, each with one ignored. All
+thirteen quantity-meter cases and eleven of fourteen services cases passed,
+including native entry. The earlier service startup panics did not recur.
+Three vendor cases remain: two current targets sought before native publication
+and one adjacent-row rounding oracle. Their narrow fixture timeline and explicit
+rounded/unrounded adjacency-oracle adaptations remain uncompiled and unrun;
+strict child/minimum-size/effect checks remain. Successful ARM/APK packaging does
+not qualify this failed cycle, whose artifact was not downloaded or delivered.
+R10 remains the last delivered TEST build; phone acceptance remains open.
+[Current validation and remaining acceptance](android.md#r43-touch-menu-validation).
+
+Enhanced dialogue now has [separate device and template presenters](design/android-dialogue-accessibility.md#dialogue-appearance-design):
+Retro Console and Wrist Terminal render onto the installed models, Classic uses
+a local blank template, and unavailable surfaces fall back to Normal without
+overwriting the saved theme. Field Notes retains full-world side framing.
+GPU rendering, installed-asset appearance and handset acceptance remain unrun.
+
+Controller switching, independent look/ADS scales, dead zone and hold/toggle choices,
+four original SVG icon families, adaptive Aim/Block/Scope captions and individual HUD
+scales are implemented. Optional [touch practice](design/android-touch-practice.md)
+teaches movement and actions through isolated synthetic input. Rendered device
+acceptance remains pending. The practice correction follows the
+current movement side and distinguishes the analog dead-zone circle from the legacy
+box. Its ARM library/test-code check passed at code checkpoint `81dc1347`;
+that checkpoint's scenario-file verifier passed all 1,517 entries and merge-parent
+integrity without executing game scenarios. R31 later passed the dead-zone and
+Pad backup controls, but practice's full-layout assertion exposed an unsettled
+implicit-tray baseline in its fixture. The normal-provider baseline correction
+retains the original final equality; the exact mirrored practice case passed in
+the later `8bf93fe5` cycle. Phone acceptance remains open.
+The [Mobile entrypoint follow-up](design/android-mobile-entrypoints.md) removes
+persistent settings/help HUD shortcuts and opens the existing layout editor and
+practice through actionable Settings rows. Editor entry/return, Save/Cancel,
+Escape and touch ownership controls are authored. The later `8bf93fe5` execution
+and four remaining wrapper assertions are recorded below; phone acceptance is
+pending.
+
+The next Android increment is **In progress**: direct map pan/pinch, barter,
+repair and weapon-mod touch sheets are integrated over the existing game-rule
+consumers. Canonical launcher/adaptive icon resources are implemented.
+R31 hosted execution passed the former native-map
+failure and all eight root routing cases. The wrapper executed 1,308 passes and
+four failures (three map-parent fixtures plus practice); the map fixture now
+registers its actual DATA consumer's missing `MenuInput` provider. Its logs lack
+panic payloads, so that diagnosis is source-derived. The later `8bf93fe5` cycle passed all three corrected map cases and the practice
+case. Native build success does not qualify the new APK: final packaging and device acceptance remain
+open. The qualified R9 development APK remains the test baseline; these new features
+are not yet claimed in that APK. [Packaging policy](spec-notes/android-packaging.md).
+
+The earlier normal Main `af16a793` integration retains Android numeric admission and image
+allocation guards alongside incoming BC5 normal roles/source alpha and the new
+terrain graphics row. The current combined UI has 68 Android overrides and a fixed
+`KNOWN` fixture with 178 unique literal keys after the `5a941458` sound-cover
+row, retaining the earlier terrain anti-tiling row; additional Main Tweaks and unbound control rows are separate,
+rather than a total live-registry count. The historical
+import retained all 1,524 incoming Main smoke records plus Android's startup-options
+record and both parents' order. Integrated
+compiler/runtime, native/final packaging and physical acceptance remain pending;
+prior R31 results do not qualify this new main import.
+
+The optional touch-view/appearance follow-up is **In progress**: independent
+terminal/companion switches, dialogue themes and opacity, separate dialogue and
+lockpicking hints, live interface/Pip-Boy palettes, optional dismissal/wheel controls
+and VATS tap/hold queueing are composed in source. Required choice/status feedback
+and ordinary hardware routes remain part of the contract. Actual-plugin palette
+and shared input-ownership regressions are authored; actual later execution and
+remaining failures are recorded below. Final packaging and phone acceptance
+remain pending. This work is
+separate from the R31 fixture correction and does not change the qualified R9 APK.
+
+The later Main `ed684e8` integration is **In progress**. It combines Main's
+Stewie-related engine preferences with the optional Android UI, preserving
+source-specific physical/controller/touch ownership, deferred-input cancellation,
+preview/kit repair and existing Open-only eligibility policy. Static source
+comparison retains all 1,536 Main scenario records plus Android startup options;
+it is not game execution. All current integrated compiler/runtime/native/device
+qualification is pending, and the R9 download remains unchanged. This does not
+establish original Stewie plugin execution or universal mod compatibility.
+The lean map fixtures also need Main's new companion-summon message provider;
+that source setup correction retains their existing map oracles. Both core and
+wrapper map controls passed in `8bf93fe5`; this is not an observed explanation
+for the earlier R31 failures whose logs lack panic payloads.
+
+The subsequent normal Main `7e638d4e` integration is **In progress**. It retains
+Main's terrain anti-tiling, actor/projectile providers and changes to loading/doors
+and pipeline diagnostics alongside the corrected Android source. Its scenario
+union retains all 1,552 Main records exactly and in order plus Android's
+startup-options record. Three merge conflicts in the settings guide, layout and
+scenario list are resolved through explicit unions; the incoming `above`
+expectation parser and controls remain.
+These are source changes, with current compiler, scenario-file verification,
+engine tests, shaders, final APK packaging and phone acceptance still pending.
+The separately tested Java loading protocol is unchanged, and its scoped host
+results do not qualify the newly merged engine or establish a phone-crash cure.
+
+The bounded normal Main `df17cc6d` follow-up is **In progress**. Its six incoming
+commits retain resurrection and unlit/additive rendering changes, with Android's
+numeric/image checks and the earlier touch/loading repairs preserved. The sole
+scenario-list conflict keeps all 1,554 Main records unchanged and in order plus
+Android's startup record, for 1,555. Android's record returns to a middle anchor
+so ordinary Main appends no longer compete with it at the end. Settings remain
+177 fixed keys and 68 Android overrides; incoming observer prompts remain exact
+Main. This source composition is uncompiled/unrun and does not establish shader,
+gameplay, save/load, phone recovery or a new qualified APK.
+
+The loading-cover completion correction is **In progress**. The real shared Java
+protocol now checks the current lease's logical hide before committing completion
+and preserves failure recovery or a newer episode after callbacks. Paired SDK 35
+Java compilation succeeded; five positive cases and six assertion failures in the
+baseline became eleven passing cases in the correction, with all old handoff/window
+tests unchanged and passing. These are host protocol checks, not native rendering,
+physical Android dialog, installed-APK or phone-resume/crash acceptance. The
+[loading-cover note](design/android-loading-cover.md) records the exact scope.
+
+The first hosted cycle for optional-UI source `07084cfc` checked merge `e9f38ba6`
+with Main `1790ab94`. It passed 3,212 core tests with five existing ignored, plus
+tools and data guards, but the cycle failed. Engine Rust tests did not execute:
+old repair and terminal fixture literals lacked fields added by Main. Strict
+checking also rejected a redundant VATS field and the merged row observer's
+argument count. The native cross-check exposed a private popup-query call across
+crates, with an unused test import warning. Shader controls, native construction
+and final packaging did not run; no APK artifact was produced. The narrow source
+corrections retain constructor defaults, observer effects and all old oracles;
+fresh corrected compiler/runtime/native checks remain required. R9 is unchanged.
+
+The subsequent `0c8ffbfc` cycle tested checkout `804592fe` with Main `f4dbc82f`:
+five canonical jobs passed and three failed. Core executed 3,219 passes with five
+existing ignored. Native construction, nine shader/layout controls and Java's
+41 handoff, 49 window and eleven loading-reveal cases (169 cumulative checks)
+passed, but strict checking found six lints. Engine code generation separately
+failed on two capturing preview closures passed to a cached-system API; all engine
+Rust tests and the selected 56 legacy menu cases remain unrun. The produced APK
+artifact is unqualified and was not downloaded, installed or served.
+
+The eight-diagnostic source correction is **In progress**: explicit borrow scopes,
+named system parameter groups, assignment spacing and the existing one-shot
+preview execution API retain the real effects, test bodies and assertions.
+The later `ef8a9d49` and `8bf93fe5` cycles cleared strict/code-generation
+boundaries; their actual engine results are recorded below. Final packaging and
+phone acceptance remain pending, without a phone recovery/crash cure claim.
+
+The subsequent normal Main `ac8f1d6d` integration is **In progress**. A real
+model-loader conflict after Main's attachment merge requires retaining both its
+reference attachment producer and Android's numeric admission/publication checks.
+The 37 incoming commits in 59 paths also retain loading timing, gas traps,
+classic VATS click handling and AI/package changes. Static comparison retains all
+1,563 Main scenarios in order plus Android startup options, for 1,564. Settings
+remain 177 fixed keys with 68 Android overrides, and the executed Java protocol
+source is unchanged. This source union needs its own strict/code-generation,
+engine/runtime, native/final packaging and phone checks; Main's separate scoped
+attachment results and failed Android cycles do not qualify it or a new APK.
+
+At the earlier Main `5a941458` checkpoint, integration was **In progress**. Its 21 commits
+in 42 paths require unions for the root workspace, precise owned-image guard and
+shared settings documentation/layout. Main's desktop launcher and sound-cover
+setting coexist with Android's local Rapier patch and Mobile layout: 178 fixed
+keys, 68 Android overrides and 1,564 Main scenarios plus Android startup options
+for 1,565. The source graph inventory changes to 1,154 entries, with root lock
+packages 216 to 470; 791 engine-prefixed inputs remain exact. This is static
+source comparison, not current dependency resolution, locked compilation,
+notices, runtime or device acceptance. Shared Main sound-cover expiry and pending
+ambient-playback admission findings have a coordinated follow-up; neither is a
+measured Android crash cause or an Android-only policy change. R9 remains the
+qualified test baseline while all new build/runtime/packaging/phone gates are open.
+
+The published `ef8a9d49` cycle remains **In progress** after six hosted job
+passes and engine/aggregate failures. Actual checkout `06bb2126` used Main
+`5a941458` and tree `b078db88`, equal to the PR source tree. Strict release
+all-target checking passed; core executed 3,239 passes with five ignored.
+Engine code generation and all three preview regressions passed. Assets passed
+207/one ignored, while the play parent passed 2,192 and failed six VATS touch
+cases/one ignored. The nested palette failure is not an extra parent failure;
+wrapper tests were unrun. Selected menu cases are 44 passes/no failures/twelve
+unrun. Native and Java/shader controls passed, but the artifact is permanently
+unqualified and was not downloaded, installed or served.
+
+At the earlier `ef8a9d49`/Main `95fd3197` checkpoint, the shared VATS fixture
+correction was **In progress**: publish pending capsule poses before projecting
+touches, then assert authored centers and real ray hits. All ten old bodies and
+91 assertions remain, with two preconditions and no production policy change.
+Closure of the six failures was then unproven, including the AP second-tap caveat;
+the later `8bf93fe5` cycle below passed all ten VATS cases. The fixed-Main union
+retained both parents' tests and Main god-mode AP, AI, House, weather and save
+consumers across sixteen commits/34 paths. Its static inventory is 1,568 Main
+scenarios plus Android for 1,569, graph 1,154 and fixed settings 178 with 68
+Android overrides. That prior source was uncompiled at preparation; its actual
+later execution is recorded below. Phone and final packaging acceptance stay open.
+
+The published `8bf93fe5` cycle remains **In progress** for Android qualification
+after six hosted job passes and engine/aggregate failures. Actual checkout
+`5945230d` used Main `38a16610` and tree `e74b9d0a`, different from source
+tree `3a84cc2a`. Core passed 3,279/five ignored and strict checking passed.
+Assets passed 207/one ignored; play passed 2,202/one ignored; wrapper passed
+1,445/failed four/one ignored. All ten VATS tests, all three preview cases,
+all 56 selected menu cases, the three earlier map cases and the practice case passed.
+Owned child counts remain separate. Native/Java/shader controls passed, but
+artifact `14199010528` is permanently unqualified and unused; R9 is unchanged.
+
+The four wrapper corrections are **In progress** and uncompiled/unrun. Two editor
+fixtures use the registered Settings entry and real state schedule instead of
+direct internal construction; old held-input assertions remain before cleanup.
+Pip-Boy fixtures gain the actual pointer consumer and an explicit natural
+terminal-End drain before a new Close gesture. All old 439 assertion macros in
+the three affected files remain, with fourteen added preconditions and no
+production gate change. These source-supported diagnoses are not corrected
+runtime or phone results. Actual tested composition has two changed graph
+inputs/root packages 470 to 477 for desktop launcher updates; future native/legal
+checks must bind actual source. Optional editor/dialogue proposals stay separate.
+
+At the preceding Main `cfa60c0f` checkpoint, integration was **In progress** after an actual
+root Cargo conflict: 26 incoming commits/52 paths retain the shared DLSS-file
+crate, launcher updates and license/notice moves together with Android's local
+Rapier workspace policy. The shared crate's unchanged HTTP dependency is moved
+to its existing Windows target table, matching the real Windows-only HTTP
+consumer; pure cross-platform helpers and all old test bodies remain. This is
+a source-derived platform dependency correction, not an observed compiler failure
+or Android crash cure. The incoming 39 scenario edits change path metadata only;
+all 1,568 Main records/order/top metadata plus Android for 1,569 are retained.
+All four preceding wrapper corrections, 72 tests/453 assertion macros, settings
+178/68, Java and VATS source remain. Root and engine graphs now change for the
+shared crate, so old graph/build results do not qualify this merge. New full
+runtime/strict/native/metadata/notices and final packaging checks are unrun;
+physical resume/input/save/Doc Mitchell/controller acceptance stays open. R9
+remains the qualified test baseline; optional editor/dialogue work is separate.
+
+The required Main `be6db094` integration is **In progress** after two actual
+test/scenario insertion conflicts. Sixteen incoming commits/thirty paths retain
+Main's diagnostic CLI, conditional AddSpell guard, fresh pocket rolls, death
+shove and NPC gun-cycle work. The menu-model union keeps the whole common prefix
+and both complete tails: 45 tests/342 assertion macros. All current Main scenario
+objects/order/top metadata remain, with 1,570 plus the unchanged Android record
+for 1,571. Main's two new records and five changed cases retain their own updated
+controls. Graph 1,155, Windows TLS scope, settings 178/68, Java31 and the four
+wrapper fixes remain exact the preceding merge. This combined source and its
+corrected runtime outcomes are uncompiled/unrun; imported Main results do not
+qualify Android, installed mods, final packaging or physical acceptance. R9 and
+the separate optional UI proposals retain their previous scope.
+
 Qualified private CPU host: [explicitly cleared cloned form-list JIP
 wildcards](spec-notes/jip-cloned-list-wildcard.md). Exact f30 original/candidate
 production and identical six authored fixtures in validation context 54830c0 gave
@@ -370,9 +625,10 @@ intendedFAIL, candidate120PASS, all120once/0ignored. Overallcontrollerfalse is
 retained for an unknown post-Cargo descendant terminated during boundedcleanup;
 this is not whole-run qualification. Engine callback/draw-piece,
 native/originalMCM/rendered acceptance remain open. Independent raw/source review
-confirmed those bounded case results and the false overall flag. The accepted-main
-060d union retains the tested fnv-ui Rust/fixtures; whole-graph qualification stays
-bound to its exact executed source, separately from the c264 comparison.
+confirmed those bounded case results and the false overall flag. Accepted Main
+`f5cb523f` contains the RGB fnv-ui Rust/fixtures alongside the named-source lookup
+index; the earlier `060d69dd` and `a0ebe1c5` checkpoints do not. Whole-graph
+qualification stays bound to its exact executed source, separately from the c264 comparison.
 Contract: [MCM integer RGB consumers](spec-notes/mcm-rgb-integer-consumers.md).
 
 - String game-setting source setter/readback and the existing talk-prompt consumer:

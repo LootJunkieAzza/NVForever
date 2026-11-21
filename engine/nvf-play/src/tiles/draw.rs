@@ -731,6 +731,8 @@ pub struct Target {
     /// The camera's image's pixels to a logical pixel: 1 in the window. Layout does not
     /// read it (the units are logical: the camera's target already scales them).
     pub image_scale: f32,
+    /// Typography only, measured and painted inside the unchanged menu viewport.
+    pub text_scale: f32,
     /// The stacking level of the root.
     pub z: i32,
     /// Where a menu in the window keeps its place at the UI scale (its root a
@@ -743,20 +745,25 @@ pub struct Target {
 impl Target {
     /// In the window, at `scale` logical pixels to an interface unit.
     pub fn window(scale: f32, z: i32) -> Target {
-        Target { camera: None, canvas: None, scale, image_scale: 1.0, z, frame: None }
+        Target { camera: None, canvas: None, scale, image_scale: 1.0, text_scale: 1.0, z, frame: None }
     }
 
     /// An image a camera renders: `canvas` is the part of it the pieces lie on. The image
     /// is as many logical pixels as interface units (`crate::pipboy::TARGET`), so one unit
     /// is one logical pixel whatever `image_scale` is [design: pipboy.rs, its module notes].
     pub fn image(camera: Entity, canvas: Vec2, image_scale: f32, z: i32) -> Target {
-        Target { camera: Some(camera), canvas: Some(canvas), scale: 1.0, image_scale, z, frame: None }
+        Target { camera: Some(camera), canvas: Some(canvas), scale: 1.0, image_scale, text_scale: 1.0, z, frame: None }
     }
 
     /// A menu in the window drawn at the UI scale in a frame kept at `anchor`
     /// ([`Target::frame`]).
     pub fn in_frame(self, anchor: Vec2) -> Target {
         Target { frame: Some(anchor), ..self }
+    }
+
+    /// The same fixed canvas, with glyphs measured and painted at this size.
+    pub(crate) fn text_sized(self, scale: f32) -> Self {
+        Self { text_scale: scale, ..self }
     }
 
     /// Whether a root made for `self` serves `other`: the same camera, area, level and frame.
@@ -786,6 +793,7 @@ struct Slot {
     order: usize,
     wrapper: Option<Entity>,
     outer: Option<Entity>,
+    hud_size: Option<crate::hud_readability::Part>,
 }
 
 /// A piece by its tile and its count among that tile's pieces, as slots are kept.
@@ -934,6 +942,7 @@ struct Ctx<'a> {
     /// Logical pixels to an interface unit.
     scale: f32,
     heading: f32,
+    text_scale: f32,
 }
 
 /// How a turned piece's clip wrapper and outer node (and what they hold) are laid out:
@@ -1041,18 +1050,22 @@ fn spawn_unturned(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pi
             let id = p
                 .spawn((node, Pickable::IGNORE))
                 .with_children(|t| {
+                    let factor=ctx.text_scale;
+                    let _units=interface::units_at(interface::unit_scale()*factor);
+                    let wrap=wrap.map(|w|w/f64::from(factor));
+                    let width=piece.rect.width/f64::from(factor);
                     // A hint on one line names a button: draw its glyph in the name's place
                     // (`set_hint_marked`, so the glyph recolours with its piece).
                     if crate::pad::has_glyph(string) && face.font.lines(string, wrap.map(|w| w as f32)).len() == 1 {
                         let w = crate::pad::hint_width(face, string, ctx.glyphs);
                         let x = match alignment {
                             Alignment::Left => 0.0,
-                            Alignment::Center => (piece.rect.width as f32 - w) / 2.0,
-                            Alignment::Right => piece.rect.width as f32 - w,
+                            Alignment::Center => (width as f32 - w) / 2.0,
+                            Alignment::Right => width as f32 - w,
                         };
                         crate::pad::set_hint_marked(t, face, string, x, text_base(*font), colour, ctx.glyphs, Ink::Drawn);
                     } else {
-                        for (line, x, base) in piece_lines(piece, &face.font) {
+                        for (line, x, base) in text_lines(&face.font, *font, string, wrap, *alignment, width) {
                             set_marked(t, face, &line, x, base, colour, Ink::Drawn);
                         }
                     }
@@ -1085,6 +1098,7 @@ fn origins(ui: &Ui, menu: TileId) -> (usize, usize) {
 #[derive(SystemParam)]
 pub(crate) struct View<'w, 's> {
     menus: Option<Res<'w, TileMenus>>,
+    readability: Option<Res<'w, crate::menu_readability::MenuReadability>>,
     hud: Option<Res<'w, HudView>>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     /// The container, barter or inventory menu, for whether its prompt is open (T15a).
@@ -1242,6 +1256,14 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         blur_now.repair_services |= name == super::repair_services_menu::REPAIR_SERVICES_MENU && menu.is_some();
         blur_now.traits |= name == super::trait_menu::TRAIT_MENU && menu.is_some();
         blur_now.tags |= name == super::tag_menu::TAG_MENU && menu.is_some();
+        let kind=match name {
+            super::barter_menu::BARTER_MENU=>Some(crate::menu_readability::MenuKind::Barter),
+            super::repair_services_menu::REPAIR_SERVICES_MENU=>Some(crate::menu_readability::MenuKind::Repair),
+            super::recipe_menu::RECIPE_MENU=>Some(crate::menu_readability::MenuKind::Workbench),
+            super::menus::QUANTITY_MENU if view.active.as_ref().and_then(|a|a.0.as_ref()).is_some_and(|m|matches!(m.mode,crate::menu::model::Mode::Barter(_)))=>Some(crate::menu_readability::MenuKind::Barter),
+            _=>None,
+        };
+        let text_scale=kind.map_or(1.0,|kind|crate::menu::readability::size(view.readability.as_deref(),kind));
         let pieces = match menu {
             Some((ui, menu)) => {
                 if drawn.told_menu != Some(menu) {
@@ -1250,7 +1272,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                     drawn.told_menu = Some(menu);
                 }
                 // The VATS screen writes `screen()` in interface units itself while it is up.
-                let mut pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch) || name == super::vats_menu::VATS_MENU);
+                let mut pieces = whole_pieces_sized(ui, menu, &mut kit, super::interface_screen(switch) || name == super::vats_menu::VATS_MENU, text_scale);
                 // Marked as `paint` marks them, so a modified picture is not told as a change
                 // every frame (#1833).
                 super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
@@ -1281,7 +1303,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
             paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
             continue;
         }
-        paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
+        paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor).text_sized(text_scale), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
     pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
@@ -1496,8 +1518,13 @@ impl MenuFonts for FontKit<'_> {
 /// brought it in meanwhile) has it loaded here and the pieces worked out again, so no text
 /// is set out unmeasured or spawned without its face ([`unloaded_fonts`]).
 pub fn whole_pieces(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts, t15: bool) -> Vec<Piece> {
+    whole_pieces_sized(ui,menu,fonts,t15,1.0)
+}
+
+pub(crate) fn whole_pieces_sized(ui:&Ui,menu:TileId,fonts:&mut impl MenuFonts,t15:bool,scale:f32)->Vec<Piece> {
     let select = Select::Whole { kept: &[], strip: None };
-    let set_out = |fonts: &dyn MenuFonts| pieces(ui, menu, &|font: f64, text: &str, wrap: Option<f64>| fonts.size(font, text, wrap), select, t15).0;
+    let set_out = |fonts: &dyn MenuFonts| pieces(ui, menu, &|font: f64, text: &str, wrap: Option<f64>|
+        crate::menu::readability::measured(&|font,text,wrap|fonts.size(font,text,wrap),scale,font,text,wrap), select, t15).0;
     let first = set_out(fonts);
     let missing = unloaded_fonts(&first, |f| fonts.loaded(f));
     if missing.is_empty() {
@@ -1574,6 +1601,20 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
     }
     // The HUD keeps the view's own frame: its places are written for the scaled view.
     paint(commands, drawn, pieces, Target::window(scale, TILES_Z), Brightness::File, heading, ui, kit, nodes, glyphs);
+    if let Some(ui) = ui {
+        for ((tile, _), slot) in &mut drawn.slots {
+            let wanted = crate::hud_readability::tile_part(&ui.path_of(*tile));
+            if wanted != slot.hud_size {
+                if let Some(part) = wanted {
+                    commands.entity(slot.node).insert(crate::hud_readability::HudSize(part));
+                } else {
+                    commands.entity(slot.node).remove::<crate::hud_readability::HudSize>()
+                        .insert(UiTransform::IDENTITY);
+                }
+                slot.hud_size = wanted;
+            }
+        }
+    }
 }
 
 /// How bright a menu's pieces are painted ([`paint`]), chosen by the caller.
@@ -1850,7 +1891,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
             };
             made.push((i, picture, baked, strip, model));
         }
-        let ctx = Ctx { fonts: &kit.fonts, glyphs, scale, heading };
+        let ctx = Ctx { fonts: &kit.fonts, glyphs, scale, heading, text_scale:target.text_scale };
         for (i, picture, baked, strip, model) in made {
             let piece = &pieces[i];
             let key = keys[i];
@@ -1866,7 +1907,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                     commands.entity(root).with_children(|r| {
                         let mut nodes = (None, None);
                         let node = r.spawn((full, ZIndex(i as i32), Pickable::IGNORE)).with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip, model)).id();
-                        slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1 });
+                        slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1, hud_size: None });
                     });
                     drawn.slots.extend(slot.map(|s| (key, s)));
                 }
@@ -1910,6 +1951,13 @@ pub(crate) fn scroll(hud: Option<Res<HudView>>, mut images: ResMut<Assets<Image>
 #[cfg(test)]
 #[path = "draw_layout_tests.rs"]
 mod layout_tests;
+
+// Install only the production native painter in the authored CPU typography scene.
+#[cfg(test)]
+pub(crate) fn install_typography_fixture_painter(app: &mut App) {
+    app.init_resource::<TileFonts>().init_resource::<super::menus::TileMenuBlur>()
+        .add_systems(Update, draw.after(super::barter_menu::write_system).after(crate::menu::MenuSystems));
+}
 
 #[cfg(test)]
 mod tests {
@@ -2961,3 +3009,4 @@ mod tests {
     }
 
 }
+

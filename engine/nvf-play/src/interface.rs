@@ -63,6 +63,25 @@ pub const AMBER_RGB: [u8; 3] = [255, 182, 66];
 static HUD_RGB: AtomicU32 = AtomicU32::new(pack(AMBER_RGB));
 static PIPBOY_RGB: AtomicU32 = AtomicU32::new(pack(AMBER_RGB));
 
+#[cfg(test)]
+std::thread_local! {
+    static TEST_COLOURS: std::cell::Cell<Option<([u8; 3], [u8; 3])>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Isolate authored palette changes from other test apps.
+/// Systems that consume the override must run on this thread.
+#[cfg(test)]
+pub(crate) fn colours_at(hud: [u8; 3], pipboy: [u8; 3]) -> impl Drop {
+    struct Restore(Option<([u8; 3], [u8; 3])>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_COLOURS.set(self.0);
+        }
+    }
+    Restore(TEST_COLOURS.replace(Some((hud, pipboy))))
+}
+
 const fn pack([r, g, b]: [u8; 3]) -> u32 {
     (r as u32) << 16 | (g as u32) << 8 | b as u32
 }
@@ -73,19 +92,37 @@ fn unpack(v: u32) -> [u8; 3] {
 
 /// The HUD's and the menus' colour.
 pub fn hud_rgb() -> [u8; 3] {
+    #[cfg(test)]
+    if let Some((hud, _)) = TEST_COLOURS.get() {
+        return hud;
+    }
     unpack(HUD_RGB.load(Ordering::Relaxed))
 }
 
 pub fn set_hud_rgb(rgb: [u8; 3]) {
+    #[cfg(test)]
+    if let Some((_, pipboy)) = TEST_COLOURS.get() {
+        TEST_COLOURS.set(Some((rgb, pipboy)));
+        return;
+    }
     HUD_RGB.store(pack(rgb), Ordering::Relaxed);
 }
 
 /// The Pip-Boy screens' colour.
 pub fn pipboy_rgb() -> [u8; 3] {
+    #[cfg(test)]
+    if let Some((_, pipboy)) = TEST_COLOURS.get() {
+        return pipboy;
+    }
     unpack(PIPBOY_RGB.load(Ordering::Relaxed))
 }
 
 pub fn set_pipboy_rgb(rgb: [u8; 3]) {
+    #[cfg(test)]
+    if let Some((hud, _)) = TEST_COLOURS.get() {
+        TEST_COLOURS.set(Some((hud, rgb)));
+        return;
+    }
     PIPBOY_RGB.store(pack(rgb), Ordering::Relaxed);
 }
 
@@ -106,8 +143,9 @@ pub fn pipboy_amber(brightness: f32) -> Color {
     tint(pipboy_rgb(), brightness)
 }
 
-/// The UI scale the settings page shows and `NVForever.ini` keeps (`ui-scale`), as a
-/// factor (1 the original's size). It takes effect at the next start ([`ui_scale`]).
+/// The HUD scale the settings page shows and `NVForever.ini` keeps (`hud-scale-v2`),
+/// as a factor (1 the original's size). Legacy `ui-scale` is migrated separately.
+/// It takes effect at the next start ([`ui_scale`]).
 /// Stored as the bits of an `f32`.
 static UI_SCALE_SETTING: AtomicU32 = AtomicU32::new(0x3f80_0000);
 /// The UI scale this run draws with, fixed once the INI is read ([`fix_ui_scale`]).
@@ -169,6 +207,41 @@ fn take_ui_scale(text: &str) -> bool {
 pub fn ui_scale_part(s: f32) -> f32 {
     let (lo, hi) = UI_SCALE_RANGE;
     (((fit_ui_scale(s) - lo) / (hi - lo)) * 1000.0).round() / 1000.0
+}
+
+/// Expanded HUD slider has its own key so earlier 50..150% saved parts keep their size.
+pub const HUD_SCALE_KEY: &str = "hud-scale-v2";
+const HUD_SCALE_CHOICES: usize = 46;
+
+fn fit_hud_scale(scale: f32) -> f32 {
+    if !scale.is_finite() { return 1.0; }
+    (scale.clamp(0.25, 2.5) * 100.0).round() / 100.0
+}
+fn hud_scale_part(scale: f32) -> f32 {
+    (((fit_hud_scale(scale) - 0.25) / 2.25) * 1000.0).round() / 1000.0
+}
+fn hud_scale_of_part(part: f32) -> f32 {
+    if !part.is_finite() { return 1.0; }
+    fit_hud_scale(0.25 + part.clamp(0.0, 1.0) * 2.25)
+}
+
+pub fn register_hud_scale(app: &mut App, group: &'static str) {
+    use crate::settings::{self, Setting, Slider};
+    let (legacy, choices) = ui_scale_row(group);
+    settings::add_choice_list(app, legacy, choices);
+    // The wider HUD control represents the retained legacy key on the page.
+    settings::set_shown_when(app, "ui-scale", HUD_SCALE_KEY, |_| false);
+    settings::add_setting(app, Setting::slider(HUD_SCALE_KEY, group, "HUD scale",
+        "Size of the in-game HUD, from 25% to 250%. Menus have separate sizes. Takes effect at the next start.",
+        Slider::choice(HUD_SCALE_CHOICES, |_| hud_scale_part(ui_scale_setting()),
+            |_, part| UI_SCALE_SETTING.store(hud_scale_of_part(part).to_bits(), Ordering::Relaxed),
+            |part| format!("{:.0}%", hud_scale_of_part(part) * 100.0))));
+    settings::set_older_key(app, HUD_SCALE_KEY, "ui-scale");
+    settings::set_older_split(app, "ui-scale", crate::menu_scale::legacy_menu);
+}
+
+pub(crate) fn legacy_hud_scale(value: f32) -> String {
+    format!("{:.3}", hud_scale_part(ui_scale_of_part(value)))
 }
 
 /// The UI scale a slider's part stands for ([`ui_scale_part`]'s inverse).
@@ -1212,3 +1285,7 @@ pub(crate) mod tests {
         assert_eq!(x_height(&face), line_base(&face));
     }
 }
+
+#[cfg(test)]
+#[path = "interface/hud_scale_extended_tests.rs"]
+mod hud_scale_extended_tests;

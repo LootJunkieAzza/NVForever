@@ -2,7 +2,7 @@
 # compile Bevy (docs/adr/0001-bevy-viewer.md, docs/design/layer3.md §2.2).
 [workspace]
 resolver = "2"
-members = ["nvf-assets", "nvf-play", "nvf-viewer", "nvforever", "nvf-shader-tests"]
+members = ["nvf-assets", "nvf-play", "nvf-viewer", "nvforever", "nvf-shader-tests", "nvf-android"]
 exclude = ["vendor/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx-shaders-spv"]
 
 [workspace.package]
@@ -71,6 +71,8 @@ opt-level = 3
 
 # Patched dependencies (engine/vendor/README.md says what was changed and why).
 [patch.crates-io]
+winit = { path = "vendor/winit" }
+rapier3d = { path = "../vendor/rapier3d" }
 bevy_winit = { path = "vendor/bevy_winit" }
 gpu-allocator = { path = "vendor/gpu-allocator" }
 gilrs = { path = "vendor/gilrs" }
@@ -80,3 +82,12 @@ bevy_render = { path = "vendor/bevy_render" }
 bevy_shader = { path = "vendor/bevy_shader" }
 wgpu-hal = { path = "vendor/wgpu-hal" }
 naga = { path = "vendor/naga" }
+
+# Developer APKs use a small, independent profile; release builds stay unchanged.
+[profile.android-dev]
+inherits = "dev"
+debug = 0
+opt-level = 1
+
+[profile.android-dev.package."*"]
+opt-level = 1

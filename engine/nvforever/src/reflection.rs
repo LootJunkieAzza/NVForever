@@ -53,7 +53,11 @@ use bevy::light::SimulationLightSystems;
 use bevy::math::reflection_matrix;
 use bevy::pbr::DistanceFog;
 use bevy::prelude::*;
-use bevy::render::gpu_readback::{Readback, ReadbackComplete};
+use bevy::render::gpu_readback::ReadbackComplete;
+#[cfg(any(not(target_os = "android"), test))]
+use bevy::render::gpu_readback::Readback;
+#[cfg(any(target_os = "android", test))]
+use bevy::render::gpu_readback::ReadbackOnce;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::transform::TransformSystems;
 use bevy::window::{PrimaryWindow, WindowResized};
@@ -169,6 +173,10 @@ pub struct WaterPixels {
     drawn: Option<bool>,
     /// When the readback was asked for (real seconds), once it has been.
     started: Option<f32>,
+    #[cfg(any(target_os = "android", test))]
+    pending: Option<(Entity, bevy::asset::AssetId<bevy::render::storage::ShaderBuffer>)>,
+    #[cfg(any(target_os = "android", test))]
+    counter: Option<bevy::asset::AssetId<bevy::render::storage::ShaderBuffer>>,
 }
 
 /// Seconds without any readback after which the GPU check is taken to be broken and
@@ -195,6 +203,14 @@ impl WaterPixels {
 /// Ask for the water-pixel counter to be read back every frame, once a water material
 /// made it.
 fn read_water_pixels(mut commands: Commands, cache: Res<WaterCache>, mut px: ResMut<WaterPixels>, time: Res<Time<Real>>) {
+    #[cfg(target_os = "android")]
+    {
+        if let Some(counter) = cache.seen_counter() {
+            request_android_water_pixels(&mut commands, counter, &mut px, time.elapsed_secs());
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
     if px.started.is_some() {
         return;
     }
@@ -207,6 +223,35 @@ fn read_water_pixels(mut commands: Commands, cache: Res<WaterCache>, mut px: Res
             }
         },
     );
+    }
+}
+
+#[cfg(any(target_os = "android", test))]
+fn request_android_water_pixels(commands: &mut Commands, counter: &Handle<bevy::render::storage::ShaderBuffer>, px: &mut WaterPixels, now: f32) {
+    if px.counter != Some(counter.id()) {
+        px.counter = Some(counter.id());
+        px.last = None;
+        px.drawn = None;
+        px.started = Some(now);
+    }
+    if px.pending.is_some() { return; }
+    px.started.get_or_insert(now);
+    let entity = commands.spawn((Name::new("Water pixel readback"), ReadbackOnce::buffer(counter.clone())))
+        .observe(complete_android_water_pixels).id();
+    px.pending = Some((entity, counter.id()));
+}
+
+#[cfg(any(target_os = "android", test))]
+fn complete_android_water_pixels(ev: On<ReadbackComplete>, mut commands: Commands, mut px: ResMut<WaterPixels>) {
+    let Some((entity, counter)) = px.pending.filter(|(entity, _)| *entity == ev.entity) else {
+        commands.entity(ev.entity).despawn();
+        return;
+    };
+    if px.counter == Some(counter) && ev.data.len() >= 4 {
+        px.read(u32::from_le_bytes([ev.data[0], ev.data[1], ev.data[2], ev.data[3]]));
+    }
+    px.pending = None;
+    commands.entity(entity).despawn();
 }
 
 /// Placed water objects (models of a placed reference with the water material): where
@@ -598,6 +643,106 @@ mod tests {
         // No readback for READBACK_WAIT seconds: the GPU check is left out.
         assert!(WaterPixels { started: Some(10.0), ..default() }.may_be_drawn(12.5));
         assert!(!WaterPixels::default().may_be_drawn(100.0));
+    }
+
+    #[derive(Resource)]
+    struct CounterFixture(Handle<bevy::render::storage::ShaderBuffer>);
+    #[derive(Resource, Default)]
+    struct CounterClock(f32);
+
+    fn request_fixture(mut commands: Commands, counter: Res<CounterFixture>, mut px: ResMut<WaterPixels>, clock: Res<CounterClock>) {
+        request_android_water_pixels(&mut commands, &counter.0, &mut px, clock.0);
+    }
+
+    fn readback_app() -> App {
+        let mut app = App::new();
+        // Real one-shot removal runs in First; no RenderApp or GPU device is made.
+        app.add_plugins((MinimalPlugins, bevy::render::gpu_readback::GpuReadbackPlugin::default()))
+            .init_resource::<Assets<bevy::render::storage::ShaderBuffer>>()
+            .init_resource::<WaterPixels>().init_resource::<CounterClock>()
+            .add_systems(Update, request_fixture);
+        let counter = app.world_mut().resource_mut::<Assets<bevy::render::storage::ShaderBuffer>>()
+            .add(bevy::render::storage::ShaderBuffer::new(vec![0_u32], default()));
+        app.insert_resource(CounterFixture(counter));
+        app
+    }
+
+    fn request_entities(app: &mut App) -> Vec<Entity> {
+        let world = app.world_mut();
+        let mut query = world.query::<(Entity, &Name)>();
+        query.iter(world).filter(|(_, name)| name.as_str() == "Water pixel readback").map(|(entity, _)| entity).collect()
+    }
+
+    fn complete_readback(app: &mut App, entity: Entity, data: Vec<u8>) {
+        app.world_mut().trigger(ReadbackComplete { entity, data });
+        app.world_mut().flush();
+    }
+
+    #[test]
+    fn android_water_readback_stall_retains_one_request_and_existing_fallback() {
+        let mut app = readback_app();
+        app.update();
+        let first = app.world().resource::<WaterPixels>().pending.unwrap().0;
+        assert_eq!(request_entities(&mut app), vec![first]);
+        assert!(app.world().get::<ReadbackOnce>(first).is_some());
+        for frame in 1..=180 {
+            app.world_mut().resource_mut::<CounterClock>().0 = frame as f32 / 30.0;
+            app.update();
+            assert_eq!(app.world().resource::<WaterPixels>().pending.unwrap().0, first);
+            assert_eq!(request_entities(&mut app), vec![first], "stalled callback cannot allocate more request entities");
+            assert!(app.world().get::<Readback>(first).is_none(), "real plugin removed the one-shot request after its single extraction frame");
+        }
+        assert!(app.world().resource::<WaterPixels>().may_be_drawn(6.0), "existing initial timeout fallback survives without a callback");
+        assert!(app.world().resource::<WaterPixels>().last.is_none());
+    }
+
+    #[test]
+    fn android_water_readback_completion_retires_once_and_preserves_counter_semantics() {
+        let mut app = readback_app();
+        for value in [10_u32, 10, 25, u32::MAX, 3] {
+            app.update();
+            let entity = app.world().resource::<WaterPixels>().pending.unwrap().0;
+            assert_eq!(request_entities(&mut app), vec![entity]);
+            complete_readback(&mut app, entity, value.to_le_bytes().to_vec());
+            assert!(app.world().resource::<WaterPixels>().pending.is_none());
+            assert!(request_entities(&mut app).is_empty(), "completion retires the actual request entity");
+            let px = app.world().resource::<WaterPixels>();
+            assert_eq!(px.last, Some(value));
+            let expected = value != 10;
+            assert_eq!(px.may_be_drawn(0.0), expected);
+        }
+        app.update();
+        assert_eq!(request_entities(&mut app).len(), 1, "one successor is admitted after the previous completion");
+    }
+
+    #[test]
+    fn android_water_readback_late_old_counter_and_short_result_cannot_pollute_new_counter() {
+        let mut app = readback_app();
+        app.update();
+        let old = app.world().resource::<WaterPixels>().pending.unwrap();
+        let replacement = app.world_mut().resource_mut::<Assets<bevy::render::storage::ShaderBuffer>>()
+            .add(bevy::render::storage::ShaderBuffer::new(vec![0_u32], default()));
+        app.insert_resource(CounterFixture(replacement.clone()));
+        app.world_mut().resource_mut::<CounterClock>().0 = 1.0;
+        app.update();
+        assert_eq!(request_entities(&mut app), vec![old.0], "counter replacement must still wait for the existing request");
+        assert_eq!(app.world().resource::<WaterPixels>().counter, Some(replacement.id()));
+        complete_readback(&mut app, old.0, 999_u32.to_le_bytes().to_vec());
+        let px = app.world().resource::<WaterPixels>();
+        assert!(px.pending.is_none());
+        assert!(px.last.is_none(), "late old-counter bytes cannot become the new counter baseline");
+        assert!(px.drawn.is_none());
+        app.update();
+        let fresh = app.world().resource::<WaterPixels>().pending.unwrap();
+        assert_eq!(fresh.1, replacement.id());
+        complete_readback(&mut app, fresh.0, vec![1, 2, 3]);
+        assert!(app.world().resource::<WaterPixels>().last.is_none(), "short payload is not a counter value");
+        app.update();
+        let fresh = app.world().resource::<WaterPixels>().pending.unwrap().0;
+        complete_readback(&mut app, fresh, 7_u32.to_le_bytes().to_vec());
+        assert_eq!(app.world().resource::<WaterPixels>().last, Some(7));
+        assert_eq!(app.world().resource::<WaterPixels>().drawn, None, "first valid new-counter value establishes its own baseline");
+        assert!(request_entities(&mut app).is_empty());
     }
 
     #[test]

@@ -33,12 +33,20 @@ fn of_part(value: f32) -> f32 {
     fit(0.5 + value * 0.5)
 }
 
-/// Legacy ui-scale is a 50..150% slider part, not an already decoded scale.
-fn legacy_menu(value: &str) -> Vec<(&'static str, String)> {
-    let Some(value) = value.parse::<f32>().ok().filter(|v| v.is_finite()) else { return Vec::new() };
-    let value = settings::choice_part(settings::choice_index(value, crate::interface::UI_SCALE_CHOICES), crate::interface::UI_SCALE_CHOICES);
-    let scale = crate::interface::menu_scale_of(crate::interface::ui_scale_of_part(value));
-    vec![(KEY, format!("{:.3}", part(scale)))]
+/// Read the original 50..150% slider part or Main's named 50..100% list value.
+/// Preserve the old HUD size before the independent menu list quantizes its own value.
+pub(crate) fn legacy_menu(value: &str) -> Vec<(&'static str, String)> {
+    let hud = if let Some(value) = value.parse::<f32>().ok().filter(|v| v.is_finite()) {
+        let value = settings::choice_part(settings::choice_index(value, crate::interface::UI_SCALE_CHOICES), crate::interface::UI_SCALE_CHOICES);
+        crate::interface::ui_scale_of_part(value)
+    } else {
+        let Some(scale) = crate::interface::UI_SCALE_LIST.iter().copied()
+            .find(|scale| format!("{:.0}%", scale * 100.0) == value) else { return Vec::new() };
+        scale
+    };
+    let scale = crate::interface::menu_scale_of(hud);
+    vec![(KEY, format!("{:.3}", part(scale))),
+        (crate::interface::HUD_SCALE_KEY, crate::interface::legacy_hud_scale(crate::interface::ui_scale_part(hud)))]
 }
 
 pub fn register(app: &mut App, group: &'static str) {
@@ -57,7 +65,7 @@ pub fn register(app: &mut App, group: &'static str) {
             ask_keep: false,
         },
     );
-    // Synthesize only the missing menu value before ordinary settings loading.
+    // Split missing independent menu/HUD values before ordinary settings loading.
     // store() writes both registered rows on any edit, freezing this initial value
     // even when the player changes only the HUD. An explicit menu key always wins.
     settings::set_older_key(app, KEY, "ui-scale");

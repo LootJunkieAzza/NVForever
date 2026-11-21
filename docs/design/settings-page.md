@@ -6,6 +6,11 @@ setting (`engine/nvf-play/src/settings.rs`) and the controls of
 from a table that only says where each row is drawn. This note is the page's model; the
 code's module notes say the same at their own level.
 
+On a normal Android launcher start, borderless and one MSAA sample are platform
+defaults, not command-line overrides of settings rows. The defaults carry across
+in-app restarts. Explicit row switches still prevent exporting `settings-menu.json`,
+as does a reduced registry when a full export from the same build already exists.
+
 ## 0. Adding or changing a row: the rules (the menu overhaul, 2026-11-15)
 
 The owner reorganised the page on 2026-11-15, tab by tab (the menu overhaul). Every row
@@ -15,8 +20,8 @@ one is broken. Read §1–§4 for how the page works.
 1. **Place the row** in `crates/nvf-settings-layout/src/lib.rs` `SECTIONS` (the table the
    pause menu and the launcher share, re-exported as `nvf_play::settings_layout`; the
    launcher's Settings page follows it and the game's `settings-menu.json`,
-   docs/design/launcher.md), and list it in `docs/settings-reference.md` under the same tab
-   and category (a test fails while it is missing or elsewhere): its tab, its
+   docs/design/launcher.md). List it in `docs/settings-reference.md` or the Android
+   supplement under the same tab and category (a test fails while it is missing or elsewhere): its tab, its
    category (heading) and its position. A row the table does not name falls to its group's
    tab with no heading (and a Tweaks row to the group Other); the layout tests list every
    row there is (`KNOWN`), so a new row fails them until it is placed.
@@ -190,6 +195,50 @@ the Tweaks tab filled (88fbce1c4) and still catches a row another tab's table fo
 throughout today. The later change gives Tweaks rows a placement `Tweaks › <group> ›
 <heading>` in `SECTIONS` and draws the groups in place of the rail; neither the
 registrations nor `resolve_layout`'s interface change for it.
+
+### Android mobile organization
+
+[design] Android uses the same dynamic settings page, adding **Mobile** after Controls.
+Desktop keeps its eight tabs and existing placements. This changes presentation only:
+the settings retain their registration order, keys, callbacks, saved values and defaults.
+Missing optional rows and empty headings stay omitted. Search, Changed,
+keyboard/controller navigation and row identity use the existing page implementation.
+
+| Mobile heading | Existing controls |
+| --- | --- |
+| Touch layout and guide | Safe practice, icon family, adaptive Aim/Block presentation |
+| Movement and gestures | Analog movement, fire drag look, run lock, optional VATS gesture |
+| Gyroscope | Enable, sensitivity, ADS, hold/toggle, ADS-only, recenter |
+| Inventory and quick access | Hotbar enable/count/size/tray, bottom swipe enable/target/distance |
+| Dialogue | Touch dialogue, choice/subtitle text size, tap-selection policy |
+| Lockpicking | Touch scheme and scale |
+| Interface size | Existing menu/UI scale and canonical health/AP/compass sizes |
+
+Preset, FPS, resolution and opt-in thermal response stay in **Display > Mobile
+performance**. The preset changes the frame limit and render resolution, not Graphics.
+
+The four Android-specific controller rows are in **Controls > Controller**. The four
+shared controller rows keep their **Controls > Input** and **Controls > Aim Assist**
+placements. Hardware bindings and Input Device remain in Controls; changing devices
+keeps the existing hidden-row projection and remapping behavior.
+The existing transactional layout editor opens from **Pause > Settings > Mobile >
+Touch layout and guide** on Android, or **Controls > Touch** on desktop: Style / profiles
+for appearance, Save to keep changes, Cancel to restore them. The practice note points
+to this route; there is no second editor or new persistence schema.
+
+The shared crate's `MOBILE_SECTIONS` takes precedence over `SECTIONS` only on
+Android. The same profile determines the exported menu's layout stamp and the
+launcher's acceptance of that export. The launcher shows the in-game titles,
+choices and dependencies for its editable subset; game-only actions (such as
+the layout editor) stay in Pause. Before a normal Android start exports the
+catalogue, the launcher uses its smaller built-in settings copy.
+
+Dependencies on stored rows live in `NEEDS` and `NEEDS_CHOICE`. For example,
+turning off Touch dialogue, Gyroscope or Touch hotbar leaves its dependent
+settings visible with their saved value and reason. Renderer or hardware
+availability still comes from the live engine. See the
+[Android settings reference](../settings-reference-android.md) for placements
+and compatibility rows.
 
 ## 3. What the page lists (`settings_view.rs`)
 
@@ -608,3 +657,39 @@ Smoke scenario `perf-overlay-usage-availability` accepts a numeric or explicit m
 part independently. The older `fps-counter` numeric expectation is preserved.
 Linux validation still needs Intel/nouveau game-only rates and labels, NVIDIA with
 and without NVML, amdgpu fallback, no telemetry, and hide/show or GPU-row off/on.
+
+[design] The optional mobile-control follow-up adds fourteen registered rows to
+that 162-row current-main/Android checkpoint: the layout action, independent
+terminal/companion views, five Pip-Boy preferences, lockpicking hints, VATS
+selection, and four dialogue appearance/hint rows. The combined `KNOWN` fixture
+contains 176 unique keys; 68 Android overrides comprise 60 Mobile and 8 shared controller
+placements. These are potential rows, not a claim that every optional subsystem
+registers in every run. All new controls and the current merged source still
+require their own compilation/runtime and device acceptance.
+
+[design] The subsequent `ed684e8` Main import retains these 176 fixed `KNOWN`
+fixture entries and 68 Android overrides. Main's generated Tweaks rows and the
+Controls page's additional unbound tweak keys are separate from this fixed
+registry fixture. Saved per-device controller calibration is retained; an enabled
+custom per-stick tweak temporarily supplies its explicit values without rewriting
+the saved calibration. Disabling that tweak restores the saved values.
+[qualification] At that checkpoint, all 1,536 Main scenario records and Android's
+startup record were retained as source. Compiler/test discovery, execution and device
+acceptance still require exact integrated-head qualification.
+
+[design] The subsequent `7e638d4` Main import adds `terrain-anti-tiling` (#2551)
+beside `terrain-height-blend` in **Graphics > Picture**, bringing the combined fixed
+`KNOWN` fixture to 177 unique keys. The 68 Android overrides remain 60 Mobile and
+8 Controls > Controller placements; generated Tweaks rows and additional unbound
+Controls rows remain outside this fixed fixture. All 1,552 incoming Main scenario
+records and Android's startup record are retained as source. These source counts
+do not claim compilation, scenario execution or device acceptance of this merge.
+
+[design] The following `5a941458` Main import adds `sound-cover` (#2688) after
+`grass-fire` in **Gameplay > World**, bringing the combined fixed `KNOWN` fixture
+to 178 unique keys. The saved sound-cover option keeps Main's on-by-default
+engine behavior; it is not an original-game parity claim. The 68 Android overrides
+remain 60 Mobile and 8 Controls > Controller placements, while generated Tweaks
+and unbound Controls rows stay separate. Static composition retains all 1,564
+Main scenarios and Android's startup record, for 1,565; current file verification,
+scenario execution and device acceptance remain pending.

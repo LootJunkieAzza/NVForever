@@ -37,7 +37,7 @@ changed files call for; the cargo deny ones need `cargo install cargo-deny`):
 ```bash
 cargo test --workspace --release --locked
 cargo clippy --workspace --all-targets --release --locked -- -D warnings
-(cd engine && cargo test --release --locked)
+(cd engine && cargo test --release --locked --no-fail-fast)
 (cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
 cargo deny check licenses advisories bans sources
 cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources

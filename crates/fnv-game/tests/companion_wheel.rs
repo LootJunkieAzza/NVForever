@@ -308,12 +308,15 @@ fn a_stimpak_is_used_on_a_hurt_companion() {
     let stim = FormId(STIMPAK);
     // Not hurt, no stimpak: the button cannot be used.
     assert!(!button(&mut g, Command::UseStimpak).enabled);
+    assert_eq!(g.wheel_unavailable_reason(Command::UseStimpak).as_deref(), Some("You have no stimpaks."));
     assert_eq!(g.wheel_command(Command::UseStimpak).unwrap(), Outcome::Refused);
     g.world.add_item(FormId::PLAYER_REF, stim, 2).unwrap();
     assert!(!button(&mut g, Command::UseStimpak).enabled, "at full health");
+    assert_eq!(g.wheel_unavailable_reason(Command::UseStimpak).as_deref(), Some("The companion is already at full health."));
     add_actor_value_damage(&mut g, companion(), HEALTH, 40.0);
     let b = button(&mut g, Command::UseStimpak);
     assert!(b.enabled, "{b:?}");
+    assert!(g.wheel_unavailable_reason(Command::UseStimpak).is_none());
     assert!(b.context.as_deref().is_some_and(|c| c.ends_with("Stimpak 2")), "{b:?}");
     let out = g.wheel_command(Command::UseStimpak).unwrap();
     assert!(matches!(out, Outcome::Stimpak { item, line: Some(l) } if item == stim && l == FormId(0xB0A)), "{out:?}");

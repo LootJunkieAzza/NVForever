@@ -685,6 +685,12 @@ pub fn describe_quantity(ui: &Ui) -> String {
     format!("tiles: {QUANTITY_MENU} drawn from tiles: amount {shown} of {}", Value::Num(most).text())
 }
 
+/// Module-owned authored prompt fixture, no production API or game file access.
+#[cfg(test)]
+pub(crate) fn load_quantity_fixture_for_touch_tests(ui:&mut Ui,change:impl FnOnce(&str)->String) {
+    tests::load_whole_prompt(ui,change);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -858,10 +864,12 @@ mod tests {
 
     /// A prompt's file with every path the model writes.
     fn whole_prompt() -> Ui {
-        let src = MemSource::default().with("q.xml", r#"<menu name="QuantityMenu"><rect name="NOGLOW_BRANCH"><image name="QM_Background"/><rect name="QM_MainRect"><rect name="QM_AmountMeter"/></rect></rect></menu>"#);
-        let mut ui = Ui::new();
-        ui.load_menu(&src, "q.xml").unwrap();
-        ui
+        let mut ui=Ui::new();load_whole_prompt(&mut ui,str::to_owned);ui
+    }
+    pub(super) fn load_whole_prompt(ui:&mut Ui,change:impl FnOnce(&str)->String) {
+        let xml=r#"<menu name="QuantityMenu"><rect name="NOGLOW_BRANCH"><image name="QM_Background"/><rect name="QM_MainRect"><rect name="QM_AmountMeter"/></rect></rect></menu>"#;
+        let src=MemSource::default().with("q.xml",&change(xml));
+        ui.load_menu(&src,"q.xml").unwrap();
     }
 
     #[test]
@@ -1122,3 +1130,4 @@ mod tests {
         assert_eq!(quantity_tile(&ui, tile("QM_AmountChosen")), None);
     }
 }
+

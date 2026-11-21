@@ -1555,6 +1555,10 @@ impl std::io::Write for TraceFile {
     fn flush(&mut self) -> std::io::Result<()> {
         self.0.flush()
     }
+
+    fn write_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
+        self.0.write_vectored(bufs)
+    }
 }
 
 impl Drop for TraceFile {
@@ -1765,6 +1769,33 @@ mod trace_ownership_tests {
         drop(next);
         let next_bytes = std::fs::read_to_string(&path).unwrap();
         assert!(next_bytes.contains("next-run") && !next_bytes.contains("parent-before-child"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn finished_trace_releases_ownership_while_a_duplicated_handle_remains_open() {
+        let root = std::env::temp_dir().join(format!("nvf-duplicated-trace-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let path = root.join("script-trace.jsonl");
+        let mut parent = TraceLog::create(&path).unwrap();
+        parent.write(&serde_json::json!({"kind":"finished-owner"}));
+        let duplicate = parent.out.get_ref().try_clone().unwrap();
+        let overlap = TraceLog::create(&path).unwrap();
+        assert_ne!(overlap.path, path, "an active writer retains its lock despite duplication");
+        drop(overlap);
+        drop(parent);
+        let mut next = TraceLog::create(&path).unwrap();
+        assert_eq!(next.path, path, "a finished writer must not leave its lock with a duplicated handle");
+        next.write(&serde_json::json!({"kind":"next-owner"}));
+        drop(duplicate);
+        let overlap = TraceLog::create(&path).unwrap();
+        assert_ne!(overlap.path, path, "closing an old duplicate must not release the new writer's lock");
+        drop((overlap, next));
+        let bytes = std::fs::read_to_string(&path).unwrap();
+        let rows: Vec<serde_json::Value> = bytes.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["format"], "nvforever.play.script_log/1");
+        assert_eq!(rows[1]["kind"], "next-owner");
+        assert!(!bytes.contains("finished-owner") && !bytes.contains('\0'));
         std::fs::remove_dir_all(root).unwrap();
     }
 }
@@ -2811,7 +2842,7 @@ pub fn asks_nothing(buttons: usize) -> bool {
     buttons <= 1
 }
 
-#[cfg(any(test, feature = "test-support", feature = "report-test-support"))]
+#[cfg(any(test, feature = "test-support", feature = "report-test-support", feature = "test-fixtures"))]
 impl ScriptState {
     /// A runtime over an empty load order, for tests of what works the open menu: nothing
     /// has run, no menu is open.
@@ -2867,6 +2898,16 @@ impl ScriptState {
     #[cfg(test)]
     pub(crate) fn answered(&self) -> bool {
         self.rt.as_ref().is_some_and(|rt| rt.closing.is_some())
+    }
+}
+
+// Shared only with the wrapper's dev-dependency: private Runtime fields and the
+// actual authored constructor stay owned by this module.
+#[cfg(feature = "test-fixtures")]
+#[doc(hidden)]
+pub mod fixtures {
+    pub fn over_plugins(plugins: &[fnv_esm::Plugin]) -> super::ScriptState {
+        super::ScriptState::over_plugins(plugins)
     }
 }
 

@@ -69,6 +69,61 @@ pub const fn group_section(subgroup: &'static str, heading: &'static str, keys: 
     Section { placement: Placement { tab: TWEAKS_TAB, subgroup: Some(subgroup), heading: Some(heading) }, keys }
 }
 
+pub const MOBILE_TAB: &str = "Mobile";
+pub const MOBILE_TAB_ORDER: [&str; 9] = ["Gameplay", "Display", "Audio", "Controls", MOBILE_TAB, "Graphics", NVF_FEATURES_TAB, TWEAKS_TAB, "Debug"];
+
+/// Additional controller rows registered by the port.
+pub const ANDROID_CONTROLLER_KEYS: [&str; 4] = [
+    "controller-ads-v1", "controller-dead-zone-v1",
+    "controller-toggle-aim-v1", "controller-hold-sneak-v1",
+];
+
+// Android adds only its own rows; the shared Main table stays authoritative.
+// A matching category appends these keys after its shared rows.
+pub const ANDROID_SECTIONS: &[Section] = &[
+    section("Gameplay", Some("Camera"), &["touch-pipboy-size-v1", "touch-pipboy-tab-swipes"]),
+    section("Gameplay", Some("Dialogue"), &["touch-dialogue", "dialogue-choice-text-size", "dialogue-subtitle-text-size", "dialogue-touch-choice", "dialogue-speaker-side", "dialogue-theme-v1", "dialogue-background-opacity-v1", "dialogue-background-tint-v1", "dialogue-frame-opacity-v1", "dialogue-hints-v1"]),
+    section("Display", Some("Interface"), &["hud-scale-v2", "hud-health-size-v1", "hud-action-points-size-v1", "hud-compass-size-v1", "barter-menu-size-v1", "repair-menu-size-v1", "workbench-menu-size-v1"]),
+    section("Gameplay", Some("Inventory menus"), &["touch-barter-v1", "touch-maintenance-v1", "touch-terminal-v1", "touch-companion-v1"]),
+    section("Controls", Some("Touch"), &["touch-layout-editor-v1", "touch-practice-v1", "touch-hotbar", "touch-hotbar-slots", "touch-hotbar-size", "touch-hotbar-tray", "touch-tray-editor-v1", "touch-bottom-swipe-target-v1", "touch-pipboy-swipe-v1", "touch-pipboy-distance-v1", "touch-pipboy-dismiss-left", "touch-pipboy-dismiss-right", "touch-pipboy-dismiss-side-v2", "touch-pipboy-dismiss-travel-v1", "touch-pipboy-close-button", "touch-pipboy-button-graphics", "touch-pipboy-model-wheel", "touch-direct-pipboy-v1", "touch-world-activation-v1", "touch-icon-family", "adaptive-touch-actions", "lockpick-touch", "lockpick-touch-size", "lockpick-touch-hints", "touch-gyro-v1", "touch-gyro-sensitivity-v1", "touch-gyro-ads-v1", "touch-gyro-toggle-v1", "touch-gyro-ads-only-v1", "touch-gyro-recenter-v1", "touch-gyro-invert-x-v1", "touch-gyro-invert-y-v1", "touch-analog-movement-v1", "touch-fire-drag-look-v1", "touch-auto-move-lock-v1", "touch-vats-double-tap-v1", "touch-vats-targeting-v1"]),
+    section(CONTROLS_TAB, Some("Controller"), &ANDROID_CONTROLLER_KEYS),
+    section("Display", Some("Mobile performance"), &["mobile-performance", "mobile-fps", "mobile-resolution", "mobile-thermal-auto", "mobile-thermal-status"]),
+];
+
+/// Android claims only its named presentation overrides. Main's original controller
+/// rows keep their Input/Aim Assist categories, while all hardware routes stay Controls.
+pub const MOBILE_SECTIONS: &[Section] = &[
+    section(MOBILE_TAB, Some("Touch layout and guide"), &[
+        "touch-layout-editor-v1", "touch-practice-v1", "touch-icon-family", "adaptive-touch-actions",
+    ]),
+    section(MOBILE_TAB, Some("Movement and gestures"), &[
+        "touch-analog-movement-v1", "touch-fire-drag-look-v1",
+        "touch-auto-move-lock-v1", "touch-vats-double-tap-v1", "touch-vats-targeting-v1", "touch-world-activation-v1",
+    ]),
+    section(MOBILE_TAB, Some("Gyroscope"), &[
+        "touch-gyro-v1", "touch-gyro-recenter-v1", "touch-gyro-toggle-v1",
+        "touch-gyro-ads-only-v1", "touch-gyro-invert-x-v1", "touch-gyro-invert-y-v1",
+        "touch-gyro-sensitivity-v1", "touch-gyro-ads-v1",
+    ]),
+    section(MOBILE_TAB, Some("Inventory and quick access"), &[
+        "touch-hotbar", "touch-hotbar-slots", "touch-hotbar-tray", "touch-tray-editor-v1", "touch-hotbar-size",
+        "touch-pipboy-swipe-v1", "touch-bottom-swipe-target-v1", "touch-pipboy-distance-v1", "touch-pipboy-size-v1", "touch-pipboy-tab-swipes", "touch-direct-pipboy-v1",
+        "touch-pipboy-dismiss-left", "touch-pipboy-dismiss-right", "touch-pipboy-dismiss-side-v2", "touch-pipboy-dismiss-travel-v1", "touch-pipboy-close-button",
+        "touch-pipboy-button-graphics", "touch-pipboy-model-wheel",
+        "touch-barter-v1", "touch-maintenance-v1", "touch-terminal-v1", "touch-companion-v1",
+    ]),
+    section(MOBILE_TAB, Some("Dialogue"), &[
+        "touch-dialogue", "dialogue-theme-v1", "dialogue-touch-choice", "dialogue-speaker-side",
+        "dialogue-background-tint-v1", "dialogue-hints-v1", "dialogue-choice-text-size",
+        "dialogue-subtitle-text-size", "dialogue-background-opacity-v1", "dialogue-frame-opacity-v1",
+    ]),
+    section(MOBILE_TAB, Some("Lockpicking"), &["lockpick-touch", "lockpick-touch-hints", "lockpick-touch-size"]),
+    section(MOBILE_TAB, Some("Interface size"), &[
+        "menu-scale", "ui-scale", "hud-scale-v2", "hud-health-size-v1", "hud-action-points-size-v1", "hud-compass-size-v1",
+        "barter-menu-size-v1", "repair-menu-size-v1", "workbench-menu-size-v1",
+    ]),
+];
+
 /// The rows the NVF Features tab may hold: only what the owner named there [design: owner
 /// 2026-11-15]. Adding a key needs the owner's word; a bigger gameplay change is offered to
 /// the owner for this tab, never moved here unasked (docs/design/settings-page.md).
@@ -963,11 +1018,31 @@ pub const NEEDS: &[(&str, &str, &str)] = &[
     ("fps-counter-upscaling", "fps-counter", "Needs the Frame Rate Counter."),
     ("fps-counter-low", "fps-counter", "Needs the Frame Rate Counter."),
     ("fps-counter-low", "fps-counter-fps", "Needs Counter: Frame Rate."),
+    ("dialogue-choice-text-size", "touch-dialogue", "Enable Touch dialogue."),
+    ("dialogue-subtitle-text-size", "touch-dialogue", "Enable Touch dialogue."),
+    ("dialogue-touch-choice", "touch-dialogue", "Enable Touch dialogue."),
+    ("dialogue-theme-v1", "touch-dialogue", "Enable Touch dialogue."),
+    ("dialogue-speaker-side", "touch-dialogue", "Enable Touch dialogue."),
+    ("dialogue-background-opacity-v1", "touch-dialogue", "Enable Touch dialogue."),
+    ("dialogue-background-tint-v1", "touch-dialogue", "Enable Touch dialogue."),
+    ("dialogue-frame-opacity-v1", "touch-dialogue", "Enable Touch dialogue."),
+    ("dialogue-hints-v1", "touch-dialogue", "Enable Touch dialogue."),
+    ("touch-gyro-toggle-v1", "touch-gyro-v1", "Enable Gyroscope."),
+    ("touch-gyro-ads-only-v1", "touch-gyro-v1", "Enable Gyroscope."),
+    ("touch-gyro-recenter-v1", "touch-gyro-v1", "Enable Gyroscope."),
+    ("touch-gyro-invert-x-v1", "touch-gyro-v1", "Enable Gyroscope."),
+    ("touch-gyro-invert-y-v1", "touch-gyro-v1", "Enable Gyroscope."),
+    ("touch-gyro-sensitivity-v1", "touch-gyro-v1", "Enable Gyroscope."),
+    ("touch-gyro-ads-v1", "touch-gyro-v1", "Enable Gyroscope."),
+    ("touch-hotbar-slots", "touch-hotbar", "Enable Touch hotbar."),
+    ("touch-hotbar-size", "touch-hotbar", "Enable Touch hotbar."),
+    ("touch-hotbar-tray", "touch-hotbar", "Enable Touch hotbar."),
 ];
 
 /// The Controls tab's rows that are shown only while the input device is a controller
 /// (`crate::bindings::InputDevice`) [design: #1953].
-pub const CONTROLLER_KEYS: [&str; 4] = ["button-style", "aim-assist", "aim-slowdown", "aim-lock"];
+pub const CONTROLLER_KEYS: [&str; 8] = ["button-style", "aim-assist", "aim-slowdown", "aim-lock",
+    ANDROID_CONTROLLER_KEYS[0], ANDROID_CONTROLLER_KEYS[1], ANDROID_CONTROLLER_KEYS[2], ANDROID_CONTROLLER_KEYS[3]];
 
 /// Whether row `key` is shown only with a controller ([`CONTROLLER_KEYS`]).
 pub fn controller_only(key: &str) -> bool {
@@ -999,7 +1074,14 @@ pub const SHOWN_WITH: &[(&str, &str, &[&str])] = &[
 /// choices by name, why) [design: the menu overhaul], as [`NEEDS`] for a row that needs a
 /// choice rather than a row switched on. The game's page
 /// (`nvf_play::settings::Settings::disabled_status`) and the launcher both go by it.
-pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[("vats-slowdown", "vats-style", &["Classic"], "Classic V.A.T.S. only.")];
+pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[
+    ("vats-slowdown", "vats-style", &["Classic"], "Classic V.A.T.S. only."),
+    ("dialogue-speaker-side", "dialogue-theme-v1", &["Field Notes", "Retro Console", "Wrist Terminal"], "Available with Field Notes, Retro Console and Wrist Terminal."),
+    ("dialogue-background-opacity-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
+    ("dialogue-background-tint-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
+    ("dialogue-frame-opacity-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
+    ("dialogue-hints-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
+];
 
 /// What a row needs of another row to apply: `parent` on (a switch on, a list past its first
 /// choice) when `choices` is empty, else `parent` on one of `choices` (by name). `why` is
@@ -1038,8 +1120,17 @@ pub fn layout_stamp() -> String {
     stamp_of(SECTIONS)
 }
 
+/// The Android layout has its own identity, including its Mobile placements.
+pub fn mobile_layout_stamp() -> String {
+    stamp(&MOBILE_TAB_ORDER, MOBILE_SECTIONS.iter().chain(SECTIONS).chain(ANDROID_SECTIONS))
+}
+
 /// [`layout_stamp`] with `sections` for [`SECTIONS`].
 pub(crate) fn stamp_of(sections: &[Section]) -> String {
+    stamp(&TAB_ORDER, sections.iter().chain(ANDROID_SECTIONS))
+}
+
+fn stamp<'a>(tabs: &[&str], sections: impl Iterator<Item = &'a Section>) -> String {
     // FNV-1a, 64 bits: fixed by its definition, unlike std's hasher, so every build and
     // platform agrees; the separators keep `["ab"]` and `["a", "b"]` apart.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -1049,7 +1140,7 @@ pub(crate) fn stamp_of(sections: &[Section]) -> String {
             h = h.wrapping_mul(0x0000_0100_0000_01b3);
         }
     };
-    for t in TAB_ORDER {
+    for t in tabs {
         put(t, 0x1f);
     }
     for s in sections {

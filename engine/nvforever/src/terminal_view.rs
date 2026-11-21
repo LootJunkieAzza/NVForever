@@ -28,6 +28,9 @@
 //!   terminal (the owner, 2026-10-16).
 
 use crate::pipboy_arm::Posed;
+pub(crate) mod projection;
+mod dialogue;
+pub(crate) use dialogue::DialogueTerminalPlugin;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ImageRenderTarget, RenderTarget};
@@ -86,8 +89,6 @@ impl Plugin for TerminalViewPlugin {
 #[derive(Default)]
 struct Drawn {
     entities: Vec<Entity>,
-    glass: Option<Posed>,
-    button: Option<Posed>,
     warned: bool,
 }
 
@@ -140,12 +141,74 @@ fn show(
         return;
     };
     let size = window.single().map(|w| Extent3d { width: w.physical_width().max(1), height: w.physical_height().max(1), depth_or_array_layers: 1 }).unwrap_or(Extent3d { width: 1280, height: 720, depth_or_array_layers: 1 });
+    let Some(view) = spawn_monitor(&mut commands, &mut models, &mut plain, &model,
+        &picture.image, TARGET, size, MONITOR_LAYER, "Terminal", false, -4, false, PLACE) else {
+        warn!("terminal view: {MONITOR_MODEL} has no screen:0 shape; the screen is drawn flat");
+        drawn.warned = true;
+        return;
+    };
+    info!("terminal view: the monitor drawn ({} shapes, power button {}), the camera {DISTANCE} in front", view.shapes, if view.button.is_some() { "found" } else { "missing" });
+    commands.insert_resource(Monitor { camera: view.camera, glass: view.glass, button: view.button });
+    commands.insert_resource(MonitorView { image: view.image });
+    drawn.entities = view.entities;
+}
+
+/// Fit every actual model-bound corner, including the housing, into a requested
+/// aspect. The original terminal caller retains its measured camera unchanged.
+fn fitted_camera((min,max): (Vec3,Vec3), aspect: f32) -> Option<(Vec3,Vec3,f32)> {
+    if !min.is_finite() || !max.is_finite() || !min.cmplt(max).all()
+        || !aspect.is_finite() || aspect<=0.0 { return None; }
+    let center = (min+max)*0.5;
+    let half = (max-min)*0.5;
+    let tangent = (FOV*0.5).tan();
+    let distance = half.y + (half.z/tangent).max(half.x/(tangent*aspect)).max(1.1)/0.95;
+    let eye = center-Vec3::Y*distance;
+    let far = distance+half.y+1.0;
+    (eye.is_finite() && far.is_finite()).then_some((eye,center,far))
+}
+
+/// The existing monitor renderer shared by the terminal and an independent dialogue.
+/// Neither construction nor projection opens a terminal or sends terminal input.
+struct RenderedMonitor {
+    entities: Vec<Entity>,
+    camera: Entity,
+    image: Handle<Image>,
+    glass: Posed,
+    button: Option<Posed>,
+    blockers: Vec<std::sync::Arc<Posed>>,
+    shapes: usize,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_monitor(
+    commands: &mut Commands,
+    models: &mut ModelCtx,
+    plain: &mut Assets<StandardMaterial>,
+    model: &nvf_assets::PreparedModel,
+    picture: &Handle<Image>,
+    target: UVec2,
+    size: Extent3d,
+    layer_index: usize,
+    label: &str,
+    block_housing: bool,
+    camera_order: isize,
+    fit_model: bool,
+    placement: Vec3,
+) -> Option<RenderedMonitor> {
+    let (eye, aim, far) = if fit_model {
+        fitted_camera(model.bounds?, size.width as f32 / size.height as f32)?
+    } else {
+        (Vec3::new(0.0, -DISTANCE, -DROP), Vec3::new(0.0, 0.0, -DROP), 200.0)
+    };
+    let mut glass = None;
+    let mut button = None;
+    let mut blockers = Vec::new();
     let mut image = Image::new_fill(size, TextureDimension::D2, &[0, 0, 0, 0], TextureFormat::Bgra8UnormSrgb, RenderAssetUsages::default());
     image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
     let image = models.images.add(image);
-    let layer = RenderLayers::layer(MONITOR_LAYER);
+    let layer = RenderLayers::layer(layer_index);
     // Game space (Z up) into Bevy's (Y up), as the world root does.
-    let place = Affine3A::from_translation(PLACE) * Affine3A::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    let place = Affine3A::from_translation(placement) * Affine3A::from_rotation_x(-std::f32::consts::FRAC_PI_2);
     let mut entities = Vec::new();
     for s in &model.shapes {
         let name = s.name.as_deref().unwrap_or("");
@@ -155,7 +218,7 @@ fn show(
         if is_glass(name) {
             let mut m = models.materials.get(&s.material).cloned().unwrap_or_default();
             m.base.base_color = Color::WHITE;
-            m.base.base_color_texture = Some(picture.image.clone());
+            m.base.base_color_texture = Some(picture.clone());
             // [design] Preserve the measured texels instead of applying the model's
             // emissive colour to an already lit display (nif_material.wesl).
             m.base.emissive_texture = None;
@@ -163,9 +226,9 @@ fn show(
             m.base.normal_map_texture = None;
             m.base.unlit = true;
             m.base.alpha_mode = AlphaMode::Opaque;
-            m.base.uv_transform = bevy::math::Affine2::from_scale(TEXTURE_UNITS / TARGET.as_vec2());
+            m.base.uv_transform = bevy::math::Affine2::from_scale(TEXTURE_UNITS / target.as_vec2());
             material = models.materials.add(m);
-            drawn.glass = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
+            glass = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
         } else if name.eq_ignore_ascii_case("glare:0") {
             // [design] The model's texture on Bevy's own additive material: its colour,
             // texel × GLARE_LINEAR_SCALE, is added in linear light (GLARE_LINEAR_SCALE).
@@ -178,34 +241,35 @@ fn show(
             m.alpha_mode = AlphaMode::Add;
             glare = Some(plain.add(m));
         } else if is_button(name) {
-            drawn.button = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
+            button = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
         }
-        let mut shape = commands.spawn((Name::new(format!("Terminal monitor {name}")), Mesh3d(s.mesh.clone()), Transform::from_matrix(Mat4::from(world)), layer.clone()));
+        if block_housing && !is_glass(name) && !name.eq_ignore_ascii_case("glare:0") {
+            if let Some(posed) = s.cpu.as_deref().and_then(|m| Posed::new(m,None,Mat4::from(world))) {
+                blockers.push(std::sync::Arc::new(posed));
+            }
+        }
+        let mut shape = commands.spawn((Name::new(format!("{label} monitor {name}")), Mesh3d(s.mesh.clone()), Transform::from_matrix(Mat4::from(world)), layer.clone()));
         match glare {
             Some(plain) => shape.insert(MeshMaterial3d(plain)),
             None => shape.insert(MeshMaterial3d(material)),
         };
         entities.push(shape.id());
     }
-    let Some(glass) = drawn.glass.take() else {
-        warn!("terminal view: {MONITOR_MODEL} has no screen:0 shape; the screen is drawn flat");
+    let Some(glass) = glass.take() else {
         for e in entities {
             commands.entity(e).despawn();
         }
-        drawn.warned = true;
-        return;
+        return None;
     };
     let shapes = entities.len();
     let to = |p: Vec3| place.transform_point3(p);
-    let eye = Vec3::new(0.0, -DISTANCE, -DROP);
-    let aim = Vec3::new(0.0, 0.0, -DROP);
     let camera = commands
         .spawn((
-            Name::new("Terminal monitor camera"),
+            Name::new(format!("{label} monitor camera")),
             Camera3d::default(),
-            Camera { order: -4, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
+            Camera { order: camera_order, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
             RenderTarget::Image(ImageRenderTarget::from(image.clone())),
-            Projection::Perspective(PerspectiveProjection { fov: FOV, near: 1.0, far: 200.0, ..default() }),
+            Projection::Perspective(PerspectiveProjection { fov: FOV, near: 1.0, far, ..default() }),
             Tonemapping::Linear,
             Msaa::Sample4,
             AmbientLight { color: Color::WHITE, brightness: 150.0, ..default() },
@@ -222,10 +286,7 @@ fn show(
         .spawn((DirectionalLight { illuminance: 600.0, ..default() }, Transform::from_translation(to(Vec3::new(30.0, -20.0, -5.0))).looking_at(to(Vec3::ZERO), Vec3::Y), layer.clone()))
         .id();
     entities.extend([camera, key, fill]);
-    info!("terminal view: the monitor drawn ({shapes} shapes, power button {}), the camera {DISTANCE} in front", if drawn.button.is_some() { "found" } else { "missing" });
-    commands.insert_resource(Monitor { camera, glass, button: drawn.button.take() });
-    commands.insert_resource(MonitorView { image });
-    drawn.entities = entities;
+    Some(RenderedMonitor { entities, camera, image, glass, button, blockers, shapes })
 }
 
 /// Where a spot of the glass's texture lies on the canvas.
@@ -234,11 +295,17 @@ pub fn canvas_point(uv: Vec2) -> Option<Vec2> {
     (p.x >= 0.0 && p.y >= 0.0 && p.x < CANVAS.x && p.y < CANVAS.y).then_some(p)
 }
 
+type MonitorTouchContext<'w> = (
+    Option<Res<'w, Monitor>>,
+    Option<Res<'w, nvf_play::terminal::touch::Settings>>,
+    Option<Res<'w, TerminalScreen>>,
+);
+
 /// Follow the window's pointer onto the monitor: on the glass it goes to the screen, a
 /// left click on the power button leaves the terminal. The test aid `power` clicks the
 /// button's middle.
 fn follow_pointer(
-    monitor: Option<Res<Monitor>>,
+    (monitor, touch, screen): MonitorTouchContext<'_>,
     cams: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mouse: nvf_play::pad::ActionButtons<MouseButton>,
@@ -246,6 +313,12 @@ fn follow_pointer(
     mut pointer: ResMut<TerminalPointer>,
     mut out: MessageWriter<TerminalInput>,
 ) {
+    if touch.as_deref().zip(screen.as_deref())
+        .is_some_and(|(settings, screen)| nvf_play::terminal::touch::captures(settings, screen)) {
+        pointer.canvas = None;
+        aid.0 = false;
+        return;
+    }
     let mouse = mouse.snapshot();
     let Some(m) = monitor else { return };
     let Ok((cam, at)) = cams.get(m.camera) else { return };
@@ -285,4 +358,25 @@ mod tests {
         assert_eq!(canvas_point(Vec2::new(0.767, 0.755)), None);
         assert!(canvas_point(Vec2::new(0.7, 0.7)).is_some());
     }
+    #[test]
+    fn flat_terminal_capture_clears_stale_monitor_pointer_and_power_aid_without_exit() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin))
+            .init_resource::<nvf_play::bindings::Bindings>()
+            .init_resource::<nvf_play::terminal::touch::Settings>()
+            .insert_resource(PowerAid(true))
+            .insert_resource(TerminalPointer { canvas: Some(Vec2::ONE) })
+            .insert_resource(TerminalScreen(Some(nvf_play::terminal::Session {
+                reference: fnv_sim::FormId(1), base: fnv_sim::FormId(2),
+                page: nvf_play::terminal::Page::LockedOut(["Synthetic".into(), "Fixture".into()]),
+            })))
+            .add_message::<TerminalInput>()
+            .add_systems(Update, follow_pointer);
+        app.world_mut().resource_mut::<nvf_play::terminal::touch::Settings>().enabled = true;
+        app.update();
+        assert!(app.world().resource::<TerminalPointer>().canvas.is_none());
+        assert!(!app.world().resource::<PowerAid>().0);
+        assert_eq!(app.world().resource::<Messages<TerminalInput>>().len(), 0);
+    }
+
 }

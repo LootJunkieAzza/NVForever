@@ -27,6 +27,7 @@
 
 pub mod outcome;
 pub mod pick;
+pub mod touch;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -50,6 +51,7 @@ pub struct ActivatePlugin;
 impl Plugin for ActivatePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Target>()
+            .init_resource::<touch::TouchActivation>()
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
             .insert_resource(AutoActivate::from_env())
@@ -216,25 +218,83 @@ fn destination_name(sim: &SimState, index: &fnv_world::WorldIndex, door: FormId,
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn find_target(
     player: Option<Res<Player>>,
-    phys: Option<ResMut<PhysState>>,
+    mut phys: Option<ResMut<PhysState>>,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
-    visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
+    visuals: TargetVisuals<'_, '_>,
     mut target: ResMut<Target>,
     mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
+    (mut touch,cameras,windows,admission,input,time):touch::Context,
 ) {
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
     let (eye, dir) = crate::control::Crosshair::ray(crosshair.as_ref(), player.eye(), player.look_dir());
+    let mut picker=TargetPicker {phys:phys.as_deref_mut(),sim:&mut sim,play:&play,
+        visuals:&visuals,script:script.as_deref_mut(),talkers:&mut talkers};
+    let new=picker.at(eye,dir,true);
+    if let Some(touch)=touch.as_deref_mut() {
+        if let Some(point)=touch.point() {
+            if admission.allows(point.id) && input.virtual_action_allowed(crate::bindings::Control::Activate) {
+                let selected=touch::camera_ray(point,&cameras,&windows).and_then(|(camera,direction)|{
+                    let view=crate::control::Crosshair {camera,dir:direction,pivot:player.eye(),shoulder:[0.;2]};
+                    let (origin,dir)=crate::control::Crosshair::ray(Some(&view),player.eye(),player.look_dir());
+                    let target=picker.at(origin,dir,false)?;
+                    let hit=Vec3::from_array(origin)+Vec3::from_array(dir)*target.distance;
+                    let delta=hit-Vec3::from_array(player.eye());
+                    let distance=delta.length();
+                    if !(0.001..=REACH).contains(&distance){return None;}
+                    // The camera can peek around cover; the player still needs LOS.
+                    let legal=picker.at(player.eye(),(delta/distance).to_array(),false)?;
+                    (legal.form_id==target.form_id).then_some(legal)
+                });
+                touch.publish(selected,time.as_ref().map_or(0.,|t|t.delta_secs()));
+            } else {touch.cancel();}
+        }
+    }
+    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty));
+    if key(&target.0) != key(&new) {
+        match &new {
+            Some(t) => info!(
+                "target 0x{:08X} {} ({}{}{}) by {:?} at {:.0}",
+                t.form_id,
+                t.name,
+                t.action.label(),
+                if t.crime { ", owned" } else { "" },
+                if t.empty { ", empty" } else { "" },
+                t.source,
+                t.distance
+            ),
+            None => info!("target none"),
+        }
+    }
+    if target.0 != new {
+        target.0 = new;
+    }
+}
+
+type TargetVisuals<'w,'s>=Query<'w,'s,(&'static RefVisual,&'static Aabb,&'static GlobalTransform,&'static InheritedVisibility)>;
+struct TargetPicker<'a,'w,'s>{
+    phys:Option<&'a mut PhysState>,sim:&'a mut SimState,play:&'a PlayWorld,
+    visuals:&'a TargetVisuals<'w,'s>,script:Option<&'a mut crate::script::ScriptState>,
+    talkers:&'a mut HashMap<u32,(bool,f64)>,
+}
+impl TargetPicker<'_,'_,'_>{
+    fn at(&mut self,eye:[f32;3],dir:[f32;3],publish_crosshair:bool)->Option<Targeted>{
+        let phys=self.phys.as_deref_mut();
+        let sim=&mut *self.sim;
+        let play=self.play;
+        let visuals=self.visuals;
+        let mut script=self.script.as_deref_mut();
+        let talkers=&mut *self.talkers;
     // The same ray, far: where PlaceAtReticle puts things (`fnv_game` senses `Reticle`).
     let mut far = None;
     let mut far_ref = None;
     // The node of what the far ray meets (GetReticleNode, `fnv_game::nvse_jip13`).
     let mut far_node = None;
     let mut behind = None;
-    let hit = phys.and_then(|mut p| {
+    let hit = phys.and_then(|p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
         // Trigger volumes do not block the view [hypothesis].
         filter.exclude_layers.insert(layers::TRIGGER);
@@ -285,7 +345,7 @@ pub(crate) fn find_target(
         }
         Some((r.0, pick::ray_box(o, d, &t, c, h)?))
     });
-    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|_|publish_crosshair) {
         rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
         if rt.game.other.jip13.reticle_node != far_node {
             rt.game.set_reticle_node(far_node);
@@ -312,14 +372,14 @@ pub(crate) fn find_target(
                     return None;
                 }
                 let pile = rt.as_deref().is_some_and(|rt| rt.game.ash_pile_source(FormId(id)).is_some());
-                describe(&sim, play.index, id).map(|(n, a)| match a {
+                describe(sim, play.index, id).map(|(n, a)| match a {
                     // An ash or goo pile is searched as the body was (ash-piles.md §3).
                     Action::Activate if pile => (n, Action::Search),
                     Action::Activate if rt.as_deref().is_some_and(|rt| rt.game.drink_water(FormId(id)).is_some()) => {
                         // The player's tweak: the prompt says the H2O a drink takes off [design: docs/design/tweaks.md].
                         let h2o = rt.as_deref_mut().filter(|rt| rt.game.tweaks.water_shows_h2o).and_then(|rt| {
                             let spell = rt.game.drink_water(FormId(id)).and_then(|w| rt.game.water_effect(w))?;
-                            crate::script::with_world(rt, &mut sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, spell)).into_iter().find(|(c, _)| *c == fnv_game::aid::DEHYDRATION).map(|(_, a)| a)
+                            crate::script::with_world(rt, sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, spell)).into_iter().find(|(c, _)| *c == fnv_game::aid::DEHYDRATION).map(|(_, a)| a)
                         });
                         (water_label(&n, h2o), Action::Drink)
                     }
@@ -332,9 +392,9 @@ pub(crate) fn find_target(
                         // player (a body is named still, as Search) [design: docs/design/tweaks.md].
                         let unknown = rt.as_deref().is_some_and(|rt| rt.game.tweaks.hide_unknown_names && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
                         let name = if unknown { String::new() } else { name };
-                        (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
+                        (name, actor_action(rt.as_deref_mut(), sim, id, talkers))
                     }
-                    Action::Access => (n, terminal_action(rt.as_deref_mut(), &mut sim, id)),
+                    Action::Access => (n, terminal_action(rt.as_deref_mut(), sim, id)),
                     // An interior a script renamed (Fallout 3's SetCellFullName,
                     // `fnv_game::functions::fo3`) is offered by its new name.
                     Action::Travel { to } => {
@@ -354,29 +414,11 @@ pub(crate) fn find_target(
     let picked = pick::choose(hit, bounds, REACH, |id| describe_once(id).is_some());
     let chosen = picked.and_then(|p| describe_once(p.form_id).map(|d| (p, d)));
     let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
-    let new = chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
-        let crime = owned_by_other(game, &sim, form_id, &action);
-        let empty = holds_nothing(game, &mut sim, form_id, &action);
+    chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
+        let crime = owned_by_other(game, sim, form_id, &action);
+        let empty = holds_nothing(game, sim, form_id, &action);
         Targeted { form_id, name, action, distance, source, crime, empty }
-    });
-    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty));
-    if key(&target.0) != key(&new) {
-        match &new {
-            Some(t) => info!(
-                "target 0x{:08X} {} ({}{}{}) by {:?} at {:.0}",
-                t.form_id,
-                t.name,
-                t.action.label(),
-                if t.crime { ", owned" } else { "" },
-                if t.empty { ", empty" } else { "" },
-                t.source,
-                t.distance
-            ),
-            None => info!("target none"),
-        }
-    }
-    if target.0 != new {
-        target.0 = new;
+     })
     }
 }
 
@@ -584,7 +626,7 @@ pub(crate) type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pa
 
 /// What E acts on: the target, a queued activation, VATS mode or the weapon wheel holding
 /// the keys, the grab.
-type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>), Option<ResMut<'w, crate::grab::GrabState>>);
+type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>), Option<ResMut<'w, crate::grab::GrabState>>, Option<ResMut<'w, touch::TouchActivation>>);
 
 /// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -592,7 +634,7 @@ pub(crate) fn activate(
     input: crate::bindings::ControlInput,
     (time, clock, world): AidClocks,
     auto: Option<ResMut<AutoActivate>>,
-    (target, next, (vats, wheel), mut grab): ActivateFrom,
+    (target, next, (vats, wheel), mut grab, mut touched): ActivateFrom,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     mut hud: ResMut<HudMessage>,
@@ -614,6 +656,8 @@ pub(crate) fn activate(
     // A reference queued by a lock just opened, or by the perks' choice list answered
     // with the default action: activated as if E were pressed on it.
     let mut script = script;
+    let touched=touched.as_deref_mut().and_then(|t|t.take_ready(&input))
+        .filter(|_|!input.just_pressed(crate::bindings::Control::Activate));
     let again = script.as_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| rt.activate_again.take()).map(|f| (f.0, "the perks' choice list chose its default action"));
     let queued = next.and_then(|mut n| n.0.take()).map(|id| (id, "its lock was just opened")).or(again).and_then(|(id, why)| {
         let (name, action) = describe(&sim, play.index, id)?;
@@ -666,7 +710,7 @@ pub(crate) fn activate(
         pressed_now = full;
         *hold = None;
     }
-    if !pressed_now && !fired && queued.is_none() {
+    if !pressed_now && !fired && queued.is_none() && touched.is_none() {
         return;
     }
     // VATS mode has Activate for itself (it fires the marks, docs/design/vats-mode.md §11.5).
@@ -686,7 +730,7 @@ pub(crate) fn activate(
         }
         return;
     }
-    let Some(t) = queued.as_ref().or(target.0.as_ref()) else {
+    let Some(t) = queued.as_ref().or(touched.as_ref()).or(target.0.as_ref()) else {
         // On furniture with nothing under the crosshair (lying on a bed, the bed is out
         // of view): Activate gets up [design].
         // (Not under the player's Activate Doesn't Stand Up tweak, docs/design/tweaks.md.)
@@ -695,7 +739,7 @@ pub(crate) fn activate(
     };
     // E pressed on something the player can hold: a tap activates it when E comes up,
     // a hold picks it up (`crate::grab`, docs/spec-notes/grab.md §2).
-    if queued.is_none() && !fired && !full {
+    if queued.is_none() && touched.is_none() && !fired && !full {
         if let Some(g) = grab.as_mut().filter(|g| g.holdable(t.form_id) && g.tap.is_none()) {
             let candidate = g.candidate.expect("holdable has a candidate");
             g.tap = Some(crate::grab::Tap { target: Some(t.clone()), candidate, held: 0.0 });

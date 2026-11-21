@@ -6,9 +6,9 @@
 //! [documented: rapier3d 0.36.1 `dynamics/island_manager`, `sleep.rs` `wake_up`
 //! "waking any body of a sleeping island wakes the whole island"].
 //!
-//! A query between two steps brings the broad phase up to date first
-//! ([`PhysWorld::update_queries`]) with rapier's collision-only update, which takes every
-//! body's pending changes without telling the island manager [documented: rapier3d 0.36.1
+//! Historically, a query between two steps brought the broad phase up to date
+//! with rapier's collision-only update, which takes every body's pending changes
+//! without telling the island manager [documented: rapier3d 0.36.1
 //! `CollisionPipeline::step` passes no islands to `handle_user_changes_to_rigid_bodies` and
 //! clears the changes after]. A change made since the last step was then lost to the islands:
 //!
@@ -20,7 +20,13 @@
 //! When it fell asleep rapier found a body of another set in it and panicked [observed: the
 //! owner's crash of 2026-11-11 after a VATS kill, `extract_sleeping_sub_island`, island.rs:54;
 //! tests/islands.rs `a_sleeping_corpse_struck_before_a_query_wakes_whole`]. After every
-//! refresh [`PhysWorld::repair_islands`] puts that right, whatever made the change.
+//! refresh [`PhysWorld::repair_islands`] checks and repairs that bookkeeping.
+//!
+//! The current query refresh uses the supported zero-dt physics pipeline instead
+//! (`crate::ragdoll::refresh_without_integration`) and then restores explicit sleep/struck
+//! intent in [`PhysWorld::update_queries`]. This repair remains a defensive check
+//! after that path; it does not advance time or write poses or queued targets
+//! [documented: `ragdoll.rs`, `world.rs`, and the implementation below].
 
 use crate::world::{Owner, PhysWorld};
 use rapier3d::prelude::*;

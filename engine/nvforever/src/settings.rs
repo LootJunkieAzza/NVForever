@@ -375,6 +375,9 @@ pub fn register(app: &mut App) {
     register_display(app);
     register_distances(app);
     register_graphics(app);
+    if crate::mobile_performance::enabled() {
+        crate::mobile_performance::register(app);
+    }
     // The Quality and Enhanced effects rows over the rows above (#1966).
     crate::quality::register(app, GROUP_GRAPHICS);
     // Renderer edits are latched by the shared settings setters, including Defaults.
@@ -519,9 +522,10 @@ fn register_display(app: &mut App) {
         .with_switches("--viewmodel-fov"),
     );
     // The HUD's size (#1631), kept by nvf-play's interface and fixed for the run at start.
-    let (row, list) = nvf_play::interface::ui_scale_row(GROUP_PICTURE);
-    nvf_play::settings::add_choice_list(app, row, list);
+    nvf_play::interface::register_hud_scale(app, GROUP_PICTURE);
     nvf_play::menu_scale::register(app, GROUP_PICTURE);
+    nvf_play::menu_readability::register(app, GROUP_PICTURE);
+    nvf_play::hud_readability::register(app, GROUP_PICTURE);
     add_setting(
         app,
         Setting {
@@ -564,6 +568,10 @@ fn register_display(app: &mut App) {
         },
     );
     app.add_systems(PostStartup, read_old_vsync.after(nvf_play::settings::apply_stored));
+    register_frame_cap(app);
+}
+
+fn register_frame_cap(app: &mut App) {
     // A list of the limits [design: the menu overhaul]; the INI's older slider part loads.
     add_choice_list(
         app,
@@ -1913,6 +1921,12 @@ fn set_overlay(world: &mut World, on: bool) {
 }
 
 #[cfg(test)]
+pub(crate) fn register_mobile_test_rows(app: &mut App) {
+    register_graphics(app);
+    register_frame_cap(app);
+}
+
+#[cfg(test)]
 mod fsr_settings_tests {
     use super::*;
 
@@ -2118,6 +2132,51 @@ mod fsr_settings_tests {
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
         register_graphics(&mut app);
         app
+    }
+
+    #[test]
+    fn android_player_defaults_allow_the_settings_export_but_explicit_overrides_do_not() {
+        use clap::Parser;
+        use nvf_play::settings_menu::write_menu;
+        use window_mode::WindowChoice::{Borderless, Windowed};
+
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let dir = std::env::temp_dir().join(format!("nvf-android-start-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut app = rows_app();
+        app.insert_resource(SettingsFile(Some(dir.join("NVForever.ini"))));
+        let export = dir.join("settings-menu.json");
+
+        let line = crate::android_startup_line(Vec::new());
+        let mut restart = crate::restart_args(&line[1..]);
+        restart.extend(["--load", "quicksave"].map(String::from));
+        for line in [line, crate::android_startup_line(restart)] {
+            let args = Args::try_parse_from(&line).unwrap();
+            assert!(args.play);
+            assert_eq!(args.msaa, 1);
+            assert!(args.window == Borderless);
+            app.insert_resource(given_switches(&args, &line));
+            write_menu(app.world());
+            assert!(export.is_file(), "a normal Android start publishes the settings catalogue");
+            std::fs::remove_file(&export).unwrap();
+        }
+
+        let explicit = crate::android_startup_line(["--play", "--msaa=1", "--window=borderless"].map(String::from).to_vec());
+        let args = Args::try_parse_from(&explicit).unwrap();
+        assert_eq!(args.msaa, 1);
+        assert!(args.window == Borderless);
+        let given = given_switches(&args, &explicit);
+        assert!(given.given.iter().any(|flag| flag == "--window"));
+        app.insert_resource(given);
+        write_menu(app.world());
+        assert!(!export.exists(), "an explicit switch setting the same value still blocks export");
+
+        let custom = crate::android_startup_line(vec!["--play".into()]);
+        let args = Args::try_parse_from(&custom).unwrap();
+        assert_eq!(args.msaa, 4);
+        assert!(args.window == Windowed);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn row(app: &App, key: &str) -> usize {

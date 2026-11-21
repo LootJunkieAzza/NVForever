@@ -61,6 +61,10 @@
 //!   the inventory menu at those times (see [`test_aid`]).
 
 pub mod barter;
+pub mod barter_touch;
+pub mod normal_touch;
+pub(crate) mod readability;
+pub mod normal_services;
 pub(crate) mod look;
 pub mod model;
 mod test_aid;
@@ -68,10 +72,11 @@ mod test_aid;
 use crate::sim::SimState;
 use crate::{space, ItemUsed, Location, OpenContainer, PlaySet, PlayState, PlayerCamera, RefChanged};
 use bevy::image::CompressedImageFormatSupport;
+use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
-use bevy::ui::RelativeCursorPosition;
+use bevy::ui::{RelativeCursorPosition,UiGlobalTransform};
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use fnv_sim::forms::BaseData;
 use fnv_sim::FormId;
@@ -181,6 +186,9 @@ pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
+        barter_touch::install(app);
+        normal_touch::install(app);
+        normal_services::install(app);
         app.configure_sets(Update, WheelHoldSet.before(MenuSystems)).add_systems(Update, wheel_hold.in_set(WheelHoldSet));
         app.init_resource::<ActiveMenu>()
             .insert_resource(DevKeys::from_env())
@@ -270,7 +278,8 @@ pub(crate) fn add_open_and_keys<M>(app: &mut App, before: impl IntoScheduleConfi
         .add_message::<ItemUsed>()
         .add_message::<crate::ui_sounds::UiSound>()
         .add_message::<crate::crime::ItemsTaken>()
-        .add_systems(Update, (before, open_menus, (quantity_keys, menu_keys, apply_input).chain().run_if(menu_open)).chain());
+        .add_systems(Update, (before, open_menus, (quantity_keys, menu_keys, apply_input).chain().run_if(menu_open)).chain().in_set(MenuSystems))
+        .add_systems(OnExit(PlayState::Menu),close_menu);
 }
 
 /// Whether one of these menus is open.
@@ -735,24 +744,127 @@ fn quantity_keys(keys: crate::pad::ActionButtons<KeyCode>, active: Res<ActiveMen
     }
 }
 
+// A receipt on the existing painted meter, not another input owner. Only the
+// original Amount consumer may approve retaining that pressed leaf on repaint.
+#[derive(Clone,Copy,PartialEq)]
+struct PhysicalMeterStamp {frame:barter_touch::Frame,units:f32,text_size:f32}
+#[derive(SystemParam)]
+struct PhysicalMeterEnvironment<'w,'s> {
+    default_camera:bevy::ui::DefaultUiCamera<'w,'s>,
+    windows:Query<'w,'s,(Entity,&'static Window),With<PrimaryWindow>>,
+    cameras:Query<'w,'s,(&'static Camera,&'static bevy::camera::RenderTarget)>,
+    scale:Option<Res<'w,UiScale>>,safe:Option<Res<'w,crate::touch_safe_area::SafeInsets>>,
+    paused:Option<Res<'w,crate::pause::Paused>>,capture:Option<Res<'w,crate::bindings::KeyboardCapture>>,
+    free_cam:Option<Res<'w,crate::free_cam::FreeCam>>,fresh:Option<Res<'w,FreshMenu>>,
+    creator:Option<Res<'w,crate::creator::CreatorMenu>>,
+    readability:Option<Res<'w,crate::menu_readability::MenuReadability>>,
+    mouse:crate::pad::ActionButtons<'w,MouseButton>,
+}
+impl PhysicalMeterEnvironment<'_,'_> {
+    fn held(&self)->bool {self.mouse.physical_pressed(MouseButton::Left)}
+    fn stamp(&self,m:&MenuModel,script:Option<&crate::script::ScriptState>)->Option<PhysicalMeterStamp> {
+        if self.paused.as_ref().is_some_and(|p|p.0)
+            || self.capture.as_ref().is_some_and(|c|c.0)
+            || self.free_cam.as_ref().is_some_and(|c|c.active)
+            || self.fresh.as_ref().is_some_and(|f|f.0)
+            || matches!(m.mode,Mode::Barter(_)) && !barter_touch::menu_allows(script,self.creator.as_deref(),m) {return None}
+        let (window,w)=self.windows.single().ok()?;let camera=self.default_camera.get()?;
+        let (c,target)=self.cameras.get(camera).ok()?;let size=w.resolution.size();
+        let density=w.scale_factor();let ui_scale=self.scale.as_ref().map_or(1.0,|s|s.0);
+        let units=crate::interface::unit_scale();
+        if !w.focused || !c.is_active || !size.is_finite() || size.min_element()<=0.0
+            || !density.is_finite() || density<=0.0 || !ui_scale.is_finite() || ui_scale<=0.0
+            || !units.is_finite() || units<=0.0
+            || !target.normalize(Some(window)).is_some_and(|t|matches!(t,
+                bevy::camera::NormalizedRenderTarget::Window(t) if t.entity()==window))
+            || c.logical_viewport_size().is_none_or(|s|!s.abs_diff_eq(size,0.01))
+            || c.physical_viewport_rect()!=Some(URect::from_corners(UVec2::ZERO,UVec2::new(w.physical_width(),w.physical_height())))
+            || c.physical_target_size()!=Some(UVec2::new(w.physical_width(),w.physical_height())) {return None}
+        let text_size=if matches!(m.mode,Mode::Barter(_)) {
+            readability::size(self.readability.as_deref(),crate::menu_readability::MenuKind::Barter)
+        } else {1.0};
+        Some(PhysicalMeterStamp {frame:barter_touch::Frame {window,camera,size,
+            safe:self.safe.as_ref().map_or_else(Default::default,|s|**s),density,ui_scale,
+            admitted:true,fresh:false,neutral:false},units,text_size})
+    }
+}
+fn meter_shape(node:&ComputedNode,at:UiGlobalTransform)->Option<[Vec2;3]> {
+    let basis=[node.normalize_point(at,Vec2::ZERO)?,node.normalize_point(at,Vec2::X)?,node.normalize_point(at,Vec2::Y)?];
+    basis.iter().all(|v|v.is_finite()).then_some(basis)
+}
+struct PhysicalMeterRequest {before:model::Quantity,amount:i32,shape:[Vec2;3],style:Node}
+#[derive(Component)]
+struct PhysicalMeterPaint {
+    stamp:Option<PhysicalMeterStamp>,prompt:normal_touch::RenderedMenu,style:Option<Node>,held_shape:Option<[Vec2;3]>,
+    requested:Option<PhysicalMeterRequest>,accepted:Option<PhysicalMeterRequest>,
+}
+impl PhysicalMeterPaint {
+    fn new(m:&MenuModel,text_size:f32,stamp:Option<PhysicalMeterStamp>)->Self {
+        Self {stamp,prompt:normal_touch::RenderedMenu::of(m,text_size),style:None,held_shape:None,requested:None,accepted:None}
+    }
+    fn applied(&mut self,cmd:Command,before:Option<model::Quantity>,m:&MenuModel) {
+        self.accepted=None;
+        let Some(request)=self.requested.take() else{return};
+        let Some(stamp)=self.stamp else{return};
+        let Some(after)=m.quantity else{return};
+        if cmd==Command::Amount(request.amount) && before==Some(request.before)
+            && after.amount==request.amount && before.is_some_and(|q|q.amount!=after.amount)
+            && self.prompt.amount_repaint(m,stamp.text_size) {
+            self.accepted=Some(request);
+        }
+    }
+}
+type PhysicalMeterInput<'w,'s>=Query<'w,'s,(&'static PointerState,&'static RelativeCursorPosition,
+    Option<(&'static Node,&'static ComputedNode,&'static bevy::ui::UiGlobalTransform,&'static bevy::ui::ComputedUiTargetCamera)>,
+    Option<&'static mut PhysicalMeterPaint>),With<AmountMeter>>;
+type PhysicalMeterNodes<'w,'s>=Query<'w,'s,(Entity,&'static PointerState,&'static mut PhysicalMeterPaint,
+    &'static Node,&'static ComputedNode,&'static bevy::ui::UiGlobalTransform,&'static bevy::ui::ComputedUiTargetCamera),With<AmountMeter>>;
+
+pub(crate) fn retire_physical_quantity_paint(world:&mut World) {
+    if !world.get_resource::<ActiveMenu>().and_then(|active|active.0.as_ref())
+        .is_some_and(|m|matches!(m.mode,Mode::Barter(_))) {return}
+    let mut paints=world.query::<&mut PhysicalMeterPaint>();
+    for mut paint in paints.iter_mut(world) {paint.stamp=None;paint.style=None;paint.requested=None;paint.accepted=None;}
+}
+
 /// The prompt's pointer: a press or drag on the meter sets the amount under it, the
 /// arrows and buttons act, the wheel moves the amount (up: more).
 fn quantity_mouse(
     active: Res<ActiveMenu>,
-    meter: Query<(&PointerState, &RelativeCursorPosition), With<AmountMeter>>,
+    mut meter: PhysicalMeterInput,
     buttons: Query<(&PointerState, &CmdButton), Changed<PointerState>>,
     mut wheel: MessageReader<MouseWheel>,
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
+    (environment,script):(PhysicalMeterEnvironment,Option<Res<crate::script::ScriptState>>),
 ) {
     let Some(q) = active.0.as_ref().and_then(|m| m.quantity) else {
         *lines = 0.0;
         return;
     };
-    for (i, at) in &meter {
-        if let (PointerState::Pressed, Some(p)) = (i, at.normalized) {
-            let n = model::amount_at(p.x + 0.5, q.max);
-            if n != q.amount {
+    let stamp=active.0.as_ref().and_then(|m|environment.stamp(m,script.as_deref()));
+    for (i,at,geometry,paint) in &mut meter {
+        let mut paint=paint;
+        if let Some(paint)=paint.as_mut(){paint.requested=None;}
+        // Geometry is required only by a known retained-paint contract. Ordinary
+        // meters keep their original two-component input admission.
+        if let Some(p)=paint.as_ref() {
+            let Some((style,node,transform,camera))=geometry else{continue};
+            if p.stamp!=stamp || p.style.as_ref()!=Some(style)
+                || active.0.as_ref().is_none_or(|m|!p.prompt.quantity_current(m))
+                || p.held_shape.is_some_and(|shape|meter_shape(node,*transform)!=Some(shape))
+                || stamp.is_some_and(|s|camera.get()!=Some(s.frame.camera)) {continue}
+        }
+        if let (PointerState::Pressed,Some(p))=(i,at.normalized) {
+            let n=model::amount_at(p.x+0.5,q.max);
+            if n!=q.amount {
+                if environment.held() && stamp.is_some() {
+                    if let Some((paint,(style,node,transform,_)))=paint.as_mut().zip(geometry) {
+                        if let Some(shape)=meter_shape(node,*transform) {
+                            paint.requested=Some(PhysicalMeterRequest {before:q,amount:n,shape,style:style.clone()});
+                        }
+                    }
+                }
                 out.write(MenuInput(Command::Amount(n)));
             }
         }
@@ -902,12 +1014,18 @@ fn apply_input(
     mut held: ResMut<PromptKeys>,
     after: Option<Res<crate::after_combat::AfterCombat>>,
     combat: Option<Res<crate::combat::Combat>>,
+    (mut mobile_barter, mut normal_barter): (barter_touch::Commits, normal_touch::Commits),
+    mut physical_meter:Query<&mut PhysicalMeterPaint>,
 ) {
     let mut script = script.map(|s| s.into_inner());
     let fighting = after.is_some_and(|a| a.fighting);
     // The commands left of a guard that failed ([`Command::Expect`]).
     let mut dropping = 0;
+    for mut paint in &mut physical_meter {paint.accepted=None;}
     for &MenuInput(cmd) in input.read() {
+        if !matches!(cmd,Command::Amount(_)) {
+            for mut paint in &mut physical_meter {paint.requested=None;paint.accepted=None;}
+        }
         let Some(m) = active.0.as_mut() else { return };
         if let Command::Expect(guard) = cmd {
             dropping = if m.row_is(&guard) { 0 } else { guard.then };
@@ -918,133 +1036,149 @@ fn apply_input(
         }
         if dropping > 0 {
             dropping -= 1;
+            if let Command::CommitBarter(token) = cmd { mobile_barter.discard(token); }
+            if let Command::CommitNormalBarter(token) = cmd { normal_barter.discard(token); }
             continue;
         }
-        // The player's tweak: the quantity to store with a companion stops at what it can
-        // carry [design: docs/design/tweaks.md].
-        if let (Command::One, Mode::Container(c)) = (cmd, m.mode) {
-            let cap = script.as_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.quantity_companion_cap && rt.game.is_teammate(c)).map(|rt| {
-                crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value(&mut rt.game, c, fnv_game::actor_values::CARRY_WEIGHT).unwrap_or(0.0)) as f32
-            });
-            m.companion_carry = cap;
-        }
-        // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
-        if matches!(cmd, Command::One) && m.mode == Mode::Inventory {
-            let item = m.selected_row(m.focus).filter(|r| !r.equipped && r.folder.is_none()).map(|r| r.item);
-            if let (Some(item), Some(rt)) = (item, script.as_mut().and_then(|s| s.rt.as_mut())) {
-                // The player's tweak: no skill book for a skill at 100 [design: docs/design/tweaks.md].
-                if crate::script::with_world(rt, &mut sim, |rt| rt.game.book_refused(item)) {
-                    info!("menu: {cmd:?}: refused, the book's skill is at 100 (tweak)");
-                    m.status = Some(crate::tweaks::BOOK_AT_MAX_LINE.into());
-                    sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
-                    continue;
+        let normal_token=if let Command::CommitNormalBarter(token)=cmd {Some(token)} else {None};
+        let commands = if let Command::CommitBarter(token) = cmd {
+            let Some(commands) = mobile_barter.resolve(token, m, &mut sim.world, script.as_deref()) else { continue };
+            commands
+        } else if let Command::CommitNormalBarter(token) = cmd {
+            let Some(commands) = normal_barter.resolve(token, m, &mut sim.world, script.as_deref()) else { continue };
+            commands
+        } else { [Some(cmd), None] };
+        for cmd in commands.into_iter().flatten() {
+            let Some(m) = active.0.as_mut() else { return };
+            // The player's tweak: the quantity to store with a companion stops at what it can
+            // carry [design: docs/design/tweaks.md].
+            if let (Command::One, Mode::Container(c)) = (cmd, m.mode) {
+                let cap = script.as_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.quantity_companion_cap && rt.game.is_teammate(c)).map(|rt| {
+                    crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value(&mut rt.game, c, fnv_game::actor_values::CARRY_WEIGHT).unwrap_or(0.0)) as f32
+                });
+                m.companion_carry = cap;
+            }
+            // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
+            if matches!(cmd, Command::One) && m.mode == Mode::Inventory {
+                let item = m.selected_row(m.focus).filter(|r| !r.equipped && r.folder.is_none()).map(|r| r.item);
+                if let (Some(item), Some(rt)) = (item, script.as_mut().and_then(|s| s.rt.as_mut())) {
+                    // The player's tweak: no skill book for a skill at 100 [design: docs/design/tweaks.md].
+                    if crate::script::with_world(rt, &mut sim, |rt| rt.game.book_refused(item)) {
+                        info!("menu: {cmd:?}: refused, the book's skill is at 100 (tweak)");
+                        m.status = Some(crate::tweaks::BOOK_AT_MAX_LINE.into());
+                        sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
+                        continue;
+                    }
+                    // The player's tweak: a weapon's requirements must be met [design: docs/design/tweaks.md].
+                    if let Some(why) = crate::script::with_world(rt, &mut sim, |rt| rt.game.weapon_requirement_unmet(item)) {
+                        info!("menu: {cmd:?}: refused, {why} (tweak)");
+                        m.status = Some(why);
+                        sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
+                        continue;
+                    }
+                    if crate::tweaks::healing_barred(rt, &mut sim, item, fighting) {
+                        info!("menu: {cmd:?}: refused, healing in combat (tweak)");
+                        m.status = Some(crate::tweaks::NO_HEALING_LINE.into());
+                        sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
+                        continue;
+                    }
                 }
-                // The player's tweak: a weapon's requirements must be met [design: docs/design/tweaks.md].
-                if let Some(why) = crate::script::with_world(rt, &mut sim, |rt| rt.game.weapon_requirement_unmet(item)) {
-                    info!("menu: {cmd:?}: refused, {why} (tweak)");
-                    m.status = Some(why);
-                    sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
-                    continue;
+            }
+            let before = crate::ui_sounds::MenuBefore::of(m);
+            let asking = m.quantity.is_some();
+            let quantity_before=m.quantity;
+            let a = m.apply(&mut sim.world, cmd);
+            for mut paint in &mut physical_meter {paint.applied(cmd,quantity_before,m);}
+            normal_barter.applied(normal_token,cmd,quantity_before,m);
+            held.0 |= m.quantity.is_some();
+            if let (false, Some(q)) = (asking, m.quantity) {
+                info!("menu: {cmd:?}: how many? ({} of {})", q.amount, q.max);
+            }
+            if asking && m.quantity.is_none() && matches!(cmd, Command::AmountCancel | Command::Close) {
+                info!("menu: {cmd:?}: prompt closed");
+            }
+            match cmd {
+                Command::Category(side, _) | Command::SetCategory(side, _) if m.mode != Mode::Inventory => {
+                    info!("menu: {cmd:?}: the {side:?} list shows {:?}", m.category[side as usize]);
                 }
-                if crate::tweaks::healing_barred(rt, &mut sim, item, fighting) {
-                    info!("menu: {cmd:?}: refused, healing in combat (tweak)");
-                    m.status = Some(crate::tweaks::NO_HEALING_LINE.into());
-                    sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
-                    continue;
+                Command::Focus(_) => info!("menu: {cmd:?}: the {:?} list has the focus", m.focus),
+                _ => {}
+            }
+            // What the command did, for its sound (`crate::ui_sounds`).
+            if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
+                sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
+            }
+            let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::StoreAll | Command::Drop | Command::DropStack | Command::Accept | Command::AmountOk);
+            if moves_items || a.changed {
+                if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {
+                    info!("menu: {cmd:?}: {s}");
                 }
             }
-        }
-        let before = crate::ui_sounds::MenuBefore::of(m);
-        let asking = m.quantity.is_some();
-        let a = m.apply(&mut sim.world, cmd);
-        held.0 |= m.quantity.is_some();
-        if let (false, Some(q)) = (asking, m.quantity) {
-            info!("menu: {cmd:?}: how many? ({} of {})", q.amount, q.max);
-        }
-        if asking && m.quantity.is_none() && matches!(cmd, Command::AmountCancel | Command::Close) {
-            info!("menu: {cmd:?}: prompt closed");
-        }
-        match cmd {
-            Command::Category(side, _) | Command::SetCategory(side, _) if m.mode != Mode::Inventory => {
-                info!("menu: {cmd:?}: the {side:?} list shows {:?}", m.category[side as usize]);
+            if let Some(item) = a.used {
+                used.write(ItemUsed { item: item.0, limb: None });
             }
-            Command::Focus(_) => info!("menu: {cmd:?}: the {:?} list has the focus", m.focus),
-            _ => {}
-        }
-        // What the command did, for its sound (`crate::ui_sounds`).
-        if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
-            sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
-        }
-        let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::StoreAll | Command::Drop | Command::DropStack | Command::Accept | Command::AmountOk);
-        if moves_items || a.changed {
-            if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {
-                info!("menu: {cmd:?}: {s}");
-            }
-        }
-        if let Some(item) = a.used {
-            used.write(ItemUsed { item: item.0, limb: None });
-        }
-        // Power armour without the training: the game's message, once the Pip-Boy is
-        // closed (`fnv_game::functions::refuse_power_armor`).
-        if a.power_armor_refused {
-            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
-                let m = fnv_game::functions::refuse_power_armor(&mut rt.game);
-                info!("menu: power armour refused: no Power Armor Training (message {})", m.map_or_else(|| "none".to_string(), |m| m.to_string()));
-            }
-        }
-        if a.traded > 0 {
-            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
-                rt.game.count_stat(fnv_game::misc_stats::BARTER_AMOUNT_TRADED, f64::from(a.traded));
-            }
-        }
-        // Picking a pocket: the pickpocket rules judge it (`crate::pickpocket`). A live
-        // explosive placed is armed now, and the pocket listed again, before the next
-        // command reads its rows (#1640).
-        if let Some(victim) = m.steal.as_ref().map(|s| s.victim) {
-            let mut placed = Vec::new();
-            if !a.given.is_empty() {
+            // Power armour without the training: the game's message, once the Pip-Boy is
+            // closed (`fnv_game::functions::refuse_power_armor`).
+            if a.power_armor_refused {
                 if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
-                    let c = combat.as_deref();
-                    // The player's tweak: under the weapon's skill requirement an explosive
-                    // goes in as a plain item [design: docs/design/tweaks.md].
-                    let short: Vec<FormId> = a.given.iter().map(|g| g.0).filter(|&item| c.is_some_and(|c| crate::pickpocket::under_skill(rt, &mut sim, c, item))).collect();
-                    placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut *m), |item| c.filter(|_| !short.contains(&item)).and_then(|c| crate::pickpocket::explosive_of(c, item)), victim, &a.given);
+                    let m = fnv_game::functions::refuse_power_armor(&mut rt.game);
+                    info!("menu: power armour refused: no Power Armor Training (message {})", m.map_or_else(|| "none".to_string(), |m| m.to_string()));
                 }
             }
-            if !a.taken.is_empty() || !a.given.is_empty() || a.caught.is_some() {
-                stolen.write(crate::pickpocket::Pickpocketed { victim, taken: a.taken.clone(), given: a.given.clone(), placed, caught: a.caught });
+            if a.traded > 0 {
+                if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    rt.game.count_stat(fnv_game::misc_stats::BARTER_AMOUNT_TRADED, f64::from(a.traded));
+                }
             }
-        } else if let (Mode::Container(c), false) = (m.mode, a.taken.is_empty()) {
-            // Taking owned items is theft (`crate::crime`).
-            taken.write(crate::crime::ItemsTaken { container: c, items: a.taken.clone() });
-        }
-        // A dropped item starts turned as its holder faces (GetAngle Z of the new reference
-        // equals the player's, X and Y 0 [observed: capture pc_drop_fall, physics.md
-        // §4.3]); `World::drop_item` leaves the rotation 0.
-        let heading = sim.world.peek(FormId::PLAYER_REF).map_or(0.0, |p| p.rot[2]);
-        for id in &a.created {
-            if let Ok(s) = sim.world.get(*id) {
-                s.rot = [0.0, 0.0, heading];
+            // Picking a pocket: the pickpocket rules judge it (`crate::pickpocket`). A live
+            // explosive placed is armed now, and the pocket listed again, before the next
+            // command reads its rows (#1640).
+            if let Some(victim) = m.steal.as_ref().map(|s| s.victim) {
+                let mut placed = Vec::new();
+                if !a.given.is_empty() {
+                    if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                        let c = combat.as_deref();
+                        // The player's tweak: under the weapon's skill requirement an explosive
+                        // goes in as a plain item [design: docs/design/tweaks.md].
+                        let short: Vec<FormId> = a.given.iter().map(|g| g.0).filter(|&item| c.is_some_and(|c| crate::pickpocket::under_skill(rt, &mut sim, c, item))).collect();
+                        placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut *m), |item| c.filter(|_| !short.contains(&item)).and_then(|c| crate::pickpocket::explosive_of(c, item)), victim, &a.given);
+                    }
+                }
+                if !a.taken.is_empty() || !a.given.is_empty() || a.caught.is_some() {
+                    stolen.write(crate::pickpocket::Pickpocketed { victim, taken: a.taken.clone(), given: a.given.clone(), placed, caught: a.caught });
+                }
+            } else if let (Mode::Container(c), false) = (m.mode, a.taken.is_empty()) {
+                // Taking owned items is theft (`crate::crime`).
+                taken.write(crate::crime::ItemsTaken { container: c, items: a.taken.clone() });
             }
-            let (at, count) = sim.world.peek(*id).map(|s| (s.pos, s.count)).unwrap_or_default();
-            info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
-            changed.write(RefChanged::new(id.0));
-        }
-        // A corpse's dropped weapon taken from its loot menu: picked up from the world,
-        // so its collision and drawing go (`model::Row::reference`).
-        for id in &a.picked {
-            info!("menu: picked up reference {id} lying beside the container");
-            changed.write(RefChanged::new(id.0));
-        }
-        if a.close {
-            info!("menu: close");
-            if *state.get() == PlayState::Menu {
-                next.set(PlayState::Playing);
-            } else if let Some(m) = active.0.take() {
-                // Over a conversation: it goes on (the drawing goes with the model).
-                crate::script::engine_menu_closed(script.as_deref_mut(), m.mode);
+            // A dropped item starts turned as its holder faces (GetAngle Z of the new reference
+            // equals the player's, X and Y 0 [observed: capture pc_drop_fall, physics.md
+            // §4.3]); `World::drop_item` leaves the rotation 0.
+            let heading = sim.world.peek(FormId::PLAYER_REF).map_or(0.0, |p| p.rot[2]);
+            for id in &a.created {
+                if let Ok(s) = sim.world.get(*id) {
+                    s.rot = [0.0, 0.0, heading];
+                }
+                let (at, count) = sim.world.peek(*id).map(|s| (s.pos, s.count)).unwrap_or_default();
+                info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
+                changed.write(RefChanged::new(id.0));
             }
-            return;
+            // A corpse's dropped weapon taken from its loot menu: picked up from the world,
+            // so its collision and drawing go (`model::Row::reference`).
+            for id in &a.picked {
+                info!("menu: picked up reference {id} lying beside the container");
+                changed.write(RefChanged::new(id.0));
+            }
+            if a.close {
+                info!("menu: close");
+                if *state.get() == PlayState::Menu {
+                    next.set(PlayState::Playing);
+                } else if let Some(m) = active.0.take() {
+                    // Over a conversation: it goes on (the drawing goes with the model).
+                    crate::script::engine_menu_closed(script.as_deref_mut(), m.mode);
+                }
+                return;
+            }
         }
     }
 }
@@ -1092,7 +1226,35 @@ fn draw(
     (combat, play, mut script): DrawSources,
     mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
     (tiles, mut was_tiled, tile_menu, barter_tiles, inventory_tiles): DrawTiles,
+    (readability,mut last_text_size):(Option<Res<crate::menu_readability::MenuReadability>>,Local<f32>),
+    (mut physical_meter,environment,mut repaint_input):(PhysicalMeterNodes,PhysicalMeterEnvironment,MessageReader<MenuInput>),
 ) {
+    // Drain even on unchanged/absent-menu early returns; queued input is not proof
+    // of consumption. The leaf receipt below is produced only by apply_input.
+    let mut requested=None;let mut amount_only=true;
+    for &MenuInput(cmd) in repaint_input.read() {
+        if let Command::Amount(n)=cmd {
+            if requested.replace(n).is_some(){amount_only=false;}
+        } else {amount_only=false;}
+    }
+    let stamp=active.0.as_ref().and_then(|m|environment.stamp(m,script.as_deref()));
+    let mut retained=None;let mut retained_shape=None;let mut count=0;let mut changed_presentation=false;
+    for (e,state,mut paint,style,node,at,camera) in &mut physical_meter {
+        count+=1;changed_presentation|=paint.stamp!=stamp || paint.style.as_ref()!=Some(style)
+            || paint.held_shape.is_some_and(|shape|meter_shape(node,*at)!=Some(shape));
+        let accepted=paint.accepted.take();paint.requested=None;
+        if amount_only && environment.held() && *state==PointerState::Pressed && stamp.is_some()
+            && paint.stamp==stamp && camera.get()==stamp.map(|s|s.frame.camera)
+            && active.0.as_ref().is_some_and(|m|paint.prompt.amount_repaint(m,stamp.unwrap().text_size))
+            && accepted.as_ref().is_some_and(|a|Some(a.amount)==requested && meter_shape(node,*at)==Some(a.shape) && a.style==*style)
+            && paint.held_shape.is_none_or(|shape|meter_shape(node,*at)==Some(shape)) {
+            retained=Some(e);
+            // Keep the first accepted visible basis through the held chain.
+            retained_shape=accepted.map(|a|paint.held_shape.unwrap_or(a.shape));
+        }
+    }
+    if count!=1 {retained=None;retained_shape=None;}
+
     // [design] With ContainerMenu or BarterMenu enabled the item menu draws from tiles
     // once its writer has the file built; a sheet takes the
     // pointer here instead (no click past it [documented: `&no_click_past;`]).
@@ -1104,10 +1266,16 @@ fn draw(
     let prompt = active.0.as_ref().is_some_and(|m| m.quantity.is_some());
     let inventory_tiled = inventory_tiles.is_some_and(|t| t.ready.is_some());
     let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::quantity_tiled(tiles.as_ref().is_some_and(|t| t.quantity), &rt.game, prompt, item_tiled || inventory_tiled));
-    if !active.is_changed() && !roots.is_empty() && (tiled, item_tiled) == *was_tiled {
+    if tiled || !prompt {retained=None;retained_shape=None;}
+    let text_size=if active.0.as_ref().is_some_and(|m|matches!(m.mode,Mode::Barter(_))) {
+        readability::size(readability.as_deref(),crate::menu_readability::MenuKind::Barter)
+    } else {1.0};
+    if !active.is_changed() && !roots.is_empty() && (tiled, item_tiled) == *was_tiled && *last_text_size==text_size && !changed_presentation {
         return;
     }
     *was_tiled = (tiled, item_tiled);
+    *last_text_size=text_size;
+    if let Some(e)=retained {commands.entity(e).remove::<ChildOf>();}
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -1118,6 +1286,7 @@ fn draw(
     }
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| look::Kit::load(data.as_deref(), &mut images, bc));
+    kit.set_text_size(text_size);
     // The lists' scroll positions follow the rows drawn (`MenuModel::pointer_pick`).
     if m.mode != Mode::Inventory && !item_tiled {
         let first = [Side::Container, Side::Player].map(|s| look::drawn_first(m, s, kit));
@@ -1135,7 +1304,7 @@ fn draw(
         ..default()
     };
     if item_tiled {
-        commands.spawn((MenuRoot, screen.clone(), GlobalZIndex(100))).with_children(|root| {
+        commands.spawn((MenuRoot, normal_touch::RenderedMenu::of(m,text_size), screen.clone(), GlobalZIndex(100))).with_children(|root| {
             root.spawn(crate::tiles::menus::modal_sheet());
             // [design] Barter has no subtitle tile; keep the model's own refusal words.
             if matches!(m.mode, Mode::Barter(_)) {
@@ -1152,7 +1321,7 @@ fn draw(
             *forms = play.as_ref().map(|p| crate::pipboy::stats::read::Forms::new(p.lo, p.schema));
         }
         let info = m.selected_row(m.focus).map(|r| crate::pipboy::items::info_of(r, combat.as_deref(), sim.bypass_change_detection(), forms.as_mut(), script.as_mut().map(|s| s.bypass_change_detection())));
-        commands.spawn((MenuRoot, screen.clone(), GlobalZIndex(100))).with_children(|root| {
+        commands.spawn((MenuRoot, normal_touch::RenderedMenu::of(m,text_size), screen.clone(), GlobalZIndex(100))).with_children(|root| {
             look::spawn(root, m, note.as_deref(), info.as_ref(), kit, data.as_deref(), &mut images, bc, &glyphs);
         });
     }
@@ -1170,12 +1339,17 @@ fn draw(
                 _ => (None, None),
             };
             let extra = look::quantity_line(price, weight, q.amount);
-            commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
-                look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc, &glyphs, extra.as_deref());
+            commands.spawn((MenuRoot, normal_touch::RenderedMenu::of(m,text_size), screen, GlobalZIndex(101))).with_children(|root| {
+                let paint=matches!(m.mode,Mode::Barter(_)).then(|| {
+                    let mut paint=PhysicalMeterPaint::new(m,text_size,stamp);
+                    paint.held_shape=retained_shape;paint
+                });
+                look::spawn_quantity_reusing(root,q,&words,(kit,data.as_deref(),&mut images,bc,&glyphs,extra.as_deref()),
+                    (retained,paint));
             });
         }
         (crate::tiles::menus::Modal::Sheet, _) => {
-            commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
+            commands.spawn((MenuRoot, normal_touch::RenderedMenu::of(m,text_size), screen, GlobalZIndex(101))).with_children(|root| {
                 root.spawn(crate::tiles::menus::modal_sheet());
             });
         }
@@ -1231,3 +1405,6 @@ mod preactivation_tests;
 
 #[cfg(test)]
 mod preactivation_mutation_tests;
+
+#[cfg(test)]
+pub(crate) mod classic_dialogue_tests;

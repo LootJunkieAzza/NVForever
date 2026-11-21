@@ -36,8 +36,9 @@
 //! stay, [`draw`] spawns only a sheet that keeps the pointer from what is under the menu, and
 //! what the tiles are asked comes in as [`RepairServicesInput`].
 
-use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face, Pictures};
+use crate::interface::{amber, bc_supported, face, plain_font, u, Pictures};
 use crate::pause::AidTime;
+use crate::menu::readability::Typeface as Face;
 use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::start_menu::{color, highlight_colors, Shade, LINE};
@@ -109,6 +110,9 @@ const ROW_FONT: usize = 2;
 
 pub struct RepairPlugin;
 
+#[derive(SystemSet,Debug,Clone,Copy,PartialEq,Eq,Hash)]
+pub(crate) struct NormalInput;
+
 impl Plugin for RepairPlugin {
     fn build(&self, app: &mut App) {
         let mut aid = Vec::new();
@@ -124,7 +128,7 @@ impl Plugin for RepairPlugin {
         app.init_resource::<RepairServices>()
             .add_message::<RepairServicesInput>()
             .insert_resource(RepairAid(aid))
-            .add_systems(Update, (scripts_open, (keys, draw).chain().run_if(in_state(PlayState::Menu))).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (scripts_open, (keys.in_set(NormalInput), draw).chain().run_if(in_state(PlayState::Menu))).chain().in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close);
     }
 }
@@ -138,6 +142,17 @@ struct RepairAid(Vec<(f32, String)>);
 pub struct RepairServices(pub Option<Open>);
 
 impl RepairServices {
+    pub(crate) fn normal_same_session(&self,vendor:FormId,selected:usize)->bool {
+        self.0.as_ref().is_some_and(|o|o.vendor==vendor && o.selected==selected)
+    }
+    pub(crate) fn normal_guard(&self)->Option<crate::menu::normal_services::Guard> {
+        self.0.as_ref()?.normal_guard()
+    }
+    pub(crate) fn normal_matches(&self,guard:&crate::menu::normal_services::Guard)->bool {
+        let Some(o)=self.0.as_ref() else{return false};
+        let crate::menu::normal_services::Guard::Vendor {vendor,view}=guard else{return false};
+        *vendor==o.vendor && o.drawn.as_ref().is_some_and(|v|v.normal_matches(view))
+    }
     /// [design, #2403 / file refs] Logical repair choices and displayed conditions/costs;
     /// excludes `Open::navigated`, pointer state and drawing labels.
     pub fn progress(&self) -> Option<impl std::fmt::Debug + '_> {
@@ -166,6 +181,16 @@ pub struct Open {
 }
 
 impl Open {
+    pub(crate) fn normal_guard(&self)->Option<crate::menu::normal_services::Guard> {
+        Some(crate::menu::normal_services::Guard::Vendor {vendor:self.vendor,view:self.drawn.as_ref()?.clone()})
+    }
+    pub(crate) fn normal_owner_matches(&self,guard:Option<&crate::menu::normal_services::Guard>)->bool {
+        matches!(guard,Some(crate::menu::normal_services::Guard::Vendor {vendor,..}) if *vendor==self.vendor)
+    }
+
+    pub(crate) fn touch_view(&self) -> Option<(FormId, &View)> {
+        self.drawn.as_ref().map(|view| (self.vendor, view))
+    }
     /// What the menu showed last, for the tiles' writer: the view, and [`Open::pointer_pick`]
     /// and [`Open::navigated`].
     pub(crate) fn shown(&self) -> Option<(&View, bool, u32)> {
@@ -198,6 +223,8 @@ impl Open {
 /// on the hand-built menu do [design: repair.md §3.1].
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RepairServicesInput {
+    /// Internal once-only request from the ordinary finger adapter.
+    CommitNormal(u64),
     /// The pointer came onto a row.
     Hover(usize),
     /// A click on a row not selected.
@@ -218,7 +245,7 @@ pub(crate) const BEYOND_WORDS: &str = "The vendor's skill is too low to repair t
 struct RepairRoot;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
-enum RepairButton {
+pub(crate) enum RepairButton {
     Row(usize),
     All,
     Done,
@@ -258,6 +285,14 @@ pub(crate) struct View {
     pub(crate) confirming: bool,
     /// The names the hints use (`crate::pad::labels`).
     pub(crate) labels: crate::pad::Labels,
+}
+
+impl View {
+    pub(crate) fn normal_matches(&self,other:&Self)->bool {
+        self.rows==other.rows && self.selected==other.selected && self.skill==other.skill
+            && self.caps==other.caps && self.total==other.total && self.all_ready==other.all_ready
+            && self.confirming==other.confirming && self.labels==other.labels
+    }
 }
 
 /// What `open` lists now (with the world in the runtime).
@@ -394,6 +429,7 @@ fn keys(
     mut moved: MessageReader<bevy::window::CursorMoved>,
     mut commands: Commands,
     mut on_tiles: MessageReader<RepairServicesInput>,
+    (mut touch,mut normal):(crate::maintenance_touch::Requests,crate::menu::normal_services::Commits),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let keys = keys.snapshot();
@@ -402,6 +438,8 @@ fn keys(
     let pointer_moved = moved.read().count() > 0;
     // What the tiles asked: read whatever else happens, so none of it waits for a later frame.
     let asked: Vec<RepairServicesInput> = on_tiles.read().copied().collect();
+    let normal_tokens:Vec<_>=asked.iter().filter_map(|a|if let RepairServicesInput::CommitNormal(t)=a {Some(*t)}else{None}).collect();
+    let mobile = touch.take(crate::maintenance_touch::Kind::Vendor);
     let Some(open) = menu.0.as_mut() else { return };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     // A world aid (`crate::pause::WorldAidClock`).
@@ -417,7 +455,7 @@ fn keys(
         info!("repair menu: screenshot repair_menu.png");
         commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk("repair_menu.png"));
     }
-    let v = open.drawn.clone().unwrap_or_else(|| view(rt, &mut sim, combat.as_deref(), open));
+    let mut v = open.drawn.clone().unwrap_or_else(|| view(rt, &mut sim, combat.as_deref(), open));
     let n = v.rows.len();
     let before = open.selected;
     let mut clicked = None;
@@ -443,13 +481,62 @@ fn keys(
     // After the keys: a click acts on the row it was on.
     open.chosen_on_tiles(&asked, n);
     let tile_asked = |a: RepairServicesInput| asked.contains(&a);
+    let mut touch_one = false;
+    let mut touch_done = false;
+    let mut normal_all=false;
+    // Existing physical/native selection has already run. Validate each mobile action
+    // against the actual current quote/unit/caps and current selection, not the last
+    // rendered vendor list. Only one confirmation may act in a batch.
+    for request in mobile {
+        if !crate::maintenance_touch::menu_allows(crate::maintenance_touch::Kind::Vendor, Some(&rt.game)) { continue; }
+        let live = view(rt, &mut sim, combat.as_deref(), open);
+        if !request.vendor(open.vendor, &live) { open.drawn = None; continue; }
+        use crate::maintenance_touch::Action;
+        match request.action {
+            Action::Select(i) if i < live.rows.len() => { open.selected = i; open.pointer_pick = true; open.drawn = None; }
+            Action::Scroll(by) => { open.first = crate::maintenance_touch::scroll(open.first, by, live.rows.len()); open.drawn = None; }
+            Action::Confirm if !touch_one => {
+                touch_one = live.rows.get(open.selected).is_some_and(|r| r.ready);
+                v = live;
+                if touch_one { break; }
+            }
+            Action::Cancel => { touch_done = true; break; }
+            _ => {}
+        }
+    }
+    // Resolve normal-menu touch only after existing physical/native selection.
+    // The actual current view/quote supplies eligibility; original repair_one
+    // and RepairAll below remain the only effect paths.
+    for token in normal_tokens {
+        let live=view(rt,&mut sim,combat.as_deref(),open);
+        let current=crate::menu::normal_services::Guard::Vendor {vendor:open.vendor,view:live};
+        let action=normal.resolve(token,&current,&rt.game,touch.enabled());
+        let crate::menu::normal_services::Guard::Vendor {view:live,..}=current else{continue};
+        use crate::menu::normal_services::Action;
+        match action {
+            Some(Action::Vendor(RepairServicesInput::Select(i)|RepairServicesInput::Hover(i))) if i<live.rows.len()=>{
+                open.selected=i;open.pointer_pick=true;open.drawn=None;
+            }
+            Some(Action::Vendor(RepairServicesInput::Repair))=>{
+                touch_one=live.rows.get(open.selected).is_some_and(|r|r.ready);v=live;
+                if touch_one {break}
+            }
+            Some(Action::Vendor(RepairServicesInput::All))=>{normal_all=true;v=live;break}
+            Some(Action::Vendor(RepairServicesInput::Done))=>{touch_done=true;break}
+            Some(Action::Browse(0,by))=>{
+                open.first=(open.first as i64).saturating_add(by).clamp(0,live.rows.len().saturating_sub(1) as i64) as usize;
+                open.pointer_pick=true;open.drawn=None;
+            }
+            _=>{},
+        }
+    }
     if open.selected != before {
         sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Focus });
         if std::mem::take(&mut open.confirming) {
             open.drawn = None;
         }
     }
-    if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab]) || clicked == Some(RepairButton::Done) || act("done") || tile_asked(RepairServicesInput::Done) {
+    if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab]) || clicked == Some(RepairButton::Done) || act("done") || tile_asked(RepairServicesInput::Done) || touch_done {
         info!("repair menu: done");
         sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Back });
         next.set(after_close(&rt.game));
@@ -457,8 +544,8 @@ fn keys(
     }
     let forms = sim.forms;
     let vendor = open.vendor;
-    let one = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) || matches!(clicked, Some(RepairButton::Row(_))) || act("repair") || tile_asked(RepairServicesInput::Repair);
-    let all = keys.just_pressed(KeyCode::KeyA) || clicked == Some(RepairButton::All) || act("all") || tile_asked(RepairServicesInput::All);
+    let one = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) || matches!(clicked, Some(RepairButton::Row(_))) || act("repair") || tile_asked(RepairServicesInput::Repair) || touch_one;
+    let all = keys.just_pressed(KeyCode::KeyA) || clicked == Some(RepairButton::All) || act("all") || tile_asked(RepairServicesInput::All) || normal_all;
     // The player's Repair All Confirmation tweak: a Repair All at or over its price asks
     // first; any other repair takes the question back [design: docs/design/tweaks.md].
     let asks = tweaks.as_deref().filter(|t| t.repair_all_confirm).is_some_and(|t| v.total as f32 >= t.repair_all_threshold);
@@ -472,7 +559,9 @@ fn keys(
         sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Focus });
         return;
     }
-    open.confirming = false;
+    // An idle frame between deliberate presses is not another repair intent.
+    // Selection, close and a single repair retain their existing cancellation paths.
+    if one || all {open.confirming = false;}
     if one {
         let Some(r) = v.rows.get(open.selected.min(n.saturating_sub(1))) else { return };
         let name = crate::menu::model::display_name(forms, r.item);
@@ -521,27 +610,27 @@ struct RepairLook {
 /// A line of text whose top is at `top` (as the menu files place texts).
 fn text(p: &mut ChildSpawnerCommands, f: &Face, s: &str, x: f32, top: f32, c: Color) {
     if let Some(line) = f.font.lines(s, None).into_iter().next() {
-        set_line(p, f, &line, x, top + crate::pipboy::frame::base(&f.font), c);
+        crate::menu::readability::line(p,f,&line,Vec2::new(x,top+crate::pipboy::frame::base(&f.font)*f.scale),f.scale,c);
     }
 }
 
 fn right(p: &mut ChildSpawnerCommands, f: &Face, s: &str, x: f32, top: f32, c: Color) {
-    text(p, f, s, x - f.font.width(s), top, c);
+    text(p, f, s, x - f.width(s), top, c);
 }
 
 fn centred(p: &mut ChildSpawnerCommands, f: &Face, s: &str, x: f32, top: f32, c: Color) {
-    text(p, f, s, x - f.font.width(s) / 2.0, top, c);
+    text(p, f, s, x - f.width(s) / 2.0, top, c);
 }
 
 fn wrapped(p: &mut ChildSpawnerCommands, f: &Face, s: &str, x: f32, top: f32, width: f32, c: Color) {
-    for (i, line) in f.font.lines(s, Some(width)).iter().enumerate() {
-        set_line(p, f, line, x, top + crate::pipboy::frame::base(&f.font) + LINE_PITCH * i as f32, c);
+    for (i, line) in f.font.lines(s, Some(width/f.scale)).iter().enumerate() {
+        crate::menu::readability::line(p,f,line,Vec2::new(x,top+(crate::pipboy::frame::base(&f.font)+LINE_PITCH*i as f32)*f.scale),f.scale,c);
     }
 }
 
 /// A row's height: its name's lines and the padding (the barter menu's rule).
 fn row_height(f: &Face, label: &str) -> f32 {
-    crate::menu::look::row_height(f.font.lines(label, Some(NAME_WRAP)).len().max(1))
+    (crate::menu::look::row_height(f.font.lines(label, Some(NAME_WRAP/f.scale)).len().max(1))*f.scale).max(crate::menu::look::row_height(1))
 }
 
 fn at(x: f32, y: f32, w: f32, h: f32) -> Node {
@@ -571,9 +660,9 @@ fn card(p: &mut ChildSpawnerCommands, f: &Face, x: f32, y: f32, title: &str, val
 
 /// Which rows show: from the first shown, moved as little as keeps the chosen one in
 /// view, as many as fit the list's height.
-fn window(look: &RepairLook, v: &View) -> std::ops::Range<usize> {
+fn window(look: &RepairLook, v: &View,follow:bool) -> std::ops::Range<usize> {
     let heights: Vec<f32> = v.rows.iter().map(|r| row_height(&look.row, &r.label)).collect();
-    let mut first = v.first.min(v.selected);
+    let mut first = if follow {v.first.min(v.selected)}else{v.first}.min(heights.len());
     loop {
         let mut used = 0.0;
         let mut end = first;
@@ -581,14 +670,15 @@ fn window(look: &RepairLook, v: &View) -> std::ops::Range<usize> {
             used += heights[end];
             end += 1;
         }
-        if v.selected < end || end >= heights.len() || first >= v.selected {
+        if !follow || v.selected < end || end >= heights.len() || first >= v.selected {
             return first..end.max(first + 1).min(heights.len());
         }
         first += 1;
     }
 }
 
-fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
+fn spawn(commands: &mut Commands, look: &mut RepairLook, presentation:(&View,crate::menu::normal_services::Guard), data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
+    let (v,guard)=presentation;
     let node = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-MAIN.x / 2.0)), top: crate::interface::from_top((960.0 - MAIN.y) / 2.0, 0.5), width: u(MAIN.x), height: u(MAIN.y), ..default() };
     let bright = color(Shade::Bright);
     let dim = amber(DIM);
@@ -596,14 +686,14 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<
     let arrow = look.pictures.picture("interface\\shared\\arrow\\repair_arrow_down.dds", data, images, bc);
     let chosen = v.rows.get(v.selected);
     let icon = chosen.and_then(|r| r.icon.as_deref()).and_then(|i| look.pictures.picture(i, data, images, bc));
-    commands.spawn((RepairRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(crate::interface::TOP_MENU_Z), crate::interface::top_menu_backing())).with_children(|root| {
+    commands.spawn((RepairRoot, crate::menu::normal_services::Rendered::new(guard,look.row.scale), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(crate::interface::TOP_MENU_Z), crate::interface::top_menu_backing())).with_children(|root| {
         root.spawn(node).with_children(|m| {
             // The headline: "Repair Services", the vendor's skill and the player's caps,
             // each part closed by a short side fading down [documented].
             let title = "Repair Services";
-            let tw = look.title.font.width(title);
+            let tw = look.title.width(title);
             let caps = format!("Caps  {}", v.caps);
-            let v2 = (1010.0 - look.row.font.width(&caps) - 35.0).max(860.0);
+            let v2 = (1010.0 - look.row.width(&caps) - 35.0).max(860.0);
             rule(m, 0.0, 0.0, 50.0, LINE);
             rule(m, tw + 90.0, 0.0, (v2 - tw - 90.0).max(0.0), LINE);
             rule(m, v2 + 10.0, 0.0, (MAIN.x - v2 - 10.0).max(0.0), LINE);
@@ -614,16 +704,17 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<
             right(m, &look.row, &format!("Repair Skill  {}", v.skill), v2 - 15.0, 20.0, bright);
             right(m, &look.row, &caps, 1005.0, 20.0, bright);
             // The list.
-            let mut y = LIST_TOP;
-            for i in window(look, v) {
+            m.spawn(Node {overflow:Overflow::clip(),..at(ROW_X,LIST_TOP,ROW_WIDTH+30.0,LIST_HEIGHT)}).with_children(|list| {
+            let mut y = 0.0;
+            for i in window(look, v,false) {
                 let r = &v.rows[i];
                 let h = row_height(&look.row, &r.label);
                 let (line, fill) = highlight_colors();
                 let on = i == v.selected;
                 let c = if r.ready { bright } else { dim };
-                let n = Node { border: UiRect::all(u(LINE)), ..at(ROW_X, y, ROW_WIDTH + 30.0, h) };
-                m.spawn((Button, RepairButton::Row(i), n, BorderColor::all(if on { line } else { Color::NONE }), BackgroundColor(if on { fill } else { Color::NONE }))).with_children(|row| {
-                    wrapped(row, &look.row, &r.label, NAME_X, NAME_Y, NAME_WRAP, c);
+                let n = Node { border: UiRect::all(u(LINE)), ..at(0.0, y, ROW_WIDTH + 30.0, h) };
+                list.spawn((Button, RepairButton::Row(i), n, BorderColor::all(if on { line } else { Color::NONE }), BackgroundColor(if on { fill } else { Color::NONE }))).with_children(|row| {
+                    wrapped(row, &look.row, &r.label, NAME_X, NAME_Y*look.row.scale, NAME_WRAP, c);
                     bar(row, BAR, r.condition, c);
                     if r.extra.equipped {
                         let node = at(MARKER.min.x, MARKER.min.y, MARKER.width(), MARKER.height());
@@ -639,6 +730,7 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<
                 });
                 y += h;
             }
+            });
             if v.rows.is_empty() {
                 // [observed: none; the words are ours, the original's `sNoItemsToRepair` is
                 // not in the masters].
@@ -723,8 +815,18 @@ fn draw(
     formats: Option<Res<CompressedImageFormatSupport>>,
     glyphs: Res<crate::pad::PadGlyphs>,
     (switch, mut was_tiled): (Option<Res<crate::tiles::vanilla::TileMenus>>, Local<bool>),
+    touch: Option<Res<crate::maintenance_touch::State>>,
+    readability:Option<Res<crate::menu_readability::MenuReadability>>,
 ) {
     let Some(open) = menu.0.as_mut() else { return };
+    if touch.as_ref().is_some_and(|s| s.visible()) {
+        if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
+            // The alternate list owns its actual first row. Legacy window() keeps the
+            // selected row visible and would otherwise undo an intentional touch scroll.
+            open.drawn = Some(view(rt, &mut sim, combat.as_deref(), open));
+        }
+        return;
+    }
     // The one decision with the tiles' writer, whose drawing replaces this one.
     let tiled = switch.is_some_and(|s| s.repair_services) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::repair_services_menu::tiled(true, &rt.game, true));
     if tiled {
@@ -746,22 +848,25 @@ fn draw(
     let bc = bc_supported(formats.as_deref());
     let Some(mut look) = look else {
         let font = |n: usize, images: &mut Assets<Image>| face(crate::pipboy::frame::FONTS[n - 1], plain_font(30.0, 14.0), data.as_deref(), images, bc);
-        commands.insert_resource(RepairLook { title: font(TITLE_FONT, &mut images), gain: font(GAIN_FONT, &mut images), row: font(ROW_FONT, &mut images), pictures: Pictures::load(data.as_deref()) });
+        commands.insert_resource(RepairLook { title: font(TITLE_FONT, &mut images).into(), gain: font(GAIN_FONT, &mut images).into(), row: font(ROW_FONT, &mut images).into(), pictures: Pictures::load(data.as_deref()) });
         return;
     };
+    let text_size=crate::menu::readability::size(readability.as_deref(),crate::menu_readability::MenuKind::Repair);
+    let resized=look.row.scale!=text_size;
+    if resized {look.title.scale=text_size;look.gain.scale=text_size;look.row.scale=text_size;}
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     // Back from the tiles (the file gone, its tree dropped): the hand-built menu is drawn anew.
     let back = std::mem::take(&mut *was_tiled);
     let mut v = view(rt, &mut sim, combat.as_deref(), open);
-    v.first = window(&look, &v).start;
+    v.first = window(&look, &v,!open.pointer_pick).start;
     open.first = v.first;
-    if open.drawn.as_ref() == Some(&v) && !roots.is_empty() && !back {
+    if open.drawn.as_ref() == Some(&v) && !roots.is_empty() && !back && !resized {
         return;
     }
     for e in &roots {
         commands.entity(e).despawn();
     }
-    spawn(&mut commands, &mut look, &v, data.as_deref(), &mut images, bc, &glyphs);
+    spawn(&mut commands, &mut look, (&v,crate::menu::normal_services::Guard::Vendor {vendor:open.vendor,view:v.clone()}), data.as_deref(), &mut images, bc, &glyphs);
     open.selected = v.selected;
     open.drawn = Some(v);
 }
@@ -832,6 +937,9 @@ pub fn report_progress_fixture(step: usize) -> RepairServices {
     });
     RepairServices(Some(o))
 }
+
+#[cfg(test)]
+mod maintenance_tests;
 
 #[cfg(test)]
 mod tests {

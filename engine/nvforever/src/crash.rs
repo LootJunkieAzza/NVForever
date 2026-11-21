@@ -211,6 +211,7 @@ pub(crate) fn old_files(names: &[String], prefix: &str, ext: &str, keep: usize) 
 
 /// Why the run with process id `pid` stopped at the start, from its run log beside this
 /// run's (handoff.rs: a new run that ended before it was ready).
+#[cfg(not(target_os = "android"))]
 pub fn stopped_at_start(pid: u32) -> Option<String> {
     let dir = LOG_DIR.get()?;
     let tail = format!("-{pid}.log");
@@ -220,6 +221,7 @@ pub fn stopped_at_start(pid: u32) -> Option<String> {
     stop_reason(&std::fs::read_to_string(log).ok()?)
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 fn stop_reason(text: &str) -> Option<String> {
     text.lines().find_map(|l| l.strip_prefix(ERROR_EXIT)).map(|r| r.trim().to_string())
 }

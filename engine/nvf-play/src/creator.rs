@@ -829,6 +829,13 @@ fn draw(
     st.hits = hits;
 }
 
+// The map regression opens the actual model through sync, not a forged is_open flag.
+#[cfg(test)]
+pub(crate) fn synchronize_for_map_control(world:&mut World) {
+    use bevy::ecs::system::RunSystemOnce;
+    world.run_system_once(sync).unwrap();
+}
+
 /// [design, #2403] Synthetic logical/ineffective states for detector regressions.
 #[cfg(feature = "report-test-support")]
 #[doc(hidden)]

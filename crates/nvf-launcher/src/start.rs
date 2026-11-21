@@ -17,7 +17,7 @@ pub const INTRO_KEY: &str = "sIntroMovie";
 pub const TTW_QUEST: &str = "001FFFF8";
 
 /// The card's fields.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct Fields {
     /// `sCharGenQuest` (a FormID or an Editor ID); empty: no line, the New Vegas opening.
     pub quest: String,

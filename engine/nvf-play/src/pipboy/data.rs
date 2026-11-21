@@ -60,6 +60,7 @@
 //! plugin knows only [`draw`]).
 
 pub mod marker;
+pub mod touch_map;
 mod model;
 mod outline;
 pub(crate) mod read;
@@ -395,6 +396,8 @@ pub struct DataState {
     /// Each tab's selected row and first row shown, and how many rows fit when last drawn.
     sel: [usize; 5],
     first: [usize; 5],
+    /// Direct scrollbar view movement, independent of the selected gameplay row.
+    manual_list: Option<(usize, usize)>,
     fit: [usize; 5],
     /// The selected row is boxed (the pointer is on it, or a key moved it).
     boxed: bool,
@@ -796,6 +799,13 @@ pub struct Game<'w> {
 pub struct Input<'w, 's> {
     keys: crate::pad::ActionButtons<'w, KeyCode>,
     wheel: MessageReader<'w, 's, MouseWheel>,
+    touch_wheel: Option<Res<'w,super::touch_scroll::WheelFrame>>,
+    physical:Option<Res<'w,super::touch_scroll::PhysicalPriority>>,
+    touch_pip: Option<Res<'w,super::PipBoy>>,
+    touch_map: Option<ResMut<'w,touch_map::TouchMap>>,
+    map_gate: touch_map::Gate<'w,'s>,
+    // Separate from the raw bridge's shared gate: its parent owns this overlay mutably.
+    map_overlay: Option<Res<'w, super::touch_items::OverlayCapture>>,
     menu: MessageReader<'w, 's, MenuInput>,
     pip_out: MessageWriter<'w, PipBoyInput>,
     time: Res<'w, Time<Real>>,
@@ -983,6 +993,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
         track(st, game);
     }
     let Some(tab) = open else {
+        if let Some(touch)=input.touch_map.as_deref_mut() {touch.cancel();}
         st.was_open = false;
         st.popup = None;
         st.note_shown = None;
@@ -1010,10 +1021,13 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     }
     // With Controller chosen the controls answer the controller only (pad.rs): the mouse
     // pointer is ignored so it cannot take the highlight box back from the stick.
-    let pointer = screen.and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
-    st.pointer_now = screen.and_then(|s| s.pointer);
-    st.aiming = pointer.is_some();
+    let mouse_pointer = screen.and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
     let e = early.unwrap_or_default();
+    let map_allowed = !e.hold && touch_map::source_allows(game.script.as_deref());
+    let direct_map = touch_map::take(st,tab,screen,input,map_allowed);
+    let pointer = direct_map.map(|frame|frame.0).or(mouse_pointer);
+    st.pointer_now = pointer.or_else(||screen.and_then(|s|s.pointer));
+    st.aiming = pointer.is_some();
     if e.hold {
         hold_input(st, tab, &lists, input);
     } else {
@@ -1032,6 +1046,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     // it was, and with it the Travel hint's marker (#1897).
     let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
     let view = build(st, tab, &lists, game, on_map, pointer.is_some());
+    touch_map::finish(st,&view,direct_map.and_then(|frame|frame.1));
     // The hints are logged when they change from what was last shown: the hand-built drawing's
     // last view, or with the early preparation the last one prepared.
     let last = if early.is_some() { st.last_view.as_ref() } else { st.shown.as_ref() };
@@ -1152,6 +1167,25 @@ fn hold_input(st: &mut DataState, tab: usize, l: &Lists, input: &mut Input) {
 /// Note the order quests are listed in, the markers the player finds, and where the
 /// player was last outdoors.
 impl DataState {
+    #[cfg(test)]
+    pub(crate) fn take_touch_test_actions(&mut self) -> Vec<Act> { std::mem::take(&mut self.acts) }
+
+    /// Identity of actions deferred by a native touch contact. No action or state changes here.
+    pub(crate) fn touch_action_context(&self, tab: usize) -> super::touch_scroll::DataActionContext {
+        let marker = |m: CustomMarker| (m.space, m.pos.map(f32::to_bits));
+        let selection = self.sel.get(tab).copied().unwrap_or(0);
+        super::touch_scroll::DataActionContext {
+            selection,
+            key: self.prepared.as_ref().filter(|p| p.view.tab == tab).and_then(|p| p.keys.get(selection)).copied(),
+            challenges: self.challenges,
+            filtered: self.notes_of_active,
+            quest: self.active_quest,
+            travel: self.travel_marker,
+            custom: self.custom.map(marker),
+            spot: self.spot.get(tab).copied().flatten().map(marker),
+        }
+    }
+
     /// What the page shows as last prepared, for the drawing from the file
     /// (`crate::tiles::map_menu`).
     pub(crate) fn prepared(&self) -> Option<&Prepared> {
@@ -1223,6 +1257,9 @@ impl DataState {
         }
     }
 
+    /// Whether the DATA page currently owns a popup; external input must leave it in control.
+    pub fn has_popup(&self) -> bool { self.popup().is_some() }
+
     /// The question box over the map (fast travel's or Place Marker's), while it is up.
     pub(crate) fn popup(&self) -> Option<&Popup> {
         self.popup.as_ref()
@@ -1244,6 +1281,20 @@ impl DataState {
     /// (`super::sounds`).
     pub fn selection(&self, tab: usize) -> (usize, bool) {
         (self.sel.get(tab).copied().unwrap_or(0), self.challenges)
+    }
+    pub fn list_scroll(&self, tab: usize) -> Option<usize> {
+        (tab >= QUESTS && tab < self.first.len()).then(|| self.first[tab])
+    }
+    pub(crate) fn scroll_list_by(&mut self, tab: usize, by: super::scrollbar::ScrollBy) -> bool {
+        let Some(view) = self.shown.as_ref().filter(|v| v.tab == tab).or_else(|| self.prepared.as_ref().map(|p|&p.view).filter(|v|v.tab==tab)) else { return false };
+        let Body::List { rows, .. } = &view.body else { return false };
+        let now = self.first[tab];
+        let page = self.fit[tab].max(1);
+        let Some(to) = by.value(now as f64, rows.len().saturating_sub(page) as f64, page as f64) else { return false };
+        self.first[tab] = to as usize;
+        self.manual_list = Some((tab, self.sel[tab]));
+        self.pointer_pick = true;
+        now != self.first[tab]
     }
 
     /// [design, #2403 / file refs] Read-only logical list/pane/map progress. Excludes
@@ -1664,7 +1715,8 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         }
     }
     // The wheel zooms a map, scrolls the right pane under the pointer, else the list.
-    let mut notches = 0.0;
+    let mut notches = if input.physical.as_ref().is_some_and(|p|p.active) {0.0} else {input.touch_wheel.as_ref().zip(input.touch_pip.as_deref()).map_or(0.0,|(w,pip)|w.lines(pip))};
+    let pointer=input.touch_wheel.as_ref().filter(|_|notches!=0.0).and_then(|w|w.at).or(pointer);
     for w in input.wheel.read() {
         notches += match w.unit {
             MouseScrollUnit::Line => w.y,
@@ -1753,7 +1805,15 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     }
     if len > 0 {
         st.sel[tab] = st.sel[tab].min(len - 1);
-        st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
+        if st.manual_list.is_some_and(|(old_tab, selected)| old_tab != tab || (selected != st.sel[tab] && !st.pointer_pick)) {
+            st.manual_list = None;
+        }
+        if st.manual_list.is_some() {
+            st.first[tab] = st.first[tab].min(len.saturating_sub(st.fit[tab].max(1)));
+            st.manual_list = Some((tab, st.sel[tab]));
+        } else {
+            st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
+        }
     }
     let shows = pane_key(st, tab, l);
     scroll_pane(st, tab, shows, pane);
@@ -3480,7 +3540,15 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, height: f32, ba
         }
         if first > 0 || first + fit < rows.len() {
             let bar_x = if bar_left { 0.0 } else { LIST_W - SCROLLBAR };
-            scroll_bar(p, c, bar_x, height, first as f32 / rows.len() as f32, fit as f32 / rows.len() as f32);
+            let from = first as f32 / rows.len() as f32;
+            let part = fit as f32 / rows.len() as f32;
+            scroll_bar(p, c, bar_x, height, from, part);
+            if let Some(tab) = tab {
+                let (top, h) = bar_marker(height, from, part);
+                let track = Rect::new(bar_x, ARROW_H+4.0, bar_x+SCROLLBAR, height-ARROW_H-4.0);
+                super::scrollbar::hits(p, Page::Data, tab, Rect::new(bar_x,0.0,bar_x+SCROLLBAR,height),track,
+                    Rect::new(bar_x,top,bar_x+SCROLLBAR,(top+h).min(track.max.y)),origin);
+            }
         }
     });
     fit
@@ -3547,10 +3615,11 @@ fn bar_run(height: f32) -> f32 {
 
 /// A scroll bar's marker in a bar `height` high: its top and height for the part shown
 /// (`part`) from `from` (shares of the whole).
-fn bar_marker(height: f32, from: f32, part: f32) -> (f32, f32) {
+pub(super) fn bar_marker(height: f32, from: f32, part: f32) -> (f32, f32) {
     let run = bar_run(height);
     (ARROW_H + 4.0 + run * from.clamp(0.0, 1.0), (run * part.clamp(0.0, 1.0)).max(8.0))
 }
+pub(super) fn bar_track(height: f32) -> (f32, f32) { (ARROW_H+4.0, height-ARROW_H-4.0) }
 
 /// The places on a scroll bar at `x`, `height` high ([`scroll_bar`]) that take the
 /// pointer: the arrows, the track above and below the marker, and the marker (as wide as
@@ -5436,4 +5505,20 @@ mod tests {
         assert_eq!(marker_from_save(&v, Some(&gone)), None);
         assert_eq!(marker_from_save(&serde_json::to_value(m).unwrap(), Some(&gone)), Some(m));
     }
+
+    #[test]
+    fn projected_mobile_wheel_reaches_native_data_list_channel_and_stale_tab_is_refused(){
+        use bevy::ecs::system::RunSystemOnce;
+        fn read(mut st:ResMut<DataState>,mut game:Game,mut input:Input){
+            take_input(&mut st,NOTES,&Lists::default(),&mut game,&mut input,None,true);
+        }
+        let mut world=page_world(true,data_open(NOTES));
+        let mut wheel=super::super::touch_scroll::WheelFrame::default();
+        wheel.set(world.resource::<PipBoy>(),Vec2::new(100.,100.),-60.);world.insert_resource(wheel);
+        world.run_system_once(read).unwrap();assert_eq!(world.resource_mut::<DataState>().take_list_notches(),-3.0);
+        world.resource_mut::<PipBoy>().tabs[Page::Data.index()]=QUESTS;
+        world.run_system_once(read).unwrap();assert_eq!(world.resource_mut::<DataState>().take_list_notches(),0.0);
+        assert!(world.resource::<Messages<FastTravelAsk>>().is_empty());
+    }
+
 }

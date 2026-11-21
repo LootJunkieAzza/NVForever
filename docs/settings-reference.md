@@ -31,6 +31,8 @@ The Controls tab's own rows (Input Device, Automatic Input Switching, Rumble, In
 sensitivities, the controls) stand under the Controls headings the page shows them in. The
 Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
 
+Android-specific rows and HUD compatibility are documented in [the Android settings supplement](settings-reference-android.md); they are not part of the desktop launcher's built-in table.
+
 ## Gameplay › Game
 
 ### `difficulty`: Difficulty

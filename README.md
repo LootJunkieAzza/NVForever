@@ -45,6 +45,8 @@ cd engine
 cargo run --release --bin nvforever -- --data "<path to Fallout New Vegas>/Data"
 ```
 
+Experimental Android source builds: [docs/android.md](docs/android.md) (device qualification pending).
+
 More: [docs/development.md](docs/development.md) (build, test, options, tools) ·
 [docs/status.md](docs/status.md) (what's built) ·
 [docs/outstanding.md](docs/outstanding.md) (what's left).
