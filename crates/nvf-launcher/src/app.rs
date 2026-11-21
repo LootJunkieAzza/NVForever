@@ -50,7 +50,21 @@ enum Upd {
     /// Downloaded and checked; installs as soon as the game is not running.
     Ready(update::Ready),
     Installing,
+    /// The swap is done and the new launcher was started: this window is closing.
+    Closing,
     Failed(String),
+}
+
+impl Upd {
+    /// A close is refused only while the swap itself is running.
+    fn refuses_close(&self) -> bool {
+        matches!(self, Upd::Installing)
+    }
+
+    /// The state after the swap, from whether the new launcher started.
+    fn installed(restarted: &Result<(), String>) -> Upd {
+        if restarted.is_ok() { Upd::Closing } else { Upd::Idle }
+    }
 }
 
 /// The launcher's version: its build's, or `NVF_LAUNCHER_VERSION` (a test aid: a launcher
@@ -141,6 +155,8 @@ pub struct App {
     add_path: String,
     /// A profile folder dropped on the Profiles bar. A path is not typed.
     profile_path: String,
+    /// The name typed for a profile this page saves.
+    profile_name: String,
     /// Profile name, then the folder that holds its lists.
     profile_choices: Vec<(String, PathBuf)>,
     /// The profile chosen in the list.
@@ -251,6 +267,7 @@ impl App {
             apply_ask: false,
             add_path: String::new(),
             profile_path: String::new(),
+            profile_name: String::new(),
             profile_choices: Vec::new(),
             profile_pick: None,
             profile_rect: egui::Rect::NOTHING,
@@ -565,7 +582,7 @@ impl App {
     }
 
     fn start(&mut self, ctx: &egui::Context, start: Start) {
-        if matches!(self.upd, Upd::Installing) {
+        if matches!(self.upd, Upd::Installing | Upd::Closing) {
             self.message = Some(("The update is being installed: play once it is done.".into(), true));
             return;
         }
@@ -617,7 +634,7 @@ impl eframe::App for App {
         self.poll_news();
         let running = self.running();
         self.poll_update(ctx, running);
-        if matches!(self.upd, Upd::Installing) && ctx.input(|i| i.viewport().close_requested()) {
+        if self.upd.refuses_close() && ctx.input(|i| i.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.message = Some(("Installing the update: the launcher closes by itself when it is done.".into(), false));
         }
@@ -2672,69 +2689,26 @@ impl App {
         std::fs::write(bak(1), &old).map_err(|e| format!("{}: {e}", bak(1).display()))
     }
 
-    fn store_backup(&self, path: &Path, body: &[u8]) -> Result<bool, String> {
-        let keep = self.backup_keep;
-        if keep == 0 {
-            return Err("Set Max backups kept above 0.".into());
-        }
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("plugins.txt");
-        let bak = |i: usize| path.with_file_name(format!("{name}.bak.{i}"));
-        if let Some(parent) = bak(1).parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        }
-        if bak(1).is_file() && std::fs::read(bak(1)).ok().as_deref() == Some(body) {
-            return Ok(false);
-        }
-        for i in (1..keep).rev() {
-            let from = bak(i);
-            if from.is_file() {
-                std::fs::rename(&from, bak(i + 1)).map_err(|e| format!("{}: {e}", from.display()))?;
-            }
-        }
-        for i in (keep + 1)..(keep + 40) {
-            let extra = bak(i);
-            if extra.is_file() {
-                let _ = std::fs::remove_file(&extra);
-            }
-        }
-        std::fs::write(bak(1), body).map_err(|e| format!("{}: {e}", bak(1).display()))?;
-        Ok(true)
-    }
-
-    fn save_order_backup(&self) -> Result<&'static str, String> {
-        if self.backup_keep == 0 {
-            return Err("Set Backups above 0.".into());
-        }
-        let home = self.home.as_ref().ok_or("no home folder")?;
-        let list = self.mods.as_ref().ok_or("no plugin list")?;
-        let mut order = String::from("; A star means this folder is on.\n");
-        for row in &self.mod_rows {
-            if row.on {
-                order.push('*');
-            }
-            order.push_str(&row.name);
-            order.push('\n');
-        }
-        let plugins_new = self.store_backup(&home.plugins_file(), list.to_text().as_bytes())?;
-        let order_new = self.store_backup(&home.root.join("mod-order.txt"), order.as_bytes())?;
-        if plugins_new || order_new { Ok("Backup saved.") } else { Ok("That backup is already the newest.") }
-    }
-
     fn profile_row(&mut self, ui: &mut egui::Ui) {
         let block = ui.vertical(|ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("Profiles").small().color(GOLD));
             ui.horizontal(|ui| {
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.profile_path)
-                        .interactive(false)
-                        .hint_text("Drop a profile folder")
+                    egui::TextEdit::singleline(&mut self.profile_name)
+                        .hint_text("Name this profile")
                         .desired_width(ui.available_width() - 52.0),
                 );
-                if ui.button("Add").on_hover_text("Saves this page's folder order and plugin order as a new profile. Nothing is copied.").clicked() {
-                    self.save_new_profile();
+                if ui.button("Add").on_hover_text("Saves this page's folder order and plugin order under that name. Nothing is copied.").clicked() {
+                    self.save_named_profile();
                 }
             });
+            ui.add(
+                egui::TextEdit::singleline(&mut self.profile_path)
+                    .interactive(false)
+                    .hint_text("Drop a profile folder")
+                    .desired_width(ui.available_width()),
+            );
             ui.horizontal(|ui| {
                 if ui.button("Read").on_hover_text("Finds profiles in that folder.").clicked() {
                     self.read_profiles();
@@ -2746,6 +2720,7 @@ impl App {
                     for (name, _) in &self.profile_choices {
                         if ui.selectable_label(self.profile_pick.as_deref() == Some(name.as_str()), name).clicked() {
                             self.profile_pick = Some(name.clone());
+                            self.profile_name = name.clone();
                         }
                     }
                 });
@@ -2776,52 +2751,50 @@ impl App {
         self.message = Some((format!("Found {n} profiles."), false));
     }
 
-    /// Writes the current folder order and plugin order as a new profile. Files are not copied. The game folder is not changed.
-    fn save_new_profile(&mut self) {
+    /// Writes the current folder order and plugin order under the typed name. Files are not copied. The game folder is not changed.
+    fn save_named_profile(&mut self) {
         let Some(home) = self.home.clone() else {
             self.message = Some(("No home folder yet.".into(), true));
             return;
+        };
+        let name = match Self::profile_folder_name(&self.profile_name) {
+            Ok(name) => name,
+            Err(e) => {
+                self.message = Some((e, true));
+                return;
+            }
         };
         if self.mod_rows.is_empty() && self.mods.as_ref().is_none_or(|list| list.entries.is_empty()) {
             self.message = Some(("Nothing to save.".into(), true));
             return;
         }
-        let profiles = home.root.join("profiles");
-        let dropped = PathBuf::from(self.profile_path.trim());
-        let game_root = self.game().map(|g| g.root);
-        let (parent, left_mods) = if dropped.is_dir() {
-            let folder = if dropped.join("modlist.txt").is_file() {
-                dropped.parent().map(Path::to_path_buf).unwrap_or_else(|| dropped.clone())
-            } else {
-                dropped
-            };
-            if game_root.as_ref().is_some_and(|root| self.dir_is_under(&folder, root)) {
-                self.message = Some(("That folder is in the game folder. The profile was not written.".into(), true));
+        let parent = home.root.join("profiles");
+        let dir = parent.join(&name);
+        if self.profile_dir_refused(&dir, &home) {
+            return;
+        }
+        let replaced = match Self::write_profile_lists(&dir, &self.mod_rows, self.mods.as_ref()) {
+            Ok(replaced) => replaced,
+            Err(e) => {
+                self.message = Some((e, true));
                 return;
             }
-            if self.dir_is_under(&folder, &home.mods()) {
-                (profiles, true)
-            } else {
-                (folder, false)
-            }
-        } else {
-            (profiles, false)
         };
-        if let Err(e) = std::fs::create_dir_all(&parent) {
-            self.message = Some((format!("{}: {e}", parent.display()), true));
-            return;
-        }
-        let name = Self::fresh_profile_name(&parent);
-        let dir = parent.join(&name);
-        if let Err(e) = Self::write_profile_folder(&dir, &self.mod_rows, self.mods.as_ref()) {
-            self.message = Some((e, true));
-            return;
-        }
+        self.profile_name = name.clone();
         self.profile_path = parent.display().to_string();
         self.profile_choices = Self::profile_folders(&parent);
         self.profile_pick = Some(name.clone());
-        let note = if left_mods { " The mods folder was left alone." } else { "" };
-        self.message = Some((format!("Saved profile {name}. Nothing was copied.{note}"), false));
+        let verb = if replaced { "Replaced the lists in" } else { "Saved" };
+        self.message = Some((format!("{verb} profile {name}. Nothing was copied."), false));
+    }
+
+    fn profile_dir_refused(&mut self, dir: &Path, home: &EngineHome) -> bool {
+        let game_root = self.game().map(|g| g.root);
+        if game_root.as_ref().is_some_and(|root| self.dir_is_under(dir, root)) || Self::under_original_documents(dir) || self.dir_is_under(dir, &home.mods()) {
+            self.message = Some(("That profile would be written in the game folder, the original game's documents, or the mods folder. It was not written.".into(), true));
+            return true;
+        }
+        false
     }
 
     fn dir_is_under(&self, path: &Path, root: &Path) -> bool {
@@ -2832,6 +2805,12 @@ impl App {
             (Ok(path), Ok(root)) => path == root || path.starts_with(&root),
             _ => false,
         }
+    }
+
+    /// True when `path` is the original game's documents folder, or inside it.
+    fn under_original_documents(path: &Path) -> bool {
+        let parts: Vec<String> = path.components().map(|c| c.as_os_str().to_string_lossy().to_ascii_lowercase()).collect();
+        parts.windows(2).any(|pair| pair[0] == "my games" && pair[1] == "falloutnv")
     }
 
     fn load_chosen_profile(&mut self) {
@@ -3203,28 +3182,30 @@ impl App {
         names
     }
 
-    /// The next free profile name in `parent`.
-    fn fresh_profile_name(parent: &Path) -> String {
-        let mut names = vec!["Profile".to_string()];
-        for n in 2..1000 {
-            names.push(format!("Profile {n}"));
+    /// A profile folder name: one plain name, not a path.
+    fn profile_folder_name(raw: &str) -> Result<String, String> {
+        let name = raw.trim();
+        let bad = name.is_empty()
+            || name.len() > 80
+            || name.starts_with('.')
+            || name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'));
+        if bad {
+            return Err(if name.is_empty() { "Name the profile first.".into() } else { "That profile name cannot be used.".into() });
         }
-        names.into_iter().find(|name| !parent.join(name).exists()).unwrap_or_else(|| format!("Profile {}", std::process::id()))
+        Ok(name.to_string())
     }
 
-    /// Writes one profile folder. The winning folder is first in the file. This page keeps that folder last.
-    fn write_profile_folder(dir: &Path, rows: &[ModRow], list: Option<&plugins::PluginList>) -> Result<(), String> {
-        if dir.exists() {
-            return Err(format!("{} already exists.", dir.display()));
-        }
+    /// Writes the three list files. An existing profile keeps every other file. Returns whether the lists replaced older ones.
+    fn write_profile_lists(dir: &Path, rows: &[ModRow], list: Option<&plugins::PluginList>) -> Result<bool, String> {
+        let replaced = dir.join("modlist.txt").is_file();
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let modlist = Self::modlist_text(rows);
         let (plugins_text, order_text) = Self::plugin_list_text(list);
-        for (name, body) in [("modlist.txt", modlist), ("plugins.txt", plugins_text), ("loadorder.txt", order_text)] {
-            let path = dir.join(name);
+        for (file_name, body) in [("modlist.txt", modlist), ("plugins.txt", plugins_text), ("loadorder.txt", order_text)] {
+            let path = dir.join(file_name);
             std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
         }
-        Ok(())
+        Ok(replaced)
     }
 
     fn modlist_text(rows: &[ModRow]) -> String {
@@ -3308,13 +3289,10 @@ impl App {
                     }
                 }
             }
-            let can_backup = self.backup_keep > 0 && self.mods.is_some();
-            let tip = if self.backup_keep == 0 { "Set Max backups kept above 0." } else { "Stores this mod order and plugin list. The lists the game uses stay as they are." };
+            let can_backup = self.mods.is_some() || !self.mod_rows.is_empty();
+            let tip = "Saves this folder order and plugin order under the profile name. The lists the game uses stay as they are.";
             if ui.add_enabled(can_backup, egui::Button::new("Save backup")).on_hover_text(tip).clicked() {
-                match self.save_order_backup() {
-                    Ok(said) => self.message = Some((said.into(), false)),
-                    Err(e) => self.message = Some((e, true)),
-                }
+                self.save_named_profile();
             }
         });
     }
@@ -3653,10 +3631,10 @@ impl App {
                 Msg::Installed(Ok(v)) => {
                     self.upd_rx = None;
                     let restarted = install_dir(self.game().as_ref()).and_then(|d| update::restart(&d, "--updated").map_err(|e| e.to_string()));
+                    self.upd = Upd::installed(&restarted);
                     match restarted {
                         Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
                         Err(e) => {
-                            self.upd = Upd::Idle;
                             self.latest = None;
                             self.message = Some((format!("Updated to v{v}; start the launcher again ({e})."), false));
                         }
@@ -3752,7 +3730,7 @@ impl App {
                     Upd::Ready(_) => {
                         ui.label(RichText::new(if running { "Downloaded. It installs as soon as the game is closed." } else { "Downloaded." }).color(GOOD));
                     }
-                    Upd::Installing => {
+                    Upd::Installing | Upd::Closing => {
                         ui.add(egui::ProgressBar::new(1.0).animate(true).text(Phase::Installing.words()));
                     }
                     Upd::Failed(e) => {
@@ -3848,6 +3826,18 @@ fn preview(body: &str, open: bool) -> (&str, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The close guard holds only during the swap. Once the new launcher has started, the old window can close.
+    #[test]
+    fn the_window_closes_once_the_new_launcher_started() {
+        assert!(Upd::Installing.refuses_close());
+        let after = Upd::installed(&Ok(()));
+        assert!(matches!(after, Upd::Closing));
+        assert!(!after.refuses_close());
+        let after = Upd::installed(&Err("no such file".into()));
+        assert!(matches!(after, Upd::Idle));
+        assert!(!after.refuses_close());
+    }
 
     #[test]
     fn parts_as_the_ini_keeps_them() {
@@ -4119,8 +4109,12 @@ mod tests {
                 fnv_install::plugins::PluginEntry { name: "On.esp".into(), active: true },
             ],
         };
-        let saved = dir.join("Profile");
-        super::App::write_profile_folder(&saved, &rows, Some(&list)).unwrap();
+        let saved = dir.join("Road");
+        super::App::write_profile_lists(&saved, &rows, Some(&list)).unwrap();
+        std::fs::write(saved.join("notes.txt"), "keep").unwrap();
+        let replaced = super::App::write_profile_lists(&saved, &rows, Some(&list)).unwrap();
+        assert!(replaced);
+        assert_eq!(std::fs::read_to_string(saved.join("notes.txt")).unwrap(), "keep");
         let mods = std::fs::read_to_string(saved.join("modlist.txt")).unwrap();
         let plugins_text = std::fs::read_to_string(saved.join("plugins.txt")).unwrap();
         let order = std::fs::read_to_string(saved.join("loadorder.txt")).unwrap();
@@ -4131,6 +4125,10 @@ mod tests {
         assert_eq!(super::App::profile_plugin_names(&order), vec!["FalloutNV.esm", "Off.esp", "On.esp"]);
         assert_eq!(super::App::profile_plugin_names(&plugins_text), vec!["FalloutNV.esm", "On.esp"]);
         assert!(mods.lines().next().unwrap().starts_with("+C"));
+        assert!(super::App::profile_folder_name("").is_err());
+        assert!(super::App::profile_folder_name("a/b").is_err());
+        assert_eq!(super::App::profile_folder_name(" Road ").unwrap(), "Road");
+        assert!(super::App::under_original_documents(std::path::Path::new("/home/me/Documents/My Games/FalloutNV/saves")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
