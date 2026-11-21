@@ -50,18 +50,20 @@ enum Upd {
     /// Downloaded and checked; installs as soon as the game is not running.
     Ready(update::Ready),
     Installing,
-    /// The swap is done and the new launcher was started: this window is closing.
+    /// The swap is done and the new launcher was started: this window is closing (#3117).
     Closing,
     Failed(String),
 }
 
 impl Upd {
-    /// A close is refused only while the swap itself is running.
+    /// Whether a close of the window is refused: only during the swap itself. The launcher's
+    /// own close after the swap arrives as a close request one frame later, so the state has
+    /// to have left `Installing` by then or the launcher cancels its own close (#3117).
     fn refuses_close(&self) -> bool {
         matches!(self, Upd::Installing)
     }
 
-    /// The state after the swap, from whether the new launcher started.
+    /// The state once the swap went in, by whether the new launcher could be started.
     fn installed(restarted: &Result<(), String>) -> Upd {
         if restarted.is_ok() { Upd::Closing } else { Upd::Idle }
     }
@@ -3827,16 +3829,21 @@ fn preview(body: &str, open: bool) -> (&str, bool) {
 mod tests {
     use super::*;
 
-    /// The close guard holds only during the swap. Once the new launcher has started, the old window can close.
+    /// #3117: the close guard holds the window only during the swap; once the new launcher
+    /// was started the old one's own close goes through.
     #[test]
     fn the_window_closes_once_the_new_launcher_started() {
         assert!(Upd::Installing.refuses_close());
         let after = Upd::installed(&Ok(()));
         assert!(matches!(after, Upd::Closing));
         assert!(!after.refuses_close());
+        // The new launcher did not start: the window stays, usable and closable by hand.
         let after = Upd::installed(&Err("no such file".into()));
         assert!(matches!(after, Upd::Idle));
         assert!(!after.refuses_close());
+        for u in [Upd::Idle, Upd::Working { phase: Phase::Checking, done: 0, total: 0 }, Upd::Failed(String::new())] {
+            assert!(!u.refuses_close());
+        }
     }
 
     #[test]
