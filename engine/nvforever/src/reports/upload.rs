@@ -26,7 +26,6 @@ pub const SEND_AFTER: Duration = Duration::from_secs(6);
 /// The largest minidump sent (the server's cap, §5.1).
 pub const MAX_DUMP_BYTES: usize = 4 * 1024 * 1024;
 /// One request's limit (§8).
-#[cfg_attr(not(windows), allow(dead_code))] // used only by the Windows HTTP client
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 /// The project's server, used when `[Reports] Endpoint` is empty.
 pub const DEFAULT_ENDPOINT: &str = "https://reports-api.nv-forever.com";
@@ -211,13 +210,30 @@ pub fn still_running(pid: u32) -> bool {
         let named = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) != 0;
         CloseHandle(h);
         let name = String::from_utf16_lossy(&buf[..len as usize]);
-        alive && named && Path::new(&name).file_name().and_then(|n| n.to_str()).is_some_and(|n| n.to_ascii_lowercase().starts_with("nvforever"))
+        alive && named && is_our_image(Path::new(&name))
     }
 }
 
-#[cfg(not(windows))]
+/// Linux: `/proc/<pid>/exe` is a link to the image of a process that is alive
+/// [documented: proc(5), `/proc/pid/exe`]; it cannot be read for one that has ended.
+/// Needed once reports are sent from Linux (#3144), or a load handoff's old run would be
+/// reported as a native crash there (#2260).
+#[cfg(target_os = "linux")]
+pub fn still_running(pid: u32) -> bool {
+    std::fs::read_link(format!("/proc/{pid}/exe")).is_ok_and(|exe| is_our_image(&exe))
+}
+
+/// Elsewhere there is no check: every earlier session counts as ended.
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn still_running(_pid: u32) -> bool {
     false
+}
+
+/// Whether a process image is an NVForever game (`nvforever`, `nvforever.exe`, a test
+/// binary `nvforever-<hash>`).
+#[cfg(any(windows, target_os = "linux", test))]
+fn is_our_image(image: &Path) -> bool {
+    image.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.to_ascii_lowercase().starts_with("nvforever"))
 }
 
 fn names_in(dir: &Path) -> Vec<String> {
@@ -319,8 +335,10 @@ fn send_all(active: &super::Active, pending: &Path, sent: &Path, pid: u32) {
     }
 }
 
-/// HTTP through the system's TLS (Windows: SChannel and the system's certificates).
-#[cfg(windows)]
+/// HTTP through the system's TLS and certificates (Windows: SChannel; elsewhere the
+/// system's OpenSSL), on every platform the game is built for (#3144: off Windows this was
+/// four stubs that never answered, so Report a bug, Send reports and Delete my reports
+/// told a Linux player their network was at fault).
 pub(crate) mod http {
     use super::TIMEOUT;
 
@@ -365,23 +383,6 @@ pub(crate) mod http {
     }
 }
 
-/// Not built off Windows yet: nothing is sent, the files wait.
-#[cfg(not(windows))]
-pub(crate) mod http {
-    pub fn get(_: &str) -> Option<(u16, Vec<u8>)> {
-        None
-    }
-    pub fn post(_: &str, _: &[u8], _: &str, _: &str) -> Option<u16> {
-        None
-    }
-    pub fn post_for(_: &str, _: &[u8], _: &str, _: Option<&str>) -> Option<(u16, Vec<u8>)> {
-        None
-    }
-    pub fn delete(_: &str, _: &str) -> Option<u16> {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,11 +400,75 @@ mod tests {
     }
 
     /// The test binary (`nvforever-<hash>.exe`) is an NVForever run still going.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn this_process_is_still_running() {
         assert!(still_running(std::process::id()));
         assert!(!still_running(u32::MAX - 3));
+    }
+
+    #[test]
+    fn a_process_image_is_ours_by_its_name() {
+        assert!(is_our_image(Path::new("/opt/nvf/nvforever")));
+        assert!(is_our_image(Path::new("C:/Games/NVForever/NVForever.exe")));
+        assert!(is_our_image(Path::new("target/release/deps/nvforever-0a1b2c3d")));
+        assert!(!is_our_image(Path::new("/usr/bin/bash")));
+    }
+
+    /// A server on this machine that answers each of `n` requests with `status` and
+    /// `body`, and gives back what each request sent.
+    fn local_server(n: usize, status: u16, body: &'static str) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let served = std::thread::spawn(move || {
+            (0..n)
+                .map(|_| {
+                    let (mut s, _) = listener.accept().unwrap();
+                    let mut got = Vec::new();
+                    let mut buf = [0u8; 4096];
+                    // The head, then the body its Content-Length names.
+                    let (head, length) = loop {
+                        let k = s.read(&mut buf).unwrap();
+                        got.extend_from_slice(&buf[..k]);
+                        if let Some(end) = got.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let head = String::from_utf8_lossy(&got[..end]).to_ascii_lowercase();
+                            let length = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+                            break (end + 4, length);
+                        }
+                        assert!(k > 0, "the request ended before its head");
+                    };
+                    while got.len() < head + length {
+                        let k = s.read(&mut buf).unwrap();
+                        assert!(k > 0, "the request ended before its body");
+                        got.extend_from_slice(&buf[..k]);
+                    }
+                    write!(s, "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                    String::from_utf8_lossy(&got).into_owned()
+                })
+                .collect()
+        });
+        (url, served)
+    }
+
+    /// #3144: the four requests get their answer on every platform the game is built for
+    /// (off Windows they were stubs that never answered). Plain HTTP to this machine: the
+    /// TLS side needs a server with a certificate and is not covered here.
+    #[test]
+    fn requests_get_an_answer_on_this_platform() {
+        let (url, served) = local_server(4, 202, r#"{"kill":false}"#);
+        assert_eq!(http::get(&format!("{url}/v1/config")), Some((202, br#"{"kill":false}"#.to_vec())));
+        assert_eq!(http::post(&format!("{url}/v1/session"), b"the body", "text/plain", "tok-1"), Some(202));
+        assert_eq!(http::post_for(&format!("{url}/v1/report"), b"by hand", "text/plain", None).map(|(s, _)| s), Some(202));
+        assert_eq!(http::delete(&format!("{url}/v1/install/abc"), "tok-2"), Some(202));
+        let got: Vec<String> = served.join().unwrap().into_iter().map(|r| r.to_ascii_lowercase()).collect();
+        assert!(got[0].starts_with("get /v1/config ") && got[0].contains("x-nvf-build:"), "{}", got[0]);
+        assert!(got[1].starts_with("post /v1/session ") && got[1].contains("x-nvf-delete-token: tok-1") && got[1].ends_with("the body"), "{}", got[1]);
+        assert!(got[2].starts_with("post /v1/report ") && !got[2].contains("x-nvf-delete-token") && got[2].ends_with("by hand"), "{}", got[2]);
+        assert!(got[3].starts_with("delete /v1/install/abc ") && got[3].contains("x-nvf-delete-token: tok-2"), "{}", got[3]);
+        // No server: no answer, which the callers report as "kept for a later start".
+        let closed = { std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap() };
+        assert_eq!(http::get(&format!("http://{closed}/v1/config")), None);
     }
 
     #[test]
