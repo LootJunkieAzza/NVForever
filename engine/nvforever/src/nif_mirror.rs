@@ -892,7 +892,7 @@ mod tests {
     #[test]
     fn a_material_edit_keeps_an_authored_roughness_and_restores_the_scripted_gloss() {
         use nvf_assets::authored::{restore, LegacyLook, AUTHORED_MARK};
-        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None };
+        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None };
         let mut m = nvf_assets::nif_material(StandardMaterial { perceptual_roughness: 0.8, reflectance: 0.5, ..default() });
         m.extension.emissive_rule.w = AUTHORED_MARK;
         m.extension.legacy = Some(look.clone());
@@ -924,7 +924,7 @@ mod tests {
     #[test]
     fn an_alpha_edit_keeps_an_authored_highlight_whatever_the_stored_specular_colour() {
         use nvf_assets::authored::{restore, LegacyLook, AUTHORED_MARK};
-        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None };
+        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None };
         let black = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.5, 1.0];
         let mut m = nvf_assets::nif_material(StandardMaterial { reflectance: 0.5, ..default() });
         m.extension.emissive_rule.w = AUTHORED_MARK;

@@ -105,13 +105,15 @@ pub fn head_len(path: &str) -> Option<usize> {
 /// [design] The formats each member may use (docs/spec-notes/pbr-materials.md,
 /// "Compression and sizes" and "Channels and colour spaces"): `_orm` BC7, BC1 or BC3;
 /// `_n` BC5 (unsigned or signed), BC7, BC1 or BC3 (the last three as three-channel
-/// normals); `_p` BC4 (unsigned or signed), BC1 or BC3. The DX10 sRGB variants count as
-/// their format (the colour space follows the role; [`check_file`] warns about them).
+/// normals); `_p` BC4 unsigned, BC1 or BC3. The DX10 sRGB variants count as their format
+/// (the colour space follows the role; [`check_file`] warns about them). Signed BC4 is
+/// refused for `_p`: a height map holds 0 (low) to 1 (high), and the engine refuses a signed
+/// one the same way (nvf-assets `authored.rs` `signed_format`, #2981 stage 4).
 pub fn allowed_formats(m: Member) -> &'static [Format] {
     match m {
         Member::Orm => &[Format::Bc7, Format::Dxt1, Format::Dxt5],
         Member::Normal => &[Format::Bc5U, Format::Bc5S, Format::Bc7, Format::Dxt1, Format::Dxt5],
-        Member::Height => &[Format::Bc4U, Format::Bc4S, Format::Dxt1, Format::Dxt5],
+        Member::Height => &[Format::Bc4U, Format::Dxt1, Format::Dxt5],
         Member::Scalars | Member::Albedo => &[],
     }
 }
@@ -120,7 +122,7 @@ fn allowed_text(m: Member) -> &'static str {
     match m {
         Member::Orm => "BC7, BC1 or BC3",
         Member::Normal => "BC5 (unsigned or signed), BC7, BC1 or BC3",
-        Member::Height => "BC4 (unsigned or signed), BC1 or BC3",
+        Member::Height => "BC4 unsigned (BC4_UNORM), BC1 or BC3; signed BC4 is refused, as heights run from 0 to 1",
         Member::Scalars | Member::Albedo => "none",
     }
 }
@@ -504,5 +506,37 @@ pub fn selftest() -> Selftest {
         missing: expected.difference(&raised).cloned().collect(),
         unexpected: raised.difference(&expected).cloned().collect(),
         pack,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn codes(fc: &FileCheck) -> Vec<(Level, &'static str)> {
+        fc.findings.iter().map(|f| (f.level, f.code)).collect()
+    }
+
+    /// #2981 stage 4: a height map runs from 0 (low) to 1 (high), so signed BC4 is refused
+    /// for `_p` (DX10 BC4_SNORM and the legacy `BC4S` FourCC alike), as the engine refuses it;
+    /// unsigned BC4 stays clean, and signed BC5 stays allowed for `_n`.
+    #[test]
+    fn signed_bc4_is_an_error_for_a_height_map_only() {
+        let p = r"textures\pbr\walls\brick_p.dds";
+        let signed = dx10_dds(81, 4, 4, 3, 0);
+        let fc = check_file(p, &signed, signed.len() as u64);
+        assert_eq!(codes(&fc), [(Level::Error, "format-not-allowed")]);
+        assert!(fc.findings[0].message.contains("BC4_SNORM") && fc.findings[0].message.contains("signed BC4 is refused"), "{}", fc.findings[0].message);
+        assert!(!fc.accepted());
+        let mut legacy = dx10_dds(81, 4, 4, 3, 0);
+        legacy.truncate(fnv_dds::HEADER_LEN);
+        legacy[84..88].copy_from_slice(b"BC4S");
+        legacy.resize(fnv_dds::HEADER_LEN + 8 + 8 + 8, 0);
+        assert_eq!(codes(&check_file(p, &legacy, legacy.len() as u64)), [(Level::Error, "format-not-allowed")]);
+        let unsigned = dx10_dds(80, 4, 4, 3, 0);
+        assert!(check_file(p, &unsigned, unsigned.len() as u64).findings.is_empty());
+        let signed_n = dx10_dds(84, 4, 4, 3, 0);
+        assert!(check_file(r"textures\pbr\walls\brick_n.dds", &signed_n, signed_n.len() as u64).findings.is_empty(), "signed BC5 stays a normal map's format");
+        assert!(!allowed_formats(Member::Height).contains(&Format::Bc4S) && allowed_formats(Member::Normal).contains(&Format::Bc5S));
     }
 }

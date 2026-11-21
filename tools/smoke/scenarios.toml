@@ -33911,7 +33911,7 @@ expect = [
   { text = "pbr field: first rendered readback PASS", count = 1 },
   { text = "pbr field: second rendered readback PASS", count = 1 },
   { text = "pbr field: occlusion alone darkens, the two-channel normal matches the three-channel reference, the normal shows PASS", count = 1 },
-  { re = 'authored materials summary: [1-9]\d* material builds applied a set \([1-9]\d* distinct set stems at build\)', count = 1, label = "the exit summary counts the field's authored material builds" },
+  { re = 'authored materials summary: [1-9]\d* material builds applied an ORM set \([1-9]\d* distinct ORM set stems at build\)', count = 1, label = "the exit summary counts the field's authored (ORM) material builds" },
 ]
 order = [["pbr field: first rendered readback PASS", "pbr field: second rendered readback PASS", "pbr field: occlusion alone darkens, the two-channel normal matches the three-channel reference, the normal shows PASS"]]
 forbid = [
@@ -33938,10 +33938,42 @@ expect = [
   { re = "pbr field: second rendered readback PASS", count = 1, label = "second readback with the setting off" },
   { text = "pbr field: setting off, plain-material panels identical and the reference distinct PASS", count = 1 },
   { text = "authored materials summary: off (setting)", count = 1 },
+  { text = "pbr field height: panels (height, height-control) tilted 50 degrees about Y: setting off, neither has a depth map", count = 1, label = "setting off: neither height panel has a depth map" },
+  { re = 'pbr field height: readback \d PASS', count = 2, label = "setting off: both stripes straight, the shifts within tolerance, in both readbacks" },
+  { text = "pbr field height: setting off, no depth map on either panel, both stripes straight PASS", count = 1 },
 ]
 forbid = [
   { re = '(?i)pbr field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = '(?i)pbr field height:.*FAIL', label = "setting off: no height failure" },
   { re = 'authored materials: \d+ sets under' },
   { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
 ]
 note = "The same field with the setting off: the index is never built (no 'authored materials: N sets' line), the material path loads no pbr file (the fixture's own check reads the generated files first), the plain, lit, dark and flat panels draw the same and the reference (its game normal map) differs from them."
+
+[[scenario]]
+name = "pbr-authored-field-height"
+source = "[design, #2981 stage 4] docs/spec-notes/pbr-materials.md: a generated height-only set's _p drawn as parallax on a tilted panel beside its control; engineering comparator policy (first, generous thresholds), not original-game pixels"
+areas = ["renderer", "textures", "nif"]
+paths = ["crates/fnv-pbr/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/authored/", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/pbr_field/", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_spawn/", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/vendor/bevy_pbr/src/render/parallax_mapping.wesl", "engine/vendor/bevy_pbr/src/render/pbr_fragment.wesl"]
+env = { NVF_PLAY_TEST_PBR_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1" }
+# The setting pinned on, as pbr-authored-field (the same field, judged here for its height panels).
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials"]
+run_seconds = 20
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "pbr field height: panels (height, height-control) tilted 50 degrees about Y: the height-only set's _p", count = 1 },
+  { re = 'pbr field height: readback \d high=[+-]\d+\.\d+ px low=[+-]\d+\.\d+ px \(predicted low -7\.8\d px.*brightest \d+, ground \d+\.\d', count = 2, label = "each readback logs the height panels' stripe shifts in pixels, the brightest value and the ground" },
+  { re = 'pbr field height: readback \d PASS', count = 2, label = "both readbacks' height panels pass" },
+  { text = "pbr field: second rendered readback PASS", count = 1 },
+  { text = "pbr field height: the height map moves the low band's stripe the predicted way and leaves the high band's in place PASS", count = 1 },
+  { re = 'authored materials summary: .*, [1-9]\d* a height-only set.s height map;.*height maps: [1-9]\d* material builds applied one;', count = 1, label = "the exit summary counts the height panel's height-only build and its height map" },
+]
+order = [["pbr field: second rendered readback PASS", "pbr field height: the height map moves the low band's stripe the predicted way and leaves the high band's in place PASS"]]
+forbid = [
+  { re = '(?i)pbr field:.*(FAIL|timeout|missing|wrong byte count)', label = "no failure or timeout in the five panels' lines (the readbacks must complete)" },
+  { re = '(?i)pbr field height:.*(FAIL|no stripe found)', label = "no height failure or missing stripe" },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "Panels height and height-control: the same quad tilted 50 degrees about Y (the five other panels and the orthographic camera as in pbr-authored-field), a diffuse with a narrow bright stripe at U 0.5; height has a height-only set (_p white above, black below, parallax_depth 0.08, the scalar range's end since 2026-11-20; 0.1 before), drawn with the default method (relief:4 after at most 8 layers, named in the panels' log line). Per readback the log gives the stripe's shift (height minus control) in the high and the low band and the prediction (about -7.8 px: towards decreasing mesh U; -9.8 at the old depth); the comparator wants the low band within 2.5 px of the prediction and the high band and the control within 1.5 px. Observed on b4660af00 (field only, depth 0.1, occlusion): high +0.00, low -9.76 against -9.81, control 64.00/64.00; the stripe then clipped at 255 and was darkened to sRGB 180 on 90. Observed at ca0e10c9e (depth 0.08, relief:4 after eight layers): both readbacks passed, high +0.13 px, low -7.86 against -7.84 px, control 64.00/64.00. The height lines (pbr field height:) never decide the five panels' verdict."
+manual = "Open readback-1.ppm in the evidence directory: in the sixth panel the stripe's lower half sits left of its upper half; in the seventh (the control) it runs straight."

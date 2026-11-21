@@ -282,6 +282,18 @@ maps (nvf-assets `TextureUsage::NormalTwoChannel`), while the game's own normal 
 expanded to three channels on the CPU (docs/spec-notes/dds-bc5.md). Inside the disk the
 result is upstream's. Drop it when upstream clamps there.
 
+Another change (height maps, #2981 stage 4, docs/spec-notes/pbr-materials.md), in
+`src/render/parallax_mapping.wesl` `sample_depth_map`, marked `NVForever height maps`: the
+sample (bindless and ordinary binding alike) is returned as `1.0 - r` instead of `r`. The
+authored `_p` stores height (white = high); Bevy's march reads depth (white = deepest). The
+inversion sits after the two bindings' samples, so they cannot diverge; the march and both
+refinements read only through this function. It changes the convention for every
+`StandardMaterial::depth_map` in the engine: none was set in production before (terrain
+asserts landscape materials have none; the one positive assignment is a Pip-Boy test
+fixture), and the only maps set now are the authored `_p` (nvf-assets `authored.rs`). Keep it
+while NVForever's height maps are heights; drop it if they are ever converted to depth on the
+CPU instead.
+
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 [documented: `src/render_resource/pipeline_cache.rs::create_pipeline_task`, #2317]

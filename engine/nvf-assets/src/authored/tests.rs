@@ -54,6 +54,42 @@ impl Pack {
             // Height only: no authored set.
             ("textures/walls/stone.dds", dxt1.clone()),
             ("textures/pbr/walls/stone_p.dds", legacy(b"BC4U", 4, 4, &[0; 8])),
+            // An authored set with `_p` and a depth; a height-only set of depth 0; an
+            // authored set whose `_p` is no DDS file.
+            ("textures/walls/relief.dds", dxt1.clone()),
+            ("textures/pbr/walls/relief_orm.dds", dx10(98, 4, 4, &[0; 16])),
+            ("textures/pbr/walls/relief_p.dds", dx10(80, 4, 4, &[255, 0, 0, 0, 0, 0, 0, 0])),
+            ("textures/pbr/walls/relief.toml", b"parallax_depth = 0.05\n".to_vec()),
+            ("textures/walls/flat.dds", dxt1.clone()),
+            ("textures/pbr/walls/flat_p.dds", legacy(b"BC4U", 4, 4, &[0; 8])),
+            ("textures/pbr/walls/flat.toml", b"parallax_depth = 0\n".to_vec()),
+            ("textures/walls/brokenheight.dds", dxt1.clone()),
+            ("textures/pbr/walls/brokenheight_orm.dds", dx10(98, 4, 4, &[0; 16])),
+            ("textures/pbr/walls/brokenheight_p.dds", b"not a dds".to_vec()),
+            // Signed BC4 `_p`: refused, legacy FourCC and DX10 (BC4_SNORM, 81) alike.
+            ("textures/walls/signed.dds", dxt1.clone()),
+            ("textures/pbr/walls/signed_p.dds", legacy(b"BC4S", 4, 4, &[0; 8])),
+            ("textures/walls/signedrelief.dds", dxt1.clone()),
+            ("textures/pbr/walls/signedrelief_orm.dds", dx10(98, 4, 4, &[0; 16])),
+            ("textures/pbr/walls/signedrelief_p.dds", dx10(81, 4, 4, &[0; 8])),
+            // A `_p` in a format no height map takes (unsigned BC5): refused too.
+            ("textures/walls/twochannel.dds", dxt1.clone()),
+            ("textures/pbr/walls/twochannel_p.dds", legacy(b"ATI2", 4, 4, &[0; 16])),
+            // DXT3 `_p`, on the 4-texel grid (BC2 blocks) and off it (decoded to RGBA8 on the
+            // CPU): refused alike, as `fnvtool pbr check` refuses DXT3; a DXT1 off the grid
+            // (decoded the same way) is an allowed format but refused by its size, as the
+            // validator refuses it, and so is an unsigned BC4 off the grid (6x6, decoded to R8
+            // on the CPU); signed BC5: refused.
+            ("textures/walls/dxt3.dds", dxt1.clone()),
+            ("textures/pbr/walls/dxt3_p.dds", legacy(b"DXT3", 4, 4, &[0; 16])),
+            ("textures/walls/odddxt3.dds", dxt1.clone()),
+            ("textures/pbr/walls/odddxt3_p.dds", legacy(b"DXT3", 3, 3, &[0; 16])),
+            ("textures/walls/odddxt1.dds", dxt1.clone()),
+            ("textures/pbr/walls/odddxt1_p.dds", legacy(b"DXT1", 3, 3, &[0; 8])),
+            ("textures/walls/oddbc4.dds", dxt1.clone()),
+            ("textures/pbr/walls/oddbc4_p.dds", legacy(b"BC4U", 6, 6, &[0; 32])),
+            ("textures/walls/signedtwo.dds", dxt1.clone()),
+            ("textures/pbr/walls/signedtwo_p.dds", legacy(b"BC5S", 4, 4, &[0; 16])),
             // A first-person twin whose own set is height only, and the plain texture's set.
             ("textures/weapons/gun.dds", dxt1.clone()),
             ("textures/weapons/1stpersongun.dds", dxt1.clone()),
@@ -94,22 +130,57 @@ fn the_synchronous_source_loads_a_set_by_its_exact_member_paths() {
     let mut source = StoreTextures { textures: &mut cache, data: &pack.data, images: &mut images, formats: None };
     let key = source.resolve("Walls/Brick.dds");
     assert_eq!(key, r"textures\walls\brick.dds");
-    let set = source.authored(&key).expect("authored set");
+    let authored = |s: Option<PbrSet>| match s {
+        Some(PbrSet::Authored(a)) => Some(a),
+        _ => None,
+    };
+    let set = authored(source.pbr_set(&key)).expect("authored set");
     assert_eq!(set.stem, r"textures\pbr\walls\brick");
     assert_eq!(set.scalars, Scalars { parallax_depth: None, roughness_scale: Some(0.5), reflectance: Some(0.25) });
+    assert!(set.height.is_none(), "brick has no _p");
     let normal = set.normal.clone().expect("_n");
-    let none = source.authored(&source.resolve("walls/nonormal.dds")).expect("set without _n");
+    let none = authored(source.pbr_set(&source.resolve("walls/nonormal.dds"))).expect("set without _n");
     assert!(none.normal.is_none());
     assert_eq!(none.scalars, Scalars::default());
-    assert!(source.authored(&source.resolve("walls/stone.dds")).is_none(), "height only is no authored set");
-    assert!(source.authored(&source.resolve("walls/plain.dds")).is_none());
-    assert!(source.authored(&source.resolve("walls/bad.dds")).is_none(), "an _orm that does not load leaves the shape legacy");
-    assert!(source.authored(&source.resolve("weapons/1stpersongun.dds")).is_none(), "a height-only twin wins the lookup: no authored set, not the plain one's");
-    assert_eq!(source.authored(&source.resolve("weapons/gun.dds")).map(|s| s.stem).as_deref(), Some(r"textures\pbr\weapons\gun"));
+    // Height only: the `_p` alone, at the default depth.
+    let stone = source.pbr_set(&source.resolve("walls/stone.dds")).expect("height-only set");
+    assert!(stone.authored().is_none(), "height only is no authored set");
+    let stone_height = stone.height().cloned().expect("its height map");
+    assert_eq!(
+        (stone.stem(), stone_height.depth_scale, stone_height.method, stone_height.max_layers),
+        (r"textures\pbr\walls\stone", fnv_pbr::DEFAULT_PARALLAX_DEPTH, parallax_method(), parallax_layers())
+    );
+    // An authored set with `_p` and a depth in its scalar file.
+    let relief = authored(source.pbr_set(&source.resolve("walls/relief.dds"))).expect("authored set with _p");
+    let relief_height = relief.height.clone().expect("_p");
+    assert_eq!(relief_height.depth_scale, 0.05);
+    // A depth of 0: no height map, so a height-only set is no set at all and its `_p` is not read.
+    assert!(source.pbr_set(&source.resolve("walls/flat.dds")).is_none(), "depth 0: nothing to draw");
+    // A `_p` that does not load: an authored set keeps the rest.
+    let broken = authored(source.pbr_set(&source.resolve("walls/brokenheight.dds"))).expect("the _orm still applies");
+    assert!(broken.height.is_none());
+    // Signed BC4: a height-only set gives nothing; an authored one keeps the rest.
+    assert!(source.pbr_set(&source.resolve("walls/signed.dds")).is_none(), "a signed _p is refused");
+    let signed = authored(source.pbr_set(&source.resolve("walls/signedrelief.dds"))).expect("the _orm still applies");
+    assert!(signed.height.is_none(), "a signed _p is refused");
+    assert!(source.pbr_set(&source.resolve("walls/twochannel.dds")).is_none(), "a _p in no unsigned height format is refused");
+    // The file's own format decides, as the validator's does: DXT3 on or off the block grid.
+    assert!(source.pbr_set(&source.resolve("walls/dxt3.dds")).is_none(), "an aligned DXT3 _p (BC2) is refused");
+    assert!(source.pbr_set(&source.resolve("walls/odddxt3.dds")).is_none(), "an odd-sized DXT3 _p is refused though it went up as Rgba8Unorm");
+    // Off the 4-texel grid: refused by size, though the format is allowed and decodes on the
+    // CPU (the validator's rule, `not-block-aligned`).
+    assert!(source.pbr_set(&source.resolve("walls/odddxt1.dds")).is_none(), "an odd-sized DXT1 _p is refused by its size");
+    assert!(source.pbr_set(&source.resolve("walls/oddbc4.dds")).is_none(), "a 6x6 BC4 _p is refused by its size");
+    assert!(source.pbr_set(&source.resolve("walls/signedtwo.dds")).is_none(), "a signed BC5 _p is refused");
+    assert!(source.pbr_set(&source.resolve("walls/plain.dds")).is_none());
+    assert!(source.pbr_set(&source.resolve("walls/bad.dds")).is_none(), "an _orm that does not load leaves the shape legacy");
+    let twin = source.pbr_set(&source.resolve("weapons/1stpersongun.dds")).expect("the twin's own height-only set");
+    assert_eq!((twin.stem(), twin.authored().is_none()), (r"textures\pbr\weapons\1stpersongun", true), "a height-only twin wins the lookup: no authored set, not the plain one's");
+    assert_eq!(source.pbr_set(&source.resolve("weapons/gun.dds")).map(|s| s.stem().to_string()).as_deref(), Some(r"textures\pbr\weapons\gun"));
     // The console folder: the member the index names, not the PC file `get` would choose.
     let xbox_key = source.resolve(r"walls\xbox\tile.dds");
     assert_eq!(xbox_key, r"textures\walls\xbox\tile.dds", "no PC diffuse: the key stays");
-    let xbox = source.authored(&xbox_key).expect("xbox set");
+    let xbox = authored(source.pbr_set(&xbox_key)).expect("xbox set");
     let resolved = source.texture(r"textures\pbr\walls\xbox\tile_orm.dds", false).unwrap();
     // Every member is in place and in its role.
     let (orm, xbox_orm) = (set.orm.clone(), xbox.orm.clone());
@@ -123,6 +194,38 @@ fn the_synchronous_source_loads_a_set_by_its_exact_member_paths() {
     assert!(warned.contains(r"textures\pbr\walls\brick_orm.dds"), "the _SRGB code is warned about: {warned:?}");
     assert!(warned.contains(r"textures\pbr\walls\bad_orm.dds"), "{warned:?}");
     assert!(!warned.contains(r"textures\pbr\walls\nonormal_orm.dds"));
+    assert!(warned.contains(r"textures\pbr\walls\brokenheight_p.dds"), "{warned:?}");
+    assert!(warned.contains(r"textures\pbr\walls\signed_p.dds") && warned.contains(r"textures\pbr\walls\signedrelief_p.dds"), "{warned:?}");
+    assert!(signed_format(TextureFormat::Bc4RSnorm) && signed_format(TextureFormat::R8Snorm) && !signed_format(TextureFormat::Bc4RUnorm) && !signed_format(TextureFormat::R8Unorm));
+    assert!(warned.contains(r"textures\pbr\walls\twochannel_p.dds"), "{warned:?}");
+    for refused in ["dxt3", "odddxt3", "signedtwo"] {
+        assert!(warned.contains(&format!(r"textures\pbr\walls\{refused}_p.dds")), "{refused}: {warned:?}");
+    }
+    for odd in ["odddxt1", "oddbc4"] {
+        assert!(warned.contains(&format!(r"textures\pbr\walls\{odd}_p.dds")), "{odd}: one warning naming the file: {warned:?}");
+    }
+    // The size rule: each side a multiple of 4, as `fnvtool pbr check` wants.
+    assert_eq!(height_size_refusal(4, 4), None);
+    assert_eq!(height_size_refusal(512, 8), None);
+    assert_eq!(height_size_refusal(3, 3).as_deref(), Some("is 3x3, a side not a multiple of 4"));
+    assert_eq!(height_size_refusal(8, 6).as_deref(), Some("is 8x6, a side not a multiple of 4"));
+    assert_eq!(height_size_refusal(6, 8).as_deref(), Some("is 6x8, a side not a multiple of 4"));
+    // The refusal names the file's own format, signed BC5 as BC5, and judges by it.
+    use fnv_dds::Format;
+    assert_eq!(height_refusal(Some(Format::Bc5S), Some(TextureFormat::Bc5RgSnorm)), "is signed (BC5_SNORM); a height map is unsigned (0 low, 1 high)");
+    assert_eq!(height_refusal(Some(Format::Bc4S), Some(TextureFormat::R8Snorm)), "is signed (BC4_SNORM); a height map is unsigned (0 low, 1 high)");
+    assert_eq!(height_refusal(Some(Format::Dxt3), Some(TextureFormat::Rgba8Unorm)), "is in DXT3, not in a height map's format (BC4_UNORM, DXT1 or DXT5)");
+    assert_eq!(height_refusal(None, Some(TextureFormat::Bc2RgbaUnorm)), "is in Bc2RgbaUnorm, not in a height map's format (BC4_UNORM, DXT1 or DXT5)");
+    assert!(!height_source_ok(Some(Format::Dxt3), Some(TextureFormat::Rgba8Unorm)) && height_source_ok(Some(Format::Dxt1), Some(TextureFormat::Rgba8Unorm)));
+    assert!(!height_source_ok(None, Some(TextureFormat::Rgba8Unorm)) && height_source_ok(None, Some(TextureFormat::Bc4RUnorm)), "an unknown source: only formats that name it");
+    // Unknown format metadata is refused, not accepted by default.
+    assert!(!height_format_ok(None) && !height_format_ok(Some(TextureFormat::Bc5RgUnorm)) && !height_format_ok(Some(TextureFormat::Bc4RSnorm)));
+    assert!(height_format_ok(Some(TextureFormat::Bc4RUnorm)) && height_format_ok(Some(TextureFormat::R8Unorm)) && height_format_ok(Some(TextureFormat::Bc1RgbaUnorm)));
+    assert!(!cache.has_or_ahead(r"textures\pbr\walls\flat_p.dds"), "a depth of 0 loads no _p");
+    // `_p` in the linear role, as unsigned BC4.
+    for h in [stone_height, relief_height] {
+        assert_eq!(images.get(h.depth_map.as_ref().unwrap()).unwrap().texture_descriptor.format, TextureFormat::Bc4RUnorm);
+    }
 }
 
 #[test]
@@ -317,7 +420,29 @@ fn landscape_lod_models_are_recognised_whatever_the_spelling() {
 #[test]
 fn the_summary_line_names_every_count() {
     let s = Stats::default();
-    for (c, n) in [(&s.built, 3), (&s.not_eligible, 5), (&s.excluded_texture, 1), (&s.orm_failed, 2), (&s.normal_without_tangents, 4), (&s.made_legacy, 6), (&s.swaps_authored, 7), (&s.swaps_legacy, 8)] {
+    for (c, n) in [
+        (&s.built, 3),
+        (&s.not_eligible, 5),
+        (&s.excluded_texture, 1),
+        (&s.orm_failed, 2),
+        (&s.normal_without_tangents, 4),
+        (&s.made_legacy, 6),
+        (&s.swaps_authored, 7),
+        (&s.swaps_legacy, 8),
+        (&s.swaps_height, 9),
+        (&s.swaps_height_applied, 20),
+        (&s.height_built, 10),
+        (&s.height_only_built, 11),
+        (&s.height_alpha_tested, 12),
+        (&s.height_blended, 21),
+        (&s.height_double_sided, 13),
+        (&s.height_decal, 14),
+        (&s.height_no_tangents, 15),
+        (&s.height_other, 16),
+        (&s.height_failed, 17),
+        (&s.height_refused, 18),
+        (&s.height_dropped, 19),
+    ] {
         for _ in 0..n {
             Stats::add(c);
         }
@@ -325,13 +450,14 @@ fn the_summary_line_names_every_count() {
     s.stems.lock().unwrap().extend(["a".to_string(), "b".to_string()]);
     assert_eq!(
         s.line(),
-        "3 material builds applied a set (2 distinct set stems at build); builds without one: 5 not eligible, 1 on excluded textures; 2 ORM load failures at build or swap; 4 applied without their _n (no tangents); 6 role copies made legacy; 15 retexture calls (7 to a set, 8 to the legacy look)"
+        "3 material builds applied an ORM set (2 distinct ORM set stems at build), 11 a height-only set's height map; builds without one: 5 not eligible, 1 on excluded textures; 2 ORM load failures at build or swap; 4 applied without their _n (no tangents); 6 role copies made legacy; 24 retexture calls (7 to an ORM set, 9 to a loaded height-only set (20 with its height map applied), 8 to the legacy look); height maps: 10 material builds applied one; not put on at build or swap: 12 alpha-tested, 21 blended, 13 double-sided, 14 decals, 15 without tangents, 16 unlit, refracting or holed; 17 _p not loaded, 18 _p refused (signed, in no height map's format or a side not a multiple of 4); 19 later copies dropped one"
     );
 }
 
-/// The role pass's gate: off, or a mount without authored sets, means no shape can take one.
+/// The role pass's gate: off, or a mount without active sets, means no shape can take one; a
+/// mount with only height-only sets has them (its shapes' roles must still be excluded).
 #[test]
-fn a_mount_has_sets_only_with_the_setting_on_and_an_authored_set() {
+fn a_mount_has_sets_only_with_the_setting_on_and_an_active_set() {
     let pack = Pack::new();
     assert!(!mount_has_sets_when(&pack.data, false));
     assert!(!pack.data.pbr_index_built(), "off asks nothing of the index");
@@ -339,6 +465,155 @@ fn a_mount_has_sets_only_with_the_setting_on_and_an_authored_set() {
     let empty = std::env::temp_dir().join(format!("nvf-authored-empty-{}", std::process::id()));
     std::fs::create_dir_all(empty.join("textures")).unwrap();
     let data = GameData::new(Arc::new(fnv_vfs::Vfs::open(&empty, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
-    assert!(!mount_has_sets_when(&data, true), "no authored set in the mount");
+    assert!(!mount_has_sets_when(&data, true), "no set in the mount");
     let _ = std::fs::remove_dir_all(&empty);
+    let heights = std::env::temp_dir().join(format!("nvf-authored-heights-{}", std::process::id()));
+    std::fs::create_dir_all(heights.join("textures/pbr/walls")).unwrap();
+    std::fs::write(heights.join("textures/pbr/walls/stone_p.dds"), legacy(b"BC4U", 4, 4, &[0; 8])).unwrap();
+    let data = GameData::new(Arc::new(fnv_vfs::Vfs::open(&heights, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
+    assert!(mount_has_sets_when(&data, true), "height-only sets count");
+    let _ = std::fs::remove_dir_all(&heights);
+}
+
+/// The swap rule with height maps (#2981 stage 4): authored with `_p` → height only → none
+/// → authored without `_p`, each from the legacy look, the old overlay taken off first; on a
+/// drawn mesh without tangents no height map goes on; a blended copy takes none.
+#[test]
+fn retexturing_moves_height_maps_with_the_sets() {
+    use crate::nif_spawn::{shape_material, Props};
+    use crate::texture::bc5_tests::triangle;
+    let pack = Pack::new();
+    let mut cache = TextureCache::default();
+    let mut images = Assets::<Image>::default();
+    let props = |t: &str| {
+        let mut p = Props::default();
+        p.textures = vec![t.into()];
+        p
+    };
+    // relief: `_orm` and `_p` (tangents made for the `_p`); plain: no set, no tangents.
+    let (relief, _) = shape_material(&props(r"walls\relief.dds"), &mut triangle(), &mut cache, &pack.data, &mut images, None);
+    let (bare, _) = shape_material(&props(r"walls\plain.dds"), &mut triangle(), &mut cache, &pack.data, &mut images, None);
+    assert!(is_authored(&relief) && relief.base.depth_map.is_some() && relief.base.parallax_depth_scale == 0.05);
+    assert!(relief.extension.legacy.as_ref().unwrap().tangents && !bare.extension.legacy.as_ref().unwrap().tangents);
+    let legacy = relief.extension.legacy.clone().unwrap();
+    let mut m = relief.clone();
+    // Authored with `_p` → height only: the ORM off, stone's height map on, the mark clear.
+    assert_eq!(retexture(&mut m, r"walls\stone.dds", &mut cache, &pack.data, &mut images, None), Retextured::HeightOnly);
+    assert!(!is_authored(&m) && m.base.metallic_roughness_texture.is_none());
+    assert!(m.base.depth_map.is_some() && m.base.depth_map != relief.base.depth_map);
+    assert_eq!(m.base.parallax_depth_scale, fnv_pbr::DEFAULT_PARALLAX_DEPTH);
+    assert_eq!((m.base.reflectance, m.base.perceptual_roughness), (legacy.reflectance, legacy.roughness), "the game's values");
+    // Height only → none: the baseline back.
+    assert_eq!(retexture(&mut m, r"walls\plain.dds", &mut cache, &pack.data, &mut images, None), Retextured::Legacy);
+    assert_eq!(Parallax::of(&m.base), legacy.parallax);
+    // None → authored without `_p` → back to relief: no stale height map, then relief's.
+    assert_eq!(retexture(&mut m, r"walls\nonormal.dds", &mut cache, &pack.data, &mut images, None), Retextured::Authored);
+    assert!(m.base.depth_map.is_none());
+    assert_eq!(retexture(&mut m, r"walls\relief.dds", &mut cache, &pack.data, &mut images, None), Retextured::Authored);
+    assert_eq!(m.base.depth_map, relief.base.depth_map);
+    // Height only → authored without `_p`: the height map off.
+    assert_eq!(retexture(&mut m, r"walls\stone.dds", &mut cache, &pack.data, &mut images, None), Retextured::HeightOnly);
+    assert_eq!(retexture(&mut m, r"walls\nonormal.dds", &mut cache, &pack.data, &mut images, None), Retextured::Authored);
+    assert!(m.base.depth_map.is_none() && is_authored(&m));
+    assert_eq!(m.extension.legacy.as_ref(), Some(&legacy), "the legacy look itself never changes");
+    // A drawn mesh without tangents: no height map from a swap (the recorded tangents).
+    // `HeightOnly` says the new diffuse's height-only set loaded; the gate refused its map,
+    // which the summary counts apart ("to a loaded height-only set (N with its height map
+    // applied)": this call adds to the first count only).
+    let mut b = bare.clone();
+    assert_eq!(retexture(&mut b, r"walls\stone.dds", &mut cache, &pack.data, &mut images, None), Retextured::HeightOnly);
+    assert!(b.base.depth_map.is_none() && !height_on(&b), "matched, not applied");
+    assert_eq!(retexture(&mut b, r"walls\relief.dds", &mut cache, &pack.data, &mut images, None), Retextured::Authored);
+    assert!(b.base.depth_map.is_none() && is_authored(&b));
+    // A blended copy (a fade's) takes none either.
+    let mut faded = relief.clone();
+    faded.base.alpha_mode = AlphaMode::Blend;
+    assert_eq!(retexture(&mut faded, r"walls\stone.dds", &mut cache, &pack.data, &mut images, None), Retextured::HeightOnly);
+    assert!(faded.base.depth_map.is_none());
+    // A height-only material made legacy for good (a role found later): the height map off.
+    let (mut skin, _) = shape_material(&props(r"walls\stone.dds"), &mut triangle(), &mut cache, &pack.data, &mut images, None);
+    assert!(skin.base.depth_map.is_some() && !is_authored(&skin));
+    assert!(make_legacy(&mut skin) && skin.base.depth_map.is_none());
+}
+
+/// The layer switch (`NVF_PBR_PARALLAX_LAYERS`): whole numbers 2 to 64; anything else is refused.
+#[test]
+fn the_layer_switch_takes_whole_numbers_from_2_to_64() {
+    assert_eq!(parse_parallax_layers("2"), Ok(2.0));
+    assert_eq!(parse_parallax_layers(" 16 "), Ok(16.0));
+    assert_eq!(parse_parallax_layers("64"), Ok(64.0));
+    for bad in ["1", "0", "65", "-4", "8.5", "eight", ""] {
+        assert!(parse_parallax_layers(bad).is_err(), "{bad:?}");
+    }
+    assert!(parse_parallax_layers("65").unwrap_err().contains("outside 2 to 64"));
+}
+
+/// The method switch (`NVF_PBR_PARALLAX_METHOD`): `occlusion` or `relief:<1..8>`, any case.
+#[test]
+fn the_method_switch_takes_occlusion_or_relief_with_its_steps() {
+    assert_eq!(parse_parallax_method("occlusion"), Ok(ParallaxMappingMethod::Occlusion));
+    assert_eq!(parse_parallax_method(" Occlusion "), Ok(ParallaxMappingMethod::Occlusion));
+    assert_eq!(parse_parallax_method("relief:1"), Ok(ParallaxMappingMethod::Relief { max_steps: 1 }));
+    assert_eq!(parse_parallax_method("RELIEF:8"), Ok(ParallaxMappingMethod::Relief { max_steps: 8 }));
+    for bad in ["relief", "relief:0", "relief:9", "relief:x", "relief5", "steep", ""] {
+        assert!(parse_parallax_method(bad).is_err(), "{bad:?}");
+    }
+    assert_eq!(parallax_method_name(ParallaxMappingMethod::Relief { max_steps: 5 }), "relief:5");
+    // The default: relief with 4 halvings after the march (the occlusion method stays the
+    // switch's comparison).
+    assert_eq!(PARALLAX_METHOD, ParallaxMappingMethod::Relief { max_steps: 4 });
+    assert_eq!(parallax_method_name(PARALLAX_METHOD), "relief:4");
+    assert_eq!(parse_parallax_method(&parallax_method_name(PARALLAX_METHOD)), Ok(PARALLAX_METHOD), "the default is a value the switch takes");
+}
+
+/// The alpha-tested switch (`NVF_PBR_PARALLAX_MASK`): `1` on, `0` off, nothing else.
+#[test]
+fn the_mask_switch_takes_1_or_0() {
+    assert_eq!(parse_parallax_mask("1"), Ok(true));
+    assert_eq!(parse_parallax_mask(" 0 "), Ok(false));
+    for bad in ["yes", "true", "2", ""] {
+        assert!(parse_parallax_mask(bad).is_err(), "{bad:?}");
+    }
+}
+
+/// A switch's text: unset or empty keeps the default quietly; a taken value is logged as
+/// information (but for a value marked quiet); garbage and out-of-range text keep the
+/// default with a warning naming the variable and the text. Without the variables, the
+/// process-wide switches must use the defaults.
+#[test]
+fn a_switch_logs_what_it_took_or_refused_and_keeps_the_default_otherwise() {
+    let layers = |text: Option<&str>| switch_value(PARALLAX_LAYERS_ENV, text, MAX_PARALLAX_LAYERS, parse_parallax_layers, |n| format!("{n} layers"), |_| false);
+    assert_eq!(layers(None), (MAX_PARALLAX_LAYERS, SwitchLog::Quiet));
+    assert_eq!(layers(Some("  ")), (MAX_PARALLAX_LAYERS, SwitchLog::Quiet));
+    assert_eq!(layers(Some("16")), (16.0, SwitchLog::Taken("authored materials: NVF_PBR_PARALLAX_LAYERS=16: 16 layers".into())));
+    for bad in ["99", "lots"] {
+        let (v, log) = layers(Some(bad));
+        assert_eq!(v, MAX_PARALLAX_LAYERS, "{bad}");
+        assert!(matches!(&log, SwitchLog::Refused(l) if l.starts_with(&format!("authored materials: NVF_PBR_PARALLAX_LAYERS={bad} ")) && l.ends_with("; the default is kept")), "{bad}: {log:?}");
+    }
+    let method = |text: Option<&str>| switch_value(PARALLAX_METHOD_ENV, text, PARALLAX_METHOD, parse_parallax_method, parallax_method_name, |_| false);
+    assert_eq!(method(Some("relief:3")).0, ParallaxMappingMethod::Relief { max_steps: 3 });
+    assert!(matches!(method(Some("relief:12")), (m, SwitchLog::Refused(_)) if m == PARALLAX_METHOD), "out of range keeps the default");
+    assert!(matches!(method(Some("occlusion")), (ParallaxMappingMethod::Occlusion, SwitchLog::Taken(_))), "the comparison method is taken");
+    let mask = |text: Option<&str>| switch_value(PARALLAX_MASK_ENV, text, false, parse_parallax_mask, |_| "on".to_string(), |on| !on);
+    assert_eq!(mask(Some("0")), (false, SwitchLog::Quiet));
+    assert!(matches!(mask(Some("1")), (true, SwitchLog::Taken(_))));
+    assert!(matches!(mask(Some("on")), (false, SwitchLog::Refused(_))));
+    if [PARALLAX_LAYERS_ENV, PARALLAX_METHOD_ENV, PARALLAX_MASK_ENV].iter().all(|v| std::env::var_os(v).is_none()) {
+        assert_eq!((parallax_layers(), parallax_method(), parallax_mask()), (MAX_PARALLAX_LAYERS, PARALLAX_METHOD, false));
+    }
+}
+
+/// Which alpha modes may take a height map: opaque always; alpha-tested only under the
+/// switch; blends never. A refusal says which kind it was.
+#[test]
+fn alpha_tested_and_blended_shapes_are_refused_apart() {
+    for mask in [false, true] {
+        assert_eq!(height_alpha(AlphaMode::Opaque, mask), Ok(()));
+        for blended in [AlphaMode::Blend, AlphaMode::Premultiplied, AlphaMode::AlphaToCoverage, AlphaMode::Add, AlphaMode::Multiply] {
+            assert_eq!(height_alpha(blended, mask), Err(HeightSkip::Blended), "{blended:?} mask={mask}");
+        }
+    }
+    assert_eq!(height_alpha(AlphaMode::Mask(0.5), false), Err(HeightSkip::AlphaTested));
+    assert_eq!(height_alpha(AlphaMode::Mask(0.5), true), Ok(()));
 }

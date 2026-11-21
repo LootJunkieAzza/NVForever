@@ -806,15 +806,16 @@ pub(crate) trait TextureSource {
     /// The key a NIF texture path loads under (`texture::resolved_path` over this source's
     /// VFS): the diffuse's key is what an authored set is looked up by.
     fn resolve(&self, raw_path: &str) -> String;
-    /// The authored set (#2981) for a resolved diffuse key, its maps loaded by the exact paths
-    /// the index names (`crate::authored::find`); `None` when the run's setting is off (then
-    /// nothing is asked of the index), with no set, or when its `_orm` does not load. Every
-    /// production source implements it (no default, so none can leave the feature off by
-    /// omission); test doubles answer for themselves.
-    fn authored(&mut self, resolved_diffuse: &str) -> Option<crate::authored::AuthoredSet>;
+    /// The set (#2981: authored, or height only) for a resolved diffuse key, its maps loaded by
+    /// the exact paths the index names (`crate::authored::find`); `None` when the run's setting
+    /// is off (then nothing is asked of the index), with no active set, when an authored set's
+    /// `_orm` does not load, or when a height-only set gives no height map. Every production
+    /// source implements it (no default, so none can leave the feature off by omission); test
+    /// doubles answer for themselves.
+    fn pbr_set(&mut self, resolved_diffuse: &str) -> Option<crate::authored::PbrSet>;
     /// Whether authored sets are in use at all (the run's setting, `crate::authored::enabled`,
     /// for every production source): off, no shape is looked up and no legacy look is kept,
-    /// so an off run's materials carry nothing new. No default, as for [`Self::authored`].
+    /// so an off run's materials carry nothing new. No default, as for [`Self::pbr_set`].
     fn authored_on(&self) -> bool;
 }
 
@@ -851,11 +852,13 @@ impl TextureSource for StoreTextures<'_> {
         crate::authored::enabled()
     }
 
-    fn authored(&mut self, resolved_diffuse: &str) -> Option<crate::authored::AuthoredSet> {
+    fn pbr_set(&mut self, resolved_diffuse: &str) -> Option<crate::authored::PbrSet> {
         let workers = self.textures.workers.clone();
         let (textures, data, images, formats) = (&mut *self.textures, self.data, &mut *self.images, self.formats);
         crate::authored::find(data, crate::authored::enabled(), resolved_diffuse, &workers.authored, |path, usage| {
-            textures.exact(path, usage, data, images, formats).map(|(h, _)| h)
+            let (h, _) = textures.exact(path, usage, data, images, formats)?;
+            let format = images.get(&h).map(|i| i.texture_descriptor.format);
+            Some((h, format))
         })
     }
 }
@@ -949,13 +952,22 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     if key.is_some() && !key_ok {
         crate::authored::note_skipped(true);
     }
-    let authored = key.filter(|_| key_ok).and_then(|k| textures.authored(&k));
-    // The final normal is chosen before the tangents are settled: a set's `_n` on a shape
-    // without a normal map needs tangents on the drawn mesh, given here from `tangents` (kept,
-    // stored or generated, as for the game's own normal map).
+    let found = key.filter(|_| key_ok).and_then(|k| textures.pbr_set(&k));
+    let authored = found.as_ref().and_then(crate::authored::PbrSet::authored);
+    let height = found.as_ref().and_then(crate::authored::PbrSet::height);
+    // A height map is drawn only on an opaque (or, under the alpha-tested switch, an
+    // alpha-tested), single-sided, non-decal shape (`crate::authored::height_gate`, asked
+    // again of the built material): only such a shape gains tangents for one.
+    let height_wanted = height.is_some()
+        && crate::authored::height_alpha(alpha_mode, crate::authored::parallax_mask()).is_ok()
+        && !props.double_sided
+        && !props.decal;
+    // The final normal is chosen before the tangents are settled: a set's `_n` or `_p` on a
+    // shape without a normal map needs tangents on the drawn mesh, given here from `tangents`
+    // (kept, stored or generated, as for the game's own normal map).
     let tangents = if normal.is_some() {
         true
-    } else if authored.as_ref().is_some_and(|s| s.normal.is_some()) && !had_tangents {
+    } else if (authored.is_some_and(|s| s.normal.is_some()) || height_wanted) && !had_tangents {
         has_uv && tangents.add_to(mesh)
     } else {
         had_tangents
@@ -1029,11 +1041,19 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
             metallic: material.base.metallic,
             tangents,
             specular_tint: material.base.specular_tint,
+            parallax: crate::authored::Parallax::of(&material.base),
             scripted_tint: None,
         };
-        if let Some(set) = &authored {
+        if let Some(set) = authored {
             crate::authored::apply(&mut material, set, &legacy);
             crate::authored::note_built(set);
+        }
+        // The height map over either kind of set (a height-only set changes nothing else and
+        // leaves the mark clear).
+        if let Some(height) = height {
+            if crate::authored::apply_height(&mut material, height, &legacy).is_ok() {
+                crate::authored::note_height_built(authored.is_none());
+            }
         }
         material.extension.legacy = Some(legacy);
     }
@@ -1105,6 +1125,10 @@ pub fn refraction_material(material: &mut NifMaterial, strength: f32, fire_perio
     material.extension.fire_period = fire_period;
     material.extension.refract = true;
     material.extension.depth_write = false;
+    // #2981: a refracting copy (a cloak's: nvforever `stealth_field.rs`, player and actors
+    // alike) draws no authored height map: the shader samples the standard material, with
+    // the march, before its refraction return.
+    crate::authored::recheck_height(material);
 }
 
 /// The mesh of a shape-data block, its triangle count, and the tangent arrays it stores
@@ -1392,7 +1416,7 @@ mod tests {
         fn resolve(&self, raw_path: &str) -> String {
             fnv_vfs::texture_path(raw_path)
         }
-        fn authored(&mut self, _: &str) -> Option<crate::authored::AuthoredSet> {
+        fn pbr_set(&mut self, _: &str) -> Option<crate::authored::PbrSet> {
             None
         }
         fn authored_on(&self) -> bool {
@@ -1415,7 +1439,7 @@ mod tests {
         fn resolve(&self, raw_path: &str) -> String {
             fnv_vfs::texture_path(raw_path)
         }
-        fn authored(&mut self, _: &str) -> Option<crate::authored::AuthoredSet> {
+        fn pbr_set(&mut self, _: &str) -> Option<crate::authored::PbrSet> {
             None
         }
         fn authored_on(&self) -> bool {

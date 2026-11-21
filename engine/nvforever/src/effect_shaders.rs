@@ -567,6 +567,8 @@ fn play(
                     m.base.alpha_mode = AlphaMode::Mask(0.0);
                     m.extension.hard_edges = true;
                 }
+                // #2981: a holed copy is alpha-tested, so an authored height map comes off.
+                nvf_assets::authored::recheck_height(&mut m);
                 let copy = models.materials.add(m);
                 commands.entity(e).try_insert(MeshMaterial3d(copy.clone()));
                 if let Some((_, old)) = a.holed.insert(e, (current.clone(), copy)) {
@@ -958,6 +960,8 @@ impl AlphaDrawing<'_, '_> {
                             if matches!(m.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
                                 m.base.alpha_mode = AlphaMode::Blend;
                             }
+                            // #2981: a blended copy draws no authored height map.
+                            nvf_assets::authored::recheck_height(&mut m);
                             let c = m.base.base_color.alpha();
                             m.base.base_color.set_alpha(c * a);
                             let h = materials.add(m);
