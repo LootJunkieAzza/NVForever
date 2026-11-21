@@ -481,12 +481,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             reff(own.or_else(|| g.data.by_edid("DefaultCombatstyle")))
         }
         // ---- perks ----
-        // [documented: IsTrait] PERK DATA Trait, SetPerkFlag's change first (`nvse_gaps`).
-        "istrait" => {
-            let Some(p) = form(args, 0) else { return Some(Ok(zero)) };
-            let rec = g.data.perks.get(&p).is_some_and(|d| d.is_trait);
-            yes(g.gaps.perk_flags.get(&(p, 0)).copied().unwrap_or(rec))
-        }
+        // [documented: IsTrait] PERK DATA Trait, `Game::perk_def` first (`SetPerkFlag`).
+        "istrait" => yes(form(args, 0).and_then(|p| g.perk_def(p)).is_some_and(|d| d.is_trait)),
         // `perk index`: an ability entry's spell, a quest stage entry's quest [documented:
         // "Ability for type 5, Quest for type 6"]; an entry point 0 (its leveled list is
         // not kept decoded) [hypothesis], a negative index or past the entries 0.
@@ -825,7 +821,7 @@ fn playable(g: &Game, f: FormId) -> Option<bool> {
         b"WEAP" | b"ARMO" | b"AMMO" => g.playable_overrides.get(&f).copied().unwrap_or_else(|| g.world.forms.item(f).is_some_and(|i| !i.non_playable)),
         b"RACE" => record_num(g, f, "DATA", "flags").is_some_and(|x| x as u64 & 1 != 0),
         b"HAIR" | b"EYES" => record_num(g, f, "DATA", "").is_some_and(|x| x as u64 & 1 != 0),
-        b"PERK" => g.gaps.perk_flags.get(&(f, 1)).copied().unwrap_or_else(|| g.data.perks.get(&f).is_some_and(|p| p.playable)),
+        b"PERK" => g.perk_def(f).is_some_and(|p| p.playable),
         _ => return None,
     })
 }
@@ -849,7 +845,9 @@ fn set_playable(g: &mut Game, f: FormId, on: bool) {
             g.field_overrides.insert((f, "DATA/".into()), XVal::Num(v));
         }
         Some(b"PERK") => {
-            g.gaps.perk_flags.insert((f, 1), on);
+            if let Some(p) = g.perk_def_mut(f) {
+                p.playable = on;
+            }
         }
         _ => {}
     }

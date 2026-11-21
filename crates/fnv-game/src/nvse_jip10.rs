@@ -309,7 +309,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 }
                 v
             };
-            held.retain(|p| hidden || !g.data.perks.get(p).is_some_and(|d| d.hidden));
+            held.retain(|&p| hidden || !g.perk_def(p).is_some_and(|d| d.hidden));
             refs(g, held)
         }
         // `[forTeammates]` [documented].

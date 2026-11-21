@@ -63,7 +63,7 @@ pub fn keeps(ctx: &Ctx, subject: FormId, what: impl FnOnce() -> String) -> bool 
 /// Whether the revision keeps `perk` (anything but a trait); logged when the player has
 /// it.
 pub fn keeps_perk(g: &Game, ctx: &Ctx, subject: FormId, perk: FormId) -> bool {
-    let is_trait = g.data.perks.get(&perk).is_some_and(|p| p.is_trait);
+    let is_trait = g.perk_def(perk).is_some_and(|p| p.is_trait);
     let kept = !is_trait && subject == FormId::PLAYER_REF && by_revision(ctx);
     if kept && g.player.perks.contains_key(&perk) {
         tracing::info!("revision: keeps the perk {}", g.data.name(perk));

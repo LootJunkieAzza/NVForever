@@ -37,10 +37,6 @@ pub struct GapsState {
     pub hidden_slots: HashSet<u32>,
     /// SetPackageFlag's general flags, by package.
     pub package_flags: HashMap<FormId, u32>,
-    /// SetPerkLevel's levels.
-    pub perk_levels: HashMap<FormId, u8>,
-    /// SetPerkFlag's flags: (perk, flag ID 0 trait, 1 playable, 2 hidden).
-    pub perk_flags: HashMap<(FormId, u8), bool>,
     /// SetContainerRespawns's flags, by container base.
     pub respawns: HashMap<FormId, bool>,
     /// SetDestructionDataHealth's values.
@@ -421,28 +417,38 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- perks ----
-        // PERK DATA: 0 trait, 1 playable, 2 hidden [observed: gaps2, Toughness reads
-        // 0 1 0 0 0; hypothesis: the order of the flags on the page, 3 and on none].
+        // PERK DATA: 0 trait, 1 playable, 2 hidden [documented: GECK wiki GetPerkFlag /
+        // SetPerkFlag; observed: gaps2, Toughness reads 0 1 0 0 0; SetPerkFlag returns 0,
+        // gaps7]. Stored on `Game::perk_def` (`lu3.perk_edits`) so level-up, trait sheet,
+        // ITR eligibility, GetAllPerks, and revision checks read the change.
         "getperkflag" | "setperkflag" => {
             let f = form(args, 0).unwrap_or(FormId(0));
             let k = num(args, 1, -1.0) as i64;
-            let Some(p) = g.data.perks.get(&f) else { return Some(Ok(zero)) };
+            if name == "setperkflag" {
+                if matches!(k, 0..=2) {
+                    if let Some(p) = g.perk_def_mut(f) {
+                        let on = num(args, 2, 0.0) != 0.0;
+                        match k {
+                            0 => p.is_trait = on,
+                            1 => p.playable = on,
+                            2 => p.hidden = on,
+                            _ => {}
+                        }
+                    }
+                }
+                return Some(Ok(zero));
+            }
+            let Some(p) = g.perk_def(f) else { return Some(Ok(zero)) };
             let now = match k {
                 0 => p.is_trait,
                 1 => p.playable,
                 2 => p.hidden,
                 _ => return Some(Ok(zero)),
             };
-            let now = g.gaps.perk_flags.get(&(f, k as u8)).copied().unwrap_or(now);
-            // SetPerkFlag returns 0, for the session [observed: gaps7, 0 both ways].
-            if name == "setperkflag" {
-                g.gaps.perk_flags.insert((f, k as u8), num(args, 2, 0.0) != 0.0);
-                return Some(Ok(zero));
-            }
             yes(now)
         }
         // [observed: gaps3, Toughness 2 entries]
-        "getperkentrycount" => XVal::Num(form(args, 0).and_then(|f| g.data.perks.get(&f)).map_or(0, |p| p.entries.len()) as f64),
+        "getperkentrycount" => XVal::Num(form(args, 0).and_then(|f| g.perk_def(f)).map_or(0, |p| p.entries.len()) as f64),
         // Entry point 1, ability 5, quest stage 6; past the entries 0 [observed: gaps3 and
         // gaps5, Toughness/Lead Belly/Educated/Commando 1, Rad Resistance and Small Frame 5,
         // Intense Training 6].
@@ -1014,15 +1020,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             XVal::Num(f64::from(old))
         }
-        // PERK DATA min level; SetPerkLevel for the session [observed: gaps7, Bloody Mess
-        // 6, set to 8 and back].
+        // PERK DATA min level; SetPerkLevel for the session [documented: GECK wiki
+        // GetPerkLevel / SetPerkLevel; observed: gaps7, Bloody Mess 6, set to 8 and back].
+        // Stored on `Game::perk_def` (`lu3.perk_edits`) so level-up, requirement lines,
+        // and ITR eligibility read the change.
         "getperklevel" => {
             let p = form(args, 0).unwrap_or(FormId(0));
-            XVal::Num(g.gaps.perk_levels.get(&p).copied().or_else(|| g.data.perks.get(&p).map(|d| d.min_level)).map_or(0.0, f64::from))
+            XVal::Num(g.perk_def(p).map_or(0.0, |d| f64::from(d.min_level)))
         }
         "setperklevel" => {
-            if let Some(p) = form(args, 0) {
-                g.gaps.perk_levels.insert(p, num(args, 1, 0.0).clamp(0.0, 255.0) as u8);
+            if let Some(p) = form(args, 0).and_then(|p| g.perk_def_mut(p)) {
+                p.min_level = num(args, 1, 0.0).clamp(0.0, 255.0) as u8;
             }
             zero
         }
