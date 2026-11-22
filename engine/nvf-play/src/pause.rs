@@ -3864,7 +3864,17 @@ fn choose(
                     // A number: as the INI takes it (a row that was a slider, the overhaul).
                     Some((_, v)) if value.is_some() => {
                         let text = v.trim().to_string();
+                        let key = key.clone();
                         commands.queue(move |world: &mut World| {
+                            // A row greyed now takes no edit, as a click on it would not
+                            // (`settings::pick` refuses it). The number's way in below is the
+                            // INI's, which does not ask: without this the aid wrote
+                            // `anti-aliasing=0` through the lock FSR Native AA puts on the row,
+                            // and the saved 8x was gone when FSR was turned off (#3355).
+                            if let Some(why) = world.get_resource::<Settings>().and_then(|s| s.disabled_status(world, i)) {
+                                info!("test aid NVF_PLAY_TEST_SETTINGS: {key} is greyed now ({why}): not changed");
+                                return;
+                            }
                             let named = world.get_resource::<Settings>().and_then(|s| s.choices(i)).is_some_and(|c| (c.names)(world).contains(&text));
                             if named {
                                 crate::settings::pick(world, i, &text);
