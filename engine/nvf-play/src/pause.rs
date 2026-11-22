@@ -3995,8 +3995,10 @@ fn choose(
     let mut pressed = Pressed { keys: &keys, extra: Vec::new() };
     for (_, a) in due {
         info!("test aid NVF_PLAY_TEST_PAUSE_MENU: {a}");
-        if a == "shot" {
-            let name = format!("{}pause_{}.png", if under_main { "main_menu_" } else { "" }, match *page {
+        // `shot`, or `shot:<name>` to keep several frames of one page apart (`pause_controls_<name>.png`).
+        if let Some(tag) = (a == "shot").then_some("").or_else(|| a.strip_prefix("shot:")) {
+            let tag = if tag.is_empty() { String::new() } else { format!("_{}", tag.trim()) };
+            let name = format!("{}pause_{}{tag}.png", if under_main { "main_menu_" } else { "" }, match *page {
                 Page::Main if view.confirm.is_some() => "quit",
                 Page::Main => "main",
                 Page::Settings { .. } if view.scope == SettingsScope::Tab(CONTROLS_TAB) => "controls",
@@ -5328,9 +5330,10 @@ fn note_of(list: &[Setting], id: RowId, d: &Drawn) -> String {
     }
     // A controller binding that overlaps another: the warning, after its note [design,
     // owner 2026-11-22: warn of every duplicate or overlap, refuse none].
+    // It stands in for the row's how-to note, which would push it out of the note's lines.
     if let RowId::Control(c) = id {
-        if let Some(w) = d.control_warn(c) {
-            note = if note.is_empty() { w.to_string() } else { format!("{note} {w}") };
+        if let Some(w) = d.control_warn(c).filter(|_| d.listening.is_none()) {
+            note = w.to_string();
         }
     }
     match d.stand_ins.iter().find(|(by, _)| *by == id) {
