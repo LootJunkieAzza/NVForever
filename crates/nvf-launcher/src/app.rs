@@ -104,16 +104,6 @@ pub struct App {
     tabs: Vec<String>,
     tab_labels: Vec<String>,
     tab: usize,
-    /// The NVForever.ini tab, beside the game's own settings tabs.
-    ini_page: bool,
-    /// `[Game] Path` as the file has it. Not the guessed folder.
-    ini_game: String,
-    /// `[Launcher]` values this program reads.
-    ini_bar: String,
-    ini_exe: String,
-    ini_profile: String,
-    ini_news: bool,
-    ini_close: bool,
     words: HashMap<&'static str, &'static [&'static str]>,
     lists: HashMap<&'static str, &'static [&'static str]>,
     stored: BTreeMap<String, String>,
@@ -223,8 +213,6 @@ pub struct App {
     install_source: Option<PathBuf>,
     /// The remembered profile was already loaded this run.
     profile_restored: bool,
-    /// 0 is the load order. 1 is the Saves tab on the right.
-    right_tab: u8,
     /// Used once by the next install, when a dropped archive supplies a mod name.
     install_name: String,
     /// Quick Install is open. Nothing is copied yet.
@@ -265,8 +253,6 @@ pub struct App {
     upd_open: bool,
     // Starting the game.
     newest: Option<NewestSave>,
-    /// Saves in the home, newest first. Continue loads `newest`.
-    saves: Vec<NewestSave>,
     exe: Option<PathBuf>,
     child: Option<Child>,
     /// Test aid: `NVF_LAUNCHER_SHOT=<file.png>[;page]` saves the window once the news has
@@ -391,13 +377,6 @@ impl App {
             tab_labels: menu.tabs.iter().map(|(_, l)| l.clone()).collect(),
             rows: menu.rows,
             tab: 0,
-            ini_page: false,
-            ini_game: String::new(),
-            ini_bar: "56".into(),
-            ini_exe: String::new(),
-            ini_profile: String::new(),
-            ini_news: true,
-            ini_close: false,
             words: catalog::step_words(),
             lists: catalog::list_choices(),
             stored: BTreeMap::new(),
@@ -457,7 +436,6 @@ impl App {
             root_ask: None,
             install_source: None,
             profile_restored: false,
-            right_tab: 0,
             install_name: String::new(),
             quick: None,
             manual: None,
@@ -487,7 +465,6 @@ impl App {
             upd_cancel: Arc::new(AtomicBool::new(false)),
             upd_open: false,
             newest: None,
-            saves: Vec::new(),
             exe: None,
             child: None,
             shot: std::env::var_os("NVF_LAUNCHER_SHOT").map(|p| (PathBuf::from(p), 0)),
@@ -608,12 +585,6 @@ impl App {
         self.rows = menu.rows;
         self.tab = on.and_then(|on| self.tabs.iter().position(|t| *t == on)).unwrap_or(0);
         self.game_edit = Config::from_ini(&self.ini_text).game_dir.map(|p| p.display().to_string()).unwrap_or_default();
-        self.ini_game = self.game_edit.clone();
-        self.ini_bar = ini_get(&self.ini_text, LAUNCHER, "BottomBar").unwrap_or_else(|| "56".into());
-        self.ini_exe = ini_get(&self.ini_text, LAUNCHER, "Exe").unwrap_or_default();
-        self.ini_profile = ini_get(&self.ini_text, LAUNCHER, "Profile").unwrap_or_default();
-        self.ini_news = self.launcher_flag("News", true);
-        self.ini_close = self.launcher_flag("CloseOnPlay", false);
         // None set: the box starts on Steam's usual folder when the game is there; it is
         // stored only by Save (#2938).
         if self.game_edit.is_empty() {
@@ -689,10 +660,9 @@ impl App {
 
     fn find_newest_save(&mut self) {
         let Some(h) = &self.home else { return };
-        let keep = self.newest.as_ref().map(|s| s.path.clone());
         let save_dir = self.profile_saves_dir().unwrap_or_else(|| h.saves());
         let _ = std::fs::create_dir_all(&save_dir);
-        self.saves = fnv_save::list(&save_dir).into_iter().map(|(path, hd)| {
+        self.newest = fnv_save::list(&save_dir).into_iter().next().map(|(path, hd)| {
             let shot = fnv_save::read_header(&path).ok().map(|s| s.shot).filter(|s| !s.is_empty()).map(Arc::from);
             let name = if hd.player_name.is_empty() { path.file_stem().unwrap_or_default().to_string_lossy().into_owned() } else { hd.player_name.clone() };
             let hours = hd.play_seconds / 3600.0;
@@ -701,8 +671,7 @@ impl App {
             parts.push(format!("{hours:.0} h played"));
             let detail = parts.join(" · ");
             NewestSave { path, name, detail, shot }
-        }).collect();
-        self.newest = keep.and_then(|p| self.saves.iter().find(|s| s.path == p).cloned()).or_else(|| self.saves.first().cloned());
+        });
     }
 
     fn fetch_news(&mut self, ctx: &egui::Context) {
@@ -1574,55 +1543,38 @@ impl App {
     fn settings_page(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.heading("Settings");
-            if !self.ini_page {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let dirty = !self.edits.is_empty();
-                    if ui.add_enabled(dirty, gold_button("Save", dirty)).clicked() {
-                        let r = self.save_settings();
-                        self.after_write(r, Some("Settings saved: the game uses them at its next start."));
-                    }
-                    if ui.add_enabled(dirty, egui::Button::new("Undo changes")).clicked() {
-                        self.edits.clear();
-                    }
-                    if dirty {
-                        ui.label(RichText::new(format!("{} changed", self.edits.len())).small().color(GOLD));
-                    }
-                });
-            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let dirty = !self.edits.is_empty();
+                if ui.add_enabled(dirty, gold_button("Save", dirty)).clicked() {
+                    let r = self.save_settings();
+                    self.after_write(r, Some("Settings saved: the game uses them at its next start."));
+                }
+                if ui.add_enabled(dirty, egui::Button::new("Undo changes")).clicked() {
+                    self.edits.clear();
+                }
+                if dirty {
+                    ui.label(RichText::new(format!("{} changed", self.edits.len())).small().color(GOLD));
+                }
+            });
         });
         ui.label(
-            RichText::new(if self.ini_page {
-                "Values this launcher reads from NVForever.ini. The game's own settings stay on the other tabs. A save keeps the previous file as NVForever.ini.bak."
-            } else {
-                "The game's own settings page, kept in NVForever.ini. A row the game has not written yet shows its default once you change it in the game."
-            })
-            .small()
-            .color(WEAK),
+            RichText::new("The game's own settings page, kept in NVForever.ini. A row the game has not written yet shows its default once you change it in the game.")
+                .small()
+                .color(WEAK),
         );
         ui.horizontal_wrapped(|ui| {
             for (i, t) in self.tab_labels.clone().iter().enumerate() {
-                let on = !self.ini_page && self.tab == i;
+                let on = self.tab == i;
                 let b = egui::Button::new(RichText::new(t).strong().color(if on { theme::ON_GOLD } else { theme::TEXT })).fill(if on { GOLD } else { Color32::TRANSPARENT }).stroke(Stroke::NONE);
                 if ui.add(b).clicked() {
                     self.tab = i;
-                    self.ini_page = false;
                 }
-            }
-            let on = self.ini_page;
-            let b = egui::Button::new(RichText::new("NVForever.ini").strong().color(if on { theme::ON_GOLD } else { theme::TEXT })).fill(if on { GOLD } else { Color32::TRANSPARENT }).stroke(Stroke::NONE);
-            if ui.add(b).clicked() {
-                self.ini_page = true;
             }
         });
         ui.separator();
         let tab = self.tabs.get(self.tab).cloned();
-        let ini_page = self.ini_page;
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            if ini_page {
-                self.ini_form(ui);
-                return;
-            }
             if let Some(tab) = tab {
                 if tab == "Graphics" {
                     self.dlss_card(ui);
@@ -1656,165 +1608,6 @@ impl App {
                 }
             }
         });
-    }
-
-    /// The keys this launcher reads from NVForever.ini, other than the game's own settings tabs.
-    fn ini_form(&mut self, ui: &mut egui::Ui) {
-        if self.home.is_none() {
-            ui.label("No home folder was found, so NVForever.ini cannot be written.");
-            return;
-        }
-        let dirty = self.ini_form_dirty();
-        ui.horizontal(|ui| {
-            if ui.add_enabled(dirty, gold_button("Save", dirty)).on_hover_text("Writes these values into NVForever.ini. The previous file is kept as NVForever.ini.bak.").clicked() {
-                self.save_ini_form();
-            }
-            ui.label(RichText::new("Other lines in the file are left as they are.").small().color(WEAK));
-        });
-        ui.add_space(4.0);
-        ui.label(RichText::new("NEW GAME START").small().strong().color(theme::GOLD_TEXT));
-        card(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new("[General] sCharGenQuest and sIntroMovie. TTW off is the base game. TTW on is Tale of Two Wastelands. Save writes this file.").small().color(WEAK));
-            if let Some(path) = self.ini_path() {
-                ui.label(RichText::new(path.display().to_string()).small().color(WEAK)).on_hover_text("Linux: ~/.local/share/nvforever (or $XDG_DATA_HOME/nvforever), unless NVFOREVER_HOME is set. Windows: Documents\\My Games\\NVForever. An existing nvforever.ini in that folder is the file used.");
-            }
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Quest").small());
-                ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("00102037").desired_width(120.0));
-                ui.label(RichText::new("Film").small());
-                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text("FNVIntro.bik").desired_width(160.0));
-                ui.checkbox(&mut self.start_edit.no_film, "No intro film");
-                let mut ttw_on = self.start_edit.is_ttw();
-                let ttw_label = if ttw_on { "TTW on" } else { "TTW off" };
-                if ui.checkbox(&mut ttw_on, ttw_label).on_hover_text("On: quest 001FFFF8 and no intro film. Off: the base game, quest 00102037 and FNVIntro.bik. Save writes it.").changed() {
-                    self.start_edit = if ttw_on { crate::start::Fields::ttw() } else { crate::start::Fields::original() };
-                }
-            });
-            let ttw_loaded = self.mods.as_ref().and_then(|l| l.entries.iter().find(|e| e.name.eq_ignore_ascii_case(crate::start::TTW_PLUGIN))).map(|e| e.active);
-            if self.start_edit.is_ttw() && ttw_loaded != Some(true) {
-                ui.label(RichText::new(format!("{} is not on in the load order. Turn it on, or this start quest is not found.", crate::start::TTW_PLUGIN)).small().color(BAD));
-            }
-        });
-        ui.add_space(4.0);
-        ui.label(RichText::new("GAME").small().strong().color(theme::GOLD_TEXT));
-        card(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new("[Game] Path. The folder that holds Data. Also set on the Game folder page.").small().color(WEAK));
-            ui.add(egui::TextEdit::singleline(&mut self.ini_game).hint_text("Fallout New Vegas folder").desired_width(ui.available_width()));
-        });
-        ui.add_space(4.0);
-        ui.label(RichText::new("LAUNCHER").small().strong().color(theme::GOLD_TEXT));
-        card(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.checkbox(&mut self.ini_news, "Fetch news").on_hover_text("[Launcher] News. Ask nv-forever.com when the launcher opens.");
-            ui.checkbox(&mut self.ini_close, "Close the launcher when the game starts").on_hover_text("[Launcher] CloseOnPlay.");
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Bottom bar height").small()).on_hover_text("[Launcher] BottomBar. From 48 to 160. Dragging the bar writes the same key.");
-                ui.add(egui::TextEdit::singleline(&mut self.ini_bar).desired_width(64.0));
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Game program").small()).on_hover_text("[Launcher] Exe. Empty uses the program beside the launcher.");
-                ui.add(egui::TextEdit::singleline(&mut self.ini_exe).desired_width((ui.available_width() - 160.0).max(120.0)));
-                if cfg!(windows) && ui.button("Choose…").clicked() {
-                    if let Some(f) = pick_file("nvforever") {
-                        self.ini_exe = f.display().to_string();
-                    }
-                }
-            });
-            self.refresh_owned_profiles();
-            let choices = self.profile_choices.clone();
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Open this profile").small()).on_hover_text("[Launcher] Profile. The profile opened on the Mods page. Empty forgets it.");
-                let shown = if self.ini_profile.is_empty() { "none".to_string() } else { self.ini_profile.clone() };
-                egui::ComboBox::from_id_salt("ini-profile").selected_text(shown).show_ui(ui, |ui| {
-                    if ui.selectable_label(self.ini_profile.is_empty(), "none").clicked() {
-                        self.ini_profile.clear();
-                    }
-                    for (name, _) in &choices {
-                        if ui.selectable_label(self.ini_profile == *name, name).clicked() {
-                            self.ini_profile = name.clone();
-                        }
-                    }
-                });
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Load-order backups kept").small()).on_hover_text("[Launcher] PluginBackups. Lowering it asks before the oldest copies are deleted.");
-                self.backup_max_picker(ui);
-            });
-        });
-        ui.add_space(4.0);
-        let device = ini_get(&self.ini_text, "Controls", "Input Device").filter(|s| !s.is_empty()).unwrap_or_else(|| "not set".into());
-        ui.label(RichText::new(format!("Input device: {device}")).small().color(WEAK)).on_hover_text("[Controls] Input Device. The game writes this. It is not changed here.");
-    }
-
-    fn ini_form_dirty(&self) -> bool {
-        let cfg = Config::from_ini(&self.ini_text);
-        let game = cfg.game_dir.map(|p| p.display().to_string()).unwrap_or_default();
-        let bar = ini_get(&self.ini_text, LAUNCHER, "BottomBar").unwrap_or_else(|| "56".into());
-        let exe = ini_get(&self.ini_text, LAUNCHER, "Exe").unwrap_or_default();
-        let profile = ini_get(&self.ini_text, LAUNCHER, "Profile").unwrap_or_default();
-        self.start_edit != crate::start::Fields::read(&self.ini_text)
-            || self.ini_game.trim() != game
-            || self.ini_bar.trim() != bar
-            || self.ini_exe.trim() != exe
-            || self.ini_profile.trim() != profile
-            || self.ini_news != self.launcher_flag("News", true)
-            || self.ini_close != self.launcher_flag("CloseOnPlay", false)
-    }
-
-    fn save_ini_form(&mut self) {
-        let bar: f32 = match self.ini_bar.trim().parse::<f32>() {
-            Ok(n) if (48.0..=160.0).contains(&n) => n,
-            _ => {
-                self.message = Some(("Bottom bar height must be a number from 48 to 160.".into(), true));
-                return;
-            }
-        };
-        let exe = self.ini_exe.trim().to_string();
-        if !exe.is_empty() && !PathBuf::from(&exe).is_file() {
-            self.message = Some((format!("{exe} is not a file."), true));
-            return;
-        }
-        let profile = self.ini_profile.trim().to_string();
-        if !profile.is_empty() && !self.profile_choices.iter().any(|(n, _)| n == &profile) {
-            self.message = Some(("That profile is not in the profiles folder.".into(), true));
-            return;
-        }
-        let game = self.ini_game.trim().to_string();
-        let stored_game = Config::from_ini(&self.ini_text).game_dir.map(|p| p.display().to_string()).unwrap_or_default();
-        if game.is_empty() && !stored_game.is_empty() {
-            self.message = Some(("The game folder was left as it is. An empty path is not written.".into(), true));
-            return;
-        }
-        if !game.is_empty() && GameInstall::open(&game).is_err() {
-            self.message = Some((format!("{game} is not a Fallout New Vegas folder."), true));
-            return;
-        }
-        let start = self.start_edit.clone();
-        let news_on = self.ini_news;
-        let news = if news_on { "1" } else { "0" };
-        let close = if self.ini_close { "1" } else { "0" };
-        let bar_text = format!("{bar:.0}");
-        let r = self.write_ini(|t| {
-            let mut t = start.write(&t);
-            if !game.is_empty() {
-                t = ini_set(&t, "Game", "Path", &game);
-            }
-            t = ini_set(&t, LAUNCHER, "News", news);
-            t = ini_set(&t, LAUNCHER, "CloseOnPlay", close);
-            t = ini_set(&t, LAUNCHER, "BottomBar", &bar_text);
-            t = ini_set(&t, LAUNCHER, "Exe", &exe);
-            ini_set(&t, LAUNCHER, "Profile", &profile)
-        });
-        let ok = r.is_ok();
-        if ok {
-            self.bar_h = bar;
-        }
-        self.after_write(r, Some("NVForever.ini saved. The previous file is NVForever.ini.bak."));
-        if ok && !news_on {
-            self.news_state = NewsState::Off;
-        }
     }
 
     fn backup_max_picker(&mut self, ui: &mut egui::Ui) {
@@ -2424,7 +2217,7 @@ impl App {
     }
 
     fn mods_page(&mut self, ui: &mut egui::Ui) {
-        let help = "Left: the profile and the mod list. Right: plugins or saves. Drag a row to change priority. Right-click a mod or a plugin. Drop a folder or an archive on the list to install it. Apply saves the lists. Nothing is copied into Data.";
+        let help = "Left: the profile and the mod list. Right: plugins. Drag a row to change priority. Right-click a mod or a plugin. Drop a folder or an archive on the list to install it. Apply saves the lists. Nothing is copied into Data.";
         ui.horizontal(|ui| {
             let unsaved = self.page_unsaved();
             let heading = match &self.profile_pick {
@@ -2454,6 +2247,7 @@ impl App {
         self.install_warn_row(ui);
         self.root_ask_row(ui);
         self.mod_note_row(ui);
+        self.start_box(ui);
         ui.separator();
         let apply_h = 40.0;
         let list_h = (ui.available_height() - apply_h - ui.spacing().item_spacing.y).max(48.0);
@@ -2491,6 +2285,66 @@ impl App {
                 self.apply_ask = true;
             }
         });
+    }
+
+    /// A new game's start (src/start.rs, #2945): the start quest and intro film typed in,
+    /// written to NVForever.ini's `[General]` by Save; TTW's values one click away while its
+    /// master is in the load order.
+    fn start_box(&mut self, ui: &mut egui::Ui) {
+        use crate::start;
+        let ttw = self.mods.as_ref().and_then(|l| l.entries.iter().find(|e| e.name.eq_ignore_ascii_case(start::TTW_PLUGIN))).map(|e| e.active);
+        let saved = start::Fields::read(&self.ini_text);
+        let mut save = false;
+        ui.add_space(4.0);
+        card(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new("New game start").strong());
+            ui.label(
+                RichText::new("For mods that start somewhere else (their install guide gives the values). Empty: the New Vegas opening and its film. Saved to NVForever.ini's [General].")
+                    .small()
+                    .color(WEAK),
+            );
+            let w = (ui.available_width() - 120.0).max(120.0);
+            egui::Grid::new("start_fields").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+                ui.label("Start quest");
+                ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("VCG00 (New Vegas opening); TTW: 001FFFF8").desired_width(w));
+                ui.end_row();
+                ui.label("Intro film");
+                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text(r"fnvintro.bik (a file in Data\Video)").desired_width(w));
+                ui.end_row();
+                ui.label("");
+                ui.checkbox(&mut self.start_edit.no_film, "No intro film");
+                ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                save = ui.add_enabled(self.start_edit != saved, egui::Button::new("Save start")).clicked();
+                if ttw.is_some() && !self.start_edit.is_ttw() && ui.button("Use Tale of Two Wastelands' start").on_hover_text("Start quest 001FFFF8 and no intro film; Save to keep it").clicked() {
+                    self.start_edit = start::ttw();
+                }
+                if self.start_edit != start::Fields::default() && ui.button("Clear").on_hover_text("Back to the New Vegas opening; Save to keep it").clicked() {
+                    self.start_edit = start::Fields::default();
+                }
+                if self.start_edit != saved && ui.button("Undo").clicked() {
+                    self.start_edit = saved.clone();
+                }
+            });
+            if self.start_edit.is_ttw() && ttw == Some(false) {
+                ui.label(RichText::new(format!("{} is off in the load order: turn it on, or this start quest is not found.", start::TTW_PLUGIN)).small().color(BAD));
+            }
+        });
+        if save {
+            let fields = self.start_edit.clone();
+            // Only the INI's text is read again: unsaved changes on the Settings page stay.
+            match self.write_ini(|t| fields.write(&t)) {
+                Ok(()) => {
+                    self.ini_text = self.ini_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+                    self.start_edit = start::Fields::read(&self.ini_text);
+                    let what = if self.start_edit == start::Fields::default() { "New games start at the New Vegas opening." } else { "New game start saved." };
+                    self.message = Some((what.to_string(), false));
+                }
+                Err(e) => self.message = Some((e, true)),
+            }
+        }
     }
 
     fn mod_column(&mut self, ui: &mut egui::Ui) {
@@ -2706,21 +2560,6 @@ impl App {
     }
 
     fn plugin_column(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            let tabs = [
-                (0u8, "Plugins", "Load order. An ESM should sit above the plugins that need it."),
-                (1, "Saves", "Pick the save Continue uses."),
-            ];
-            for (id, label, tip) in tabs {
-                if ui.selectable_label(self.right_tab == id, label).on_hover_text(tip).clicked() {
-                    self.right_tab = id;
-                }
-            }
-        });
-        if self.right_tab == 1 {
-            self.saves_tab(ui);
-            return;
-        }
         self.backup_row(ui);
         let folders = self.plugin_folders.clone();
         let masters = self.plugin_masters.clone();
@@ -4914,27 +4753,6 @@ impl App {
         }
     }
 
-
-    fn saves_tab(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Saves").small().color(GOLD)).on_hover_text("The save Continue uses.");
-        if self.saves.is_empty() {
-            ui.label(RichText::new("No saves found.").small().color(WEAK));
-            return;
-        }
-        let current = self.newest.as_ref().map(|n| n.path.clone());
-        let mut pick = None;
-        egui::ScrollArea::both().id_salt("save-rows").auto_shrink([false, false]).show(ui, |ui| {
-            for (i, save) in self.saves.iter().enumerate() {
-                let on = current.as_ref().is_some_and(|p| p == &save.path);
-                if ui.selectable_label(on, format!("{} · {}", save.name, save.detail)).clicked() {
-                    pick = Some(i);
-                }
-            }
-        });
-        if let Some(i) = pick {
-            self.newest = self.saves.get(i).cloned();
-        }
-    }
 
 
     fn pick_root(&mut self, index: usize) {

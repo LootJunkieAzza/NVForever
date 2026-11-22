@@ -105,8 +105,8 @@ SCharGenQuest=001FFFF8
 SIntroMovie=
 ```
 
-The launcher's Settings page, on the NVForever.ini tab, writes these two lines. Clear sets
-`sCharGenQuest=00102037` and `sIntroMovie=FNVIntro.bik`. Both are read once at start and never written by the game; unattended runs read them only under their
+The launcher's Mods page writes these two lines for the player with one box (launcher.md,
+Mods). Both are read once at start and never written by the game; unattended runs read them only under their
 own `NVFOREVER_HOME`.
 
 These lines go in NVForever's own `NVForever.ini`, not the original's

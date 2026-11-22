@@ -73,7 +73,7 @@ used. Reading another program's instance with `--mo2` stays read-only.
 You can still drop an archive onto the Mods page. **Quick Install** opens.
 OK uses the archive as it is. Manual lists the files, and `<data>` is the
 folder that becomes the mod. Nothing is copied until OK, and it is not copied
-into Data. **Saves** is a tab on the right of the Mods page.
+into Data.
   
 Script extenders (xNVSE, JIP LN, JohnnyGuitar and several smaller ones) are built into the
 engine: their script functions run without the plugin `.dll` files, which NVForever never

@@ -16,7 +16,7 @@ profile). `--mo2` is a different, read-only path
 [design] Each mod is one folder under the launcher home's `mods` directory.
 The home is `~/.local/share/nvforever` on Linux (or `$XDG_DATA_HOME/nvforever`)
 and `Documents\My Games\NVForever` on Windows, unless `NVFOREVER_HOME` is set
-[documented: the launcher's NVForever.ini page].
+[documented: `EngineHome::default_root` in `crates/fnv-install/src/lib.rs`].
 
 A mod's meshes, textures, and archives sit in that folder, or in a `Data`
 folder inside it when the mod has one [documented: `plugins::mod_content_root`].
