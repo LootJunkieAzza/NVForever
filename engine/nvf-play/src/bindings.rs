@@ -50,6 +50,7 @@
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use crate::pad::binding::PadBinding;
 use crate::pad::PadInput;
 use fnv_install::{guard_write, ini_get, ini_set};
 use std::path::Path;
@@ -147,6 +148,14 @@ pub enum Control {
     HideHud,
     /// End the Pip-Boy radio's song or talk now (iSkipRadioSongKey).
     SkipRadioSong,
+    // The controller's split holds (docs/design/controller.md §2a, [`SPLITS`]): built into
+    // their original control until the player binds them elsewhere; controller only.
+    /// Circle the camera round the player while held (built into Toggle POV's hold).
+    OrbitCamera,
+    /// Open the weapon wheel while held (built into a hotkey's hold).
+    WeaponWheel,
+    /// Pick up and carry what is under the crosshair while held (built into Activate's hold).
+    ActivateGrab,
     /// Open and close the console (the original's ` key; Stewie's Tweaks iConsoleKey), a
     /// binding like any other [design: owner 2026-11-16: "make the console hotkey and
     /// screenshot hotkey a normal rebindable key"].
@@ -161,7 +170,7 @@ pub enum Control {
 /// Item tapped twice so a reload is not held back waiting for a second tap]; Sprint unbound,
 /// with no controller button either, until the player binds it [design, #3000: the
 /// maintainer's decision on #3002].
-pub const GAME_CONTROLS: [(Control, &str, u32); 58] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 61] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -218,6 +227,10 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 58] = [
     (Control::PlaceMarkerHere, "Place Marker Here", 0xFFFFFFFF),
     (Control::HideHud, "Hide HUD", 0xFFFFFFFF),
     (Control::SkipRadioSong, "Skip Radio Song", 0xFFFFFFFF),
+    // The controller's split holds ([`SPLITS`], [`PAD_ONLY`]): no key, never in [Controls].
+    (Control::OrbitCamera, "Orbit Camera", 0xFFFFFFFF),
+    (Control::WeaponWheel, "Weapon Wheel", 0xFFFFFFFF),
+    (Control::ActivateGrab, "Activate Grab", 0xFFFFFFFF),
     // Bound by default, as before they were bindings (the keys as the INI codes them).
     (Control::Console, "Console", 0x0029FFFF),
     (Control::Screenshot, "Screenshot", 0x0058FFFF),
@@ -288,6 +301,40 @@ pub const DPAD_HOTKEYS: [(Control, GamepadButton); 4] = [
 ];
 
 /// The key of a DirectInput keyboard scan code [documented: Microsoft `DIK_*` values].
+/// The controller's split holds [design, owner 2026-11-22: "break up controller settings
+/// that already exist on those like hold pipboy for light make it possible to make light
+/// something else"; "only for controller though"]: (the split control, its original
+/// control's name, the original control). Until the player gives the split control a
+/// controller binding of its own its binding is [`PadBinding::BuiltIn`]: the original
+/// control's own hold, as before (holding Menu Mode switches the light, Ready Item
+/// holsters, Activate grabs, Toggle POV circles the camera, a hotkey opens the wheel).
+/// Once bound elsewhere the original control's hold is off with the controller
+/// ([`Bindings::split_moved`]) and the split control acts on its own binding. The keyboard
+/// keeps every built-in hold.
+pub const SPLITS: [(Control, &str, Option<Control>); 5] = [
+    (Control::ToggleLight, "Menu Mode", Some(Control::MenuMode)),
+    (Control::HolsterWeapon, "Ready Item", Some(Control::ReadyItem)),
+    (Control::ActivateGrab, "Activate", Some(Control::Activate)),
+    (Control::OrbitCamera, "Toggle POV", Some(Control::TogglePov)),
+    (Control::WeaponWheel, "Hotkeys", None),
+];
+
+/// The split controls with no key of their own: controller rows only, never written to
+/// `[Controls]` (the keyboard keeps the built-in holds).
+pub const PAD_ONLY: [Control; 3] = [Control::OrbitCamera, Control::WeaponWheel, Control::ActivateGrab];
+
+/// The split controls, whose controller row stands beside its original control on the
+/// Controls tab (`controls:padbind:` in the layout table) rather than with the Tweaks
+/// keys [design, owner 2026-11-22: "Yes, move them"].
+pub fn pad_placed(c: Control) -> bool {
+    SPLITS.iter().any(|(k, _, _)| *k == c)
+}
+
+/// A split control's original control, by name and control ([`SPLITS`]).
+pub fn split_origin(c: Control) -> Option<(&'static str, Option<Control>)> {
+    SPLITS.iter().find(|(k, _, _)| *k == c).map(|(_, n, o)| (*n, *o))
+}
+
 pub fn dik_key(code: u8) -> Option<KeyCode> {
     use KeyCode::*;
     Some(match code {
@@ -402,7 +449,10 @@ impl Binding {
 #[derive(Resource, Debug, Clone)]
 pub struct Bindings {
     map: Vec<(Control, Binding)>,
-    pad: Vec<(Control, Option<PadInput>)>,
+    pad: Vec<(Control, Option<PadBinding>)>,
+    /// The Controls tab's Hold time and Double-tap window, seconds (`crate::pad::resolver`).
+    pub hold_time: f32,
+    pub double_tap: f32,
     pub always_run_by_default: bool,
     pub invert_y: bool,
     pub mouse_sensitivity: f32,
@@ -468,6 +518,8 @@ impl Bindings {
         Bindings {
             map: GAME_CONTROLS.iter().map(|&(c, _, v)| (c, Binding::from_ini(v))).collect(),
             pad: game_pad_defaults(),
+            hold_time: crate::pad::resolver::HOLD_TIME,
+            double_tap: crate::pad::resolver::DOUBLE_TAP_WINDOW,
             always_run_by_default: ALWAYS_RUN_BY_DEFAULT,
             invert_y: INVERT_Y,
             mouse_sensitivity: MOUSE_SENSITIVITY,
@@ -482,30 +534,103 @@ impl Bindings {
         }
     }
 
-    /// The control's controller input.
+    /// The control's controller input: the button its binding is worked by (a combo's
+    /// button, `crate::pad::binding::PadBinding::main`); a split control still built in
+    /// ([`SPLITS`]), its original control's.
     pub fn pad(&self, c: Control) -> Option<PadInput> {
+        match self.pad_binding(c)? {
+            PadBinding::BuiltIn => split_origin(c).and_then(|(_, o)| o).and_then(|o| self.pad(o)),
+            b => b.main(),
+        }
+    }
+
+    /// The control's controller binding (docs/design/controller.md §2a).
+    pub fn pad_binding(&self, c: Control) -> Option<PadBinding> {
         self.pad.iter().find(|(k, _)| *k == c).and_then(|(_, p)| *p)
     }
 
+    /// Every control's controller binding there is, in the INI's order.
+    pub fn pad_bindings(&self) -> Vec<(Control, PadBinding)> {
+        GAME_CONTROLS.iter().filter_map(|&(c, _, _)| self.pad_binding(c).map(|b| (c, b))).collect()
+    }
+
+    /// The Hold time and Double-tap window in use.
+    pub fn timing(&self) -> crate::pad::resolver::Timing {
+        crate::pad::resolver::Timing { hold: self.hold_time, double: self.double_tap }
+    }
+
+    /// The split control `c` ([`SPLITS`]) has a controller binding of its own and the
+    /// controller works the controls: its original control's built-in hold is off.
+    pub fn split_moved(&self, c: Control) -> bool {
+        self.device == InputDevice::Controller && self.pad_binding(c) != Some(PadBinding::BuiltIn)
+    }
+
     pub fn set_pad(&mut self, c: Control, p: Option<PadInput>) {
+        self.set_pad_binding(c, p.map(PadBinding::Press));
+    }
+
+    pub fn set_pad_binding(&mut self, c: Control, p: Option<PadBinding>) {
         match self.pad.iter_mut().find(|(k, _)| *k == c) {
             Some((_, x)) => *x = p,
             None => self.pad.push((c, p)),
         }
     }
 
-    /// Bind controller input `p` to `c`; a control that had it gets `c`'s old one (a
-    /// swap). The controls that gave it up.
+    /// Bind controller input `p` to `c` as a press ([`Bindings::rebind_pad_binding`]).
     pub fn rebind_pad(&mut self, c: Control, p: PadInput) -> Vec<Control> {
-        let old = self.pad(c);
+        self.rebind_pad_binding(c, PadBinding::Press(p))
+    }
+
+    /// Bind `p` to `c`; a control that had the same binding gets `c`'s old one (a swap),
+    /// unless the Duplicate Binds tweak is on. The controls that gave it up. Bindings that
+    /// only overlap (a hold and a press of one button) are kept and warned of
+    /// ([`overlaps`]) [design, owner 2026-11-22: "give warnings when there's duplicate or
+    /// overlapping bindings in any way"]. Only a split control takes
+    /// [`PadBinding::BuiltIn`].
+    pub fn rebind_pad_binding(&mut self, c: Control, p: PadBinding) -> Vec<Control> {
+        if p == PadBinding::BuiltIn && split_origin(c).is_none() {
+            return Vec::new();
+        }
+        let old = self.pad_binding(c);
         let mut swapped = Vec::new();
-        let swaps = !self.allow_duplicates;
+        let swaps = !self.allow_duplicates && p != PadBinding::BuiltIn;
         for (k, x) in self.pad.iter_mut().filter(|(k, x)| swaps && *k != c && *x == Some(p)) {
-            *x = old;
+            // A split control's built-in place is no binding to hand on to another control.
+            *x = match old {
+                Some(PadBinding::BuiltIn) => None,
+                o => o,
+            };
             swapped.push(*k);
         }
-        self.set_pad(c, Some(p));
+        self.set_pad_binding(c, Some(p));
         swapped
+    }
+
+    /// The control's controller binding as the INI writes it (`A`, `Hold X`, `LB + A`,
+    /// `With Menu Mode`, `None`).
+    pub fn pad_text_of(&self, c: Control) -> String {
+        match self.pad_binding(c) {
+            None => "None".into(),
+            Some(b) => b.ini_text(split_origin(c).map_or("", |(n, _)| n)),
+        }
+    }
+
+    /// The control's controller binding as the page shows it, in the button style's names:
+    /// `A`, `Hold X`, `L1 + Cross`; a split control still built in, its original control's
+    /// hold (`Hold B (Menu Mode)`, `Hold a hotkey`).
+    pub fn pad_shown_of(&self, c: Control) -> String {
+        let l = crate::pad::pad_labels();
+        match self.pad_binding(c) {
+            None => "None".into(),
+            Some(PadBinding::BuiltIn) => match split_origin(c) {
+                Some((name, Some(o))) => match self.pad_binding(o) {
+                    Some(PadBinding::Press(p)) => format!("Hold {} ({name})", crate::pad::pad_label(p, l)),
+                    _ => format!("With {name}"),
+                },
+                _ => "Hold a hotkey".into(),
+            },
+            Some(b) => b.shown(l).unwrap_or_default(),
+        }
     }
 
     /// What a prompt names for the control on the device in use: `E)`, `A)` [design: the
@@ -514,7 +639,7 @@ impl Bindings {
     pub fn prompt(&self, c: Control) -> String {
         let b = self.get(c);
         let name = match self.device {
-            InputDevice::Controller => self.pad(c).map(|p| crate::pad::pad_shown(p).to_string()),
+            InputDevice::Controller => self.pad_binding(c).map(|_| self.pad_shown_of(c)),
             InputDevice::KeyboardMouse => b.key.and_then(key_name).map(String::from).or_else(|| b.mouse.map(mouse_name)),
         };
         format!("{})", name.unwrap_or_else(|| "?".into()))
@@ -525,7 +650,7 @@ impl Bindings {
         match self.device {
             InputDevice::KeyboardMouse => self.get(c).text(),
             // The button style's names (#1452); the INI keeps the Xbox ones ([`pad_text`]).
-            InputDevice::Controller => self.pad(c).map_or_else(|| "None".into(), |p| crate::pad::pad_shown(p).to_string()),
+            InputDevice::Controller => self.pad_shown_of(c),
         }
     }
 
@@ -581,11 +706,17 @@ impl Bindings {
 }
 
 /// The game's controller buttons (`JJ`), then the D-pad's hotkeys where it gave none.
-fn game_pad_defaults() -> Vec<(Control, Option<PadInput>)> {
-    let mut v: Vec<(Control, Option<PadInput>)> = GAME_CONTROLS.iter().map(|&(c, _, x)| (c, crate::pad::game_pad(x as u8))).collect();
+fn game_pad_defaults() -> Vec<(Control, Option<PadBinding>)> {
+    let mut v: Vec<(Control, Option<PadBinding>)> = GAME_CONTROLS.iter().map(|&(c, _, x)| (c, crate::pad::game_pad(x as u8).map(PadBinding::Press))).collect();
     for (c, b) in DPAD_HOTKEYS {
         if let Some((_, x @ None)) = v.iter_mut().find(|(k, _)| *k == c) {
-            *x = Some(PadInput::Button(b));
+            *x = Some(PadBinding::Press(PadInput::Button(b)));
+        }
+    }
+    // The split holds stay where the game has them until the player moves them.
+    for (c, _, _) in SPLITS {
+        if let Some((_, x)) = v.iter_mut().find(|(k, _)| *k == c) {
+            *x = Some(PadBinding::BuiltIn);
         }
     }
     v
@@ -657,6 +788,9 @@ pub fn label(c: Control) -> &'static str {
         PlaceMarkerHere => "Place Marker Here",
         HideHud => "Hide HUD",
         SkipRadioSong => "Skip Radio Song",
+        OrbitCamera => "Orbit Camera",
+        WeaponWheel => "Weapon Wheel",
+        ActivateGrab => "Grab (Hold)",
         Console => "Console",
         Screenshot => "Screenshot",
     }
@@ -791,6 +925,13 @@ pub const AUTOMATIC_INPUT_KEY: &str = "Automatic Input Switching";
 pub const PAD_SECTION: &str = "Controller";
 const LOOK_KEYS: [&str; 2] = ["Look Speed Horizontal", "Look Speed Vertical"];
 pub const RUMBLE_KEY: &str = "Rumble";
+/// `[Controller]`'s mark of an INI written with the binding kinds ([`read_controls`]).
+const KINDS_KEY: &str = "Binding Kinds";
+/// `[Controller]`'s Hold time and Double-tap window, seconds.
+pub const HOLD_KEY: &str = "Hold Time";
+pub const DOUBLE_KEY: &str = "Double Tap Window";
+/// The longest Hold time or Double-tap window a hand-edited INI may give, seconds.
+const TIMING_MOST: f32 = 5.0;
 const STICK_SENSITIVITY_KEY: &str = "Stick Sensitivity";
 /// Where each device's Vertical Sensitivity is kept ([`Bindings::vertical`]): a multiple,
 /// two decimals.
@@ -819,13 +960,16 @@ fn mouse_sensitivity_text(s: f32) -> String {
 
 /// `text` (an INI, or empty) with every control in `[Controls]`.
 pub fn with_controls(text: &str, b: &Bindings) -> String {
-    let mut t = b.all().fold(text.to_string(), |t, (c, x)| ini_set(&t, SECTION, Bindings::name(c), &x.text()));
+    let mut t = b.all().filter(|(c, _)| !PAD_ONLY.contains(c)).fold(text.to_string(), |t, (c, x)| ini_set(&t, SECTION, Bindings::name(c), &x.text()));
     t = ini_set(&t, SECTION, ALWAYS_RUN_KEY, bit(b.always_run_by_default));
     t = ini_set(&t, SECTION, INVERT_Y_KEY, bit(b.invert_y));
     t = ini_set(&t, SECTION, SENSITIVITY_KEY, &mouse_sensitivity_text(b.mouse_sensitivity));
     t = ini_set(&t, SECTION, DEVICE_KEY, b.device.name());
     t = ini_set(&t, SECTION, AUTOMATIC_INPUT_KEY, bit(b.automatic_input_switching));
-    t = b.all().fold(t, |t, (c, _)| ini_set(&t, PAD_SECTION, Bindings::name(c), &pad_text(b.pad(c))));
+    t = ini_set(&t, PAD_SECTION, KINDS_KEY, "1");
+    t = b.all().fold(t, |t, (c, _)| ini_set(&t, PAD_SECTION, Bindings::name(c), &b.pad_text_of(c)));
+    t = ini_set(&t, PAD_SECTION, HOLD_KEY, &format!("{:.2}", b.hold_time));
+    t = ini_set(&t, PAD_SECTION, DOUBLE_KEY, &format!("{:.2}", b.double_tap));
     for (k, v) in LOOK_KEYS.iter().zip(b.look_speed) {
         t = ini_set(&t, PAD_SECTION, k, &format!("{v:.0}"));
     }
@@ -841,6 +985,10 @@ pub fn with_controls(text: &str, b: &Bindings) -> String {
 pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (usize, Vec<String>) {
     let (mut found, mut changed) = (0, Vec::new());
     for (c, name, _) in GAME_CONTROLS {
+        // The controller's split holds have no key ([`PAD_ONLY`]).
+        if PAD_ONLY.contains(&c) {
+            continue;
+        }
         let Some(v) = ini_get(text, SECTION, name) else { continue };
         found += 1;
         match Binding::parse(&v) {
@@ -895,24 +1043,46 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
             None => bad.push(format!("{DEVICE_KEY}={v} (not \"Keyboard and Mouse\" or \"Controller\")")),
         }
     }
+    // An INI written before the binding kinds has no `Binding Kinds` line: there the split
+    // holds' `None` (Toggle Light, Holster Weapon, unbound then) is their built-in place, so
+    // holding Menu Mode still switches the light [design, §2a].
+    let kinds = ini_get(text, PAD_SECTION, KINDS_KEY);
+    if kinds.is_some() {
+        found += 1;
+    }
     for (c, name, _) in GAME_CONTROLS {
         let Some(v) = ini_get(text, PAD_SECTION, name) else { continue };
         found += 1;
         let p = match v.trim() {
-            n if n.is_empty() || n.eq_ignore_ascii_case("none") => Ok(None),
-            n => match crate::pad::parse_pad(n) {
-                Some(p) if crate::pad::RESERVED_PAD.contains(&p) => Err(format!("{n:?} is kept for the pause menu")),
-                Some(p) => Ok(Some(p)),
-                None => Err(format!("{n:?} is not a controller button name")),
+            n if n.is_empty() || n.eq_ignore_ascii_case("none") => Ok(if kinds.is_none() && split_origin(c).is_some() { Some(PadBinding::BuiltIn) } else { None }),
+            n => match PadBinding::parse(n) {
+                Ok(PadBinding::BuiltIn) if split_origin(c).is_none() => Err(format!("{n:?}: only a split hold is built in")),
+                Ok(p) => Ok(Some(p)),
+                Err(e) => Err(e),
             },
         };
         match p {
-            Ok(p) if p != b.pad(c) => {
-                changed.push(format!("[{PAD_SECTION}] {name} {} -> {}", pad_text(b.pad(c)), pad_text(p)));
-                b.set_pad(c, p);
+            Ok(p) if p != b.pad_binding(c) => {
+                let before = b.pad_text_of(c);
+                b.set_pad_binding(c, p);
+                changed.push(format!("[{PAD_SECTION}] {name} {before} -> {}", b.pad_text_of(c)));
             }
             Ok(_) => {}
             Err(e) => bad.push(format!("[{PAD_SECTION}] {name}={v} ({e})")),
+        }
+    }
+    for (k, at, choices) in [(HOLD_KEY, &mut b.hold_time, &crate::pad::resolver::HOLD_TIMES), (DOUBLE_KEY, &mut b.double_tap, &crate::pad::resolver::DOUBLE_TAP_WINDOWS)] {
+        let Some(v) = ini_get(text, PAD_SECTION, k) else { continue };
+        found += 1;
+        match v.trim().parse::<f32>() {
+            // A hand-edited time between the choices is kept as it is.
+            Ok(s) if s.is_finite() && s > 0.0 && s <= TIMING_MOST => {
+                if (s - *at).abs() > 1e-4 {
+                    changed.push(format!("[{PAD_SECTION}] {k} {s}"));
+                    *at = s;
+                }
+            }
+            _ => bad.push(format!("[{PAD_SECTION}] {k}={v} (not seconds above 0, at most {TIMING_MOST}; the row's are {choices:?})")),
         }
     }
     for (i, k) in LOOK_KEYS.iter().enumerate() {
@@ -963,8 +1133,10 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
     (found, changed)
 }
 
-/// The number of `[Controls]` lines a full section has.
-const LINES: usize = 2 * GAME_CONTROLS.len() + 5 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len() + AIM_KEYS.len();
+/// The number of `[Controls]` and `[Controller]` lines a full INI has: each control's key
+/// (not the controller's split holds, [`PAD_ONLY`]) and button, the switches, the look
+/// settings, and `Binding Kinds`, `Hold Time`, `Double Tap Window`.
+const LINES: usize = 2 * GAME_CONTROLS.len() - PAD_ONLY.len() + 5 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len() + AIM_KEYS.len() + 3;
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
 pub fn apply_stored(world: &mut World) {
@@ -991,6 +1163,10 @@ pub fn apply_stored(world: &mut World) {
     }
     let what = if changed.is_empty() { String::new() } else { format!(": {}", changed.join(", ")) };
     info!("controls: {found} of {LINES} line(s) read from {}, {} changed{what}; input device {}", path.display(), changed.len(), world.resource::<Bindings>().device.name());
+    // The controller bindings read that overlap: warned of, kept [design, owner 2026-11-22].
+    for o in overlaps(world.resource::<Bindings>()) {
+        warn!("controls: warning: {}", o.text);
+    }
     if found < LINES {
         store(world);
         info!("controls: the {} missing line(s) written to [{SECTION}] and [{PAD_SECTION}]", LINES - found);
@@ -1026,16 +1202,135 @@ pub fn rebind(world: &mut World, c: Control, input: Input) {
 
 /// Bind controller input `p` to `c` (the Controls page with Controller chosen).
 pub fn rebind_pad(world: &mut World, c: Control, p: PadInput) {
+    rebind_pad_binding(world, c, PadBinding::Press(p));
+}
+
+/// Bind controller binding `p` to `c` (the Controls page's capture, `crate::pad::capture`),
+/// log it with the overlaps it makes, and keep it in the INI.
+pub fn rebind_pad_binding(world: &mut World, c: Control, p: PadBinding) {
     if greyed(world, c) {
         return;
     }
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
-    let before = pad_text(b.pad(c));
-    let swapped = b.rebind_pad(c, p);
-    let gave: Vec<String> = swapped.iter().map(|&o| format!("{} now {}", Bindings::name(o), pad_text(b.pad(o)))).collect();
+    if p == PadBinding::BuiltIn && split_origin(c).is_none() {
+        info!("controls: {} not changed: only a split hold is built in", Bindings::name(c));
+        return;
+    }
+    let before = b.pad_text_of(c);
+    let swapped = b.rebind_pad_binding(c, p);
+    let gave: Vec<String> = swapped.iter().map(|&o| format!("{} now {}", Bindings::name(o), b.pad_text_of(o))).collect();
     let gave = if gave.is_empty() { String::new() } else { format!(" ({})", gave.join(", ")) };
-    info!("controls: {} bound to controller {} (was {before}){gave}", Bindings::name(c), crate::pad::pad_name(p));
+    info!("controls: {} bound to controller {} (was {before}){gave}", Bindings::name(c), b.pad_text_of(c));
+    for o in overlaps(&b).iter().filter(|o| o.controls.contains(&c)) {
+        warn!("controls: warning: {}", o.text);
+    }
     store(world);
+}
+
+/// Set the Controls tab's Hold time (`hold`) or Double-tap window, seconds, and keep it.
+pub fn set_timing(world: &mut World, hold: bool, secs: f32) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    if hold {
+        b.hold_time = secs;
+    } else {
+        b.double_tap = secs;
+    }
+    info!("controls: {} {secs:.2} s", if hold { HOLD_KEY } else { DOUBLE_KEY });
+    store(world);
+}
+
+/// An overlap of controller bindings: the controls it touches and what the rows say
+/// [design, owner 2026-11-22: "give warnings when there's duplicate or overlapping
+/// bindings in any way"]. `strong`: a control loses what it does (a held control left a
+/// one-frame press).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Overlap {
+    pub controls: Vec<Control>,
+    pub text: String,
+    pub strong: bool,
+}
+
+/// Every overlap among the controller bindings `b` (docs/design/controller.md §2a's
+/// table). A split hold still built in counts as a hold of its original control's button.
+pub fn overlaps(b: &Bindings) -> Vec<Overlap> {
+    let n = |x: GamepadButton| crate::pad::pad_label(PadInput::Button(x), crate::pad::pad_labels()).to_string();
+    let binds = b.pad_bindings();
+    let mut out: Vec<Overlap> = Vec::new();
+    let mut push = |controls: Vec<Control>, text: String, strong: bool| {
+        if !out.iter().any(|o| o.text == text) {
+            out.push(Overlap { controls, text, strong });
+        }
+    };
+    // The built-in holds, by the button they hold: (split control, original control, button).
+    let built: Vec<(Control, Control, GamepadButton)> = binds
+        .iter()
+        .filter(|(_, x)| *x == PadBinding::BuiltIn)
+        .filter_map(|(s, _)| {
+            let o = split_origin(*s)?.1?;
+            match b.pad_binding(o)? {
+                PadBinding::Press(PadInput::Button(x)) => Some((*s, o, x)),
+                _ => None,
+            }
+        })
+        .collect();
+    for (s, o, x) in &built {
+        for (c, y) in binds.iter().filter(|(c, _)| c != s && c != o) {
+            if y.buttons().contains(x) {
+                push(vec![*s, *o, *c], format!("{} is also {}; holding it is {} ({}).", n(*x), label(*c), label(*s), label(*o)), false);
+            }
+        }
+    }
+    let real: Vec<(Control, PadBinding)> = binds.into_iter().filter(|(_, x)| *x != PadBinding::BuiltIn).collect();
+    for (i, &(a, x)) in real.iter().enumerate() {
+        for &(c, y) in &real[i + 1..] {
+            for ((p, u), (q, v)) in [((a, x), (c, y)), ((c, y), (a, x))] {
+                if let Some((text, strong)) = overlap_text(p, u, q, v, &n) {
+                    push(vec![p, q], text, strong);
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// What the rows say of bindings `x` of `a` and `y` of `c` overlapping, the first taken as
+/// the one the case is about (the press, the hold, the combo); `None` when they do not.
+fn overlap_text(a: Control, x: PadBinding, c: Control, y: PadBinding, n: &impl Fn(GamepadButton) -> String) -> Option<(String, bool)> {
+    use crate::pad::resolver::held_nature;
+    let combo = |m: GamepadButton, k: GamepadButton| format!("{} + {}", n(m), n(k));
+    Some(match (x, y) {
+        (x, y) if x == y => (format!("{} is also bound to {}: both act.", label(a), label(c)), false),
+        (PadBinding::Press(PadInput::Button(p)), PadBinding::Hold(q) | PadBinding::Double(q)) if p == q => {
+            let kind = if matches!(y, PadBinding::Hold(_)) { "Hold" } else { "Double-tap" };
+            if held_nature(a) {
+                (format!("{} can't be held on {}: {kind} {} is {}.", label(a), n(p), n(p), label(c)), true)
+            } else {
+                (format!("{} acts as {} when let go: {kind} {} is {}.", n(p), label(a), n(p), label(c)), false)
+            }
+        }
+        (PadBinding::Hold(p), PadBinding::Double(q)) if p == q => (format!("{}: hold for {}, double-tap for {}.", n(p), label(a), label(c)), false),
+        (PadBinding::Combo { modifier: m, button: k }, y) => {
+            let this = combo(m, k);
+            match y {
+                PadBinding::Press(PadInput::Button(p)) if p == m && held_nature(c) => (format!("{} also works {} while held ({this} is {}).", n(m), label(c), label(a)), false),
+                PadBinding::Press(PadInput::Button(p)) if p == m => (format!("{} alone acts as {} when let go ({this} is {}).", n(m), label(c), label(a)), false),
+                PadBinding::Hold(p) if p == m => (format!("Holding {} too long acts as {} instead of {this} ({}).", n(m), label(c), label(a)), false),
+                PadBinding::Double(p) if p == m => (format!("{}: double-tap for {}, or hold it for {this} ({}).", n(m), label(c), label(a)), false),
+                PadBinding::Combo { modifier: m2, button: k2 } if m2 == k && k2 == m => (format!("{this} and {} are both bound ({} and {}).", combo(m2, k2), label(a), label(c)), false),
+                PadBinding::Press(PadInput::Button(p)) | PadBinding::Hold(p) | PadBinding::Double(p) if p == k => (format!("{} does not act as {} while {} is held ({this} is {}).", n(k), label(c), n(m), label(a)), false),
+                PadBinding::Combo { modifier: m2, button: k2 } if m2 == k || k2 == m => (format!("{this} and {} share a button ({} and {}).", combo(m2, k2), label(a), label(c)), false),
+                _ => return None,
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// What control `c`'s controller row adds to its note: every overlap it is part of.
+pub fn overlap_note(b: &Bindings, c: Control) -> Option<String> {
+    let notes: Vec<String> = overlaps(b).into_iter().filter(|o| o.controls.contains(&c)).map(|o| o.text).collect();
+    (!notes.is_empty()).then(|| format!("Warning: {}", notes.join(" ")))
 }
 
 /// Switch the device that works the controls (the Controls tab's first row).
@@ -1051,6 +1346,10 @@ pub fn set_device(world: &mut World, d: InputDevice) {
         }
         if let Some(mut grab) = world.get_resource_mut::<crate::grab::GrabState>() {
             grab.tap = None;
+        }
+        // Pending holds, double taps and combos ([`crate::pad::resolver`]).
+        if let Some(mut r) = world.get_resource_mut::<crate::pad::resolver::PadResolver>() {
+            r.clear();
         }
         if let Some(mut wheel) = world.get_resource_mut::<crate::weapon_wheel::WeaponWheel>() {
             wheel.cancel_input_hold();
@@ -1202,7 +1501,7 @@ pub fn clear_key(world: &mut World, c: Control) {
     }
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
     if b.device == InputDevice::Controller {
-        b.set_pad(c, None);
+        b.set_pad_binding(c, None);
         info!("controls: {} controller button cleared", Bindings::name(c));
         store(world);
         return;
@@ -1221,6 +1520,7 @@ pub fn reset(world: &mut World) {
     let d = Bindings::game_defaults();
     if b.device == InputDevice::Controller {
         b.pad = d.pad;
+        (b.hold_time, b.double_tap) = (d.hold_time, d.double_tap);
         info!("controls: every control back to the game's controller buttons");
     } else {
         b.map = d.map;
@@ -1241,7 +1541,9 @@ pub fn changed_controls(b: &Bindings) -> Vec<crate::settings_view::ControlRow> {
         R::Device => b.device == d.device,
         R::AutomaticInput => b.automatic_input_switching == d.automatic_input_switching,
         R::Binding(c, InputDevice::KeyboardMouse) => b.get(c) == d.get(c),
-        R::Binding(c, InputDevice::Controller) => b.pad(c) == d.pad(c),
+        R::Binding(c, InputDevice::Controller) => b.pad_binding(c) == d.pad_binding(c),
+        R::HoldTime => (b.hold_time - d.hold_time).abs() <= 1e-4,
+        R::DoubleTap => (b.double_tap - d.double_tap).abs() <= 1e-4,
         R::Invert => b.invert_y == d.invert_y,
         R::Sensitivity(InputDevice::KeyboardMouse) => ((b.mouse_sensitivity - d.mouse_sensitivity) / MOUSE_SENSITIVITY).abs() <= 1e-4,
         R::Sensitivity(InputDevice::Controller) => (b.stick_sensitivity - d.stick_sensitivity).abs() <= 1e-4,
@@ -1268,7 +1570,9 @@ pub fn restore_rows(world: &mut World, rows: &[crate::settings_view::ControlRow]
             R::Device => b.device = d.device,
             R::AutomaticInput => b.automatic_input_switching = d.automatic_input_switching,
             R::Binding(c, InputDevice::KeyboardMouse) => b.set(c, d.get(c)),
-            R::Binding(c, InputDevice::Controller) => b.set_pad(c, d.pad(c)),
+            R::Binding(c, InputDevice::Controller) => b.set_pad_binding(c, d.pad_binding(c)),
+            R::HoldTime => b.hold_time = d.hold_time,
+            R::DoubleTap => b.double_tap = d.double_tap,
             R::Invert => b.invert_y = d.invert_y,
             R::Sensitivity(InputDevice::KeyboardMouse) => b.mouse_sensitivity = d.mouse_sensitivity,
             R::Sensitivity(InputDevice::Controller) => b.stick_sensitivity = d.stick_sensitivity,
@@ -1323,6 +1627,8 @@ pub struct ControlInput<'w, 's> {
     pub free_cam: Option<Res<'w, crate::free_cam::FreeCam>>,
     pub pads: crate::pad::ActionPads<'w, 's>,
     pub sticks: Option<Res<'w, crate::pad::StickButtons>>,
+    /// The binding kinds worked out this frame (`crate::pad::resolver`).
+    pub resolver: Option<Res<'w, crate::pad::resolver::PadResolver>>,
     /// Keys and buttons scripts disabled (DisableKey, DisableControl; task D6).
     pub blocked: Option<Res<'w, crate::script_input::ScriptBlocked>>,
     /// A playing kill camera holds the gameplay controls (`crate::kill_cam`).
@@ -1354,6 +1660,19 @@ enum Ask {
 
 /// Existing controller held-state rule, also used by script control events. No
 /// gameplay/script blocking is applied here (control-input-events.md).
+/// [`pad_binding_held`] for control `c`, its binding's kind worked out
+/// (`crate::pad::resolver`): the script control events see a combo's control, not the
+/// button it used up.
+pub(crate) fn pad_control_held(b: &Bindings, c: Control, resolver: Option<&crate::pad::resolver::PadResolver>, pads: &crate::pad::ActionPads, sticks: Option<&crate::pad::StickButtons>) -> bool {
+    if let Some(v) = resolver.and_then(|r| r.get(c)) {
+        return v.pressed;
+    }
+    match b.pad_binding(c) {
+        Some(PadBinding::Press(p)) => pad_binding_held(Some(p), pads, sticks),
+        _ => false,
+    }
+}
+
 pub(crate) fn pad_binding_held(binding: Option<PadInput>, pads: &crate::pad::ActionPads, sticks: Option<&crate::pad::StickButtons>) -> bool {
     match binding {
         Some(PadInput::Button(b)) => pads.iter().any(|g| g.pressed(b)),
@@ -1393,10 +1712,19 @@ impl ControlInput<'_, '_> {
     }
 
     fn pad_is(&self, c: Control, ask: Ask) -> bool {
-        if matches!(ask, Ask::Pressed) {
-            return pad_binding_held(self.bindings.pad(c), &self.pads, self.sticks.as_deref());
+        // A hold, a double tap, a combo, or a press sharing its button: as worked out.
+        if let Some(v) = self.resolver.as_ref().and_then(|r| r.get(c)) {
+            return match ask {
+                Ask::Pressed => v.pressed,
+                Ask::JustPressed => v.just_pressed(),
+                Ask::JustReleased => v.just_released(),
+            };
         }
-        match self.bindings.pad(c) {
+        let Some(PadBinding::Press(p)) = self.bindings.pad_binding(c) else { return false };
+        if matches!(ask, Ask::Pressed) {
+            return pad_binding_held(Some(p), &self.pads, self.sticks.as_deref());
+        }
+        match Some(p) {
             Some(PadInput::Button(b)) => self.pads.iter().any(|g| match ask {
                 Ask::Pressed => g.pressed(b),
                 Ask::JustPressed => g.just_pressed(b),

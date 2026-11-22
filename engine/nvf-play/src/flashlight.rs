@@ -17,6 +17,11 @@
 //! - nvforever draws it (`flashlight.rs`): a spot light on the player's camera while
 //!   [`Flashlight::on`].
 //!
+//! - With a controller, once Toggle Light has a controller binding of its own (the split
+//!   holds, `crate::bindings::SPLITS`, docs/design/controller.md §2a), holding Menu Mode
+//!   switches nothing: Menu Mode opens the inventory when let go, however long it was held,
+//!   and the light follows Toggle Light's binding alone [design, owner 2026-11-22].
+//!
 //! Test aid: `NVF_PLAY_TEST_CONTROL=<seconds>:flashlight` toggles it as a hold would.
 
 use crate::bindings::{Control, ControlInput};
@@ -66,6 +71,12 @@ impl MenuKeyHold {
     /// the last frame, `playing` whether the game is in play (no menu, conversation or
     /// loading screen).
     pub fn step(&mut self, down: bool, pressed_now: bool, dt: f32, playing: bool) -> KeyOutcome {
+        self.step_with(down, pressed_now, dt, playing, true)
+    }
+
+    /// [`MenuKeyHold::step`], the hold switching the light only when `light_on_hold` (off:
+    /// Toggle Light has its own controller binding).
+    pub fn step_with(&mut self, down: bool, pressed_now: bool, dt: f32, playing: bool, light_on_hold: bool) -> KeyOutcome {
         if !playing {
             self.held = None;
             return KeyOutcome::Nothing;
@@ -76,7 +87,7 @@ impl MenuKeyHold {
         let Some(t) = self.held.as_mut() else { return KeyOutcome::Nothing };
         if down {
             *t += dt;
-            if !self.toggled && *t >= HOLD_SECONDS {
+            if light_on_hold && !self.toggled && *t >= HOLD_SECONDS {
                 self.toggled = true;
                 return KeyOutcome::ToggleLight;
             }
@@ -126,14 +137,16 @@ pub(crate) fn menu_key(
         None => light.toggle(),
     };
     let playing = *state.get() == PlayState::Playing;
-    match hold.step(input.pressed(Control::MenuMode), input.just_pressed(Control::MenuMode), time.delta_secs(), playing) {
+    let light_on_hold = !input.bindings.split_moved(Control::ToggleLight);
+    match hold.step_with(input.pressed(Control::MenuMode), input.just_pressed(Control::MenuMode), time.delta_secs(), playing, light_on_hold) {
         KeyOutcome::Nothing => {}
         KeyOutcome::OpenInventory => {
             inventory.write(OpenInventory);
         }
         KeyOutcome::ToggleLight => toggle(&mut light),
     }
-    // The Tweaks tab's own light key [design: docs/design/tweaks.md].
+    // The Tweaks tab's own light key [design: docs/design/tweaks.md]; with a controller,
+    // Toggle Light's own binding once it has one.
     if playing && input.just_pressed(Control::ToggleLight) {
         toggle(&mut light);
     }
@@ -169,6 +182,19 @@ mod tests {
         assert_eq!(hold_for(&mut h, 3.0, 1.0 / 60.0), vec![KeyOutcome::ToggleLight]);
         // Just short of the hold: still a tap.
         assert_eq!(hold_for(&mut h, HOLD_SECONDS - 0.1, 1.0 / 60.0), vec![KeyOutcome::OpenInventory]);
+    }
+
+    #[test]
+    fn a_moved_light_leaves_menu_mode_a_plain_key() {
+        let dt = 1.0 / 60.0;
+        let mut h = MenuKeyHold::default();
+        let mut out = vec![h.step_with(true, true, dt, true, false)];
+        for _ in 0..(3.0 / dt) as usize {
+            out.push(h.step_with(true, false, dt, true, false));
+        }
+        out.push(h.step_with(false, false, dt, true, false));
+        out.retain(|o| *o != KeyOutcome::Nothing);
+        assert_eq!(out, vec![KeyOutcome::OpenInventory], "a long hold still opens on release, and switches nothing");
     }
 
     #[test]
