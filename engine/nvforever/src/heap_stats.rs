@@ -49,6 +49,17 @@ struct Big {
 
 static BIGS: Mutex<Vec<Big>> = Mutex::new(Vec::new());
 
+/// `NVF_HEAP_SITES=<KB>` (with `NVF_HEAP_STATS`): every allocation of at least that many
+/// KB is kept with its stack while it lives, and at [`SITES_AT`] seconds the live ones are
+/// summed by where they were made (`heap: site ...`), largest first. For finding what
+/// holds the heap (split screen's player 2 RAM, the owner's list of 2026-11-21);
+/// resolving the stacks takes seconds and loads the debug information.
+static SITE_MIN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
+static SITES: Mutex<Option<std::collections::HashMap<usize, (usize, Backtrace)>>> = Mutex::new(None);
+/// Seconds of the app's run at which the sites are summed [our choice: settled after the
+/// world's first load].
+const SITES_AT: f32 = 150.0;
+
 thread_local! {
     /// Set while this thread records a big allocation: the record's own allocations are
     /// counted but never recorded.
@@ -79,6 +90,25 @@ fn keep_big(at: *mut u8, size: usize) {
     });
 }
 
+fn keep_site(at: *mut u8, size: usize) {
+    outside(|| {
+        let stack = Backtrace::force_capture();
+        if let Ok(mut m) = SITES.lock() {
+            m.get_or_insert_with(Default::default).insert(at as usize, (size, stack));
+        }
+    });
+}
+
+fn drop_site(at: *mut u8) {
+    outside(|| {
+        if let Ok(mut m) = SITES.lock() {
+            if let Some(m) = m.as_mut() {
+                m.remove(&(at as usize));
+            }
+        }
+    });
+}
+
 fn drop_big(at: *mut u8) {
     outside(|| {
         if let Ok(mut b) = BIGS.lock() {
@@ -95,6 +125,9 @@ pub fn alloc(p: *mut u8, size: usize) {
         if size >= BIG {
             keep_big(p, size);
         }
+        if size >= SITE_MIN.load(Ordering::Relaxed) {
+            keep_site(p, size);
+        }
     }
 }
 
@@ -105,6 +138,9 @@ pub fn dealloc(p: *mut u8, size: usize) {
         add(-(size as isize));
         if size >= BIG {
             drop_big(p);
+        }
+        if size >= SITE_MIN.load(Ordering::Relaxed) {
+            drop_site(p);
         }
     }
 }
@@ -121,6 +157,13 @@ pub fn realloc(was: *mut u8, old_size: usize, p: *mut u8, new_size: usize) {
         if new_size >= BIG {
             keep_big(p, new_size);
         }
+        let min = SITE_MIN.load(Ordering::Relaxed);
+        if old_size >= min {
+            drop_site(was);
+        }
+        if new_size >= min {
+            keep_site(p, new_size);
+        }
     }
 }
 
@@ -129,6 +172,9 @@ pub fn realloc(was: *mut u8, old_size: usize, p: *mut u8, new_size: usize) {
 pub fn start() {
     if let Some(v) = std::env::var_os("NVF_HEAP_STATS").filter(|v| v != "0") {
         STACKS.store(v == "2", Ordering::Relaxed);
+        if let Some(kb) = std::env::var("NVF_HEAP_SITES").ok().and_then(|k| k.trim().parse::<usize>().ok()) {
+            SITE_MIN.store(kb.max(1) << 10, Ordering::Relaxed);
+        }
         ON.store(true, Ordering::Relaxed);
     }
 }
@@ -174,7 +220,7 @@ fn stack_lines(stack: &Backtrace) -> Vec<String> {
     while let Some(l) = lines.next() {
         // "N: path::to::fn" then "at file:line".
         let Some((_, name)) = l.split_once(": ") else { continue };
-        if name.contains("heap_stats") || name.contains("SaysWhenEmpty") || name.starts_with("alloc::") || name.starts_with("std::") || name.starts_with("core::") || name.starts_with("__rust") {
+        if name.contains("heap_stats") || name.contains("SaysWhenEmpty") || ["alloc::", "std::", "core::", "__rust", "<alloc::", "<std::", "<core::", "hashbrown::", "<hashbrown::", "smallvec::", "<smallvec::"].iter().any(|p| name.starts_with(p)) {
             continue;
         }
         let at = lines.peek().filter(|n| n.starts_with("at ")).map(|n| n.trim_start_matches("at ").rsplit(['\\', '/']).next().unwrap_or("").to_string());
@@ -209,12 +255,48 @@ fn big_live_mb() -> usize {
     BIGS.lock().map(|b| b.iter().map(|x| x.size).sum::<usize>() >> 20).unwrap_or(0)
 }
 
+/// Sums the live allocations kept by `NVF_HEAP_SITES` by where they were made (the first
+/// three frames of the game's own and its libraries'), largest first.
+fn log_sites() {
+    let mut taken = None;
+    outside(|| {
+        if let Ok(mut m) = SITES.lock() {
+            taken = m.take();
+        }
+    });
+    let Some(all) = taken else { return };
+    let mut by: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+    let mut total = 0;
+    outside(|| {
+        for (size, stack) in all.values() {
+            let lines = stack_lines(stack);
+            let key = lines.iter().take(3).cloned().collect::<Vec<_>>().join(" <- ");
+            let e = by.entry(key).or_default();
+            e.0 += size;
+            e.1 += 1;
+            total += size;
+        }
+    });
+    let mut rows: Vec<_> = by.into_iter().collect();
+    rows.sort_by_key(|r| std::cmp::Reverse(r.1 .0));
+    bevy::log::info!("heap: sites: {} MB live in {} allocations of at least {} KB", total >> 20, all.len(), SITE_MIN.load(Ordering::Relaxed) >> 10);
+    for (key, (size, n)) in rows.into_iter().take(60) {
+        bevy::log::info!("heap: site {:.1} MB in {n}: {key}", size as f64 / (1 << 20) as f64);
+    }
+    // Stop keeping new ones: the summing is done once.
+    SITE_MIN.store(usize::MAX, Ordering::Relaxed);
+}
+
 /// A Bevy system: the start's marks on the first frame, then the heap every [`EVERY`] s.
-pub fn log_system(time: bevy::prelude::Res<bevy::prelude::Time<bevy::prelude::Real>>, mut last: bevy::prelude::Local<Option<f32>>, mut walked: bevy::prelude::Local<usize>) {
+pub fn log_system(time: bevy::prelude::Res<bevy::prelude::Time<bevy::prelude::Real>>, mut last: bevy::prelude::Local<Option<f32>>, mut walked: bevy::prelude::Local<usize>, mut summed: bevy::prelude::Local<bool>) {
     if !on() {
         return;
     }
     let now = time.elapsed_secs();
+    if !*summed && now >= SITES_AT && SITE_MIN.load(Ordering::Relaxed) != usize::MAX {
+        *summed = true;
+        log_sites();
+    }
     if REGIONS_AT.get(*walked).is_some_and(|&at| now >= at) {
         *walked += 1;
         for line in regions() {
