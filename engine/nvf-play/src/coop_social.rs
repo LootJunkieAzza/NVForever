@@ -357,7 +357,7 @@ impl Plugin for CoopSocialPlugin {
             .add_systems(Update, social_aid.in_set(PlaySet::Input).before(input))
             .add_systems(Update, sweep_shots)
             .add_systems(Update, social_aid_trigger.in_set(PlaySet::Input).after(crate::control::read_controls))
-            .add_systems(Update, input.in_set(PlaySet::Input).after(crate::weapon_wheel::read).before(crate::control::read_controls))
+            .add_systems(Update, input.in_set(PlaySet::Input).after(crate::weapon_wheel::read).after(crate::flashlight::menu_key).before(crate::control::read_controls))
             .add_systems(Update, hold.after(crate::control::enforce_locks).after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Update, target.in_set(PlaySet::Activation).after(crate::activate::find_target).before(crate::activate::activate))
             .add_systems(Update, (talk, blasts, duel_step, trade_step, caravan_bridge).chain().in_set(PlaySet::Ui))
@@ -379,7 +379,7 @@ fn input(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut social: ResMut<Social>,
     mut control: ResMut<crate::control::PlayerControl>,
-    (mut tables, mates): (ResMut<Tables>, Res<SocialMates>),
+    (mut tables, mates, mut menu_key): (ResMut<Tables>, Res<SocialMates>, Option<ResMut<crate::flashlight::MenuKeyHold>>),
 ) {
     let now = real.elapsed_secs();
     let s = &mut *social;
@@ -429,10 +429,22 @@ fn input(
     s.wheel_had_input = s.wheel.is_some();
     let stepped = s.wheel.as_mut().map(|w| {
         let moved = if playing { motion.delta * k } else { Vec2::ZERO };
+        let stick = if playing { crate::weapon_wheel::wheel_stick(&input) } else { None };
         let choose = playing && (input.mouse.just_pressed(MouseButton::Left) || input.just_pressed(Control::Activate));
-        let cancel = !playing || input.mouse.just_pressed(MouseButton::Right) || keys.just_pressed(KeyCode::Escape) || mates.get(w.with).is_none_or(|m| !m.here || m.lost);
-        (w.step(moved, None, choose, cancel), w.with, w.name.clone())
+        // Menu Mode (Tab, or B on a controller) backs out, as Esc and a right click do.
+        let back = input.just_pressed(Control::MenuMode);
+        let cancel = !playing || back || input.mouse.just_pressed(MouseButton::Right) || keys.just_pressed(KeyCode::Escape) || mates.get(w.with).is_none_or(|m| !m.here || m.lost);
+        (w.step(moved, stick, None, choose, cancel), w.with, w.name.clone())
     });
+    // The Menu Mode press that closed the wheel is the wheel's: used up, so its release
+    // opens no Pip-Boy and its hold switches no flashlight (`crate::flashlight`), as VATS
+    // mode does with it [owner playtest 2026-11-22: B and Tab back out of the wheel
+    // without opening the Pip-Boy].
+    if s.wheel_had_input && input.just_pressed(Control::MenuMode) {
+        if let Some(hold) = menu_key.as_deref_mut() {
+            hold.consume();
+        }
+    }
     match stepped {
         Some((wheel::Step::Cancelled, ..)) => {
             info!("co-op social: wheel closed: nothing chosen");
@@ -1364,6 +1376,66 @@ fn report(mut exit: MessageReader<AppExit>, social: Res<Social>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The wheel open on player 2, with the Menu Mode key's hold and the Pip-Boy's opener
+    /// running before the wheel's input, as in the game.
+    fn wheel_app(device: crate::bindings::InputDevice) -> (App, Entity) {
+        use crate::flashlight::{menu_key, Flashlight, MenuKeyHold};
+        let (mut app, pad) = crate::pad::device::tests::playing_app(device);
+        let mate = Mate { id: 1, name: "Doug".into(), reference: 0, here: true, feet: [0.0; 3], yaw: 0.0, down: false, body: None, lost: false, weapon: 0, attacks: 0, sights: false, pitch: 0.0 };
+        app.init_resource::<Social>().init_resource::<Tables>().init_resource::<AccumulatedMouseMotion>()
+            .insert_resource(SocialMates { me: Some(0), interior: false, mates: vec![mate] })
+            .init_resource::<Flashlight>().init_resource::<MenuKeyHold>()
+            .add_message::<crate::menu::OpenInventory>()
+            .add_systems(Update, (menu_key, input).chain().after(crate::control::read_controls));
+        app.update();
+        app.world_mut().resource_mut::<Social>().wheel = Some(Wheel::new(1, "Doug".into()));
+        (app, pad)
+    }
+
+    #[test]
+    fn menu_mode_backs_out_of_the_wheel_and_opens_no_pip_boy() {
+        use crate::bindings::{Control, InputDevice};
+        use crate::flashlight::{Flashlight, HOLD_SECONDS};
+        use crate::pad::device::tests::control_button;
+        let opened = |app: &App| app.world().resource::<Messages<crate::menu::OpenInventory>>().iter_current_update_messages().count();
+        let press = |app: &mut App, pad: Entity, device: InputDevice, frames: usize| {
+            let mut opens = 0;
+            control_button(app, pad, device, Control::MenuMode, true);
+            for _ in 0..frames {
+                app.update();
+                opens += opened(app);
+            }
+            control_button(app, pad, device, Control::MenuMode, false);
+            app.update();
+            opens + opened(app)
+        };
+        // B on a controller, Tab on the keyboard [owner playtest 2026-11-22]: a tap, and a
+        // hold past the flashlight's time.
+        for device in [InputDevice::Controller, InputDevice::KeyboardMouse] {
+            for frames in [1, (HOLD_SECONDS / 0.05) as usize * 2] {
+                let case = format!("{device:?}, {frames} frames");
+                let (mut app, pad) = wheel_app(device);
+                assert_eq!(press(&mut app, pad, device, frames), 0, "{case}: no Pip-Boy on the release");
+                assert!(app.world().resource::<Social>().wheel.is_none(), "{case}: the wheel closed");
+                assert_eq!(app.world().resource::<Flashlight>().toggles, 0, "{case}: no light");
+                // With the wheel shut the key is the Pip-Boy's again.
+                assert_eq!(press(&mut app, pad, device, 1), 1, "{case}: the next press opens it");
+            }
+        }
+    }
+
+    #[test]
+    fn the_footer_names_the_device_in_use() {
+        use crate::bindings::{Bindings, InputDevice};
+        let mut b = Bindings::default();
+        b.device = InputDevice::KeyboardMouse;
+        let keys = draw::footer(Some(&b));
+        assert!(keys.starts_with("Mouse: pick") && keys.contains("Esc or Tab: cancel"), "{keys}");
+        b.device = InputDevice::Controller;
+        let pad = draw::footer(Some(&b));
+        assert!(pad.starts_with("RS: pick") && pad.ends_with(": back") && !pad.contains("Mouse"), "{pad}");
+    }
 
     #[test]
     fn the_social_aid_reads_its_steps() {

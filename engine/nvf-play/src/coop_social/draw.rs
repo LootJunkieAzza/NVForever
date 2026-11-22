@@ -91,9 +91,9 @@ fn draw_wheel(
     mut kit: Local<Option<Kit>>,
 ) {
     let width = windows.single().map_or(1280.0, |w| 960.0 * w.width() / w.height().max(1.0));
-    // Asking is the Activate control (`coop_social::input`): named as it is bound, as the
-    // crosshair's prompts name it ("F)").
-    let key = bindings.as_deref().map_or_else(|| "E".to_string(), |b| b.prompt(crate::bindings::Control::Activate).trim_end_matches(')').to_string());
+    // Asking is the Activate control and backing out Menu Mode (`coop_social::input`):
+    // named as they are bound on the device in use, as the crosshair's prompts name them.
+    let key = footer(bindings.as_deref());
     let now = social.wheel.as_ref().map(|w| Shown { picked: w.picked, name: w.name.clone(), refusals: w.refusals.clone(), width: width.round() as i32, key: key.clone() });
     if now == *last {
         return;
@@ -168,9 +168,20 @@ fn draw_wheel(
             text(m, &kit.medium, "INTERACT", c, c - 40.0, 0, bright.with_alpha(0.7));
             text(m, &kit.large, &s.name, c, c - 10.0, 0, bright);
         });
-        let hint = format!("Mouse: pick      Click or {}: ask      Esc: cancel", s.key);
-        text(r, &kit.medium, &hint, width / 2.0, top + SIZE - 10.0, 0, bright.with_alpha(0.8));
+        text(r, &kit.medium, &s.key, width / 2.0, top + SIZE - 10.0, 0, bright.with_alpha(0.8));
     });
+}
+
+/// The line under the wheel for the device in use: on a controller the right stick picks,
+/// Activate asks and Menu Mode backs out; on the keyboard and mouse the mouse picks, a
+/// click or Activate asks, and Esc or Menu Mode cancels.
+pub(super) fn footer(bindings: Option<&crate::bindings::Bindings>) -> String {
+    use crate::bindings::{Control, InputDevice};
+    let name = |c: Control, or: &str| bindings.map_or_else(|| or.to_string(), |b| b.prompt(c).trim_end_matches(')').to_string());
+    match bindings.map(|b| b.device) {
+        Some(InputDevice::Controller) => format!("RS: pick      {}: ask      {}: back", name(Control::Activate, "A"), name(Control::MenuMode, "B")),
+        _ => format!("Mouse: pick      Click or {}: ask      Esc or {}: cancel", name(Control::Activate, "E"), name(Control::MenuMode, "Tab")),
+    }
 }
 
 #[derive(Component)]

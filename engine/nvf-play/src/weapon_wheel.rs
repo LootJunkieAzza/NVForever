@@ -81,6 +81,24 @@ pub fn point(degrees: f32, r: f32) -> Vec2 {
     Vec2::new(a.sin() * r, -a.cos() * r)
 }
 
+/// The pointer after a frame: the right stick, pushed past its dead zone, points it at the
+/// rim; otherwise the mouse's travel moves it, no farther out than [`REACH`]. Shared by
+/// every wheel that picks this way (the co-op interaction wheel, `crate::coop_social`).
+pub(crate) fn steer(pointer: Vec2, moved: Vec2, stick: Option<Vec2>) -> Vec2 {
+    match stick {
+        Some(s) if s.length() >= STICK_DEAD => s.normalize() * REACH,
+        _ => (pointer + moved).clamp_length_max(REACH),
+    }
+}
+
+/// The right stick as the wheels read it (y down), while a controller works the controls.
+pub(crate) fn wheel_stick(input: &crate::bindings::ControlInput) -> Option<Vec2> {
+    (input.bindings.device == InputDevice::Controller).then(|| {
+        let s = crate::pad::stick(&input.pads, false);
+        Vec2::new(s.x, -s.y)
+    })
+}
+
 fn smoothstep(x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
     x * x * (3.0 - 2.0 * x)
@@ -177,10 +195,7 @@ impl WeaponWheel {
                     o.pointer = Vec2::ZERO;
                     out.push(Outcome::Picked(k, true));
                 }
-                match f.stick {
-                    Some(s) if s.length() >= STICK_DEAD => o.pointer = s.normalize() * REACH,
-                    _ => o.pointer = (o.pointer + f.moved).clamp_length_max(REACH),
-                }
+                o.pointer = steer(o.pointer, f.moved, f.stick);
                 if o.pointer.length() >= DEAD_ZONE {
                     let k = slot_at(o.pointer);
                     if k != o.picked {
@@ -459,10 +474,7 @@ pub(crate) fn read(
     if let Some(p) = aid.point {
         f.moved = p - wheel.open.map_or(Vec2::ZERO, |o| o.pointer);
     }
-    if input.bindings.device == InputDevice::Controller {
-        let s = crate::pad::stick(&input.pads, false);
-        f.stick = Some(Vec2::new(s.x, -s.y));
-    }
+    f.stick = wheel_stick(&input);
     f.click = input.mouse.just_pressed(MouseButton::Left) || aid.click;
     f.cancel = input.mouse.just_pressed(MouseButton::Right) || input.keys.just_pressed(KeyCode::Escape) || aid.cancel;
     f.blocked = *state.get() != PlayState::Playing || vats.is_some_and(|v| v.holds_input()) || input.kill_cam.as_ref().is_some_and(|k| k.active());
