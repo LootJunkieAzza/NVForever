@@ -457,6 +457,16 @@ impl Plugin for CoopProgressPlugin {
     }
 }
 
+/// The corner line for a quest reward the host's completion brought: the quest by its shown
+/// name, or "a quest" when it has none (an editor ID is not for the player's eyes).
+fn reward_line(host: &str, quest: Option<&str>, xp: impl std::fmt::Display, caps: u32) -> String {
+    let caps = if caps > 0 { format!(", +{caps} caps") } else { String::new() };
+    match quest {
+        Some(q) => format!("{host} completed {q}: +{xp} XP{caps}"),
+        None => format!("{host} completed a quest: +{xp} XP{caps}"),
+    }
+}
+
 /// The name a hand-out's line shows: the item's FULL, as the player sees it elsewhere;
 /// its Editor ID only when it has none (b19: "Host handed out WeapNV9mmPistol").
 fn item_label(full_names: &std::collections::HashMap<FormId, String>, item: FormId, edid: impl FnOnce() -> String) -> String {
@@ -545,7 +555,12 @@ fn take_inbox(
                     Ok(gained) if FormId(quest) == fnv_game::coop_rewards::SCRIPT_XP => say(&mut corner, format!("+{gained} XP, earned with {host}")),
                     // The host by its character's name (`coop_social::SocialMates`).
                     // The quest's COMPLETED line came with its own message ([`Shared::QuestEnded`]).
-                    Ok(gained) => say(&mut corner, format!("{host} completed {name}: +{gained} XP{}", if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
+                    // By the quest's shown name (its FULL), never its editor ID ("VMS19" on
+                    // screen, found in the 2026-11-21 night run); a quest with none: "a quest".
+                    Ok(gained) => {
+                        let shown = rt.game.data.quests.get(&FormId(quest)).and_then(|d| d.name.clone()).filter(|n| !n.trim().is_empty());
+                        say(&mut corner, reward_line(&host, shown.as_deref(), gained, caps))
+                    }
                     Err(e) => warn!("co-op: the reward for {name} could not be given: {e}"),
                 }
             }
@@ -1155,6 +1170,14 @@ mod tests {
         let off: BTreeMap<u8, (u64, bool)> = [(3, (0xAAAA, false))].into();
         let (_, back) = r.track(&off, &[3].into(), &names2, t0);
         assert_eq!(back[0].items, vec![to3(Shared::QuestEnded { quest: 0x21A, failed: false })]);
+    }
+
+    /// A reward's corner line names the quest as the player sees it, never by editor ID.
+    #[test]
+    fn a_reward_line_names_the_quest_by_its_shown_name() {
+        assert_eq!(reward_line("Host", Some("G.I. Blues"), 1200, 0), "Host completed G.I. Blues: +1200 XP");
+        assert_eq!(reward_line("Host", Some("Bye Bye Love"), 200, 50), "Host completed Bye Bye Love: +200 XP, +50 caps");
+        assert_eq!(reward_line("Host", None, 100, 0), "Host completed a quest: +100 XP");
     }
 
     /// Split screen's player 2 always shares quest progress and is never asked.
