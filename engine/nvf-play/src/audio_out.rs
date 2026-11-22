@@ -222,6 +222,9 @@ pub struct SoundVolumes(Arc<Levels>);
 
 struct Levels {
     master: AtomicU32,
+    /// A share of every category's sound on top of the master's: split screen lowers the
+    /// other half's game during a conversation (nvforever `split/sound.rs`); 1 otherwise.
+    duck: AtomicU32,
     categories: [AtomicU32; 5],
     /// Stereo frames in which each category's mixer had sound.
     heard: [AtomicU64; 5],
@@ -241,6 +244,7 @@ impl Default for SoundVolumes {
         let level = |v: f32| AtomicU32::new(v.to_bits());
         SoundVolumes(Arc::new(Levels {
             master: level(1.0),
+            duck: level(1.0),
             categories: DEFAULT_VOLUMES.map(level),
             heard: Default::default(),
             audible: Default::default(),
@@ -265,9 +269,19 @@ impl SoundVolumes {
         self.0.categories[c.index()].store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 
-    /// What a category's sound is played at: its volume times the master's.
+    /// The duck in force (split screen, nvforever `split/sound.rs`): 1 for none.
+    pub fn duck(&self) -> f32 {
+        f32::from_bits(self.0.duck.load(Ordering::Relaxed))
+    }
+
+    pub fn set_duck(&self, v: f32) {
+        self.0.duck.store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+    }
+
+    /// What a category's sound is played at: its volume times the master's (and the
+    /// duck's, [`SoundVolumes::duck`]); a change is eased to.
     pub fn gain(&self, c: SoundCategory) -> f32 {
-        self.master() * self.get(c)
+        self.master() * self.get(c) * self.duck()
     }
 }
 
@@ -1053,7 +1067,7 @@ impl Plugin for AudioOutPlugin {
             .init_resource::<SoundSpeed>()
             .init_resource::<SoundStops>()
             .add_systems(Update, test_reopen)
-            .add_systems(PostUpdate, follow_sound_speed.before(AudioOutSystems))
+            .add_systems(PostUpdate, (follow_sound_speed, follow_split_sound).before(AudioOutSystems))
             .add_systems(Last, report)
             .add_audio_source::<AudioSource>()
             .init_asset_loader::<AudioLoader>();
@@ -1063,11 +1077,30 @@ impl Plugin for AudioOutPlugin {
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct AudioOutSystems;
 
-/// Split screen's player 2 (nvforever `split.rs`): this game plays only its interface's
-/// sounds ([`KeepsSpeed`]); player 1's game plays the world for both, so nothing is
-/// heard twice [design].
-#[derive(Resource, Debug, Clone, Copy, Default)]
-pub struct PersonalSoundsOnly;
+/// Split screen's player 2 (nvforever `split.rs`, `split/sound.rs`): while the players
+/// are together (`own_world` false) this game plays only its interface's sounds
+/// ([`KeepsSpeed`]) and the voice of its own conversation ([`OwnConversation`]); player
+/// 1's game plays the world for both, so nothing is heard twice. While they are apart,
+/// this game plays its own world too [design: the owner's list of 2026-11-21, "player 2
+/// should get sounds when they aren't in the same area as the host"].
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SplitSound {
+    pub own_world: bool,
+}
+
+impl SplitSound {
+    /// Whether a sound plays muted in this game (`split` its [`SplitSound`], if it is
+    /// player 2's).
+    pub fn mutes(split: Option<&SplitSound>, keeps: bool, own_conversation: bool) -> bool {
+        split.is_some_and(|s| !s.own_world) && !keeps && !own_conversation
+    }
+}
+
+/// The voice of this game's player's own conversation: split screen's player 2 always
+/// plays it ([`SplitSound`]); a conversation runs in that player's own game, so no other
+/// game plays it.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct OwnConversation;
 
 /// A `PlaybackMode::Despawn` sound: despawned when it ends (Bevy's marker is crate-private).
 #[derive(Component)]
@@ -1096,14 +1129,14 @@ impl AddAudioSource for App {
 fn play_queued<T: Decodable + Asset>(
     out: Option<Res<AudioOut>>,
     sources: Res<Assets<T>>,
-    (global, personal): (Res<GlobalVolume>, Option<Res<PersonalSoundsOnly>>),
+    (global, split): (Res<GlobalVolume>, Option<Res<SplitSound>>),
     slow: Res<SoundSpeed>,
-    queued: Query<(Entity, &AudioPlayer<T>, &PlaybackSettings, Option<&SoundCategory>, Has<KeepsSpeed>), Without<AudioSink>>,
+    queued: Query<(Entity, &AudioPlayer<T>, &PlaybackSettings, Option<&SoundCategory>, Has<KeepsSpeed>, Has<OwnConversation>), Without<AudioSink>>,
     mut warned: Local<bool>,
     mut commands: Commands,
 ) {
     let Some(out) = out else { return };
-    for (entity, player, settings, category, keeps) in &queued {
+    for (entity, player, settings, category, keeps, own_conversation) in &queued {
         let Some(source) = sources.get(&player.0) else { continue };
         if settings.spatial && !*warned {
             *warned = true;
@@ -1136,7 +1169,7 @@ fn play_queued<T: Decodable + Asset>(
             (None, None, false) => append_declicked(&sink, decoder, &control),
         }
         let mut sink = AudioSink::new(sink);
-        if settings.muted || (personal.is_some() && !keeps) {
+        if settings.muted || SplitSound::mutes(split.as_deref(), keeps, own_conversation) {
             sink.mute();
         }
         sink.set_speed(speed);
@@ -1151,6 +1184,22 @@ fn play_queued<T: Decodable + Asset>(
             PlaybackMode::Despawn => e.insert((sink, control, DespawnWhenDone)),
             PlaybackMode::Remove => e.insert((sink, control, RemoveWhenDone)),
         };
+    }
+}
+
+/// Split screen's player 2: when the players come together or go apart ([`SplitSound`]),
+/// the world's sounds already playing go silent or are heard (a loop's ambience, a song
+/// from a radio), as new ones start.
+#[allow(clippy::type_complexity)]
+fn follow_split_sound(split: Option<Res<SplitSound>>, mut sinks: Query<(&mut AudioSink, &PlaybackSettings, Has<KeepsSpeed>, Has<OwnConversation>)>) {
+    let Some(split) = split.filter(|s| s.is_changed()) else { return };
+    for (mut sink, settings, keeps, own_conversation) in &mut sinks {
+        let mute = settings.muted || SplitSound::mutes(Some(&split), keeps, own_conversation);
+        if mute && !sink.is_muted() {
+            sink.mute();
+        } else if !mute && sink.is_muted() {
+            sink.unmute();
+        }
     }
 }
 

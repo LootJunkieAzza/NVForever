@@ -865,6 +865,36 @@ impl Coop {
         }
     }
 
+    /// Close Lobby while split screen is on (split screen's player 1 hosting a lobby open
+    /// to online players): only the online part closes. The guests on other PCs are told
+    /// the lobby ended and dropped, the router's port and the code go, and the lobby is
+    /// this PC's only again, with player 2 still in it [design: the owner's queue, 2026-11-20,
+    /// "Close Lobby closes only the online part"]. End Split Screen is what ends player 2.
+    /// The guests dropped leave as any that says goodbye does (the link's `Event::Left`).
+    fn close_online(&mut self) -> bool {
+        let Some(link) = &self.link else { return false };
+        match link.close_to_others() {
+            Ok(dropped) => {
+                if self.opened && !self.code.as_deref().is_some_and(steam_code) {
+                    let port = self.port;
+                    std::thread::Builder::new().name("coop-reach".into()).spawn(move || reach::close(port)).ok();
+                }
+                self.code = None;
+                self.note = None;
+                self.opened = false;
+                self.reaching = None;
+                std::env::remove_var(CODE_ENV);
+                std::env::set_var(HOST_LOCAL_ENV, "1");
+                info!("co-op: the lobby closes to online players ({} dropped); it is this PC's only again, player 2 stays", dropped.len());
+                true
+            }
+            Err(e) => {
+                warn!("co-op: the lobby could not go back to this PC only ({e}): closing it");
+                false
+            }
+        }
+    }
+
     /// Split screen with this game a guest (plan split-screen.md §10.1): player 2's game
     /// joins this game's host through this game, on this PC's loopback. The port, kept in
     /// [`RELAY_ENV`] (the one the run before had, when it can be had again).
@@ -1028,6 +1058,10 @@ fn lobby(
             // A lobby for split screen only: open to online players now.
             LobbyRequest::Create if coop.local_only() => coop.open_online(),
             LobbyRequest::Create => {}
+            // Split screen's lobby open online: only the online part closes.
+            LobbyRequest::Close if coop.is_host() && split_p1() && !coop.local_only() && coop.close_online() => {
+                say("Lobby closed to online players. Player 2 stays".into());
+            }
             LobbyRequest::Close if coop.is_host() => {
                 coop.stop_hosting(&mut commands, &mut fighters);
                 say("Lobby closed".into());

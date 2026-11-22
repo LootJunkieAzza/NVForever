@@ -1805,6 +1805,10 @@ fn main() -> AppExit {
                     // window again, which on Windows activates it [documented: winit 0.30
                     // `WindowFlags::apply_diff`, `SW_SHOW` after the first `SW_SHOWNOACTIVATE`].
                     decorations: args.split_p2.is_none(),
+                    // ... and has no taskbar button of its own: the two halves are one game
+                    // on the taskbar, player 1's [design: the owner's list of 2026-11-21,
+                    // "on the taskbar it says there's two windows open"].
+                    skip_taskbar: args.split_p2.is_some(),
                     // Measuring frame times: not held to the display's refresh, unless
                     // `NVF_FRAME_TIMES_VSYNC=1` holds it there (measuring what a heavy
                     // effect costs the GPU without running it flat out: fire_volume.rs "Cost").

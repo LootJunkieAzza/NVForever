@@ -64,6 +64,15 @@ pub const MAX_PITCH: f32 = 89.0 * std::f32::consts::PI / 180.0;
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ViewDriven(pub bool);
 
+/// Whether the view takes the look input: the pointer is captured, or this is split
+/// screen's player 2 (`crate::split_screen::PlayerTwo`), whose window never takes the
+/// focus, so its pointer is never captured; its view turns with the right stick all the
+/// same [design: the owner's split-screen playtest, 2026-11-21, "P2 couldn't look around
+/// with their controller"].
+pub fn look_input_on(cursor: &Query<&CursorOptions, With<PrimaryWindow>>, without_focus: bool) -> bool {
+    without_focus || cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None)
+}
+
 /// The console's ToggleCollision (`tcl`, `crate::console`): the character passes through
 /// everything, falls no more and flies where the player looks, by the swimming rule
 /// (forward and back along the view, sideways level) at the walking and running speeds [hypothesis: as the
@@ -965,10 +974,10 @@ pub(crate) fn mouse_look(
         Option<Res<crate::photo_mode::PhotoMode>>,
         Option<Res<crate::rt_vats::RtVats>>,
     ),
-    (tweaks, mut smooth): (Option<Res<crate::tweaks::TweakSettings>>, Local<Vec2>),
+    (tweaks, mut smooth, without_focus): (Option<Res<crate::tweaks::TweakSettings>>, Local<Vec2>, Option<Res<crate::split_screen::PlayerTwo>>),
 ) {
     let dialogue = *state.get() == PlayState::Dialogue;
-    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
+    let grabbed = look_input_on(&cursor, without_focus.is_some());
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
     let mouse_delta = mouse_guard.filter(motion.delta, grabbed && playing, dialogue);
     // A zoomed conversation locks the view: the mouse moves only the cursor, even if the

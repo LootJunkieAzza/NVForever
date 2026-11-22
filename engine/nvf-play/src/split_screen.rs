@@ -41,7 +41,8 @@ pub const END_LABEL: &str = "End Split Screen";
 /// The main menu's entry [design].
 pub const MAIN_MENU_LABEL: &str = "Split Screen";
 
-/// In player 2's game: its main menu is bare (`crate::main_menu`).
+/// In player 2's game: its main menu is bare (`crate::main_menu`), and its view turns with
+/// the right stick though its window never has the focus (`crate::player::look_input_on`).
 #[derive(Resource, Debug, Default)]
 pub struct PlayerTwo;
 

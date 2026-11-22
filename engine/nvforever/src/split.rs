@@ -102,6 +102,8 @@ use bevy::window::{MonitorSelection, Monitor, PrimaryMonitor, PrimaryWindow, Raw
 use nvf_play::split_screen::{SplitAtStart, SplitLayout, SplitScreen};
 
 // The field of view of a half (view.rs).
+pub(crate) mod backdrop;
+pub(crate) mod sound;
 pub(crate) mod view;
 
 /// How the screen is split [owner: a setting, top and bottom by default].
@@ -286,6 +288,7 @@ pub struct SplitPlugin(pub SplitArgs);
 impl Plugin for SplitPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(view::SplitViewPlugin);
+        trace::setup(app);
         if let Some(dir) = self.0.p2.clone() {
             // Its HUD and menus are drawn for its half (player 1's file says which).
             app.insert_resource(at_start(&dir, true));
@@ -294,12 +297,12 @@ impl Plugin for SplitPlugin {
             // (module notes, Focus): dropped before anything in this game sees them.
             bevy::winit::hardware_input::set_ignored(true);
             info!("split: player 2's game ignores this PC's keyboard and mouse (they are player 1's); it plays the controller player 1's game relays");
-            app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(nvf_play::split_screen::PlayerTwo).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, mine: None, placed: None, half: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false, restacked: false })
+            app.insert_resource(nvf_play::audio_out::SplitSound::default()).insert_resource(nvf_play::split_screen::PlayerTwo).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, mine: None, placed: None, half: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false, restacked: false })
                 .init_resource::<InputCount>()
                 .add_systems(PreUpdate, p2_receive.before(gamepad_connection_system))
                 .add_systems(PreUpdate, p2_strip_real_pads.after(gamepad_connection_system).before(gamepad_event_processing_system))
                 .add_systems(PreUpdate, p2_count_input.before(bevy::input::InputSystems))
-                .add_systems(Update, (p2_session, p2_give_focus_back.after(p2_session), p2_keep_character, p2_open_join, p2_back_ends, split_ui.after(p2_session)));
+                .add_systems(Update, (p2_session, p2_give_focus_back.after(p2_session), p2_keep_character, p2_open_join, p2_back_ends, split_ui.after(p2_session), sound::p2_sound));
         } else {
             // Player 1's game, or one that may become it (the menus' entries).
             nvf_play::split_screen::register_layout(app, "Display");
@@ -314,7 +317,7 @@ impl Plugin for SplitPlugin {
                 .add_systems(PreUpdate, note_last_pad.after(gamepad_connection_system).before(gamepad_event_processing_system))
                 .add_systems(PreUpdate, p1_route_pads.run_if(resource_exists::<P1>).after(note_last_pad).before(gamepad_event_processing_system))
                 .add_systems(PreUpdate, p1_count_input.run_if(resource_exists::<P1>).before(bevy::input::InputSystems))
-                .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), p1_watch_focus.run_if(resource_exists::<P1>), close_lobby_after, split_ui).chain());
+                .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), p1_watch_focus.run_if(resource_exists::<P1>), close_lobby_after, split_ui, p1_backdrop, sound::p1_sound).chain());
             test_pads::setup(app);
         }
     }
@@ -693,7 +696,9 @@ fn p1_route_pads(
     };
     if !r.assigned {
         r.assigned = true;
-        let mut connected: Vec<(Entity, PadKind)> = pads.iter().map(|(e, g, n)| (e, pad_kind(g, n))).collect();
+        // Under the stand-in controllers' test aid only they are given out (a real one
+        // plugged into the test machine would come first otherwise).
+        let mut connected: Vec<(Entity, PadKind)> = pads.iter().filter(|(_, g, _)| test_pads::gives_out(g.vendor_id())).map(|(e, g, n)| (e, pad_kind(g, n))).collect();
         connected.sort_by_key(|(e, _)| e.index_u32());
         let kinds: Vec<PadKind> = connected.iter().map(|(_, k)| k.clone()).collect();
         let entities: Vec<Entity> = connected.iter().map(|(e, _)| *e).collect();
@@ -1672,6 +1677,24 @@ fn p2_back_ends(p2: Res<P2>, mut asks: MessageReader<nvf_play::lobby::LobbyReque
     exit.write(AppExit::Success);
 }
 
+/// Player 2's half while player 2's window isn't showing ([`backdrop`]): covered once
+/// player 1's window is on its half, uncovered when player 2's window shows and when split
+/// screen ends.
+fn p1_backdrop(p1: Option<Res<P1>>, mut panel: Local<backdrop::Backdrop>, windows: Query<&RawHandleWrapper, With<PrimaryWindow>>, monitors: Query<&Monitor, With<PrimaryMonitor>>, _main_thread: bevy::ecs::system::NonSendMarker) {
+    let Some(p1) = p1.filter(|p| p.placed.is_some()) else {
+        panel.hide("split screen ended");
+        return;
+    };
+    if p1.p2_hwnd.is_some_and(backdrop::shown) {
+        panel.hide("player 2's window shows");
+        return;
+    }
+    let (Ok(handle), Ok(monitor)) = (windows.single(), monitors.single()) else { return };
+    let Some(owner) = hwnd_of(handle) else { return };
+    let half = halves(monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height), p1.layout)[1];
+    panel.show(owner, half);
+}
+
 // ---- Windows --------------------------------------------------------------------------
 
 fn hwnd_of(h: &RawHandleWrapper) -> Option<isize> {
@@ -1831,28 +1854,57 @@ fn process_alive(_pid: u32) -> bool {
     true
 }
 
-/// Test aid `NVF_PLAY_TEST_SPLIT_PADS=<n>[,<seconds>:<pad>:<button>[:<hold seconds>]...]`
+/// Test aid `NVF_PLAY_TEST_SPLIT_PADS=<n>[,<seconds>:<pad>:<input>[:<hold seconds>]...]`
 /// (player 1's game): `n` stand-in controllers ("Test controller 1" ...) connected from the
-/// start as a real one is, and their buttons (`South`, `Start`, ... as in [`BUTTONS`])
-/// pressed at world seconds (`nvf_play::pause::AidTime`) and let go after `hold` (0.2 s
-/// by default), as raw controller input, so they go through split screen's controller
-/// assignment and relay like real ones (no second real controller needed). Player 2's
-/// game is started without it.
+/// start as a real one is, and their inputs at world seconds (`nvf_play::pause::AidTime`),
+/// let go after `hold` (0.2 s by default), as raw controller input, so they go through
+/// split screen's controller assignment and relay like real ones (no second real
+/// controller needed). An input is a button (`South`, `Start`, ... as in [`BUTTONS`]) or a
+/// stick pushed, `<axis>=<value>` (`LeftStickY=1`, `RightStickX=-0.8`, as in [`AXES`]).
+/// Player 2's game is started without it.
 pub(crate) mod test_pads {
     use super::*;
 
     pub const ENV: &str = "NVF_PLAY_TEST_SPLIT_PADS";
 
+    /// The stand-ins' vendor id.
+    const VENDOR: u16 = 0x7E57;
+
+    /// Whether split screen gives out a controller of vendor `vendor` when it starts: any,
+    /// unless this aid is set, when only its stand-ins are.
+    pub(super) fn gives_out(vendor: Option<u16>) -> bool {
+        std::env::var_os(ENV).is_none() || vendor == Some(VENDOR)
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum Press {
+        Button(GamepadButton),
+        Axis(GamepadAxis, f32),
+    }
+
+    impl Press {
+        fn parse(s: &str) -> Option<Press> {
+            if let Some((a, v)) = s.split_once('=') {
+                let axis = AXES.iter().copied().find(|x| format!("{x:?}").eq_ignore_ascii_case(a.trim()))?;
+                return Some(Press::Axis(axis, v.trim().parse::<f32>().ok()?.clamp(-1.0, 1.0)));
+            }
+            BUTTONS.iter().copied().find(|b| format!("{b:?}").eq_ignore_ascii_case(s.trim())).map(Press::Button)
+        }
+
+        fn event(self, pad: Entity, on: bool) -> RawGamepadEvent {
+            match self {
+                Press::Button(b) => RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, b, if on { 1.0 } else { 0.0 })),
+                Press::Axis(a, v) => RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(pad, a, if on { v } else { 0.0 })),
+            }
+        }
+    }
+
     #[derive(Resource, Default)]
     struct TestPads {
         count: usize,
         pads: Vec<Entity>,
-        due: Vec<(f32, usize, GamepadButton, f32)>,
-        down: Vec<(f32, usize, GamepadButton)>,
-    }
-
-    fn button(name: &str) -> Option<GamepadButton> {
-        BUTTONS.iter().copied().find(|b| format!("{b:?}").eq_ignore_ascii_case(name.trim()))
+        due: Vec<(f32, usize, Press, f32)>,
+        down: Vec<(f32, usize, Press)>,
     }
 
     fn parse(v: &str) -> Result<TestPads, String> {
@@ -1861,8 +1913,8 @@ pub(crate) mod test_pads {
         let mut due = Vec::new();
         for i in items {
             let f: Vec<&str> = i.split(':').collect();
-            let (Some(at), Some(pad), Some(b)) = (f.first().and_then(|x| x.parse::<f32>().ok()), f.get(1).and_then(|x| x.parse::<usize>().ok()), f.get(2).and_then(|x| button(x))) else {
-                return Err(format!("{i}: not <seconds>:<pad>:<button>[:<hold>]"));
+            let (Some(at), Some(pad), Some(b)) = (f.first().and_then(|x| x.parse::<f32>().ok()), f.get(1).and_then(|x| x.parse::<usize>().ok()), f.get(2).and_then(|x| Press::parse(x))) else {
+                return Err(format!("{i}: not <seconds>:<pad>:<button or axis=value>[:<hold>]"));
             };
             if pad >= count {
                 return Err(format!("{i}: pad {pad} of {count}"));
@@ -1887,7 +1939,7 @@ pub(crate) mod test_pads {
         if t.pads.len() < t.count {
             for n in 0..t.count {
                 let e = commands.spawn_empty().id();
-                let c = GamepadConnectionEvent::new(e, GamepadConnection::Connected { name: format!("Test controller {}", n + 1), vendor_id: Some(0x7E57), product_id: Some(n as u16) });
+                let c = GamepadConnectionEvent::new(e, GamepadConnection::Connected { name: format!("Test controller {}", n + 1), vendor_id: Some(VENDOR), product_id: Some(n as u16) });
                 connections.write(c);
                 t.pads.push(e);
                 info!("test aid: {ENV}: Test controller {} connected ({e})", n + 1);
@@ -1899,7 +1951,7 @@ pub(crate) mod test_pads {
             if now < until {
                 return true;
             }
-            raw.write(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(t.pads[pad], b, 0.0)));
+            raw.write(b.event(t.pads[pad], false));
             info!("test aid: {ENV}: Test controller {} let go of {b:?}", pad + 1);
             false
         });
@@ -1911,7 +1963,7 @@ pub(crate) mod test_pads {
                 continue;
             }
             t.due.remove(i);
-            raw.write(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(t.pads[pad], b, 1.0)));
+            raw.write(b.event(t.pads[pad], true));
             t.down.push((now + hold, pad, b));
             info!("test aid: {ENV}: Test controller {} pressed {b:?} ({})", pad + 1, t.pads[pad]);
         }
@@ -1920,11 +1972,120 @@ pub(crate) mod test_pads {
     #[cfg(test)]
     #[test]
     fn the_aid_reads_its_pads_and_presses() {
-        let t = parse("2, 3:0:South, 80.5:1:start:1").unwrap();
+        let t = parse("2, 3:0:South, 80.5:1:start:1, 90:0:LeftStickY=1:5, 91:1:rightstickx=-0.5").unwrap();
         assert_eq!(t.count, 2);
-        assert_eq!(t.due, vec![(3.0, 0, GamepadButton::South, 0.2), (80.5, 1, GamepadButton::Start, 1.0)]);
+        assert_eq!(
+            t.due,
+            vec![
+                (3.0, 0, Press::Button(GamepadButton::South), 0.2),
+                (80.5, 1, Press::Button(GamepadButton::Start), 1.0),
+                (90.0, 0, Press::Axis(GamepadAxis::LeftStickY, 1.0), 5.0),
+                (91.0, 1, Press::Axis(GamepadAxis::RightStickX, -0.5), 0.2),
+            ]
+        );
         assert!(parse("1,3:1:South").is_err(), "pad out of range");
         assert!(parse("1,3:0:Jump").is_err());
+        assert!(parse("1,3:0:Tilt=1").is_err());
+    }
+}
+
+/// Test aid `NVF_PLAY_TEST_SPLIT_TRACE=<every seconds>` (player 2's game takes it as
+/// `NVF_SPLIT_TEST_P2_SPLIT_TRACE`): logs `split trace:` lines, the player's feet, heading,
+/// level speed over the interval, what it asks for (walk, sneak, aiming) and the frame
+/// rate, to measure movement and looking in either half. Not a game behaviour; no effect
+/// unless set.
+pub(crate) mod trace {
+    use super::*;
+    use nvf_play::control::PlayerControl;
+    use nvf_play::player::{MoveIntent, Player};
+
+    pub const ENV: &str = "NVF_PLAY_TEST_SPLIT_TRACE";
+
+    #[derive(Resource)]
+    struct Trace {
+        every: f32,
+        next: f32,
+        last: Option<([f32; 3], f32)>,
+        frames: u32,
+        /// No test aid: split screen only, while the player moves ([`QUIET_EVERY`]).
+        quiet: bool,
+    }
+
+    /// Without the test aid, a game in split screen still logs how its player moves, every
+    /// [`QUIET_EVERY`] seconds while they move (`split: moves: ...`): the owner's playtest of
+    /// 2026-11-21 had player 1 slow while split ("P1 was walking slow and sprinting would get
+    /// close to normal speed"), not seen in the night pass's runs (stand-in controller and
+    /// keyboard, the game's own data), so the next run with the owner's load order says why.
+    pub const QUIET_EVERY: f32 = 10.0;
+
+    pub(super) fn setup(app: &mut App) {
+        let aid = std::env::var(ENV).ok().and_then(|v| v.trim().parse::<f32>().ok()).filter(|v| *v > 0.0);
+        app.insert_resource(Trace { every: aid.unwrap_or(QUIET_EVERY), next: 0.0, last: None, frames: 0, quiet: aid.is_none() }).add_systems(Last, log);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn log(
+        mut t: ResMut<Trace>,
+        real: Res<Time<Real>>,
+        virt: Res<Time<Virtual>>,
+        player: Option<Res<Player>>,
+        intent: Option<Res<MoveIntent>>,
+        control: Option<Res<PlayerControl>>,
+        bindings: Option<Res<nvf_play::bindings::Bindings>>,
+        split: (Option<Res<P1>>, Option<Res<P2>>),
+    ) {
+        t.frames += 1;
+        let now = real.elapsed_secs();
+        if now < t.next {
+            return;
+        }
+        if t.quiet && split.0.is_none() && split.1.is_none() {
+            t.last = None;
+            t.next = now + t.every;
+            return;
+        }
+        let Some(p) = player else { return };
+        let (dist, secs) = t.last.map_or((0.0, 0.0), |(at, then)| (((p.feet[0] - at[0]).powi(2) + (p.feet[1] - at[1]).powi(2)).sqrt(), now - then));
+        let speed = if secs > 0.0 { dist / secs } else { 0.0 };
+        let fps = if secs > 0.0 { t.frames as f32 / secs } else { 0.0 };
+        let i = intent.as_deref().copied().unwrap_or_default();
+        let aiming = control.as_deref().is_some_and(|c| c.aiming && c.weapon_out);
+        let moving = speed > 1.0 || i.forward != 0.0 || i.right != 0.0;
+        if t.quiet {
+            if moving {
+                let c = control.as_deref();
+                info!(
+                    "split: moves: {speed:.0} units/s level (run {:.0}, walk {:.0}), forward {:.2} right {:.2}, walk {} (always run {}), sneak {}, aiming {aiming}, on {}, game clock x{:.2}, {fps:.0} fps",
+                    nvf_play::player::MoveSpeeds::OBSERVED.run,
+                    nvf_play::player::MoveSpeeds::OBSERVED.walk,
+                    i.forward,
+                    i.right,
+                    i.walk,
+                    c.is_some_and(|c| c.always_run),
+                    i.sneak,
+                    if bindings.as_deref().is_some_and(|b| b.device == nvf_play::bindings::InputDevice::Controller) { "a controller" } else { "the keyboard and mouse" },
+                    virt.relative_speed(),
+                );
+            }
+            t.last = Some((p.feet, now));
+            t.frames = 0;
+            t.next = now + t.every;
+            return;
+        }
+        info!(
+            "split trace: feet ({:.0}, {:.0}, {:.0}) heading {:.1} deg, {speed:.1} units/s level, forward {:.2} right {:.2} walk {} sneak {} aiming {aiming}, {fps:.0} fps",
+            p.feet[0],
+            p.feet[1],
+            p.feet[2],
+            p.heading.to_degrees(),
+            i.forward,
+            i.right,
+            i.walk,
+            i.sneak
+        );
+        t.last = Some((p.feet, now));
+        t.frames = 0;
+        t.next = now + t.every;
     }
 }
 

@@ -660,7 +660,7 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
         info!("memory budget: GPU heaps: {layout}");
     }
     let used = vram.as_ref().ok().and_then(|v| v.used_mb).unwrap_or(0);
-    let side_cap = vram_mb.map_or(nvf_assets::texture::MAX_TEXTURE_SIDE, |b| side_cap_for(b, used, ram.map(|r| r.1), 0));
+    let side_cap = split_side_cap(vram_mb.map_or(nvf_assets::texture::MAX_TEXTURE_SIDE, |b| side_cap_for(b, used, ram.map(|r| r.1), 0)), player_two.is_some());
     nvf_assets::texture::set_side_cap(side_cap);
     if let Some(b) = vram_mb {
         // Player 2 of split screen keeps no emptied block (as on a small card).
@@ -675,6 +675,26 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
     let ram_in_use = ram.map(|r| ram_share(r, aid_ram));
     *budget = MemoryBudget { vram_mb, vram_use_mb, ram_share: ram_in_use, aid_vram, aid_ram, base, pressed: false, told: false, vram_peak_mb: vram_use_mb.map_or(0, |u| u.0), side_cap, ..Default::default() };
     commands.insert_resource(base);
+}
+
+/// The largest side of a world texture in player 2's game of split screen [design: its
+/// half is a quarter to a half of the screen (2560x720 on 2560x1440), where a texture's
+/// full 2048 px level is rarely seen; the next level down takes a quarter of the memory;
+/// the owner's list of 2026-11-21, "player 2's RAM"].
+pub const SPLIT_P2_SIDE_CAP: u32 = 1024;
+
+/// The side cap for this game: `cap`, and no more than [`SPLIT_P2_SIDE_CAP`] in player
+/// 2's game (`player_two`).
+pub fn split_side_cap(cap: u32, player_two: bool) -> u32 {
+    if player_two {
+        cap.min(SPLIT_P2_SIDE_CAP)
+    } else {
+        cap
+    }
+}
+
+fn player_two() -> bool {
+    std::env::var_os(crate::split::P2_ENV).is_some()
 }
 
 /// GPU budget (MB) from which world textures keep their full size until the GPU fills
@@ -736,6 +756,7 @@ fn sync_mesh_slabs(budget: bevy::render::Extract<Res<MemoryBudget>>, mut setting
 
 /// Use the side cap for these readings; log a change.
 fn set_cap(budget: &mut MemoryBudget, cap: u32, why: &str) {
+    let cap = split_side_cap(cap, player_two());
     if cap == budget.side_cap {
         return;
     }
@@ -786,7 +807,7 @@ fn watch_loads(
         (true, false) => {
             let (gpu, ram_free) = read();
             let (vb, used) = gpu.unwrap_or((b, 0));
-            let cap = side_cap_for(vb, used, ram_free, budget.oom_steps);
+            let cap = split_side_cap(side_cap_for(vb, used, ram_free, budget.oom_steps), player_two());
             let flush = used as f64 > vb as f64 * FLUSH_AT_LOAD;
             info!(
                 "memory budget: cell load: GPU uses {used} of {vb} MB ({} MB free), RAM {} MB free; world textures at most {cap} px{}",
@@ -1130,6 +1151,9 @@ mod tests {
         assert_eq!(limits_for_split(full, false), full, "player 1 and a game alone: as the budgets say");
         assert_eq!(limits_for_split(full, true), MIN_LIMITS);
         assert_eq!(limits_for_split(MIN_LIMITS, true), MIN_LIMITS);
+        assert_eq!(split_side_cap(8192, false), 8192, "player 1 and a game alone: as the budget says");
+        assert_eq!(split_side_cap(8192, true), SPLIT_P2_SIDE_CAP);
+        assert_eq!(split_side_cap(512, true), 512, "a smaller cap stays");
         assert!(MIN_LIMITS.secs < full.secs && MIN_LIMITS.max < full.max);
     }
 

@@ -720,6 +720,11 @@ fn play(
                         _ => None,
                     },
                 };
+                // Split screen's player 2 always hears its own conversation
+                // (`crate::audio_out::SplitSound`).
+                if let Some(e) = entity.filter(|_| s.conversation) {
+                    commands.entity(e).insert(crate::audio_out::OwnConversation);
+                }
                 st.started += 1;
                 st.filtered += u64::from(filtered && entity.is_some());
                 let reverb = reverb.filter(|_| entity.is_some());

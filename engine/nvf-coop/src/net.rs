@@ -994,6 +994,71 @@ impl Session {
         }
     }
 
+    /// A host that opened to every network ([`Session::open_to_all`]) goes back to this PC
+    /// only, on the same port: every guest on another PC (and the games behind it) is told
+    /// the lobby ended, as the host's own goodbye tells it, and is dropped; the guests on
+    /// this PC (split screen's player 2) keep their places. Steam is let go too. The ids
+    /// dropped. If the port cannot be bound on the loopback again, the host stays open.
+    pub fn close_to_others(&mut self) -> std::io::Result<Vec<u8>> {
+        if !self.is_host() || self.local_only() {
+            return Ok(Vec::new());
+        }
+        let port = self.sock.local_addr()?.port();
+        let here = |a: Option<SocketAddr>| a.is_some_and(|a| a.ip().is_loopback());
+        let away: Vec<(u8, SocketAddr)> = self.peers.iter().filter(|p| !here(p.addr)).filter_map(|p| Some((p.id, p.addr?))).collect();
+        let host_bye = encode(&Msg::Bye { id: 0 });
+        for i in 0..BYE_COPIES {
+            if i > 0 {
+                std::thread::sleep(BYE_GAP);
+            }
+            for (_, addr) in &away {
+                match relay_index(*addr) {
+                    // A game behind a guest on another PC: through that guest (`sock_send`).
+                    Some(_) => self.sock_send(&Msg::Bye { id: 0 }, *addr),
+                    None => send_raw(&self.sock, self.steam, &host_bye, *addr),
+                }
+            }
+        }
+        let mut dropped = Vec::new();
+        for (id, addr) in away {
+            // A game behind a guest dropped already went with it.
+            if !self.peers.iter().any(|p| p.id == id) {
+                dropped.push(id);
+                continue;
+            }
+            self.peers.retain(|p| p.id != id);
+            self.relay_bye(id);
+            self.events.push(Event::Left(id));
+            self.drop_relayed_via(addr);
+            dropped.push(id);
+        }
+        // Peers with no address yet (still saying hello) are not this PC's either.
+        let unknown: Vec<u8> = self.peers.iter().filter(|p| p.addr.is_none()).map(|p| p.id).collect();
+        for id in unknown {
+            self.peers.retain(|p| p.id != id);
+            self.events.push(Event::Left(id));
+            dropped.push(id);
+        }
+        let stand_in = UdpSocket::bind(("127.0.0.1", 0))?;
+        let open = std::mem::replace(&mut self.sock, stand_in);
+        drop(open);
+        match UdpSocket::bind(("127.0.0.1", port)) {
+            Ok(sock) => {
+                sock.set_nonblocking(true)?;
+                self.sock = sock;
+                self.steam = None;
+                Ok(dropped)
+            }
+            Err(e) => {
+                if let Ok(back) = UdpSocket::bind(("0.0.0.0", port)) {
+                    let _ = back.set_nonblocking(true);
+                    self.sock = back;
+                }
+                Err(e)
+            }
+        }
+    }
+
     /// Talk over Steam too from now on (a host for this PC only that opens to all), or not.
     pub fn set_steam(&mut self, steam: Option<&'static Steam>) {
         self.steam = steam;
@@ -2333,6 +2398,11 @@ impl Link {
         })
     }
 
+    /// [`Session::close_to_others`].
+    pub fn close_to_others(&self) -> std::io::Result<Vec<u8>> {
+        self.with(|s| s.close_to_others())
+    }
+
     /// [`Session::open_relay`].
     pub fn open_relay(&self, port: u16) -> std::io::Result<u16> {
         self.with(|s| s.open_relay(port))
@@ -3443,6 +3513,15 @@ mod tests {
         let seen = run(&mut [&mut host, &mut p2], &mut clock, step, |seen| seen[0].iter().any(|e| matches!(e, Event::State { id: 1, state } if state.feet[0] == 2.0)));
         assert!(!seen[0].iter().any(|e| matches!(e, Event::Left(_) | Event::Joined { .. })), "player 2 kept its place");
         assert!(!seen[1].iter().any(|e| matches!(e, Event::HostGone | Event::HostLost)));
+        // Close Lobby while split: back to this PC only, the same port, player 2 still in.
+        assert_eq!(host.close_to_others().unwrap(), Vec::<u8>::new(), "no one on another PC");
+        assert!(host.local_only());
+        assert_eq!(host.local_addr().unwrap(), addr, "same port, the loopback");
+        assert_eq!(host.close_to_others().unwrap(), Vec::<u8>::new(), "already this PC's only");
+        p2.set_state(state(3.0));
+        let seen = run(&mut [&mut host, &mut p2], &mut clock, step, |seen| seen[0].iter().any(|e| matches!(e, Event::State { id: 1, state } if state.feet[0] == 3.0)));
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Left(_))), "player 2 stays");
+        assert!(!seen[1].iter().any(|e| matches!(e, Event::HostGone | Event::HostLost)), "player 2 is not told the lobby ended");
     }
 
     /// Split screen's player 2 behind a guest (plan split-screen.md §10.1): it joins the

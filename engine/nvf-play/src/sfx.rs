@@ -308,8 +308,8 @@ pub struct Ear {
 }
 
 /// Split screen's second listener, in player 1's game (the host): player 2's eye in this
-/// world. Player 2's own game plays only its interface sounds
-/// (`crate::audio_out::PersonalSoundsOnly`), so this game plays the world's sounds for
+/// world. While player 2 is here its own game plays only its interface sounds and its own
+/// conversation (`crate::audio_out::SplitSound`), so this game plays the world's sounds for
 /// both players: each is as loud as the nearer player hears it and panned for that
 /// player ([`heard_gain`], [`heard_pan`]) [design: the usual split-screen rule; the
 /// original has one player]. No resource, or `None` (player 2 not in this place): one
