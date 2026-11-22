@@ -278,11 +278,26 @@ type DisplayWant = (WindowChoice, String, Option<UVec2>, Option<String>);
 struct DisplayState {
     /// The frame after a monitor move bounced through windowed: the target mode to enter.
     bounce: Option<WindowMode>,
+    /// Split screen had the window last frame ([`split_holds_window`]).
+    held: bool,
 }
 
 /// Make the window what `Args` (`window`, `size`) and [`FullScreenSize`] ask, when they
 /// change (and again once the monitor's modes are known, for exclusive full screen).
 fn apply_display(args: Res<Args>, full: Res<FullScreenSize>, modes: Res<MonitorModes>, monitor: Res<MonitorChoice>, mut windows: Query<&mut Window, With<PrimaryWindow>>, mut last: Local<Option<DisplayWant>>, mut state: Local<DisplayState>) {
+    // Split screen places its windows itself (`crate::split`, each on its half, no frame):
+    // full screen from the settings first put player 2's window over the whole screen,
+    // its loading screen and black syncing screen there for 6 s, and leaving it showed
+    // the window's title bar [observed: the owner's video of 2026-11-22 14:21, borderless
+    // full screen on]. Once split screen ends, the settings' mode again.
+    if split_holds_window(&args) {
+        state.held = true;
+        state.bounce = None;
+        return;
+    }
+    if std::mem::take(&mut state.held) {
+        *last = None;
+    }
     // The frame after a monitor move bounced through windowed: enter the target mode.
     if let Some(mode) = state.bounce {
         if let Ok(mut w) = windows.single_mut() {
@@ -342,6 +357,12 @@ fn apply_display(args: Res<Args>, full: Res<FullScreenSize>, modes: Res<MonitorM
             w.resolution.set_physical_resolution(s.x, s.y);
         }
     }
+}
+
+/// Split screen has the window: player 2's game always, player 1's while split screen is
+/// on (`NVF_SPLIT_P1`, set by `crate::split` and on a load's new run in split screen).
+fn split_holds_window(args: &Args) -> bool {
+    args.split_p2.is_some() || std::env::var_os("NVF_SPLIT_P1").is_some()
 }
 
 /// One line each time the primary window's mode changes (the first: the start's), and

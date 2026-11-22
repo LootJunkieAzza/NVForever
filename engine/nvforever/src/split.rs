@@ -337,7 +337,7 @@ impl Plugin for SplitPlugin {
                 .add_systems(PreUpdate, p1_route_pads.run_if(resource_exists::<P1>).after(note_last_pad).before(gamepad_event_processing_system))
                 .add_systems(PreUpdate, p1_count_input.run_if(resource_exists::<P1>).before(bevy::input::InputSystems))
                 .add_systems(Last, hold_screen_on_quit)
-                .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), p1_watch_focus.run_if(resource_exists::<P1>), close_lobby_after, split_ui, p1_backdrop, sound::p1_sound).chain());
+                .add_systems(Update, (split_asks, hold_screen_on_start, p1_session.run_if(resource_exists::<P1>), p1_watch_focus.run_if(resource_exists::<P1>), close_lobby_after, split_ui, p1_backdrop, sound::p1_sound).chain().before(crate::window_mode::ApplyWindowMode));
             test_pads::setup(app);
         }
     }
@@ -685,6 +685,22 @@ fn end_split(commands: &mut Commands, p1: &P1, window: Option<&mut Window>, conn
         commands.insert_resource(CloseLobbyAfter { until: now + P2_GONE });
     }
     info!("split: split screen ended ({why})");
+}
+
+/// Split screen turned on in a running game: the screen as it is held over everything
+/// (`crate::handoff::cover::up_over_screen_till_drawn`) until player 1's window is on its
+/// half and drawn there, so leaving full screen for the half shows nothing between. A
+/// load's new run has the old window's picture up already (`crate::handoff::cover`).
+fn hold_screen_on_start(p1: Option<Res<P1>>, windows: Query<(&Window, &RawHandleWrapper), With<PrimaryWindow>>, _main_thread: bevy::ecs::system::NonSendMarker) {
+    if !p1.is_some_and(|p| p.is_added()) || crate::handoff::cover::is_up() {
+        return;
+    }
+    let Ok((window, handle)) = windows.single() else { return };
+    let Some(mine) = hwnd_of(handle).filter(|_| window.visible) else { return };
+    match crate::handoff::cover::up_over_screen_till_drawn(mine) {
+        Ok(at) => info!("split: the screen held for the start of split screen ({at})"),
+        Err(why) => info!("split: the screen not held for the start of split screen: {why}"),
+    }
 }
 
 /// Quit to Main Menu in split screen: before player 2's game is told (`crate::coop`'s
@@ -1826,7 +1842,7 @@ fn own_by(_window: isize, _owner: isize) {}
 /// moved it.
 #[cfg(windows)]
 fn raise_over(window: isize, owner: isize) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindow, GetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GW_HWNDPREV, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_TOPMOST};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindow, GetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GW_HWNDPREV, HWND_TOP, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_TOPMOST};
     type Hwnd = windows_sys::Win32::Foundation::HWND;
     // SAFETY: top-level windows of the two players' games; the calls only read and change
     // the stacking order, and fail harmlessly on a window that has gone.
@@ -1835,9 +1851,19 @@ fn raise_over(window: isize, owner: isize) -> bool {
         if above as isize == window {
             return false;
         }
-        // Inserting after an always-on-top window would make this one always on top too.
-        let topmost = !above.is_null() && GetWindowLongPtrW(above, GWL_EXSTYLE) & WS_EX_TOPMOST as isize != 0;
-        let after = if above.is_null() || topmost { HWND_TOP } else { above };
+        let topmost = |w: Hwnd| !w.is_null() && GetWindowLongPtrW(w, GWL_EXSTYLE) & WS_EX_TOPMOST as isize != 0;
+        // Player 1's window in the topmost band (split screen over the taskbar): this one
+        // goes in the band too, right over it. Raised to the top of the windows that are not
+        // topmost, it took its owner along out of the band, under the black backdrop, player
+        // 1's half black for a frame [observed: the full-screen check of 2026-11-22].
+        // Otherwise inserting after an always-on-top window would make this one always on top.
+        let after = if topmost(owner as Hwnd) {
+            if above.is_null() { HWND_TOPMOST } else { above }
+        } else if above.is_null() || topmost(above) {
+            HWND_TOP
+        } else {
+            above
+        };
         SetWindowPos(window as Hwnd, after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0
     }
 }

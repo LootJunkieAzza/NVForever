@@ -130,12 +130,34 @@ impl Backdrop {
         let mut moved = false;
         let mut why = "the band";
         let mut left_top = false;
-        // The band, bottom up, so they land in their order.
-        for &w in order.iter().rev() {
-            if imp::topmost(w) != on_top {
-                imp::set_topmost(w, on_top);
-                left_top |= !on_top;
+        if on_top {
+            // The halves into the band under the load's cover (put under a topmost window,
+            // a window is topmost too [documented: SetWindowPos, hWndInsertAfter]), or at
+            // its top; the backdrop never: it goes under them (below), at the band's bottom,
+            // where Windows leaves it the highest window that is not topmost [observed: the
+            // full-screen check of 2026-11-22, put there it came back not topmost every
+            // frame]. All three into the band bottom up put the backdrop in first, over
+            // player 1's window and the cover, the whole screen black for a frame [observed:
+            // the same check]. The halves never overlap, so their order between them waits
+            // for the stack below.
+            for &w in order.iter().filter(|&&w| w != h) {
+                if imp::topmost(w) {
+                    continue;
+                }
+                match cover {
+                    Some(c) => imp::put_under(w, c),
+                    None => imp::set_topmost(w, true),
+                }
                 moved = true;
+            }
+        } else {
+            // Out of the band, bottom up, so they land in their order.
+            for &w in order.iter().rev() {
+                if imp::topmost(w) {
+                    imp::set_topmost(w, false);
+                    left_top = true;
+                    moved = true;
+                }
             }
         }
         // Leaving the topmost band puts a window over every one that isn't topmost
@@ -151,6 +173,20 @@ impl Backdrop {
         // was [observed: the check of 2026-11-22, item 215]. Out of the topmost band the
         // cover (topmost) is over them anyway.
         let chain: Vec<isize> = cover.filter(|_| on_top).into_iter().chain(order.iter().copied()).collect();
+        // In the band the backdrop sits at its bottom, under every topmost window, not just
+        // under player 1's: player 2's game's own load cover (topmost, over its half) went
+        // under it, its half black for 0.7 s [observed: the full-screen check of
+        // 2026-11-22]. It only has to be under both halves.
+        let chain = if on_top {
+            if order.iter().any(|&w| w != h && !imp::below(h, w)) {
+                imp::to_band_bottom(h);
+                why = "the backdrop was over a half";
+                moved = true;
+            }
+            &chain[..chain.len() - 1]
+        } else {
+            &chain[..]
+        };
         for pair in chain.windows(2) {
             if !imp::just_under(pair[1], pair[0]) {
                 imp::put_under(pair[1], pair[0]);
@@ -202,7 +238,7 @@ mod imp {
     };
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetForegroundWindow, GetWindow, GetWindowLongPtrW, IsIconic, IsWindow, IsWindowVisible, RegisterClassW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT, HWND_NOTOPMOST, HWND_TOPMOST, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_PAINT, WNDCLASSW,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetForegroundWindow, GetTopWindow, GetWindow, GetWindowLongPtrW, IsIconic, IsWindow, IsWindowVisible, RegisterClassW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT, HWND_NOTOPMOST, HWND_TOPMOST, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_PAINT, WNDCLASSW,
         WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
 
@@ -336,6 +372,45 @@ mod imp {
         false
     }
 
+    /// Whether `h` is somewhere under `w` in the stack.
+    pub fn below(h: isize, w: isize) -> bool {
+        let mut x = w as HWND;
+        // SAFETY: only asks about windows.
+        unsafe {
+            for _ in 0..4096 {
+                x = GetWindow(x, GW_HWNDNEXT);
+                if x.is_null() {
+                    return false;
+                }
+                if x as isize == h {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// `h` at the bottom of the topmost band: under every other topmost window, over every
+    /// window that is not topmost (Windows leaves it not topmost there itself).
+    pub fn to_band_bottom(h: isize) {
+        // SAFETY: only reads the stack, then moves this process's own backdrop in it.
+        unsafe {
+            let mut last: HWND = std::ptr::null_mut();
+            let mut x = GetTopWindow(std::ptr::null_mut());
+            for _ in 0..4096 {
+                if x.is_null() || GetWindowLongPtrW(x, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST == 0 {
+                    break;
+                }
+                if x as isize != h {
+                    last = x;
+                }
+                x = GetWindow(x, GW_HWNDNEXT);
+            }
+            let after = if last.is_null() { HWND_TOPMOST } else { last };
+            SetWindowPos(h as HWND, after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+
     /// `h` right under `above`, never activated. Asynchronous for a window of another
     /// thread (player 2's game's), so player 1's game never waits on player 2's while it
     /// loads [documented: SetWindowPos, SWP_ASYNCWINDOWPOS].
@@ -397,6 +472,10 @@ mod imp {
         true
     }
     pub fn put_under(_h: isize, _above: isize) {}
+    pub fn below(_h: isize, _w: isize) -> bool {
+        true
+    }
+    pub fn to_band_bottom(_h: isize) {}
     pub fn foreground() -> Option<isize> {
         None
     }

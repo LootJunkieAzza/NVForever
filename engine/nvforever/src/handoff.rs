@@ -766,7 +766,10 @@ pub fn lower_cover(windows: Query<(&Window, &bevy::window::RawHandleWrapper), Wi
     // And in front: what the cover leaves is this window, not another program
     // ([`cover::in_front`]); raised again, harder, while it is not. Split screen's player 1
     // is topmost, its stack kept by `crate::split::backdrop`.
-    let in_front = !drawn || std::env::var_os("NVF_SPLIT_P1").is_some() || mine.is_none_or(cover::in_front);
+    // Player 2's window too: player 1's game keeps it in its stack, in the topmost band, and
+    // the hard raise (through the band and out) took it out of it, under the black backdrop
+    // for a frame [observed: the full-screen check of 2026-11-22].
+    let in_front = !drawn || std::env::var_os("NVF_SPLIT_P1").is_some() || std::env::var_os(crate::split::P2_ENV).is_some() || mine.is_none_or(cover::in_front);
     if drawn && !in_front {
         if let Some(mine) = mine {
             cover::raise_hard(mine);

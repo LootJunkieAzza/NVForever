@@ -62,6 +62,13 @@ pub fn up_over_screen(window: isize) -> Result<String, String> {
     r
 }
 
+/// The screen as it is, held only till this window has its picture on its place
+/// (`crate::handoff::lower_cover`): split screen's start, as the window leaves full screen
+/// for its half.
+pub fn up_over_screen_till_drawn(window: isize) -> Result<String, String> {
+    imp::up_over_screen(window)
+}
+
 /// Whether the cover is [`up_over_screen`]'s, held while split screen is still on.
 pub fn till_split_ends() -> bool {
     TILL_SPLIT_ENDS.load(Ordering::Relaxed)
