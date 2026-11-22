@@ -623,6 +623,29 @@ mod tests {
     }
 
     #[test]
+    fn a_held_control_on_a_combos_button_is_held_not_tapped() {
+        // The owner's playtest (2026-11-22): Toggle POV on LS + RS, Sprint on LS. Sprint
+        // must stay held while LS is, whichever of the two the combo took as its modifier.
+        for combo in [PadBinding::Combo { modifier: LeftThumb, button: RightThumb }, PadBinding::Combo { modifier: RightThumb, button: LeftThumb }] {
+            let binds = [(Control::TogglePov, combo), (Control::Sprint, PadBinding::Press(PadInput::Button(LeftThumb)))];
+            let (mut r, mut pad, mut log) = (PadResolver::default(), Pad::new(), Vec::new());
+            let held_frames = |r: &mut PadResolver, pad: &mut Pad, log: &mut Vec<(Control, &'static str)>| {
+                let mut n = 0;
+                for _ in 0..frames(2.0) {
+                    run(r, pad, &binds, &[LeftThumb], 1, log);
+                    n += usize::from(r.get(Control::Sprint).is_some_and(|v| v.pressed));
+                }
+                n
+            };
+            let n = held_frames(&mut r, &mut pad, &mut log);
+            assert!(n >= frames(2.0) - frames(COMBO_WINDOW) - 1, "{combo:?}: Sprint held {n} of {} frames", frames(2.0));
+            assert_eq!(log, vec![(Control::Sprint, "down")], "{combo:?}: one press, held, no taps");
+            run(&mut r, &mut pad, &binds, &[], 2, &mut log);
+            assert_eq!(log, vec![(Control::Sprint, "down"), (Control::Sprint, "up")], "{combo:?}");
+        }
+    }
+
+    #[test]
     fn a_modifiers_own_press_acts_on_release_only_when_no_combo_used_it() {
         let combo = PadBinding::Combo { modifier: LeftTrigger, button: South };
         let binds = [(Control::Hotkey5, combo), (Control::Vats, PadBinding::Press(PadInput::Button(LeftTrigger)))];
