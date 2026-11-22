@@ -629,6 +629,12 @@ fn end_split(commands: &mut Commands, p1: &P1, window: Option<&mut Window>, conn
     if let (Some(w), Some(before)) = (window, &p1.before) {
         before.give_back(w);
     }
+    // Player 2's window goes at once, not when its game has quit: it sits over this game's
+    // window, so it covered player 1's returning picture for a moment [observed: the
+    // two-window check of 2026-11-22, its half stayed up about 0.4 s after the end].
+    if let Some(h) = p1.p2_hwnd {
+        hide_window(h);
+    }
     if let Some(e) = p1.pads.p2 {
         let st = &p1.pads.state;
         connections.write(GamepadConnectionEvent::new(e, GamepadConnection::Connected { name: st.name.clone(), vendor_id: st.vendor, product_id: st.product }));
@@ -1856,13 +1862,25 @@ fn mark_fullscreen(_window: isize, _on: bool) -> bool {
     false
 }
 
+/// Hides window `window` (player 2's, another process's) without waiting on its game.
+#[cfg(windows)]
+fn hide_window(window: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_HIDE};
+    // SAFETY: asks another process's window to hide; fails harmlessly once it is gone.
+    unsafe {
+        ShowWindowAsync(window as _, SW_HIDE);
+    }
+}
+#[cfg(not(windows))]
+fn hide_window(_window: isize) {}
+
 /// Puts player 1's window over the taskbar (`on`: always on top), or back among the other
-/// windows. Its owned windows (player 2's, the panel over player 2's half) go with it
-/// [documented: Win32 `SetWindowPos`, "When a non-topmost window is made topmost, its owned
-/// windows are also made topmost"]. Marking the window full screen for the taskbar
-/// ([`mark_fullscreen`]) was not enough: the taskbar stayed over the halves' bottom edge
-/// with the mark taken [observed: the owner's split screen game and screenshot, 2026-11-21
-/// 23:19, and the night pass's frames]. True when Windows did it.
+/// windows; used as split screen ends. While split screen is on, the backdrop keeps the
+/// whole stack instead ([`backdrop`]): player 2's window, owned from another process, did
+/// not follow player 1's into the topmost band [observed: the two-window check of
+/// 2026-11-22]. Marking the window full screen for the taskbar ([`mark_fullscreen`]) was not
+/// enough: the taskbar stayed over the halves' bottom edge with the mark taken [observed:
+/// the owner's split screen game and screenshot, 2026-11-21 23:19]. True when Windows did it.
 #[cfg(windows)]
 fn set_on_top(window: isize, on: bool) -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE};
