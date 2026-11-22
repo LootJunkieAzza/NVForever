@@ -166,6 +166,10 @@ pub struct EngineSnapshot {
     /// saves: the weapon's default pick, as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub magazine_ammo: Option<u32>,
+    /// Player's remembered ammo type per weapon base form for the Keep Chosen Ammo tweak
+    /// (#3305). Absent in older saves: empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub chosen_ammo: BTreeMap<u32, u32>,
     /// The Pip-Boy's active quest.
     #[serde(default)]
     pub active_quest: Option<u32>,
@@ -846,6 +850,7 @@ fn engine_snapshot(world: &World) -> EngineSnapshot {
     }
     e.flashlight = world.get_resource::<crate::flashlight::Flashlight>().is_some_and(|f| f.on);
     e.magazine_ammo = world.get_resource::<crate::combat::Combat>().and_then(|c| c.magazine_ammo_for_save());
+    e.chosen_ammo = world.get_resource::<crate::combat::Combat>().map(|c| c.chosen_ammo_for_save()).unwrap_or_default();
     e.magazine = world.get_resource::<crate::combat::Combat>().and_then(|c| c.magazine_for_save());
     let game = world.get_resource::<ScriptState>().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     e.active_quest = match world.get_resource::<crate::pipboy::data::DataState>() {
@@ -931,8 +936,11 @@ fn apply_engine(world: &mut World) {
     if let Some(mut f) = world.get_resource_mut::<crate::flashlight::Flashlight>() {
         f.on = e.flashlight;
     }
-    if let (Some(m), Some(mut c)) = (e.magazine, world.get_resource_mut::<crate::combat::Combat>()) {
-        c.restore_magazine(m, e.magazine_ammo);
+    if let Some(mut c) = world.get_resource_mut::<crate::combat::Combat>() {
+        c.restore_chosen_ammo(&e.chosen_ammo);
+        if let Some(m) = e.magazine {
+            c.restore_magazine(m, e.magazine_ammo);
+        }
     }
     if let Some(q) = e.active_quest {
         crate::pipboy::data::DataState::restore_active_quest(world, q);
@@ -1018,6 +1026,7 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     let e = &mut body.engine;
     e.magazine = e.magazine.and_then(|(w, n)| remap.map(w).map(|w| (w, n)));
     e.magazine_ammo = e.magazine_ammo.and_then(|a| remap.map(a));
+    e.chosen_ammo = std::mem::take(&mut e.chosen_ammo).into_iter().filter_map(|(w, a)| Some((remap.map(w)?, remap.map(a)?))).collect();
     e.active_quest = e.active_quest.and_then(|q| remap.map(q));
     for c in &mut e.coop {
         c.magazine = c.magazine.and_then(|(w, n)| remap.map(w).map(|w| (w, n)));
@@ -1212,11 +1221,56 @@ mod tests {
     fn an_engine_snapshot_without_new_fields_still_reads() {
         let e: EngineSnapshot = serde_json::from_str(r#"{"format":"nvf.engine.state/1"}"#).unwrap();
         assert_eq!(e, EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() });
-        let full = EngineSnapshot { format: ENGINE_FORMAT.into(), third_person: true, distance: 150.0, sneak: true, always_run: true, flashlight: true, magazine: Some((0x1234, 7)), magazine_ammo: Some(0x2345), active_quest: Some(0x104C1C), extra: [("sky".to_string(), serde_json::json!({"weather": "NVWastelandClear"}))].into(), coop: vec![CoopEngine { slot: 3, third_person: true, distance: 90.0, sneak: true, always_run: false, flashlight: true, magazine: Some((0x1235, 2)) }] };
+        assert!(e.chosen_ammo.is_empty());
+        let full = EngineSnapshot {
+            format: ENGINE_FORMAT.into(),
+            third_person: true,
+            distance: 150.0,
+            sneak: true,
+            always_run: true,
+            flashlight: true,
+            magazine: Some((0x1234, 7)),
+            magazine_ammo: Some(0x2345),
+            chosen_ammo: [(0x1234, 0x2345), (0x1235, 0x2346)].into(),
+            active_quest: Some(0x104C1C),
+            extra: [("sky".to_string(), serde_json::json!({"weather": "NVWastelandClear"}))].into(),
+            coop: vec![CoopEngine { slot: 3, third_person: true, distance: 90.0, sneak: true, always_run: false, flashlight: true, magazine: Some((0x1235, 2)) }],
+        };
         let back: EngineSnapshot = serde_json::from_str(&serde_json::to_string(&full).unwrap()).unwrap();
         assert_eq!(back, full);
-        // One player writes no `coop`.
-        assert!(!serde_json::to_string(&EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() }).unwrap().contains("coop"));
+        // One player writes no `coop`, and empty `chosen_ammo` is omitted.
+        let minimal = serde_json::to_string(&EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() }).unwrap();
+        assert!(!minimal.contains("coop"));
+        assert!(!minimal.contains("chosen_ammo"));
+    }
+
+    #[test]
+    fn chosen_ammo_remaps_and_drops_missing_plugins_on_load() {
+        let st = ScriptState::over_no_plugins();
+        let saved_plugins = vec![
+            PluginEntry { name: "Master.esm".into(), size: 0 },
+            PluginEntry { name: "ModA.esp".into(), size: 0 },
+            PluginEntry { name: "ModB.esp".into(), size: 0 },
+        ];
+        // ModB moves from index 2 to 1; ModA is removed.
+        let current_plugins = vec![
+            PluginEntry { name: "Master.esm".into(), size: 0 },
+            PluginEntry { name: "ModB.esp".into(), size: 0 },
+        ];
+        let mut engine = EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() };
+        engine.chosen_ammo.insert(0x0000_1001, 0x0200_2002); // Master weapon + ModB ammo -> ModB remaps to 01
+        engine.chosen_ammo.insert(0x0100_3003, 0x0000_4004); // ModA weapon -> dropped
+        engine.chosen_ammo.insert(0x0000_5005, 0x0100_6006); // ModA ammo -> dropped
+        let body = SaveBody { format: BODY_FORMAT.into(), game: st.rt.as_ref().unwrap().game.snapshot(), engine };
+        let dir = std::env::temp_dir().join(format!("nvf-chosen-ammo-remap-{}", std::process::id()));
+        let path = dir.join("remap.nvfsave");
+        let mut hdr = SaveHeader::new(SaveKind::Manual);
+        hdr.plugins = saved_plugins;
+        fnv_save::write(&path, &hdr, &[], &serde_json::to_vec(&body).unwrap(), false).unwrap();
+        let (_, loaded, order) = read_for_load(&path, &current_plugins).unwrap();
+        assert!(order.is_some());
+        assert_eq!(loaded.engine.chosen_ammo, BTreeMap::from([(0x0000_1001, 0x0100_2002)]));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

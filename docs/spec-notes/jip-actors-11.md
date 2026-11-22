@@ -43,7 +43,7 @@ probes, 2026-11-08, for JIP's list getters; hypothesis: the same here].
 | GetBaseActorValueAlt `av [baseForm]` | the base value of the reference, or of the base form through its first placed reference, 0 for a base placed nowhere [hypothesis: NVForever computes base values on references] |
 | GetKillXP | the XP a kill gives (`Game::kill_xp`), before the perks' adjustment [documented] |
 | GetRadiationLevelAlt | rads a second after Rad Resistance: the player's as GetRadiationLevel, an NPC's from the radiation markers and zones at its place [documented: any NPC; hypothesis: no water for NPCs] |
-| GetFallTimeRemaining | 0 [decision: the time to the ground needs the ground below a falling actor, which only the engine's physics knows] |
+| GetFallTimeRemaining | direct engine value (`Game::set_fall_time_remaining`), else kinematic estimate while airborne (`gaps.air_times > 0`) from `ray::cast`, velocity and gravity, 0 grounded [documented; hypothesis: `docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md`] |
 | ResetFallTime | the engine measures the fall again from where the actor is (`nvf_play::falls`) [documented] |
 
 ## 3. Effects
@@ -93,7 +93,7 @@ on the ground (-0.004, the original's own residue).
 ## 7. Follow-ups
 
 - GetInterruptPackage: package forms for NVForever's combat, dialogue and flight states.
-- GetFallTimeRemaining: the engine could pass the ground's distance and the fall speed.
+- GetFallTimeRemaining: wired core-side (`Game::fall_time_remaining`, `Game::set_fall_time_remaining`); engine physics can optionally push direct per-actor values when desired.
 - GetEquippedWeaponPoison: poisons on weapons.
 - GetActorMovementFlags: jumping, falling and sliding from the engine's character state.
 - RemoveNthEffect: the HUD still sees the record's list (the Nth-effect functions share

@@ -219,6 +219,22 @@ engine logs `ui: game strings: N read, M without text` at start for the menus it
 loaded (with the vanilla files, `sModffects` of `item_stats_display.xml` is the one name
 without text there).
 
+**Unprefixed game-string entities (`&sName;` without `-`)** [observed: MCM 1.5's
+`Scale.xml` writes `<string> &sAccept; </string>` and `<string> &sCancel; </string>`,
+#2270]: mod menu files sometimes omit the leading `-` on game-setting string entities.
+Previously, `fnv_ui::expr::literal` turned any lone entity without `-` straight into
+`Value::Sym`, rendering raw `&saccept;` / `&scancel;`, and left unprefixed entities raw in
+compound text. [design: `fnv_ui::expr::literal_with`, `fnv_ui::tree::Ui::put_trait`] When
+an unprefixed entity is not a known numeric or menu-class constant (`sym_number`),
+NVForever checks `Source::game_string` (load-order GMSTs first, then `BUILT_IN`, without
+case) for both lone entities and compound text; when found, it expands to that text and
+records the read in `game_strings_read` (and `built_in_label` for lone built-in labels).
+When not found, it stays a named constant `Value::Sym` (or literal `&name;` in compound
+text) without recording a missing game-string read [hypothesis: whether the original reads
+an unknown unprefixed `&sName;` as empty or literal text has not been observed; keeping
+unmatched unprefixed entities as symbols preserves unknown UI constants such as `&center;`
+and `&scale;`].
+
 The names with no record in the vanilla masters, by spelling:
 
 `sAccept`, `sAcceptText`, `sAddText`, `sAllCardsText`, `sAntePotText`, `sAutoAttempt`,

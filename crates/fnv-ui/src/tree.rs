@@ -792,16 +792,18 @@ impl Ui {
     /// trait the including file set too depend on it].
     fn put_trait(&mut self, src: &dyn Source, tile: TileId, e: &Element) {
         let asked = RefCell::new(Vec::new());
-        let string = |n: &str| {
+        let string = |n: &str, explicit: bool| {
             let text = src.game_string(n);
-            asked.borrow_mut().push((n.to_ascii_lowercase(), text.is_some()));
+            if explicit || text.is_some() {
+                asked.borrow_mut().push((n.to_ascii_lowercase(), text.is_some()));
+            }
             text
         };
         let mut warns = Vec::new();
         let (value, expr) = if expr::has_ops(e) {
-            (Value::default(), Some(expr::ops_of(&e.children, &string, &mut |w| warns.push(w))))
+            (Value::default(), Some(expr::ops_of_with(&e.children, &string, &mut |w| warns.push(w))))
         } else {
-            (expr::literal(&e.children, &string), None)
+            (expr::literal_with(&e.children, &string), None)
         };
         let asked = asked.into_inner();
         let built_in_label = match asked.as_slice() {

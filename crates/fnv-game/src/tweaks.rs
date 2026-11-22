@@ -685,6 +685,9 @@ pub struct Tweaks {
     /// `bReloadingWithNoAmmoSwapsAmmoTypes`: reloading with none of the ammo in use left
     /// swaps to another carried type.
     pub empty_reload_swaps_ammo: bool,
+    /// `bMenuSearch`: Stewie menu search-bar tile publication (`ui_search_bar`) on
+    /// supported menus.
+    pub menu_search: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -705,7 +708,11 @@ impl crate::game::Game<'_> {
     /// `r` wears power armour on the upper body (for the tweaks).
     pub fn wears_power_armor(&self, r: fnv_sim::FormId) -> bool {
         use fnv_sim::forms::ItemKind;
-        self.world.equipment(r).unwrap_or_default().into_iter().filter_map(|i| self.world.forms.item(i)).any(|it| it.kind == ItemKind::Armor && it.power_armor && it.slots.is_some_and(|s| s & crate::detection::UPPER_BODY != 0))
+        self.world.equipment(r).unwrap_or_default().into_iter().any(|i| {
+            self.world.resolve_item(i).is_some_and(|it| it.kind == ItemKind::Armor)
+                && self.world.effective_power_armor(i)
+                && self.world.effective_slots(i).is_some_and(|s| s & crate::detection::UPPER_BODY != 0)
+        })
     }
 
     /// The player's Disarm Requires Skill tweak: the chances (percent) that the player
@@ -1052,6 +1059,7 @@ impl Default for Tweaks {
             marker_shift_removes: false,
             marker_removed_on_it: false,
             empty_reload_swaps_ammo: false,
+            menu_search: false,
         }
     }
 }

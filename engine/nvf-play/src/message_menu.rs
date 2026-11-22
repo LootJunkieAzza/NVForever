@@ -362,13 +362,15 @@ fn draw(
     roots: Query<Entity, With<BoxRoot>>,
     mut frames: Query<(&Frame, &mut Visibility)>,
     mut faces: Local<Option<Faces>>,
-    (mut shown, mut was_tiled): (Local<Option<PanelView>>, Local<bool>),
+    (mut shown, mut was_tiled, mut font_revision): (Local<Option<PanelView>>, Local<bool>, Local<u32>),
     (menus, script): (Option<Res<crate::tiles::vanilla::TileMenus>>, Option<Res<crate::script::ScriptState>>),
 ) {
     // T15a: the box drawn from its tiles spawns nothing here.
     let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::message_tiled(menus.as_ref().is_some_and(|m| m.message), &rt.game));
-    if panel.view != *shown || tiled != *was_tiled {
+    let revision = crate::cjk_font::revision();
+    if panel.view != *shown || tiled != *was_tiled || *font_revision != revision {
         *was_tiled = tiled;
+        *font_revision = revision;
         for e in &roots {
             commands.entity(e).despawn();
         }

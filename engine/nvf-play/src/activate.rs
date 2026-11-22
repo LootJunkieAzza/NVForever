@@ -27,6 +27,7 @@
 
 pub mod outcome;
 pub mod pick;
+pub mod see_through;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -74,6 +75,9 @@ pub struct Targeted {
     /// A container to open, or a body to search, with nothing in it the menu would list:
     /// the prompt says "[Empty]" under the name ([`holds_nothing`]).
     pub empty: bool,
+    /// Picked through this reference's see-through collision (cell bars, a fence: #3233,
+    /// [`see_through`]): E only opens the conversation.
+    pub through: Option<u32>,
 }
 
 impl Targeted {
@@ -209,7 +213,8 @@ fn destination_name(sim: &SimState, index: &fnv_world::WorldIndex, door: FormId,
 
 /// The collision ray under the crosshair (the player's capsule and trigger volumes
 /// ignored), or a door just behind what it hits (`pick::door_behind`), then the
-/// render-bounds fallback (`pick`). In first person it is the eye's
+/// render-bounds fallback (`pick`), then someone to talk to behind bars
+/// (`see_through`, #3233). In first person it is the eye's
 /// view ray; in third person the camera's, through the crosshair over the shoulder
 /// (`control::Crosshair`; playtest list 4, item 11).
 #[allow(clippy::too_many_arguments)]
@@ -234,6 +239,8 @@ pub(crate) fn find_target(
     // The node of what the far ray meets (GetReticleNode, `fnv_game::nvse_jip13`).
     let mut far_node = None;
     let mut behind = None;
+    // An actor behind bars or a fence the ray stops on (`see_through::actor_behind`).
+    let mut through = None;
     let hit = phys.and_then(|mut p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
         // Trigger volumes do not block the view [hypothesis].
@@ -250,11 +257,15 @@ pub(crate) fn find_target(
         });
         // Invisible walls do not take the crosshair: what stands behind one is activated
         // (#1602: the Gun Runners' kiosk, nv_gunrun_kiosk.nif, is one body on layer 27
-        // Invisible Wall, the Vendortron inside it) [hypothesis: by the layer's name, as
-        // sight (nvforever detection.rs) and blast cover (combat.rs) pass it too]. The far
+        // Invisible Wall, the Vendortron inside it) [documented: GECK wiki "Collision
+        // layer": "the player can activate / loot objects through this layer"]. The far
         // ray above (PlaceAtReticle) keeps stopping at them.
         filter.exclude_layers.insert(layers::INVISIBLE_WALL);
         let h = p.world.queries().ray(eye, dir, REACH, &filter)?;
+        // A door, closed, hides what is behind it whatever its collision layer.
+        let s: &SimState = &sim;
+        let closed_door = |id: u32| s.base_of(id).and_then(|b| s.forms.get(b)).is_some_and(|f| matches!(f.data, BaseData::Door(_))) && s.world.peek(FormId(id)).is_none_or(|st| !st.open);
+        through = see_through::actor_behind(&mut p.world, eye, dir, REACH, &h, &filter, closed_door);
         let owner = |o: Owner| match o {
             // An actor's hit volume (combat C3) targets the actor.
             Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
@@ -341,7 +352,9 @@ pub(crate) fn find_target(
                         (water_label(&n, h2o), Action::Drink)
                     }
                     Action::Talk => {
-                        let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
+                        // An actor's shown name, never its base's Editor ID (#3445): one with no
+                        // name in its template chain is prompted for without one.
+                        let name = sim.ref_shown_name(rt.as_deref().map(|rt| &rt.game), id).unwrap_or_default().to_string();
                         // The player's tweak marks someone not yet spoken to [design: docs/design/tweaks.md].
                         let unspoken = rt.as_deref().is_some_and(|rt| rt.game.tweaks.mark_unspoken && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
                         let name = if unspoken { format!("{name} *") } else { name };
@@ -384,24 +397,28 @@ pub(crate) fn find_target(
             .reduce(f32::min)
     };
     let picked = pick::to_occupant(picked, |id| sleepers.get(&id).and_then(|&a| Some((a, body_distance(a)?))), REACH, |id| describe_once(id).is_some());
+    // Nothing offered and the ray stopped on bars: talk to whoever stands behind them
+    // (#3233). Only Talk passes; GetCrosshairRef (above) stays the first collision hit.
+    let (picked, through) = see_through::talk_through(picked, through, REACH, |id| matches!(describe_once(id), Some((_, Action::Talk))));
     let chosen = picked.and_then(|p| describe_once(p.form_id).map(|d| (p, d)));
     let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let new = chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
         let crime = owned_by_other(game, &sim, form_id, &action);
         let empty = holds_nothing(game, &mut sim, form_id, &action);
-        Targeted { form_id, name, action, distance, source, crime, empty }
+        Targeted { form_id, name, action, distance, source, crime, empty, through }
     });
-    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty));
+    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty, t.through));
     if key(&target.0) != key(&new) {
         match &new {
             Some(t) => info!(
-                "target 0x{:08X} {} ({}{}{}) by {:?} at {:.0}",
+                "target 0x{:08X} {} ({}{}{}) by {:?}{} at {:.0}",
                 t.form_id,
                 t.name,
                 t.action.label(),
                 if t.crime { ", owned" } else { "" },
                 if t.empty { ", empty" } else { "" },
                 t.source,
+                t.through.map_or_else(String::new, |b| format!(" through 0x{b:08X}")),
                 t.distance
             ),
             None => info!("target none"),
@@ -651,7 +668,7 @@ pub(crate) fn activate(
     let queued = next.and_then(|mut n| n.0.take()).map(|id| (id, "its lock was just opened")).or(again).and_then(|(id, why)| {
         let (name, action) = describe(&sim, play.index, id)?;
         info!("activate 0x{id:08X} {name}: {why}");
-        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false, empty: false })
+        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false, empty: false, through: None })
     });
     // A press held off because the target can be held (`crate::grab`): activated now
     // that E came up before the hold picked it up.
@@ -808,6 +825,20 @@ pub(crate) fn activate(
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));
     // The player's Quick Use tweak: Shift held as an item is taken [design: docs/design/tweaks.md].
     let quick = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.quick_use) && input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    // Picked through bars or a fence (#3233, [`see_through`]): E only opens the
+    // conversation; no OnActivate block, perks' choices, companion wheel or waking.
+    if let Some(bars) = t.through {
+        match crate::script::talk_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
+            Ok(crate::script::ByHand::Talk) => info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): a conversation started", t.form_id, t.name),
+            Ok(crate::script::ByHand::Greeted) => info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): it said its greeting, no conversation", t.form_id, t.name),
+            Ok(_) => info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): no conversation", t.form_id, t.name),
+            Err(e) => {
+                info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): no conversation: {e}", t.form_id, t.name);
+                hud.show(format!("{} has nothing to say", t.name));
+            }
+        }
+        return;
+    }
     let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
         Ok(crate::script::ByHand::Default(a)) => {
             sounds.write(crate::world_sounds::Activated { reference: t.form_id });

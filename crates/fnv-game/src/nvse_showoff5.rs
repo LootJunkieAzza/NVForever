@@ -112,7 +112,9 @@ impl Game<'_> {
     /// The engine reads [`Game::explosion_radius`] back before working out who it reaches.
     pub fn explosion_placed(&mut self, base: FormId, source: Option<FormId>, at: [f32; 3], radius: f32) -> Option<FormId> {
         let cell = source.and_then(|s| self.cell_of(s)).or_else(|| self.cell_of(FormId::PLAYER_REF));
-        let r = self.world.place(base, cell, at, [0.0; 3], 1).ok()?;
+        let place_base = self.unclone(base);
+        let r = self.world.place(place_base, cell, at, [0.0; 3], 1).ok()?;
+        let radius = self.explosion_radius_override(base).unwrap_or(radius);
         let until = self.time + self.cfg.frame_seconds;
         self.showoff.b5.explosions.insert(r, LiveExplosion { source, radius, until });
         Some(r)
@@ -149,7 +151,7 @@ impl Game<'_> {
     /// "the same check that the game does"]. In the air is the player's IsInAir;
     /// "in combat" the player's combat state, where the map reads the battle music
     /// [hypothesis: the same moments].
-    fn can_fast_travel(&mut self, ctx: &RunCtx) -> bool {
+    pub(crate) fn can_fast_travel(&mut self, ctx: &RunCtx) -> bool {
         let p = FormId::PLAYER_REF;
         if self.player.fast_travel.travel_disabled {
             return false;
@@ -519,10 +521,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     None => return Some(Ok(XVal::Num(-1.0))),
                 },
             };
-            let Some(it) = g.world.forms.item(item) else { return Some(Ok(XVal::Num(-1.0))) };
+            let Some(it) = g.world.resolve_item(item) else { return Some(Ok(XVal::Num(-1.0))) };
             let Some(value) = g.forms.item_values.get(&item).copied().or(it.value) else { return Some(Ok(XVal::Num(-1.0))) };
-            let has_health = it.health.is_some_and(|h| h > 0);
-            let mut v = value_at(g, f64::from(value), condition, has_health) + f64::from(g.world.forms.mods_value(item, mods));
+            let has_health = g.world.effective_health(item).is_some_and(|h| h > 0);
+            let mut v = value_at(g, f64::from(value), condition, has_health) + f64::from(g.world.forms.mods_value(g.unclone(item), mods));
             if num(args, 0, 0.0) != 0.0 && holder.is_some() && g.menu_open(crate::game::menus::BARTER) {
                 let side = usize::from(holder == Some(FormId::PLAYER_REF));
                 let mult = g

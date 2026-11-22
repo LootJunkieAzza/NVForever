@@ -65,10 +65,10 @@ impl Game<'_> {
     /// is a Value Modifier, its magnitude and actor value, and whether it is detrimental
     /// [hypothesis, as the Pip-Boy's EFF list reads them].
     pub fn magic_changes(&self, item: FormId) -> Vec<Change> {
-        let Some(list) = self.data.effect_items.get(&item) else { return Vec::new() };
+        let Some(list) = self.data.effect_items.get(&self.unclone(item)) else { return Vec::new() };
         list.iter()
             .filter_map(|e| {
-                let m = self.data.magic_effects.get(&e.effect)?;
+                let m = self.magic_effect_def(e.effect)?;
                 let code = (m.archetype == ARCHETYPE_VALUE_MODIFIER).then(|| e.actor_value.or(m.actor_value)).flatten()?;
                 Some(Change { value: self.av_short_name(code), amount: f64::from(e.magnitude), detrimental: m.has(MagicEffectDef::DETRIMENTAL) })
             })
@@ -79,7 +79,7 @@ impl Game<'_> {
     /// would make them ([`Game::aid_preview`]), else its enchantment's (apparel's EITM)
     /// [hypothesis: the Pip-Boy's EFFECTS line]; "" for an item that changes nothing.
     pub fn item_effect_text(&mut self, actor: FormId, item: FormId) -> String {
-        if self.data.effect_items.contains_key(&item) {
+        if self.data.effect_items.contains_key(&self.unclone(item)) {
             let lines = self.aid_preview(actor, item);
             let changes: Vec<Change> = lines.into_iter().filter(|(_, a)| a.abs() >= 0.5).map(|(code, a)| Change { value: self.av_short_name(code), amount: a.abs(), detrimental: a < 0.0 }).collect();
             if !changes.is_empty() {

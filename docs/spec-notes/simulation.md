@@ -747,7 +747,43 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
     wins over it, nearer or not, so an item beside a body is taken rather than the body
     searched; with no such box the body is picked by its box as before (#3125) [design].
     The console's click keeps the plain nearest rule. Collision on the trigger layer (12)
-    does not block the ray [hypothesis].
+    does not block the ray [hypothesis]. Nor does the Invisible Wall layer (27): "the
+    player can activate / loot objects through this layer" [documented: GECK wiki
+    "Collision layer", INVISIBLE WALL; #1602, docs/spec-notes/cells-refs.md].
+  - **Talking through bars** (#3233; `engine/nvf-play/src/activate/see_through.rs`): when
+    the ray's first hit is a reference's collision on a see-through layer, Transparent (3),
+    Transparent Small (26) or Transparent Small Anim (28), and nothing is offered (no
+    activatable collision hit, no render box entered before it), every hit along the ray
+    within reach is read in order, past the colliders on those layers; if the first other
+    thing is a living actor whose prompt is Talk, that actor is the target (by collision,
+    at its own distance; the log line says "through" and the bars' reference) [design].
+    A closed door hides what is behind it on any layer, a see-through one included; an
+    open one on those layers is passed [design]. E on such a target only opens the
+    conversation (`script::talk_by_hand`, `fnv_game::Game::start_dialogue`): it is not an
+    activation, so no OnActivate block, perks' choices (Cannibal, Mister Sandman),
+    companion wheel or default action runs, and an actor asleep is not woken through the
+    bars [design]. The Vault 3 captives stand behind JailCellDoorway01 (0x000EF3FA, a STAT
+    with one collision object on layer 3): three rays from the player's eye at the
+    report's spot toward Rick Lancer (V3Prisoner01Ref 0x000F47B0, placed at -2773, 4664,
+    5888) hit it 25.2 to 27.5 units out [observed: `fnvtool phys cell --cell Vault3b
+    --ray -2723,4553,6005,-50,110.7,-25,200` and the same with the direction's z -60 and
+    -10, FalloutNV.esm, 2026-11-21]; started again along the first ray at 26 and 30 units
+    it hit the same bars 6.4 and 2.4 units on, and at 35, 45 and 60 units it hit nothing
+    within its 200 units [observed: the same command with those five origins]. The
+    layers are the ones actors see through ("Actors can see through this layer type"
+    [documented: GECK wiki "Collision layer", TRANSPARENT, TRANSPARENT SMALL];
+    Transparent Small Anim by its name [hypothesis]); for the activation pick the wiki
+    says only that nothing but projectiles passes Transparent, so the original's
+    crosshair on these layers is an observer question (observer-checks.md #251). The
+    rule is kept narrow on purpose [design]: only Talk passes, so items, containers,
+    doors, a body to search and a pocket to pick behind bars, a fence or a window stay
+    out of reach (render-bounds picks still count only before the first collision hit,
+    and the activation ray itself still stops on the bars); anything else between the
+    bars and the actor (a wall, a closed door) hides the actor; GetCrosshairRef and
+    PlaceAtReticle's far ray keep the first collision hit. Shots (`layers::shot_ignores`)
+    and movement are not changed. Starting the conversation checks no line of sight or
+    distance (`fnv_game::Game::start_dialogue`; the walk-up distance is for force greets
+    only), so the bars do not refuse it.
   - **A bed someone lies on yields to the sleeper**: when the target chosen above is a bed
     an actor other than the player is on (a bed marker, IDs 1 to 9, at any stage of
     getting on, sleeping or getting off; furniture.md §2) and that actor's body is within

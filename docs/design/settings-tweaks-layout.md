@@ -74,12 +74,12 @@ Group (rows) › category (rows): row labels in the page's order.
 - **Companions** (10): Hostiles Prioritize Player; ↳ Hostiles Prioritize Player: Chance at the Start; ↳ Hostiles Prioritize Player: Chance Mid-Fight; ↳ Hostiles Prioritize Player: Detection Needed; Light Step for Companions; No Companion Item Damage; Revive Unconscious Companions; ↳ Revive: Companions Stay Down; Summon Companions from the Map; ↳ Summon Companions: Knocked-Out Too
 - **Travel and World** (13): Fast Travel Costs a Nuka-Cola; Fast Travel Encumbered; Hold to Activate; ↳ Hold to Activate: Containers and Bodies; ↳ Hold to Activate: Furniture; ↳ Hold to Activate: Water; No Fast Travel; No Travel on a Crippled Leg; Quick Use; Sleep on Chairs; Wait Only When Seated; Clear Marker When Near; Mark Nearby Places
 
-### Combat (32)
+### Combat (33)
 
 - **In Combat** (5): No Battle Music; No Enemies on the Compass; No Healing In Combat; No Pip-Boy In Combat; Action Points per Kill
 - **V.A.T.S.** (5): First Person V.A.T.S.; V.A.T.S. Burst Stops on a Kill; V.A.T.S. Ignores Companions; V.A.T.S. Starts on the Head; Action Points to Enter V.A.T.S.
 - **Criticals and Sneak Attacks** (6): Fatal Criticals Always Gib; No Sneak Criticals; NPCs Sneak Attack the Player; Sneak Criticals Head Only; Sneak Criticals Melee Only; Critical Damage
-- **Weapons and Armour** (11): Enemies Can Disarm You; Enemy Blows Hit Where They Land; Hold and Release Throws; No Condition Damage Buffer; No Condition Damage Penalty; No Spin-Up; NPC Armour DR Ignores Condition; NPC Armour DT Ignores Condition; NPC Weapons Hit Whole; Weapon Requirements Matter; Action Points per Power Attack
+- **Weapons and Armour** (12): Enemies Can Disarm You; Enemy Blows Hit Where They Land; Hold and Release Throws; Keep Chosen Ammo; No Condition Damage Buffer; No Condition Damage Penalty; No Spin-Up; NPC Armour DR Ignores Condition; NPC Armour DT Ignores Condition; NPC Weapons Hit Whole; Weapon Requirements Matter; Action Points per Power Attack
 - **Companions and Blasts** (5): Companions Keep Their Weapons; Meltdown for Companions; No Self Meltdown Damage; No XP for Companion Kills; Own Blasts Spare the Player
 
 ### Quality of Life (75)

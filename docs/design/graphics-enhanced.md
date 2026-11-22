@@ -57,6 +57,7 @@ Constraints that decide what fits:
 | Sun shafts (own screen-space pass), tied to the weather's fog | Medium: dusk and dawn, the sun behind roofs and poles | ~0.03 ms here | **Built** (§3.7) |
 | Bevy volumetric fog | Would replace the game's fog look | Tried: darkens the whole picture on the non-HDR view, box edges | Rejected (§4) |
 | Desert haze: exponential height fog in closed form, in the world shaders' fog path, on top of the weather's fog | Medium: far ridges fade in layers, basins haze over, warmer toward the sun | A few arithmetic operations per fragment where the fog runs; no pass | **Built**, off in every preset (§3.16) |
+| Aerial perspective: the weather's fog per colour channel and toward the sky's colours in the ray's direction (Hoffman and Preetham), in the world shaders' fog path | Medium: successive ridges separate, bluer at noon, warmer at dusk, brighter toward the sun | A few arithmetic operations per fragment where the fog runs; no pass; the fog uniform grows by 48 bytes | **Built**, off in every preset (§3.18) |
 | SSR on water | Low: the planar reflection is better where it reaches | Own march in the water shader from the depth prepass | **Built** for where the planar reflection does not reach (§3.8) |
 | Bevy atmosphere | Would replace the game's sky look | | Rejected |
 | Auto exposure, depth of field, motion blur | Change the look; the game's own HDR/eye-adapt values (IMGS DNAM) are not decoded | | Not now (§6) |
@@ -611,6 +612,16 @@ over the frames instead of by alpha to coverage.
   and its depth prepass texture can disagree; the passes that bind the depth (ambient
   occlusion, sun shafts, TAA, the image-space blur) now go by the texture's own sample count
   and skip that frame (before, a validation error ended the run).
+- Switching TAA off while the game runs (another anti-aliasing choice, or a temporal upscaler
+  taking over, which turns native TAA off) [design, #2955]: the camera keeps its render-world
+  view, and Bevy's sync takes only the TAA marker off it, so the pass's own state on that view
+  (its pipeline, history pair and uniform) is dropped in the same frame and the history with
+  it, and the pass runs only on a view that carries the marker this frame (log: `taa: off for
+  a view: its pass state and history dropped`). Before, the pass went on blending the history
+  frozen at the switch into every frame (a faint still picture over the view under FSR or DLSS
+  until a load). Turned on again, the history starts over on its first pass that runs
+  (`taa: on for a view: its history starts over` is logged when the view's state is made,
+  which can be a frame or more before, while the pipeline compiles).
 - Looks [observed 2026-10-12, Goodsprings noon, standing, and walking while turning 40 degrees a
   second]: edges as smooth as MSAA 4x standing still, plants' cut-outs smoother; textures a
   little softer standing still and clearly softer while the view moves (the usual TAA trade);
@@ -2138,6 +2149,477 @@ longer exists (the settings menu overhaul); the haze is a row of its own, "Deser
   (1920x1080): from the air over Goodsprings at 12:00 looking north-east, at 18:30 west,
   at 06:30 east, under the overcast and the hazy weather, and the street, in the PR. The
   cost is not measured on a slower GPU or at 1920x1080.
+### 3.17 ALC shadows (`light-shadows`; off by default, not part of `enhanced`)
+
+**Name.** ALC stands for All Lights Cast. The row was called Lamp shadows until
+2026-11-19 (renamed, [design, #3074]); the INI key `light-shadows`, the switch
+`--light-shadows`, the log lines starting `light shadows:` and the smoke scenarios'
+`light-shadows-*` names keep the old name, so saved settings and the scenarios still match.
+"Lamp shadows" below, in older notes, is the same feature.
+
+[design] An addition of NVForever's own. The original's placed lights cast no shadows, and
+no LIGH of the masters sets the Spot Shadow flag [observed:
+docs/handoff/esm-data-audit-2026-10-25.md, item 6], so lamps light the rooms behind their
+walls. The row ALC shadows (Graphics › Shadows; `--light-shadows[=performance|quality|off]`)
+offers Off, Performance or Quality, as the Sun shadows row does
+(`engine/nvforever/src/light_shadows.rs`). It is built as the sun's shadows are ([design, #3074],
+2026-11-18: "look how sun shadows are calculated and do the same", "use the same
+performance optimizations also for the lamp shadows").
+
+**With the row Off.** Nothing of the ALC shadows runs and the renderer's paths are
+upstream's [design, #3077 review: "gate what you can behind the row"]. The game's systems
+(`shadow_lights`, `classify_casters`, `watch_map_textures`, `skip_fixtures`, the caster grid,
+soft edges and contact shadows) have the run condition `light_shadows::live`: they run while
+the row is on and for 3 frames after it is switched off (or from the start with it off),
+which is enough to switch every lamp's maps off, give back the soft edges, the contact
+shadows, the casters' lists and the point lights' cube side, and hand the renderer an
+inactive hold. The vendored bevy_pbr takes an inactive `HoldLightShadowMaps` (`active`
+false) as no hold, so every patched point and spot light path is upstream's: no slots, no
+held faces, no static cache, no kept phases, no cached shadow views (the sun's cascades'
+included), the hidden lights' views as upstream, no counts or timers
+(engine/vendor/README.md). Switched on again, every shape not yet marked dynamic is looked
+at once (shapes spawned while it was off), and every light's shadow views are made again.
+What stays in every build: the shaders' slot and fade bits (0 with the row Off: upstream's
+layer, full strength) and Bevy's `experimental_pbr_pcss` feature, a compile-time switch
+whose PCSS path a light takes only with soft shadows, which only the ALC shadows give
+(docs/design/dependencies.md).
+
+**First version (dropped the same day).** It used a budget of the 2, 4 or 8 lights that
+scored highest on brightness × (range / distance)². A playtest [design, #3074]: "The shadows pop in
+only when you are very close". Among the saloon's 24 lights, a lamp across the room cast
+nothing until it beat the nearest ones. It was also costly: each shadowed point light cost
+about 1 ms of frame time, most of it on the CPU. Each of a point light's six cube faces is
+a view of its own, and each such view runs Bevy's whole Core3d schedule (culling,
+preprocessing, indirect parameters, its pass), unlike the sun's cascades, which ride inside
+the camera's. Holding the maps with the views kept alive did not fix that: Bevy still
+culls, extracts and queues every face view every frame.
+
+**How it works now.**
+
+- **Which lights: by distance, as the sun's shadows.**
+  - Every drawn placed light casts if its light reaches within the sun's shadow distance of
+    the camera (`SkyState::shadow_distance` × `shadow_reach`: the Shadow distance and
+    Longer sun shadows rows; 0% casts none). Nearest first, measured to the edge of each
+    light's range.
+  - At most 32 lights on Quality and 16 on Performance, a cap for the Strip at night.
+  - Lights are not chosen by view. A light behind the camera keeps casting, so turning
+    around draws nothing anew.
+  - A light already casting keeps its place against one up to 1.25 times nearer (`KEEP`).
+- **Held maps, view-less** (a patched bevy_pbr, engine/vendor/README.md "held light shadow
+  maps").
+  - A point light's cube, or a spot light's map, is drawn when the light starts casting,
+    then kept.
+  - Between draws the light's maps are switched off for Bevy (`shadow_maps_enabled` false:
+    no views, culling or queueing). The patched renderer still sets its shadow flag and
+    samples its cube once all six faces hold what that light drew into this texture, or
+    its spot map once its layer does.
+  - Each light keeps a slot while it casts: a point light a cube of the cube texture, a
+    spot light a layer of the sun's shadow texture past the sun's cascades. Its GPU flags
+    carry the cube or layer (bits 16..23), so other lights coming and going do not move its
+    maps. Bevy put a spot light's map at its index among the shadowed spot lights, which
+    moved whenever another one started or stopped casting.
+  - Each texture keeps room for its slots, grown in fours while a mode stays on. The spot
+    lights' room also counts the other shadowed spot lights (the flashlight, which takes a
+    free slot of its own), so switching the flashlight on or off does not make a new
+    texture.
+  - A texture made anew holds no light's maps: the cube texture when its room grows or the
+    Shadow resolution row changes, the sun's when its side, the spot room or the sun's
+    cascades change (sun shadows on or off). Its lights then draw again as if new (first,
+    fading in); those fading out are dropped. The renderer never samples a layer another
+    light, the sun's cascades or another texture drew last.
+- **Redrawn where something changed.**
+  - A face is marked when, since it was drawn, a shadow-casting shape with its bounds in
+    that face moved, appeared, or was shown or hidden. A skeleton (actors, the player's
+    body) whose joints' box moved also marks the faces it reaches. The light itself marks
+    all its faces once it is more than 8 units (about 11 cm) from where its maps were last
+    marked or drawn in full (`LIGHT_MOVE_EPS`) [engineering choice, 2026-11-18: a light
+    an animation or script sways by a few units is not drawn again each frame].
+  - Shapes and skeletons count as moved once they are 4 units (about 6 cm) from where
+    they last marked (`MOVE_EPS`). Small moves add up until they reach it.
+  - Something removed (a taken item) marks the lights around the camera in full.
+  - Every light is redrawn in full every 600 frames on Quality and 1,200 on Performance
+    anyway, each at its own time.
+- **Staggered, as the sun's cascades.**
+  - A light with marked faces is switched on to draw them on every frame on Quality (every
+    2nd on Performance) while its light reaches within 1,500 units of the camera (`NEAR`).
+    A farther one draws every 2nd frame on Quality and every 4th on Performance. Each
+    light takes its turn on frames of its own.
+  - At most 3 lights (point or spot) are switched on in a frame on Quality, 1 on
+    Performance. Lights that never drew go first, then the nearest; the rest wait.
+  - Of a light switched on, only the marked faces are drawn; the others keep their maps.
+    A light that has never drawn casts nothing until it has.
+  - Only a light the camera saw the frame before is switched on; an unseen one keeps its
+    marks. A transient light (below) instead counts as seen when its light reaches into
+    this frame's view.
+  - Spot lights (few among the placed ones) are held view-less as the point lights are
+    (2026-11-18; before, they kept their maps switched on, their views alive, while they
+    cast). Switched on only on the frames their map is drawn, they count against the same
+    budget.
+- **Fading** (`FADE_SECS`, 0.3 s of real time [engineering choice: no popping when a light
+  comes into range, leaves it or is swapped at the cap; short enough that a light coming
+  into range shows its shadow at once]).
+  - A light's shadow fades in once its maps were first drawn.
+  - A light no longer chosen is not dropped at once: it stays held (slot kept, nothing
+    drawn, nothing marked) while its shadow fades out, then is dropped. While fading out it
+    does not count against the caps (`Tuning::lights`, `Tuning::transients`). Chosen again
+    meanwhile, it fades back in from where it was and is redrawn in full on its turn.
+  - A light despawned is dropped at once. Transient lights do not fade: a muzzle flash
+    lasts about a tenth of a second and shows its shadow in full at once.
+  - The renderer gets each fade below 1 (`HoldLightShadowMaps::fade`) in bits 24..31 of
+    the light's flags (`255 - round(fade × 255)`, so 0 is full strength for every other
+    light) and takes `mix(1, shadow, fade)` in shadows.wesl's `fetch_point_shadow` and
+    `fetch_spot_shadow`.
+- **Other lights** ([design, #3074]: all light sources cast, muzzle flashes and
+  explosions first; `ShadowSource` on the light, `SourceKind`).
+  - Grass fires: the light over about one burning patch in six (grass_fire_fx.rs). Still
+    while it burns; its intensity flickers.
+  - Lights a script attached to a node (JIP AttachLight, nif_mirror.rs). They move with
+    their node.
+  - These two rank and count with the placed lights, under the same rules and cap.
+  - Muzzle flashes (shot_fx.rs, a light at the muzzle for the flash's time, about a tenth
+    of a second, moving with the gun) and explosions (shot_fx.rs, 32 units above the blast
+    point, fading over 0.6 s) are **transient**, chosen apart from the placed lights:
+    - nearest first, measured to the edge of each light's range, only while that edge lies
+      within 3,000 units (about 43 m; `TRANSIENT_REACH`) of the camera and within the sun's
+      shadow distance [engineering choice: the firefight around the player; a farther flash
+      is small on screen and gone in a tenth of a second];
+    - only while their light reaches into the camera's view this frame (the camera's
+      frustum, far plane left out, as Bevy culls lights). A new light was not seen the
+      frame before, so the placed lights' rule would hold it back a frame; a light in view
+      is one Bevy's culling finds visible, so its maps are drawn;
+    - at most 2 at once on Quality and 1 on Performance (`Tuning::transients`), not counted
+      against the placed lights' cap;
+    - with their own budget of point lights switched on a frame, 2 on Quality and 1 on
+      Performance (`Tuning::transient_draws`), besides the placed lights' 3 and 1, so a
+      firefight does not starve the lamps nor the lamps it [engineering choice].
+  - A transient light never drew, so it goes first and draws its whole cube in the frame
+    it appears, **once**: it is held for the rest of its short life, whatever moves
+    [observed 2026-11-18, Trudy's gunfight in the Prospector Saloon at 22:00: redrawn
+    when the gun's recoil carried it past `LIGHT_MOVE_EPS`, a flash was drawn 3.5 times
+    on average (4 flashes, 14 switched on); drawn once, 4 and 4].
+  - Cost [observed 2026-11-18, the same gunfight, RTX 5090, 1280 × 720, `--log-frame-times
+    3`]: 3-second means 3.12-3.29 ms on Quality against 3.04-3.21 ms off; the slowest
+    frame of a window with a flash 8.8-10.7 ms against 4.8-7.6 ms off. A flash costs one
+    frame a few ms longer, as a lamp switched on does (about 1.4 ms of processor time over
+    every thread, against 0.7 ms a frame for a light kept on; `NVF_LIGHT_SHADOW_REFRESH`).
+  - The effects' own shapes (flash, explosion and fire models, their particles) are
+    `NotShadowCaster`, so a light is not blacked out by the flames around it. The gun a
+    muzzle flash sits at is a small shape it sits against, skipped as a fixture.
+  - Not these: the flashlight casts on its own (flashlight.rs); the lights of the menu and
+    preview scenes (the character creator, the Vigor Tester, the poker table) and the
+    sky's do not.
+- **What casts.**
+  - A casting light takes the sun's layers (0, `sky::SHADOW_LAYER`, `sky::BODY_LAYER`), so
+    the player's body casts in both views. The first-person arms do not.
+  - Everything `NotShadowCaster` stays out, as for the sun.
+  - **Light fixtures cast no shadows from their own lights** (`LightFixture`, `skip_fixtures`; the sun's
+    they still cast). A playtest (2026-11-18, [design, #3074]): a hanging box lamp in the Goodsprings
+    General Store threw its housing's shadow, larger than the lamp, onto the ceiling. The
+    game hangs its lights under their lamps, not in them [observed 2026-11-18,
+    `fnvtool world refs`: the LIGH `BasementLightKeyWarm` sits 86 units under the box lamp
+    `OffRmLightHanging01`; over the masters' interiors, 3,909 of the 7,543 LIGH references
+    without a model of their own have a lamp model's reference within 160 units, half of
+    them within 89].
+    - A shape is a fixture when its model's file name holds `light`, `lamp`, `lantern`,
+      `chandelier`, `sconce`, `bulb` or `candle` (`offrmlight01`, `lightceilingvaultr02on`,
+      `shackhanginglight02`, `neoclassicalsconce`, …), or when it is a LIGH's own model.
+      Marked when the cell is drawn (world.rs `spawn_model`); every casting light skips it.
+    - A small shape (a bounding sphere up to 128 units) that a light sits in or within 16
+      units of is skipped by that light too: a bulb or shade of another name.
+    - Taken out of the shapes Bevy culled for the maps, after its culling, only on the
+      frames a light draws.
+    - Test aid `NVF_LIGHT_SHADOW_FIXTURES=1` logs, once a light, the shapes it skips and
+      the small ones near it it keeps, by reference, size and distance.
+  - A near plane of 8 units (`NEAR_Z`, as the flashlight's): what lies nearer the light
+    casts nothing from it. It was 16 to keep a light's own bulb or shade out of its map,
+    which let a wall within 16 units through; since the fixtures are skipped, 8 and 4
+    drew the same pictures as 16 in the General Store and the Prospector Saloon
+    [observed 2026-11-18, `NVF_LIGHT_SHADOW_NEAR`, three views each].
+- **Soft edges and contact shadows** (Quality only; light_shadow_detail.rs).
+  - Soft edges: the casting lights take Bevy's percentage-closer soft shadows (the
+    `experimental_pbr_pcss` feature, engine/Cargo.toml) with a light size of 24 units
+    (explosions 48). The edge widens with the distance between a shape and its shadow:
+    a hanging wire's shadow is sharp where the wire touches the ceiling and soft away
+    from it [observed 2026-11-18, General Store pictures at sizes 8, 24, 32: at 8 the edges
+    looked as hard as without]. `NVF_LIGHT_SHADOW_SOFT=<size>` (0: none) for comparing.
+  - Contact shadows: the world camera takes Bevy's `ContactShadows` (8 steps, thickness
+    4, length 24 units) and so a depth prepass, and the placed lights, grass fires and
+    attached lights within the shadow distance take `contact_shadows_enabled`: small
+    shadows where things touch, and the only ones of the lights past the cap. Only while a
+    temporal method (TAA, FSR or DLSS) is on:
+    - Without one the march's per-pixel noise speckled walls and ceilings in a regular dot
+      pattern, thinner settings worse; with TAA the picture was clean [observed
+      2026-11-18, General Store pictures].
+    - With FSR or DLSS Bevy's march threw hard-edged false shadows, a dark block over a
+      door, streaks down a wall, that changed as the camera moved [observed 2026-11-18:
+      playtest videos with DLSS; reproduced walking along the Prospector Saloon's porch
+      at 14:00 with DLSS and with FSR; gone with `NVF_LIGHT_SHADOW_CONTACT=0`, not with
+      `NVF_LIGHT_SHADOW_SOFT=0`]. The cause [documented: bevy_camera
+      `MainPassResolutionOverride`, "In shaders, use `View::main_pass_viewport`"; read in
+      bevy_pbr raymarch.wesl]: an upscaled camera draws its main passes into the top-left
+      render-size part of full-size textures, and the march mapped its rays over the whole
+      depth texture. The vendored march now reads the main pass's part only
+      (raymarch.wesl `depth_uv_scale`, engine/vendor/README.md): the same walk with DLSS
+      Quality, DLSS Performance and FSR was clean, with contact shadows on 6 lights, and
+      standing on the porch with DLSS they darken the beams', frames' and door's edges
+      [observed 2026-11-18].
+    `NVF_LIGHT_SHADOW_CONTACT=0` turns them off, `NVF_LIGHT_SHADOW_CONTACT_MARCH=<steps>,
+    <thickness>,<length>` tries other settings.
+- **The lighting.** Nothing in the lighting shaders changes. The display-value sum
+  (`lights/display_shader.rs`) already multiplies each point and spot light's diffuse term
+  by Bevy's `shadow`. The cube lookup takes the light's slot (shadow_sampling.wesl
+  `nvf_point_shadow_cube`), the spot lookup its layer (`nvf_spot_shadow_layer`), and the
+  fade scales the shadow in shadows.wesl.
+- **Maps.**
+  - A point light's cube has 512² faces with Shadow resolution 2048, and 1024² with 4096
+    (`PointLightShadowMap`): 6 or 24 MiB a light. The cube texture's room grows in fours
+    while a mode stays on.
+  - A spot light draws one layer of the sun's shadow texture, at the sun's side: each slot
+    of the spot room (in fours) costs a layer of 2048² or 4096² (16 or 64 MiB at 32 bits
+    a texel), the price of keeping the room from changing as spot lights come and go.
+  - Bias: Bevy's defaults. `NVF_LIGHT_SHADOW_BIAS=<depth>,<normal>` and
+    `NVF_LIGHT_SHADOW_NEAR=<units>` override them for a run.
+  - `NVF_PLAY_TEST_LIGHT_SHADOW_HOLD=0` draws every map every frame, for comparing.
+
+**Cost** [observed 2026-11-18: RTX 5090, 1280 × 720, the Prospector Saloon at 22:00, 24
+placed lights, release builds, `--log-frame-times 6`; windows after loading]:
+
+| Mode | Free camera standing still | `--play`, walking back and forth |
+|---|---|---|
+| Off | 2.7-2.9 ms | 3.0-3.25 ms |
+| Performance (16 lights) | 3.0-3.3 ms | 3.3-3.9 ms |
+| Quality (24 lights) | 2.75-2.9 ms | 3.3-3.7 ms |
+| Quality, nothing held (test aid) | 14-15 ms | |
+
+- Before the 4-unit rule, the actors' idle skeletons and the head parts that follow them
+  (eyes, mouth, hat) marked about 116 times a frame. Quality then switched on its full 3
+  lights every frame: 5.5 ms standing still.
+- Standing still now, about one light in 50 frames is switched on (its full redraw due).
+  The slowest frames were 8.3-8.7 ms against 3.3-6.8 ms with the lights off, so a light
+  switched on costs a few ms in its frame.
+- Walking, 0.5-0.9 lights a frame are switched on.
+
+**Cost at the menus' top settings in 4K** [observed 2026-11-18: RTX 5090, 3840 × 2160
+borderless, every graphics row at its top (ambient occlusion, TAA, sun shafts, water
+reflections, shadow resolution 4096 so 1024² cubes, temporal shadow filter, all draw
+distances 100%), upscaler and frame generation off; the Prospector Saloon at 22:00, 10 s
+standing then Trudy's shotgun gunfight (7 flashes); `--log-frame-times 3`, 3-second means
+after loading]:
+
+| ALC shadows | Standing (3 windows) | Gunfight (6 windows) | Slowest frame in the gunfight |
+|---|---|---|---|
+| Off | 3.21-3.28 ms | 3.23-3.29 ms | 4.2-7.0 ms |
+| Performance | 3.21-3.26 ms | 3.31-3.40 ms | 5.6-15.5 ms |
+| Quality (soft edges, contact shadows on 24 lights) | 3.23-3.31 ms | 3.33-3.39 ms | 5.3-19.3 ms |
+
+- 24 lamps cast, 5 flashes cast with one draw each. The mean costs about 0.1 ms; the
+  slowest frames are those of a flash or a lamp switched on.
+
+**Log.**
+- `light shadows: <n> cast (<p> point, <s> spot lights) within <reach> units, <cap> at most;
+  cubes <side>, room for <c>; spot maps room for <s>; transients (muzzle flashes,
+  explosions) within <r> units, <t> at most` is written whenever these change. Its counts
+  leave the transient lights out.
+- Every 10 s it writes `light shadows: <l> point lights switched on and <f> faces drawn a
+  frame … marked a frame by shapes <a>, skeletons <b>, removals <c>, lights <d>; shapes such
+  as <names>; transients <n> cast, <s> switched on, <t> faces drawn`. The first counts are
+  the placed lights' (with grass fires and attached lights; the lights switched on count
+  the point lights only, the faces drawn include the spot lights' maps, and the lights
+  casting leave out those fading out); the transients' are totals over the 10 s.
+
+**Performance pass (2026-11-18).** The request [design, #3074]: "The shadows update at a low rate and cause
+stuttering in object dense areas. Work on optimizations - the quality of the shadow can be
+reduced with distance." The main session's runs in Primm at 22:00 (release, 1280 × 720,
+`--play`, walking): Off 5.7-7.2 ms 2-s means; Quality windows of 10-84 ms with frames of
+99-181 ms, in exactly the seconds a scripted mass toggle disabled and re-enabled about 490
+references (751 fading back in), while the 10-s summary stayed low (0.11-0.9 lights
+switched on a frame). A `profile` build put `prepare_lights` at up to 16 ms,
+`check_point_light_mesh_visibility` 7.6, `specialize_shadows` 3.8, `queue_shadows` 3.1,
+`shadow_lights` 4.1 and `skip_fixtures` 3.4 ms in those frames [observed 2026-11-18, the
+main session]. What was built, each with a test aid that turns it off for comparing; **none
+of it is measured in game yet**:
+
+- **Hidden lights drop their views** (vendored bevy_pbr, the open bevyengine/bevy#26480,
+  fix of #26059): a hidden shadowed light's views are despawned with it. Before, a lamp
+  hidden by a turn of the camera in the frame after it drew left its six views running
+  the Core3d schedule until it was seen again. No aid (a fix); the count below shows how
+  often it happens.
+- **Measuring lines** (no aid; engine/vendor/README.md "light view counts"): every 10 s
+  beside the summary, `light shadows: renderer over <n> frames: light views a frame <a>
+  alive, <r> run, <h> despawned with their light hidden; views spawned …, views despawned …,
+  views remade …, phases new …, phases dropped …, new point textures …, new directional
+  textures …, texture views made …; ms a frame mean/max: extract_lights …, prepare_lights …,
+  uniform writer …, counts and slots …, textures …, gpu lights …, point views …, spot views
+  …, cameras …, sweep …; game systems ms a frame mean/max: shadow_lights …, skip_fixtures …,
+  soften …, contact …`. The `prepare_lights` stretches add up to its total, so the 16 ms can
+  be placed.
+- **Lamps changed only on change** (light_shadow_detail.rs `soften`, light_shadows.rs
+  `skip_fixtures`): `soften` took every lamp's light through `Mut::into_inner`, which marks
+  it changed: every lamp in the world was marked changed every frame, so Bevy made its cube
+  frusta again and extracted it again each frame. `skip_fixtures` touched the lists of
+  casting lights not drawing, with the same effect. Both now change a light only when
+  something changes (`apply_soft`), and only drawing lights are filtered. No aid.
+- **Cheaper marking per moved shape** (`shadow_lights`): a reference toggled or faded in
+  town changes thousands of shapes a frame. Nothing is marked without a lamp; past 32
+  shapes a frame the lamps are found through a grid (`LampGrid`); a lamp drawing in full
+  anyway (fresh, or every face marked) and faces already marked are not tested again; no
+  transform decomposition per shape; the chosen lights are hash sets. No aid (same marks).
+- **Cached shadow views** (vendored bevy_pbr `prepare_lights`, engine/vendor/README.md):
+  the shadow textures' array views and the per-layer views and attachments are kept while
+  the texture is the same, instead of `create_view` every frame (and six for every drawing
+  lamp every frame) [hypothesis: fewer device calls give `prepare_lights` less to wait on
+  while materials are made and dropped on other render threads]. Aid
+  `NVF_SHADOW_VIEW_CACHE=0`.
+- **Steps of detail by distance and the small-caster cut-off** (`STEPS`, `cut_off`): each
+  casting light has a step by the camera's distance to its light's edge (near within 1,500
+  units, mid, far past 3,000; 10 % hysteresis). A caster whose bounding sphere covers fewer
+  than 1, 2 or 4 texels across in the light's map at its distance (by step;
+  `CUTOFF_TEXELS`, `map_scale`: the cube's side, or the sun texture's side over the tangent
+  of a spot light's cone) is taken out of the light's lists (not queued, specialized or
+  drawn) and its moves mark nothing on that light (under the cut-off where it is and where
+  it last marked). A light stepping finer after casters were cut draws its maps again in
+  full. [engineering choice: the thresholds.] Aid `NVF_LIGHT_SHADOW_CUTOFF=0`.
+- **A grid of shadow casters** (light_shadow_casters.rs; vendored bevy_light,
+  engine/vendor/README.md "shadow caster candidates"): Bevy tested every shadow caster in
+  the world against each drawing light. Every mesh is now filed by its bounds' centre in
+  1,024-unit cells (larger than 512 units, unbounded or not culled: listed for every light),
+  kept up to date from what moved or went; each drawing lamp is tested only against the
+  meshes of the cells its sphere (grown by 512) overlaps. The flashlight and the menu
+  scenes' lights keep Bevy's search. Aid `NVF_LIGHT_SHADOW_CASTER_GRID=0`.
+- **Fade by distance** (`distance_fade`, `DISTANCE_FADE` 20 %): a light's shadow weakens over
+  the last fifth of the reach to none at it, times its time fade, instead of ending there.
+  Transients keep full strength. Aid `NVF_LIGHT_SHADOW_DISTANCE_FADE=0`.
+- **Faces out of view held** (`faces_in_view`, `FACE_VIEW_MARGIN` 64 units): of a point
+  light on its turn, only the marked faces whose pyramid (the light and its square at the
+  range) can reach the camera's frustum (side and near planes, moved out by the margin) are
+  drawn; the others stay marked and held until they come into view, and a light with such
+  faces coming into view goes before the others. Not for a light that never drew (the
+  renderer needs all six faces), transients or spot lights. Mirrored water and other
+  cameras could show a held face's stale shadow [hypothesis, not looked at]. Aid
+  `NVF_LIGHT_SHADOW_FACE_CULL=0`.
+- A third 10-s line gives what these did: `light shadows: performance pass over <n> frames:
+  lights at steps near/mid/far …; small-caster cut-off (on) casters cut … a frame, marks
+  skipped …, redraws for a finer step …; caster grid (on) … lamps served a frame, …
+  candidates each, … meshes filed (… for every light); distance fade (on) … lights fading a
+  frame; face culling (on) … marked faces held out of view a frame` (`OFF` for an aid set).
+
+Not built in this pass (designs): **far lights redrawn less** (a third stagger band past
+3,000 units, and marks from skeletons and shapes under 48 units on far lights batched into
+one redraw a second); **a cost budget** instead of a count (a switch-on costing about six
+face-frames on top of its faces, from the measured 1.4 ms switch-on against 0.7 ms a frame
+kept on; at most one never-drawn light a frame; ranked by projected size × fade, waiting
+lights aging up); **resolution tiers** (a second, half-size cube array for far lights, the
+tier in the flags beside the slot, a second binding in `mesh_view_bindings` and
+`shadow_sampling.wesl`, hysteresis on the tier, a full redraw on a change: it touches the
+vendored renderer's bindings and shaders, left for after these are measured).
+
+**Static shadow cache (2026-11-18).** The request [design, #3074]: "Since most of the lights in New Vegas are
+static, could we not bake the shadows at least partially?" Approved: a static cache with the
+dynamic casters drawn on top, and the lamps drawn in full under a loading screen. **Not
+measured in game yet.**
+
+- **Static and dynamic casters** (light_shadows.rs `ShadowDynamic`, `classify_casters`,
+  `shape_change`). Dynamic from the start: skinned shapes, every shape under an actor's or
+  creature's rig (`ActorRig`, `PlayerRig`: weapons, hats, eyes follow the skeleton) and the
+  player's body (its layers, `sky::SHADOW_LAYER`, `sky::BODY_LAYER`). Every other shape is
+  static until it moves after it marked the lamps (clutter pushed by physics, which
+  nvf-play's `moved.rs` writes into the drawn transform; a door or activator turning; what a
+  script moves): it becomes dynamic then, for good, and the caches of the faces it was and
+  is in are drawn again without it [engineering choice: one rule for every way a thing can
+  move, instead of a marker at each place that moves things]. Shown, hidden, new or gone, a
+  static shape stays static (a cell loading, Primm's scripted mass enable and disable).
+- **Bookkeeping per face.** `dirty` as before (the sampled map is out of date) and
+  `static_dirty` within it (the cache is): a static shape's change, the light's first draw,
+  a new texture, a refresh, a finer step, a removal of static shapes and a light chosen
+  again mark both; a dynamic caster's move, show or hide, or a removal of dynamic shapes
+  only, marks `dirty`. A dynamic caster marks where it was and where it is (one sphere round
+  both), so the face it left is composited too.
+- **Drawing** (`face_modes`, `keeps_caster`, `put_back`). Of a lamp's faces drawn this
+  frame, those with `static_dirty` are drawn from the static casters into the cache and
+  copied into the sampled cube; the others are composited: the cache's face copied into
+  the sampled face and the dynamic casters drawn over it with the depth loaded, not cleared
+  (vendored bevy_pbr, engine/vendor/README.md "static shadow cache"). A face drawn into the
+  cache whose caster list held dynamic casters lacks them until its composite, which goes
+  next, before other lights' turns (`pending`); a composite with no dynamic caster left is
+  the cache copied back once. Transients, spot lights (few among the placed ones, one map:
+  left on the old path, simpler) and lights that move (their cache would be drawn again each
+  time) take the plain path: every caster into the sampled map, as before. Every rule
+  before stays: slots, held maps, fades, the fixtures skipped (in both passes), the steps,
+  cut-off, grid and face culling, DLSS and contact shadows.
+- **Memory**: the cache is a second cube texture of the same slots and size (Depth32Float):
+  at 512 × 512 6 MB a lamp, 151 MB for 24 lamps' room; at 1,024 (Shadow resolution 4096)
+  25 MB a lamp. The start line says `static shadow cache on (<n> MB)`.
+- **Log**: the performance line ends `static cache (on) <s> static redraws (faces) a frame,
+  <c> dynamic recomposites a frame, <k> layer copies a frame, <p> faces put back after a
+  static redraw, <d> shapes became dynamic`; the renderer line's events add `static cache
+  draws`, `static cache composites` and `static cache misses` (a composite whose cache layer
+  held no map of its light: drawn with the dynamic casters only; expected 0).
+- **Aid** `NVF_LIGHT_SHADOW_STATIC_CACHE=0`: no cache, every face drawn with every caster,
+  as before.
+- **Pre-drawn under the loading screen** (light_shadows.rs `predrawing`, `predraw_busy`;
+  nvf-play `Loading::lamp_shadows_busy`). While a loading screen is up (a travel, a cover,
+  the start) and the renderer has its cells around the camera (the destination's lights are
+  spawned with its cells; the camera is already at the destination, as the cells it waits
+  for are those around it), every chosen lamp the camera sees draws all its marked faces at
+  once: no per-frame budget, no turns, no face culling. Before the cells are in, the lamps
+  draw as in play (each arriving cell would mark them again). The screen waits ("ALC
+  shadows" in its phases line) while lamps drew in the last frame (their composites follow)
+  or any chosen lamp still has marked faces, at most 3 s from the start of the pre-draw
+  (`PREDRAW_CAP_SECS`) [engineering choice]. The performance line
+  ends `loading-screen pre-draw (on) <n> lights`. Aid `NVF_LIGHT_SHADOW_PREDRAW=0`.
+- **Out of view too (2026-11-19).** At first a lamp the camera did not see could not draw
+  under the screen: Bevy culls a point light's casters only for lights a camera sees
+  [observed in the code: vendored bevy_light `check_point_light_mesh_visibility`], and the
+  renderer drops a hidden light. Now, once no lamp in view has maps left to draw, the chosen
+  lamps out of view are shown to that culling, the nearest `PREDRAW_UNSEEN_PER_FRAME` (8) a
+  frame (`shown_unseen`), through the patched bevy_light's `NvfShadowLightsShown`
+  (engine/vendor/README.md "shown shadow lights"): it finds their casters as for a seen light
+  and marks the light visible, so the renderer extracts it and draws its maps; it lights
+  nothing on screen (it lies in no cluster). Their faces out of view go into the static cache
+  as any. Within the same 3-s cap; 32 lamps take four frames. When the screen comes down:
+  `light shadows: <n> lights pre-drawn under the loading screen (<f> faces, <s> into the
+  static cache); <c> casting, <u> of them not drawn yet; <o> of those pre-drawn out of view`
+  (`<u>` should now be 0 but for the cap). In play they then sample their held maps when
+  seen, with nothing to draw.
+- [hypothesis] Where it should help: a lamp near an idle or walking actor redrew every
+  caster of the room on each skeleton mark; now the room is copied (a 1 MB layer copy at
+  512²) and the actor alone drawn. Where it costs: a static change now draws the cache and,
+  with an actor in the face, a composite after it (two switch-ons instead of one); the
+  copies' bandwidth; the memory.
+
+**Kept shadow phases (2026-11-19).** Switching a held light on cost about 1.4 ms of CPU once
+(measured 2026-11-18; each of its views made, its six phases made anew, every caster in them
+specialized and queued again). Bevy keeps a shadow view's phase, pipeline key and specialized
+pipelines only while the view lives, and the game's held lights have none. The patched
+bevy_pbr (engine/vendor/README.md "kept shadow phases") keeps them for every light the game
+holds a slot for, with or without views, so a light switched on again finds its bins and
+pipelines and queues only what changed since: the casters its lists gained or lost.
+A kept view that missed a change (an entity in its pipelines whose mesh, material or flags
+changed while it had no view) is dropped whole and the light drawn as new, as before; an
+entity removed is only dropped from its pipelines. A kept phase back after frames without a
+view is resynced with its light's whole visible list (the list's differences of those frames
+were never queued): entities no longer visible leave their bins, visible ones not binned are
+queued, and no entity is binned twice (queueing the differences alone did that, a renderer
+panic in Novac at 22:00 on Quality, 2026-11-19). And a light re-extracted with the same
+place, range, near plane and layers (every frame it draws: its casters' lists change) keeps
+its views instead of having them made again ("kept shadow views"). Events on the renderer
+line: `phases reused` (phases a light's new views found kept), `kept phases wiped`, `views
+kept`, `kept phases resynced`, `entities rebinned` (none expected). Aid `NVF_LIGHT_SHADOW_KEEP_PHASES=0`; `NVF_SHADOW_VIEW_CACHE=0` makes the views anew
+again too. **Not measured in game yet** [hypothesis: the switch-on's specialization and
+queueing go; the view spawn and the faces' own schedule runs stay].
+
+Also (2026-11-19): the caster grid finds the drawing lamps by their slots instead of going
+over every entity with a place each frame (`caster_candidates`); an actor's skeleton is gone
+over and marks once a frame, not once for each of its skinned shapes (`shadow_lights`).
+
+**Not built yet.**
+- The static cache for spot lights (a second set of layers past the cascades).
+- Held faces of a drawing light still have their views batched each frame (Bevy's
+  `batch_and_prepare_binned_render_phase` goes over every view with an `ExtractedView`);
+  leaving them out needs the GPU preprocessing's buffers looked at.
+
+**Smoke.** `light-shadows` (the Prospector Saloon at 22:00, `--light-shadows=quality`)
+checks that lights cast and that their maps are drawn. The picture is checked by hand.
 
 ### 3.17 Authored materials (`authored-materials`; on in both looks)
 
@@ -2155,6 +2637,333 @@ experimental height branch (stage 4) a set's `_p` (or a height-only set) is draw
 relief mapping, depth 0.03 unless the set's scalars say otherwise, on opaque, single-sided,
 non-decal shapes with tangents. By default it marches up to eight layers and refines the
 intersection with four additional steps. Each height sample reads the top mip. [design]
+
+### 3.18 Aerial perspective (`aerial-perspective`; off in every preset)
+
+[design, #2993] An addition of NVForever's own, an engineering choice for the enhanced look:
+not a fact about the original game, never a parity item, and never to be used to explain a
+difference from the original's frames. With the weather's distance fog alone every far ridge
+fades to the same flat fog colour, so the Mojave's ranges stack into one band. With this row
+far land takes on the sky's colours by distance instead: bluer and paler with distance under
+a blue noon sky, warmer under a dusk sky, brighter toward the sun, so successive ridgelines
+separate. The row is "Aerial perspective (experimental)" under Graphics > Lighting and
+Effects, after Desert haze, off by default and in every preset (the `enhanced` row the issue
+text would have used no longer exists since the settings menu overhaul). Code: `aerial.rs`,
+fog.rs `GAME_FOG`, a patch of the vendored bevy_pbr fog uniform.
+
+- **Technique.** After Hoffman and Preetham, "Rendering Outdoor Light Scattering in Real
+  Time" (GDC 2002) [documented: cited paper]: the light reaching the eye is the surface colour
+  times the extinction plus the in-scattered light times one minus the extinction, the
+  extinction differing per colour channel and the in-scattered light depending on the view
+  ray's direction (a phase function toward the sun). The sun's phase function is the
+  Henyey-Greenstein one (Henyey and Greenstein, "Diffuse radiation in the galaxy",
+  Astrophysical Journal 93, 1941) [documented: cited paper], divided by its value at the sun.
+  Our own code from those descriptions; no code from any other project. The amounts are the
+  weather's, not a physical atmosphere's [design]: Bevy's procedural atmosphere (after
+  Hillaire, EGSR 2020) stays rejected (§2); the game's sky dome and the weather's colours stay.
+- **What it changes** (constants at the top of `aerial.rs`, each an engineering choice by eye
+  [design]):
+  - *Per-channel share.* The weather's fog share f (`GAME_FOG`'s, with its strength) becomes
+    f_c = 1 - (1 - f)^(w_c) per channel: 0 at 0, 1 at 1, rising with f. The weights come from
+    the chroma of the sky colour behind far land (the drawn dome's at the horizon, below): the
+    deviation d_c = (c_c - Y) / max(Y, 0.01) (Y the Rec. 709 luminance; `DARK_FLOOR`), whose
+    luminance-weighted mean is 0 by construction, then w_c = 1 + k d_c with k = 1
+    (`CHROMA_GAIN`) or less where that would take a weight out of 0.5..2 (`WEIGHT_LOW`,
+    `WEIGHT_HIGH`). w is linear in k and 1 at k = 0, so the luminance-weighted mean stays
+    exactly 1 and the hue keeps its direction, with no clamp. Below a luminance of 0.01 the
+    chroma fades out continuously, so a fade to or from a near-black sky does not step
+    (tested). A grey or black sky gives 1, 1, 1 (the weather's own fog). The amount of fog
+    stays the weather's in that sense: the mean optical-depth multiplier is 1; a channel with
+    w below 1 fogs less than f, one above more.
+  - *In-scatter colour.* Instead of the one fog colour, the fog colour moved toward the sky
+    colour in the view ray's direction by up to 0.8 (`DOME_MIX`). The sky colour is the drawn
+    dome's at the horizon (0°, used at and below it) and at 20° up (`LOWER_SIN`), mixed by a
+    smoothstep in the ray's sine between them. Those two colours are the dome's as the
+    renderer draws them: sky.rs `dome_color` of each vertex's own weights on the rings nearest
+    below and above, averaged per ring, then mixed in linear RGB at the point where the ray at
+    that elevation crosses the mesh's edge between the two rings (each ring's mean horizontal
+    distance and height), as the rasteriser interpolates the vertex colours along that edge
+    (tested with rings of equal and unequal radius). The rings are read from the dome mesh in
+    use (its positions and `SkyDome` weights, again only for a new dome mesh): the stock
+    atmosphere.nif's weights are about 0.69 horizon + 0.35 sky-lower at 0° and 0.57 sky-lower
+    + 0.53 sky-upper at 20° [documented: docs/spec-notes/world.md "Sky meshes"]; the fallback
+    dome has its own (all sky-lower at 0°, sky.rs `fallback_dome`). Before a dome mesh has been
+    read, the bare horizon and sky-lower colours stand in. Each is taken times the dome's sky
+    level (`SkyState::sky_scale`, the factor sky.wesl draws the dome with [documented:
+    engine/nvforever/src/sky.wesl]), so a far ridge meets the sky drawn behind it. All mixes:
+    the colour stays within the weather's fog colour and the dome's colours as drawn, so it is
+    above the display range only where the drawn sky already is (#2915: no clamp added).
+  - *Sun lobe.* The finished pixel (linear light) is moved toward the same blend with the
+    weather's sun colour as the in-scatter colour, by the normalised Henyey-Greenstein lobe
+    ((1 - g)^2 / (1 + g^2 - 2 g cos))^1.5 with g = 0.6 (`HG_G`), at most 0.35 at the sun
+    (`LOBE_MOST`), fading in as the sun rises through -2..3° as the sky's disc and glare do
+    (`SkyState::light`; nothing at night), times the two pixels' luminance contrast,
+    (Y_toward - Y_plain) / max(Y_toward, 1e-4) held to 0..1. A linear mix toward a brighter
+    pixel only raises luminance, so the lobe never darkens what is shown, for any surface, fog
+    share, channel weights and haze (tested over a grid through the whole blend and decode); a
+    weather with a black sun, or one no brighter than its sky, gets none. The lobe follows the
+    real sun: below the horizon sky.rs `aim_sun` turns the directional light to the moon's
+    side while the fade still runs, so the CPU packs which side the light points to (the sign
+    of the lobe's strength, from the light's own clock) and the shader turns the light's
+    direction back toward the sun; the pixel is continuous through 0° (tested).
+  - *Weight.* All of it scales with the desert haze's weight (§3.16, `haze::weight`, reused):
+    full under a clear weather, none as the weather's own fog gets short or dense, so
+    NVWastelandHazy and HVDustStorm (weight 0: `haze::weight` of their fog distances, which
+    are [observed: FalloutNV.esm, fnvtool esm decode, 2026-11-17]; the picture runs logged
+    "weight 0.00, none" for both [observed: NVForever run, 2026-11-18]) are exactly as with
+    the row off: the uniform's vectors are zero there.
+- **Where it sits.** Per fragment in the world shaders' fog path, no pass: everything the
+  weather's fog covers, under every anti-aliasing and upscaler. `nvf_aerial` (aerial.rs,
+  written before Bevy's `apply_fog` in `pbr_functions.wesl`) wraps the desert haze's call of
+  the atmospheric fog: it composes with the haze's replacement of Bevy's call instead of
+  replacing that call again, and its edit is made after the haze's, only once those are in
+  place. It works out the in-scatter colour and the lobe's weight for the fragment's view ray
+  and hands them, with the three weights and the sun colour, to `GAME_FOG` in a copy of the
+  fog uniform (`nvf_params[0]` the colour with alpha -2, which the CPU never writes,
+  `nvf_params[1].rgb` the weights, `nvf_params[2]` the sun colour and the lobe's weight).
+  `GAME_FOG`'s first outdoor branch, taken only on that -2, blends **once**, per channel, in
+  the values the fog is blended in outdoors (the pow(1/2.2) encoding: the main view is HDR,
+  but the outdoor fog blend is in that encoding [documented: engine/nvforever/src/fog.rs], and
+  the colours are encoded on the CPU the same way; `dome_color` mixes in the sRGB curve, a
+  small difference), then applies the lobe in linear light. Interiors (the linear blend) are
+  untouched, and the CPU writes zeros indoors.
+- **With Desert haze also on**: the haze's share and colour stay as they are; the aerial terms
+  apply to the weather's fog part: each channel's total share 1 - (1 - f_c)(1 - h), the
+  colours weighted as the haze seen through the aerial fog (as in §3.16), the lobe's blend
+  with the same haze. Tested: alone or together every channel's total is within 0..1, the
+  haze never lowers a share, and the total is at least the haze's. Together, the near and
+  middle distance take the haze's warm dust and the far ranges the sky's colours behind them,
+  the haze's share over them.
+- **Carried** in three vec4s appended to Bevy's fog uniform (`DistanceFog::nvf_params`,
+  `GpuFog`, the shader's `Fog`; a patch of engine/vendor/bevy_pbr, listed in its README): one
+  uniform grows by 48 bytes, the view bind group keeps its bindings. [0] the sun colour
+  (display values, blended like the air colour, so nothing is converted per fragment) and the
+  lobe's strength, negative while the directional light points away from the sun; [1] the
+  in-scatter colour at the horizon and the red weight; [2] the one at 20° and the blue
+  weight; green follows from the mean of 1, in the shader. The haze uses up the uniform's
+  free fields, per-frame values written into shader text are not acceptable and the view
+  bind group is not to grow, hence the patch. The reflection and lens cameras clone the main
+  camera's fog, so they get the same vectors; the reflection camera's rays are the mirrored
+  ones, which see the sky above the reflected land. The 3D scope's lens camera copies the
+  main camera's fog after both writers of it after the sky (fog.rs `FogWriters`: the desert
+  haze and this; the reflection camera copies in PostUpdate), so neither shows a frame with
+  the sun's side not yet turned or the aerial fog without the haze (a scheduling test).
+- **Off.** With the switch off (or a weight of 0) the vectors are zero, `nvf_aerial` makes
+  the call as the haze left it and `GAME_FOG` runs its old lines: the picture and the log are
+  as on main. What stays for every player: the fog uniform is 48 bytes larger, and the fog
+  path has one more uniform branch in `nvf_aerial` and one in `GAME_FOG`; the edits are made
+  at the start, with no log line. Both fail safe (one `warn!` line, the shader as it was, the
+  row does nothing). With the row on, the weather's fog numbers, five of its colours, the sky
+  level and the sun's height are read each frame; the derivation (the dome's colours, the
+  weights, the encodings) is done again only when one of them or the dome mesh changes.
+- **What follows the weather** (from `SkyState` every frame, through weather fades, scripted
+  SetWeather/ForceWeather and the hour; no weather names, no hour table, no result kept past
+  a change): the weight from the fog numbers, the channel weights and in-scatter colours from
+  the fog, horizon, sky-lower and sky-upper colours as the dome draws them and the sky level,
+  the lobe from the sun colour and the sun's height. Values outside the base game's ranges
+  are tested as data (fog far 0 and 1,000,000, power 0, NaN and infinite colours, a black sky,
+  one channel 0, a black sun): no NaN, nothing negative, no division by zero.
+- **Switching**: the row, `--graphics-only aerial-perspective`, a `--graphics-cycle` set,
+  `NVF_PLAY_TEST_SETTINGS=<t>:aerial-perspective`. Only the uniform changes; nothing compiles.
+  Log lines: `aerial: aerial perspective on: <weather>: weight <w>, channel weights
+  <r>/<g>/<b>, sky share <s>, sun lobe <l>` (or `..., none (the weather's own fog leaves no
+  room)`); the same as `aerial: <weather>: ...` when the weather, the weight (by 0.1) or a
+  channel weight (by 0.1) changes, not during a time-lapse; `aerial: aerial perspective off`
+  (`... off indoors`). Debug aid `NVF_PLAY_DEBUG_AERIAL=<multiplier>`: the weight times that
+  (1 as designed, 0 to 4; the sky share and the lobe are held to 1, the weights to their
+  range), logged once; it does not turn the switch on. Smoke: `aerial-perspective`,
+  `aerial-perspective-with-haze`.
+- **Cost**: none that the runs can show: 3.23-3.28 ms a frame with the row off, 3.23-3.29 ms
+  on, main 3.25-3.28 ms (three rounds each, the median of five 4-second periods, 2560x1440,
+  Goodsprings at 13:00 under NVWastelandClear, Sun shadows on, on the contributor's machine)
+  [observed: NVForever run, 2026-11-19]. Not measured on a slower GPU or at other resolutions.
+- **Not done**: between the two reference elevations the sky colour is a smoothstep between
+  the dome's two colours, not the dome's own curve; no height dependence (the weather's fog
+  has none; the haze has its own); no shadowing of the in-scattered light; the sun's
+  direction is the view's first directional light, turned back toward the sun where it is
+  the moon's side (the first-person arms' shade light points the same way); the cloud cover
+  is not read, so the base game's overcast is not told from clear (their classification
+  flags and cloud layer counts are the same [observed: FalloutNV.esm, fnvtool esm decode,
+  2026-11-17]).
+
+### 3.19 Night sky detail (`night-sky-detail`; off in every preset)
+
+[design, #2995] An addition of NVForever's own, an engineering choice for the enhanced look:
+not a fact about the original game, never a parity item, and never to be used to explain a
+difference from the original's frames (`vanilla` stays the parity picture). The row "Night
+sky detail (experimental)" (Graphics > Lighting and Effects, after Aerial perspective) is off by
+default and in every preset, `--graphics enhanced` included (`graphics.rs` test). Issue #2995
+predates the settings menu overhaul; the old `enhanced` row no longer exists, so this is a
+row of its own. `--graphics-only night-sky-detail` and a `--graphics-cycle` set turn it on
+too. Code: `night_sky.rs` and the night part of `sky.wesl`.
+
+- **What** [design]. Three additions, built only from the climate's own stars and moon and
+  the shown weather's own colours and fog: the stars **twinkle**, more toward the horizon; a
+  **glow round the moon**, wider and stronger in hazier weather; **moonlit clouds**, the cloud
+  layers lit a little on the side of the sky facing the moon. Nothing new is read from the
+  data and nothing is shipped.
+- **Where it sits** [design]. No pass, texture or mesh of its own: the sky's own fragment
+  shader (`sky.wesl`, used by every sky part) does all three from two `vec4`s at the end of
+  the sky parts' uniform, `sky::SkyLight::moon` and `::night` (the Rust and WGSL structs in
+  the same order; the composed shader's layout is tested). Their meaning depends on the part,
+  as `params.w` already does: the star dome (the additive parts the daylight does not apply
+  to, `params.z` 0) takes the twinkle; the atmosphere dome (`params.w` 2) the glow, drawn
+  with the sun's disc and glare, so behind the clouds and under the moon disc; the cloud
+  layers (`params.w` 1) the moonlight. The moon disc takes nothing. The additions use the
+  arithmetic of the sun's glare beside them: linear RGB added to the part's colour before
+  `tony_inverse`, which is the identity under the game's clipping tonemapper (`lights.rs`;
+  the main view is HDR). The twinkle multiplies what a star adds.
+- **How the values get there** [design]. `night_sky.rs` `update_detail` runs after
+  `sky::update_night_sky` and works the detail out from the live `SkyState`, again only when
+  the climate, the weather, the weather fading out, the fade, the hour, the days passed or
+  `--fog` changed. Every frame it compares the result with each sky part's stored fields and
+  writes only those that moved by more than 1e-3 (the disc's place by 1e-3 x its distance,
+  the same angle), because each write remakes the material's uniform on the GPU (#897); zero
+  is written exactly. So a part made later (a new worldspace's sky) takes the values the
+  frame it appears. `update_sky` keeps the two fields when it replaces the rest of the
+  uniform. A system test covers a later part, a weather fade, and off then on.
+- **With the row off** the fields stay zero, `update_detail` returns at its first test, each
+  branch in the shader is skipped by a uniform test, and nothing is logged.
+- **Twinkle** (stars) [design]. Each star's added light is multiplied by
+  1 + A x air(e) x s(dir, t):
+  - s is lattice value noise in time over the dome direction (Ebert et al., "Texturing and
+    Modeling: A Procedural Approach", lattice noises [documented: cited publication]). The
+    direction times the cells per unit falls in a cell of a 3D integer lattice; each of its 8
+    corners has a wave, the mean of two sines whose phases and rates (3,600 to 14,400 whole
+    cycles an hour, 1 to 4 Hz) come from an integer hash of the corner: the corner times the
+    primes of Teschner et al., "Optimized Spatial Hashing for Collision Detection of
+    Deformable Objects" (2003), xor-ed, then MurmurHash3's 32-bit finaliser [documented: the
+    published constants]. The waves are interpolated with smoothstep weights, so there is no
+    edge between cells. s has mean 0 over time and stays within -1..1, so the factor's mean
+    is 1 (the night is as bright as without) and it stays within 1 ± A (tested through a
+    Rust mirror of the shader, `twinkle_factor`).
+  - The lattice is read along the direction from the star dome's own centre (its mesh's
+    place, `get_world_from_local`), not from the eye. The dome never turns and follows the
+    main camera, so the cells belong to the dome: a turning camera, the temporal
+    anti-aliasing's jitter and the upscalers see no change of cell, and the water
+    reflection's camera (the main camera mirrored below the water, `reflection.rs`) gives a
+    reflected star the same phase at any height above the water. A 3D lattice has no pole
+    and no seam.
+  - Cell size: about the size of a star on screen. At 1080 lines with the game's default
+    field of view (75, the horizontal angle at 4:3; vertical 59.8°, `free_cam::vertical_fov`)
+    a pixel spans 9.7e-4 rad; a star of the base game's star dome covers 2 to 4 pixels there
+    [hypothesis], so a cell of 4 pixels (3.9e-3 rad, 0.22°; about 258 cells per unit of
+    direction) gives neighbouring stars their own phases while a star's own pixels change
+    nearly together.
+  - Time: Bevy's `globals.time`, the extracted `Time`, which is the game's virtual clock
+    wrapped at an hour (`bevy_render` `globals.rs` [documented: vendored source]); the pause
+    menu holds that clock (nvf-play `pause.rs`), and with it the twinkle. Bevy writes it
+    every frame, so no material is rewritten for time. The rates are whole cycles an hour,
+    so the wrap joins without a jump; the phase is the fraction of the hour times the cycle
+    count, within 1e-3 of a cycle in f32. At 60 frames a second the fastest wave moves 0.42
+    rad a frame: smooth, never a per-frame random value.
+  - air(e) = 1 - 1/X, X the air mass by Rozenberg's formula 1 / (sin e + 0.025 e^(-11 sin e))
+    (G. V. Rozenberg, "Twilight", 1966 [documented: cited publication]): 0 at the zenith,
+    0.5 at 30°, 0.82 at 10°, 0.975 at and below the horizon; bounded and monotone (tested).
+  - A = (0.15 + 0.25 q) x the debug multiplier, held to at most 0.9 so a star never dims
+    below a tenth [engineering choice]; q is the weather's haze (below). The clear Mojave
+    night (q 0.5) twinkles ±0.27 at the horizon and ±0.14 at 30° up. A fragment whose added
+    light is under 1e-4 (most of the sky between the stars) skips the lattice.
+- **Moon glow** (dome) [design]. A Henyey-Greenstein lobe (L. G. Henyey and J. L.
+  Greenstein, "Diffuse radiation in the Galaxy", Astrophysical Journal 93, 1941 [documented:
+  cited publication]) divided by its value on the axis: (1 - g)^3 / ((1 - g)^2 + 2 g (1 -
+  cos))^1.5, the denominator written so that it stays exact on the axis in f32; 1 at the
+  centre, falling monotonically (tested).
+  - Axis: from the rendering eye to the disc's centre. `moon.xyz` is where the disc is drawn
+    from the sky's centre (`-sun_dir` from `SkyState::hour` x `SUN_DISTANCE`, as
+    `update_night_sky` places it), and the shader adds the sky part's own place (the main
+    camera's). In the main view that is the moon's direction; the water reflection's
+    mirrored eye sees the disc elsewhere (3.97° off the moon's direction with the camera
+    5,000 units above the water and the moon 10° up: our arithmetic, a test), and its glow
+    stays round the disc it sees.
+  - Width [engineering choice]: g = 0.9 in clear air to 0.75 under a full fog share, half
+    the peak at 4.6° to 12.7° from the centre (the disc is 3.6° across, `sky.rs`
+    `MOON_SIZE`).
+  - Strength at the centre [engineering choice]: 0.06 x (1 + 0.5 q) (at most 0.09, linear)
+    x the moon's strength. The moon's strength is its visibility
+    (`SkyState::night_visibility`, fading in as the sun goes from +5° to -6°) x the phase's
+    lit share (from the phase index in `MOON_PHASES` order: full 1, three quarters 0.75,
+    half 0.5, a quarter 0.25, new 0, then back up) x the debug multiplier. It is 0 while the
+    disc is hidden (its direction's height below -0.1, `sky::MOON_HIDDEN_Y`, the disc's own
+    rule), indoors, in a climate without a moon and by day (visibility 0).
+  - Colour: the hue of the weather's **Sunlight** colour now (`ColorType::Sunlight`, blended
+    across a weather fade), its largest channel set to 1. At night that colour is the light
+    the renderer lights the world with as moonlight (`sky.rs` `MOON_SHARE`, `aim_sun`), so
+    the glow takes the light that weather's moon gives [design]. A colour darker than 0.05 in
+    its largest channel keeps its hue with its brightness scaled down, so a black night
+    sunlight gives no glow. No colour constant.
+- **Moonlit clouds** (cloud layers) [design]. Added: the cloud's own colour (its weather's
+  PNAM colour at the hour, as `update_clouds` sets it, times its texture and the sky level,
+  without a lightning flash's light, which the sky already adds once) x 0.5 x a broader lobe
+  (g 0.6, half at about 23°, aimed as the glow is) x the moon's strength, scaled down so
+  that no channel adds more than 0.06 x the strength. The blend weighs it by the texture's
+  alpha; through a weather fade both sets of cloud shapes take it, each at its own alpha.
+  Every cloud layer that is drawn counts as cloud. The base game's starfield layer texture
+  (layer 0 of the night weather) is in no archive (docs/spec-notes/world.md §6), so that
+  layer is never drawn.
+- **What follows the weather** [design] (from `SkyState`, no weather names, no per-weather
+  table): the haze q, the weather's fog share at 50,000 units (the desert haze's reference
+  distance, §3.16) by the curve the fog shader draws, with the fog's near, far, power and
+  strength as the fog uniform takes them (or `--fog`), so it blends through a fade and
+  follows SetWeather / ForceWeather the next frame; the moonlight colour; the cloud colours
+  (in the cloud parts' own colour); the hour (the moon's place and visibility); the days
+  passed and the climate's phase length (the phase); the climate's moon flags. A script's
+  moon textures (SetMoonTexture) change nothing here. It adds to the weather's own colours
+  and never replaces them. A weather whose two fog ranges are both unset has no fog
+  (`Weather::fog_at`) and so no haze: the clear-air values.
+- **Weather and mods** [design]: tested as data in `night_sky.rs`: fog far 0 and 1,000,000,
+  near above far, power 0 or negative, values that are not numbers, both fog ranges unset, a
+  moonlight of 1e6 or negative, phase length 0, every phase index and beyond, the sun exactly
+  at the horizon, directions at elevation 0 and 90°, no direction, the multiplier 0 and above
+  4: no NaN, nothing negative, every field within its bound.
+- **Switching**: the row, `--graphics-only night-sky-detail`,
+  `NVF_PLAY_TEST_SETTINGS=<t>:night-sky-detail`. Only uniform values change, so no pipeline
+  is compiled. Log lines:
+  - `night sky: detail on: <weather>: haze <q>, twinkle <A>, moon <phase> lit <l>, strength
+    <s>, glow <peak> half width <deg>°` (`no moon` for a climate without one);
+  - the same figures as `night sky: <weather>: ...` when the phase's lit share changes and,
+    outside a time-lapse, when the weather changes or the haze moves by 0.1;
+  - `night sky: applied: <n> star material(s) twinkling (amplitude <A>), the dome's glow
+    <g>, <k> cloud material(s) moonlit`, once each time it turns on, read back from the
+    materials after the writes (only checked while this frame's values can give it: not by
+    day, at a new moon, without a moon or at the multiplier 0; the cloud count includes
+    hidden layers);
+  - `night sky: detail off` (`... off indoors` on going in).
+- **Debug aid** `NVF_PLAY_DEBUG_NIGHT_SKY=<multiplier>` (0 to 4, 1 as designed): all three
+  times that, read once and logged (`debug switch NVF_PLAY_DEBUG_NIGHT_SKY: ...`) when the
+  detail first turns on; it does not turn the switch on and does not make a run unattended.
+- **Tests.** `night_sky.rs`: the pure parts above, the mirrored view (`glow_axis`,
+  `star_direction`), the write tolerances, the kept derivation (system test), and that
+  `sky.wesl` holds the constants its Rust mirrors use. `engine/nvf-shader-tests/tests/sky.rs`
+  composes the production `sky.wesl` with Bevy's own imports through Bevy's shader cache and
+  validates it with Naga, with no definitions (the dome, clouds and moon) and with the
+  definitions Bevy's mesh pipeline sets for the additive stars (`PREMULTIPLY_ALPHA`,
+  `BLEND_PREMULTIPLIED_ALPHA`), and checks the uniform's layout. Smoke: `night-sky-detail`
+  (switched on in the pause menu at Goodsprings at 23:00 on day 0, a full moon, left on after
+  the game resumes; it expects the `applied` line).
+- **Seen** [observed: NVForever run, 2026-11-19, pictures at Goodsprings]: the glow follows
+  the phase (centre 0.075 at the full moon, 0.037 at the half moon, none at the new moon, as
+  logged), is wider under NVWastelandHazy, and nothing shows at noon.
+- **Cost.** Measured 2026-11-19, indicative: 3.13 ms off, 3.13 ms on at 2560x1440,
+  Goodsprings 23:00, on the contributor's machine [observed: NVForever run, 2026-11-19]. Not
+  measured on a slower GPU, at handheld resolution, or with FSR. What the code does: every
+  sky fragment pays a few uniform tests; a dome or cloud fragment with the moon up also a
+  matrix fetch, a normalisation, a `pow` and a few multiplies; a star fragment that adds
+  light runs the lattice, eight corner waves of two hash finalisations and two sines each,
+  and an `exp`. With FSR the stars, the clouds and the moon are drawn a second time into
+  FSR's opaque reference (`fsr.rs`, the reactive reference pass), so the stars' and clouds'
+  terms run twice there. The water reflection's and a 3D scope's cameras draw the sky too.
+- **Not done**:
+  - The twinkle was judged only from the log and still pictures; no clip of it was taken.
+  - No colour change in the twinkle (chromatic scintillation) and no twinkle of the moon.
+  - A mod's starfield texture on a cloud layer counts as cloud: it takes the moonlight and
+    does not twinkle (no classifier is guessed).
+  - FSR draws the stars and clouds twice (above); nothing skips the night terms in its
+    second draw.
+  - No halo ring (the 22° ice halo), no moonlight on the fog or the land beyond what the
+    weather's own night light does, nothing indoors.
+  - The constants are starting values chosen by reasoning and checked in pictures at a few
+    strengths (the debug multiplier), not tuned against anything.
 
 ### 3.20 Full-detail scenery (`full-detail`; 7 x 7 in `enhanced`, off in vanilla, #2701 stages 1 and 2)
 
@@ -2490,6 +3299,266 @@ not the original's behaviour; the code is `engine/nvforever/src/distant_objects.
   types (activators, doors, moveable statics); merging each cell's meshes by material;
   a link to the Object distance slider.
 
+### 3.22 Distant lights at night (`distant-lights`; off in both presets)
+
+[design, #3013] An addition of NVForever's own, an engineering choice for the enhanced look:
+not a fact about the original game, never a parity item, and never to be used to explain a
+difference from the original's frames. Placed lights exist only with their cell (world.rs,
+lights.rs), so past the loaded 5 x 5 cells no lamp is drawn and a town at night is a dark
+shape until its cells load. With the row "Distant lights (experimental)" (Graphics >
+Detail and Distance, the last row, with the other distance rows; it needs no other row:
+it does not draw on the distant LOD) on, the placed lights of the cells beyond the loaded ones, and the
+statics that are the places' lights, show as small glows. Sprites only: no light entity, no
+shadow, no game state. Code: `distant_lights.rs`, `distant_lights.wesl`,
+`nvf_assets::model_glow`.
+
+The Mojave holds few placed lights: 357 references with a LIGH base in the whole worldspace,
+56 within 12 cells of Novac and 56 of Goodsprings, none disabled at the start [observed:
+FalloutNV.esm, `fnvtool world refs --world WastelandNV`, 2026-11-19]. The towns light
+themselves mostly with statics: glow cards, light beams, lamps with a self-lit bulb, sign
+panels (Novac's within two cells: 12 LIGH references beside light beams, recessed lighting,
+glow cards, lamps and signs) [observed: the same listing]. So the glow statics below are
+what the feature mostly shows.
+
+- **Source.** The exterior cells whose closest point lies within 12 cells of the camera
+  (`treelod.rs` `cells_within`, as the distant trees choose theirs). The cells not read yet
+  are listed on the read pool's worker thread (as world.rs reads cells ahead), from the
+  references world.rs spawns a loaded cell from, through the renderer's own filters
+  (`world::drawn_with_cell`: no imposters, which their regions draw, no editor primitives
+  such as a trigger copied from a glowing activator; `world::marker_model`: no marker
+  models)
+  (`cell_refs`: the cell's own and the worldspace's persistent ones standing in it): those
+  whose base is a LIGH, not deleted, not negative, not off by default, with a radius (DATA
+  radius plus the reference's XRDS) and a colour of the record's own (`fnv_world::lighting`;
+  the flag bits as the GECK wiki "GetLightFlag" page lists them [documented]). A light whose
+  colour comes only from its model is left out. Lights disabled at the start (their own flag
+  or the enable parent chain, `world::enabled`) are kept with that state, so a script that
+  enables one later shows it. The lists are kept per cell and dropped with the worldspace.
+  A script's SetInternalMarker change (`world::script_markers_generation` moves on) lists
+  the cells again, since the marker filter above classified them: a running scan is
+  stopped, and the glows of the cells in reach stay drawn until their new listing replaces
+  them.
+- **Glow statics.** Beside LIGH references, statics and moveable statics (STAT, MSTT),
+  activators (ACTI) and static collections (SCOL) whose model glows, judged from the model's shapes and never from its file name
+  (`nvf_assets::model_glow`), by the properties the renderer already reads
+  (`nif_spawn::shape_props`, `shape_alpha_mode`, `shape_emissive_mult`): an unlit shape
+  added to the frame (glow cards, light beams: the additive shapes of nif.md §6 "Additive
+  blend"); an unlit shape whose emitted light, after the picture rule, is over white (what
+  nif_material.wesl burns as a hot source and the neon bright pass picks up); a lit shape
+  self-lit at full emission (emissive colour × multiplier at 1 or more: a lamp's bulb, a
+  sign's glow panel) [design: the last threshold is ours]. Apart from the added unlit
+  shapes, which may be long beams, a shape wider than 512 units (bounding-sphere radius)
+  does not count, so a self-lit band across a building is the building's picture, not a
+  lamp. Helper geometry the near renderer leaves out (`Props::is_helper`) and hidden shapes
+  do not count. A model with one small glowing part among ordinary geometry (a lamp post)
+  qualifies through that part, as long as its glowing shapes together show enough light:
+  the sum of brightness (the glowing texture's mean, times the emission) x radius^2 at
+  least 25 (a bright bulb 5 units in radius; emissive trim and specks show less) [design].
+  A shape whose texture is known dark (black or fully transparent where it blends) shows
+  nothing; an unreadable texture (BC5, a file that does not parse) or none counts as fully
+  bright, the emissive hue alone. Per model, read once from the NIF alone (no meshes,
+  materials or textures for the GPU) and kept for the run: the glowing shapes' centre below
+  the root, weighted by the light they show (the reference's transform takes it to the
+  world, so a lamp post's glow sits at its bulb), their reach (feeding the size and budget
+  rules as a light's radius would, times 4) and their colour (the emissive hue times the
+  mean hue of the glowing texture: every texel of its first mip level of at most 256 x 256
+  (without one, a grid of about as many from the smallest level), compressed blocks decoded
+  with their selectors and an edge block's padding left out, DXT1's transparent selector
+  honoured,
+  weighted by brightness, and by alpha where the shape blends). A glow-mapped lit shape
+  takes the glow map's hue without the diffuse texture the real material multiplies it by. Glow statics take the
+  same present state, merge, cap, night share, fog and hand-over as lights, strength 1, no
+  shimmer. A static collection is drawn by its own combined model, as world.rs draws it
+  (the GECK wiki "Static Collection": its Model is the NIF the editor generates for the
+  collection [documented: offline snapshot 2026-10-28]), so its glowing parts are found in
+  that model, each at its place in it; a part as wide as a building is left out by the same
+  512-unit bound. An activator shows its model's stored look: whether a script switched
+  it is not known beyond the loaded cells (activators.rs follows only radio receivers' on
+  state, and only while drawn), so it glows while enabled, and a sign switched off by a
+  script without disabling it still glows [known limit]. Counted with an approximation of
+  these rules over the records and the meshes (2026-11-19, the same tools): within 12
+  cells of Novac 120 static references of 22 glowing models (of 833 static models there),
+  of Goodsprings 55 of 23 (of 826): glow cards (`fxglowsimpfill*`), light beams
+  (`fxlightbeam*`, HELIOS One's god rays), lamps (`llamp*`, `lamplightlamp`, street
+  lights), recessed lighting, the NoVac sign's glow panel, tent lights; also some utility
+  girders and fans whose small self-lit part is a fixture. Activators and collections add
+  27 references of 4 glowing models around Novac (light beams, the motel's lit window,
+  vault control panels, force-field effects) and 16 of 6 around Goodsprings (Primm's lit
+  windows, the Prospector Saloon's neon, a sign, a collection with a cave lamp, force-field
+  effects) [observed, the same approximation, which leaves out the visible-light rule].
+- **The scan.** One job at a time on the read pool: first the nearest cells not listed
+  yet, 32 at a time (their references copied on the main thread for those 32 only), then the
+  static models they ask for, 32 at a time, at most 1,024 models per camera cell (the rest
+  wait for the next scan; 895 were read within reach six cells west of Novac [observed
+  2026-11-19]). Models are asked for on the main thread only, each once, so two jobs never
+  read the same model. Every job checks a shared epoch between cells and between models;
+  switching off, another worldspace, going indoors or daylight move it on, so a running job
+  stops after the read under way. Each model's glow is handed back as soon as it is read,
+  so a stopped job's reads are kept and only its unread models go back to the front of the
+  queue; no job starts while a stopped one still runs (never two scans at once). A cell's
+  sources are its lights and the statics whose model is read and glows; they are completed
+  as the models come in (only the cells that show a model just read are resolved again,
+  from a model-to-cells index), so a town fills in over the scan.
+- **Present state.** Whether a listed light shows is the simulation's present state
+  (`SimState::present`: not deleted, enabled now), or without a simulation its state at the
+  start. Cells listed but not merged yet are checked at once, and every 2 s a pass over all
+  cells starts; both within 2,048 units a frame, a hard bound (a light checked or merged one
+  unit, starting a cell or handing a merge on one; a check stopped inside a cell resumes
+  there in the next frame, a merge that does not fit waits for the next frame, and a cell
+  with more present lights than the budget is merged on a worker and its glows swapped in
+  when done). A cell is
+  merged again when the set of its present lights changed (a key of their FormIDs, so
+  disabling one lamp and enabling another in the same cell between two checks is seen).
+- **Hand-over.** No glow for a cell inside the loaded grid (the square of `Streamer::radius`
+  steps around the grid's centre that world.rs loads), whether loaded already or still
+  pending: its own lights draw there, or will within moments. A cell outside the grid that
+  is still drawn as it fades out gives its glows 1 - its fade level (`Streamer::cell_level`,
+  fade.rs), so they come back as it goes; during that fade the cell draws both forms, its
+  dithered models and lights and the glows growing back. The full-detail ring (#2701, another branch) draws
+  more cells as loaded cells, which hand over by their level; `in_loaded_grid` is the hook.
+  The batched mesh is rebuilt when the camera's cell, a cell's share (16 steps) or a cell's
+  set of present lights changes: a few hundred cards, a few times a second at most during
+  fades.
+- **Budget.** Lights of one cell within 192 units of each other are one glow (brightest
+  first, each joining the earliest glow in reach; the strength-weighted mean position and
+  colour, the largest radius, the summed strength held to 2), found through a grid of
+  buckets 192 units wide by the glows' current positions (3 x 3 buckets per light, the
+  same result as a search over every glow, tested). Of all glows the 400 with the most light
+  for their distance (strength x brightest channel x size / (distance^2 + one cell^2)) are
+  drawn, taken by a partial selection with only those 400 sorted.
+- **Drawing.** One mesh for all glows under the world root, no frustum culling (one
+  draw). Each card faces the camera, spread in the view's plane in the vertex shader (as the
+  leaf cards, tree.wesl). Half size: the light's radius x 0.5, held to 24..320 units, and
+  never under 2 output pixels nor 1 render pixel, so a lamp 12 cells away stays a few pixels
+  wide (fitted by pictures, 2026-11-18); a card widened to that floor keeps its own area's
+  share of light per pixel, held to 0.85. Under an upscaler the floor is in output pixels, so
+  the glows keep their size on screen whatever the render scale (the view uniform has both
+  sizes). Unlit and additive (Bevy's `AlphaMode::Add`, the transparent pass: depth-tested
+  against the world, no depth written, no prepass, no shadows), faded out over the reach's
+  last 2 cells. Three kinds of card, all in the one mesh and material (the kind and a
+  shaft's ends and widths are vertex attributes, laid out at the top of
+  `distant_lights.wesl`):
+  - *Round* (a static's round glow): a soft spot, e^(-4 r^2) (1 - r^2).
+  - *Core and halo* (a placed light): a small bright core and a wider, fainter halo in the
+    same card, (1 - h) e^(-14 r^2) + h e^(-3 r^2) (1 - r^2), the halo's share h = 0.35
+    (`HALO_SHARE`), sized from the light's radius as before.
+  - *Shaft* (a long glowing part: a light beam, a neon tube): `model_glow` gives each
+    glowing part its shape, the principal axis of its vertices (in the model's space), its
+    length along it and its width across at each end; a part under 1.5 times as long as
+    wide stays round, and so does a part whose own triangles cover less than a quarter of
+    its length x mean width (the widths measure all its vertices, so two rows of slivers
+    would make a wide shaft over nothing drawn; `MIN_SHAFT_COVER`), and a model keeps its 4 brightest long parts as shafts, the rest in
+    its round glow. The bright end is told by the vertex colours (alpha x luminance, the end
+    thirds' means 1.25 times apart), else by the cone (the narrow end, the other 1.5 times
+    wider, is the source), else the shaft is symmetric. The card spans the segment between
+    the ends, widened across by each end's half width (so a cone tapers toward its source)
+    and facing the camera around the axis (an axial billboard), each width held to the pixel
+    floors; soft across (e^(-4 x^2) (1 - x^2)) and along it fading from the source to nothing
+    at the far end, smoothstep(0, 0.08, v) (1 - v)^2 (a short soft start, `SOURCE_RAMP`), or
+    bright in its middle when symmetric; a directed shaft also gets a small round core at
+    its source (the lamp, strength 0.6, `SOURCE_CORE`). Its light per pixel is set so its
+    integrated light (the profile's integral over its card) is `SHAFT_BRIGHTNESS` (1.5, the
+    first pictures read too dim at 1 against the real beam models) times its round glow's,
+    held to 4 times (`MAX_SHAFT_GAIN`), so a hair-thin shaft does not become a white bar.
+    The shader maps each fragment across as its offset from the axis over the half width
+    at that point along (both linear over each of the card's two triangles, `shaft_x`), so
+    the profile is centred on the axis at every cross-section and the triangles draw the
+    integral computed (interpolating the -1..1 corner coordinate itself, a tapered beam drew
+    about 30 % less: 20,231 against 28,907 for the test beam). The profile is one function
+    across times one along, so its integrals are computed once per kind (`shaft_moments`)
+    and a shaft's costs a few multiplies when the mesh is built.
+    Whether a shaft shows as one is decided once for its whole card from both ends (never
+    half shaft, half dot): both ends between the near and far planes, neither seen end-on,
+    and its length on screen at least two floors in output and in render pixels; otherwise
+    it is drawn as its round card. Shafts are never merged with other glows. On the
+    beam models of the Mojave the vertex colours carry the gradient (their alpha is near 0
+    at the far end; `fxlightbeambrt03`, `fxlightbeamw01dim`, HELIOS One's `fxhelios_godray1`
+    are brighter at their narrow source end), so the vertex test decides; a beam with even
+    vertex colours and no taper (`fxlightbeamw02` by a rough survey) is symmetric
+    [observed: fnvtool nif decode, 2026-11-19, a rough per-axis survey].
+- **Colour, fog and the HDR path.** As the NIF materials' additive shapes are drawn
+  (nif.md §6 "Additive blend", "Fog on added light"; nvf_assets `add_display`,
+  `fogged_addition`): the glow's colour is the record's colour bytes / 255 (display
+  values) times its fade (held to 2), the merged strength and 1.0 at the core (0.8 before
+  the glows were added in display values; a few-pixel glow's centre then sat near 0.5); it
+  is made linear (raised to 2.2), taken through the view's fog (`apply_fog`, with the game's curve
+  of fog.rs and the desert haze of §3.16) and, in a view without HDR (Light glow off),
+  Bevy's tonemapping, less black through the same, so fog dims the glow and adds no fog
+  colour of its own; then added to the opaque frame behind it in display values (the view
+  transmission texture, which the anchor in nif_material.rs keeps in every view), the sum
+  held to 2. So a glow of the record's colour over a black night shows that colour, and
+  the path is the same with Light glow on (the HDR view, its tonemapper holding display
+  values to 1 per channel, lights.rs `GAME_CLIP`, and its bloom giving bright cores a halo)
+  and off. Eye adaptation (eye_adapt.rs) only brightens dark views, so a lifted night view
+  brightens the glows with it; a merged glow (strength 2) or a lift can clip the core's
+  brightest channel.
+- **Daylight.** The view's exposure never darkens for daylight (eye_adapt.rs brightens
+  only), so an additive glow would show as a dot on a sunlit hillside. The glows are scaled
+  by the sun's elevation instead: full at -4 degrees and below, gone at 6 degrees and above,
+  smooth between. While the share is 0 the mesh is hidden and nothing is listed, checked or
+  built. A fitted choice of ours [design], not the original's (which draws no light beyond
+  its loaded cells). Glow statics take the same share, though many of their shapes glow by
+  day in the original too: by day, at a distance, a glow card is not a light one looks for
+  [design].
+- **Flicker and pulse.** Lights with the flicker flags (flicker, flicker slow) and the pulse
+  flags (pulse, pulse slow) get a slow shimmer of up to 15 % (a sine with a phase from the
+  reference), slower than the near light's own motion (lights.rs `LightMotion`), which from
+  afar would read as noise.
+- **Doubling with other layers.** A glow source in a cell inside the loaded grid draws
+  nothing (its own model or light draws). The full-detail ring and distant objects on other
+  branches would draw the real model of a glow static at a distance; then the sprite and the
+  model show together (a beam's real cone with its shaft over it). `in_loaded_grid` stays the
+  named hook, to be wired when those branches are in.
+- **Accepted limits.** A shaft is a flat sprite facing the camera around its axis: seen
+  end-on it is a dot (it falls back to its round card). The glows are depthless additive sprites: they write no depth and no
+  motion, so under temporal anti-aliasing, FSR or DLSS they are resolved like other
+  additive shapes (smeared a little while the view moves; a card of a few pixels may
+  shimmer). The fog on them is the fog at the card's own pixels, and outdoors the fog blends
+  in display values, so the subtraction of fogged black is exact only where the fog is
+  linear; a glow fades a little faster with distance than the plain fog share. No light
+  colour from the model (lights whose LIGH colour is black), no emittance from a region
+  (XEMI), no glows indoors or in other worldspaces than the camera's, no occlusion beyond
+  the depth test (a glow behind the LOD's hills is hidden by them; one behind a building not
+  loaded is not, as the building is not drawn). Not a script's light colour or fade edits
+  (lights.rs session lights). An enabled activator that a script switched dark still glows,
+  and one whose stored model is dark misses its switched-on glow. A collection's model is
+  read as stored: alternate textures and damage-stage visibility are not applied. Up to
+  four shafts per model bypass merging and each takes one of the 400 slots. A model not
+  read within a scan's cap of 1,024 waits until the camera changes cell.
+- **Known misses of the classification** (a visual rule from the shapes' properties, not a
+  list): lights that exist only as part of a large building's own texture (lit windows, a
+  casino's facade; the 512-unit bound), dim bulbs (a lit shape under emission 1), large
+  lit signs that neither add to the frame nor burn, shapes hidden in the file and shown by
+  an animation (hidden shapes do not count), a collection's part merged into a shape wider
+  than 512 units in its combined model, and an activator's switched-off look. **False-positive
+  risks**: fully self-lit decorative panels and additive effects that are not lights (the
+  counted Novac area has utility girders and fans whose small self-lit part may be a
+  fixture or trim, and force-field effect activators);
+  the visible-light bound and the helper exclusion take out the smallest. The counts show
+  that the rule finds candidates, not its false-positive rate.
+- **Switching**: the row, `--graphics-only distant-lights`, a `--graphics-cycle` set
+  `distant-lights`, `NVF_PLAY_TEST_SETTINGS=<t>:distant-lights`. The first switch-on
+  compiles the glows' pipeline; switching off drops the glows and stops the scan. With the
+  test aid `NVF_PLAY_TEST_PIPELINE_LOG=1` the pipeline log names it once compiled:
+  `distant lights pipeline <n> ready` (pipeline_gate.rs, from a fragment definition the
+  material adds, `NVF_DISTANT_LIGHTS`). Smoke: `distant-lights`, `distant-lights-switch`.
+  Log lines, only with the row on: `distant lights: on (reach 12 cells, cap 400)` when it
+  turns on, `distant lights: off` when it is turned off again, and at the exit `distant
+  lights summary: <cells> cells listed (<refs> references), <lights> lights, <g> glow
+  statics, <a> glow activators, <c> glow collections (<m> glowing models of <k> read), <d>
+  disabled at the start, <drawn> drawn at most, skipped: <x> deleted, <y> no colour, <z>
+  negative/off, <e> no radius`, the reasons
+  counted over the light references read. The start line names no counts (nothing is
+  listed yet). With the row off nothing runs past the switch's check and the log is as on
+  main. The graphics
+  line names it (`..., distant lights`) only when it is on.
+- **Cost**: not measured yet (to be measured on the Goodsprings to Primm route at night,
+  #3013): one draw of at most 400 cards, each fragment reading the frame behind once; the
+  record listing on a worker, 32 cells a job, and each static model in reach read once for
+  its glow (about 830 to 900 around a town, a NIF decode and at most a 256 x 256 mip of a
+  texture each, 32 a job, one job at a time); at most 2,048 units of present-state work a
+  frame.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on
@@ -2565,7 +3634,7 @@ second, so:
 
 ### 5.3 Sun shadows (2026-10-12, playtest list 4 item 6)
 
-The owner: "shadow rendering seriously affects performance; maybe limits on draw distance or
+The request [design, #3074]: "shadow rendering seriously affects performance; maybe limits on draw distance or
 quality". Bevy times no shadow pass (they do not appear in the GPU list of `--log-frame-times`),
 so the cost was measured as frame time with the cycle's shadow keys (§6) and the casters each
 cascade drew (the log's "shadow casters per cascade" line). Machine: GeForce RTX 4070, 1280 × 800,

@@ -58,7 +58,7 @@ game, so nothing here is `[observed]`. Changes last for the session.
 | StewieGetValue `"key:section"` (StewVal) | [documented: StewieGetValue] Reads a setting. [design] After handoff, the mapped [critical](stewie-stat-profile.md) and [inventory](#live-inventory-settings) keys read NVForever choices. Other keys and unbound games keep the layered `Data\NVSE\Plugins\nvse_stewie_tweaks.ini` lookup: a number when it reads as one, otherwise text, or 0 when absent. |
 | GetCellRegions `cell` | an exterior cell's regions (XCLR); none for an interior [documented] |
 | SetWorldspaceMapBounds `world nwX nwY seX seY` | the WRLD MNAM cells, read by every reader of the record (`Game::world_map_bounds`) [documented; follow-up: the engine's map reads its bounds once] |
-| ySIGetTrait / ySISetTrait `"tag"\|"icon" [value] [form]` | ySI's tag and icon, of the form else the calling reference's base; an icon set on a tagged form goes to every form of that tag [documented]; "" until set [decision: ySI's own files are not read] |
+| ySIGetTrait / ySISetTrait `"tag"\|"icon" [value] [form]` | ySI's sorting tag and icon texture path of the form, else the calling reference's base (uncloned), reading session `ySISetTrait` overrides first and falling back to the bounded `menus/ySI/*.json` rule snapshot (`ysi-filename.md`); an icon set on a tagged form (overridden or JSON-tagged) applies to every form of that tag [documented: `YSIGetTrait`, `YSISetTrait`]; "" when unset, cleared, or unmatched [design] |
 
 ### Live inventory settings
 

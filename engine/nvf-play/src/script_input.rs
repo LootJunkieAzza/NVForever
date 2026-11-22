@@ -281,20 +281,60 @@ const PAD_BITS: [(GamepadButton, u32); 14] = [
     (GamepadButton::North, 0x8000),
 ];
 
-/// Tell the scripts the player's auto-move, aiming, kill-camera state, and the first
-/// connected pad (GetAutoMove, GetPCUsingScope/IronSights, IsInKillCam, the controller
-/// functions), and whether the sights are up (`Combat::player_sights_up`: not while
-/// blocking with a melee weapon or while a reload holds them down), for SUP's HUD bars'
-/// aiming condition.
+/// Whether a physics character is airborne (`!grounded && !swimming`, matching
+/// `crate::pipboy::data::travel` and `crate::combat`) [design].
+fn character_in_air(c: &fnv_phys::Character) -> bool {
+    !c.grounded && !c.swimming
+}
+
+/// Sync `Motion::in_air` for the player and every loaded physics NPC before scripts run,
+/// preserving other `Motion` fields and clearing stale `in_air` flags when `PhysState` or
+/// an actor's character is absent [design].
+fn sync_motion_in_air(game: &mut fnv_game::game::Game, phys: Option<&crate::phys::PhysState>) {
+    for (&id, motion) in &mut game.senses.motion {
+        let ch = phys.and_then(|p| {
+            if id == FormId::PLAYER_REF {
+                p.player.as_ref()
+            } else {
+                p.npcs.get(&id.0).map(|n| &n.ch)
+            }
+        });
+        motion.in_air = ch.is_some_and(character_in_air);
+    }
+    let Some(p) = phys else { return };
+    if p.player.as_ref().is_some_and(character_in_air) && !game.motion(FormId::PLAYER_REF).in_air {
+        let mut motion = game.motion(FormId::PLAYER_REF);
+        motion.in_air = true;
+        game.set_motion(FormId::PLAYER_REF, motion);
+    }
+    for (&id, npc) in &p.npcs {
+        if character_in_air(&npc.ch) {
+            let fid = FormId(id);
+            if !game.motion(fid).in_air {
+                let mut motion = game.motion(fid);
+                motion.in_air = true;
+                game.set_motion(fid, motion);
+            }
+        }
+    }
+}
+
+/// Tell the scripts the player's auto-move, aiming, kill-camera, actors' airborne state
+/// (player and physics NPCs), and the first connected pad (GetAutoMove,
+/// GetPCUsingScope/IronSights, IsInKillCam, IsInAir, the controller functions), and
+/// whether the sights are up (`Combat::player_sights_up`: not while blocking with a melee
+/// weapon or while a reload holds them down), for SUP's HUD bars' aiming condition.
 fn tell_player_state(
     control: Option<Res<crate::control::PlayerControl>>,
     combat: Option<Res<crate::combat::Combat>>,
     anim: Option<Res<crate::combat::WeaponAnim>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
+    phys: Option<Res<crate::phys::PhysState>>,
     pads: crate::pad::ActionPads,
     mut script: Option<ResMut<crate::script::ScriptState>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    sync_motion_in_air(&mut rt.game, phys.as_deref());
     let told = &mut rt.game.jip2.told;
     if let Some(c) = control {
         told.auto_move = c.auto_move;
@@ -402,5 +442,94 @@ mod kill_cam_state_tests {
         app.world_mut().remove_resource::<KillCam>();
         app.update();
         assert_eq!(is_in_kill_cam(&mut app), XVal::Num(0.0));
+    }
+
+    fn is_in_air(app: &mut App, subject: Option<FormId>) -> XVal {
+        let mut state = app.world_mut().resource_mut::<ScriptState>();
+        let game = &mut state.rt.as_mut().unwrap().game;
+        fnv_game::nvse::call(game, &RunCtx::default(), "isinair", subject, &[])
+            .expect("IsInAir handler")
+            .expect("IsInAir result")
+    }
+
+    #[test]
+    fn tell_player_state_tracks_player_and_npc_in_air_from_physics() {
+        let mut app = App::new();
+        app.insert_resource(ScriptState::over_no_plugins())
+            .add_systems(Update, tell_player_state);
+
+        let npc_id = 0x1234u32;
+        let npc_ref = FormId(npc_id);
+
+        // Preserve existing Motion fields (e.g. sneaking) while updating in_air.
+        {
+            let mut state = app.world_mut().resource_mut::<ScriptState>();
+            let game = &mut state.rt.as_mut().unwrap().game;
+            game.set_motion(
+                FormId::PLAYER_REF,
+                fnv_game::functions::senses::Motion { sneaking: true, ..Default::default() },
+            );
+        }
+
+        // Absent PhysState reports 0 for player and NPC.
+        app.update();
+        assert_eq!(is_in_air(&mut app, None), XVal::Num(0.0));
+        assert_eq!(is_in_air(&mut app, Some(npc_ref)), XVal::Num(0.0));
+
+        // Grounded player and grounded NPC report 0.
+        let mut phys = crate::phys::PhysState::default();
+        let mut ch = phys.world.add_character(FormId::PLAYER_REF.0, fnv_phys::CharacterParams::default(), [0.0, 0.0, 0.0]);
+        ch.grounded = true;
+        ch.swimming = false;
+        phys.player = Some(ch);
+        let mut npc_ch = phys.world.add_character(npc_id, fnv_phys::CharacterParams::default(), [64.0, 0.0, 0.0]);
+        npc_ch.grounded = true;
+        npc_ch.swimming = false;
+        phys.npcs.insert(
+            npc_id,
+            crate::phys::NpcBody {
+                ch: npc_ch,
+                prev_feet: [64.0, 0.0, 0.0],
+                velocity: [0.0, 0.0],
+                jump: false,
+                sink: 0.0,
+                lift: crate::phys::step_lift::StepLift::default(),
+            },
+        );
+        app.insert_resource(phys);
+        app.update();
+        assert_eq!(is_in_air(&mut app, None), XVal::Num(0.0));
+        assert_eq!(is_in_air(&mut app, Some(npc_ref)), XVal::Num(0.0));
+
+        // Player airborne (not grounded, not swimming) reports 1 and preserves sneaking; NPC stays 0.
+        app.world_mut().resource_mut::<crate::phys::PhysState>().player.as_mut().unwrap().grounded = false;
+        app.update();
+        assert_eq!(is_in_air(&mut app, None), XVal::Num(1.0));
+        assert_eq!(is_in_air(&mut app, Some(npc_ref)), XVal::Num(0.0));
+        assert!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.motion(FormId::PLAYER_REF).sneaking);
+
+        // Player swimming (not grounded, swimming) reports 0; NPC airborne reports 1.
+        {
+            let mut p = app.world_mut().resource_mut::<crate::phys::PhysState>();
+            p.player.as_mut().unwrap().swimming = true;
+            p.npcs.get_mut(&npc_id).unwrap().ch.grounded = false;
+        }
+        app.update();
+        assert_eq!(is_in_air(&mut app, None), XVal::Num(0.0));
+        assert_eq!(is_in_air(&mut app, Some(npc_ref)), XVal::Num(1.0));
+
+        // Unloading the airborne NPC clears its in_air flag immediately (no stale true).
+        app.world_mut().resource_mut::<crate::phys::PhysState>().npcs.remove(&npc_id);
+        app.update();
+        assert_eq!(is_in_air(&mut app, Some(npc_ref)), XVal::Num(0.0));
+
+        // Player back airborne, then removing PhysState resets to 0 (no stale true).
+        app.world_mut().resource_mut::<crate::phys::PhysState>().player.as_mut().unwrap().swimming = false;
+        app.update();
+        assert_eq!(is_in_air(&mut app, None), XVal::Num(1.0));
+
+        app.world_mut().remove_resource::<crate::phys::PhysState>();
+        app.update();
+        assert_eq!(is_in_air(&mut app, None), XVal::Num(0.0));
     }
 }

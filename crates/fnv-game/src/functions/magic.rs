@@ -10,7 +10,7 @@ use fnv_script::vm::Value;
 
 fn magic_item(g: &Game, a: &Args) -> Result<fnv_sim::FormId, String> {
     let s = a.form(0)?;
-    if g.data.effect_items.contains_key(&s) {
+    if g.data.effect_items.contains_key(&g.unclone(s)) {
         Ok(s)
     } else {
         Err(format!("{} is not a spell, enchantment or ingestible", g.data.name(s)))
@@ -93,9 +93,13 @@ pub fn dispel(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
             }
         }
     }
-    let data = g.data;
-    let is_ability = |e: &crate::game::ActiveEffect| e.worn.is_none() && data.spell_types.get(&e.source) == Some(&crate::abilities::SPELL_ABILITY);
-    g.dispel(r, ctx.inst, |e| e.source == s && (!e.permanent || e.worn.is_some() || is_ability(e)));
+    let drop_ids: Vec<u32> = g
+        .effects
+        .iter()
+        .filter(|e| e.target == r && e.source == s && (!e.permanent || e.worn.is_some() || g.is_ability_effect(e)))
+        .map(|e| e.id)
+        .collect();
+    g.dispel(r, ctx.inst, |e| drop_ids.contains(&e.id));
     none()
 }
 

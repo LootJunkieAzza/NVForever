@@ -28,6 +28,9 @@
 //!   seconds, no wider than [`ACTOR_MAX_SIDE`] and thin ([`ACTOR_DEPTH`]) so a flat mark
 //!   does not show past a limb's curve. Elsewhere it hangs from the drawn cell it lies
 //!   in, none outside the drawn cells.
+//! - **Blood on the world behind a shot actor** ([`ImpactFx::splatter`], combat's
+//!   `world_blood`, impact-decals.md §4a) is a world decal like a bullet hole's, counted
+//!   on its own in the log.
 //! - **Not kept** (the owner, 2026-10-20: "make sure the scorch marks and bullet holes
 //!   arent persistent i dont want to jam up the engine remembering all these"): decals
 //!   are only drawn entities, never saved nor remembered by a cell; they go with their
@@ -131,6 +134,10 @@ struct Decals {
     /// limits.
     off_body: u32,
     actor_limit: u32,
+    /// Blood splatters on the world behind shot actors ([`ImpactFx::splatter`]): sent, and
+    /// placed.
+    splatters: u32,
+    splatters_placed: u32,
 }
 
 impl Default for Decals {
@@ -154,6 +161,8 @@ impl Default for Decals {
             last_on: HashMap::new(),
             off_body: 0,
             actor_limit: 0,
+            splatters: 0,
+            splatters_placed: 0,
         }
     }
 }
@@ -210,6 +219,7 @@ fn place(
             st.no_decal += 1;
             continue;
         }
+        st.splatters += u32::from(hit.splatter);
         let Some(impact) = sfx.forms.impacts.get(&hit.impact) else { continue };
         let Some((set, data)) = sfx.forms.decal(impact) else { continue };
         let Some(set_id) = impact.texture_set else { continue };
@@ -376,7 +386,21 @@ fn place(
         let entity = commands
             .spawn((ForwardDecal, MeshMaterial3d(material.clone()), place, Visibility::default(), RenderLayers::layer(DECAL_LAYER), Decal { age: 0.0, material }, ChildOf(parent)))
             .id();
-        if st.reported.insert(hit.impact) {
+        if hit.splatter && st.splatters_placed == 0 {
+            info!(
+                "decals: {} splatters blood ({}) on the world behind a shot actor at ({:.0}, {:.0}, {:.0}), facing ({:.2}, {:.2}, {:.2}): side {side:.0}",
+                impact.edid.as_deref().unwrap_or("?"),
+                set.edid.as_deref().unwrap_or("?"),
+                point.x,
+                point.y,
+                point.z,
+                normal_dir.x,
+                normal_dir.y,
+                normal_dir.z
+            );
+        }
+        st.splatters_placed += u32::from(hit.splatter);
+        if !hit.splatter && st.reported.insert(hit.impact) {
             info!(
                 "decals: {} leaves {} ({}) on {}: side {side:.0} of {:.0}-{:.0}, depth {:.0}",
                 impact.edid.as_deref().unwrap_or("?"),
@@ -455,6 +479,9 @@ fn report(mut exit: MessageReader<AppExit>, st: Res<Decals>) {
             "decals: on actors, {} hits whose line met no drawn shape left none, {} were left out by the actor limits ({MAX_PER_ACTOR} alive, one each {ACTOR_GAP} s)",
             st.off_body, st.actor_limit
         );
+    }
+    if exit_seen && st.splatters > 0 {
+        info!("decals: blood on the world behind shot actors: {} splatters sent, {} placed", st.splatters, st.splatters_placed);
     }
     if exit_seen && st.no_decal > 0 {
         info!("decals: {} hits on actors flagged No Blood Decal left none", st.no_decal);
@@ -601,6 +628,12 @@ mod tests {
     }
 
     fn emit_decal(world: &mut World, normal: Option<&str>, no_specular: bool) -> StandardMaterial {
+        emit(world, normal, no_specular, false)
+    }
+
+    /// One impact through `place`; `splatter`: a blood splatter on the world behind a shot
+    /// actor (nvf_play::combat::world_blood), decal only.
+    fn emit(world: &mut World, normal: Option<&str>, no_specular: bool, splatter: bool) -> StandardMaterial {
         use bevy::ecs::system::RunSystemOnce;
         use fnv_combat::fx::{DecalData, Impact, TextureSet};
         let set = FormId(0x101);
@@ -612,7 +645,7 @@ mod tests {
         let before = world.resource::<Decals>().placed;
         let mut hits = world.resource_mut::<Messages<ImpactFx>>();
         hits.clear();
-        hits.write(ImpactFx { impact, shooter: FormId(0), point: [5.0, 6.0, 7.0], normal: [0.0, 0.0, 1.0], dir: [0.0, 0.0, -1.0], actor: None, no_spray: false, no_decal: false });
+        hits.write(ImpactFx { impact, shooter: FormId(0), point: [5.0, 6.0, 7.0], normal: [0.0, 0.0, 1.0], dir: [0.0, 0.0, -1.0], actor: None, no_spray: splatter, no_decal: false, splatter });
         world.run_system_once(place).unwrap();
         assert_eq!(world.resource::<Decals>().placed, before + 1, "actual impact producer must create the recipient");
         let entity = world.resource::<Decals>().live.back().unwrap().entity;
@@ -622,6 +655,28 @@ mod tests {
         let material = world.resource::<Assets<ForwardDecalMaterial<StandardMaterial>>>().get(handle).unwrap();
         assert_eq!(material.extension.depth_fade_factor, 9.0);
         material.base.clone()
+    }
+
+    #[test]
+    fn a_blood_splatter_is_placed_as_a_world_decal() {
+        let (_inputs, mut world) = bc5_fixture::inputs();
+        world.insert_resource(owned_sfx());
+        world.init_resource::<Decals>();
+        world.init_resource::<Messages<ImpactFx>>();
+        world.init_resource::<Assets<ForwardDecalMaterial<StandardMaterial>>>();
+        let root = world.spawn((WorldRoot, GlobalTransform::IDENTITY)).id();
+        // `emit` asserts the ForwardDecal entity, its place and depth.
+        let material = emit(&mut world, Some("old.dds"), false, true);
+        assert!(material.base_color_texture.is_some());
+        let st = world.resource::<Decals>();
+        assert_eq!((st.splatters, st.splatters_placed, st.on_actors), (1, 1, 0));
+        let live = st.live.back().unwrap();
+        assert_eq!(live.actor, None);
+        assert_eq!(world.get::<ChildOf>(live.entity).unwrap().parent(), root);
+        // A plain impact is not counted as one.
+        emit(&mut world, Some("old.dds"), false, false);
+        let st = world.resource::<Decals>();
+        assert_eq!((st.splatters, st.splatters_placed, st.placed), (1, 1, 2));
     }
 
     #[test]

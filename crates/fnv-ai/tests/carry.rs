@@ -1232,11 +1232,11 @@ fn open_locked_in_place_door_allows_arrival_despite_script_refusal() {
 fn open_locked_in_place_doors_reach_actor_path_parameters() {
     // [design, #2716] Synthetic barrier across cell A, using a fixture reference:
     // exercise closed, script-opened, untouched default-open, and script-closed states.
-    for mode in ["closed", "script", "default", "closed-default"] {
+    for mode in ["closed", "script", "default", "closed-default", "set-default-open", "clear-default-open"] {
         let mut f = fixture();
         let placed = f.refs.refs.get_mut(&FormId(M1)).unwrap();
         placed.lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
-        placed.open_by_default = matches!(mode, "default" | "closed-default");
+        placed.open_by_default = matches!(mode, "default" | "closed-default" | "clear-default-open");
         let mut s = sim(&f, &[R_TRAVEL]);
         s.nav.set_in_place_doors(vec![fnv_nav::InPlaceDoor {
             door: M1,
@@ -1250,11 +1250,14 @@ fn open_locked_in_place_doors_reach_actor_path_parameters() {
         assert!(s.game.world.peek(FormId(M1)).is_none());
         if matches!(mode, "script" | "closed-default") {
             s.game.set_ref_open(FormId(M1), mode == "script").unwrap();
+        } else if matches!(mode, "set-default-open" | "clear-default-open") {
+            s.game.world.set_default_open(FormId(M1), mode == "set-default-open").unwrap();
+            assert!(s.game.world.peek(FormId(M1)).is_none(), "SetDefaultOpen does not materialize an untouched door");
         }
         s.run(1.0);
         let events = s.events(R_TRAVEL);
-        if matches!(mode, "closed" | "closed-default") {
-            assert!(events.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{events:?}");
+        if matches!(mode, "closed" | "closed-default" | "clear-default-open") {
+            assert!(events.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{mode}: {events:?}");
         } else {
             assert!(events.iter().any(|e| matches!(e, AiEvent::Trip { .. })), "{mode}: {events:?}");
             assert!(!events.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{mode}: {events:?}");
@@ -3520,14 +3523,19 @@ fn a_chase_is_planned_again_sooner_near_its_target_and_leads_one_that_moves() {
     assert!(keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 10.5));
     assert!(!keeps_way(to, 10.0, [30.0, 0.0, 0.0], 250.0, 150.0, 10.5), "the target moved 30 units, 25 allowed");
     assert!(!keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 11.6), "1.5 s have passed");
-    // The target's speed: measured over 0.05 s or more, evened with the one before.
+    // The target's speed: measured over 0.05 s or more; the first measurement as it is
+    // (#3256: evened with the "standing" it began with, a walking target read as half
+    // its speed and was taken for standing), each later one evened with the one before.
     let d = Drift::begin(to, 10.0);
-    assert_eq!(d.speed, [0.0, 0.0]);
+    assert_eq!((d.speed, d.measured), ([0.0, 0.0], false));
     assert_eq!(d.on([5.0, 0.0, 0.0], 10.02), d, "too soon to measure");
     let d = d.on([30.0, 0.0, 0.0], 10.1);
-    assert!((d.speed[0] - 150.0).abs() < 0.01 && d.speed[1] == 0.0, "{d:?}");
-    let d = d.on([60.0, 0.0, 0.0], 10.2);
-    assert!((d.speed[0] - 225.0).abs() < 0.01, "{d:?}");
+    assert!((d.speed[0] - 300.0).abs() < 0.01 && d.speed[1] == 0.0 && d.measured, "{d:?}");
+    let d = d.on([40.0, 0.0, 0.0], 10.2);
+    assert!((d.speed[0] - 200.0).abs() < 0.01, "{d:?}");
+    // A player walking backwards (69 units/s) is a moving target from the first measurement.
+    let walk = Drift::begin(to, 10.0).on([6.9, 0.0, 0.0], 10.1);
+    assert!(walk.speed[0] >= fnv_ai::alert::CHASE_LEAD_MIN_SPEED, "{walk:?}");
     // A moving target is closed in on 0.35 s ahead of it, at most 96 units; a slow one
     // where it is.
     assert_eq!(lead([100.0, 50.0, 7.0], [200.0, 0.0]), [170.0, 50.0, 7.0]);
@@ -5594,7 +5602,11 @@ fn sandbox_interrupt_normal_spectator_flee_cancels_the_active_seat() {
     let player = s.game.world.get(FormId::PLAYER_REF).unwrap();
     (player.cell, player.pos) = (Some(FormId(CELL_C)), player_at);
     s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 200.0, ..GroupSettings::default() });
-    // The non-resident loner fights the player; the sandboxer stays a neutral observer.
+    // The non-resident loner fights the player beside it; the sandboxer stays a neutral
+    // observer. The loner is put near: a foe with no place near the player is near no one
+    // (#3223), and its placed spot is in another cell.
+    let loner = s.game.world.get(FormId(R_LONER)).unwrap();
+    (loner.cell, loner.pos) = (Some(FormId(CELL_C)), [player_at[0] - 150.0, player_at[1], player_at[2]]);
     fighting(&mut s, R_LONER, player_at);
     let saved = s.ai.agents[&actor].sandbox.as_ref().unwrap().schedule();
     s.ai.social(&mut s.game, &s.nav, 0.5);

@@ -32,6 +32,7 @@ mod exit_watch;
 mod native_crash_unix;
 mod nif_mirror;
 mod nif_attachments;
+mod extra_camera;
 // Authored record builders are loaded once for the engine test binary.
 #[cfg(test)]
 #[path = "../../../crates/fnv-game/tests/common/mod.rs"]
@@ -64,6 +65,7 @@ mod death_cam;
 mod deaths;
 mod decals;
 mod dismember;
+mod distant_lights;
 mod knockouts;
 mod player_knockdown;
 mod detection;
@@ -79,6 +81,7 @@ mod flashlight;
 mod eye_adapt;
 mod fog;
 mod haze;
+mod aerial;
 mod fly;
 mod foot_ik;
 mod anti_lag;
@@ -99,6 +102,9 @@ mod grass_fire_fx;
 mod head_look;
 mod rigid_head_probe;
 mod idles;
+mod light_shadow_casters;
+mod light_shadow_detail;
+mod light_shadows;
 mod lights;
 mod limbs;
 mod lips;
@@ -177,6 +183,7 @@ mod sun_heightfield;
 mod imagespace;
 mod imposters;
 mod sky;
+mod night_sky;
 mod start_times;
 mod sun_visibility;
 mod weather_fx;
@@ -415,6 +422,13 @@ struct Args {
     /// shadow_thin.rs); 0, the default, lets everything cast as far as the shadows reach.
     #[arg(long, default_value_t = shadow_thin::DEFAULT_RATIO)]
     shadow_thin: f32,
+    /// ALC shadows (All Lights Cast): placed lights (lamps, fires, spot lights), muzzle
+    /// flashes and explosions cast shadows within the shadow distance
+    /// (light_shadows.rs): `--light-shadows=performance` draws their maps less often, a
+    /// bare `--light-shadows` or `=quality` the default one, `=off` none (the default).
+    /// Once any setting is saved, NVForever.ini's ALC shadows row wins over this flag.
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "quality", require_equals = true)]
+    light_shadows: Option<light_shadows::LightShadowMode>,
     /// Samples per pixel for anti-aliasing: 1 (off), 2, 4 or 8. The cut-out edges of
     /// alpha-tested shapes (plants, fences, hair, grass) are smoothed with it too, like
     /// the game's transparency multisampling; with 1 they are tested per pixel.
@@ -465,7 +479,7 @@ struct Args {
     #[arg(long, default_value = "1280x800")]
     size: String,
     /// The window: `windowed` (of --size) or `borderless` (borderless full screen on the
-    /// display chosen in Display settings, the first display until one is chosen). With
+    /// display chosen in Display settings, the primary display until one is chosen). With
     /// --play the settings page's Display group switches it too.
     #[arg(long, value_enum, default_value_t = window_mode::WindowChoice::Windowed)]
     window: window_mode::WindowChoice,
@@ -576,7 +590,7 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
     /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
@@ -1121,13 +1135,13 @@ fn main() -> AppExit {
         eprintln!("explore: the free-camera explorer (--explore)");
     }
     let developer_data = args.data.is_some();
-    let code_page_named = match setup::text_code_page() {
-        Ok((c, named)) => {
+    let (code_page_named, cjk_font_path) = match setup::text_code_page() {
+        Ok((c, named, cjk_font_path)) => {
             if c != fnv_util::text::CodePage::default() {
                 eprintln!("setup: game text read as {c}");
             }
             fnv_util::text::set_code_page(c);
-            named
+            (named, cjk_font_path)
         }
         Err(e) => {
             eprintln!("error: {e}");
@@ -1149,7 +1163,7 @@ fn main() -> AppExit {
         }
     };
     args.data = Some(install.data.clone());
-    setup::install_fonts(&install);
+    setup::install_fonts(&install, cjk_font_path);
     // Every `fnv_install::guard_write` from here on refuses writes into this install,
     // also where the writer has none at hand (saves, test aids; #994).
     fnv_install::remember_game(&install);
@@ -1403,8 +1417,17 @@ fn main() -> AppExit {
         },
         None => None,
     };
+    let bos_sources: Vec<(String, String)> = game
+        .vfs
+        .paths(|p| p.starts_with("baseobjectswapper\\") && p.ends_with(".ini"))
+        .into_iter()
+        .filter_map(|p| {
+            let bytes = game.vfs.read(&p)?.ok()?;
+            Some((p, String::from_utf8_lossy(&bytes).into_owned()))
+        })
+        .collect();
     let t0 = std::time::Instant::now();
-    let mut world = match WorldData::open(&args.esm_schema, opened, &args.world) {
+    let mut world = match WorldData::open(&args.esm_schema, opened, &args.world, bos_sources) {
         Ok(w) => w,
         Err(e) => return fail(e),
     };
@@ -1842,13 +1865,19 @@ fn main() -> AppExit {
     )
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
-    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, aerial::AerialPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins(night_sky::NightSkyPlugin)
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))
     // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
+    // Shadows of placed lights, the ALC shadows row (off by default).
+    .add_plugins(light_shadows::LightShadowsPlugin(args.light_shadows.unwrap_or(light_shadows::LightShadowMode::Off)))
+    .add_plugins(light_shadow_detail::LightShadowDetailPlugin)
     .add_plugins(mesh_terrain_blend::MeshTerrainBlendPlugin)
+    // Glows of placed lights beyond the loaded cells at night (the Distant lights switch).
+    .add_plugins(distant_lights::DistantLightsPlugin)
     // The switches the settings page weighs against the INI (`--play` only), for the
     // frame split's start-time decision (perf_overlay/split.rs).
     .add_plugins(perf_overlay::PerfOverlayPlugin(args.fps, play.is_some().then(|| settings::given_switches(&args, &command_line()))))
@@ -2209,12 +2238,14 @@ fn main() -> AppExit {
             app.add_plugins(anim_state::AnimStatePlugin);
             // JIP's NIF block functions on the drawn nodes (nif_mirror.rs).
             app.add_plugins(nif_mirror::NifMirrorPlugin);
+            // JIP's extra render-to-texture cameras (AttachExtraCamera / ProjectExtraCamera).
+            app.add_plugins(extra_camera::ExtraCameraPlugin);
             // kNVSE's replacement animations on the drawn actors (anim_paths.rs).
             app.add_plugins(anim_paths::AnimPathsPlugin);
         }
     }
     if play.is_some() {
-        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game).chain().before(sky::update_sky));
+        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game, sky::sync_weather_fog).chain().before(sky::update_sky));
         app.add_systems(Update, settings::script_fov.before(nvf_play::PlaySet::Scripts));
         // The weather's sounds, precipitation and lightning (weather_fx.rs).
         app.add_plugins(weather_fx::WeatherFxPlugin);
@@ -2319,6 +2350,7 @@ fn main() -> AppExit {
                 );
                 info!("distant LOD at the end: {}", lod.describe());
                 info!("distant LOD blocks over the run: {}", lod.block_stats.describe());
+                info!("distant LOD terrain surfaces: {}", lod.surfaces.describe());
                 info!("grass at the end: {}, {} generated in total in {:.0} ms", grass.describe(), grass.plants_generated, grass.build_ms);
                 info!(
                     "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame, {} switches of nodes shown and hidden by visibility tracks",

@@ -400,6 +400,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x1024, "MenuMode", Impl(misc::menu_mode)),
             (0x10DD, "SetOpenState", Impl(refs::set_open_state)),
             (0x109D, "GetOpenState", Impl(refs::get_open_state)),
+            (0x10D7, "GetDefaultOpen", Impl(refs::get_default_open)),
             (0x11BA, "EnterTrigger", Impl(refs::enter_trigger)),
             (0x11C5, "SetPlayerTeammate", Impl(actor::set_player_teammate)),
             (0x11C6, "GetPlayerTeammate", Impl(actor::get_player_teammate)),

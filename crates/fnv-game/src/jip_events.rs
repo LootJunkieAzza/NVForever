@@ -17,6 +17,15 @@ use crate::jip_provenance::Registrar;
 /// SetOnCriticalHitEventHandler].
 const XMARKER: u32 = 0x0000_003B;
 
+/// Analog controller trigger press threshold (`0.0..=1.0`): standard XInput
+/// `XINPUT_GAMEPAD_TRIGGER_THRESHOLD` (30 / 255) [documented: Microsoft XInput
+/// `XINPUT_GAMEPAD_TRIGGER_THRESHOLD`; hypothesis: used for JIP trigger down/up edges].
+pub const TRIGGER_PRESS_THRESHOLD: f32 = 30.0 / 255.0;
+
+/// Default `fAutoAimMaxDistance` when the load order lacks the GMST
+/// [documented: GECK wiki Auto Aim Settings, 1800].
+pub const DEFAULT_AUTO_AIM_MAX_DISTANCE: f64 = 1800.0;
+
 /// The JIP registrations of a session.
 #[derive(Debug, Clone, Default)]
 pub struct JipEvents {
@@ -33,6 +42,15 @@ pub struct JipEvents {
     pub controls_held: u32,
     /// Last gamepad button mask snapshot (XInput bits), for OnButtonDown/OnButtonUp.
     pub buttons_held: u32,
+    /// Last controller trigger bitmask (bit 0 = left trigger, bit 1 = right trigger),
+    /// for SetOnTriggerDownEventHandler / SetOnTriggerUpEventHandler.
+    pub triggers_held: u8,
+    /// Last actor target reported to SetOnPCTargetChangeEventHandler.
+    pub pc_target: Option<FormId>,
+    /// Last `(crosshair_ref, crosshair_far, reticle_hit_bits, auto_aim_max_bits)`
+    /// snapshot synced from `Senses`, so explicit `set_pc_target` calls are not
+    /// overwritten on ticks when `Senses` has not changed.
+    last_crosshair_senses: (Option<FormId>, Option<FormId>, Option<u32>, u64),
     /// ScriptWait: the waiting block of each script instance (one at a time
     /// [documented: ScriptWait]); not saved [hypothesis, as the registrations].
     pub waits: std::collections::HashMap<crate::game::InstKey, Waiting>,
@@ -210,8 +228,8 @@ fn slots(event: &str) -> &'static [Slot] {
         "animaction" | "playgroup" => &[Slot::On, Slot::ExactArg(0)],
         "criticalhit" => &[Slot::On, Slot::Arg(0), Slot::Arg(1)],
         "queststage" => &[Slot::Arg(0), Slot::Arg(1)],
-        "controldown" | "controlup" => &[Slot::ExactArg(0)],
-        "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "triggerdown" | "triggerup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
+        "controldown" | "controlup" | "triggerdown" | "triggerup" => &[Slot::ExactArg(0)],
+        "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
         _ => &[],
     }
 }
@@ -260,7 +278,14 @@ impl Game<'_> {
     /// as Just Assorted Mods' sprint relies on: it registers its key handler per key and
     /// removes it with no key before registering again or when the sprint is turned off,
     /// observed in its script source; issue #2952]. Returns whether anything changed.
-    pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, filters: Vec<XVal>, registrar: Option<Arc<Registrar>>) -> bool {
+    pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, mut filters: Vec<XVal>, registrar: Option<Arc<Registrar>>) -> bool {
+        if event == "playgroup" {
+            if let Some(XVal::Str(name)) = filters.get(1) {
+                if let Some(code) = self.anim_group_code(name) {
+                    filters[1] = XVal::Num(f64::from(code));
+                }
+            }
+        }
         let filters_eq = |a: &XVal, b: &XVal| match (event.as_str(), a, b) {
             ("menuclick", XVal::Str(sa), XVal::Str(sb)) => normalize_click_filter(sa) == normalize_click_filter(sb),
             _ => a == b,
@@ -351,6 +376,25 @@ impl Game<'_> {
         }
         let hs = self.jip.handlers.iter().filter(|h| h.event == event && self.jip_matches(h, on, &args)).map(|h| self.jip.attempt(h)).collect();
         self.jip_run(event, hs, on, args)
+    }
+
+    /// Fire JIP's `SetOnAnimActionEventHandler` (`animaction`) for `actor` starting
+    /// `action` (0–13, `GetAnimAction` code) [documented: SetOnAnimActionEventHandler].
+    pub fn fire_anim_action(&mut self, actor: FormId, action: i32) -> usize {
+        if action < 0 {
+            return 0;
+        }
+        self.jip_event("animaction", Some(actor), vec![XVal::Num(f64::from(action))])
+    }
+
+    /// Fire JIP's `SetOnPlayGroupEventHandler` (`playgroup`) for `actor` starting
+    /// animation group `group` [documented: SetOnPlayGroupEventHandler]. Ignores
+    /// internal sentinel codes (`SEQUENCE`, `OPEN_GROUP`, `CLOSE_GROUP`).
+    pub fn fire_play_group(&mut self, actor: FormId, group: u16) -> usize {
+        if matches!(group, crate::anims::SEQUENCE | crate::anims::OPEN_GROUP | crate::anims::CLOSE_GROUP) {
+            return 0;
+        }
+        self.jip_event("playgroup", Some(actor), vec![XVal::Num(f64::from(group))])
     }
 
     /// SetOnMenuClickEventHandler's event: a tile was clicked (task T8). `menu` is the
@@ -520,9 +564,110 @@ impl Game<'_> {
     pub(crate) fn jip_keys(&mut self) {
         let controls = self.input.controls_for_events();
         let buttons = self.jip2.told.pad.buttons | self.jip2.told.pad.held_buttons;
+        let triggers = self.trigger_mask();
         self.jip_key_edges();
         self.control_edges(controls);
         self.button_edges(buttons);
+        self.trigger_edges(triggers);
+        self.sync_pc_target();
+    }
+
+    fn trigger_mask(&self) -> u8 {
+        let p = &self.jip2.told.pad;
+        let left = p.held_triggers[0] || p.triggers[0] >= TRIGGER_PRESS_THRESHOLD;
+        let right = p.held_triggers[1] || p.triggers[1] >= TRIGGER_PRESS_THRESHOLD;
+        u8::from(left) | (u8::from(right) << 1)
+    }
+
+    /// Publish controller trigger values (`0.0..=1.0`, left then right) and immediately
+    /// dispatch any `SetOnTriggerDownEventHandler` / `SetOnTriggerUpEventHandler` edge
+    /// transitions (`0` left, `1` right) [documented: SetOnTriggerDownEventHandler,
+    /// SetOnTriggerUpEventHandler].
+    pub fn set_pad_triggers(&mut self, left: f32, right: f32) {
+        self.jip2.told.pad.triggers = [left.clamp(0.0, 1.0), right.clamp(0.0, 1.0)];
+        let now = self.trigger_mask();
+        self.trigger_edges(now);
+    }
+
+    fn trigger_edges(&mut self, now: u8) {
+        let before = std::mem::replace(&mut self.jip.triggers_held, now);
+        let changed = now ^ before;
+        if changed == 0 {
+            return;
+        }
+        let jip = self.jip.handlers.iter().any(|h| h.event == "triggerdown" || h.event == "triggerup");
+        if !jip {
+            return;
+        }
+        for code in 0u8..2 {
+            let bit = 1u8 << code;
+            if changed & bit == 0 {
+                continue;
+            }
+            let down = now & bit != 0;
+            self.jip_event(if down { "triggerdown" } else { "triggerup" }, None, vec![XVal::Num(f64::from(code))]);
+        }
+    }
+
+    fn is_pc_target_actor(&self, r: FormId) -> bool {
+        r != FormId::PLAYER_REF
+            && matches!(
+                crate::functions::base_of(self, r).and_then(|b| self.data.sig(b)).as_ref(),
+                Some(b"NPC_") | Some(b"CREA")
+            )
+    }
+
+    fn pc_target_from_senses(&self, max_dist: f64) -> Option<FormId> {
+        let from_far = self.senses.crosshair_far.is_some();
+        let candidate = self.senses.crosshair_far.or(self.senses.crosshair_ref)?;
+        if !self.is_pc_target_actor(candidate) {
+            return None;
+        }
+        if from_far && max_dist > 0.0 {
+            let dist = self
+                .senses
+                .reticle
+                .and_then(|r| r.hit)
+                .map(f64::from)
+                .or_else(|| crate::nvse_showoff5::distance_between(self, FormId::PLAYER_REF, candidate));
+            if dist.is_some_and(|d| d > max_dist) {
+                return None;
+            }
+        }
+        Some(candidate)
+    }
+
+    /// Synchronize `SetOnPCTargetChangeEventHandler` (`pctargetchange`) against `Senses`
+    /// (`crosshair_far`, `crosshair_ref`, `reticle`, and `fAutoAimMaxDistance`) whenever
+    /// any of those inputs changed.
+    pub(crate) fn sync_pc_target(&mut self) {
+        let max_dist = crate::combat::setting(self, "fAutoAimMaxDistance", DEFAULT_AUTO_AIM_MAX_DISTANCE);
+        let snap = (
+            self.senses.crosshair_ref,
+            self.senses.crosshair_far,
+            self.senses.reticle.and_then(|r| r.hit).map(f32::to_bits),
+            max_dist.to_bits(),
+        );
+        if snap == self.jip.last_crosshair_senses {
+            return;
+        }
+        self.jip.last_crosshair_senses = snap;
+        let target = self.pc_target_from_senses(max_dist);
+        self.set_pc_target(target);
+    }
+
+    /// Update the actor under the player's reticle and fire JIP's
+    /// `SetOnPCTargetChangeEventHandler` (`pctargetchange`) if it changed: no calling
+    /// reference, 1 argument (`newTargetRef` or `0` for none). Non-actor references
+    /// normalize to `None` [documented: SetOnPCTargetChangeEventHandler,
+    /// docs/spec-notes/jip-events.md §2]. Returns how many handlers ran.
+    pub fn set_pc_target(&mut self, target: Option<FormId>) -> usize {
+        let next = target.filter(|&r| self.is_pc_target_actor(r));
+        if next == self.jip.pc_target {
+            return 0;
+        }
+        self.jip.pc_target = next;
+        self.jip_event("pctargetchange", None, vec![XVal::Ref(next.map_or(0, |r| r.0))])
     }
 
     fn control_edges(&mut self, now: u32) {

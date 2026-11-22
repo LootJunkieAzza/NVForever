@@ -52,6 +52,9 @@ impl TextureSource for SetTextures {
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         raw_path.contains("mask")
     }
+    fn alpha_is_opaque(&self, _: &str) -> bool {
+        false
+    }
     fn resolve(&self, raw_path: &str) -> String {
         fnv_vfs::texture_path(raw_path)
     }

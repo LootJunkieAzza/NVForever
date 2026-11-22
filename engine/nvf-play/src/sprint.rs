@@ -266,6 +266,7 @@ pub enum Blocked {
     Sneaking,
     Encumbered,
     InWater,
+    Toddler,
     NotAhead,
     OutOfAp,
 }
@@ -281,6 +282,7 @@ impl Blocked {
             Blocked::Sneaking => "sneaking",
             Blocked::Encumbered => "over-encumbered",
             Blocked::InWater => "in water",
+            Blocked::Toddler => "toddler walk",
             Blocked::NotAhead => "not moving ahead",
             Blocked::OutOfAp => "out of AP",
         }
@@ -305,6 +307,8 @@ pub struct SprintInput {
     pub reloading: bool,
     pub encumbered: bool,
     pub in_water: bool,
+    /// `SetPCToddler 1` is active: toddlers walk rather than sprint.
+    pub toddler: bool,
     /// The player's AP; `None`: unlimited (god mode, no script runtime), nothing spent.
     pub ap: Option<Ap>,
     pub ap_per_second: f32,
@@ -312,7 +316,7 @@ pub struct SprintInput {
 
 impl Default for SprintInput {
     fn default() -> Self {
-        SprintInput { dt: 0.0, on: true, held: false, forward: 0.0, right: 0.0, sneaking: false, aiming: false, attacking: false, reloading: false, encumbered: false, in_water: false, ap: None, ap_per_second: SPRINT_AP_PER_SECOND }
+        SprintInput { dt: 0.0, on: true, held: false, forward: 0.0, right: 0.0, sneaking: false, aiming: false, attacking: false, reloading: false, encumbered: false, in_water: false, toddler: false, ap: None, ap_per_second: SPRINT_AP_PER_SECOND }
     }
 }
 
@@ -369,6 +373,8 @@ impl Sprint {
             Blocked::Encumbered
         } else if i.in_water {
             Blocked::InWater
+        } else if i.toddler {
+            Blocked::Toddler
         } else if direction_share(i.forward, i.right) <= 0.0 {
             Blocked::NotAhead
         } else if self.spent_out || i.ap.is_some_and(|a| a.now <= 0.0) {
@@ -493,6 +499,7 @@ pub fn update(
     control: Res<PlayerControl>,
     intent: Res<MoveIntent>,
     (phys, combat): (Option<Res<crate::phys::PhysState>>, Option<Res<crate::combat::Combat>>),
+    toddler: Option<Res<crate::player::PlayerToddler>>,
     (mut sprint, mut stance, tuning): (ResMut<Sprint>, ResMut<StanceMotion>, Res<SprintTuning>),
     mut script: Option<ResMut<crate::script::ScriptState>>,
     mut sim: Option<ResMut<crate::sim::SimState>>,
@@ -522,6 +529,7 @@ pub fn update(
         reloading: control.reload || combat.as_deref().is_some_and(crate::combat::Combat::player_reloading),
         encumbered: crate::player::OVERENCUMBERED.load(std::sync::atomic::Ordering::Relaxed),
         in_water,
+        toddler: toddler.as_deref().is_some_and(|t| t.active),
         ap,
         ap_per_second: tuning.ap_per_second,
     });
@@ -635,6 +643,7 @@ mod tests {
             (SprintInput { sneaking: true, ..held(ap) }, Blocked::Sneaking),
             (SprintInput { encumbered: true, ..held(ap) }, Blocked::Encumbered),
             (SprintInput { in_water: true, ..held(ap) }, Blocked::InWater),
+            (SprintInput { toddler: true, ..held(ap) }, Blocked::Toddler),
             (SprintInput { forward: -1.0, ..held(ap) }, Blocked::NotAhead),
             (SprintInput { forward: 0.0, right: 1.0, ..held(ap) }, Blocked::NotAhead),
         ];

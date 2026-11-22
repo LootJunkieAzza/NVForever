@@ -115,15 +115,20 @@ fn with_live(old: Option<&Inventory>, new: Option<Inventory>) -> Option<Inventor
     }
 }
 
-/// Whether putting on `it` takes `other` off ([`World::equip_at`]): a weapon replaces the
-/// equipped weapon, armour equipped armour that shares a body slot (BMDT biped flags).
-fn equip_clashes(forms: &FormStore, it: &crate::forms::Item, other: FormId) -> bool {
-    let Some(o) = forms.item(other) else { return false };
-    match (it.kind, o.kind) {
-        (ItemKind::Weapon, ItemKind::Weapon) => true,
-        (ItemKind::Armor, ItemKind::Armor) => it.slots.unwrap_or(0) & o.slots.unwrap_or(0) != 0,
-        _ => false,
-    }
+/// Session-only runtime overrides for an item base form (or `TempCloneForm` item alias),
+/// synchronized from script setters such as `SetEquipmentSlotsMask`, `SetEquipmentBipedMask`,
+/// `SetArmorClass`, `SetIsPowerArmor`, `SetIsPlayable`, `SetArmorDT`, `SetArmorArmorRating`,
+/// `SetWeight`, and `SetObjectHealth`. Not serialized in [`Snapshot`].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ItemOverride {
+    pub slots: Option<u32>,
+    pub armor_class: Option<crate::forms::ArmorClass>,
+    pub power_armor: Option<bool>,
+    pub non_playable: Option<bool>,
+    pub armor_dt: Option<f32>,
+    pub armor_dr: Option<f32>,
+    pub weight: Option<f32>,
+    pub health: Option<i32>,
 }
 
 /// The offset across the ground, from the player's position, of place `slot` around a
@@ -426,6 +431,9 @@ pub struct Snapshot {
     /// The game layer's weight rules ([`World::set_weight_rules`]); absent when none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub weight_rules: BTreeMap<FormId, crate::inventory::WeightRules>,
+    /// Default-open overrides set at run time ([`World::set_default_open`]); absent when none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub default_open: BTreeMap<FormId, bool>,
 }
 
 /// What a world keeps for the session and not in a save: the edits of functions
@@ -523,6 +531,8 @@ pub struct World<'a> {
     detached_cells: BTreeMap<FormId, f32>,
     /// Quest-item flags set at run time (`set_quest_object`); they replace the record's.
     quest_objects: BTreeMap<FormId, bool>,
+    /// Default-open flags set at run time (`set_default_open`); they replace the placement's ONAM flag.
+    default_open: BTreeMap<FormId, bool>,
     /// Entries added to leveled item lists at run time ([`World::add_to_leveled_list`]).
     leveled_added: BTreeMap<FormId, Vec<LeveledEntry>>,
     /// Leveled item lists edited by script for the session (LeveledListAddForm and its
@@ -548,6 +558,10 @@ pub struct World<'a> {
     /// Items made at run time (TempCloneForm of an item), each with the item it copies:
     /// a container takes them by their own ID ([`World::add_clone_item`]). Not saved.
     clone_items: BTreeMap<FormId, FormId>,
+    /// Session-only item overrides (`SetEquipmentSlotsMask`, `SetEquipmentBipedMask`,
+    /// `SetArmorClass`, `SetIsPowerArmor`, `SetIsPlayable`, `SetArmorDT`,
+    /// `SetArmorArmorRating`, `SetWeight`, `SetObjectHealth`). Not saved.
+    item_overrides: BTreeMap<FormId, ItemOverride>,
     /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
     /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
     /// Kept for the session, not saved ([`WorldSession`]).
@@ -621,6 +635,7 @@ impl<'a> World<'a> {
             time_global_ids: TimeGlobalIds { hour: forms.by_edid(clock::GAME_HOUR), days_passed: forms.by_edid(clock::GAME_DAYS_PASSED) },
             detached_cells: BTreeMap::new(),
             quest_objects: BTreeMap::new(),
+            default_open: BTreeMap::new(),
             leveled_added: BTreeMap::new(),
             leveled_edits: BTreeMap::new(),
             base_edits: BTreeMap::new(),
@@ -629,6 +644,7 @@ impl<'a> World<'a> {
             inventory_sources: BTreeMap::new(),
             created_inventory_sources: BTreeMap::new(),
             clone_items: BTreeMap::new(),
+            item_overrides: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
             player_equips_broken: false,
@@ -793,7 +809,7 @@ impl<'a> World<'a> {
             // over is the intro's script, Layer 5]
             if let Some(inv) = inventory.as_mut() {
                 for item in inv.iter().map(|(i, _)| i).collect::<Vec<_>>() {
-                    if self.forms.item(item).is_some_and(|it| it.non_playable_biped()) {
+                    if self.effective_non_playable_biped(item) {
                         inv.set_equipped(item);
                     }
                 }
@@ -811,9 +827,9 @@ impl<'a> World<'a> {
             // A reference with lock data starts locked. [hypothesis] A leveled lock's
             // level is set now (`World::lock_read_level`, `Lock::level_at`).
             lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level_at(lock_level), key: l.key, locked: true }),
-            // A door flagged Open by Default starts open. [hypothesis from the flag's
-            // name; a gate so flagged let the player drop through it, physics.md §4]
-            open: placed.is_some_and(|p| p.open_by_default),
+            // A door flagged Open by Default (or overridden by SetDefaultOpen) starts open.
+            // [hypothesis from the flag's name; a gate so flagged let the player drop through it, physics.md §4]
+            open: self.default_open(id),
             extra: Extra {
                 condition: placed.and_then(|p| p.health),
                 owner: placed.and_then(|p| p.owner),
@@ -923,8 +939,16 @@ impl<'a> World<'a> {
             .iter()
             .enumerate()
             .filter_map(|(o, &i)| {
-                let it = self.forms.item(i)?;
-                (it.kind == ItemKind::Armor).then(|| (o, i, it.armor_dt.unwrap_or(0.0), it.armor_dr.unwrap_or(0.0), it.slots.unwrap_or(0)))
+                let it = self.resolve_item(i)?;
+                (it.kind == ItemKind::Armor).then(|| {
+                    (
+                        o,
+                        i,
+                        self.effective_armor_dt(i).unwrap_or(0.0),
+                        self.effective_armor_dr(i).unwrap_or(0.0),
+                        self.effective_slots(i).unwrap_or(0),
+                    )
+                })
             })
             .collect();
         armor.sort_by(|a, b| b.2.total_cmp(&a.2).then(b.3.total_cmp(&a.3)).then(a.0.cmp(&b.0)));
@@ -1092,6 +1116,96 @@ impl<'a> World<'a> {
         ok
     }
 
+    /// Resolve `item` to its authored [`crate::forms::Item`] record, following
+    /// `TempCloneForm` item aliases registered with [`World::add_clone_item`].
+    pub fn resolve_item(&self, item: FormId) -> Option<&crate::forms::Item> {
+        self.forms.item(item).or_else(|| self.clone_items.get(&item).and_then(|o| self.forms.item(*o)))
+    }
+
+    /// Session-only [`ItemOverride`] for `item` (or its uncloned original when `item` has
+    /// no own entry). O(1) fast-path when no overrides are active.
+    pub fn item_override(&self, item: FormId) -> Option<&ItemOverride> {
+        if self.item_overrides.is_empty() {
+            return None;
+        }
+        self.item_overrides
+            .get(&item)
+            .or_else(|| self.clone_items.get(&item).and_then(|o| self.item_overrides.get(o)))
+    }
+
+    /// Replace `item`'s session-only [`ItemOverride`].
+    pub fn set_item_override(&mut self, item: FormId, ov: ItemOverride) {
+        self.item_overrides.insert(item, ov);
+    }
+
+    /// Mutate `item`'s session-only [`ItemOverride`], creating a default entry if needed.
+    pub fn mutate_item_override(&mut self, item: FormId, f: impl FnOnce(&mut ItemOverride)) {
+        f(self.item_overrides.entry(item).or_default());
+    }
+
+    /// Effective biped slot mask (`BMDT/biped_flags`) for `item`, honoring session overrides.
+    pub fn effective_slots(&self, item: FormId) -> Option<u32> {
+        self.item_override(item).and_then(|o| o.slots).or_else(|| self.resolve_item(item)?.slots)
+    }
+
+    /// Effective armour class (`BMDT/general_flags` Medium/Heavy) for `item`.
+    pub fn effective_armor_class(&self, item: FormId) -> Option<crate::forms::ArmorClass> {
+        let it = self.resolve_item(item)?;
+        (it.kind == ItemKind::Armor).then(|| self.item_override(item).and_then(|o| o.armor_class).unwrap_or(it.armor_class))
+    }
+
+    /// Effective Power Armor flag (`BMDT/general_flags` bit 5 / `SetIsPowerArmor`) for `item`.
+    pub fn effective_power_armor(&self, item: FormId) -> bool {
+        if let Some(pa) = self.item_override(item).and_then(|o| o.power_armor) {
+            return pa;
+        }
+        self.resolve_item(item).is_some_and(|it| it.power_armor)
+    }
+
+    /// Effective Non-Playable flag (`BMDT/general_flags` bit 6 / `SetIsPlayable`) for `item`.
+    pub fn effective_non_playable(&self, item: FormId) -> bool {
+        if let Some(np) = self.item_override(item).and_then(|o| o.non_playable) {
+            return np;
+        }
+        self.resolve_item(item).is_some_and(|it| it.non_playable)
+    }
+
+    /// Effective `Item::non_playable_biped` (non-playable armour) honoring session overrides.
+    pub fn effective_non_playable_biped(&self, item: FormId) -> bool {
+        self.resolve_item(item).is_some_and(|it| it.kind == ItemKind::Armor) && self.effective_non_playable(item)
+    }
+
+    /// Effective armour DT (`DNAM/dt`) for `item`.
+    pub fn effective_armor_dt(&self, item: FormId) -> Option<f32> {
+        self.item_override(item).and_then(|o| o.armor_dt).or_else(|| self.resolve_item(item)?.armor_dt)
+    }
+
+    /// Effective armour DR in percent (`DNAM/dr` / 100) for `item`.
+    pub fn effective_armor_dr(&self, item: FormId) -> Option<f32> {
+        self.item_override(item).and_then(|o| o.armor_dr).or_else(|| self.resolve_item(item)?.armor_dr)
+    }
+
+    /// Effective base weight (`DATA/weight`) for `item`.
+    pub fn effective_weight(&self, item: FormId) -> Option<f32> {
+        self.item_override(item).and_then(|o| o.weight).or_else(|| self.resolve_item(item)?.weight)
+    }
+
+    /// Effective full health (`DATA/health`) for `item`.
+    pub fn effective_health(&self, item: FormId) -> Option<i32> {
+        self.item_override(item).and_then(|o| o.health).or_else(|| self.resolve_item(item)?.health)
+    }
+
+    /// Whether putting on `item` takes `other` off ([`World::equip_at`]): a weapon replaces
+    /// the equipped weapon, armour replaces equipped armour sharing an effective biped slot.
+    fn equip_clashes_item(&self, item: FormId, other: FormId) -> bool {
+        let (Some(it), Some(o)) = (self.resolve_item(item), self.resolve_item(other)) else { return false };
+        match (it.kind, o.kind) {
+            (ItemKind::Weapon, ItemKind::Weapon) => true,
+            (ItemKind::Armor, ItemKind::Armor) => self.effective_slots(item).unwrap_or(0) & self.effective_slots(other).unwrap_or(0) != 0,
+            _ => false,
+        }
+    }
+
     fn check_item(&self, item: FormId) -> Result<(), SimError> {
         if self.clone_items.contains_key(&item) {
             return Ok(());
@@ -1226,7 +1340,7 @@ impl<'a> World<'a> {
     /// wiki RemoveAllItems, the exceptions are unplayable biped items and, "If the calling
     /// reference is the player, Quest Items"].
     fn stays(&self, from: FormId, item: FormId) -> bool {
-        self.forms.item(item).is_some_and(|it| it.non_playable_biped()) || (from == FormId::PLAYER_REF && self.is_quest_item(item))
+        self.effective_non_playable_biped(item) || (from == FormId::PLAYER_REF && self.is_quest_item(item))
     }
 
     /// Move everything but non-playable items and the player's quest items (as [`World::remove_all_items`], the same
@@ -1493,21 +1607,27 @@ impl<'a> World<'a> {
     /// As [`World::equip`], equipping (or using) one of the units `at` names: a menu
     /// row's. Its checks are [`World::equip_check`]'s.
     pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Pick) -> Result<Equip, SimError> {
-        let forms = self.forms;
-        let it = forms.item(item).ok_or(SimError::NotAnItem(item))?;
+        let _ = self.resolve_item(item).ok_or(SimError::NotAnItem(item))?;
         // Materialise the actor first; the checks read its state.
         self.inventory(actor)?;
         let consumed = self.equip_check(actor, item, at)?;
-        let inv = self.inventory(actor)?;
         if consumed {
+            let inv = self.inventory(actor)?;
             return match inv.take_at(item, 1, at).iter().map(|g| g.1).sum::<i32>() {
                 1 => Ok(Equip { consumed: true, unequipped: Vec::new() }),
                 _ => Err(SimError::NotCarried { actor, item }),
             };
         }
+        let clashing: Vec<FormId> = self
+            .refs
+            .get(&actor)
+            .and_then(|s| s.inventory.as_ref())
+            .map(|inv| inv.equipped().into_iter().filter(|&other| self.equip_clashes_item(item, other)).collect())
+            .unwrap_or_default();
+        let inv = self.inventory(actor)?;
         let mut unequipped = Vec::new();
-        for other in inv.equipped() {
-            if equip_clashes(forms, it, other) && inv.clear_equipped(other) {
+        for other in clashing {
+            if inv.clear_equipped(other) {
                 unequipped.push(other);
             }
         }
@@ -1522,8 +1642,7 @@ impl<'a> World<'a> {
     /// these checks itself, so a menu's hint reading them (#1896) agrees with the action.
     /// Only a materialised actor is read ([`World::peek`]); `equip_at` materialises it.
     pub fn equip_check(&self, actor: FormId, item: FormId, at: Pick) -> Result<bool, SimError> {
-        let forms = self.forms;
-        let it = forms.item(item).ok_or(SimError::NotAnItem(item))?;
+        let it = self.resolve_item(item).ok_or(SimError::NotAnItem(item))?;
         let state = self.refs.get(&actor).ok_or(SimError::UnknownRef(actor))?;
         if state.deleted() {
             return Err(SimError::Deleted(actor));
@@ -1545,7 +1664,7 @@ impl<'a> World<'a> {
         if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) && !(actor == FormId::PLAYER_REF && self.player_equips_broken) {
             return Err(SimError::Broken(item));
         }
-        if it.power_armor && actor == FormId::PLAYER_REF && !self.power_armor_training && !inv.is_equipped(item) {
+        if self.effective_power_armor(item) && actor == FormId::PLAYER_REF && !self.power_armor_training && !inv.is_equipped(item) {
             return Err(SimError::NoPowerArmorTraining(item));
         }
         let locks = &state.equip_locks;
@@ -1554,13 +1673,13 @@ impl<'a> World<'a> {
         }
         // "EquipItem will not work if there is already an item in that slot that has
         // been equipped with the NoUnequipFlag set" [documented: GECK wiki EquipItem].
-        if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && equip_clashes(forms, it, o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
+        if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && self.equip_clashes_item(item, o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
             return Err(SimError::EquipLocked { item: held, on: true });
         }
         // Check a unit `at` names can be put on before taking anything off, so a failed
         // equip leaves the actor dressed as it was (#1083). `equip_at` frees the equipped
         // units of `item` itself when it clashes with itself.
-        if !inv.can_equip_at(item, at, equip_clashes(forms, it, item)) {
+        if !inv.can_equip_at(item, at, self.equip_clashes_item(item, item)) {
             return Err(SimError::NotCarried { actor, item });
         }
         Ok(false)
@@ -1676,11 +1795,20 @@ impl<'a> World<'a> {
     /// hypothesis]
     ///
     /// The capacity also holds the game layer's bonus ([`World::set_carry_bonus`]).
-    pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
-        let capacity = self.formula_capacity(actor)? + self.carry_bonus.get(&actor).copied().unwrap_or(0.0) as f32;
+    fn inventory_totals(&mut self, actor: FormId) -> Result<crate::inventory::Totals, SimError> {
+        self.inventory(actor)?;
         let (forms, hardcore) = (self.forms, self.cfg.hardcore);
         let rules = self.weight_rules(actor);
-        let t = self.inventory(actor)?.totals_with(forms, hardcore, &rules);
+        let inv = self.refs.get(&actor).and_then(|s| s.inventory.as_ref()).ok_or(SimError::NoInventory(actor))?;
+        Ok(inv.totals_with_overrides(forms, hardcore, &rules, |id| {
+            let it = self.resolve_item(id)?;
+            Some((it, self.item_override(id).and_then(|o| o.weight), self.effective_power_armor(id)))
+        }))
+    }
+
+    pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
+        let capacity = self.formula_capacity(actor)? + self.carry_bonus.get(&actor).copied().unwrap_or(0.0) as f32;
+        let t = self.inventory_totals(actor)?;
         Ok(Encumbrance {
             weight: t.weight,
             capacity: capacity as f64,
@@ -1708,9 +1836,7 @@ impl<'a> World<'a> {
 
     /// The weight a reference carries, as [`World::encumbrance`] counts it.
     pub fn carried_weight(&mut self, actor: FormId) -> Result<f64, SimError> {
-        let (forms, hardcore) = (self.forms, self.cfg.hardcore);
-        let rules = self.weight_rules(actor);
-        Ok(self.inventory(actor)?.totals_with(forms, hardcore, &rules).weight)
+        Ok(self.inventory_totals(actor)?.weight)
     }
 
     /// What a carrier's perks do to the weight it carries (none: every item its own weight).
@@ -1960,6 +2086,54 @@ impl<'a> World<'a> {
             self.ref_levels.remove(id);
         }
         reset
+    }
+
+    /// Whether `id`'s default open state is open: a runtime override ([`World::set_default_open`]),
+    /// else its placement's ONAM (`open_by_default`) flag.
+    pub fn default_open(&self, id: FormId) -> bool {
+        self.default_open
+            .get(&id)
+            .copied()
+            .unwrap_or_else(|| self.placed.get(id).is_some_and(|p| p.open_by_default))
+    }
+
+    /// Validated default-open query (`GetDefaultOpen`, `0x10D7`): checks that `id` is a live
+    /// reference without materializing an untouched placement.
+    pub fn check_default_open(&self, id: FormId) -> Result<bool, SimError> {
+        if self.deleted_created.contains_key(&id) || self.refs.get(&id).is_some_and(RefState::deleted) {
+            return Err(SimError::Deleted(id));
+        }
+        let authored = if let Some(p) = self.placed.get(id) {
+            p.open_by_default
+        } else if self.refs.contains_key(&id) || id == FormId::PLAYER_REF {
+            false
+        } else {
+            return Err(SimError::UnknownRef(id));
+        };
+        Ok(self.default_open.get(&id).copied().unwrap_or(authored))
+    }
+
+    /// Set `id`'s default open state (`SetDefaultOpen`). Rejects unknown or deleted references
+    /// without mutating state. Leaves an already-materialized reference's current `open` flag
+    /// untouched (`SetOpenState` owns live open state), while unmaterialized or reset
+    /// references inherit this default in [`World::initial`].
+    pub fn set_default_open(&mut self, id: FormId, open: bool) -> Result<(), SimError> {
+        if self.deleted_created.contains_key(&id) || self.refs.get(&id).is_some_and(RefState::deleted) {
+            return Err(SimError::Deleted(id));
+        }
+        let authored = if let Some(p) = self.placed.get(id) {
+            p.open_by_default
+        } else if self.refs.contains_key(&id) || id == FormId::PLAYER_REF {
+            false
+        } else {
+            return Err(SimError::UnknownRef(id));
+        };
+        if open == authored {
+            self.default_open.remove(&id);
+        } else {
+            self.default_open.insert(id, open);
+        }
+        Ok(())
     }
 
     pub fn set_enabled(&mut self, id: FormId, enabled: bool) -> Result<(), SimError> {
@@ -2218,8 +2392,10 @@ impl<'a> World<'a> {
         }
         if outfitted {
             for chosen in self.default_choice(source, &inv).unwrap_or_default() {
-                let Some(it) = self.forms.item(chosen) else { continue };
-                let free = !inv.is_equipped(chosen) && !inv.equipped().into_iter().any(|other| equip_clashes(self.forms, it, other));
+                if self.resolve_item(chosen).is_none() {
+                    continue;
+                }
+                let free = !inv.is_equipped(chosen) && !inv.equipped().into_iter().any(|other| self.equip_clashes_item(chosen, other));
                 if free && added.iter().any(|(i, _)| *i == chosen) {
                     inv.set_equipped(chosen);
                 }
@@ -2297,7 +2473,7 @@ impl<'a> World<'a> {
             // A non-playable weapon or ammo lying in the world cannot be picked up
             // [documented: GECK wiki "Unplayable Items"; scripted activation is not
             // covered there and still gives it, hypothesis].
-            if !scripted && it.non_playable && matches!(it.kind, ItemKind::Weapon | ItemKind::Ammo) {
+            if !scripted && self.effective_non_playable(t.base) && matches!(it.kind, ItemKind::Weapon | ItemKind::Ammo) {
                 return Ok(done(Outcome::NoDefault { sig: base.map(|b| String::from_utf8_lossy(&b.sig).into_owned()).unwrap_or_default() }, None));
             }
             // A placed book flagged "Can't be Taken" stays where it is (skill-books.md
@@ -2443,6 +2619,7 @@ impl<'a> World<'a> {
             power_armor_training: self.power_armor_training,
             carry_bonus: self.carry_bonus.clone(),
             weight_rules: self.weight_rules.clone(),
+            default_open: self.default_open.iter().filter(|(id, _)| kept(id)).map(|(&k, &v)| (k, v)).collect(),
             deleted_created,
         }
     }
@@ -2489,6 +2666,7 @@ impl<'a> World<'a> {
         w.power_armor_training = s.power_armor_training;
         w.carry_bonus = s.carry_bonus.clone();
         w.weight_rules = s.weight_rules.clone();
+        w.default_open = s.default_open.clone();
         w.made_at_from_saved_place();
         Ok(w)
     }

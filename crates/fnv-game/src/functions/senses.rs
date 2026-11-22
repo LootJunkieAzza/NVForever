@@ -27,6 +27,8 @@ pub struct Motion {
     pub run_mode: bool,
     /// Its character swims (the physics' state: `fnv_phys` character `swimming`).
     pub swimming: bool,
+    /// Its character is airborne (physics: not grounded and not swimming; `IsInAir`).
+    pub in_air: bool,
 }
 
 /// What the engine told the scripts, and the switches scripts set for it.

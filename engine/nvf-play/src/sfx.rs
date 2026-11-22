@@ -824,7 +824,7 @@ impl Sfx {
         self.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(edid))).map(|(f, _)| *f)
     }
 
-    fn new(forms: FxForms) -> Sfx {
+    pub fn new(forms: FxForms) -> Sfx {
         Sfx {
             forms,
             loop_start: HashMap::new(),

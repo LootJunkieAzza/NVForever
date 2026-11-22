@@ -1067,6 +1067,11 @@ pub struct GameData {
     pub ini_texts: Vec<String>,
     /// Placed references whose base runs a script, by cell, in FormID order.
     pub scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
+    /// Placed actors whose base has no script of its own but may run one through its
+    /// template chain (template flag "Script", any leveled pick), by cell, in FormID
+    /// order ([`GameData::script_through_template`]). The lifecycle scheduler reads this
+    /// index for OnLoad and OnReset (docs/spec-notes/scripts.md §7.1).
+    pub template_scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
     /// REPU DATA: the reputation's scale (maximum fame or infamy).
     pub reputations: HashMap<FormId, f32>,
     /// REPU FULL: the reputation's name as the player sees it.
@@ -2014,6 +2019,7 @@ impl GameData {
             ini_texts: Vec::new(),
             record_fields,
             scripted_by_cell: BTreeMap::new(),
+            template_scripted_by_cell: BTreeMap::new(),
             reputations: HashMap::new(),
             reputation_names: HashMap::new(),
             challenges: HashMap::new(),
@@ -2442,9 +2448,20 @@ impl GameData {
         d.greeting = d.by_edid("GREETING").filter(|t| d.topic_defs.contains_key(t));
         d.goodbye = d.by_edid("GOODBYE").filter(|t| d.topic_defs.contains_key(t));
         clock.lap("topics ordered and linked");
+        // An actor whose base takes its script from a template (template flag "Script")
+        // runs the template's script, its leveled pick's through a list [documented: GECK
+        // wiki Template Data, "Use Script: Uses the Script of the ActorBase";
+        // `Game::ref_script`]. Those whose base has no script of its own are kept apart:
+        // they get OnLoad and OnReset, so the leveled spawns' placeholder
+        // `VCrILikeOblivionChancedSpawns` kills itself as its cell loads
+        // (docs/spec-notes/dead-on-spawn.md §4.1, #3228).
+        let mut through_template: HashMap<FormId, bool> = HashMap::new();
         for (id, p) in &refs.refs {
-            if let (Some(cell), Some(_)) = (p.cell, d.script_of_base(p.base)) {
+            let Some(cell) = p.cell else { continue };
+            if d.script_of_base(p.base).is_some() {
                 d.scripted_by_cell.entry(cell).or_default().push(*id);
+            } else if *through_template.entry(p.base).or_insert_with(|| d.script_through_template(p.base)) {
+                d.template_scripted_by_cell.entry(cell).or_default().push(*id);
             }
         }
         clock.lap("scripted references by cell");
@@ -2460,6 +2477,20 @@ impl GameData {
     pub fn script_of_base(&self, base: FormId) -> Option<FormId> {
         let s = *self.form_script.get(&base)?;
         self.scripts.contains_key(&s).then_some(s)
+    }
+
+    /// Whether a reference placed with `base`, which has no script of its own, may run
+    /// one through its template chain: `base` is a leveled actor list placed directly, or
+    /// an actor with the template flag "Script", and an actor its chain can reach with
+    /// that flag through any leveled pick has a script (an end of the chain, or one on
+    /// the way that is kept when its list yields no entry;
+    /// [`GameData::template_chain_any_pick`]). `Game::ref_script` reads the actual pick.
+    pub fn script_through_template(&self, base: FormId) -> bool {
+        let templated = self.actors.get(&base).is_some_and(|a| a.template_script && a.template.is_some());
+        if !templated && !self.leveled_actors.contains_key(&base) {
+            return false;
+        }
+        self.template_chain_any_pick(base, |a| a.template_script).into_iter().any(|s| s != base && self.script_of_base(s).is_some())
     }
 
     pub fn script(&self, script: FormId) -> Option<&Compiled> {

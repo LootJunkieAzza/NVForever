@@ -133,20 +133,10 @@ fn weapon_degradation(g: &Game, weapon: FormId, ammo: Option<FormId>) -> f64 {
     } else {
         g.world.setting_f32("fDamageToWeaponValue").map_or(0.0, f64::from)
     };
-    // AddAmmoEffect's and RemoveAmmoEffect's changes first (`crate::nvse_jip7`).
-    let effects: Vec<FormId> = ammo.map(|a| g.ammo_effects(a)).unwrap_or_default();
-    for e in effects {
-        // AMEF DATA: type 4 Weapon Condition Mod; operation 0 add, 1 multiply, 2 subtract.
-        if n(e, "DATA", "type") != Some(4.0) {
-            continue;
-        }
-        let x = n(e, "DATA", "value").unwrap_or(0.0);
-        v = match n(e, "DATA", "operation").map(|o| o as i64) {
-            Some(0) => v + x,
-            Some(1) => v * x,
-            Some(2) => v - x,
-            _ => v,
-        };
+    // AddAmmoEffect's, RemoveAmmoEffect's, and live AMEF trait changes first
+    // (`crate::nvse_jip7`), type 4 = Weapon Condition Mod.
+    if let Some(a) = ammo {
+        v = g.apply_ammo_effects_value(a, 4, v);
     }
     crate::nvse::record_float(v.max(0.0))
 }

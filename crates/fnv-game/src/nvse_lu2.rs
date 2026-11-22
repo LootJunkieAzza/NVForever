@@ -211,9 +211,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // GetIngestibleFlag and the Medicine and Survival boosts of using it read it
         // (`Game::ingest_on`).
         "setingestibleflag" => {
-            let (Some(i), bit) = (form(args, 0).filter(|&i| g.data.sig(i) == Some(*b"ALCH")), num(args, 1, 0.0) as i64) else { return Some(Ok(zero)) };
+            let (Some(i), bit) = (form(args, 0).filter(|&i| g.data.sig(g.unclone(i)) == Some(*b"ALCH")), num(args, 1, 0.0) as i64) else { return Some(Ok(zero)) };
             if bit == 2 || bit == 4 {
-                let now = crate::nvse::record_value(g, i, "ENIT", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u32;
+                let now = u32::from(g.effect_flags(i));
                 let new = if num(args, 2, 0.0) != 0.0 { now | bit as u32 } else { now & !(bit as u32) };
                 g.field_overrides.insert((i, "ENIT/flags".into()), XVal::Num(f64::from(new)));
             }

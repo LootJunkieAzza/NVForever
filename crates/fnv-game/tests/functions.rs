@@ -1426,11 +1426,11 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
 
     // Movement and sneaking as the engine told them; nothing told is standing still.
     assert_eq!(call(&mut g, 0x111E, None, &[]), 0.0);
-    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true, turning: 0, run_mode: false, swimming: false });
+    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true, turning: 0, run_mode: false, swimming: false, in_air: false });
     assert_eq!(call(&mut g, 0x111E, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x1019, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x111F, None, &[]), 0.0);
-    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false, turning: 0, run_mode: true, swimming: false });
+    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false, turning: 0, run_mode: true, swimming: false, in_air: false });
     assert_eq!(call(&mut g, 0x111F, Some(ADULT_REF), &[]), 1.0);
     g.forget_motion(adult);
     assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 0.0);

@@ -83,6 +83,10 @@ pub struct OtherState {
     pub package_lists: HashMap<FormId, Vec<FormId>>,
     /// SetFlagsLow/High's record flags.
     pub flags: HashMap<FormId, u32>,
+    /// Explicit `SetPersistent` session overrides (separate from `flags` so unrelated
+    /// `SetReferenceFlag` / `SetFlagsLow` writes do not clear persistent-group refs whose
+    /// static record lacks bit `0x400`) [design].
+    pub persistent_overrides: HashMap<FormId, bool>,
     /// SetActorBaseFlagsLow/High's 32-bit ACBS flags, by actor base form.
     pub acbs_flags: HashMap<FormId, u32>,
     /// Con_SCOF's file name (nothing is written).
@@ -95,7 +99,9 @@ pub struct OtherState {
     pub lev_actors: HashMap<FormId, crate::nvse_leveled::LevList>,
     /// Generic*Form's changed lists, by (list code, form) (`Game::generic_list`).
     pub generic: HashMap<(i64, FormId), Vec<FormId>>,
-    /// SetOwningFactionRequiredRank's ranks, by reference (over the record's XRNK).
+    /// SetOwningFactionRequiredRank's ranks, by reference (over the record's XRNK), read
+    /// through `Game::owner_rank` / `Game::ownership_in` and carried across same-run loads
+    /// in `Game::Session`.
     pub owner_ranks: HashMap<FormId, i32>,
     /// SetZoneMinLevel's and SetZoneOwner's changes, by encounter zone (`nvse_anh`).
     pub zone_changes: HashMap<FormId, crate::nvse_anh::ZoneChange>,
@@ -546,7 +552,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // equipping does not].
         "setispowerarmor" => {
             let f = form(args, 1).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
-            g.other.power_armor.insert(f, num(args, 0, 0.0) != 0.0);
+            g.set_armo_power_armor(f, num(args, 0, 0.0) != 0.0);
             zero
         }
         // Formatted by the VM (`Vm::host_function`), then here.

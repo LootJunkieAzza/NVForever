@@ -354,6 +354,16 @@ pub(crate) struct RigNames {
     names: HashMap<Entity, String>,
 }
 
+impl RigNames {
+    pub(crate) fn is_root(&self, e: Entity) -> bool {
+        self.root == Some(e)
+    }
+
+    pub(crate) fn name_of(&self, e: Entity) -> Option<&str> {
+        self.names.get(&e).map(String::as_str)
+    }
+}
+
 pub(crate) fn rig_names(r: u32, view: ModelView, rigs: &Rigs) -> RigNames {
     rig_of(r, view, rigs)
         .map(|(root, a)| RigNames { root: Some(root), names: a.nodes.iter().zip(&a.skel.names).filter_map(|(e, n)| n.clone().map(|n| (*e, n))).collect() })
@@ -658,7 +668,11 @@ fn mirror_game(
                 if let Some(l) = data.filter(|l| l.radius > 0.0) {
                     let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
                     let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
-                    commands.entity(new).insert(PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() });
+                    // It casts lamp shadows as a placed light does (`crate::light_shadows`).
+                    commands.entity(new).insert((
+                        PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() },
+                        crate::light_shadows::ShadowSource(crate::light_shadows::SourceKind::Attached),
+                    ));
                     info!("nif mirror: light {:08X} on {:08X}'s {target}, radius {:.0}", light.0, r.0, l.radius);
                 }
                 commands.entity(t).add_child(new);

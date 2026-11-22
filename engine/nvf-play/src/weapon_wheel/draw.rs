@@ -183,7 +183,7 @@ fn ammo_name(c: &crate::combat::Combat, id: FormId) -> String {
 }
 
 /// The slices and the hub for what the slots hold now.
-fn shown(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Combat>, picked: usize, width: i32) -> Shown {
+fn shown(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Combat>, keep_chosen: bool, picked: usize, width: i32) -> Shown {
     let count = |sim: &SimState, id: Option<FormId>| crate::combat::player_count(sim, id);
     let in_hand = combat.and_then(|c| c.player_weapon());
     let mut slices = Vec::new();
@@ -203,7 +203,7 @@ fn shown(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::C
         let icon = item.and_then(|it| it.icon.clone()).filter(|p| !p.trim().is_empty()).or_else(|| item.map(|it| crate::pipboy::hotkey_panel::type_icon(it.kind, weapon.and_then(|w| w.skill.as_deref())).to_string()));
         let n = match (item.map(|i| i.kind), combat, weapon) {
             (Some(ItemKind::Weapon), Some(c), Some(w)) if !c.forms.ammo_choices(w).is_empty() => {
-                let ammo = if in_hand == Some(id) { c.player_ammo() } else { c.forms.ammo_for(id, |a| count(sim, Some(a)) > 0) };
+                let ammo = if in_hand == Some(id) { c.player_ammo() } else { c.preferred_ammo_for(id, keep_chosen, |a| count(sim, Some(a)) > 0) };
                 Some(count(sim, ammo).to_string())
             }
             (Some(ItemKind::Weapon), _, _) if carried > 1 => Some(carried.to_string()),
@@ -212,11 +212,11 @@ fn shown(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::C
         };
         slices.push(SliceView { icon, count: n, empty: false, gone: carried <= 0 });
     }
-    let hub = hub(hotkeys, sim, combat, picked);
+    let hub = hub(hotkeys, sim, combat, keep_chosen, picked);
     Shown { picked, slices, hub, width }
 }
 
-fn hub(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Combat>, picked: usize) -> HubView {
+fn hub(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Combat>, keep_chosen: bool, picked: usize) -> HubView {
     if picked == AMMO_SWAP {
         let mut h = HubView { kind: "Ammo".into(), name: "Ammo Swap".into(), ..default() };
         let w = combat.and_then(|c| Some((c, c.player_weapon()?)));
@@ -253,7 +253,7 @@ fn hub(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Com
                         let a = c.player_ammo();
                         let (loaded, besides) = c.hud_weapon(sim).ammo.unwrap_or((0, 0));
                         h.ammo = Some((a.map_or_else(String::new, |a| ammo_name(c, a)), format!("{loaded} / {}", loaded + besides)));
-                    } else if let Some(a) = c.forms.ammo_for(id, |a| crate::combat::player_count(sim, Some(a)) > 0) {
+                    } else if let Some(a) = c.preferred_ammo_for(id, keep_chosen, |a| crate::combat::player_count(sim, Some(a)) > 0) {
                         h.ammo = Some((ammo_name(c, a), crate::combat::player_count(sim, Some(a)).to_string()));
                     }
                 }
@@ -320,6 +320,7 @@ fn draw(
     mut darken: Query<(Entity, &mut BackgroundColor), With<Darken>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     (data, formats): (Option<Res<GameData>>, Option<Res<CompressedImageFormatSupport>>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SliceMaterial>>,
     mut view: ResMut<WheelView>,
@@ -335,7 +336,8 @@ fn draw(
         (Err(_), false) => {}
     }
     let width = windows.single().map_or(1280.0, |w| 960.0 * w.width() / w.height().max(1.0));
-    let now = wheel.open.map(|o| shown(&hotkeys, &mut sim, combat.as_deref(), o.picked, width.round() as i32));
+    let keep_chosen = tweaks.as_deref().is_some_and(|t| t.keep_chosen_ammo);
+    let now = wheel.open.map(|o| shown(&hotkeys, &mut sim, combat.as_deref(), keep_chosen, o.picked, width.round() as i32));
     if now == view.shown {
         return;
     }

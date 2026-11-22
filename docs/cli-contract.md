@@ -382,6 +382,19 @@ file order as `tag`, `offset`, `value` (`null` for markers, a number for u8, `{u
 for 4-byte payloads, a string, a float array, or an array of 8-float arrays for 10002).
 Not compared by the lab (no golden).
 
+`fnvtool spt shape <archive> [--filter text]` → `fnv.spt.shape/1`: `files`, one per `.spt`
+(paths containing the filter text): `path`, `tree` (file name, lower case, no extension),
+`seed`, `stub_ratio`, `stub_levels` (the levels springing from a stub), `levels` (per
+level: `curves` keyed 6000-6007 as `min`, `max`, `variance`, `y` at 0, 0.5 and 1;
+`segments`, `first`, `last`, `frequency`, `length_ratio` (shortest branch over the
+parent's longest; `null` for the trunk), `springs_from_stub`: `length_ratio` at least
+`stub_ratio`, the level's angle is read from the parent's axis), `leaf_maps` (`size`, `pivot`), `shapes`: per
+reading of `fnv_spt::probe` (`reading`: `as_is`, `angle_from_axis_level_<i>`,
+`angle_from_axis_all_wood`, `angle_from_plane_everywhere` (the generator before #3126),
+`no_length_spread`, `no_bend`, `frequency_over_span`) the
+`leaves` and three extents, `full_cards`, `card_pivots` and `wood`, each `x`, `y`, `top`,
+`aspect` (larger span ÷ top). For speedtree.md §7; smoke scenario `spt-shape`.
+
 # Layer 3 (world data)
 
 All `world` commands take the Data folder, the plugins in load order, and

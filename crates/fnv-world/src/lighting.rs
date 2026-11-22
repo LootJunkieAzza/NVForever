@@ -94,11 +94,30 @@ pub fn cell_lighting(lo: &LoadOrder, schema: &Schema, cell: u32) -> Option<CellL
 pub fn cell_lighting_with(
     lo: &LoadOrder, schema: &Schema, cell: u32,
     template_override: Option<u32>, flags_override: Option<u32>,
+    edit_template: impl FnMut(u32, &mut CellLighting),
+) -> Option<CellLighting> {
+    cell_lighting_with_overrides(lo, schema, cell, template_override, flags_override, |_| {}, edit_template)
+}
+
+/// Extends [`cell_lighting_with`] with an `edit_own` hook for session overrides on
+/// the cell's own `XCLL` record (`SetInteriorLightingTraitNumeric`) prior to the
+/// existing inheritance merge.
+pub fn cell_lighting_with_overrides(
+    lo: &LoadOrder,
+    schema: &Schema,
+    cell: u32,
+    template_override: Option<u32>,
+    flags_override: Option<u32>,
+    mut edit_own: impl FnMut(&mut CellLighting),
     mut edit_template: impl FnMut(u32, &mut CellLighting),
 ) -> Option<CellLighting> {
     let (pi, r) = winner(lo, cell)?;
     let f = Fields::new(r, pi, schema).ok()?;
-    let own = f.get(b"XCLL").map(|v| parse(&v));
+    let own = f.get(b"XCLL").map(|v| {
+        let mut light = parse(&v);
+        edit_own(&mut light);
+        light
+    });
     let template = template_override.or_else(|| f.formid(b"LTMP", lo)).filter(|&t| t != 0).and_then(|t| {
         let (tpi, tr) = winner(lo, t)?;
         let mut light = Fields::new(tr, tpi, schema).ok()?.get(b"DATA").map(|v| parse(&v))?;

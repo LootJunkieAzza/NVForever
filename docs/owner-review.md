@@ -23,6 +23,20 @@ the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
+- **A melee creature barely faster than you cannot keep hitting you when you back away
+  (#3256).** [observed: runs on the Searchlight Airport runway, main 069ef9bde,
+  2026-11-21, the player backing away at a run for 12 s, 20,000 health, no god mode]
+  A feral ghoul (runs 384 units/s against your 273) lands 11 to 12 blows, a coyote (366)
+  6 to 7, about what they land on a standing player. A young gecko (286) lands 2 to 3,
+  with 4 to 5.5 s between blows, against 10 on a standing player. The cause is not the
+  chase: every blow that lands knocks you back about 50 units (the knockback rule), and
+  at a 13 units/s advantage the gecko needs about 4 s to make that up. Three ways to
+  change it, none built: (a) such a creature begins its forward lunge from as far as the
+  lunge carries it (tried: it then lunges every 1.7 s, but half the lunges miss and the
+  blows that land do not go up); (b) no knockback on the player from a creature's
+  ordinary blow; (c) leave it, if the original is the same. Observer check 253 asks the
+  original. Until you rule, nothing changes
+  ([combat rules](spec-notes/combat-rules.md), "Knockback").
 - **Automatic device switching (#2200).** [design, #2200] Switch the saved two-device
   choice on fresh use, default ON with a Controls/INI opt-out; ignore only the switching
   press edge, preserve all releases, and require the old device idle at frame start with
@@ -450,6 +464,11 @@ the spec it links to.
   only the storm; if some model should scroll one shape only, it would need its own
   property, and ruling otherwise means a per-model exception. Check the storm in game at
   night in HVDustStorm ([activators section 6.1](spec-notes/activators.md)).
+
+- **Map markers on the compass use a fixed range (#2348).** [design, owner 2026-11-18]
+  The maintainer chose `iMapMarkerVisibleDistance` (10,000 units by default) for found
+  and unfound places, replacing the Perception-based range from playtest list 5 item 12.
+  Quest targets remain visible at any distance. ([hud §11](spec-notes/hud.md); observer check 227)
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line

@@ -180,6 +180,8 @@ pub mod wait;
 pub mod world_sounds;
 pub mod xp_meter;
 
+mod cjk_font;
+
 use bevy::prelude::*;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_world::WorldIndex;
@@ -447,6 +449,7 @@ impl Plugin for PlayPlugin {
             .add_message::<world_sounds::DoorPassed>()
             .add_message::<world_sounds::ImpactPicked>()
             .add_message::<ui_sounds::UiSound>()
+            .add_systems(First, cjk_font::update)
             .init_resource::<furniture::PlayerSeat>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))

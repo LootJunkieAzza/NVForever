@@ -38,7 +38,9 @@
 //! with terrain anti-tiling (`TERRAIN_ANTI_TILING`, terrain.rs "Anti-tiling") logs
 //! `terrain anti-tiling pipeline <n> ready|failed: path=folded|separate height=on|off
 //! blend=on|off`, read from its own fragment definitions and colour
-//! targets (blend on: an alpha-blended layer draw) [design, #2551].
+//! targets (blend on: an alpha-blended layer draw) [design, #2551]. The distant lights'
+//! glows (`distant_lights::DISTANT_LIGHTS_DEF`) log `distant lights pipeline <n> ready|failed`
+//! [design, #3013].
 //!
 //! **A travel's screen and the sun's shadows** (#1732). Twelve trips through new places took
 //! 15.4 s of screens with this wait against about 10 s without [observed: one launch], and
@@ -296,8 +298,18 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
             if let Some(variant) = anti_tiling_variant(&p.descriptor) {
                 info!("terrain anti-tiling pipeline {i} {how}: {variant}: {}", label(&p.descriptor));
             }
+            if distant_lights_variant(&p.descriptor) {
+                info!("distant lights pipeline {i} {how}: {}", label(&p.descriptor));
+            }
         }
     }
+}
+
+/// Whether a pipeline is the distant lights' glows' (its fragment stage has
+/// `distant_lights::DISTANT_LIGHTS_DEF`) [design, #3013].
+fn distant_lights_variant(descriptor: &PipelineDescriptor) -> bool {
+    let PipelineDescriptor::RenderPipelineDescriptor(d) = descriptor else { return false };
+    d.fragment.iter().flat_map(|f| f.shader_defs.iter()).any(|s| matches!(s, ShaderDefVal::Bool(name, true) if name == crate::distant_lights::DISTANT_LIGHTS_DEF))
 }
 
 /// Whether a pipeline is a terrain height blending variant: its fragment stage has

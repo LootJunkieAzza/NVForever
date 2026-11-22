@@ -31,6 +31,11 @@ const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wesl";
 
 mod display_shader;
 pub(crate) use self::display_shader::display_patched;
+#[cfg(test)]
+pub(crate) use self::display_shader::{
+    spot_display_scale, spot_specular_scale, FIRST_PERSON_FLASHLIGHT_DIFFUSE,
+    FIRST_PERSON_FLASHLIGHT_SPECULAR,
+};
 pub use self::display_shader::unix_lines;
 pub(crate) mod reflection_gate;
 
@@ -1200,5 +1205,36 @@ mod tests {
     fn reflection_gate_refuses_a_source_with_another_ungated_block() {
         let input = chain_before_gate().replace("// Total light\n", "// Total light\n@if(ENVIRONMENT_MAP) {\n}\n");
         assert!(reflection_gate::gate_patched(&input).is_none());
+    }
+
+    /// Issue #3121: on `FIRST_PERSON_DEPTH` shapes only, shadow-casting spot lights
+    /// (the player's flashlight) take the diffuse and specular scales in
+    /// `lights/display_shader.rs`, matching the Rust constants, while `!FIRST_PERSON_DEPTH`
+    /// keeps full strength and the full shader-patch chain stays balanced.
+    #[test]
+    fn first_person_flashlight_patch_scales_shadow_spots_only() {
+        let chained = reflection_gate::gate_patched(&chain_before_gate())
+            .expect("full pbr_functions patch chain applies");
+        assert!(crate::sun_visibility::tests::balanced(&chained));
+        let diffuse_lit = format!(
+            "let nvf_fp_scale = select(1.0, {:.2}, ((*light).flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u);",
+            FIRST_PERSON_FLASHLIGHT_DIFFUSE,
+        );
+        let spec_lit = format!(
+            "direct_light += light_contrib * (shadow * select(1.0, {:.2}, (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));",
+            FIRST_PERSON_FLASHLIGHT_SPECULAR,
+        );
+        assert_eq!(chained.matches(&diffuse_lit).count(), 1, "diffuse scale matches Rust constant once");
+        assert_eq!(chained.matches(&spec_lit).count(), 1, "specular scale matches Rust constant once");
+        assert_eq!(
+            chained.matches("@if(!FIRST_PERSON_DEPTH)\n    let nvf_fp_scale = 1.0;").count(),
+            1,
+            "world and third-person spot diffuse stay at 1.0",
+        );
+        assert_eq!(
+            chained.matches("@if(!FIRST_PERSON_DEPTH)\n        direct_light += light_contrib * shadow;").count(),
+            1,
+            "world and third-person spot specular stay unmodified",
+        );
     }
 }

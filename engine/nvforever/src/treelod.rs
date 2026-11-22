@@ -37,7 +37,7 @@ use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::tasks::{futures::check_ready, Task};
-use fnv_world::placed::{base_object, placement, tree_billboard};
+use fnv_world::placed::{base_object, tree_billboard};
 use fnv_world::{cell_of, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
 use std::collections::{HashMap, HashSet};
@@ -195,11 +195,11 @@ fn cell_refs(world: &WorldData, g: Grid) -> Vec<u32> {
 /// records only, so it runs on a read thread ([`update_distant_trees`]): it took up to
 /// 5 ms of a frame for a step's cells on the main thread [observed 2026-11-20,
 /// `profile hitch`: `treelod::update_distant_trees`].
-fn trees_of(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, refs: &[u32]) -> Vec<Placed> {
+fn trees_of(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, index: &fnv_world::WorldIndex, refs: &[u32]) -> Vec<Placed> {
     let mut out = Vec::new();
     let mut bases: HashMap<u32, Option<fnv_world::placed::BaseObject>> = HashMap::new();
     for &r in refs {
-        let Some(p) = placement(lo, schema, r) else { continue };
+        let Some(p) = index.placement(lo, schema, r) else { continue };
         let Some(base) = p.base else { continue };
         let b = bases.entry(base).or_insert_with(|| base_object(lo, schema, base).filter(|b| distant_tree(b, true)));
         if b.as_ref().is_some_and(|b| distant_tree_ref(&p, b, crate::world::enabled(lo, schema, &p, 0))) {
@@ -339,7 +339,7 @@ pub fn update_distant_trees(
     for &g in trees.want.iter().filter(|g| !trees.drawn.contains_key(g)) {
         if !on_read_threads && missing.len() < per_frame {
             // As before: read here, within the frame's count.
-            trees.cells.entry(g).or_insert_with(|| Arc::new(trees_of(world.lo, world.schema, &cell_refs(&world, g))));
+            trees.cells.entry(g).or_insert_with(|| Arc::new(trees_of(world.lo, world.schema, world.index, &cell_refs(&world, g))));
         }
         if trees.cells.contains_key(&g) {
             if missing.len() < per_frame {
@@ -349,8 +349,8 @@ pub fn update_distant_trees(
             let in_flight = trees.reading.len();
             if let std::collections::hash_map::Entry::Vacant(reading) = trees.reading.entry(g) {
                 if in_flight < READS_IN_FLIGHT {
-                    let (lo, schema, refs) = (world.lo, world.schema, cell_refs(&world, g));
-                    reading.insert(nvf_assets::read_pool::read_pool().spawn(async move { trees_of(lo, schema, &refs) }));
+                    let (lo, schema, index, refs) = (world.lo, world.schema, world.index, cell_refs(&world, g));
+                    reading.insert(nvf_assets::read_pool::read_pool().spawn(async move { trees_of(lo, schema, index, &refs) }));
                 }
             }
         }

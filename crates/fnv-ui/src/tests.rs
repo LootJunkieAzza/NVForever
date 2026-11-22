@@ -1193,6 +1193,115 @@ fn the_extenders_paths_count_from_the_first_child() {
     assert!(!ui.set_counted("StartMenu/MCM/*:7/_value", FromFirst, Value::Num(0.0)));
 }
 
+#[test]
+fn chained_indexed_wildcards_reach_nested_value_text_and_preserve_controls() {
+    use crate::Count::FromFirst;
+    let src = MemSource::default().with(
+        "m.xml",
+        r#"<menu name="StartMenu"> <rect name="MCM">
+            <rect name="MCM_Options">
+              <hotrect name="Option1"> <_enable> 0 </_enable> <rect name="value"> <text name="text"> <string> </string> </text> <text name="suffix"> <string> </string> </text> </rect> </hotrect>
+              <hotrect name="Option2"> <_enable> 0 </_enable> <rect name="value"> <text name="text"> <string> </string> </text> <text name="suffix"> <string> </string> </text> </rect> </hotrect>
+              <hotrect name="Option3"> <_enable> 0 </_enable> <rect name="value"> <text name="text"> <string> </string> </text> <text name="suffix"> <string> </string> </text> </rect> </hotrect>
+              <hotrect name="Option4"> <_enable> 0 </_enable> </hotrect>
+            </rect>
+            <rect name="MCM_Scale"/> <rect name="MCM_List"/> <hotrect name="MCM_Trigger"/>
+            <rect name="MCM_ModList"/> <rect name="MCM_BG"/> <rect name="MCM_Bracket"/>
+            <rect name="MCM_ModTitle"/> <text name="MCM_Info"> <string> </string> </text>
+            <text name="MCM_Version"> <string> v1 </string> </text>
+        </rect> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "m.xml").unwrap();
+    // Chained `*:1/*:1/_enable`, `*:1/*:3/value/*:1/string`, and `*:9/string` with both `/` and `\`.
+    assert!(ui.set_counted("StartMenu/MCM/*:1/*:1/_enable", FromFirst, Value::Num(1.0)));
+    assert!(ui.set_counted(r"StartMenu\MCM\*:1\*:3\value\*:1\string", FromFirst, Value::Str("Key E".into())));
+    assert!(ui.set_counted("StartMenu/MCM/*:9/string", FromFirst, Value::Str("Help line".into())));
+    assert_eq!(ui.get_float("StartMenu/MCM/MCM_Options/Option1/_enable"), Some(1.0));
+    assert_eq!(ui.get_string("StartMenu/MCM/MCM_Options/Option3/value/text/string").as_deref(), Some("Key E"));
+    assert_eq!(ui.get_string("StartMenu/MCM/MCM_Info/string").as_deref(), Some("Help line"));
+    // Last child via `*:0` and out-of-range at `*:len` match the observed original-game boundary.
+    assert_eq!(ui.get_counted("StartMenu/MCM/*:0/string", FromFirst).map(Value::text).as_deref(), Some("v1"));
+    assert!(ui.get_counted("StartMenu/MCM/*:10/string", FromFirst).is_none());
+    // Unindexed `*` and `FromLast` controls remain intact.
+    assert_eq!(ui.get_string("StartMenu/*/MCM_Options/Option3/value/*/string").as_deref(), Some("Key E"));
+    assert_eq!(ui.get_string("StartMenu/MCM/*:1/string").as_deref(), Some("Help line"), "FromLast *:1 is second-to-last (MCM_Info)");
+}
+
+#[test]
+fn unprefixed_game_string_entities_resolve_without_breaking_constants() {
+    // [observed: #2270, MCM Scale.xml `<string> &sAccept; </string>` and `&sCancel;`]
+    struct Files {
+        mem: MemSource,
+        strings: crate::GameStrings,
+    }
+    impl Source for Files {
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            self.mem.read(path)
+        }
+        fn game_string(&self, name: &str) -> Option<String> {
+            self.strings.get(name)
+        }
+        fn game_string_is_built_in(&self, name: &str) -> bool {
+            matches!(self.strings.lookup(name), Some((_, crate::strings::Origin::BuiltIn)))
+        }
+    }
+    let mem = MemSource::default().with(
+        "menus/popup.xml",
+        r#"<menu name="Popup">
+  <class> &StartMenu; </class>
+  <rect name="Buttons">
+    <text name="Ok"> <string> &sAccept; </string> <justify> &center; </justify> <visible> &true; </visible> </text>
+    <text name="Cancel"> <string> &sCancel; </string> <visible> &false; </visible> </text>
+    <text name="Upper"> <string> &SACCEPT; </string> </text>
+    <text name="Compound"> <string> &sAccept; / &sCancel; </string> </text>
+    <text name="Copied"> <string> <copy> &sCancel; </copy> </string> </text>
+    <text name="Override"> <string> &sBack; </string> </text>
+    <image name="Icon"> <zoom> &scale; </zoom> </image>
+    <text name="Unknown"> <string> &sNvfUnknownPlain; </string> </text>
+    <text name="MissingPrefixed"> <string> &-sNvfMissingPrefixed; </string> </text>
+  </rect>
+</menu>"#,
+    );
+    let src = Files {
+        mem,
+        strings: crate::GameStrings::from_settings([
+            ("sBack", "Plugin Back"),
+            // Even a bogus plugin setting sharing a numeric/menu constant name must not hijack `&true;` or `&StartMenu;`.
+            ("true", "bogus true"),
+            ("StartMenu", "bogus menu"),
+        ]),
+    };
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/popup.xml").unwrap();
+    ui.update();
+
+    assert_eq!(ui.get_string("Popup/Buttons/Ok/string").as_deref(), Some("Accept"));
+    assert_eq!(ui.get_string("Popup/Buttons/Cancel/string").as_deref(), Some("Cancel"));
+    assert_eq!(ui.get_string("Popup/Buttons/Upper/string").as_deref(), Some("Accept"));
+    assert_eq!(ui.get_string("Popup/Buttons/Compound/string").as_deref(), Some("Accept / Cancel"));
+    assert_eq!(ui.get_string("Popup/Buttons/Copied/string").as_deref(), Some("Cancel"));
+    assert_eq!(ui.get_string("Popup/Buttons/Override/string").as_deref(), Some("Plugin Back"));
+    assert_eq!(ui.get_string("Popup/Buttons/MissingPrefixed/string").as_deref(), Some(""));
+    // Constants and unknown unprefixed entities stay Value::Sym and do not pollute game_strings_read.
+    assert_eq!(ui.get("Popup/class"), Some(&Value::Sym("startmenu".into())));
+    assert_eq!(ui.get("Popup/Buttons/Ok/justify"), Some(&Value::Sym("center".into())));
+    assert_eq!(ui.get("Popup/Buttons/Ok/visible"), Some(&Value::Sym("true".into())));
+    assert_eq!(ui.get("Popup/Buttons/Cancel/visible"), Some(&Value::Sym("false".into())));
+    assert_eq!(ui.get("Popup/Buttons/Icon/zoom"), Some(&Value::Sym("scale".into())));
+    assert_eq!(ui.get("Popup/Buttons/Unknown/string"), Some(&Value::Sym("snvfunknownplain".into())));
+    // Built-in label tracking distinguishes built-in labels from load-order overrides and compound text.
+    let ok = ui.find_tile("Popup/Buttons/Ok").unwrap();
+    let ov = ui.find_tile("Popup/Buttons/Override").unwrap();
+    let cmp = ui.find_tile("Popup/Buttons/Compound").unwrap();
+    assert_eq!(ui.built_in_label(ok, "string"), Some("saccept"));
+    assert_eq!(ui.built_in_label(ov, "string"), None);
+    assert_eq!(ui.built_in_label(cmp, "string"), None);
+    // Only resolved unprefixed game strings and explicit `&-` lookups enter game_strings_read.
+    let read: Vec<_> = ui.game_strings_read.iter().map(|(n, &found)| (n.as_str(), found)).collect();
+    assert_eq!(read, [("saccept", true), ("sback", true), ("scancel", true), ("snvfmissingprefixed", false)]);
+}
+
 /// A trait name with `+` in it is one name [observed: Vanilla UI Plus's `_VUI+Fade`,
 /// `_VUI+OverwriteVerify`; #2298].
 #[test]

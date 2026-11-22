@@ -652,6 +652,9 @@ pub struct TweakSettings {
     pub compass_quest_height: bool,
     /// `bPlacedMarkerHeightIndicator`: the same for the player's custom map marker.
     pub compass_marker_height: bool,
+    /// Remember the player's last chosen ammo type per weapon base form across
+    /// switching, unequipping, dropping and saving/loading (#3305) [design].
+    pub keep_chosen_ammo: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -976,6 +979,7 @@ impl Default for TweakSettings {
             npc_weapon_volume: 100.0,
             compass_quest_height: false,
             compass_marker_height: false,
+            keep_chosen_ammo: false,
         }
     }
 }
@@ -2183,6 +2187,13 @@ impl Plugin for TweaksPlugin {
         switch!(app, "repeat-activate-takes-only", "Repeat Activate Takes Only", "Repeat Activate (Controls page, unbound at first), held, takes again and again; off, activates anything. (Stewie's Tweaks iRepeatActivateKey)", repeat_activate_takes_only);
         switch!(app, "hi-res-npc-weapons", "Fine Weapon Models for Everyone", "People hold the detailed first-person models of their weapons; weapons drawn after the change. (Stewie's Tweaks bForceHiResWeaponModels)", hi_res_npc_weapons);
         switch!(app, "empty-reload-swaps-ammo", "Reload Swaps Spent Ammo", "Reloading when none of the ammo in use is left changes to another kind you carry. (Stewie's Tweaks bReloadingWithNoAmmoSwapsAmmoTypes)", game.empty_reload_swaps_ammo);
+        switch!(
+            app,
+            "keep-chosen-ammo",
+            "Keep Chosen Ammo",
+            "Weapons remember the ammo type you picked for them after switching, unequipping or dropping them; falls back if none is carried.",
+            keep_chosen_ammo
+        );
         switch!(app, "objectives-on-arrival", "Objectives on Arrival", "Going through a door to a new place shows your active quest's open objectives again. (Stewie's Tweaks bShowQuestObjectivesOnCellChange)", objectives_on_arrival);
         amount!(app, "objectives-gap", "Objectives on Arrival Gap (s)", "The least time, up to 300 seconds, between two showings of Objectives on Arrival. (Stewie's Tweaks bShowQuestObjectivesOnCellChange)", 300.0, f32, objectives_gap);
         // ---- rest ----
@@ -2989,6 +3000,6 @@ mod tests {
         let t = TweakSettings::default();
         assert_eq!(t.game, Tweaks::default());
         assert_eq!(t.game.xp_multiplier, 1.0);
-        assert!(!t.no_karma_messages && !t.disable_fast_travel);
+        assert!(!t.no_karma_messages && !t.disable_fast_travel && !t.keep_chosen_ammo);
     }
 }

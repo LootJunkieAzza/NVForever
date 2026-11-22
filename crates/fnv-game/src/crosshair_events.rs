@@ -12,6 +12,7 @@ impl Game<'_> {
             self.jg8_crosshair(r);
         }
         self.senses.crosshair_ref = now;
+        self.sync_pc_target();
         let Some(r) = now.filter(|_| changed) else {
             return;
         };

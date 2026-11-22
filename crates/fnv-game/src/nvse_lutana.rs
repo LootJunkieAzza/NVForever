@@ -29,7 +29,8 @@ pub struct LutanaState {
     /// (`Game::services`, `Game::aggro_radius`).
     pub services: HashMap<FormId, u32>,
     pub aggro_radius: HashMap<FormId, u32>,
-    /// SetRadius on a reference (its XRDS).
+    /// SetRadius on a reference (its XRDS), read by `GetRadius` and
+    /// `Game::radiation_markers_in`, and carried across same-run loads in `Game::Session`.
     pub ref_radius: HashMap<FormId, f32>,
     /// SetDefaultMessageTime's seconds.
     pub message_time: Option<f64>,
@@ -588,12 +589,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let unlocked = crate::data::terminal_flag::UNLOCKED;
             XVal::Num(t.and_then(|t| g.data.terminals.get(&t)).map_or(0.0, |d| if d.has(unlocked) { -1.0 } else { f64::from(d.difficulty) }))
         }
-        // `[terminal]`: TERM PNAM [documented: GetPasswordNote], SetPasswordNote's first.
-        "getpasswordnote" => reff(form(args, 0).or(subject).map(|f| base(g, f)).and_then(|t| record_ref(g, t, "PNAM"))),
+        // `[terminal]`: TERM PNAM [documented: GetPasswordNote], SetPasswordNote's first
+        // (`crate::terminal::password_note`, shared with `terminal::has_password` and
+        // `PlayerHasKey` and carried across same-run loads via `Game::Session`).
+        "getpasswordnote" => reff(form(args, 0).or(subject).map(|f| base(g, f)).and_then(|t| crate::terminal::password_note(g, t))),
         "setpasswordnote" => {
-            let t = form(args, 1).or(subject).map(|f| base(g, f)).filter(|&t| g.data.sig(t) == Some(*b"TERM"));
-            if let Some(t) = t {
-                g.field_overrides.insert((t, "PNAM/".into()), XVal::Ref(form(args, 0).map_or(0, |f| f.0)));
+            if let Some(t) = form(args, 1).or(subject).map(|f| base(g, f)) {
+                crate::terminal::set_password_note(g, t, form(args, 0));
             }
             zero
         }
@@ -663,16 +665,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // door with no lock of its own reads the other side's [hypothesis: as GetLockLevel].
         "playerhaskey" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
-            let key = if is_terminal(g, r) {
-                let b = base(g, r);
-                let note = record_ref(g, b, "PNAM");
-                if note.is_some_and(|n| g.player.notes.contains(&n)) {
-                    return Some(Ok(XVal::Num(1.0)));
-                }
-                note
-            } else {
-                g.world.lock_of(r).and_then(|l| l.key)
-            };
+            if is_terminal(g, r) {
+                return Some(Ok(yes(crate::terminal::has_password(g, base(g, r)))));
+            }
+            let key = g.world.lock_of(r).and_then(|l| l.key);
             yes(key.is_some_and(|k| g.world.item_count(FormId::PLAYER_REF, k).is_ok_and(|n| n > 0)))
         }
         // `[ref]`: XAPD "Parent Activate Only" [documented: IsParentActivateOnly; the
@@ -789,7 +785,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             if let Some(l) = form(args, 0) {
                 XVal::Num(record_num(g, l, "DATA", "radius").unwrap_or(0.0))
             } else if let Some(r) = subject {
-                let own = g.other.lutana.ref_radius.get(&r).copied().or_else(|| g.world.placed.get(r).and_then(|p| p.radius));
+                let own = g.ref_radius(r);
                 let b = base(g, r);
                 let light = || (g.data.sig(b) == Some(*b"LIGH")).then(|| record_num(g, b, "DATA", "radius")).flatten();
                 XVal::Num(own.map(|x| crate::nvse::record_float(f64::from(x))).or_else(light).unwrap_or(0.0))
@@ -838,9 +834,12 @@ fn set_playable(g: &mut Game, f: FormId, on: bool) {
             let new = if on { now & !(1 << 7) } else { now | (1 << 7) };
             g.field_overrides.insert((f, "DNAM/flags1".into()), XVal::Num(new as f64));
             g.playable_overrides.remove(&f);
+            g.world.mutate_item_override(f, |ov| {
+                ov.non_playable = Some(!on);
+            });
         }
         Some(b"ARMO" | b"AMMO") => {
-            g.playable_overrides.insert(f, on);
+            g.set_item_playable(f, on);
         }
         Some(b"RACE") => {
             let v = bit(record_num(g, f, "DATA", "flags"));

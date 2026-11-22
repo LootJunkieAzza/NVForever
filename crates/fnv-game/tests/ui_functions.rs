@@ -512,6 +512,89 @@ fn a_huge_click_count_is_capped() {
 }
 
 #[test]
+fn keyboard_controller_selection_event_fires_on_key_navigation_not_pointer() {
+    use fnv_game::ui_input;
+    use fnv_ui::input::{no_measure, Input};
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus\\kbnav.xml",
+        r#"<menu name="InventoryMenu"> <class> &InventoryMenu; </class>
+           <_overs> 0 </_overs> <_kbMatch> 0 </_kbMatch> <_kbMenu> 0 </_kbMenu>
+           <_kbAny> 0 </_kbAny> <_kbOther> 0 </_kbOther>
+           <rect name="Main"> <x> 100 </x> <y> 100 </y>
+             <hotrect name="RowA"> <id> 29 </id> <target> &true; </target>
+               <x> 10 </x> <y> 10 </y> <width> 200 </width> <height> 40 </height>
+               <xdown> <ref src="sibling(RowB)" trait="mouseover"/> </xdown>
+             </hotrect>
+             <hotrect name="RowB"> <id> 29 </id> <target> &true; </target>
+               <x> 10 </x> <y> 60 </y> <width> 200 </width> <height> 40 </height>
+               <xup> <ref src="sibling(RowA)" trait="mouseover"/> </xup>
+               <xdown> <ref src="me()" trait="mouseover"/> </xdown>
+             </hotrect>
+           </rect> </menu>"#,
+    );
+    let menu = g.ui_tree.load_menu(&src, "menus\\kbnav.xml").unwrap();
+    g.ui_tree.update();
+    query(
+        &mut g,
+        r#"SetOnMouseoverChangeEventHandler (Begin Function {int m}
+ModUIFloat "InventoryMenu/_overs" 1
+End) 1 1002
+SetOnKBCTrlUIDeltaHandler 1 (Begin Function {int m}
+ModUIFloat "InventoryMenu/_kbMatch" 1
+SetUIFloat "InventoryMenu/_kbMenu" m
+End) 0 1002
+SetOnKBCTrlUIDeltaHandler 1 (Begin Function {int m}
+ModUIFloat "InventoryMenu/_kbAny" 1
+End) 0 0
+SetJohnnyOnKeyboardControllerSelectionChangeEventHandler 1 (Begin Function {int m}
+ModUIFloat "InventoryMenu/_kbOther" 1
+End) 0 1053"#,
+    );
+    let get = |g: &mut Game, t: &str| n(run(g, "GetUIFloat", &[s(&format!("InventoryMenu/{t}"))]));
+
+    // Pointer hover onto RowA fires SetOnMouseoverChangeEventHandler only.
+    ui_input::step(&mut g, &[menu], &pointer_at(150.0, 120.0), &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 1.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 0.0);
+    assert_eq!(get(&mut g, "_kbAny"), 0.0);
+    assert_eq!(get(&mut g, "_kbOther"), 0.0);
+
+    // Keyboard/controller xdown moves RowA -> RowB and fires matching 1002 + wildcard 0.
+    ui_input::step(&mut g, &[menu], &Input { pads: vec!["xdown".into()], ..pointer_at(150.0, 120.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 2.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 1.0);
+    assert_eq!(get(&mut g, "_kbMenu"), 1002.0);
+    assert_eq!(get(&mut g, "_kbAny"), 1.0);
+    assert_eq!(get(&mut g, "_kbOther"), 0.0);
+
+    // Self-referencing xdown on RowB does not change highlight and does not fire again.
+    ui_input::step(&mut g, &[menu], &Input { pads: vec!["xdown".into()], ..pointer_at(150.0, 120.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 2.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 1.0);
+    assert_eq!(get(&mut g, "_kbAny"), 1.0);
+
+    // Keyboard/controller xup moves RowB -> RowA and fires again.
+    ui_input::step(&mut g, &[menu], &Input { pads: vec!["xup".into()], ..pointer_at(150.0, 120.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 3.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 2.0);
+    assert_eq!(get(&mut g, "_kbAny"), 2.0);
+
+    // Pure pointer move onto RowB with a self-referencing xdown in the same frame must not
+    // falsely claim keyboard navigation.
+    ui_input::step(&mut g, &[menu], &Input { pads: vec!["xdown".into()], ..pointer_at(150.0, 175.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 4.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 2.0);
+    assert_eq!(get(&mut g, "_kbAny"), 2.0);
+
+    // Game restore flushes session-only JohnnyGuitar handlers.
+    let saved = g.snapshot();
+    let restored = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default(), &saved).unwrap();
+    assert!(!restored.jg8_listening(fnv_game::nvse_jg8::Ev::KeyboardSelection));
+}
+
+#[test]
 fn set_ui_string_alt_xml_entity_strings_hide_tiles_and_match_expressions() {
     use fnv_ui::input::{hit, no_measure};
     use fnv_ui::Value;

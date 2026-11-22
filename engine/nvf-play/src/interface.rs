@@ -628,6 +628,11 @@ pub fn set_font_files(files: [Option<String>; 9]) {
     let _ = INSTALL_FONTS.set(files);
 }
 
+/// Configure lazy fallback for a missing CJK character.
+pub fn set_cjk_font_path(path: Option<std::path::PathBuf>) {
+    crate::cjk_font::configure(path);
+}
+
 /// The file a font is read from: a default font file ([`FONT_FILES`]) is the install's
 /// own one for that number when its INI names one ([`set_font_files`]); any other path
 /// is itself.
@@ -716,11 +721,143 @@ pub fn set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
 
 /// [`set_line`] with `mark` on every coloured node (each glyph, or the stand-in text).
 pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color, mark: impl Bundle + Clone) {
+    set_scaled_bitmap_line(p, face, line, x, base, 1.0, color, mark);
+}
+
+type RedrawLine = Box<dyn Fn(&mut ChildSpawnerCommands) + Send + Sync>;
+
+#[derive(Component)]
+struct CjkLine(RedrawLine);
+
+/// A CJK line retains its advances and gaps so even a static screen can replace its
+/// question marks and move the following letters when the font is ready.
+pub(crate) fn redraw_cjk_lines(world: &mut World) {
+    use bevy::ecs::world::CommandQueue;
+    let mut lines = world.query::<(Entity, &CjkLine)>();
+    let mut queue = CommandQueue::default();
+    let mut commands = Commands::new(&mut queue, world);
+    for (entity, redraw) in lines.iter(world) {
+        commands.entity(entity).despawn_related::<Children>().with_children(|p| redraw.0(p));
+        if !crate::cjk_font::enabled() {
+            commands.entity(entity).remove::<CjkLine>();
+        }
+    }
+    queue.apply(world);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn set_scaled_bitmap_line(
+    p: &mut ChildSpawnerCommands,
+    face: &Face,
+    line: &Line,
+    x: f32,
+    base: f32,
+    scale: f32,
+    color: Color,
+    mark: impl Bundle + Clone,
+) {
+    if !needs_cjk_line(face, line) {
+        draw_marked(p, face, line, x, base, scale, color, mark);
+        return;
+    }
+    let advance: Vec<_> = line.glyphs.iter().map(|g| face.font.glyph_of(g.ch).advance()).collect();
+    let unit_scale = unit_scale();
+    let mut anchor = p.spawn(at(0.0, 0.0, 0.0, 0.0));
+    anchor.with_children(|p| draw_marked(p, face, line, x, base, scale, color, mark.clone()));
+    let face = face.clone();
+    let line = line.clone();
+    anchor.insert(CjkLine(Box::new(move |p| {
+        let _units = units_at(unit_scale);
+        let mut line = line.clone();
+        let mut delta = 0.0;
+        for (glyph, &old_advance) in line.glyphs.iter_mut().zip(&advance) {
+            glyph.x += delta;
+            delta += face.font.glyph_of(glyph.ch).advance() - old_advance;
+        }
+        line.width += delta;
+        draw_marked(p, &face, &line, x, base, scale, color, mark.clone());
+    })));
+}
+
+pub(crate) fn needs_cjk_line(face: &Face, line: &Line) -> bool {
+    crate::cjk_font::enabled() && line.glyphs.iter().any(|g| face.font.needs_cjk_fallback(g.ch))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_marked(
+    p: &mut ChildSpawnerCommands,
+    face: &Face,
+    line: &Line,
+    x: f32,
+    base: f32,
+    scale: f32,
+    color: Color,
+    mark: impl Bundle + Clone,
+) {
+    if face.image.is_some() && face.vector.is_none() {
+        // [observed: #1221] Snap the shared baseline once, keeping each glyph's
+        // fractional texture box.
+        p.spawn(line_anchor(base)).with_children(|p| {
+            for placed in &line.glyphs {
+                set_glyph(p, face, placed, x + placed.x * scale, 0.0, scale, color, mark.clone());
+            }
+        });
+        return;
+    }
+    if !needs_cjk_line(face, line) {
+        set_bevy_line(p, face, line.text_spaced(&face.font), x, base, color, mark);
+        return;
+    }
+    // Keep Bevy's original shaping for consecutive primary glyphs. The fallback
+    // images start at the same measured offsets and baseline as those text runs.
+    let mut run = Line::default();
+    let mut start = 0.0;
+    let flush = |p: &mut ChildSpawnerCommands, run: &mut Line, start: f32| {
+        if !run.glyphs.is_empty() {
+            set_bevy_line(
+                p,
+                face,
+                run.text_spaced(&face.font),
+                x + start,
+                base,
+                color,
+                mark.clone(),
+            );
+            run.glyphs.clear();
+        }
+    };
+    for &placed in &line.glyphs {
+        let mut native = placed;
+        if face.font.needs_cjk_fallback(placed.ch) {
+            if let Some((key, glyph)) = crate::cjk_font::lookup(placed.ch, face.font.size) {
+                flush(p, &mut run, start);
+                set_cjk_glyph(p, key, glyph, x + placed.x, base, 1.0, color, mark.clone());
+                continue;
+            }
+            native.ch = '?';
+        }
+        if run.glyphs.is_empty() {
+            start = placed.x;
+        }
+        native.x -= start;
+        run.glyphs.push(native);
+    }
+    flush(p, &mut run, start);
+}
+
+fn set_bevy_line(
+    p: &mut ChildSpawnerCommands,
+    face: &Face,
+    text: String,
+    x: f32,
+    base: f32,
+    color: Color,
+    mark: impl Bundle,
+) {
     if let Some(v) = &face.vector {
         // The line's text in the vector font, its baseline on `base`: Bevy lays it out at the
         // screen's resolution, without kerning or ligatures so it is as wide as `face.font`
         // measured it (`crate::vector_font`), in one line.
-        let text = line.text_spaced(&face.font);
         let font = TextFont { font_size: font_units(v.em), weight: bevy::text::FontWeight(v.weight), font_features: crate::vector_font::features(), ..TextFont::default().with_font(v.font.clone()) };
         let layout = (bevy::text::LineHeight::RelativeToFont(1.0), TextLayout::new(Justify::Left, LineBreak::NoWrap));
         let shadow = |part: Vec2, alpha: f32| (TextGlow(part), bevy::ui::widget::TextShadow { offset: Vec2::ZERO, color: Color::BLACK.with_alpha(alpha) });
@@ -746,33 +883,101 @@ pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32
             }
             n.spawn((Text::new(text), font, layout, TextColor(color), shadow(DROP, DROP_ALPHA * ink), mark));
         });
-        return;
-    }
-    let Some((image, size)) = &face.image else {
-        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251);
-        // the spaces between the words are put back (#2298).
-        let text = line.text_spaced(&face.font);
+    } else {
         let size = face.font.size * 0.75;
         p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(base - size), ..default() }).with_children(|n| {
             n.spawn((Text::new(text), TextFont { font_size: font_units(size), ..default() }, TextColor(color), mark));
         });
+    }
+}
+
+/// Draw one bitmap glyph starting at `x` and standing on `base`. Its offsets and ink
+/// are in the face's units multiplied by `scale`. A missing CJK glyph can use an outline
+/// atlas entry with precisely the metrics used in layout.
+#[allow(clippy::too_many_arguments)]
+pub fn set_glyph(
+    p: &mut ChildSpawnerCommands,
+    face: &Face,
+    placed: &fnv_font::Placed,
+    x: f32,
+    base: f32,
+    scale: f32,
+    color: Color,
+    mark: impl Bundle,
+) {
+    if face.font.needs_cjk_fallback(placed.ch) {
+        if let Some((key, glyph)) = crate::cjk_font::lookup(placed.ch, face.font.size) {
+            set_cjk_glyph(p, key, glyph, x, base, scale, color, mark);
+            return;
+        }
+    }
+    let Some((image, size)) = &face.image else {
         return;
     };
-    // [observed: #1221] Snap the shared baseline once, but keep each texture cut-out's
-    // fractional box. Aspect fitting and per-glyph layout rounding made identical glyphs differ.
-    p.spawn(line_anchor(base)).with_children(|p| {
-        for placed in &line.glyphs {
-            let g = face.font.glyph(placed.code);
-            if !g.drawn() {
-                continue;
+    let glyph = face.font.glyph(placed.code);
+    if !glyph.drawn() {
+        return;
+    }
+    let rect = Rect::new(
+        glyph.uv[0] * size.x,
+        glyph.uv[1] * size.y,
+        glyph.uv[2] * size.x,
+        glyph.uv[3] * size.y,
+    );
+    p.spawn((
+        at(
+            x + glyph.before * scale,
+            base - glyph.ascent * scale,
+            glyph.width * scale,
+            glyph.height * scale,
+        ),
+        ImageNode {
+            rect: Some(rect),
+            color,
+            image_mode: NodeImageMode::Stretch,
+            ..ImageNode::new(image.clone())
+        },
+        LayoutConfig {
+            use_rounding: false,
+        },
+        mark,
+    ));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn set_cjk_glyph(
+    p: &mut ChildSpawnerCommands,
+    key: crate::cjk_font::GlyphKey,
+    raster: std::sync::Arc<crate::cjk_font::Raster>,
+    x: f32,
+    base: f32,
+    scale: f32,
+    color: Color,
+    mark: impl Bundle,
+) {
+    let g = raster.metrics;
+    if !g.drawn() {
+        return;
+    }
+    let entity = p
+        .spawn((
+            at(
+                x + g.before * scale,
+                base - g.ascent * scale,
+                g.width * scale,
+                g.height * scale,
+            ),
+            LayoutConfig {
+                use_rounding: false,
+            },
+            mark,
+        ))
+        .id();
+    p.commands().queue(move |world: &mut World| {
+        if let Some(image) = crate::cjk_font::image_node(world, key, &raster, color) {
+            if let Ok(mut entity) = world.get_entity_mut(entity) {
+                entity.insert(image);
             }
-            let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
-            p.spawn((
-                at(x + placed.x + g.before, -g.ascent, g.width, g.height),
-                ImageNode { rect: Some(rect), color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) },
-                LayoutConfig { use_rounding: false },
-                mark.clone(),
-            ));
         }
     });
 }
@@ -942,6 +1147,10 @@ fn own_texture(path: &str) -> String {
 #[cfg(test)]
 #[path = "interface_layout_tests.rs"]
 mod layout_tests;
+
+#[cfg(test)]
+#[path = "interface/bitmap_text_tests.rs"]
+mod bitmap_text_tests;
 
 #[cfg(test)]
 #[path = "interface/tga_consumer_tests.rs"]

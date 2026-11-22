@@ -32,7 +32,8 @@ type Applied = HashMap<u32, (Vec<String>, Arc<crate::locomotion::ClipSet>)>;
 /// only for actors that have one), with the world put back.
 fn apply(mut script: Option<ResMut<ScriptState>>, sim: Option<ResMut<nvf_play::sim::SimState>>, parts: Option<ResMut<ActorParts>>, mut models: ModelCtx, mut actors: Query<(&ActorRig, &mut Locomotion)>, mut applied: Local<Applied>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    if rt.game.anim_paths.actor.is_empty() && rt.game.anim_paths.weapon.is_empty() && rt.game.anim_folders.active.is_empty() && applied.is_empty() {
+    let forced = rt.game.take_npc_anim_refreshes();
+    if rt.game.anim_paths.actor.is_empty() && rt.game.anim_paths.weapon.is_empty() && rt.game.anim_folders.active.is_empty() && applied.is_empty() && forced.is_empty() {
         return;
     }
     let Some(mut parts) = parts else { return };
@@ -40,7 +41,12 @@ fn apply(mut script: Option<ResMut<ScriptState>>, sim: Option<ResMut<nvf_play::s
     let mut wanted: HashMap<u32, Vec<String>> = actors.iter().map(|(rig, _)| (rig.reference, Vec::new())).collect();
     let mut run = |rt: &mut nvf_play::script::Runtime| {
         for (actor, paths) in wanted.iter_mut() {
-            *paths = if conditional.contains(actor) { rt.game.anim_overrides_now(FormId(*actor), false) } else { rt.game.anim_overrides(FormId(*actor), false) };
+            let id = FormId(*actor);
+            let is_forced = forced.contains(&id);
+            if is_forced {
+                rt.game.refresh_anim_folders_for(id);
+            }
+            *paths = if is_forced || conditional.contains(actor) { rt.game.anim_overrides_now(id, false) } else { rt.game.anim_overrides(id, false) };
         }
     };
     match sim {
@@ -52,7 +58,8 @@ fn apply(mut script: Option<ResMut<ScriptState>>, sim: Option<ResMut<nvf_play::s
     for (rig, mut lo) in &mut actors {
         let paths = wanted.remove(&rig.reference).unwrap_or_default();
         let now = applied.get(&rig.reference).map(|(p, _)| p.clone()).unwrap_or_default();
-        if paths == now {
+        let force = forced.contains(&FormId(rig.reference));
+        if !force && paths == now {
             continue;
         }
         let shared = match applied.get(&rig.reference) {
@@ -69,5 +76,87 @@ fn apply(mut script: Option<ResMut<ScriptState>>, sim: Option<ResMut<nvf_play::s
         info!("anim paths: {:08X} plays {n} replaced move(s) from {} file(s)", rig.reference, paths.len());
         lo.replace_stand(Arc::new(set));
         applied.insert(rig.reference, (paths, shared));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::locomotion::ClipSet;
+    use fnv_game::game::RunCtx;
+    use fnv_script::vm::XVal;
+    use nvf_assets::actor::PreparedSkeleton;
+
+    #[test]
+    fn refresh_anim_data_forces_npc_locomotion_stand_rebuild_one_shot() {
+        let (mut app, _files) = crate::outfits::tests::asset_fixture();
+        let npc = FormId(0x2000);
+        let shared = Arc::new(ClipSet::default());
+        let skel = Arc::new(PreparedSkeleton::default());
+        let actor = app
+            .world_mut()
+            .spawn((
+                ActorRig {
+                    reference: npc.0,
+                    base: crate::outfits::tests::OTHER.0,
+                    body: crate::outfits::tests::OTHER.0,
+                    skeleton: "skeleton.nif".into(),
+                    skel,
+                    nodes: vec![],
+                    base_scale: 1.0,
+                },
+                Locomotion::new(shared.clone(), 0.0),
+            ))
+            .id();
+
+        let mut script = ScriptState::over_plugins(&[]);
+        // Give the NPC an active folder override so `anim_overrides` returns a non-empty list.
+        script
+            .rt
+            .as_mut()
+            .unwrap()
+            .game
+            .anim_folders
+            .active
+            .insert((npc, false), vec!["mtidle.kf".into()]);
+        app.insert_resource(script);
+        app.add_systems(Update, apply);
+
+        // Frame 1: initial override builds a fresh ClipSet Arc.
+        app.update();
+        let after1 = app.world().get::<Locomotion>(actor).unwrap().stand_set();
+        assert!(!Arc::ptr_eq(&shared, &after1), "initial override replaces shared ClipSet");
+
+        // Frame 2: unchanged paths keep the exact same Arc.
+        app.update();
+        let after2 = app.world().get::<Locomotion>(actor).unwrap().stand_set();
+        assert!(Arc::ptr_eq(&after1, &after2), "steady state does not rebuild ClipSet");
+
+        // Trigger RefreshAnimData on the NPC without changing the path list.
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<ScriptState>()
+                .rt
+                .as_mut()
+                .unwrap()
+                .game
+                .run_query(
+                    "Begin Function {}\nSetFunctionValue (RefreshAnimData)\nEnd",
+                    RunCtx { self_ref: Some(npc), ..Default::default() },
+                ),
+            Ok(XVal::Num(0.0))
+        );
+        assert!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.anim_refresh_pending(npc));
+
+        // Frame 3: forced refresh rebuilds the ClipSet Arc and consumes the one-shot flag.
+        app.update();
+        let after3 = app.world().get::<Locomotion>(actor).unwrap().stand_set();
+        assert!(!Arc::ptr_eq(&after2, &after3), "RefreshAnimData forces ClipSet rebuild even with identical paths");
+        assert!(!app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.anim_refresh_pending(npc));
+
+        // Frame 4: strictly one-shot.
+        app.update();
+        let after4 = app.world().get::<Locomotion>(actor).unwrap().stand_set();
+        assert!(Arc::ptr_eq(&after3, &after4), "no spurious rebuild on following frame");
     }
 }

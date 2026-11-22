@@ -31,7 +31,7 @@ fn yes(b: bool) -> XVal {
 /// An interior lighting trait 0-15 [documented: GetInteriorLightingTraitNumeric's table;
 /// observed: jg2, PrimmNashResidence, every trait]:
 /// the CELL XCLL field.
-fn interior_trait(id: f64) -> Option<String> {
+pub(crate) fn interior_trait(id: f64) -> Option<String> {
     let rgb = ["red", "green", "blue"];
     let id = id as i64;
     Some(match id {
@@ -95,6 +95,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 let v = num(args, 2, 0.0);
                 let v = if path.ends_with(".red") || path.ends_with(".green") || path.ends_with(".blue") { (v.trunc() as i64).rem_euclid(256) as f64 } else { v };
                 g.field_overrides.insert((c, format!("XCLL/{path}")), XVal::Num(v));
+                g.bump_lighting_revision();
                 zero
             } else {
                 XVal::Num(as_num(field(g, c, "XCLL", &path)))

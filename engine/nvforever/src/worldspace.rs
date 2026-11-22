@@ -46,6 +46,7 @@ fn carry_sky(from: &SkyState, s: &mut SkyState) {
     s.days_passed = from.days_passed;
     s.clock_seen = from.clock_seen;
     s.fog_override = from.fog_override;
+    s.weather_fog_overrides = from.weather_fog_overrides.clone();
     s.script_wind = from.script_wind;
     s.moon_textures = from.moon_textures.clone();
 }
@@ -60,6 +61,9 @@ pub(crate) fn carry_climate_sky(from: &SkyState, s: &mut SkyState, global_value:
         }
     }
     carry_sky(from, s);
+    if from.world_image_space_id.is_some() && from.world_image_space_id == s.world_image_space_id {
+        s.image_space = from.image_space;
+    }
     s.carry_region_placement(from);
 }
 

@@ -454,5 +454,5 @@ for each effect, and how it fits a long description.
   `Game::set_weapon_sound`, `Game::weapon_sound_changes`, and `Game::weapon_sound_stamp`
   expose the effective and session-changed weapon sound slots in the same pattern as
   `Game::weapon_model_changes` / `Game::weapon_model_stamp` (§8) [design]. Engine playback
-  consumption over `WeaponFx` and inventory pickup/putdown audio is the follow-up engine
-  step.
+  consumption over `WeaponFx` and inventory pickup/putdown audio is documented in
+  `docs/spec-notes/weapon-sound-bridge.md`.

@@ -29,7 +29,9 @@ one).
 
 The Controls tab's own rows (Input Device, Automatic Input Switching, Rumble, Invert Y, the
 sensitivities, the controls) stand under the Controls headings the page shows them in. The
-Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
+Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md (including
+`tweak-keep-chosen-ammo` — Keep Chosen Ammo, under Tweaks › Combat › Weapons and Armour,
+off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 
 ## Gameplay › Game
 
@@ -291,7 +293,7 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
 
 ### `monitor`: Monitor
 
-- On the page: The display the game opens on in full screen (the first display until you
+- On the page: The display the game opens on in full screen (the main display until you
   pick one).
 - Command-line switches: `--window`
 - Registered in `engine/nvforever/src/settings.rs`
@@ -1020,6 +1022,36 @@ below cover them all.
   shadows off too.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
+### `light-shadows`: ALC shadows
+
+- On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the
+  shadow distance, so walls stop their light. Performance redraws less often. Costs frame
+  rate. Not in the original.
+- In full: ALC stands for All Lights Cast; the row was called Lamp shadows until 2026-11-19.
+  The INI key `light-shadows`, the switch `--light-shadows` and the log lines starting
+  `light shadows:` keep the old name, so saved settings, scripts and the smoke scenarios go
+  on working. Off (the default), Performance or Quality, as Sun shadows. Every drawn placed
+  light whose light reaches within the sun's shadow distance (the Shadow distance and
+  Longer sun shadows rows) casts, nearest first, up to 32 lights on Quality and 16 on
+  Performance; grass fires' lights and lights a script attached count among them. Muzzle
+  flashes and explosions cast too, apart from them: the nearest whose light reaches within
+  3,000 units (about 43 m) and into view, 2 at once on Quality and 1 on Performance, each
+  drawn in the frame it appears. A light's maps are drawn when it starts casting and then
+  kept; a part of them is drawn again only when something there moved more than about 6 cm,
+  appeared or vanished, all of them once the light itself moved about 11 cm. At most 3 lights redraw in a frame on Quality, 1 on Performance, nearer ones
+  every frame (every 2nd on Performance), farther ones every 2nd (every 4th), so a moving
+  thing's shadow from a lamp can lag a frame. The world and your body cast, the first-person arms
+  do not; what lies within 8 units of a light casts nothing from it, and lamp housings,
+  shades and bulbs cast none from their own light. Quality also gives the shadows soft edges (sharp
+  where a thing touches the surface, softer away from it) and, while TAA, FSR or DLSS is
+  on, small contact shadows where things touch. A point light's maps
+  are 512² with Shadow resolution 2048, 1024² with 4096. Under a loading screen every
+  casting light's maps are drawn before play, those in view first, within 3 seconds. The
+  flashlight casts as before.
+  The original's placed lights cast none [design].
+- A list kept in the INI by name (`Off`, `Performance`, `Quality`).
+- Command-line switches: `--light-shadows`
+- More: docs/design/graphics-enhanced.md §3.17
 - Registered in `engine/nvforever/src/settings.rs`
 
 ## Graphics › Lighting and Effects
@@ -1069,6 +1101,36 @@ below cover them all.
   every preset; not in the original. Outdoors only.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.16
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `aerial-perspective`: Aerial perspective (experimental)
+
+- On the page: On: far land takes on the sky's colours with distance, bluer at noon, warmer
+  at dusk, brighter toward the sun, inside the weather's fog. Not in the original.
+- In full: On: the weather's own distance fog fades far land toward the sky colour behind it
+  (its horizon and lower-sky colours) instead of the one fog colour, each colour channel at
+  its own pace set by the sky's hue (a blue sky fogs blue in first, a dusk sky warm), and
+  toward the weather's sun colour looking into the sun by day. The amount of fog stays the
+  weather's; a short or dense fog (a hazy weather, a dust storm) is left as it is. Off in
+  every preset; not in the original. Outdoors only.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.18
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `night-sky-detail`: Night sky detail (experimental)
+
+- On the page: On: stars twinkle a little, more near the horizon; the moon gets a glow and
+  lights the clouds facing it, wider in hazy weather. Not in the original.
+- In full: On: each star's light rises and falls a little, smoothly, one to four times a
+  second, hardly at all overhead and most near the horizon, a little more in hazier air; a
+  soft glow surrounds the moon, in the weather's night light colour, wider and a little
+  stronger the hazier the weather's fog, and the clouds near the moon take some of its light.
+  The glow and the moonlit clouds follow the moon's phase (none at the new moon) and show only
+  while the moon does; nothing by day or indoors. Built from the climate's own stars and
+  moon and the weather's own colours and fog, so mods' skies work too. Off in every preset;
+  not in the original.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.19
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `bloom`: Bloom
@@ -1230,14 +1292,15 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `authored-reflections`: Reflections on authored materials
 
-- On the page: On: surfaces with a texture pack's material maps reflect the sky outdoors and
-  the cell's ambient colours indoors. Needs such a pack and Authored materials on. Takes
-  effect at the next start.
+- On the page: On: pack materials reflect the sky outdoors and an approximation of the
+  room and nearby lights indoors. Needs a material pack and Authored materials on.
+  Takes effect at the next start.
 - In full: [design, #2981] Surfaces shaded from an authored set reflect a small cube of the
   world camera's surroundings, blurred by their roughness, and the `_orm`'s metallic channel
-  takes effect: outdoors the sky as drawn, sunlit ground and a broad glow toward
-  the sun or the moon; indoors the cell's ambient colour with its fog colour at the
-  horizon. No clouds, sun disc, nearby objects or rooms are reflected. A metal's base colour
+  takes effect. Outdoors it reflects the sky, ground and a broad glow toward the sun or
+  moon. Nearby lamps can light the ground in the cube at night. Indoors it approximates
+  the room with a box lit by the cell's ambient light and nearby lamps. The cube omits
+  cloud shapes, the sun disc and nearby objects. A metal's base colour
   is lifted by its set's metal gain (12 by default) so it reflects
   as a metal. Only authored materials reflect: the game's own materials, terrain, trees, grass and water are
   unchanged. Nothing changes without a pack, or with Authored materials off. Off: metallic
@@ -1356,6 +1419,22 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - Command line: `--tree-distance` sets where the slider starts (40,000 units by default, at
   most `--lod-distance`; 0 draws no distant trees whatever the slider); `--lod-distance` sets
   the slider's end
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `distant-lights`: Distant lights (experimental)
+
+- On the page: On: at night, lamps in the places beyond the loaded area show as small
+  glows, so towns can be seen from afar. They light nothing. Not in the original.
+- In full: On: the placed lights of the cells up to 12 cells away that are not loaded, and
+  the objects there that glow by themselves (lamps, glow cards, light beams, lit sign
+  panels, neon), are drawn as small soft glows in their own colour, at most 400 of them,
+  the nearest and brightest first, lights standing close together as one. They fade out
+  toward the edge of that reach and into the weather's fog, give way to the real lights as their cells load,
+  and fade away as the sun rises. A lamp that is switched off, or disabled by the game,
+  shows none. Sprites only: nothing is lit and no shadow is cast. Off in both presets; not
+  in the original. Outdoors only.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.22
 - Registered in `engine/nvforever/src/settings.rs`
 
 ## Graphics › World and Animation

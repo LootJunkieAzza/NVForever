@@ -9,7 +9,7 @@ use fnv_sim::{SimConfig, World};
 mod records;
 use records::*;
 
-fn query(a: &mut App, body: &str) -> XVal {
+pub(super) fn query(a: &mut App, body: &str) -> XVal {
     a.world_mut().resource_scope(|world, mut script: Mut<ScriptState>| {
         let mut sim = world.resource_mut::<SimState>();
         with_world(script.rt.as_mut().unwrap(), &mut sim, |rt| {
@@ -19,7 +19,7 @@ fn query(a: &mut App, body: &str) -> XVal {
         })
     })
 }
-fn app() -> App {
+pub(super) fn app() -> App {
     let plugins = Box::leak(vec![plugin()].into_boxed_slice());
     let script = ScriptState::over_plugins(plugins);
     let game = &script.rt.as_ref().unwrap().game;
@@ -107,7 +107,7 @@ fn app() -> App {
     }
     a
 }
-fn tick(a: &mut App) -> Vec<ActorHit> {
+pub(super) fn tick(a: &mut App) -> Vec<ActorHit> {
     a.world_mut()
         .resource_mut::<Time>()
         .advance_by(std::time::Duration::from_secs_f64(1.0 / 60.0));

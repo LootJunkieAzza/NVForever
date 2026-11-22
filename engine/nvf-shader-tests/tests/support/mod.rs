@@ -10,7 +10,7 @@ use bevy_shader::{Shader, ShaderCache, ShaderCacheSource, ShaderDefVal};
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
 #[path = "../../../nvforever/src/lights/display_shader.rs"]
-mod production_display_shader;
+pub mod production_display_shader;
 
 #[path = "../../../nvforever/src/ssao_lighting/hook.rs"]
 pub mod production_ambient_occlusion_hook;

@@ -109,12 +109,28 @@ impl Zone {
 }
 
 impl CombatForms {
+    /// Resolve `id`'s [`ArmorStats`] using `base_id` (allowing `TempCloneForm` aliases)
+    /// and an optional runtime [`crate::data::ArmorOverride`].
+    pub fn armor_stats_with(&self, base_id: FormId, ov: Option<&crate::data::ArmorOverride>) -> Option<crate::data::ArmorStats> {
+        let base = self.armor.get(&base_id)?;
+        Some(match ov {
+            Some(ov) => ov.apply(base),
+            None => base.clone(),
+        })
+    }
+
     /// The worn armour a hit in `zone` wears (see the module notes), in `worn` order.
     pub fn armor_struck(&self, worn: &[FormId], zone: Zone) -> Vec<FormId> {
+        self.armor_struck_with(worn, zone, |id| self.armor.get(&id).cloned())
+    }
+
+    /// [`CombatForms::armor_struck`] using a caller-supplied effective [`ArmorStats`] lookup
+    /// (for live `SetEquipmentSlotsMask` and `TempCloneForm` armour).
+    pub fn armor_struck_with(&self, worn: &[FormId], zone: Zone, lookup: impl Fn(FormId) -> Option<crate::data::ArmorStats>) -> Vec<FormId> {
         worn.iter()
             .copied()
-            .filter(|id| {
-                self.armor.get(id).is_some_and(|a| match zone {
+            .filter(|&id| {
+                lookup(id).is_some_and(|a| match zone {
                     Zone::Head => a.covers_head(),
                     Zone::Body => a.covers_body(),
                     Zone::All => a.covers_head() || a.covers_body(),
@@ -131,13 +147,33 @@ impl CombatForms {
 
     /// [`CombatForms::armor_values_worn`] with [`armor_mult_with`] `penalty`.
     pub fn armor_values_worn_with(&self, worn: &[(FormId, f32)], penalty: f32) -> (f32, f32) {
-        worn.iter().filter_map(|(id, c)| Some((self.armor.get(id)?, armor_mult_with(*c, penalty)))).fold((0.0, 0.0), |(dt, dr), (a, m)| (dt + a.dt * m, dr + a.dr_raw as f32 / 100.0 * m))
+        self.armor_values_worn_with_lookup(worn, penalty, |id| self.armor.get(&id).cloned())
+    }
+
+    /// [`CombatForms::armor_values_worn_with`] using a caller-supplied effective
+    /// [`ArmorStats`] lookup (for live `SetArmorDT`, `SetArmorArmorRating`, and
+    /// `TempCloneForm` armour).
+    pub fn armor_values_worn_with_lookup(
+        &self,
+        worn: &[(FormId, f32)],
+        penalty: f32,
+        lookup: impl Fn(FormId) -> Option<crate::data::ArmorStats>,
+    ) -> (f32, f32) {
+        worn.iter()
+            .filter_map(|&(id, c)| Some((lookup(id)?, armor_mult_with(c, penalty))))
+            .fold((0.0, 0.0), |(dt, dr), (a, m)| (dt + a.dt * m, dr + a.dr_raw as f32 / 100.0 * m))
     }
 
     /// The full health of a weapon or a piece of armour (its record's `DATA` health); 0
     /// for anything else.
     pub fn item_health(&self, item: FormId) -> i32 {
-        self.weapons.get(&item).map(|w| w.health).or_else(|| self.armor.get(&item).map(|a| a.health)).unwrap_or(0)
+        self.item_health_with(item, |id| self.armor.get(&id).cloned())
+    }
+
+    /// [`CombatForms::item_health`] using a caller-supplied effective [`ArmorStats`] lookup
+    /// (for live `SetObjectHealth` and `TempCloneForm` armour).
+    pub fn item_health_with(&self, item: FormId, armor_lookup: impl Fn(FormId) -> Option<crate::data::ArmorStats>) -> i32 {
+        self.weapons.get(&item).map(|w| w.health).or_else(|| armor_lookup(item).map(|a| a.health)).unwrap_or(0)
     }
 }
 
@@ -172,4 +208,48 @@ pub fn wear_item(inv: &mut Inventory, item: FormId, points: f32, max_health: i32
         inv.map_equipped(item, |e| Extra { condition: Some(after), ..e });
     }
     Some(Wear { item, before, after, broke: before > 0.0 && after <= 0.0 })
+}
+
+#[cfg(test)]
+mod armor_override_tests {
+    use super::*;
+    use crate::data::{ArmorOverride, ArmorStats};
+
+    #[test]
+    fn armor_overrides_reach_hit_zones_dt_dr_health_and_clones() {
+        let base_id = FormId(0x100);
+        let clone_id = FormId(0xFF00_0001);
+        let mut cf = CombatForms::default();
+        cf.armor.insert(
+            base_id,
+            ArmorStats {
+                edid: Some("TestArmor".into()),
+                name: Some("Test Armor".into()),
+                health: 100,
+                dt: 6.0,
+                dr_raw: 500,
+                slots: ArmorStats::UPPER_BODY,
+            },
+        );
+        let clone_ov = ArmorOverride {
+            health: Some(250),
+            dt: Some(18.0),
+            dr_raw: Some(2000),
+            slots: Some(ArmorStats::HEAD_SLOTS),
+        };
+        let lookup = |id: FormId| {
+            if id == clone_id {
+                cf.armor_stats_with(base_id, Some(&clone_ov))
+            } else {
+                cf.armor_stats_with(id, None)
+            }
+        };
+        assert_eq!(cf.armor_struck_with(&[base_id, clone_id], Zone::Head, lookup), vec![clone_id]);
+        assert_eq!(cf.armor_struck_with(&[base_id, clone_id], Zone::Body, lookup), vec![base_id]);
+        let (dt, dr) = cf.armor_values_worn_with_lookup(&[(base_id, 1.0), (clone_id, 1.0)], ARMOR_CONDITION_PENALTY, lookup);
+        assert!((dt - 24.0).abs() < 1e-5, "6 + 18 = 24 DT");
+        assert!((dr - 25.0).abs() < 1e-5, "5 + 20 = 25 DR");
+        assert_eq!(cf.item_health_with(base_id, lookup), 100);
+        assert_eq!(cf.item_health_with(clone_id, lookup), 250);
+    }
 }

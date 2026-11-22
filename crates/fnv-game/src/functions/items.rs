@@ -347,14 +347,16 @@ pub fn remove_all(g: &mut Game, from: FormId, how: &RemoveAll) -> Result<(), Str
         s.inventory.as_ref().map(|i| i.iter().collect()).unwrap_or_default()
     };
     for (item, n) in stacks {
-        let Some(it) = forms.item(item) else { continue };
-        if (it.non_playable_biped() && !how.unplayable) || except.contains(&item) {
+        if g.world.resolve_item(item).is_none() {
+            continue;
+        }
+        if (g.world.effective_non_playable_biped(item) && !how.unplayable) || except.contains(&item) {
             continue;
         }
         if from == FormId::PLAYER_REF && !how.quest_items && g.world.is_quest_item(item) {
             continue;
         }
-        if code != -1 && forms.sig(item).as_ref().and_then(form_type_code) != Some(code) {
+        if code != -1 && forms.sig(g.unclone(item)).as_ref().and_then(form_type_code) != Some(code) {
             continue;
         }
         let groups = fnv_sim::inventory::unequipped(g.world.inventory_mut(from).map_err(|e| e.to_string())?.take(item, n));

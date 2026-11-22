@@ -78,8 +78,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         "ispowerarmor" => {
             let f = item(g, 0);
-            // SetIsPowerArmor's change first.
-            yes(g.other.power_armor.get(&f).copied().unwrap_or_else(|| g.world.forms.item(f).is_some_and(|i| i.power_armor)))
+            // SetIsPowerArmor and SetEquipmentBipedMask (BMDT bit 5) stay synchronized.
+            yes(g.other.power_armor.get(&f).copied().unwrap_or_else(|| g.world.effective_power_armor(f)))
         }
         // [documented: IsModLoaded] a plugin of the load order, by file name.
         "ismodloaded" => {

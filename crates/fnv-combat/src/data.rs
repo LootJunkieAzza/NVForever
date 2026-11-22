@@ -255,6 +255,30 @@ pub struct AmmoEffect {
     pub value: f32,
 }
 
+impl AmmoEffect {
+    /// Construct a live [`AmmoEffect`] from numeric `AMEF` `DATA` codes (`0..=5` kind,
+    /// `0..=2` operation) matching `schemas/fnv/combat.json` `AmmoEffectData` and
+    /// `SetAmmoEffectTraitNumeric` overrides.
+    pub fn from_numeric(effect_type: u8, operation: u8, value: f32) -> AmmoEffect {
+        let kind = match effect_type {
+            0 => Some("Damage Mod".to_string()),
+            1 => Some("DR Mod".to_string()),
+            2 => Some("DT Mod".to_string()),
+            3 => Some("Spread Mod".to_string()),
+            4 => Some("Weapon Condition Mod".to_string()),
+            5 => Some("Fatigue Mod".to_string()),
+            _ => None,
+        };
+        let operation = match operation {
+            0 => Some("Add".to_string()),
+            1 => Some("Multiply".to_string()),
+            2 => Some("Subtract".to_string()),
+            _ => None,
+        };
+        AmmoEffect { edid: None, name: None, kind, operation, value }
+    }
+}
+
 /// PROJ.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ProjectileStats {
@@ -638,6 +662,29 @@ impl ArmorStats {
     }
 }
 
+/// Session-only runtime overrides applied on top of authored [`ArmorStats`].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ArmorOverride {
+    pub health: Option<i32>,
+    pub dt: Option<f32>,
+    pub dr_raw: Option<i32>,
+    pub slots: Option<u32>,
+}
+
+impl ArmorOverride {
+    /// Return `base` with any overridden fields replaced.
+    pub fn apply(&self, base: &ArmorStats) -> ArmorStats {
+        ArmorStats {
+            edid: base.edid.clone(),
+            name: base.name.clone(),
+            health: self.health.unwrap_or(base.health),
+            dt: self.dt.unwrap_or(base.dt),
+            dr_raw: self.dr_raw.unwrap_or(base.dr_raw),
+            slots: self.slots.unwrap_or(base.slots),
+        }
+    }
+}
+
 /// One effect of an ENCH or SPEL (EFID + EFIT, then its conditions).
 #[derive(Debug, Clone, Serialize)]
 pub struct EffectItem {
@@ -919,9 +966,16 @@ impl CombatForms {
     /// The same for `weapon` with the figures `w` (a modded weapon's,
     /// [`WeaponStats::modded`]).
     pub fn chain_with(&self, weapon: FormId, w: &WeaponStats, ammo: Option<FormId>) -> ShotChain {
+        self.chain_with_ammo(weapon, w, ammo, None)
+    }
+
+    /// Resolve a shot chain with an optional live session [`AmmoStats`] override (e.g.
+    /// from `SetAmmoTraitNumeric`, `SetAmmoProjectile`, `AddAmmoEffect`, or
+    /// `RemoveAmmoEffect`) without mutating the loaded ESM record cache.
+    pub fn chain_with_ammo(&self, weapon: FormId, w: &WeaponStats, ammo: Option<FormId>, ammo_override: Option<&AmmoStats>) -> ShotChain {
         let ammo_choices = self.ammo_choices(w);
         let ammo = ammo.filter(|a| ammo_choices.contains(a)).or_else(|| ammo_choices.first().copied());
-        let a = ammo.and_then(|a| self.ammo.get(&a));
+        let a = ammo_override.or_else(|| ammo.and_then(|a| self.ammo.get(&a)));
         let (projectile, projectile_from) = match a.and_then(|a| a.projectile) {
             Some(p) => (Some(p), Some("ammo")),
             None => (w.projectile, w.projectile.map(|_| "weapon")),
@@ -1420,6 +1474,48 @@ mod tests {
         r.mods = vec![slot(1, 1, "Regenerate Ammo (seconds)", -5.0, 0.0)];
         assert!((r.modded(1).regen_rate - 0.1).abs() < 1e-6);
         assert_eq!(with("Regenerate Ammo (seconds)", 3.0, 0.0).regen_rate, 0.0);
+    }
+
+    #[test]
+    fn chain_with_ammo_and_numeric_ammo_effects_reach_combat_consumers() {
+        let mut forms = CombatForms::default();
+        let weap = FormId(0x100);
+        let ammo = FormId(0x200);
+        let proj_a = FormId(0x300);
+        let proj_b = FormId(0x301);
+        let eff_dmg = FormId(0x400);
+        let eff_spread = FormId(0x401);
+        let eff_wear = FormId(0x402);
+
+        let w = WeaponStats { base_damage: 60, projectile_count: 1, projectile: Some(proj_a), ammo: Some(ammo), min_spread: 2.0, ..Default::default() };
+        forms.weapons.insert(weap, w.clone());
+        forms.ammo.insert(ammo, AmmoStats { projectile: Some(proj_a), projectiles_per_shot: 1, effects: vec![], ..Default::default() });
+
+        let live = AmmoStats { projectile: Some(proj_b), projectiles_per_shot: 3, effects: vec![eff_dmg, eff_spread, eff_wear], ..Default::default() };
+        let ch = forms.chain_with_ammo(weap, &w, Some(ammo), Some(&live));
+        assert_eq!((ch.projectile, ch.projectile_from), (Some(proj_b), Some("ammo")));
+        assert_eq!(ch.projectiles_per_shot, 3);
+        assert!((ch.damage_per_projectile - 20.0).abs() < 1e-6);
+        assert_eq!(ch.ammo_effects, vec![eff_dmg, eff_spread, eff_wear]);
+
+        // Clearing projectile in override falls back to weapon projectile.
+        let cleared = AmmoStats { projectile: None, projectiles_per_shot: 0, effects: vec![], ..Default::default() };
+        let ch_cleared = forms.chain_with_ammo(weap, &w, Some(ammo), Some(&cleared));
+        assert_eq!((ch_cleared.projectile, ch_cleared.projectile_from), (Some(proj_a), Some("weapon")));
+        assert_eq!(ch_cleared.projectiles_per_shot, 1);
+
+        // Live numeric AMEF codes drive damage, spread, and weapon wear.
+        let e_dmg = AmmoEffect::from_numeric(0, 1, 1.5);
+        let e_dt = AmmoEffect::from_numeric(2, 2, 4.0);
+        let e_spread = AmmoEffect::from_numeric(3, 1, 0.5);
+        let e_wear = AmmoEffect::from_numeric(4, 1, 2.0);
+        let refs = [&e_dmg, &e_dt, &e_spread, &e_wear];
+        assert!((crate::damage::apply_effects(20.0, &refs, "Damage Mod") - 30.0).abs() < 1e-6);
+        assert!((crate::damage::apply_effects(10.0, &refs, "DT Mod") - 6.0).abs() < 1e-6);
+        let base_cone = crate::spread::cone_deg(0.0, 0.0, &w, &[]);
+        assert!((crate::spread::cone_deg(0.0, 0.0, &w, &refs) - 0.5 * base_cone).abs() < 1e-6);
+        let rules = crate::Rules::defaults();
+        assert!((crate::condition::weapon_wear(&rules, &w, &refs) - 2.0 * rules.damage_to_weapon_value).abs() < 1e-6);
     }
 
     #[test]

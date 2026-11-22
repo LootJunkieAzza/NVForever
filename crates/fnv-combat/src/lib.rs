@@ -34,6 +34,7 @@ pub mod fx;
 pub mod melee;
 pub mod mine;
 pub mod projectile;
+pub mod projectile_overrides;
 pub mod rng;
 pub mod shot;
 pub mod spread;

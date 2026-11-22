@@ -2246,7 +2246,9 @@ fn spot_on(v: &VatsMode, combat: &Combat, parts: &ActorParts, script: Option<&mu
         (None, None) => "whole".to_string(),
     };
     let condition = bp.as_ref().and_then(|b| b.actor_value.as_deref()).and_then(fnv_game::combat::limb_condition);
-    let name = sim.base_of(actor).and_then(|b| sim.name(b).map(str::to_string)).unwrap_or_else(|| "?".into());
+    // The name the health bar shows (`crate::hud_target`): the template chain's, through the
+    // leveled list to the entry picked for this actor, and never an Editor ID (#3445).
+    let name = sim.ref_shown_name(script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), actor).unwrap_or_default().to_string();
     // The part's base chance (§17.2): its BPTD To Hit Chance; an actor without
     // parts, or the weapon it holds, our own.
     let (base, size) = match (part, bp.as_ref()) {

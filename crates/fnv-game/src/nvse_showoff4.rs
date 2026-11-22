@@ -44,6 +44,71 @@ fn list(g: &mut Game, items: Vec<XVal>) -> XVal {
 
 // ---- matrices -------------------------------------------------------------------------
 
+impl Game<'_> {
+    /// Live actor weapon spread in spread units (`GetCalculatedActorSpread`)
+    /// [documented: GECK wiki Gun Spread Formula (New Vegas), Perk Entry Points;
+    /// hypothesis: returns the actor-spread component after `SetNoGunWobble` and
+    /// `CALCULATE_GUN_SPREAD` perks, excluding weapon `min_spread` and ammo spread mods].
+    pub fn calculated_actor_spread(&mut self, actor: FormId) -> f64 {
+        let Some(w) = crate::functions::items::equipped_weapon(self, actor) else {
+            return 0.0;
+        };
+        let base = crate::functions::base_of(self, w).unwrap_or(w);
+        let field = |g: &Game, path: &str| match crate::nvse::record_value(g, base, "DNAM", path) {
+            Some(XVal::Num(x)) => x,
+            _ => 0.0,
+        };
+        let setting = |g: &Game, name: &str, d: f64| g.world.setting_f32(name).map_or(d, f64::from);
+
+        let raw = if self.gun_wobble_off(actor) {
+            0.0
+        } else {
+            let aiming = actor == FormId::PLAYER_REF && (self.jip2.told.aiming || self.jip2.told.sights_up);
+            let m = self.motion(actor);
+            let unaimed = if aiming { 0.0 } else { setting(self, "fUnaimedSpreadPenalty", 0.2) };
+            let (aim_move_div, _) = self.entry_point_with(actor, crate::perks::MODIFY_AIMING_MOVE_SPEED, &[Some(base)], 1.0);
+            let moving = if !m.moving {
+                0.0
+            } else if m.running {
+                setting(self, "fRunningSpreadPenalty", 0.2)
+            } else {
+                setting(self, "fWalkingSpreadPenalty", 0.1)
+            } / aim_move_div.max(1.0);
+            let standing = if m.sneaking { 0.0 } else { setting(self, "fStandingSpreadPenalty", 0.1) };
+
+            let left_arm = self.is_crippled(actor, crate::combat::LEFT_ARM);
+            let right_arm = self.is_crippled(actor, crate::combat::RIGHT_ARM);
+            // Mirrors `fnv_combat::spread::one_handed` over `schemas/fnv/objects.json`
+            // `WEAP.DNAM.animation_type` `(1 Hand)` enum entries (1, 3, 4, 10..=13);
+            // Gun Spread Formula (New Vegas) explicitly names type 4 [hypothesis: 1, 3, 10..=13].
+            let anim = field(self, "animation_type") as i64;
+            let one_handed = matches!(anim, 1 | 3 | 4 | 10..=13);
+            let arms = match (one_handed, left_arm && right_arm) {
+                (true, true) => setting(self, "fCrippledArms1HSpreadPenalty", 0.4),
+                (true, false) if right_arm => setting(self, "fCrippledArm1HSpreadPenalty", 0.2),
+                (false, true) => setting(self, "fCrippledArms2HSpreadPenalty", 0.6),
+                (false, false) if left_arm || right_arm => setting(self, "fCrippledArm2HSpreadPenalty", 0.4),
+                _ => 0.0,
+            };
+
+            let skill_code = field(self, "skill") as u16;
+            let skill = crate::functions::actor::actor_value(self, actor, skill_code).unwrap_or(0.0);
+            let strength = crate::functions::actor::actor_value(self, actor, crate::actor_values::STRENGTH).unwrap_or(0.0);
+            let (str_req_cut, _) = self.entry_point_with(actor, crate::perks::MODIFY_WEAPON_STRENGTH_REQ, &[Some(base)], 0.0);
+            let str_req = (field(self, "strength_req") - str_req_cut - strength.min(10.0)).max(0.0)
+                * setting(self, "fWeapStrengthReqPenalty", 0.025);
+            let skill_req = (field(self, "skill_req") - skill.min(100.0)).max(0.0)
+                * setting(self, "fWeapSkillReqPenalty", 0.01);
+            let skill_mult = 1.0 - setting(self, "fWobbleToSkillConversion", 0.5) * skill.clamp(0.0, 100.0) / 100.0;
+            (skill_mult * (unaimed + moving + standing + arms + str_req + skill_req))
+                .max(setting(self, "fMinGunSpreadValue", 0.01))
+        };
+
+        let (spread, _) = self.entry_point_with(actor, crate::perks::CALCULATE_GUN_SPREAD, &[Some(base)], raw);
+        spread.max(0.0)
+    }
+}
+
 /// A matrix read from an array: its rows, and whether the array was one-dimensional (a
 /// single row of numbers).
 #[derive(Debug, Clone, PartialEq)]
@@ -477,9 +542,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // Pages marked Incomplete with no summary, arguments or result: 0 [decision: no
-        // behaviour to build from; ext-showoff.md §7 asks for the pages].
-        "getcalculatedactorspread" | "isformloading" => zero,
+        // Live actor weapon spread in spread units (`Game::calculated_actor_spread`)
+        // [documented: GECK wiki Gun Spread Formula (New Vegas); docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md].
+        "getcalculatedactorspread" => XVal::Num(subject.map_or(0.0, |a| g.calculated_actor_spread(a))),
+        // Page marked Incomplete with no summary, arguments or result: 0 [decision: no
+        // behaviour to build from; ext-showoff.md §7 asks for the page].
+        "isformloading" => zero,
         // −1 for an actor not fading [observed 2026-11-08: showoff4.fadestate.doc, Doc
         // Mitchell standing in his house]; NVForever fades no actor in or out the way the
         // state would track, so always −1 [hypothesis: other states unknown].

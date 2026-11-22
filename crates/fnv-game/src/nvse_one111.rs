@@ -800,26 +800,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // multiplier; SetAmmoEffectTraitNumericAlt, the types and operations].
         "applyammoeffects" => {
             let (Some(ammo), Some(t)) = (form(args, 0), num(args, 1)) else { return Some(Ok(XVal::Num(num(args, 2).unwrap_or(0.0)))) };
-            let mut x = num(args, 2).unwrap_or(0.0);
-            // AddAmmoEffect's and RemoveAmmoEffect's changes first (`crate::nvse_jip7`).
-            let effects = g.ammo_effects(g.unclone(ammo));
-            for e in effects {
-                let trait_of = |k: &str| match crate::nvse::record_value(g, e, "DATA", k) {
-                    Some(XVal::Num(v)) => v,
-                    _ => -1.0,
-                };
-                if trait_of("type") != t {
-                    continue;
-                }
-                let value = trait_of("value");
-                x = match trait_of("operation") as i64 {
-                    0 => x + value,
-                    1 => x * value,
-                    2 => x - value,
-                    _ => x,
-                };
+            let x = num(args, 2).unwrap_or(0.0);
+            if !t.is_finite() || t.fract() != 0.0 || !(0.0..=255.0).contains(&t) {
+                return Some(Ok(XVal::Num(x)));
             }
-            XVal::Num(x)
+            // AddAmmoEffect's, RemoveAmmoEffect's, and live AMEF trait changes first
+            // (`crate::nvse_jip7`), keeping TempCloneForm AMMO/AMEF clones isolated.
+            XVal::Num(g.apply_ammo_effects_value(ammo, t as u8, x))
         }
         // `effect trait value`: 0 the type (0–9, One111 adds 6–9), 1 the operation (0–2),
         // 2 the value; 1 when set [documented: SetAmmoEffectTraitNumericAlt]. Read back

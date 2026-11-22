@@ -323,15 +323,39 @@ fn holds_choice(world: &World, settings: &Settings, key: &str, name: &str) -> Op
     Some((c.chosen)(world) == name)
 }
 
+/// Whether `preset` leaves row `key` greyed: one of the rows it needs to be on
+/// (`nvf_play::settings_layout::NEEDS`: Shadow Filtering and Shadow Distance need Sun
+/// Shadows) is a row of the preset that the preset turns off. A row counts as on as the
+/// page counts it (`Settings::disabled_status`): a switch on, a list past its first choice.
+fn greyed_by(world: &World, settings: &Settings, preset: &QualityPreset, key: &str) -> bool {
+    nvf_play::settings_layout::NEEDS.iter().filter(|(child, _, _)| *child == key).any(|(_, parent, _)| {
+        preset.rows.iter().filter(|(k, _)| k == parent).any(|(_, v)| {
+            let Some(i) = settings.index(parent) else { return false };
+            match settings.choices(i) {
+                Some(c) => choice_index(*v, (c.names)(world).len()) == 0,
+                None => *v < 0.5,
+            }
+        })
+    })
+}
+
 /// What the Quality row reads: the first preset whose rows (those registered) all hold its
 /// values, its own rows' choices ([`OWN`]) included, else [`CUSTOM`]. A preset none of
 /// whose rows is registered matches nothing.
+///
+/// A row the preset itself leaves greyed is not asked ([`greyed_by`]) [design, #3357]: with
+/// Sun Shadows already off, taking a preset that keeps them off cannot set Shadow Filtering
+/// or Shadow Distance (a greyed row takes no edit), so whatever they held before stayed and
+/// the row read Custom straight after Low was taken [observed: smoke
+/// `quality-main-menu-measure`, which passed once and failed on every run after, as its
+/// first run leaves Sun Shadows off in its home]. What a greyed row holds draws nothing;
+/// the next preset that turns its parent on sets it ([`pick_quality`]'s second pass).
 pub fn quality_reading(world: &World) -> &'static str {
     let (Some(settings), Some(p)) = (world.get_resource::<Settings>(), world.get_resource::<QualityPresets>()) else { return CUSTOM };
     p.presets
         .iter()
         .find(|preset| {
-            let mut held: Vec<bool> = preset.rows.iter().filter_map(|(k, v)| holds(world, settings, k, *v)).collect();
+            let mut held: Vec<bool> = preset.rows.iter().filter(|(k, _)| !greyed_by(world, settings, preset, k)).filter_map(|(k, v)| holds(world, settings, k, *v)).collect();
             held.extend(preset.choices.iter().filter_map(|(k, name)| holds_choice(world, settings, k, name)));
             !held.is_empty() && held.iter().all(|h| *h)
         })
@@ -693,6 +717,24 @@ mod tests {
         assert_eq!(quality_names(w), ["Low", "Very High", "Custom"]);
         assert!(!settings::pick(w, row, CUSTOM), "Custom is read, not taken");
         settings::set_slider(w, obj, 0.25);
+        assert_eq!(quality_reading(w), "Low");
+        // #3357: Low leaves Sun Shadows off, which greys Shadow Filtering and Shadow
+        // Distance; what those hold then (left from before, as a greyed row takes no edit)
+        // does not make the row read Custom, and Low can be taken again over it.
+        w.resource_mut::<Rows>().filter = 0.5;
+        w.resource_mut::<Rows>().parts[3] = 0.75;
+        assert_eq!(quality_reading(w), "Low", "greyed rows are not asked");
+        assert!(!settings::pick(w, row, "Low"), "it is the choice already");
+        // With Sun Shadows on they are asked again.
+        w.resource_mut::<Rows>().shadows = true;
+        assert_eq!(quality_reading(w), CUSTOM);
+        // A preset that turns Sun Shadows on sets them (the second pass), from that state too.
+        w.resource_mut::<Rows>().shadows = false;
+        assert!(settings::pick(w, row, "Very High"));
+        let r = w.resource::<Rows>();
+        assert_eq!((r.shadows, r.filter, r.parts[3]), (true, 0.5, 1.0));
+        assert_eq!(quality_reading(w), "Very High");
+        assert!(settings::pick(w, row, "Low"));
         assert_eq!(quality_reading(w), "Low");
         // A row no preset covers changes nothing.
         let sun = w.resource::<Settings>().index("sun-shadows").unwrap();

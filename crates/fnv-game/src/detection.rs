@@ -694,12 +694,14 @@ impl Game<'_> {
 
     /// The weight and class of the armour an actor wears in the torso slot.
     pub fn body_armor(&mut self, actor: FormId) -> Option<(f64, ArmorClass)> {
-        let forms = self.world.forms;
-        let inv = self.world.get(actor).ok()?.inventory.as_ref()?;
-        inv.equipped().into_iter().find_map(|i| {
-            let it = forms.item(i)?;
-            (it.kind == ItemKind::Armor && it.slots.is_some_and(|s| s & UPPER_BODY != 0))
-                .then(|| (it.weight.unwrap_or(0.0) as f64, it.armor_class))
+        let equipped = self.world.get(actor).ok()?.inventory.as_ref()?.equipped();
+        equipped.into_iter().find_map(|i| {
+            let it = self.world.resolve_item(i)?;
+            (it.kind == ItemKind::Armor && self.world.effective_slots(i).is_some_and(|s| s & UPPER_BODY != 0)).then(|| {
+                let weight = self.world.effective_weight(i).unwrap_or(0.0) as f64;
+                let class = self.world.effective_armor_class(i).unwrap_or(it.armor_class);
+                (weight, class)
+            })
         })
     }
 

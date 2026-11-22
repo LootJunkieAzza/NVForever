@@ -105,7 +105,7 @@ impl GameData {
     pub fn open_launcher_mods<S: AsRef<str>>(data_dir: &Path, mods_dir: &Path, layers: &[PathBuf], plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
         let vfs = Vfs::open_launcher_mods(data_dir, mods_dir, layers, plugins).map_err(|e| e.to_string())?;
         let schema = Schema::load_dir(schema_dir).map_err(|e| e.to_string())?;
-        Ok(GameData { vfs: Arc::new(vfs), schema: Arc::new(schema) })
+        Ok(GameData::new(Arc::new(vfs), Arc::new(schema)))
     }
 
     /// [`GameData::open_for_plugins`] with loose files of the mods folders `roots` layered

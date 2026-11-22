@@ -365,7 +365,7 @@ fn aim(
     let anatomy_dr = armor.map(|a| a.1).filter(|_| tweaks.as_ref().is_some_and(|t| t.living_anatomy_dr));
     *held = held_next(kept, found.map(|f| f.0), aimed);
     let now = found.map(|(form_id, health, hp, hostile, _)| {
-        let name = sim.ref_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), form_id).unwrap_or_default().to_string();
+        let name = sim.ref_shown_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), form_id).unwrap_or_default().to_string();
         // The share after the damage in sight: the health's full value is its figure over
         // its share.
         let after = in_sight.filter(|(a, d)| *a == form_id && *d > 0.0 && health > 0.0 && hp > 0.0).map(|(_, d)| ((hp - d) / (hp / health)).clamp(0.0, 1.0));

@@ -5,9 +5,10 @@
 //! target is the activatable reference nearest along the view within [`REACH`] of the eye.
 //! Candidates are the reference whose collision the ray hits first, and references whose
 //! render bounds (a mesh's box in its own space, i.e. an oriented box in the world) the
-//! ray enters before the first collision hit of any kind (walls, floors and tables hide
-//! what is behind them). Many small items have no collision, so the bounds are what make
-//! them pickable. A box the eye is inside does not count.
+//! ray enters before the first collision hit of any kind, or within [`SURFACE_SLACK`]
+//! behind it (walls, floors and tables hide what is behind them; an item resting on one
+//! does not sink out of reach). Many small items have no collision, so the bounds are what
+//! make them pickable. A box the eye is inside does not count.
 
 use bevy::math::{Affine3A, Vec3};
 
@@ -32,6 +33,18 @@ pub struct RayHit {
 /// (0x00130CFF), so the door was never targeted (#1339) [observed 2026-11-01; design:
 /// the reach].
 pub const DOOR_SLACK: f32 = 16.0;
+
+/// How far behind the ray's first collision hit a reference's render box may be entered
+/// and still be a candidate, game units. A collision surface lies a little above its
+/// triangles (the shape's shell, its convex radius), so a small item resting on it can
+/// have its whole box under the surface the ray stops at: Goodsprings Home's safe key
+/// (VZKeyDirtyGSHome2SafeKey 0x001767AB, box 0.78 units thick, its top at z 2314.39) lies
+/// on the bottom board of a broken shelf (0x0010B1E7) whose surface the ray meets at
+/// z 2314.6, the board's 0.7-unit shell, and it was never the target (#3333) [observed:
+/// FalloutNV.esm and the meshes, `fnvtool phys cell --ray`, the key on screen under the
+/// crosshair]. Walls are far thicker than this, so what is behind them stays hidden
+/// [design]. The first hit is still nearer, so it wins whenever it can be activated.
+pub const SURFACE_SLACK: f32 = 2.0;
 
 /// The collision hit the target is chosen from: the first hit, or a door found within
 /// [`DOOR_SLACK`] behind it when the first hit is not something the player can
@@ -61,7 +74,8 @@ pub struct Pick {
 }
 
 /// Choose the target from the collision hit and the render-bounds hits (reference,
-/// entry distance). `accept` says whether a reference can be activated now (present in
+/// entry distance; boxes entered beyond the collision hit by more than [`SURFACE_SLACK`]
+/// are hidden by it). `accept` says whether a reference can be activated now (present in
 /// the simulation, of an activatable type); it is asked only for candidates that would
 /// win. Ties go to the collision hit.
 pub fn choose(
@@ -70,7 +84,7 @@ pub fn choose(
     reach: f32,
     mut accept: impl FnMut(u32) -> bool,
 ) -> Option<Pick> {
-    let limit = hit.map_or(reach, |h| h.distance.min(reach));
+    let limit = hit.map_or(reach, |h| (h.distance + SURFACE_SLACK).min(reach));
     let mut best = hit
         .and_then(|h| Some((h.form_id?, h.distance)))
         .filter(|&(id, d)| d <= reach && accept(id))
@@ -212,6 +226,27 @@ mod tests {
         let table = RayHit { form_id: Some(100), distance: 95.0 };
         let p = choose(Some(table), [(4, 90.0)], REACH, |id| id != 100).unwrap();
         assert_eq!((p.form_id, p.source), (4, Source::Bounds));
+    }
+
+    /// #3333: the safe key lies on a shelf's board, its box just under the board's
+    /// collision surface (the shape's shell): the key is the target. Further behind the
+    /// surface, or behind a hit the player can activate, it is not.
+    #[test]
+    fn an_item_resting_in_a_surface_s_shell_is_picked() {
+        let shelf = RayHit { form_id: Some(100), distance: 126.0 };
+        let not_shelf = |id| id != 100;
+        let p = choose(Some(shelf), [(7, 126.3)], REACH, not_shelf).unwrap();
+        assert_eq!(p, Pick { form_id: 7, distance: 126.3, source: Source::Bounds });
+        // The ground (no reference) too.
+        let ground = RayHit { form_id: None, distance: 80.0 };
+        assert_eq!(choose(Some(ground), [(7, 81.5)], REACH, ANY).unwrap().form_id, 7);
+        // More than the slack behind: hidden.
+        assert!(choose(Some(shelf), [(7, 126.0 + SURFACE_SLACK + 0.1)], REACH, not_shelf).is_none());
+        // A container's lid the key rests on: the container, nearer, is the target.
+        let crate_ = RayHit { form_id: Some(100), distance: 126.0 };
+        assert_eq!(choose(Some(crate_), [(7, 126.3)], REACH, ANY).unwrap(), Pick { form_id: 100, distance: 126.0, source: Source::Collision });
+        // Still within reach only.
+        assert!(choose(Some(RayHit { form_id: None, distance: REACH - 0.5 }), [(7, REACH + 0.5)], REACH, ANY).is_none());
     }
 
     #[test]

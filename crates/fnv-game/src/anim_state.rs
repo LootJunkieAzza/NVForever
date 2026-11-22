@@ -255,9 +255,18 @@ impl Game<'_> {
     /// non-reload action fires JIP's `SetOnReloadWeaponEventHandler` event once per
     /// reload with the actor's equipped or held weapon [documented:
     /// SetOnReloadWeaponEventHandler; hypothesis: `ReloadOpen` -> `Reload` is one reload].
+    /// Also fires JIP's `SetOnAnimActionEventHandler` (`animaction`) on entry into a new
+    /// action and `SetOnPlayGroupEventHandler` (`playgroup`) on entry into a new named
+    /// locomotion group, after recording the snapshot so handlers querying `GetAnimAction`
+    /// or `IsAnimPlaying` see the live state.
     pub fn set_anim_state(&mut self, actor: FormId, mut s: AnimState) {
-        let was_reloading = self.senses.anim.get(&actor).is_some_and(|a| is_reload_action(a.action));
-        let now_reloading = is_reload_action(s.action);
+        let prev = self.senses.anim.get(&actor);
+        let prev_action = prev.and_then(|p| p.action);
+        let prev_group = prev.and_then(|p| p.group);
+        let was_reloading = is_reload_action(prev_action);
+        let next_action = s.action;
+        let next_group = s.group;
+        let now_reloading = is_reload_action(next_action);
         s.at = self.time;
         self.senses.anim.insert(actor, s);
         if !was_reloading && now_reloading {
@@ -265,6 +274,16 @@ impl Game<'_> {
                 .or_else(|| self.extra.get(&actor).and_then(|e| e.held_weapon));
             if let Some(weapon) = weapon {
                 self.weapon_reloaded(actor, weapon);
+            }
+        }
+        if next_action != prev_action {
+            if let Some(action) = next_action {
+                self.fire_anim_action(actor, action.code());
+            }
+        }
+        if next_group != prev_group {
+            if let Some(code) = next_group.and_then(|name| self.anim_group_code(name)) {
+                self.fire_play_group(actor, code);
             }
         }
     }

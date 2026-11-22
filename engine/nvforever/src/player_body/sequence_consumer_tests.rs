@@ -149,7 +149,7 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
     // Neutral locomotion inputs are explicit authored fixture state. None is a
     // known absent weapon choice; it does not fabricate a successful asset read.
     let clips = [
-        (ClipKey::Idle(Stance::Stand, false), Some(base)),
+        (ClipKey::Idle(Stance::Stand, false, false), Some(base)),
         (ClipKey::Equip(Stance::Stand, UNARMED, true), None),
         (ClipKey::Equip(Stance::Stand, UNARMED, false), None),
         (ClipKey::Holster(Stance::Stand, UNARMED), None),
@@ -228,6 +228,7 @@ fn neutral_frame(dt: f32) -> Frame {
         fast: false,
         female: false,
         limping: false,
+        toddler: false,
         prefix: UNARMED,
         grip: None,
         drawn: None,
