@@ -830,6 +830,33 @@ in `engine/nvf-play/src/pause.rs` (`row_note`, `AUTOMATIC_INPUT_NOTE`) and
   fall or an explosion goes off near you. Kept as "Rumble" in [Controller].
 - In full: harder for a heavier weapon. Kept in [Controller] of NVForever.ini.
 
+### Hold time
+
+- On the page: Left/Right or A: how long a button is held before a Hold binding acts. Kept
+  as "Hold Time" in [Controller].
+- In full: 0.25, 0.3, 0.4 (the default), 0.5, 0.6 or 0.8 seconds, for every Hold binding
+  the player makes ("Hold X"); the holds built into another control (holding Menu Mode for
+  the light) keep their own times. With a controller only. docs/design/controller.md §2a.
+
+### Double-tap window
+
+- On the page: Left/Right or A: how soon the second press of a Double-tap binding must come.
+  Kept as "Double Tap Window" in [Controller].
+- In full: 0.2, 0.25, 0.3 (the default), 0.35, 0.4 or 0.5 seconds from the first press to
+  the second. A press sharing its button with a double tap acts when the window ends. With
+  a controller only.
+
+### The controller's bindings and split holds
+
+- A controller row binds a press, a hold, a double tap or a combo by the gesture made (A on
+  the row, then the gesture; Start cancels), kept in [Controller] as `A`, `Hold X`,
+  `Double Y` or `LB + A`. Overlapping bindings are kept and warned of in the row's note.
+- With a controller, Toggle Light stands under Actions after Menu Mode, Holster Weapon
+  under Combat after Ready Item, Grab (Hold) after Activate and Orbit Camera after Toggle
+  POV (Actions), Weapon Wheel last under Hotkeys; each reads "Hold B (Menu Mode)" and the
+  like until bound elsewhere. With the keyboard Toggle Light and Holster Weapon stay with
+  the Tweaks keys and the other three have no row. docs/design/controller.md §2a.
+
 ## Controls › Look
 
 ### Invert Y

@@ -678,7 +678,10 @@ pub fn read_controls(
             Some(r) => r.delta_secs(),
             None => time.delta_secs(),
         };
-        if *t >= HOLSTER_HOLD {
+        // With Holster Weapon on a controller binding of its own (the split holds,
+        // `crate::bindings::SPLITS`), Ready Item's hold holsters nothing [design, owner
+        // 2026-11-22].
+        if *t >= HOLSTER_HOLD && !input.bindings.split_moved(Control::HolsterWeapon) {
             c.weapon_out = false;
             c.ready_held = None;
             info!("Ready Item held: the weapon holstered");
@@ -742,18 +745,32 @@ pub fn read_controls(
         c.lowered = false;
     }
     // Toggle POV: a tap switches the view; held with the mouse moving, the camera circles
-    // (player::mouse_look turns `orbit` instead of the view).
-    if input.just_pressed(Control::TogglePov) {
+    // (player::mouse_look turns `orbit` instead of the view). With Orbit Camera on a
+    // controller binding of its own (`crate::bindings::SPLITS`), Toggle POV switches the
+    // view as it is pressed and Orbit Camera's binding circles the camera while held
+    // [design, owner 2026-11-22].
+    let orbit_split = input.bindings.split_moved(Control::OrbitCamera);
+    let (orbit_key, pov_key) = if orbit_split { (Control::OrbitCamera, None) } else { (Control::TogglePov, Some(Control::TogglePov)) };
+    if orbit_split && input.just_pressed(Control::TogglePov) {
+        c.pov = match c.pov {
+            Pov::First => Pov::Third,
+            Pov::Third => Pov::First,
+        };
+    }
+    if input.just_pressed(orbit_key) {
         c.orbit.held = true;
         c.orbit.moved = false;
     }
-    if c.orbit.held && input.just_released(Control::TogglePov) {
+    if c.orbit.held && input.just_released(orbit_key) {
         c.orbit.held = false;
         if !c.orbit.moved {
-            c.pov = match c.pov {
-                Pov::First => Pov::Third,
-                Pov::Third => Pov::First,
-            };
+            // A held Orbit Camera let go unmoved changes nothing.
+            if pov_key.is_some() {
+                c.pov = match c.pov {
+                    Pov::First => Pov::Third,
+                    Pov::Third => Pov::First,
+                };
+            }
         } else {
             c.orbit = c.orbit.released();
             // The player's tweak puts a first-person view back [design: docs/design/tweaks.md].

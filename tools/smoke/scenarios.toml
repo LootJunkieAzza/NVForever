@@ -13456,6 +13456,41 @@ expect = [
 ]
 
 [[scenario]]
+name = "pad-bindings-write"
+source = "owner 2026-11-22: controller combos, double taps and holds on the Controls tab, the built-in holds split into their own controls (controller only), every overlap warned of and none refused (docs/design/controller.md §2a); the first half of a round trip (pad-bindings-read starts in the same home), run them together"
+note = "no controller is connected in a smoke run: the gestures' capture and the bindings' acting are covered by the unit tests (pad/capture.rs, pad/resolver.rs); this checks the rows, the aids, the overlap warnings and the INI"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVFOREVER_HOME = "pad-bindings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:device:Controller,12:padbind:Toggle Light=LB + A,12.5:padbind:Holster Weapon=Double X,13:hold-time:0.5,13.5:double-tap:0.25" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 19
+expect = [
+  { text = "controls: input device Controller", label = "the Controls tab's first row picks the controller" },
+  { text = "controls: Toggle Light bound to controller LB + A (was With Menu Mode)", label = "a combo binds the light, split off Menu Mode's hold" },
+  { re = 'controls: warning: A does not act as Activate while LB is held', label = "the combo's overlap with Activate's A is warned of, not refused" },
+  { text = "controls: Holster Weapon bound to controller Double X (was With Ready Item)", label = "a double tap binds Holster Weapon, split off Ready Item's hold" },
+  { text = "controls: Hold Time 0.50 s", label = "the Hold time row is set" },
+  { text = "controls: Double Tap Window 0.25 s", label = "the Double-tap window row is set" },
+]
+order = [["controls: input device Controller", "controls: Toggle Light bound to controller LB + A", "controls: Holster Weapon bound to controller Double X", "controls: Hold Time 0.50 s"]]
+
+[[scenario]]
+name = "pad-bindings-read"
+source = "owner 2026-11-22: the second half of the binding kinds' round trip: a new start in pad-bindings-write's home takes the combo, the double tap and the two timings it stored"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad/binding.rs"]
+env = { NVFOREVER_HOME = "pad-bindings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 12
+expect = [
+  { re = 'controls: (\d+) of \1 line\(s\) read from .*NVForever\.ini, .*\[Controller\] Toggle Light With Menu Mode -> LB \+ A', label = "the stored combo is taken at the start, every line there" },
+  { re = 'controls: \d+ of \d+ line\(s\) read .*\[Controller\] Holster Weapon With Ready Item -> Double X', label = "the stored double tap" },
+  { re = 'controls: \d+ of \d+ line\(s\) read .*\[Controller\] Hold Time 0\.5, \[Controller\] Double Tap Window 0\.25', label = "the stored timings" },
+  { re = 'controls: warning: A does not act as Activate while LB is held', label = "the overlap read is warned of again" },
+]
+forbid = [{ re = 'controls: .* not read|\[Controller\] .*=.* \(', label = "no stored line is refused" }]
+
+[[scenario]]
 name = "look-sensitivity-write"
 source = "owner 2026-11-03 (#1451): Invert Y and a sensitivity slider (as the sound sliders) on the settings page's Controls tab, Mouse Sensitivity with keyboard and mouse and Stick Sensitivity with a controller, kept apart; NVForever's own range (25%-300% of the game's, floor 5% since #1632); the first half of a round trip (look-sensitivity-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
