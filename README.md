@@ -56,10 +56,11 @@ page. The name is one folder name, not a path.
   The mods themselves stay. **Load backup** writes that copy into a profile.
   None of these copy mod files.
   A profile folder holds:
-  - `modlist.txt` — one mod a line. `+` is enabled, `-` is disabled. `=` locks the row.
-    `%` is a separator. Right-click a row for a separator above or below it.
-    Double-click a separator to rename it. The winning mod is first in the file.
-    The page shows that mod last.
+  - `modlist.txt` — one mod a line, in Mod Organizer 2's form, so MO2 can read it.
+    `+` is enabled, `-` is disabled, and a separator is `-Name_separator`.
+    Right-click a row for a separator above or below it. Double-click a separator to
+    rename it. The winning mod is first in the file. The page shows that mod last.
+  - `locks.txt` — the locked mods, one a line (MO2's list has no lock mark).
   - `plugins.txt` — plugins that are enabled, a `*` before the name.
   - `loadorder.txt` — every plugin on the page, first loaded first.
 - **Load** puts that profile's mod list and load order on the page. It does not

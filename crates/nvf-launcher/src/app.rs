@@ -260,21 +260,14 @@ pub struct App {
     shot: Option<(PathBuf, u32)>,
 }
 
-#[derive(Clone)]
-struct ModRow {
-    name: String,
-    on: bool,
-    /// A separator in the mod list. Not a mod, and not installed.
-    separator: bool,
-    /// A locked mod stays put when another row is dragged.
-    locked: bool,
-}
+/// A row of the mod list (`fnv_install::mod_order`): a mod folder or a separator. A locked
+/// mod stays put when another row is dragged.
+type ModRow = fnv_install::mod_order::ModLine;
 
-impl ModRow {
-    fn live(name: impl Into<String>, on: bool) -> Self {
-        Self { name: name.into(), on, separator: false, locked: false }
-    }
-}
+/// The side file of a profile's locked mods, beside its `modlist.txt` (MO2 has no lock mark).
+const PROFILE_LOCKS: &str = "locks.txt";
+/// The side file of the home list's locked mods, beside `mod-order.txt`.
+const HOME_LOCKS: &str = "mod-locks.txt";
 
 /// What a right-click on a mod row asked for. Applied after the row is drawn.
 enum ModAct {
@@ -1146,36 +1139,24 @@ fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
     }
     found.sort_by_key(|a| a.to_ascii_lowercase());
     let text = std::fs::read_to_string(home.root.join("mod-order.txt")).unwrap_or_default();
-    let mut order = Vec::new();
-    for line in text.lines() {
-        let t = line.trim();
-        if t.is_empty() || t.starts_with(';') || t.starts_with('#') {
+    let mut rows = fnv_install::mod_order::read_mod_order(&text);
+    let locks = std::fs::read_to_string(home.root.join(HOME_LOCKS)).unwrap_or_default();
+    fnv_install::mod_order::apply_locks(&mut rows, &fnv_install::mod_order::read_locks(&locks));
+    let mut order: Vec<ModRow> = Vec::new();
+    for row in rows {
+        if row.separator {
+            order.push(row);
             continue;
         }
-        if let Some(name) = crate::modlist::parse_separator(t) {
-            order.push(ModRow { name, on: false, separator: true, locked: false });
-            continue;
-        }
-        let (locked, t) = match t.strip_prefix('=') {
-            Some(rest) => (true, rest.trim()),
-            None => (false, t),
-        };
-        let (on, name) = match t.strip_prefix('*') {
-            Some(rest) => (true, rest.trim()),
-            None => (false, t),
-        };
-        if name.is_empty() {
-            continue;
-        }
-        if let Some(real) = found.iter().find(|n| n.eq_ignore_ascii_case(name)) {
-            if !order.iter().any(|m: &ModRow| !m.separator && m.name.eq_ignore_ascii_case(real)) {
-                order.push(ModRow { name: real.clone(), on, separator: false, locked });
+        if let Some(real) = found.iter().find(|n| n.eq_ignore_ascii_case(&row.name)) {
+            if !order.iter().any(|m| !m.separator && m.name.eq_ignore_ascii_case(real)) {
+                order.push(ModRow { name: real.clone(), ..row });
             }
         }
     }
     for name in found {
         if !order.iter().any(|m| m.name.eq_ignore_ascii_case(&name)) {
-            order.push(ModRow::live(name, true));
+            order.push(ModRow::module(name, true));
         }
     }
     order
@@ -3350,27 +3331,14 @@ impl App {
 
     fn write_mod_order(&self) -> Result<(), String> {
         let home = self.home.as_ref().ok_or("no home folder")?;
-        let path = home.root.join("mod-order.txt");
-        let mut body = String::from("; A star means this folder is on. = locks the row. % is a separator.\n");
-        for row in &self.mod_rows {
-            if row.separator {
-                body.push_str(&crate::modlist::separator_line(&row.name));
-                body.push('\n');
-                continue;
-            }
-            if row.locked {
-                body.push('=');
-            }
-            if row.on {
-                body.push('*');
-            }
-            body.push_str(&row.name);
-            body.push('\n');
+        let game = self.game();
+        std::fs::create_dir_all(&home.root).map_err(|e| format!("{}: {e}", home.root.display()))?;
+        for (file, body) in [("mod-order.txt", Self::modlist_text(&self.mod_rows)), (HOME_LOCKS, Self::locks_text(&self.mod_rows))] {
+            let path = home.root.join(file);
+            guard_write(&path, game.as_ref()).map_err(|e| e.to_string())?;
+            std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
         }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        }
-        std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))
+        Ok(())
     }
 
     fn apply_mods(&mut self) -> Result<(), String> {
@@ -4185,7 +4153,8 @@ impl App {
             return;
         }
         // A profile load only puts the lists on the page. It does not link or copy mod files.
-        let profile_mods = Self::profile_page_rows(&mods_text);
+        let locks_text = std::fs::read_to_string(dir.join(PROFILE_LOCKS)).unwrap_or_default();
+        let profile_mods = Self::profile_page_rows(&mods_text, &locks_text);
         let mut placed = Vec::new();
         let mut missing = 0usize;
         let home_mods = self.home.as_ref().map(|h| h.mods());
@@ -4360,40 +4329,16 @@ impl App {
         None
     }
 
-    /// Enabled and disabled folders from a profile list, including separators. The winning folder stays last on the page.
-    fn profile_page_rows(text: &str) -> Vec<ModRow> {
-        let mut rows = Vec::new();
-        for line in text.lines() {
-            let line = line.trim_end().trim_start_matches('\u{feff}').trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some(name) = crate::modlist::parse_separator(line) {
-                rows.push(ModRow { name, on: false, separator: true, locked: false });
-                continue;
-            }
-            let (locked, line) = match line.strip_prefix('=') {
-                Some(rest) => (true, rest.trim()),
-                None => (false, line),
-            };
-            let (on, name) = if let Some(n) = line.strip_prefix('+') {
-                (true, n)
-            } else if let Some(n) = line.strip_prefix('-') {
-                (false, n)
-            } else {
-                continue;
-            };
-            if name.is_empty() {
-                continue;
-            }
-            rows.push(ModRow { name: name.to_string(), on, separator: false, locked });
-        }
-        rows.reverse();
+    /// A profile's rows, separators included, the winning folder last on the page. `locks`
+    /// is its lock side file's text.
+    fn profile_page_rows(text: &str, locks: &str) -> Vec<ModRow> {
+        let mut rows = fnv_install::mod_order::read_modlist(text);
+        fnv_install::mod_order::apply_locks(&mut rows, &fnv_install::mod_order::read_locks(locks));
         rows
     }
 
     fn lists_text(&self) -> String {
-        let mods = Self::modlist_text(&self.mod_rows);
+        let mods = format!("{}{}", Self::modlist_text(&self.mod_rows), Self::locks_text(&self.mod_rows));
         let (plugins_text, order) = Self::plugin_list_text(self.mods.as_ref());
         let archives = self.profile_archives.join("\n");
         format!("{mods}\n{plugins_text}\n{order}\n{}\n{archives}\n{}", self.profile_note, self.profile_local_saves)
@@ -4456,7 +4401,7 @@ impl App {
         }
         for name in found {
             if !next.iter().any(|r| !r.separator && r.name.eq_ignore_ascii_case(&name)) {
-                next.push(ModRow::live(name, true));
+                next.push(ModRow::module(name, true));
             }
         }
         self.mod_rows = next;
@@ -4864,7 +4809,7 @@ impl App {
             Ok(()) => {
                 let _ = std::fs::create_dir_all(&dir);
                 let at = index.saturating_add(1).min(self.mod_rows.len());
-                self.mod_rows.insert(at, ModRow::live(name.clone(), true));
+                self.mod_rows.insert(at, ModRow::module(name.clone(), true));
                 self.adopt_new_plugins();
                 self.log_mod(&format!("installed {name} from overwrite"));
                 self.message = Some((format!("Made {name} under this row. The game folder was not used. Rename it from the menu if you want another name."), false));
@@ -4929,6 +4874,11 @@ impl App {
         } else {
             Self::modlist_text(&self.mod_rows)
         };
+        let locks_text = if lists.join("modlist.txt").is_file() {
+            std::fs::read_to_string(lists.join(PROFILE_LOCKS)).unwrap_or_default()
+        } else {
+            Self::locks_text(&self.mod_rows)
+        };
         let order_text = if lists.join("loadorder.txt").is_file() {
             std::fs::read_to_string(lists.join("loadorder.txt")).unwrap_or_default()
         } else {
@@ -4944,7 +4894,7 @@ impl App {
             self.message = Some((format!("{}: {e}", dir.display()), true));
             return;
         }
-        for (file, body) in [("modlist.txt", mods_text), ("plugins.txt", plugins_text), ("loadorder.txt", order_text)] {
+        for (file, body) in [("modlist.txt", mods_text), ("plugins.txt", plugins_text), ("loadorder.txt", order_text), (PROFILE_LOCKS, locks_text)] {
             if let Err(e) = std::fs::write(dir.join(file), body) {
                 self.message = Some((format!("{}: {e}", dir.display()), true));
                 return;
@@ -4961,27 +4911,7 @@ impl App {
     /// A mod list as on and off folders. Separators are skipped. The test reads a saved profile this way.
     #[allow(dead_code)]
     fn profile_mod_rows(text: &str) -> Vec<(String, bool)> {
-        let mut rows = Vec::new();
-        for line in text.lines() {
-            let line = line.trim_end().trim_start_matches('\u{feff}').trim();
-            if line.is_empty() || line.starts_with('#') || line.starts_with('%') {
-                continue;
-            }
-            let line = line.strip_prefix('=').unwrap_or(line).trim();
-            let (on, name) = if let Some(n) = line.strip_prefix('+') {
-                (true, n)
-            } else if let Some(n) = line.strip_prefix('-') {
-                (false, n)
-            } else {
-                continue;
-            };
-            if name.is_empty() || name.ends_with("_separator") {
-                continue;
-            }
-            rows.push((name.to_string(), on));
-        }
-        rows.reverse();
-        rows
+        fnv_install::mod_order::read_modlist(text).into_iter().filter(|r| !r.separator).map(|r| (r.name, r.on)).collect()
     }
 
     fn profile_plugin_names(text: &str) -> Vec<String> {
@@ -5044,13 +4974,13 @@ impl App {
         }
         std::fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
         let mut any = false;
-        for file_name in ["modlist.txt", "plugins.txt", "loadorder.txt"] {
+        for file_name in ["modlist.txt", "plugins.txt", "loadorder.txt", PROFILE_LOCKS] {
             let src = from.join(file_name);
             if !src.is_file() {
                 continue;
             }
             std::fs::copy(&src, to.join(file_name)).map_err(|e| format!("{}: {e}", src.display()))?;
-            any = true;
+            any |= file_name != PROFILE_LOCKS;
         }
         if !any {
             let _ = std::fs::remove_dir_all(to);
@@ -5122,38 +5052,27 @@ impl App {
         }
     }
 
-    /// Writes the three list files. An existing profile keeps every other file. Returns whether the lists replaced older ones.
+    /// Writes the three list files and the lock side file. An existing profile keeps every other file. Returns whether the lists replaced older ones.
     fn write_profile_lists(dir: &Path, rows: &[ModRow], list: Option<&plugins::PluginList>) -> Result<bool, String> {
         let replaced = dir.join("modlist.txt").is_file();
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let modlist = Self::modlist_text(rows);
         let (plugins_text, order_text) = Self::plugin_list_text(list);
-        for (file_name, body) in [("modlist.txt", modlist), ("plugins.txt", plugins_text), ("loadorder.txt", order_text)] {
+        for (file_name, body) in [("modlist.txt", modlist), ("plugins.txt", plugins_text), ("loadorder.txt", order_text), (PROFILE_LOCKS, Self::locks_text(rows))] {
             let path = dir.join(file_name);
             std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
         }
         Ok(replaced)
     }
 
+    /// The rows in MO2's `modlist.txt` form (`fnv_install::mod_order`).
     fn modlist_text(rows: &[ModRow]) -> String {
-        let mut body = String::new();
-        for row in rows.iter().rev() {
-            if row.separator {
-                body.push_str(&crate::modlist::separator_line(&row.name));
-                body.push('\n');
-                continue;
-            }
-            if row.name.is_empty() || row.name.contains('/') || row.name.contains('\\') || row.name.ends_with("_separator") {
-                continue;
-            }
-            if row.locked {
-                body.push('=');
-            }
-            body.push(if row.on { '+' } else { '-' });
-            body.push_str(&row.name);
-            body.push('\n');
-        }
-        body
+        fnv_install::mod_order::modlist_text(rows)
+    }
+
+    /// The locked mods, for the side file beside a list.
+    fn locks_text(rows: &[ModRow]) -> String {
+        fnv_install::mod_order::locks_text(rows)
     }
 
     fn plugin_list_text(list: Option<&plugins::PluginList>) -> (String, String) {
@@ -6096,9 +6015,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nvforever-profile-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let rows = vec![
-            super::ModRow::live("A", false),
-            super::ModRow::live("B", true),
-            super::ModRow::live("C", true),
+            super::ModRow::module("A", false),
+            super::ModRow::module("B", true),
+            super::ModRow::module("C", true),
         ];
         let list = fnv_install::plugins::PluginList {
             entries: vec![
@@ -6199,16 +6118,18 @@ mod tests {
     fn a_locked_row_stays_put_and_a_separator_round_trips() {
         let rows = vec![
             super::ModRow { name: "A".into(), on: true, separator: false, locked: true },
-            super::ModRow::live("B", true),
+            super::ModRow::module("B", true),
             super::ModRow { name: "Quests".into(), on: false, separator: true, locked: false },
-            super::ModRow::live("C", false),
+            super::ModRow::module("C", false),
         ];
         let moved = super::reorder_mods(&rows, 3, 0);
         assert_eq!(moved[0].name, "A");
         assert!(moved[0].locked);
         assert!(moved.iter().any(|r| r.separator && r.name == "Quests"));
         let text = super::App::modlist_text(&rows);
-        let back = super::App::profile_page_rows(&text);
+        assert!(text.lines().all(|l| l.starts_with('+') || l.starts_with('-')), "only MO2's prefixes: {text:?}");
+        assert!(text.contains("-Quests_separator"));
+        let back = super::App::profile_page_rows(&text, &super::App::locks_text(&rows));
         assert!(back.iter().any(|r| r.separator && r.name == "Quests"));
         assert!(back.iter().any(|r| r.locked && r.name == "A"));
         assert_eq!(back.iter().filter(|r| !r.separator).map(|r| r.name.as_str()).collect::<Vec<_>>(), ["A", "B", "C"]);

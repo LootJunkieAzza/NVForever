@@ -34,10 +34,22 @@ keeps two text files in the home:
 - `plugins.txt`: which plugins are on, and their load order. A `*` turns a
   line on. The format is NVForever's own
   [documented: `crates/fnv-install/src/plugins.rs`].
-- `mod-order.txt`: which mod folders are on, and their order. A `*` turns a
-  folder on. The last on-line wins a loose-file overlap
-  [documented: `plugins::mod_content_layers`]. The page shows that winner at
-  the bottom of the list.
+- `mod-order.txt`: which mod folders are on, and their order, in Mod Organizer
+  2's `modlist.txt` form, so MO2 can read it [design: owner 2026-11-22, every
+  list file stays readable by MO2]. One line a row, the **highest priority
+  first**: `+name` on, `-name` off, a separator as `-<name>_separator`, CRLF
+  line ends, no header [documented: docs/spec-notes/mod-organizer-profile.md,
+  `modlist.txt`; `fnv_install::mod_order`]. The first on-line wins a loose-file
+  overlap [documented: `plugins::mod_content_layers`]. The page shows that
+  winner at the bottom of the list.
+- `mod-locks.txt`: the locked mods, one name a line. MO2's list has no lock
+  mark, so locks are kept beside it [design].
+
+A `mod-order.txt` in the launcher's earlier form is still read: lowest priority
+first, `*` on, a bare name off, `=` locked, `% name` a separator, `;` a comment.
+The `;` comment, a `*` line or a bare name marks that form. The next write
+turns it into MO2's form [documented: `mod_order::read_mod_order` and its
+tests].
 
 Both files are written when the list changes, with no profile open and without
 pressing **Save**. Closing the launcher and opening it again restores that

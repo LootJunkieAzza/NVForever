@@ -255,28 +255,10 @@ fn walk_plugins_seen(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>, se
     }
 }
 
-/// Names turned off in `mod-order.txt` beside the mods folder. A missing file turns nothing off.
-/// A line without `*` is off. `*` after an optional `=` is on. The page's order is the file's order.
-fn disabled_mod_names(mods: &Path) -> std::collections::HashSet<String> {
-    let mut off = std::collections::HashSet::new();
-    let Some(text) = mods.parent().and_then(|p| std::fs::read_to_string(p.join("mod-order.txt")).ok()) else {
-        return off;
-    };
-    for line in text.lines() {
-        let t = line.trim();
-        if t.is_empty() || t.starts_with(';') || t.starts_with('#') || t.starts_with('%') {
-            continue;
-        }
-        let t = t.strip_prefix('=').unwrap_or(t).trim();
-        let (on, name) = match t.strip_prefix('*') {
-            Some(rest) => (true, rest.trim()),
-            None => (false, t),
-        };
-        if !on && !name.is_empty() && !name.contains('/') && !name.contains('\\') {
-            off.insert(name.to_string());
-        }
-    }
-    off
+/// The rows of `mod-order.txt` beside the mods folder, lowest priority first (either form,
+/// `crate::mod_order`). A missing file is an empty list.
+fn mod_order_rows(mods: &Path) -> Vec<crate::mod_order::ModLine> {
+    mods.parent().and_then(|p| std::fs::read_to_string(p.join("mod-order.txt")).ok()).map(|t| crate::mod_order::read_mod_order(&t)).unwrap_or_default()
 }
 
 /// Where a mod's loose files sit: a `Data` folder inside it when it has one, otherwise the mod folder.
@@ -285,15 +267,17 @@ pub fn mod_content_root(mod_dir: &Path) -> PathBuf {
     if data.is_dir() { data } else { mod_dir.to_path_buf() }
 }
 
-/// Enabled mod folders under `mods`, lowest priority first (the file's order; the last on-line wins).
-/// Folders the file does not mention are on, after the ones it names. Turned-off folders are left out.
-/// The launcher calls this and passes the paths to the game. The game process does not call it
-/// and does not read `mod-order.txt`.
+/// Enabled mod folders under `mods`, lowest priority first (the file's order: its first
+/// line, the highest priority, is the last layer). Folders the file does not mention are on,
+/// after the ones it names, in name order. Turned-off folders and separators are left out.
+/// The launcher calls this and passes the paths to the game. The game process does not call
+/// it and does not read `mod-order.txt`.
 pub fn mod_content_layers(mods: &Path) -> Vec<PathBuf> {
     if !mods.is_dir() {
         return Vec::new();
     }
-    let off = disabled_mod_names(mods);
+    let rows = mod_order_rows(mods);
+    let named = |name: &str| rows.iter().any(|r| !r.separator && r.name.eq_ignore_ascii_case(name));
     let mut dirs: Vec<(String, PathBuf)> = std::fs::read_dir(mods)
         .into_iter()
         .flatten()
@@ -301,29 +285,19 @@ pub fn mod_content_layers(mods: &Path) -> Vec<PathBuf> {
         .filter_map(|e| {
             let path = e.path();
             let name = e.file_name().to_str()?.to_string();
-            if !path.is_dir() || name.starts_with('.') || skip_plugin_dir(&name) || off.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+            if !path.is_dir() || name.starts_with('.') || skip_plugin_dir(&name) {
                 return None;
             }
             Some((name, path))
         })
         .collect();
     let mut ordered = Vec::new();
-    if let Some(text) = mods.parent().and_then(|p| std::fs::read_to_string(p.join("mod-order.txt")).ok()) {
-        for line in text.lines() {
-            let t = line.trim();
-            if t.is_empty() || t.starts_with(';') || t.starts_with('#') || t.starts_with('%') {
-                continue;
-            }
-            let t = t.strip_prefix('=').unwrap_or(t).trim();
-            let Some(name) = t.strip_prefix('*').map(str::trim) else { continue };
-            if name.is_empty() {
-                continue;
-            }
-            if let Some(i) = dirs.iter().position(|(n, _)| n.eq_ignore_ascii_case(name)) {
-                ordered.push(dirs.swap_remove(i).1);
-            }
+    for row in rows.iter().filter(|r| r.on && !r.separator) {
+        if let Some(i) = dirs.iter().position(|(n, _)| n.eq_ignore_ascii_case(&row.name)) {
+            ordered.push(dirs.swap_remove(i).1);
         }
     }
+    dirs.retain(|(n, _)| !named(n));
     dirs.sort_by_key(|a| a.0.to_ascii_lowercase());
     ordered.extend(dirs.into_iter().map(|(_, p)| p));
     ordered.into_iter().map(|p| mod_content_root(&p)).collect()
@@ -874,6 +848,13 @@ mod layer_tests {
         assert_eq!(names(mod_folder_layers(&mods)), ["Aaa", "Zed"]);
         // The launcher's list: Zed is on and first (lowest), Aaa is off so it is left out.
         assert_eq!(names(mod_content_layers(&mods)), ["Zed"]);
+        // MO2's form: the first line is the highest priority, so it is the last layer.
+        std::fs::create_dir_all(mods.join("Mid")).unwrap();
+        std::fs::write(t.join("mod-order.txt"), "+Zed\r\n-Gone_separator\r\n-Aaa\r\n+Mid\r\n").unwrap();
+        assert_eq!(names(mod_content_layers(&mods)), ["Mid", "Zed"]);
+        // A folder the file does not name is on, after the named ones.
+        std::fs::write(t.join("mod-order.txt"), "+Zed\r\n-Aaa\r\n").unwrap();
+        assert_eq!(names(mod_content_layers(&mods)), ["Zed", "Mid"]);
         std::fs::remove_dir_all(&t).ok();
     }
 }

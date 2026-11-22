@@ -1,4 +1,4 @@
-//! Mod-list rules that do not draw the window: names, priority, separators,
+//! Mod-list rules that do not draw the window: names, priority,
 //! a profile comparison, archive names, and a pack of the three list files.
 
 use std::collections::BTreeSet;
@@ -15,19 +15,6 @@ pub fn is_tool_dir(name: &str) -> bool {
 /// Higher number is lower in the list, and that mod wins a loose-file overwrite.
 pub fn priority(index: usize, len: usize) -> usize {
     len.saturating_sub(index)
-}
-
-pub fn separator_line(name: &str) -> String {
-    format!("% {name}")
-}
-
-pub fn parse_separator(line: &str) -> Option<String> {
-    let name = line.trim().strip_prefix('%')?.trim();
-    if name.is_empty() || name.contains('/') || name.contains('\\') {
-        None
-    } else {
-        Some(name.to_string())
-    }
 }
 
 /// What a folder holds, for the line under its name.
@@ -279,12 +266,6 @@ mod tests {
     fn the_bottom_mod_has_the_higher_priority() {
         assert_eq!(priority(0, 3), 3);
         assert_eq!(priority(2, 3), 1);
-    }
-
-    #[test]
-    fn a_separator_is_not_a_plus_or_minus() {
-        assert_eq!(parse_separator("% Quests"), Some("Quests".into()));
-        assert_eq!(parse_separator("+Quests"), None);
     }
 
     #[test]
