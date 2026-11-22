@@ -305,8 +305,8 @@ mod tests {
     /// Inertia and Camera Motion in place of weapon sway and head bob, #2843's Shadow
     /// resolution row, Gore Shake and #2670's Cloud shadows; #2661's mesh terrain blend row, the
     /// Quick Loot rows; #2965's heat haze row; #2675's desert haze row; Sprint; #2671's terrain
-    /// shadows row), by the group it registers with.
-    const KNOWN: [(&str, &str); 139] = [
+    /// shadows row; the Flashlight rows), by the group it registers with.
+    const KNOWN: [(&str, &str); 149] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -446,6 +446,32 @@ mod tests {
         ("terrain-wireframe", "Debug"),
         ("send-reports", "Reports"),
         ("reports-delete", "Reports"),
+        // The flashlight's own rows (nvforever `settings.rs`, `register_flashlight`), on the
+        // Tweaks tab beside #1892's.
+        ("flashlight-shadows", "Flashlight"),
+        ("flashlight-type", "Flashlight"),
+        ("flashlight-colour", "Flashlight"),
+        ("flashlight-red", "Flashlight"),
+        ("flashlight-green", "Flashlight"),
+        ("flashlight-blue", "Flashlight"),
+        ("flashlight-range", "Flashlight"),
+        ("flashlight-brightness", "Flashlight"),
+        ("flashlight-beam-width", "Flashlight"),
+        ("flashlight-beam-softness", "Flashlight"),
+    ];
+
+    /// [`KNOWN`]'s rows on the Tweaks tab: the flashlight's, in the page's order.
+    const FLASHLIGHT_ROWS: [&str; 10] = [
+        "flashlight-shadows",
+        "flashlight-type",
+        "flashlight-colour",
+        "flashlight-red",
+        "flashlight-green",
+        "flashlight-blue",
+        "flashlight-range",
+        "flashlight-brightness",
+        "flashlight-beam-width",
+        "flashlight-beam-softness",
     ];
 
     /// What every tweak's key starts with (#1892's `tweaks.rs`: `concat!("tweak-", $key)`).
@@ -650,8 +676,14 @@ mod tests {
             ["[Advanced Movement]", "advanced-movement", "movement-weight", "", "[Gameplay]", "movement-inertia", "weapon-handling", "advanced-recoil", "sprint", "", "[Visual Only]", "weapon-inertia", "animation-smoothing", "camera-motion", "", "[World Interaction]", "grass-fire", "", "[Quick Loot]", "quick-loot", "quick-loot-scale", "quick-loot-background", "quick-loot-weight", "quick-loot-value", "quick-loot-value-per-weight"]
         );
         assert_eq!(keys(&list, &l, "Debug"), ["overlay", "hit-markers", "god-mode", "navmesh", "terrain-wireframe", "scope-3d"]);
-        assert!(keys(&list, &l, "Tweaks").is_empty(), "an empty tab is still a tab");
         let at = |k: &str| l.placement_of(list.iter().position(|s| s.key == k).unwrap()).unwrap().path();
+        // The Tweaks tab without #1892: the flashlight's category alone.
+        let mut flashlight = vec!["[Flashlight]"];
+        flashlight.extend(FLASHLIGHT_ROWS);
+        assert_eq!(keys(&list, &l, "Tweaks"), flashlight);
+        assert_eq!(at("flashlight-shadows"), "Tweaks > Quality of Life > Flashlight");
+        assert!(needs("flashlight-shadows").is_empty(), "the rows apply at once, no main switch");
+        assert!(needs("flashlight-beam-width").iter().any(|r| r.parent == "flashlight-type" && r.choices == ["Spot"]), "a point light has no cone");
         assert_eq!(at("menu-pause"), "Gameplay > Dialogue");
         assert_eq!(at("hud-red"), "Display > Colours");
         assert_eq!(at("upscaler"), "Display > Upscaling and Anti-Aliasing");
@@ -754,7 +786,7 @@ mod tests {
             assert!(s.placement.subgroup.is_some() && s.placement.heading.is_some(), "{}: a group and a heading", s.placement.path());
             assert!(s.placement.closed_by_default());
         }
-        assert_eq!(t.sections.iter().map(|s| s.rows.len()).sum::<usize>(), tweaks.len(), "the tweaks, and only they, on the tab");
+        assert_eq!(t.sections.iter().map(|s| s.rows.len()).sum::<usize>(), tweaks.len() + FLASHLIGHT_ROWS.len(), "the tweaks and the flashlight's rows, and only they, on the tab");
         let at = |k: &str| l.placement_of(list.iter().position(|s| s.key == k).unwrap()).unwrap().path();
         assert_eq!(at("tweak-no-xp-messages"), "Tweaks > HUD > Messages");
         assert_eq!(at("tweak-weightless-ammo"), "Tweaks > Cheats > Weight");
