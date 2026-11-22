@@ -306,6 +306,12 @@ modifier; each is taken once every button is up. A stick direction is taken at o
   rail and back; there the D-pad passes over Search, which is typed and says "Keyboard
   search", and the controller works the results a keyboard found) and X Delete [design:
   #1953; settings-page.md §4, §6].
+- B on the pause menu goes back a step at a time: on the settings page from the rows (a
+  tab's, a Tweaks group's, the Changed list's) to the rail on the tab's line, from the
+  rail to the column, from the column to the game. The keyboard's Esc leaves the page at
+  once, as before. B also closes the Report a Bug form, which reads typed keys otherwise
+  [design: owner 2026-11-22, "issues backing out ... in a sub menu in settings"; smoke
+  `pause-menu-pad-back`].
 - Each menu's own buttons follow the original's menu files (`_xbox_button` of the button
   tiles [documented: the vanilla menu files]) and press the key NVForever's menu gives
   that control (`pad::menu_buttons`, keyed by the open menu's MenuMode code); a menu's
