@@ -1767,6 +1767,10 @@ pub struct Game<'a> {
     /// A co-op host's connected guests with their characters and join choice
     /// (`crate::coop_joint`), by actor. Not saved: the link refills it.
     pub coop_joint_guests: BTreeMap<FormId, crate::coop_joint::JointGuest>,
+    /// A co-op host: a player that shared quest progress dropped and may come back
+    /// (nvf-play `coop_progress::Returns`): its stages are offered (to nobody here) so they
+    /// are kept for it. Not saved.
+    pub coop_joint_away: bool,
     /// The host's stage offers waiting for the engine (`Game::take_joint_offers`).
     pub coop_joint_out: Vec<crate::coop_joint::StageOffer>,
     /// The dialogue line whose result script is running, for the stage offers
@@ -2962,6 +2966,7 @@ impl<'a> Game<'a> {
             script_image_modifiers: BTreeSet::new(),
             coop_checked: BTreeMap::new(),
             coop_joint_guests: BTreeMap::new(),
+            coop_joint_away: false,
             coop_joint_out: Vec::new(),
             coop_line: None,
             coop_replaying: false,

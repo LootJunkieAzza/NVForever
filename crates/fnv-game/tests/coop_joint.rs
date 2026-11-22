@@ -117,6 +117,15 @@ fn the_host_offers_side_stages_to_guests_with_joint_on_and_keeps_presence() {
     host.set_stage(FormId(SIDE), 20);
     assert!(host.take_joint_offers().is_empty());
     assert!(!host.coop_presence.was_there(FormId(SIDE), 20, 77));
+    // A sharing guest dropped (owner, 2026-11-20): its stages are still offered, to
+    // nobody here, so the engine keeps them for its return; nobody is marked present.
+    host.coop_joint_guests.clear();
+    host.coop_joint_away = true;
+    host.set_stage(FormId(SIDE), 50);
+    let offers = host.take_joint_offers();
+    assert_eq!((offers.len(), offers[0].stage, offers[0].to.is_empty()), (1, 50, true), "{offers:?}");
+    assert!(host.coop_presence.stages.get(&FormId(SIDE)).and_then(|s| s.get(&50)).is_none_or(|w| w.is_empty()));
+    host.coop_joint_away = false;
     // Presence survives a save and load.
     let json = serde_json::to_string(&host.snapshot()).unwrap();
     let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();

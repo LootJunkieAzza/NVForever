@@ -306,14 +306,18 @@ impl Game<'_> {
     }
 
     /// The host's hook in [`Game::set_stage`], after the stage is marked done (module
-    /// notes). Nothing while no guest has joint progression on.
+    /// notes). Nothing while no guest has joint progression on and none that had it is
+    /// away ([`Game::coop_joint_away`]).
     pub fn coop_joint_stage(&mut self, q: FormId, stage: i32) {
-        if self.coop_replaying || !self.coop_joint_guests.values().any(|j| j.on) || is_main_story(self, q) || is_per_player(self, q) {
+        if self.coop_replaying || !(self.coop_joint_away || self.coop_joint_guests.values().any(|j| j.on)) || is_main_story(self, q) || is_per_player(self, q) {
             return;
         }
         let to: Vec<FormId> = self.coop_joint_guests.iter().filter(|(_, j)| j.on).map(|(a, _)| *a).collect();
         let who: Vec<CharacterId> = to.iter().filter_map(|a| self.coop_joint_guests.get(a)).map(|j| j.character).filter(|c| *c != 0).collect();
-        self.coop_presence.stages.entry(q).or_default().entry(stage).or_default().extend(who);
+        // Nobody here (a sharing player away): no presence line for the stage.
+        if !who.is_empty() {
+            self.coop_presence.stages.entry(q).or_default().entry(stage).or_default().extend(who);
+        }
         let prior: Vec<i32> = self.quests.get(&q).map(|s| s.stages_done.iter().copied().filter(|s| *s != stage).collect()).unwrap_or_default();
         self.coop_joint_out.push(StageOffer { quest: q, stage, prior, line: self.coop_line, to });
     }

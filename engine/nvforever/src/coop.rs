@@ -2026,7 +2026,12 @@ fn take_events(
             }
             Event::Named { id, name } => {
                 info!("co-op: player {} is {name}", id + 1);
-                coop.peers.entry(id).or_default().name = name;
+                // Once its character's name came (its look), that is its name: "Wait for
+                // <the host's name>" (owner, 2026-11-20).
+                let p = coop.peers.entry(id).or_default();
+                if p.character.is_none() {
+                    p.name = name;
+                }
             }
             Event::Look { id, look } => {
                 let Some((look, character, head)) = decode_look(&look) else {
@@ -4103,7 +4108,7 @@ fn downed_body(
 /// game's role, whether every player is down (the host's view), what was heard and what
 /// to send.
 fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopProgress>, script: Option<Res<nvf_play::script::ScriptState>>, main_menu: Option<Res<nvf_play::main_menu::MainMenu>>) {
-    use nvf_play::coop_progress::{Role, Shared};
+    use nvf_play::coop_progress::Role;
     let coop = &mut *coop;
     let role = match coop.link.as_ref() {
         None => Role::Solo,
@@ -4121,49 +4126,67 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
         _ => fnv_save::SaveKind::Manual,
     };
     for (id, what) in coop.progress_in.drain(..) {
-        p.inbox.push((
-            id,
-            match what {
-                net::Progress::Reward { quest, xp, caps } => Shared::Reward { quest, xp, caps },
-                net::Progress::Save { stamp, kind } => Shared::Save { stamp, kind: kind_in(kind) },
-                net::Progress::Reload { stamp } => Shared::Reload { stamp },
-                net::Progress::Gift { batch, item, count, quest, stage } => Shared::Gift { batch, item, count, quest, stage },
-                net::Progress::QuestEnded { quest, failed } => Shared::QuestEnded { quest, failed },
-                net::Progress::JointChoice { character, on } => Shared::JointChoice { character, on },
-                net::Progress::Stage { quest, stage, line, line_end, prior, to } => Shared::Stage { quest, stage, line, line_end, prior, to },
-                net::Progress::StageResult { quest, stage, taken } => Shared::StageResult { quest, stage, taken },
-                net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy },
-                net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled } => Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled },
-            },
-        ));
+        p.inbox.push((id, shared_of(what, &kind_in)));
     }
     // Joint progression (`nvf_play::coop_progress`): this player's id and, on the host,
     // each player's actor in this world.
     p.my_id = coop.link.as_ref().and_then(|l| l.id());
     p.peer_actors = coop.peers.iter().filter_map(|(id, q)| q.actor.map(|a| (*id, a))).collect();
+    // Who is here, who is heard from now, and their names (the host's catch-up for a
+    // player that drops and comes back, `nvf_play::coop_progress::Returns`).
+    p.present = coop.peers.keys().copied().collect();
+    p.connected = coop.peers.iter().filter(|(_, q)| !q.lost).map(|(id, _)| *id).collect();
+    // Kept after a player leaves: its drop is told by its name, not "Player 2".
+    let names: Vec<(u8, String)> = coop.peers.iter().map(|(id, q)| (*id, label(*id, &q.name))).collect();
+    p.peer_names.extend(names);
     let out = std::mem::take(&mut p.outbox);
     let Some(link) = coop.link.as_ref() else { return };
     for what in out {
-        link.send_progress(match what {
-            Shared::Reward { quest, xp, caps } => net::Progress::Reward { quest, xp, caps },
-            Shared::Gift { batch, item, count, quest, stage } => net::Progress::Gift { batch, item, count, quest, stage },
-            Shared::QuestEnded { quest, failed } => net::Progress::QuestEnded { quest, failed },
-            Shared::JointChoice { character, on } => net::Progress::JointChoice { character, on },
-            Shared::Stage { quest, stage, line, line_end, prior, to } => net::Progress::Stage { quest, stage, line, line_end, prior, to },
-            Shared::StageResult { quest, stage, taken } => net::Progress::StageResult { quest, stage, taken },
-            Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy },
-            Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled } => net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled },
-            Shared::Save { stamp, kind } => net::Progress::Save {
-                stamp,
-                kind: match kind {
-                    fnv_save::SaveKind::Quick => net::Progress::QUICK,
-                    fnv_save::SaveKind::Auto => net::Progress::AUTO,
-                    fnv_save::SaveKind::System => net::Progress::SYSTEM,
-                    fnv_save::SaveKind::Manual => net::Progress::MANUAL,
-                },
+        link.send_progress(net_of(what));
+    }
+}
+
+/// A heard [`net::Progress`] as `nvf_play::coop_progress` takes it.
+fn shared_of(what: net::Progress, kind_in: &dyn Fn(u8) -> fnv_save::SaveKind) -> nvf_play::coop_progress::Shared {
+    use nvf_play::coop_progress::Shared;
+    match what {
+        net::Progress::Reward { quest, xp, caps } => Shared::Reward { quest, xp, caps },
+        net::Progress::Save { stamp, kind } => Shared::Save { stamp, kind: kind_in(kind) },
+        net::Progress::Reload { stamp } => Shared::Reload { stamp },
+        net::Progress::Gift { batch, item, count, quest, stage } => Shared::Gift { batch, item, count, quest, stage },
+        net::Progress::QuestEnded { quest, failed } => Shared::QuestEnded { quest, failed },
+        net::Progress::JointChoice { character, on } => Shared::JointChoice { character, on },
+        net::Progress::Stage { quest, stage, line, line_end, prior, to } => Shared::Stage { quest, stage, line, line_end, prior, to },
+        net::Progress::StageResult { quest, stage, taken } => Shared::StageResult { quest, stage, taken },
+        net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy },
+        net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled } => Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled },
+        net::Progress::For { to, what } => Shared::For { to, what: Box::new(shared_of(*what, kind_in)) },
+    }
+}
+
+/// A [`Shared`] to send.
+fn net_of(what: nvf_play::coop_progress::Shared) -> net::Progress {
+    use nvf_play::coop_progress::Shared;
+    match what {
+        Shared::Reward { quest, xp, caps } => net::Progress::Reward { quest, xp, caps },
+        Shared::Gift { batch, item, count, quest, stage } => net::Progress::Gift { batch, item, count, quest, stage },
+        Shared::QuestEnded { quest, failed } => net::Progress::QuestEnded { quest, failed },
+        Shared::JointChoice { character, on } => net::Progress::JointChoice { character, on },
+        Shared::Stage { quest, stage, line, line_end, prior, to } => net::Progress::Stage { quest, stage, line, line_end, prior, to },
+        Shared::StageResult { quest, stage, taken } => net::Progress::StageResult { quest, stage, taken },
+        Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy },
+        Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled } => net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled },
+        Shared::Save { stamp, kind } => net::Progress::Save {
+            stamp,
+            kind: match kind {
+                fnv_save::SaveKind::Quick => net::Progress::QUICK,
+                fnv_save::SaveKind::Auto => net::Progress::AUTO,
+                fnv_save::SaveKind::System => net::Progress::SYSTEM,
+                fnv_save::SaveKind::Manual => net::Progress::MANUAL,
             },
-            Shared::Reload { stamp } => net::Progress::Reload { stamp },
-        });
+        },
+        Shared::Reload { stamp } => net::Progress::Reload { stamp },
+        Shared::For { to, what } => net::Progress::For { to, what: Box::new(net_of(*what)) },
     }
 }
 
