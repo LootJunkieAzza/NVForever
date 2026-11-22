@@ -1,11 +1,24 @@
-//! Player 2's half while player 2's window isn't showing (split.rs; the owner's list of
-//! 2026-11-21, "while it's loading there's a blank space where it shows desktop behind
-//! it"): player 1's game covers that half with a plain black panel saying player 2 is
-//! joining. It is owned by player 1's window, so it has no taskbar button, is not in
-//! Alt+Tab, never takes the focus and stays over player 1's window; it goes as soon as
-//! player 2's window shows (`IsWindowVisible`), and comes back while player 2's game
-//! starts again to load a character (its window is gone between the two runs,
-//! `crate::handoff`). The screen still splits at once [owner], and the desktop never shows.
+//! A black backdrop under both halves while split screen is on (split.rs; the owner's idea
+//! of 2026-11-22, "player 1 draws a black box under the game so that entering split screen
+//! nothing moves around and the desktop never shows behind"; before it, the owner's list of
+//! 2026-11-21, "while it's loading there's a blank space where it shows desktop behind it").
+//!
+//! - **Its time.** Player 1's game makes it the frame split screen starts, before its own
+//!   window goes to its half, so the desktop never shows while the windows move. It covers
+//!   the whole monitor and stays until split screen ends.
+//! - **Under the halves.** It is kept just under player 1's window in the z-order, and
+//!   player 2's window, owned by player 1's, is above that. A window owned by player 1's
+//!   would always be over it, so the backdrop has no owner [documented: Win32 "Owned
+//!   Windows", an owned window is always above its owner]. It follows player 1's window
+//!   into and out of the topmost band (the taskbar fix, split.rs `set_on_top`), so the
+//!   taskbar stays hidden while either half has the focus, and it hides while player 1's
+//!   window is minimised.
+//! - **Never in the way.** It is a tool window (no taskbar button, not in Alt+Tab) and is
+//!   never activated, not even by a click, so the keyboard stays with player 1's window
+//!   and Alt+Tab to another program works as before.
+//! - **Player 2 is joining.** While player 2's window isn't showing (its game loading, or
+//!   starting again to load a character, `crate::handoff`), the backdrop says so in player
+//!   2's half. Once player 2's window shows, it covers that half.
 //!
 //! A window of this game's own (Win32, the main thread's, whose messages the game's event
 //! loop already dispatches), not a Bevy one: it draws nothing but black and a line of
@@ -13,47 +26,100 @@
 
 use bevy::prelude::*;
 
-/// What the panel says [design: our own words].
+/// What the backdrop says in player 2's half while it waits [design: our own words].
 pub const JOINING: &str = "Player 2 is joining\u{2026}";
 
-/// The panel, while it is up.
+/// What the backdrop is to look like this frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Look {
+    /// The monitor, in screen pixels.
+    pub screen: (IVec2, UVec2),
+    /// Player 2's half, in screen pixels.
+    pub p2_half: (IVec2, UVec2),
+    /// "Player 2 is joining…" in player 2's half.
+    pub joining: bool,
+}
+
+/// The backdrop, while it is up.
 #[derive(Default)]
 pub struct Backdrop {
     hwnd: Option<isize>,
-    at: Option<(IVec2, UVec2)>,
+    look: Option<Look>,
+    /// Whether it is in the topmost band now.
+    topmost: bool,
+    hidden: bool,
+    /// Times it was put back under player 1's window (a window came between them).
+    restacks: u32,
+    /// Making it failed (tried once a split screen).
+    failed: bool,
 }
 
 impl Backdrop {
-    /// Shown over `half`, owned by `owner` (player 1's window): made the first time, moved
-    /// when the half moves (the layout changed).
-    pub fn show(&mut self, owner: isize, half: (IVec2, UVec2)) {
+    /// Up as `look` says, under `p1` (player 1's window), topmost when `on_top`: made the
+    /// first time, then kept in place.
+    pub fn show(&mut self, p1: isize, look: Look, on_top: bool) {
         if self.hwnd.is_some_and(|h| !imp::alive(h)) {
             self.hwnd = None;
         }
-        match self.hwnd {
+        let h = match self.hwnd {
+            Some(h) => h,
+            None if self.failed => return,
             None => {
-                self.hwnd = imp::create(owner, half);
-                self.at = Some(half);
-                match self.hwnd {
-                    Some(_) => info!("split: player 2's half covered until player 2's window shows ({}x{} at {:?})", half.1.x, half.1.y, half.0),
-                    None => warn!("split: no panel over player 2's half: the desktop shows there until player 2's window does"),
-                }
+                let Some(h) = imp::create(look.screen) else {
+                    warn!("split: no backdrop: the desktop may show while the windows move and player 2's game loads");
+                    self.failed = true;
+                    return;
+                };
+                info!("split: backdrop up under the halves ({}x{} at {:?})", look.screen.1.x, look.screen.1.y, look.screen.0);
+                self.hwnd = Some(h);
+                self.topmost = false;
+                self.hidden = false;
+                self.look = None;
+                h
             }
-            Some(h) if self.at != Some(half) => {
-                imp::place(h, half);
-                self.at = Some(half);
+        };
+        if self.look != Some(look) {
+            if self.look.is_some_and(|l| l.screen != look.screen) {
+                imp::place(h, look.screen);
             }
-            Some(_) => {}
+            if self.look.is_some_and(|l| l.joining != look.joining) {
+                info!("split: backdrop: {}", if look.joining { "player 2 is joining (their window isn't showing)" } else { "player 2's window shows over their half" });
+            }
+            imp::set_text(h, look.joining.then_some(look.p2_half), look.screen.0);
+            self.look = Some(look);
+        }
+        // Player 1's window minimised: its owned windows hide with it, and so does this.
+        let iconic = imp::iconic(p1);
+        if iconic != self.hidden {
+            self.hidden = iconic;
+            imp::set_shown(h, !iconic);
+        }
+        if iconic {
+            return;
+        }
+        if on_top != self.topmost {
+            self.topmost = on_top;
+            imp::set_topmost(h, on_top);
+        }
+        if !imp::just_under(h, p1) {
+            imp::put_under(h, p1);
+            self.restacks += 1;
+            if self.restacks == 1 || self.restacks.is_power_of_two() {
+                debug!("split: backdrop put back under player 1's window ({} times)", self.restacks);
+            }
         }
     }
 
-    /// Gone (player 2's window shows, or split screen ended).
+    /// Gone (split screen ended).
     pub fn hide(&mut self, why: &str) {
         if let Some(h) = self.hwnd.take() {
             imp::destroy(h);
-            info!("split: player 2's half uncovered ({why})");
+            info!("split: backdrop gone ({why})");
         }
-        self.at = None;
+        self.look = None;
+        self.topmost = false;
+        self.hidden = false;
+        self.failed = false;
     }
 }
 
@@ -64,21 +130,28 @@ pub fn shown(hwnd: isize) -> bool {
 
 #[cfg(windows)]
 mod imp {
+    use std::sync::Mutex;
+
     use bevy::math::{IVec2, UVec2};
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows_sys::Win32::Graphics::Gdi::{
-        BeginPaint, CreateFontW, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject, SelectObject, SetBkMode, SetTextColor, BLACK_BRUSH, CLEARTYPE_QUALITY, DEFAULT_CHARSET, DT_CENTER, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_NORMAL, HBRUSH, OUT_DEFAULT_PRECIS, PAINTSTRUCT, TRANSPARENT,
+        BeginPaint, CreateFontW, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject, InvalidateRect, SelectObject, SetBkMode, SetTextColor, BLACK_BRUSH, CLEARTYPE_QUALITY, DEFAULT_CHARSET, DT_CENTER, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_NORMAL, HBRUSH, OUT_DEFAULT_PRECIS, PAINTSTRUCT, TRANSPARENT,
     };
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, IsWindow, IsWindowVisible, RegisterClassW, SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOWNOACTIVATE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_PAINT, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindow, GetWindowLongPtrW, IsIconic, IsWindow, IsWindowVisible, RegisterClassW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_PAINT, WNDCLASSW,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
+
+    /// Where the text goes, in the backdrop's own pixels; `None`, no text. Read by the
+    /// window's paint (one backdrop at a time, the main thread's).
+    static TEXT: Mutex<Option<RECT>> = Mutex::new(None);
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    /// `MA_NOACTIVATE`: a click on the panel never takes the focus from player 1's window.
+    /// `MA_NOACTIVATE`: a click on the backdrop never takes the focus.
     const MA_NOACTIVATE: LRESULT = 3;
 
     unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -86,6 +159,7 @@ mod imp {
             WM_MOUSEACTIVATE => MA_NOACTIVATE,
             WM_ERASEBKGND => 1,
             WM_PAINT => {
+                let text = TEXT.lock().ok().and_then(|t| *t);
                 // SAFETY: this window's own paint, between BeginPaint and EndPaint; the
                 // font is made, used and deleted here.
                 unsafe {
@@ -94,16 +168,18 @@ mod imp {
                     let mut rect: RECT = std::mem::zeroed();
                     GetClientRect(hwnd, &mut rect);
                     FillRect(dc, &rect, GetStockObject(BLACK_BRUSH) as HBRUSH);
-                    let height = ((rect.bottom - rect.top) / 22).clamp(18, 48);
-                    let face = wide("Segoe UI");
-                    let font = CreateFontW(height, 0, 0, 0, FW_NORMAL as i32, 0, 0, 0, DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32, 0, CLEARTYPE_QUALITY as u32, FF_DONTCARE as u32, face.as_ptr());
-                    let old = SelectObject(dc, font);
-                    SetBkMode(dc, TRANSPARENT as i32);
-                    SetTextColor(dc, 0x00A0_A0A0);
-                    let mut text: Vec<u16> = super::JOINING.encode_utf16().collect();
-                    DrawTextW(dc, text.as_mut_ptr(), text.len() as i32, &mut rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-                    SelectObject(dc, old);
-                    DeleteObject(font);
+                    if let Some(mut area) = text {
+                        let height = ((area.bottom - area.top) / 22).clamp(18, 48);
+                        let face = wide("Segoe UI");
+                        let font = CreateFontW(height, 0, 0, 0, FW_NORMAL as i32, 0, 0, 0, DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32, 0, CLEARTYPE_QUALITY as u32, FF_DONTCARE as u32, face.as_ptr());
+                        let old = SelectObject(dc, font);
+                        SetBkMode(dc, TRANSPARENT as i32);
+                        SetTextColor(dc, 0x00A0_A0A0);
+                        let mut line: Vec<u16> = super::JOINING.encode_utf16().collect();
+                        DrawTextW(dc, line.as_mut_ptr(), line.len() as i32, &mut area, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                        SelectObject(dc, old);
+                        DeleteObject(font);
+                    }
                     EndPaint(hwnd, &ps);
                 }
                 0
@@ -113,7 +189,7 @@ mod imp {
         }
     }
 
-    pub fn create(owner: isize, (at, size): (IVec2, UVec2)) -> Option<isize> {
+    pub fn create((at, size): (IVec2, UVec2)) -> Option<isize> {
         let class = wide("NVForeverSplitBackdrop");
         let title = wide("NVForever");
         // SAFETY: a window class and a window of this process, made on the main thread
@@ -123,7 +199,7 @@ mod imp {
             let instance = GetModuleHandleW(std::ptr::null());
             let wc = WNDCLASSW { lpfnWndProc: Some(proc), hInstance: instance, lpszClassName: class.as_ptr(), hbrBackground: GetStockObject(BLACK_BRUSH) as HBRUSH, ..std::mem::zeroed() };
             RegisterClassW(&wc);
-            let h = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, class.as_ptr(), title.as_ptr(), WS_POPUP, at.x, at.y, size.x as i32, size.y as i32, owner as HWND, std::ptr::null_mut(), instance, std::ptr::null());
+            let h = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, class.as_ptr(), title.as_ptr(), WS_POPUP, at.x, at.y, size.x as i32, size.y as i32, std::ptr::null_mut(), std::ptr::null_mut(), instance, std::ptr::null());
             if h.is_null() {
                 return None;
             }
@@ -133,16 +209,75 @@ mod imp {
     }
 
     pub fn place(h: isize, (at, size): (IVec2, UVec2)) {
-        // SAFETY: this process's own panel; fails harmlessly once it is gone.
+        // SAFETY: this process's own backdrop; fails harmlessly once it is gone.
         unsafe {
             SetWindowPos(h as HWND, std::ptr::null_mut(), at.x, at.y, size.x as i32, size.y as i32, SWP_NOACTIVATE | SWP_NOZORDER);
         }
     }
 
+    /// The text in `half` (screen pixels; `origin` is the backdrop's top left), or none.
+    pub fn set_text(h: isize, half: Option<(IVec2, UVec2)>, origin: IVec2) {
+        let rect = half.map(|(at, size)| {
+            let (x, y) = (at.x - origin.x, at.y - origin.y);
+            RECT { left: x, top: y, right: x + size.x as i32, bottom: y + size.y as i32 }
+        });
+        if let Ok(mut t) = TEXT.lock() {
+            *t = rect;
+        }
+        // SAFETY: this process's own backdrop, painted again.
+        unsafe {
+            InvalidateRect(h as HWND, std::ptr::null(), 1);
+        }
+    }
+
+    pub fn set_shown(h: isize, on: bool) {
+        // SAFETY: this process's own backdrop.
+        unsafe {
+            ShowWindow(h as HWND, if on { SW_SHOWNOACTIVATE } else { SW_HIDE });
+        }
+    }
+
+    pub fn set_topmost(h: isize, on: bool) {
+        // SAFETY: this process's own backdrop; its place under player 1's window is set
+        // again right after (`put_under`).
+        unsafe {
+            SetWindowPos(h as HWND, if on { HWND_TOPMOST } else { HWND_NOTOPMOST }, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+
+    /// Whether the window right under `p1` is the backdrop, in the band `p1` is in.
+    pub fn just_under(h: isize, p1: isize) -> bool {
+        // SAFETY: only asks about two windows.
+        unsafe { GetWindow(p1 as HWND, GW_HWNDNEXT) as isize == h && topmost(h) == topmost(p1) }
+    }
+
+    pub fn put_under(h: isize, p1: isize) {
+        // SAFETY: this process's own backdrop, placed right under player 1's window.
+        unsafe {
+            if topmost(h) != topmost(p1) {
+                SetWindowPos(h as HWND, if topmost(p1) { HWND_TOPMOST } else { HWND_NOTOPMOST }, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            SetWindowPos(h as HWND, p1 as HWND, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+
+    fn topmost(h: isize) -> bool {
+        // SAFETY: only reads the window's extended style.
+        unsafe { GetWindowLongPtrW(h as HWND, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0 }
+    }
+
+    pub fn iconic(h: isize) -> bool {
+        // SAFETY: only asks about the window.
+        unsafe { IsIconic(h as HWND) != 0 }
+    }
+
     pub fn destroy(h: isize) {
-        // SAFETY: this process's own panel, on the thread that made it.
+        // SAFETY: this process's own backdrop, on the thread that made it.
         unsafe {
             DestroyWindow(h as HWND);
+        }
+        if let Ok(mut t) = TEXT.lock() {
+            *t = None;
         }
     }
 
@@ -160,10 +295,20 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     use bevy::math::{IVec2, UVec2};
-    pub fn create(_owner: isize, _half: (IVec2, UVec2)) -> Option<isize> {
+    pub fn create(_screen: (IVec2, UVec2)) -> Option<isize> {
         None
     }
-    pub fn place(_h: isize, _half: (IVec2, UVec2)) {}
+    pub fn place(_h: isize, _screen: (IVec2, UVec2)) {}
+    pub fn set_text(_h: isize, _half: Option<(IVec2, UVec2)>, _origin: IVec2) {}
+    pub fn set_shown(_h: isize, _on: bool) {}
+    pub fn set_topmost(_h: isize, _on: bool) {}
+    pub fn just_under(_h: isize, _p1: isize) -> bool {
+        true
+    }
+    pub fn put_under(_h: isize, _p1: isize) {}
+    pub fn iconic(_h: isize) -> bool {
+        false
+    }
     pub fn destroy(_h: isize) {}
     pub fn alive(_h: isize) -> bool {
         false

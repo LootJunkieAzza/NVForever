@@ -82,12 +82,18 @@
 //!   from Mod Organizer 2, player 2's game refused its command line and no window came].
 //! - **The taskbar**: neither half covers the monitor, so Windows kept the taskbar over
 //!   their bottom edge; player 1's window is marked full screen for the taskbar while split
-//!   ([`mark_fullscreen`]) and unmarked when it ends.
+//!   ([`mark_fullscreen`]) and unmarked when it ends; that alone did not lower it on
+//!   Windows 11, so player 1's window is also topmost while either half has the focus
+//!   ([`set_on_top`]).
+//! - **The backdrop** ([`backdrop`]): a black window over the whole monitor, under both
+//!   halves, from split screen's first frame till it ends, so nothing behind shows while
+//!   the windows move or player 2's game loads (it says player 2 is joining meanwhile).
 //!
 //! Log: `split: split screen on`, `split: split screen ended (…)`,
 //! `split: player 2's command line: …`, `split: player 2's game (pid …) ended (…)`,
 //! `split: player 1's window marked full screen for the taskbar …`,
-//! `split: player 2's game started (pid …)`, `split: controllers assigned (…)`,
+//! `split: player 2's game started (pid …)`, `split: backdrop up under the halves …`,
+//! `split: backdrop: …`, `split: backdrop gone (…)`, `split: the halves are over the taskbar`, `split: controllers assigned (…)`,
 //! `split: player 2's controller is …`, `split: player 2's controller unplugged`,
 //! `split: every controller is player 1's again …`, `split: focus: …`, `split: input: …`,
 //! `split: player 1's game is gone: quitting`.
@@ -1699,22 +1705,21 @@ fn p2_back_ends(p2: Res<P2>, mut asks: MessageReader<nvf_play::lobby::LobbyReque
     exit.write(AppExit::Success);
 }
 
-/// Player 2's half while player 2's window isn't showing ([`backdrop`]): covered once
-/// player 1's window is on its half, uncovered when player 2's window shows and when split
-/// screen ends.
+/// The black backdrop under both halves ([`backdrop`]): up from split screen's first
+/// frame (this runs after [`split_asks`] and before player 1's window goes to its half,
+/// which Bevy's window systems apply later in the frame) till split screen ends; it says
+/// player 2 is joining while player 2's window isn't showing.
 fn p1_backdrop(p1: Option<Res<P1>>, mut panel: Local<backdrop::Backdrop>, windows: Query<&RawHandleWrapper, With<PrimaryWindow>>, monitors: Query<&Monitor, With<PrimaryMonitor>>, _main_thread: bevy::ecs::system::NonSendMarker) {
-    let Some(p1) = p1.filter(|p| p.placed.is_some()) else {
+    let Some(p1) = p1 else {
         panel.hide("split screen ended");
         return;
     };
-    if p1.p2_hwnd.is_some_and(backdrop::shown) {
-        panel.hide("player 2's window shows");
-        return;
-    }
     let (Ok(handle), Ok(monitor)) = (windows.single(), monitors.single()) else { return };
-    let Some(owner) = hwnd_of(handle) else { return };
-    let half = halves(monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height), p1.layout)[1];
-    panel.show(owner, half);
+    let Some(mine) = hwnd_of(handle) else { return };
+    let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
+    let p2_half = halves(screen.0, screen.1, p1.layout)[1];
+    let joining = !p1.p2_hwnd.is_some_and(backdrop::shown);
+    panel.show(mine, backdrop::Look { screen, p2_half, joining }, p1.on_top);
 }
 
 // ---- Windows --------------------------------------------------------------------------
