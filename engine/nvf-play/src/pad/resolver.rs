@@ -15,13 +15,23 @@
 //! - **Hold**: the control goes down once the button has been held [`Timing::hold`].
 //! - **Double tap**: it goes down on a second press within [`Timing::double`] of the
 //!   first press, and stays down while that press is held.
-//! - **Combo**: it goes down when its button goes down while its modifier is down; that
-//!   press of the button is then *used up*: no other binding on the button acts on it.
+//! - **Combo**: it goes down when its two buttons go down within [`Timing::combo`] of each
+//!   other, in either order, or when its button goes down while its modifier has been held
+//!   longer. Those presses are then *used up* until they come up: no other binding on
+//!   either button acts on them [design, owner 2026-11-22 playtest: "if there's 8ms
+//!   between a button press in a combo, it still activates the combo bind and ignores the
+//!   individual inputs"]. A modifier held past the window is not used up: a held control
+//!   on it (Sneak, Block) stays live beside the combo.
+//! - **The combo window**: a press of a button that is part of any combo waits
+//!   [`Timing::combo`] before its own binding acts, so the other button can still come.
+//!   Held past the window it acts as if pressed then (a hold still counts from the
+//!   press); let go inside the window with no combo, its own binding acts late, as a
+//!   one-frame press.
 //! - **A press sharing its button** with a hold or a double tap acts when the button comes
 //!   up before the hold (or when the double tap's window ends), down for one frame. A press
 //!   on a combo's modifier acts so too, when no combo used the modifier meanwhile, unless
-//!   its control needs a real hold ([`held_nature`]): then it acts at once, beside the
-//!   combo.
+//!   its control needs a real hold ([`held_nature`]): then it acts once the combo window
+//!   has passed, while the button is held.
 
 use crate::bindings::Control;
 use crate::pad::binding::PadBinding;
@@ -29,11 +39,13 @@ use crate::pad::PadInput;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
-/// The Hold time and Double-tap window, seconds (the Controls tab's rows, `[Controller]`).
+/// The Hold time, Double-tap window and Combo window, seconds (the Controls tab's rows,
+/// `[Controller]`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timing {
     pub hold: f32,
     pub double: f32,
+    pub combo: f32,
 }
 
 /// Default Hold time: `grab::ACTIVATE_HOLD`'s, so the two holds a player meets feel alike
@@ -46,15 +58,23 @@ pub const DOUBLE_TAP_WINDOW: f32 = 0.3;
 pub const HOLD_TIMES: [f32; 6] = [0.25, 0.3, 0.4, 0.5, 0.6, 0.8];
 /// The Double-tap window row's choices, seconds.
 pub const DOUBLE_TAP_WINDOWS: [f32; 6] = [0.2, 0.25, 0.3, 0.35, 0.4, 0.5];
+/// Default Combo window: two buttons meant together come down some tens of milliseconds
+/// apart (the owner's report: 8 ms apart still split the combo), and a tenth of a second
+/// is about as long as a single press on a combo's button can wait without feeling late
+/// [design; hypothesis, to be tuned by the owner's playtest].
+pub const COMBO_WINDOW: f32 = 0.1;
+/// The Combo window row's choices, seconds (all below the shortest Hold time).
+pub const COMBO_WINDOWS: [f32; 6] = [0.05, 0.075, 0.1, 0.125, 0.15, 0.2];
 
 impl Default for Timing {
     fn default() -> Self {
-        Timing { hold: HOLD_TIME, double: DOUBLE_TAP_WINDOW }
+        Timing { hold: HOLD_TIME, double: DOUBLE_TAP_WINDOW, combo: COMBO_WINDOW }
     }
 }
 
 /// The controls whose readers need the button really held, not a one-frame press: a press
-/// of theirs on a combo's modifier stays live [design, §2a]. Movement and the stick's
+/// of theirs on a combo's modifier acts once the combo window has passed and stays live
+/// beside a later combo [design, §2a]. Movement and the stick's
 /// directions, attack, aim and block, run, sprint, grab, Activate (held, it grabs), Ready
 /// Item (held, it holsters), Toggle POV (held, it circles the camera), the hotkeys (held,
 /// the wheel), and the Hold to … tweaks' Jump, Rest and Crouch/Sneak.
@@ -102,6 +122,9 @@ struct Roles {
     combo: Vec<(GamepadButton, Control)>,
     /// A combo's modifier.
     modifier: bool,
+    /// Presses of controls that need a real hold ([`held_nature`]) on a combo's modifier:
+    /// down while the button is, once the combo window has passed and no combo used it.
+    live: Vec<Control>,
 }
 
 impl Roles {
@@ -109,12 +132,32 @@ impl Roles {
     fn deferred(&self) -> bool {
         !self.hold.is_empty() || !self.double.is_empty() || (self.modifier && !self.press.is_empty())
     }
+
+    /// Part of a combo (its modifier or its button): a press waits the combo window.
+    fn combo_part(&self) -> bool {
+        self.modifier || !self.combo.is_empty()
+    }
+
+    /// What a press becomes once no combo can claim it: `second` when it came inside a
+    /// double tap's window, `t` the seconds since it went down.
+    fn after_wait(&self, second: bool, t: f32) -> Phase {
+        if second && !self.double.is_empty() {
+            Phase::SecondDown
+        } else if self.press.is_empty() || self.deferred() {
+            Phase::Down(t)
+        } else {
+            Phase::Live
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 enum Phase {
     #[default]
     Idle,
+    /// Down inside the combo window: nothing acts yet; seconds since the press, and
+    /// whether it came inside a double tap's window.
+    Pending(f32, bool),
     /// Down, deciding; seconds since the press.
     Down(f32),
     /// Down, the press acting (not deferred).
@@ -123,8 +166,11 @@ enum Phase {
     /// Up after a first press; seconds since that press.
     WaitSecond(f32),
     SecondDown,
-    /// Used up by this combo control until the button comes up.
+    /// Used up by this combo control until the button comes up (the combo's button).
     Used(Control),
+    /// Used up by a combo until the button comes up (the combo's modifier, pressed inside
+    /// the window): nothing on it acts.
+    Swallowed,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -160,13 +206,14 @@ impl PadResolver {
     }
 
     /// The controls the bindings `binds` have worked out here: holds, double taps, combos,
-    /// and presses on a button one of those shares (a press on a combo's modifier only when
-    /// its control is not [`held_nature`]).
+    /// and presses on a button one of those shares (a combo's modifier or button too: their
+    /// presses wait the combo window).
     pub fn resolved(binds: &[(Control, PadBinding)]) -> Vec<Control> {
         let roles = roles(binds);
         let mut out: Vec<Control> = binds.iter().filter(|(_, b)| matches!(b, PadBinding::Hold(_) | PadBinding::Double(_) | PadBinding::Combo { .. })).map(|(c, _)| *c).collect();
         for r in roles.values() {
             out.extend(r.press.iter().copied());
+            out.extend(r.live.iter().copied());
         }
         out
     }
@@ -180,28 +227,70 @@ impl PadResolver {
         let mut pulses: Vec<Control> = Vec::new();
         let mut keys: Vec<GamepadButton> = roles.keys().copied().collect();
         keys.sort_by_key(|b| format!("{b:?}"));
+        // Combos first: a button going down whose partner is down already. Inside the
+        // window either may have come first; past it only the modifier may (it is not used
+        // up then: a held control on it stays live).
+        let mut claimed: Vec<GamepadButton> = Vec::new();
+        for &b in &keys {
+            for &(m, c) in &roles[&b].combo {
+                let (nb, nm) = (button(b), button(m));
+                let pending = |x: GamepadButton| matches!(self.buttons.get(&x).map(|s| s.phase), Some(Phase::Pending(..)));
+                let swallow = if nb.just_pressed && nm.pressed {
+                    nm.just_pressed || pending(m)
+                } else if nm.just_pressed && nb.pressed && pending(b) {
+                    true
+                } else {
+                    continue;
+                };
+                if claimed.contains(&b) {
+                    continue;
+                }
+                self.buttons.entry(b).or_default().phase = Phase::Used(c);
+                claimed.push(b);
+                if swallow {
+                    self.buttons.entry(m).or_default().phase = Phase::Swallowed;
+                    claimed.push(m);
+                } else {
+                    used_modifiers.push(m);
+                }
+            }
+        }
         for b in keys {
             let r = &roles[&b];
             let now = button(b);
             let st = self.buttons.entry(b).or_default();
-            if now.just_pressed {
-                let combo = r.combo.iter().find(|(m, _)| button(*m).pressed).copied();
-                st.phase = match (combo, st.phase) {
-                    (Some((m, c)), _) => {
-                        used_modifiers.push(m);
-                        Phase::Used(c)
-                    }
-                    (None, Phase::WaitSecond(_)) if !r.double.is_empty() => Phase::SecondDown,
-                    _ if r.press.is_empty() || r.deferred() => Phase::Down(0.0),
-                    _ => Phase::Live,
-                };
+            if now.just_pressed && !claimed.contains(&b) {
+                let second = matches!(st.phase, Phase::WaitSecond(_));
+                st.phase = if r.combo_part() { Phase::Pending(0.0, second) } else { r.after_wait(second, 0.0) };
             } else if now.pressed {
-                if let Phase::Down(t) = st.phase {
-                    let t = t + dt;
-                    st.phase = if !r.hold.is_empty() && t >= timing.hold { Phase::HoldFired } else { Phase::Down(t) };
+                match st.phase {
+                    Phase::Pending(t, second) => {
+                        let t = t + dt;
+                        st.phase = if t >= timing.combo { r.after_wait(second, t) } else { Phase::Pending(t, second) };
+                    }
+                    Phase::Down(t) => {
+                        let t = t + dt;
+                        st.phase = if !r.hold.is_empty() && t >= timing.hold { Phase::HoldFired } else { Phase::Down(t) };
+                    }
+                    _ => {}
                 }
             }
             if now.just_released || !now.pressed {
+                // Let go inside the combo window with no combo: its own binding acts late.
+                if let Phase::Pending(t, second) = st.phase {
+                    pulses.extend(r.live.iter().copied());
+                    st.phase = match r.after_wait(second, t) {
+                        Phase::Live => {
+                            pulses.extend(r.press.iter().copied());
+                            Phase::Idle
+                        }
+                        Phase::SecondDown => {
+                            pulses.extend(r.double.iter().copied());
+                            Phase::Idle
+                        }
+                        p => p,
+                    };
+                }
                 st.phase = match st.phase {
                     Phase::Down(t) if !r.double.is_empty() => Phase::WaitSecond(t),
                     Phase::Down(_) => {
@@ -231,6 +320,9 @@ impl PadResolver {
                 Phase::SecondDown => down.extend(r.double.iter().copied()),
                 Phase::Used(c) => down.push(c),
                 _ => {}
+            }
+            if now.pressed && !matches!(st.phase, Phase::Idle | Phase::Pending(..) | Phase::Swallowed | Phase::Used(_)) {
+                down.extend(r.live.iter().copied());
             }
         }
         for m in used_modifiers {
@@ -269,7 +361,9 @@ fn roles(binds: &[(Control, PadBinding)]) -> HashMap<GamepadButton, Roles> {
         let Some(r) = roles.get_mut(&x) else { continue };
         // A press of a control that needs a real hold stays live on a combo's modifier.
         let live_modifier = r.modifier && r.hold.is_empty() && r.double.is_empty() && held_nature(*c);
-        if !live_modifier {
+        if live_modifier {
+            r.live.push(*c);
+        } else {
             r.press.push(*c);
         }
     }
@@ -443,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn a_combo_uses_up_its_button_and_needs_the_modifier_first() {
+    fn a_combo_uses_up_its_button_and_the_buttons_own_press_waits_the_window() {
         let combo = PadBinding::Combo { modifier: LeftTrigger, button: South };
         let binds = [(Control::Hotkey5, combo), (Control::Activate, PadBinding::Press(PadInput::Button(South)))];
         let (mut r, mut pad, mut log) = (PadResolver::default(), Pad::new(), Vec::new());
@@ -452,17 +546,80 @@ mod tests {
         assert_eq!(log, vec![(Control::Hotkey5, "down")], "Activate does not act");
         run(&mut r, &mut pad, &binds, &[LeftTrigger], 1, &mut log);
         assert_eq!(log, vec![(Control::Hotkey5, "down"), (Control::Hotkey5, "up")]);
-        // The button alone is its own press, at once.
+        // The button alone is its own press once the combo window has passed.
         log.clear();
         run(&mut r, &mut pad, &binds, &[], 2, &mut log);
-        run(&mut r, &mut pad, &binds, &[South], 1, &mut log);
-        assert_eq!(log, vec![(Control::Activate, "down")], "no delay on the combo's button");
-        // The button first and the modifier after is no combo.
+        run(&mut r, &mut pad, &binds, &[South], frames(COMBO_WINDOW) - 1, &mut log);
+        assert!(log.is_empty(), "still inside the combo window: {log:?}");
+        run(&mut r, &mut pad, &binds, &[South], 3, &mut log);
+        assert_eq!(log, vec![(Control::Activate, "down")], "then held as Activate");
+        // A quick tap of the button alone is a late one-frame press.
         log.clear();
         run(&mut r, &mut pad, &binds, &[], 2, &mut log);
-        run(&mut r, &mut pad, &binds, &[South], 1, &mut log);
+        run(&mut r, &mut pad, &binds, &[South], 2, &mut log);
+        run(&mut r, &mut pad, &binds, &[], 2, &mut log);
+        assert_eq!(log, vec![(Control::Activate, "down"), (Control::Activate, "up")]);
+        // Held past the window, the button is its own press: a modifier after it is no combo.
+        log.clear();
+        run(&mut r, &mut pad, &binds, &[], 2, &mut log);
+        run(&mut r, &mut pad, &binds, &[South], frames(COMBO_WINDOW) + 2, &mut log);
         run(&mut r, &mut pad, &binds, &[South, LeftTrigger], 3, &mut log);
-        assert!(!log.iter().any(|(c, _)| *c == Control::Hotkey5));
+        assert!(!log.iter().any(|(c, _)| *c == Control::Hotkey5), "{log:?}");
+    }
+
+    /// The owner's playtest (2026-11-22): VATS on LB + RB, Sneak on LB.
+    fn vats_on_lb_rb_and_sneak_on_lb() -> [(Control, PadBinding); 2] {
+        [(Control::Vats, PadBinding::Combo { modifier: LeftTrigger, button: RightTrigger }), (Control::CrouchSneak, PadBinding::Press(PadInput::Button(LeftTrigger)))]
+    }
+
+    #[test]
+    fn a_combo_pressed_nearly_together_fires_in_either_order_and_swallows_both_singles() {
+        let binds = vats_on_lb_rb_and_sneak_on_lb();
+        // LB a frame (about 17 ms) before RB, RB a frame before LB, both on one frame, and
+        // the two just inside the window.
+        for (first, second, gap) in [(LeftTrigger, RightTrigger, 1), (RightTrigger, LeftTrigger, 1), (LeftTrigger, RightTrigger, 0), (RightTrigger, LeftTrigger, frames(COMBO_WINDOW) - 1)] {
+            let (mut r, mut pad, mut log) = (PadResolver::default(), Pad::new(), Vec::new());
+            run(&mut r, &mut pad, &binds, &[first], gap, &mut log);
+            run(&mut r, &mut pad, &binds, &[first, second], 10, &mut log);
+            run(&mut r, &mut pad, &binds, &[second], 3, &mut log);
+            run(&mut r, &mut pad, &binds, &[], 5, &mut log);
+            assert_eq!(log, vec![(Control::Vats, "down"), (Control::Vats, "up")], "{first:?} then {second:?}, {gap} frame(s) apart: no Sneak");
+        }
+    }
+
+    #[test]
+    fn lb_alone_still_sneaks() {
+        let binds = vats_on_lb_rb_and_sneak_on_lb();
+        let (mut r, mut pad, mut log) = (PadResolver::default(), Pad::new(), Vec::new());
+        // Held: Sneak goes down once the combo window has passed and stays down until let go.
+        run(&mut r, &mut pad, &binds, &[LeftTrigger], frames(COMBO_WINDOW) - 1, &mut log);
+        assert!(log.is_empty(), "waiting for RB: {log:?}");
+        run(&mut r, &mut pad, &binds, &[LeftTrigger], 30, &mut log);
+        assert_eq!(log, vec![(Control::CrouchSneak, "down")]);
+        run(&mut r, &mut pad, &binds, &[], 2, &mut log);
+        assert_eq!(log, vec![(Control::CrouchSneak, "down"), (Control::CrouchSneak, "up")]);
+        // A quick tap: Sneak for one frame when it is let go.
+        log.clear();
+        run(&mut r, &mut pad, &binds, &[LeftTrigger], 2, &mut log);
+        run(&mut r, &mut pad, &binds, &[], 3, &mut log);
+        assert_eq!(log, vec![(Control::CrouchSneak, "down"), (Control::CrouchSneak, "up")]);
+    }
+
+    #[test]
+    fn a_modifier_held_past_the_window_stays_live_beside_its_combo() {
+        let binds = vats_on_lb_rb_and_sneak_on_lb();
+        let (mut r, mut pad, mut log) = (PadResolver::default(), Pad::new(), Vec::new());
+        run(&mut r, &mut pad, &binds, &[LeftTrigger], frames(COMBO_WINDOW) + 5, &mut log);
+        run(&mut r, &mut pad, &binds, &[LeftTrigger, RightTrigger], 5, &mut log);
+        run(&mut r, &mut pad, &binds, &[LeftTrigger], 5, &mut log);
+        assert_eq!(log, vec![(Control::CrouchSneak, "down"), (Control::Vats, "down"), (Control::Vats, "up")], "Sneak held through the combo");
+        run(&mut r, &mut pad, &binds, &[], 2, &mut log);
+        assert_eq!(log.last(), Some(&(Control::CrouchSneak, "up")));
+        // RB alone (no binding of its own): nothing.
+        log.clear();
+        run(&mut r, &mut pad, &binds, &[RightTrigger], 20, &mut log);
+        run(&mut r, &mut pad, &binds, &[], 2, &mut log);
+        assert!(log.is_empty(), "{log:?}");
     }
 
     #[test]
@@ -473,18 +630,27 @@ mod tests {
         run(&mut r, &mut pad, &binds, &[LeftTrigger], 3, &mut log);
         run(&mut r, &mut pad, &binds, &[], 2, &mut log);
         assert_eq!(log, vec![(Control::Vats, "down"), (Control::Vats, "up")]);
-        log.clear();
-        run(&mut r, &mut pad, &binds, &[LeftTrigger], 3, &mut log);
-        run(&mut r, &mut pad, &binds, &[LeftTrigger, South], 3, &mut log);
-        run(&mut r, &mut pad, &binds, &[], 3, &mut log);
-        assert!(!log.iter().any(|(c, _)| *c == Control::Vats), "the combo used the modifier: {log:?}");
+        // Used inside the window, and past it: no Vats either way.
+        for held in [3, frames(COMBO_WINDOW) + 5] {
+            log.clear();
+            run(&mut r, &mut pad, &binds, &[LeftTrigger], held, &mut log);
+            run(&mut r, &mut pad, &binds, &[LeftTrigger, South], 3, &mut log);
+            run(&mut r, &mut pad, &binds, &[], 3, &mut log);
+            assert!(!log.iter().any(|(c, _)| *c == Control::Vats), "the combo used the modifier: {log:?}");
+            assert_eq!(log.iter().filter(|(c, w)| *c == Control::Hotkey5 && *w == "down").count(), 1);
+        }
     }
 
     #[test]
-    fn a_held_control_on_a_modifier_stays_live() {
+    fn a_held_control_on_a_modifier_waits_the_window_then_aims() {
         let combo = PadBinding::Combo { modifier: LeftTrigger2, button: South };
         let binds = [(Control::Hotkey5, combo), (Control::Block, PadBinding::Press(PadInput::Button(LeftTrigger2)))];
-        assert_eq!(PadResolver::resolved(&binds), vec![Control::Hotkey5], "Block reads the raw trigger: aims at once");
+        let mut resolved = PadResolver::resolved(&binds);
+        resolved.sort_by_key(|c| format!("{c:?}"));
+        assert_eq!(resolved, vec![Control::Block, Control::Hotkey5]);
+        let (mut r, mut pad, mut log) = (PadResolver::default(), Pad::new(), Vec::new());
+        run(&mut r, &mut pad, &binds, &[LeftTrigger2], frames(COMBO_WINDOW) + 3, &mut log);
+        assert_eq!(log, vec![(Control::Block, "down")], "aims once the window has passed");
     }
 
     #[test]

@@ -841,6 +841,16 @@ in `engine/nvf-play/src/pause.rs` (`row_note`, `AUTOMATIC_INPUT_NOTE`) and
   the second. A press sharing its button with a double tap acts when the window ends. With
   a controller only.
 
+### Combo window
+
+- On the page: Left/Right or A: how far apart a combo's two buttons may go down, in either
+  order; a button in a combo waits this long. Kept as "Combo Window" in [Controller].
+- In full: 50, 75, 100 (the default), 125, 150 or 200 milliseconds. Two buttons of a combo
+  that go down within it, in either order, act as the combo only; neither button's own
+  binding acts. Any button that is part of a combo waits this long before its own binding
+  acts (Sneak on LB with LB + RB bound), or acts late when let go sooner. With a controller
+  only. docs/design/controller.md §2a.
+
 ### The controller's bindings and split holds
 
 - A controller row binds a press, a hold, a double tap or a combo by the gesture made (A on

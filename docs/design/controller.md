@@ -239,22 +239,35 @@ one by the gesture made), `bindings.rs` (`SPLITS`, `overlaps`).
 | Press | `A` | as before: while the button is down |
 | Hold | `Hold X` | once X has been held the Hold time, until let go |
 | Double tap | `Double Y` (`Double-tap Y` is read too) | on the second press inside the Double-tap window, while that press is held |
-| Combo | `LB + A` | when A goes down while LB is held (the modifier first), while A is held |
+| Combo | `LB + A` | when LB and A go down within the Combo window, in either order, or A while LB has been held longer; while A is held |
 | Built in | `With Menu Mode` | a split hold still in its original control (below) |
 
 Stick directions are presses only. Start is refused as a part of any kind. The Hold time
-(0.25-0.8 s, 0.4 by default) and Double-tap window (0.2-0.5 s, 0.3 by default) are rows
-under Controls › Input with a controller, kept as `Hold Time` and `Double Tap Window` in
-`[Controller]`.
+(0.25-0.8 s, 0.4 by default), Double-tap window (0.2-0.5 s, 0.3 by default) and Combo
+window (50-200 ms, 100 by default) are rows under Controls › Input with a controller, kept
+as `Hold Time`, `Double Tap Window` and `Combo Window` in `[Controller]`.
 
 **Working them out.** A press on a button nothing else uses reads the raw button, with no
 delay. A press sharing its button with a hold or a double tap acts for one frame when the
 button is let go (or when the window ends with no second press); a combo uses up its
-button's press, so LB + A does not also Activate. A control whose reader needs a real hold
-(movement, Use, Block, Run, Sprint, Grab, Activate, Ready Item, Toggle POV, the hotkeys,
-Jump, Rest, Crouch/Sneak: `resolver::held_nature`) stays live when its button is a combo's
-modifier. The resolver's state is cleared when play stops (a menu) and when the device
-changes.
+button's press, so LB + A does not also Activate.
+
+**The combo window** [design, owner 2026-11-22 playtest: VATS on LB + RB and Sneak on LB
+took Sneak unless both were pressed "perfectly together"; "if there's 8ms between a button
+press in a combo, it still activates the combo bind and ignores the individual inputs"]. A
+press of any button that is part of a combo (its modifier or its button) waits the Combo
+window before its own binding acts:
+- the partner going down inside the window, in either order, fires the combo, and both
+  presses are used up until let go: neither button's own binding acts (no Sneak);
+- held past the window, the press acts as if it began then (a Hold still counts from the
+  press; a modifier's held control, `resolver::held_nature`: movement, Use, Block, Run,
+  Sprint, Grab, Activate, Ready Item, Toggle POV, the hotkeys, Jump, Rest, Crouch/Sneak,
+  goes down and stays live, and a combo button pressed later still fires the combo beside
+  it, as LT + A while aiming);
+- let go inside the window with no combo, its own binding acts late, for one frame (a tap
+  of LB still toggles Sneak).
+Buttons in no combo read raw, with no wait. The resolver's state is cleared when play stops
+(a menu) and when the device changes.
 
 **The split holds.** Five holds that were built into another control's button are controls
 of their own with a controller: Toggle Light (holding Menu Mode, 1.0 s), Holster Weapon

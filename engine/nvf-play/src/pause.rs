@@ -947,10 +947,11 @@ const AUTOMATIC_INPUT_ROW: &str = "Automatic Input Switching";
 const AUTOMATIC_INPUT_NOTE: &str = "On: a controller button, stick or trigger selects Controller; a key or mouse click selects Keyboard and Mouse (mouse motion does not). Off: choose Input Device yourself.";
 /// The Controls tab's last row with a controller chosen (`crate::rumble`).
 const RUMBLE_ROW: &str = "Rumble";
-/// The controller's Hold bindings' time and Double-tap bindings' window (docs/design/
-/// controller.md §2a) [design].
+/// The controller's Hold bindings' time, Double-tap bindings' window and Combo bindings'
+/// window (docs/design/controller.md §2a) [design].
 const HOLD_TIME_ROW: &str = "Hold time";
 const DOUBLE_TAP_ROW: &str = "Double-tap window";
+const COMBO_WINDOW_ROW: &str = "Combo window";
 /// The Controls tab's row after the controls (`bInvertYValues`).
 const INVERT_ROW: &str = "Invert Y";
 /// The Controls tab's slider after Invert Y, with keyboard and mouse and with a controller.
@@ -1463,9 +1464,10 @@ struct Drawn {
     /// The controller gesture a waiting row has so far ("Hold X", "LB + A";
     /// `crate::pad::capture`).
     capture: Option<String>,
-    /// The Hold time and Double-tap window, seconds.
+    /// The Hold time, Double-tap window and Combo window, seconds.
     hold_time: f32,
     double_tap: f32,
+    combo_window: f32,
     /// The device in use: its name, and whether it is a controller.
     device: (&'static str, bool),
     automatic_input: bool,
@@ -2355,6 +2357,7 @@ fn control_line(d: &Drawn, c: ControlRow) -> (&'static str, String) {
         ControlRow::Rumble => (RUMBLE_ROW, on_off(d.rumble)),
         ControlRow::HoldTime => (HOLD_TIME_ROW, format!("{:.2} s", d.hold_time)),
         ControlRow::DoubleTap => (DOUBLE_TAP_ROW, format!("{:.2} s", d.double_tap)),
+        ControlRow::ComboWindow => (COMBO_WINDOW_ROW, format!("{:.0} ms", d.combo_window * 1000.0)),
     }
 }
 
@@ -2410,6 +2413,7 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
         ControlRow::Rumble => format!("A or a click: the controller shakes when you fire, take damage, land a hard fall or an explosion goes off near you. Kept as \"{RUMBLE_ROW}\" in [Controller]."),
         ControlRow::HoldTime => "Left/Right or A: how long a button is held before a Hold binding acts. Kept as \"Hold Time\" in [Controller].".into(),
         ControlRow::DoubleTap => "Left/Right or A: how soon the second press of a Double-tap binding must come. Kept as \"Double Tap Window\" in [Controller].".into(),
+        ControlRow::ComboWindow => "Left/Right or A: how far apart a combo's two buttons may go down, in either order; a button in a combo waits this long. Kept as \"Combo Window\" in [Controller].".into(),
         ControlRow::Device => format!("Enter or a click: work the controls with the keyboard and mouse or with a controller. Kept as \"{DEVICE_ROW}\" in [Controls] of NVForever.ini."),
         ControlRow::Binding(c, _) if d.listening == Some(c) && controller => format!("Press, hold or double-tap a button for {}, or hold one and press another for a combo. Start cancels.", label(c)),
         ControlRow::Binding(c, _) if d.listening == Some(c) => format!("Press the new key or mouse button for {}. Esc cancels.", label(c)),
@@ -3018,6 +3022,7 @@ struct ControlState {
     aim: f32,
     hold_time: f32,
     double_tap: f32,
+    combo_window: f32,
 }
 
 /// Whether row `id` takes A and D as Left and Right (a slider, a list; a switch takes the
@@ -3025,7 +3030,7 @@ struct ControlState {
 fn takes_letters(settings: &Settings, id: RowId) -> bool {
     match id {
         RowId::Setting(i) => settings.choices(i).is_some() || settings.list().get(i).is_some_and(|s| s.slider.is_some()),
-        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::AimSensitivity(_) | ControlRow::HoldTime | ControlRow::DoubleTap),
+        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::AimSensitivity(_) | ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow),
         RowId::Group => true,
         RowId::Heading(_) => false,
     }
@@ -3094,11 +3099,15 @@ fn act_on_row(id: RowId, action: RowAction, settings: &Settings, view: &mut Paus
                 sounds.write(flipped);
             }
             // The timings step through their choices; A steps on, wrapping [design].
-            (ControlRow::HoldTime | ControlRow::DoubleTap, Activate | Step(_)) => {
-                let hold = c == ControlRow::HoldTime;
-                let (now, choices): (f32, &[f32]) = if hold { (controls.hold_time, &crate::pad::resolver::HOLD_TIMES) } else { (controls.double_tap, &crate::pad::resolver::DOUBLE_TAP_WINDOWS) };
-                let to = step_choice(now, choices, if let Step(s) = action { s } else { 1 }, action == Activate);
-                commands.queue(move |world: &mut World| crate::bindings::set_timing(world, hold, to));
+            (ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow, Activate | Step(_)) => {
+                use crate::bindings::TimingRow;
+                let (row, now) = match c {
+                    ControlRow::HoldTime => (TimingRow::Hold, controls.hold_time),
+                    ControlRow::DoubleTap => (TimingRow::Double, controls.double_tap),
+                    _ => (TimingRow::Combo, controls.combo_window),
+                };
+                let to = step_choice(now, row.choices(), if let Step(s) = action { s } else { 1 }, action == Activate);
+                commands.queue(move |world: &mut World| crate::bindings::set_timing(world, row, to));
                 sounds.write(flipped);
             }
             (ControlRow::Sensitivity(_), Step(s)) => {
@@ -3415,13 +3424,14 @@ fn step_choice(now: f32, choices: &[f32], step: i32, wrap: bool) -> f32 {
 /// rows are not registered settings, so this stands in for their label and note].
 fn control_words(c: ControlRow) -> String {
     use crate::bindings::InputDevice;
-    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble | ControlRow::HoldTime | ControlRow::DoubleTap);
+    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble | ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow);
     let d = Drawn { device: ("", controller), ..default() };
     let (label, _) = control_line(&d, c);
     let key = match c {
         ControlRow::Binding(k, _) => crate::bindings::Bindings::name(k),
         ControlRow::HoldTime => "Hold Time",
         ControlRow::DoubleTap => "Double Tap Window",
+        ControlRow::ComboWindow => "Combo Window",
         ControlRow::Device | ControlRow::AutomaticInput | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::AimSensitivity(_) | ControlRow::Rumble => label,
     };
     let note = row_note(&[], RowId::Control(c), &d);
@@ -3779,14 +3789,19 @@ fn choose(
             }
             continue;
         }
-        if let Some((hold, v)) = item.strip_prefix("hold-time:").map(|v| (true, v)).or_else(|| item.strip_prefix("double-tap:").map(|v| (false, v))) {
-            // `hold-time:<seconds>` / `double-tap:<seconds>`: the timing rows set so.
+        use crate::bindings::TimingRow;
+        let timing = [("hold-time:", TimingRow::Hold, ControlRow::HoldTime), ("double-tap:", TimingRow::Double, ControlRow::DoubleTap), ("combo-window:", TimingRow::Combo, ControlRow::ComboWindow)]
+            .into_iter()
+            .find_map(|(prefix, row, shown)| item.strip_prefix(prefix).map(|v| (row, shown, v)));
+        if let Some((row, shown, v)) = timing {
+            // `hold-time:<seconds>` / `double-tap:<seconds>` / `combo-window:<seconds>`: the
+            // timing rows set so.
             match v.trim().parse::<f32>() {
                 Ok(s) if s > 0.0 => {
-                    show_row(&mut page, &mut view, layout, control(if hold { ControlRow::HoldTime } else { ControlRow::DoubleTap }));
-                    commands.queue(move |world: &mut World| crate::bindings::set_timing(world, hold, s));
+                    show_row(&mut page, &mut view, layout, control(shown));
+                    commands.queue(move |world: &mut World| crate::bindings::set_timing(world, row, s));
                 }
-                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected hold-time:<seconds> or double-tap:<seconds>"),
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected hold-time:, double-tap: or combo-window:<seconds>"),
             }
             continue;
         }
@@ -4138,6 +4153,7 @@ fn choose(
         aim: bindings.as_ref().map_or(1.0, |b| b.aim_sensitivity()),
         hold_time: bindings.as_ref().map_or(crate::pad::resolver::HOLD_TIME, |b| b.hold_time),
         double_tap: bindings.as_ref().map_or(crate::pad::resolver::DOUBLE_TAP_WINDOW, |b| b.double_tap),
+        combo_window: bindings.as_ref().map_or(crate::pad::resolver::COMBO_WINDOW, |b| b.combo_window),
     };
     // The settings page made whole for what the aids chose ([`sv::normalize`]).
     let mut rows: Vec<ViewEntry> = Vec::new();
@@ -5269,6 +5285,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         capture: world.get_resource::<crate::bindings::Bindings>().zip(world.get_resource::<crate::pad::capture::PadCapture>()).and_then(|(b, c)| c.shown(b.timing())).and_then(|p| p.shown(crate::pad::pad_labels())),
         hold_time: world.get_resource::<crate::bindings::Bindings>().map_or(crate::pad::resolver::HOLD_TIME, |b| b.hold_time),
         double_tap: world.get_resource::<crate::bindings::Bindings>().map_or(crate::pad::resolver::DOUBLE_TAP_WINDOW, |b| b.double_tap),
+        combo_window: world.get_resource::<crate::bindings::Bindings>().map_or(crate::pad::resolver::COMBO_WINDOW, |b| b.combo_window),
         device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
         automatic_input: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.automatic_input_switching),
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
@@ -5300,7 +5317,7 @@ fn stand_in_name(list: &[Setting], id: RowId) -> String {
     match id {
         RowId::Setting(i) => list.get(i).map_or_else(String::new, |s| tr(s.label).to_string()),
         RowId::Control(c) => {
-            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble | ControlRow::HoldTime | ControlRow::DoubleTap);
+            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble | ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow);
             let d = Drawn { device: ("", controller), ..default() };
             let (label, _) = control_line(&d, c);
             match c {

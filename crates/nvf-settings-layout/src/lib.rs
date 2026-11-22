@@ -133,8 +133,9 @@ pub const SECTIONS: &[Section] = &[
     ),
     section("Audio", Some("Volume"), &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio"]),
     section("Audio", Some("Sound"), &["music", "voice", "reverb", "voice-reverb"]),
-    // Hold time and Double-tap window: the controller's binding kinds (controller.md §2a).
-    section("Controls", Some("Input"), &["controls:device", "button-style", "controls:automatic-input", "controls:rumble", "controls:hold-time", "controls:double-tap"]),
+    // Hold time, Double-tap window and Combo window: the controller's binding kinds
+    // (controller.md §2a).
+    section("Controls", Some("Input"), &["controls:device", "button-style", "controls:automatic-input", "controls:rumble", "controls:hold-time", "controls:double-tap", "controls:combo-window"]),
     section("Controls", Some("Look"), &["controls:invert", "controls:sensitivity", "controls:vertical", "controls:aim-sensitivity"]),
     section("Controls", Some("Aim Assist"), &["aim-assist", "aim-slowdown", "aim-lock"]),
     section(
