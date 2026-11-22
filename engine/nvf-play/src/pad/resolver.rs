@@ -554,8 +554,8 @@ mod tests {
         run(&mut r, &mut pad, &binds, &[South], 3, &mut log);
         assert_eq!(log, vec![(Control::Activate, "down")], "then held as Activate");
         // A quick tap of the button alone is a late one-frame press.
-        log.clear();
         run(&mut r, &mut pad, &binds, &[], 2, &mut log);
+        log.clear();
         run(&mut r, &mut pad, &binds, &[South], 2, &mut log);
         run(&mut r, &mut pad, &binds, &[], 2, &mut log);
         assert_eq!(log, vec![(Control::Activate, "down"), (Control::Activate, "up")]);

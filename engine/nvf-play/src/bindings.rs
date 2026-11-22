@@ -1171,7 +1171,7 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
 /// The number of `[Controls]` and `[Controller]` lines a full INI has: each control's key
 /// (not the controller's split holds, [`PAD_ONLY`]) and button, the switches, the look
 /// settings, and `Binding Kinds`, `Hold Time`, `Double Tap Window`, `Combo Window`.
-const LINES: usize = 2 * GAME_CONTROLS.len() - PAD_ONLY.len() + 5 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len() + AIM_KEYS.len() + 3;
+const LINES: usize = 2 * GAME_CONTROLS.len() - PAD_ONLY.len() + 5 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len() + AIM_KEYS.len() + 4;
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
 pub fn apply_stored(world: &mut World) {
