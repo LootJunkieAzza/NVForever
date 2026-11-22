@@ -1356,10 +1356,17 @@ fn overlap_text(a: Control, x: PadBinding, c: Control, y: PadBinding, n: &impl F
     })
 }
 
-/// What control `c`'s controller row adds to its note: every overlap it is part of.
+/// Control `c`'s controller row's note while it overlaps another binding: the overlap that
+/// matters most (a held control losing its hold first) and how many more there are, short
+/// enough for the note's three lines; the log lists them all (`controls: warning: …`).
 pub fn overlap_note(b: &Bindings, c: Control) -> Option<String> {
-    let notes: Vec<String> = overlaps(b).into_iter().filter(|o| o.controls.contains(&c)).map(|o| o.text).collect();
-    (!notes.is_empty()).then(|| format!("Warning: {}", notes.join(" ")))
+    let mut found: Vec<Overlap> = overlaps(b).into_iter().filter(|o| o.controls.contains(&c)).collect();
+    found.sort_by_key(|o| !o.strong);
+    let first = found.first()?;
+    Some(match found.len() - 1 {
+        0 => format!("Warning: {}", first.text),
+        n => format!("Warning: {} ({n} more overlap{} with this binding.)", first.text, if n == 1 { "" } else { "s" }),
+    })
 }
 
 /// Switch the device that works the controls (the Controls tab's first row).
@@ -1868,6 +1875,48 @@ mod tests {
         assert!(pad.holds(Control::Hotkey1, true) && pad.holds(Control::Jump, true));
         assert!(!pad.holds(Control::Hotkey1, false), "the keyboard keeps its hotkeys");
         assert!(!pad.holds(Control::Forward, true), "the glance walks on");
+    }
+
+    #[test]
+    fn the_games_buttons_overlap_nowhere_and_each_overlap_is_told() {
+        use GamepadButton::*;
+        let b = Bindings::game_defaults();
+        assert_eq!(overlaps(&b), Vec::new(), "the defaults warn of nothing");
+        // A press sharing its button with a double tap: Ready Item needs its hold.
+        let mut b = Bindings::game_defaults();
+        b.rebind_pad_binding(Control::HolsterWeapon, PadBinding::Double(West));
+        let o = overlaps(&b);
+        assert!(o.iter().any(|o| o.strong && o.controls.contains(&Control::ReadyItem) && o.controls.contains(&Control::HolsterWeapon)), "{o:?}");
+        // A combo on Activate's button (LB + A).
+        let mut b = Bindings::game_defaults();
+        b.rebind_pad_binding(Control::ToggleLight, PadBinding::Combo { modifier: LeftTrigger, button: South });
+        let o = overlaps(&b);
+        assert!(o.iter().any(|o| o.text.contains("does not act as") && o.controls.contains(&Control::Activate)), "{o:?}");
+        // The same binding twice with the Duplicate Binds tweak: both act; without it, a swap.
+        let mut b = Bindings::game_defaults();
+        b.allow_duplicates = true;
+        b.rebind_pad_binding(Control::Rest, PadBinding::Hold(North));
+        b.rebind_pad_binding(Control::Vats, PadBinding::Hold(North));
+        assert!(overlaps(&b).iter().any(|o| o.text.contains("both act")));
+        let mut b = Bindings::game_defaults();
+        b.rebind_pad_binding(Control::Rest, PadBinding::Hold(North));
+        assert_eq!(b.rebind_pad_binding(Control::Vats, PadBinding::Hold(North)), vec![Control::Rest]);
+    }
+
+    #[test]
+    fn a_rows_warning_fits_the_note_and_puts_a_lost_hold_first() {
+        use GamepadButton::*;
+        let mut b = Bindings::game_defaults();
+        // Toggle Light on LB + A: LB is Toggle POV's (and Orbit Camera's built-in hold), A is
+        // Activate's: several overlaps on one row.
+        b.rebind_pad_binding(Control::ToggleLight, PadBinding::Combo { modifier: LeftTrigger, button: South });
+        b.rebind_pad_binding(Control::HolsterWeapon, PadBinding::Double(West));
+        for c in [Control::ToggleLight, Control::HolsterWeapon, Control::ReadyItem, Control::Activate] {
+            let note = overlap_note(&b, c).unwrap_or_else(|| panic!("{c:?} overlaps"));
+            assert!(note.starts_with("Warning: ") && note.chars().count() <= 200, "{c:?}: {note}");
+        }
+        assert!(overlap_note(&b, Control::HolsterWeapon).unwrap().contains("can't be held"), "the lost hold is told first");
+        assert_eq!(overlap_note(&b, Control::Jump), None);
     }
 
     #[test]
