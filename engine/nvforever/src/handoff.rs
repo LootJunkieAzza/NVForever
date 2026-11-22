@@ -719,22 +719,59 @@ fn settle(h: &mut Hidden, up: bool, now: Instant) -> Option<bool> {
 const COVER_FRAMES_UNDER: u32 = 3;
 /// The cover goes this long after the new run's window shows, whatever split screen's
 /// backdrop is doing [engineering choice: a backdrop that cannot be made never holds it].
-const COVER_MAX_SECS: f64 = 5.0;
+const COVER_MAX_SECS: f64 = 3.0;
 
 /// The new run's side: the cover over the change of program ([`cover`]) goes once this
-/// run's window shows and has drawn its own screen for [`COVER_FRAMES_UNDER`] frames,
-/// and, as player 1 of split screen, once the black backdrop is up under it too.
-pub fn lower_cover(windows: Query<&Window, With<PrimaryWindow>>, mut since: Local<Option<(u32, Instant)>>) {
-    if !cover::is_up() || !windows.single().is_ok_and(|w| w.visible) {
+/// run's window shows, has drawn its own screen for [`COVER_FRAMES_UNDER`] frames and
+/// has a picture in it ([`cover::drawn`]), and, as player 1 of split screen, once its
+/// window is on its half (`crate::split::p1_at_half`) with the black backdrop up under it;
+/// at most [`COVER_MAX_SECS`] after the window shows.
+pub fn lower_cover(windows: Query<(&Window, &bevy::window::RawHandleWrapper), With<PrimaryWindow>>, mut since: Local<Option<(u32, Instant)>>, mut raised: Local<bool>, _main_thread: NonSendMarker) {
+    let Ok((window, handle)) = windows.single() else { return };
+    if !cover::is_up() || !window.visible {
         return;
+    }
+    let mine = match handle.get_window_handle() {
+        wgpu::rwh::RawWindowHandle::Win32(w) => Some(w.hwnd.get()),
+        _ => None,
+    };
+    if since.is_none() {
+        // Split screen's player 1 keeps its own stack, topmost (`crate::split::backdrop`).
+        if let (Some(mine), None) = (mine, std::env::var_os("NVF_SPLIT_P1")) {
+            cover::raise(mine);
+        }
     }
     let (frames, at) = since.get_or_insert((0, Instant::now()));
     *frames += 1;
-    let split_ready = std::env::var_os("NVF_SPLIT_P1").is_none() || crate::split::backdrop::ready();
+    // Split screen's player 1: its window on its half, drawn there, with the backdrop under.
+    let split_ready = std::env::var_os("NVF_SPLIT_P1").is_none() || (crate::split::backdrop::ready() && crate::split::p1_at_half());
     let waited = at.elapsed().as_secs_f64();
-    if (*frames >= COVER_FRAMES_UNDER && split_ready) || waited >= COVER_MAX_SECS {
+    // Its own picture on the screen under the cover ([`cover::drawn`]), read only once the
+    // rest holds (a copy of the window each frame).
+    let drawn = *frames >= COVER_FRAMES_UNDER && split_ready && mine.is_none_or(cover::drawn);
+    // And in front: what the cover leaves is this window, not another program
+    // ([`cover::in_front`]); raised again, harder, while it is not. Split screen's player 1
+    // is topmost, its stack kept by `crate::split::backdrop`.
+    let in_front = !drawn || std::env::var_os("NVF_SPLIT_P1").is_some() || mine.is_none_or(cover::in_front);
+    if drawn && !in_front {
+        if let Some(mine) = mine {
+            cover::raise_hard(mine);
+        }
+        if !*raised {
+            *raised = true;
+            info!("handoff: another window was under the cover over this one's place; this one raised");
+        }
+    }
+    if (drawn && in_front) || waited >= COVER_MAX_SECS {
         cover::down();
-        info!("handoff: the cover goes after {frames} frames under it ({waited:.2} s){}", if split_ready { "" } else { ", without split screen's backdrop" });
+        let why = if !drawn {
+            ", before this window's picture was seen"
+        } else if !in_front {
+            ", with another window still in front of this one"
+        } else {
+            ""
+        };
+        info!("handoff: the cover goes after {frames} frames under it ({waited:.2} s){why}");
     }
 }
 

@@ -15,12 +15,17 @@
 //!   over everything. The old window then goes under it, unseen.
 //! - **No GPU.** A plain Win32 window on a thread of its own, painted from a GDI copy of
 //!   the screen, so the two runs still never have a GPU device each (item 132).
-//! - **Down.** Once the new run's window is shown and has drawn its own loading screen for
-//!   a few frames (and, in split screen, player 1's black backdrop is up under it), the
-//!   cover goes ([`down`], `crate::handoff::lower_cover`): the new screen is there under
-//!   it, so the picture stops and the loading screen goes on, with nothing between.
+//! - **Down.** Once the new run's window is shown, has drawn its own screen for a few
+//!   frames and has a picture in it ([`drawn`]; in split screen, on its half with player
+//!   1's black backdrop up under it), the cover goes ([`down`],
+//!   `crate::handoff::lower_cover`): the new screen is there under it, so the picture stops
+//!   and the screen goes on, with nothing between.
 //! - **Over split screen's stack.** Player 1's game keeps its windows' order every frame
-//!   (`crate::split::backdrop`); while the cover is up it stays over them ([`stay_over`]).
+//!   (`crate::split::backdrop`); while the cover is up it is the top of that order
+//!   ([`hwnd`]).
+//! - **What it leaves.** Before it goes, the new run's window is put at the top of the
+//!   windows that are not topmost ([`raise`]), where the old window was, so the cover never
+//!   goes to show another program.
 //!
 //! The cover belongs to the new run's process: if that run dies, the cover goes with it.
 
@@ -48,11 +53,42 @@ pub fn down() {
     }
 }
 
-/// Keeps the cover over `windows` (this run's split-screen stack): raised again when one
-/// of them is above it.
-pub fn stay_over(windows: &[isize]) -> bool {
+/// The cover's window while it is up (split screen's stack keeps it on top).
+pub fn hwnd() -> Option<isize> {
+    Some(COVER.load(Ordering::Relaxed)).filter(|&h| h != 0)
+}
+
+/// Whether `window` (this run's) has a picture in it: what Windows holds of its inside,
+/// read even under the cover, is not all black. Frames counted were not enough: the window's
+/// first picture at its split-screen half reached the screen 0.8 s after it showed, black
+/// where the cover had been [observed: the check of 2026-11-22, item 215].
+pub fn drawn(window: isize) -> bool {
+    imp::drawn(window)
+}
+
+/// The new run's window to the top of the windows that are not topmost, without the focus,
+/// so it is what the cover leaves on the screen: a run that Windows keeps from the focus
+/// showed its window under other programs, and the cover going showed them [observed: the
+/// check of 2026-11-22, item 215].
+pub fn raise(window: isize) {
+    imp::raise(window);
+}
+
+/// Whether `window` (this run's) is what the cover leaves on the screen: the first shown
+/// window under the cover over its place, topmost ones aside (they are over any window).
+/// The new main menu's window went under another program once with the cover up, and
+/// the cover going showed that program [observed: the check of 2026-11-22, item 215,
+/// with Windows' firewall question in front].
+pub fn in_front(window: isize) -> bool {
     let h = COVER.load(Ordering::Relaxed);
-    h != 0 && imp::stay_over(h, windows)
+    h == 0 || imp::in_front(h, window)
+}
+
+/// [`raise`], harder: through the topmost band and back, which Windows does for a window
+/// of a program without the focus too [hypothesis: the usual way; checked by the 50 ms
+/// captures of item 215].
+pub fn raise_hard(window: isize) {
+    imp::raise_hard(window);
 }
 
 #[cfg(windows)]
@@ -62,11 +98,12 @@ mod imp {
 
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows_sys::Win32::Graphics::Gdi::{
-        BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, EndPaint, GetDC, ReleaseDC, SelectObject, UpdateWindow, CAPTUREBLT, HBITMAP, HGDIOBJ, PAINTSTRUCT, SRCCOPY,
+        BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, EndPaint, GetDC, GetPixel, ReleaseDC, SelectObject, SetStretchBltMode, StretchBlt, UpdateWindow, CAPTUREBLT, HALFTONE, HBITMAP, HGDIOBJ, PAINTSTRUCT, SRCCOPY,
     };
+    use windows_sys::Win32::Storage::Xps::{PrintWindow, PW_CLIENTONLY};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, GetMessageW, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible, PostMessageW, PostQuitMessage, RegisterClassW, SetWindowPos, ShowWindow, TranslateMessage, GWL_EXSTYLE, GW_HWNDPREV, HWND_TOPMOST, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNOACTIVATE, WM_CLOSE, WM_DESTROY, WM_ERASEBKGND,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, GetClientRect, GetMessageW, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible, PostMessageW, PostQuitMessage, RegisterClassW, SetWindowPos, ShowWindow, TranslateMessage, GWL_EXSTYLE, HWND_TOP, HWND_TOPMOST, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, PW_RENDERFULLCONTENT, SW_SHOWNOACTIVATE, WM_CLOSE, WM_DESTROY, WM_ERASEBKGND,
         WM_MOUSEACTIVATE, WM_PAINT, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
 
@@ -251,22 +288,112 @@ mod imp {
         unsafe { PostMessageW(h as HWND, WM_CLOSE, 0, 0) };
     }
 
-    pub fn stay_over(h: isize, windows: &[isize]) -> bool {
-        let mut w = h as HWND;
-        // SAFETY: only asks about windows, then moves this process's cover to the top.
+    /// Samples (16 by 16) of the window's inside that must not be black, and the level of
+    /// red, green and blue together that counts as lit [engineering choice].
+    const SAMPLES: i32 = 16;
+    const LIT_SAMPLES: u32 = 8;
+    const LIT_LEVEL: u32 = 48;
+
+    pub fn drawn(window: isize) -> bool {
+        let hwnd = window as HWND;
+        // SAFETY: this run's own window, copied into bitmaps and DCs of this process, all
+        // made, read and deleted here.
         unsafe {
-            for _ in 0..64 {
-                w = GetWindow(w, GW_HWNDPREV);
+            let mut r: RECT = std::mem::zeroed();
+            if GetClientRect(hwnd, &mut r) == 0 || r.right <= 0 || r.bottom <= 0 {
+                return false;
+            }
+            let screen = GetDC(std::ptr::null_mut());
+            if screen.is_null() {
+                return false;
+            }
+            let full = CreateCompatibleDC(screen);
+            let full_bmp = CreateCompatibleBitmap(screen, r.right, r.bottom);
+            let small = CreateCompatibleDC(screen);
+            let small_bmp = CreateCompatibleBitmap(screen, SAMPLES, SAMPLES);
+            let mut lit = 0;
+            if !full.is_null() && !full_bmp.is_null() && !small.is_null() && !small_bmp.is_null() {
+                let old_full = SelectObject(full, full_bmp as HGDIOBJ);
+                let old_small = SelectObject(small, small_bmp as HGDIOBJ);
+                if PrintWindow(hwnd, full, PW_CLIENTONLY | PW_RENDERFULLCONTENT) != 0 {
+                    SetStretchBltMode(small, HALFTONE);
+                    StretchBlt(small, 0, 0, SAMPLES, SAMPLES, full, 0, 0, r.right, r.bottom, SRCCOPY);
+                    for y in 0..SAMPLES {
+                        for x in 0..SAMPLES {
+                            let c = GetPixel(small, x, y);
+                            if (c & 0xFF) + ((c >> 8) & 0xFF) + ((c >> 16) & 0xFF) > LIT_LEVEL {
+                                lit += 1;
+                            }
+                        }
+                    }
+                }
+                SelectObject(full, old_full);
+                SelectObject(small, old_small);
+            }
+            for dc in [full, small] {
+                if !dc.is_null() {
+                    DeleteDC(dc);
+                }
+            }
+            for bmp in [full_bmp, small_bmp] {
+                if !bmp.is_null() {
+                    DeleteObject(bmp as HGDIOBJ);
+                }
+            }
+            ReleaseDC(std::ptr::null_mut(), screen);
+            lit >= LIT_SAMPLES
+        }
+    }
+
+    pub fn in_front(cover: isize, window: isize) -> bool {
+        use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindow, GW_HWNDNEXT};
+        // SAFETY: only asks about windows; every handle comes from Windows' own list.
+        unsafe {
+            let mut c: RECT = std::mem::zeroed();
+            if GetWindowRect(cover as HWND, &mut c) == 0 {
+                return true;
+            }
+            let mut w = cover as HWND;
+            for _ in 0..4096 {
+                w = GetWindow(w, GW_HWNDNEXT);
                 if w.is_null() {
                     return false;
                 }
-                if windows.contains(&(w as isize)) {
-                    SetWindowPos(h as HWND, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                if w as isize == window {
                     return true;
                 }
+                if IsWindowVisible(w) == 0 || IsIconic(w) != 0 || GetWindowLongPtrW(w, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0 {
+                    continue;
+                }
+                let mut cloaked: u32 = 0;
+                if DwmGetWindowAttribute(w, DWMWA_CLOAKED as u32, (&mut cloaked as *mut u32).cast(), 4) == 0 && cloaked != 0 {
+                    continue;
+                }
+                let mut r: RECT = std::mem::zeroed();
+                if GetWindowRect(w, &mut r) == 0 || r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom {
+                    continue;
+                }
+                return false;
             }
+            false
         }
-        false
+    }
+
+    pub fn raise_hard(window: isize) {
+        use windows_sys::Win32::UI::WindowsAndMessaging::HWND_NOTOPMOST;
+        // SAFETY: this run's own window, moved in the stack only, never activated.
+        unsafe {
+            SetWindowPos(window as HWND, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            SetWindowPos(window as HWND, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+
+    pub fn raise(window: isize) {
+        // SAFETY: this run's own window, moved in the stack only, never activated.
+        unsafe {
+            SetWindowPos(window as HWND, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
     }
 }
 
@@ -276,7 +403,12 @@ mod imp {
         Err("not made on this system".into())
     }
     pub fn close(_h: isize) {}
-    pub fn stay_over(_h: isize, _windows: &[isize]) -> bool {
-        false
+    pub fn raise(_window: isize) {}
+    pub fn raise_hard(_window: isize) {}
+    pub fn in_front(_cover: isize, _window: isize) -> bool {
+        true
+    }
+    pub fn drawn(_window: isize) -> bool {
+        true
     }
 }

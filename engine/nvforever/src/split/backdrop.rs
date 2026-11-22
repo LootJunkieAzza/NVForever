@@ -73,7 +73,9 @@ pub struct Backdrop {
 impl Backdrop {
     /// Up as `look` says, under the halves: `p1` (player 1's window) and `p2` (player 2's,
     /// once known), all three topmost when `on_top`. Made the first time, then kept in place.
-    pub fn show(&mut self, p1: isize, p2: Option<isize>, look: Look, on_top: bool) {
+    /// `cover`: a load's cover over the change of program (`crate::handoff::cover`), kept
+    /// on top of the stack while it is up.
+    pub fn show(&mut self, p1: isize, p2: Option<isize>, look: Look, on_top: bool, cover: Option<isize>) {
         if self.hwnd.is_some_and(|h| !imp::alive(h)) {
             self.hwnd = None;
         }
@@ -144,10 +146,21 @@ impl Backdrop {
                 imp::put_under(order[0], fg);
             }
         }
-        for pair in order.windows(2) {
+        // A load's cover stays over the stack until the new screen is drawn under it: the
+        // band put the backdrop over it for half a second, black where player 1's picture
+        // was [observed: the check of 2026-11-22, item 215]. Out of the topmost band the
+        // cover (topmost) is over them anyway.
+        let chain: Vec<isize> = cover.filter(|_| on_top).into_iter().chain(order.iter().copied()).collect();
+        for pair in chain.windows(2) {
             if !imp::just_under(pair[1], pair[0]) {
                 imp::put_under(pair[1], pair[0]);
-                why = if pair[1] == h { "the backdrop was not under player 1's window" } else { "player 1's window was not under player 2's" };
+                why = if Some(pair[0]) == cover {
+                    "the stack was not under the load's cover"
+                } else if pair[1] == h {
+                    "the backdrop was not under player 1's window"
+                } else {
+                    "player 1's window was not under player 2's"
+                };
                 moved = true;
             }
         }
@@ -160,11 +173,6 @@ impl Backdrop {
     }
 
     /// Gone (split screen ended).
-    /// The backdrop's window, while it is made.
-    pub fn hwnd(&self) -> Option<isize> {
-        self.hwnd
-    }
-
     pub fn hide(&mut self, why: &str) {
         if let Some(h) = self.hwnd.take() {
             imp::destroy(h);

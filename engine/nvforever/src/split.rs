@@ -100,7 +100,7 @@
 
 use std::net::{SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
 use bevy::input::gamepad::{gamepad_connection_system, gamepad_event_processing_system, Gamepad, GamepadAxis, GamepadButton, GamepadConnection, GamepadConnectionEvent, RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent, RawGamepadEvent};
 use bevy::prelude::*;
@@ -180,6 +180,19 @@ const P2_GONE: f32 = 60.0;
 /// Set while a lobby this game opened for player 2 is open (kept by a load's restart, as
 /// the lobby is): ending split screen closes it once it is empty.
 const OPENED_LOBBY_ENV: &str = "NVF_SPLIT_OPENED_LOBBY";
+
+/// Frames player 1's window has drawn on its half since it was put there; a load's cover
+/// waits for [`AT_HALF_READY`] of them (`crate::handoff::lower_cover`).
+static AT_HALF: AtomicU32 = AtomicU32::new(0);
+/// Frames on its half before a load's cover goes: the first frames after the window took
+/// its half were slow, 0.7 s of black where the cover had been [observed: the check of
+/// 2026-11-22, item 215; engineering choice of the number].
+const AT_HALF_READY: u32 = 5;
+
+/// Whether player 1's window has drawn on its half for a few frames ([`AT_HALF_READY`]).
+pub fn p1_at_half() -> bool {
+    AT_HALF.load(Ordering::Relaxed) >= AT_HALF_READY
+}
 
 /// Whether split screen was turned on or off since this run started: 0 as the command line
 /// says, [`ARG_ON`], [`ARG_OFF`].
@@ -642,9 +655,12 @@ fn end_split(commands: &mut Commands, p1: &P1, window: Option<&mut Window>, conn
     }
     // Player 2's window goes at once, not when its game has quit: it sits over this game's
     // window, so it covered player 1's returning picture for a moment [observed: the
-    // two-window check of 2026-11-22, its half stayed up about 0.4 s after the end].
+    // two-window check of 2026-11-22, its half stayed up about 0.4 s after the end]. Off the
+    // screen, not hidden: a hidden window gets no more frames, so
+    // player 2's game never read the end and stayed, frozen [observed: the checks of
+    // 2026-11-22, its log stopped at the end until the test stopped it].
     if let Some(h) = p1.p2_hwnd {
-        hide_window(h);
+        put_away(h);
     }
     if let Some(e) = p1.pads.p2 {
         let st = &p1.pads.state;
@@ -1087,6 +1103,7 @@ fn p1_session(
     // Not before the black backdrop is on the screen under it ([`backdrop::ready`]).
     if (p1.placed.is_some() || backdrop::ready()) && place(&mut window, mine) && p1.placed != Some(mine) {
         p1.placed = Some(mine);
+        AT_HALF.store(0, Ordering::Relaxed);
         info!("split: player 1's window on {:?} at {}x{}", mine.0, mine.1.x, mine.1.y);
     }
     if now - p1.file_at >= FILE_EVERY {
@@ -1734,13 +1751,15 @@ fn p1_backdrop(p1: Option<Res<P1>>, mut panel: Local<backdrop::Backdrop>, window
     let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
     let p2_half = halves(screen.0, screen.1, p1.layout)[1];
     let joining = !p1.p2_hwnd.is_some_and(backdrop::shown);
-    panel.show(mine, p1.p2_hwnd, backdrop::Look { screen, p2_half, joining }, p1.on_top);
+    // Counted here, every frame: `p1_session` stops early while player 2's game starts,
+    // and a load's cover waited 2.4 s on it [observed: the check of 2026-11-22, item 215].
+    if p1.placed.is_some() {
+        let n = AT_HALF.load(Ordering::Relaxed);
+        AT_HALF.store(n.saturating_add(1), Ordering::Relaxed);
+    }
     // A load's new run: the old window's picture stays over the stack until this run's
     // screen is drawn under it (`crate::handoff::cover`), the backdrop's black never seen.
-    let stack: Vec<isize> = p1.p2_hwnd.into_iter().chain([mine]).chain(panel.hwnd()).collect();
-    if crate::handoff::cover::stay_over(&stack) {
-        info!("split: the handoff's cover put back over the halves");
-    }
+    panel.show(mine, p1.p2_hwnd, backdrop::Look { screen, p2_half, joining }, p1.on_top, crate::handoff::cover::hwnd());
 }
 
 // ---- Windows --------------------------------------------------------------------------
@@ -1879,17 +1898,21 @@ fn mark_fullscreen(_window: isize, _on: bool) -> bool {
     false
 }
 
-/// Hides window `window` (player 2's, another process's) without waiting on its game.
+/// Puts window `window` (player 2's, another process's) off the screen, without waiting on
+/// its game; it stays shown, so its game goes on to quit.
 #[cfg(windows)]
-fn hide_window(window: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_HIDE};
-    // SAFETY: asks another process's window to hide; fails harmlessly once it is gone.
+fn put_away(window: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER};
+    // Its place in the stack is left: an owned window stays over its owner, so sending it
+    // to the bottom took player 1's window down too, under every program [observed: the
+    // check of 2026-11-22, 4 s of desktop after Quit to Main Menu].
+    // SAFETY: moves another process's window; fails harmlessly once it is gone.
     unsafe {
-        ShowWindowAsync(window as _, SW_HIDE);
+        SetWindowPos(window as _, std::ptr::null_mut(), -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
     }
 }
 #[cfg(not(windows))]
-fn hide_window(_window: isize) {}
+fn put_away(_window: isize) {}
 
 /// Puts player 1's window over the taskbar (`on`: always on top), or back among the other
 /// windows; used as split screen ends. While split screen is on, the backdrop keeps the
