@@ -34966,3 +34966,24 @@ expect = [
   { re = 'combat: swing reaches 1 actors .*1 of them out of the fan of rays at eye height', label = "the level knife swing reaches the low creature through the ground fallback" },
   { re = 'combat: .*, 1 swings \(0 chained, 0 power, 1 hits\)', label = "the short weapon hits once at the widened blocking stop" },
 ]
+
+[[scenario]]
+name = "pause-menu-pad-back"
+source = "owner 2026-11-22: the controller must work the whole pause menu; B backing out of a sub menu in Settings went too far. With a controller B now goes back a step at a time: the rows to the rail, the rail to the column, the column back to the game"
+note = "only the synthetic controller's buttons (NVF_PLAY_TEST_KEYS pad-…), through crate::pad::menu_keys: Start opens the menu, the D-pad and A pick, RT steps the settings tab, B goes back. Settings opens on its kept tab (Controls in a fresh home)"
+areas = ["main-menu"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/settings_view.rs"]
+env = { NVFOREVER_HOME = "pause-menu-pad-back-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:2.5", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_KEYS = "6:pad-Start,7:pad-D-Pad Down,7.4:pad-D-Pad Down,7.8:pad-D-Pad Down,8.3:pad-A,9.5:pad-B,10.5:pad-B,11.5:pad-B,13:pad-Start,14:pad-D-Pad Down,14.4:pad-D-Pad Down,14.9:pad-A,16:pad-B,17:pad-D-Pad Down,17.5:pad-A,18.5:pad-RT,19.5:pad-D-Pad Down,20:pad-A,21:pad-B,22:pad-B,23:pad-B" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 26
+expect = [
+  { text = "pause menu: settings open on Controls", label = "Start, the D-pad and A open Settings" },
+  { text = "pause menu: back to the rail (Controls)", label = "B on the tab's rows puts the keys on the rail, the page stays" },
+  { text = "pause menu: load page left, back to the column", label = "B leaves the load page" },
+  { text = "pause menu: tab Graphics", label = "RT steps to the next tab" },
+  { text = "pause menu: category Graphics > Shadows closed", label = "A on a heading closes its category" },
+  { text = "pause menu: back to the rail (Graphics)", label = "B from inside a tab's category goes back to the rail first" },
+  { text = "pause menu: settings left, back to the column", label = "B on the rail leaves Settings for the column" },
+  { text = "pause menu: resume", label = "B on the column goes back to the game" },
+]
+order = [["pause menu: back to the rail (Controls)", "pause menu: settings left, back to the column", "pause menu: load page left, back to the column", "pause menu: tab Graphics", "pause menu: back to the rail (Graphics)"]]
