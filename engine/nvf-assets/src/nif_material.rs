@@ -435,14 +435,17 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
 /// batch. Without bindless the values are a uniform at binding 50 and the textures at 51
 /// to 53, Bevy's numbering for extensions.
 ///
-/// A slab holds at most 512 resources (Bevy's own limit on desktop is 2,048): a slab is
+/// Outside macOS and iOS, a slab holds at most 512 resources (Bevy's default is 2,048): a slab is
 /// sent to the GPU whole when any material in it changes, and animated or hour-driven
 /// materials change every frame, more of them at night; with the smaller slabs the render
 /// graph took 30-40 % less time and the material writes about half, on two-lap tours with
 /// the owner's settings (docs/design/streaming-hitches.md §3.1) [observed 2026-10-28].
+/// On macOS and iOS, use Bevy's default so the allocator and the base material's
+/// shared binding arrays use the same limit.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[data(50, NifSurfaceUniform, binding_array(101))]
-#[bindless(limit(512), index_table(range(50..54), binding(100)))]
+#[cfg_attr(any(target_os = "macos", target_os = "ios"), bindless(index_table(range(50..54), binding(100))))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "ios")), bindless(limit(512), index_table(range(50..54), binding(100))))]
 #[bind_group_data(NifSurfaceKey)]
 pub struct NifSurface {
     /// Start angle, stop angle (cosines), start opacity, stop opacity; constant opacity 1
@@ -1232,6 +1235,11 @@ mod tests {
     #[test]
     fn ordinary_surface_gpu_interface_matches_main() {
         use bevy::render::render_resource::BindlessResourceType as R;
+        let slab_limit = NifMaterial::bindless_slot_count().unwrap().resolve();
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        assert_eq!(slab_limit, StandardMaterial::bindless_slot_count().unwrap().resolve());
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        assert_eq!(slab_limit, 512);
         assert_eq!(NifSurfaceUniform::min_size().get(), 144);
         assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).size().get(), 144);
         let descriptor = NifSurface::bindless_descriptor().unwrap();

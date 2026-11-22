@@ -102,11 +102,15 @@ pub fn bind_group_layout_entries<B: AsBindGroup, E: AsBindGroup>(
     combine_bind_group_layout_entries(base_entries, extension_entries)
 }
 
-// The two materials can have different device limits. If either falls back, both must
-// use ordinary bindings: wgpu rejects a uniform buffer alongside a binding array.
 fn both_use_bindless<B: AsBindGroup, E: AsBindGroup>(render_device: &RenderDevice) -> bool {
-    material_uses_bindless_resources::<B>(render_device)
-        && material_uses_bindless_resources::<E>(render_device)
+    if cfg!(target_vendor = "apple") {
+        // If either side falls back, both must use ordinary bindings: wgpu rejects a
+        // uniform buffer alongside a binding array.
+        material_uses_bindless_resources::<B>(render_device)
+            && material_uses_bindless_resources::<E>(render_device)
+    } else {
+        bindless_slot_count::<B, E>().is_some()
+    }
 }
 
 /// Combines two sets of [`BindGroupLayoutEntry`]s, deduplicating identical bindings

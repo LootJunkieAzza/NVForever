@@ -53,8 +53,7 @@ multi_threaded = [
 ]
 # NVForever (2026-11-12, DLSS spike #2198): `ash` for `RawVulkanInitSettings::vulkan_library`
 # (src/renderer/raw_vulkan_init.rs); the version wgpu-hal 30 already uses.
-# On Apple targets wgpu exposes the Vulkan API to this module only with vulkan-portability.
-raw_vulkan_init = ["wgpu/vulkan", "wgpu/vulkan-portability", "dep:ash"]
+raw_vulkan_init = ["wgpu/vulkan", "dep:ash"]
 reflect_auto_register = ["bevy_app/reflect_auto_register"]
 reflect_functions = ["bevy_app/reflect_functions"]
 serialize = ["bevy_mesh/serialize"]
@@ -270,6 +269,12 @@ version = "0.8"
 [dev-dependencies.wgpu]
 version = "30"
 features = ["noop"]
+default-features = false
+
+[target.'cfg(target_vendor = "apple")'.dependencies.wgpu]
+version = "30"
+# wgpu exposes the Vulkan API used by raw_vulkan_init on Apple with this feature.
+features = ["vulkan-portability"]
 default-features = false
 
 [target.'cfg(all(target_arch = "wasm32", target_feature = "atomics"))'.dependencies.send_wrapper]
