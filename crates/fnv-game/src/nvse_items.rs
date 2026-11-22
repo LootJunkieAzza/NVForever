@@ -174,7 +174,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // SetIsPlayable 0 on the 10mm pistol leaves IsPlayable 1].
         "setisplayable" => {
             let it = form(args, 1).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
-            if g.data.sig(it) != Some(*b"WEAP") {
+            if g.data.sig(g.unclone(it)) != Some(*b"WEAP") {
                 g.playable_overrides.insert(it, args.first().is_some_and(XVal::truthy));
             }
             XVal::Num(0.0)

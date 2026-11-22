@@ -95,8 +95,13 @@ knock-out [hypothesis].
 
 Both answer 0 [observed: cmd1.moveaway, cmd1.refreshanim.*]. After MoveAwayFromPlayer a
 placed Doc Mitchell came no farther from the player in about 4 s; he walked as his package
-took him (206, then 125 and 134 units) [observed: cmd3.moveaway.*]. NVForever: no move,
-and nothing to refresh (the engine reads animation data as it plays).
+took him (206, then 125 and 134 units) [observed: cmd3.moveaway.*]. NVForever: no move for
+MoveAwayFromPlayer. `RefreshAnimData` immediately re-evaluates the calling actor's
+`AnimGroupOverride` folder entries (`Game::refresh_anim_folders_for`) and queues a
+transient one-shot invalidation (`Game::take_player_anim_refresh` /
+`Game::take_npc_anim_refreshes`, not saved) so `engine/nvforever`'s
+`player_body::apply_anim_overrides` clears cached player clip bindings and
+`anim_paths::apply` rebuilds the NPC's locomotion clip set on the next frame [design].
 
 ### 2.6 GetHitNode
 

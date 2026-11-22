@@ -1071,6 +1071,9 @@ impl TextureSource for Stores<'_> {
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         self.textures.alpha_is_mask(raw_path)
     }
+    fn alpha_is_opaque(&self, raw_path: &str) -> bool {
+        self.textures.alpha_is_opaque(raw_path)
+    }
     fn resolve(&self, raw_path: &str) -> String {
         self.textures.resolve(raw_path)
     }
@@ -1156,6 +1159,9 @@ impl TextureSource for Deferred {
     }
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         self.workers.alpha_is_mask(raw_path, &self.data)
+    }
+    fn alpha_is_opaque(&self, raw_path: &str) -> bool {
+        self.workers.alpha_is_opaque(raw_path, &self.data)
     }
     fn resolve(&self, raw_path: &str) -> String {
         crate::texture::resolved_path(raw_path, |p| self.data.vfs.exists(p))

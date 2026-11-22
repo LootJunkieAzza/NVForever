@@ -179,6 +179,28 @@ release changed only it]. A font with a `.tex` alone (font 9) is left undrawn, a
 says the original does. A `.tex` that does not parse (wrong size for its header) is
 skipped with a warning, and the `.dds` is drawn.
 
+### 2.3 Missing CJK characters
+
+[documented] Swash reads OpenType fonts and collections and renders outline glyphs
+as masks ([Swash scaling documentation](https://docs.rs/swash/0.2.10/swash/scale/)).
+[documented] Microsoft lists Microsoft YaHei (`msyh.ttc`), SimHei (`simhei.ttf`) and
+SimSun (`simsun.ttc`) among its [Windows fonts](https://learn.microsoft.com/en-us/typography/fonts/windows_11_font_list).
+Apple lists PingFang and Hiragino in its [macOS font list](https://support.apple.com/en-us/127491).
+
+[design] NVForever enables CJK fallback and wrapping when the game's text uses
+code page 936, the current interface language is `zh`, or `[Interface] CjkFontPath`
+in `NVForever.ini` names a font. Otherwise the interface uses its original fonts
+and wrapping.
+
+`CjkFontPath` can name a TrueType or OpenType font or collection. A relative path
+is resolved next to the INI. When fallback is enabled without that setting,
+NVForever tries the Windows fonts above, Noto Sans CJK or WenQuanYi on Linux, and
+PingFang or Hiragino on macOS. The first missing CJK character queues a read and
+parse on the engine's read pool. Layout and drawing use `?` while waiting and
+when no font provides the character. When the font is ready, visible text is measured
+and redrawn. The same cached glyph supplies the advance and image on the primary
+face's baseline, preserving line spacing.
+
 ## 3. Setting text
 
 - A character takes its room before, its width and its room after; the next starts
@@ -190,6 +212,11 @@ skipped with a warning, and the `.dds` is drawn.
   a line exactly as wide as the wrap width is not broken [observed: the same line].
   The space at the break is not set [design]. What the game does with a word wider
   than the wrap width is not known; NVForever leaves it whole on its own line.
+- [design] With CJK fallback enabled (§2.3), NVForever also wraps at character
+  boundaries in unspaced CJK text. It keeps opening punctuation with the following
+  character and closing punctuation with the preceding character. Spaces and line breaks retain
+  their existing behavior.
+  [Unicode Standard Annex #14, §6.1](https://www.unicode.org/reports/tr14/) [documented]
 - How far apart the lines are, and where a text's first line stands under its top, is
   with the menu that was measured (`message-menu.md` §3). The interface files' text
   tiles: menu-xml.md §3.1.2, hud.md §14.10 (a line per font, #979).

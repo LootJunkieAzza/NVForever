@@ -1271,6 +1271,10 @@ pub struct PlayerBody {
     /// This frame's first-person view takes the turn of the script nodes above the camera
     /// node (`Rig::script_turn`), so [`follow_script_nodes`] keeps it with them.
     script_view: bool,
+    /// Set by `ensure_body` when `UpdatePlayer3D` rebuilds the player rigs so
+    /// `apply_anim_overrides` forces an immediate override/clip refresh on the same frame
+    /// [design].
+    force_anim_refresh: bool,
 }
 
 impl PlayerBody {
@@ -1824,9 +1828,13 @@ fn ensure_body(
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
     (death, knock): (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
-    (script, real, mut last_look): (Option<Res<nvf_play::script::ScriptState>>, Res<Time<Real>>, Local<f32>),
+    (mut script, real, mut last_look): (Option<ResMut<nvf_play::script::ScriptState>>, Res<Time<Real>>, Local<f32>),
 ) {
     let (Some(world), Ok(world_root)) = (world, root.single()) else { return };
+    let (update_3d, equip_mask) = match script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        Some(rt) => (rt.game.take_update_player_3d(), rt.game.take_player_equipped_model_reload()),
+        None => (false, 0),
+    };
     // The dead or knocked-down player's body lies as its ragdoll left it: it is not
     // rebuilt.
     if state.failed.is_some() || death.down() || knock.ragdolled() {
@@ -1836,17 +1844,27 @@ fn ensure_body(
     // The look chosen in the character creator (docs/spec-notes/character-creator.md §5).
     let look = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.look.as_ref()).map(nvf_play::creator::actor_look);
     let state = &mut *state;
+    let force_body = update_3d || (equip_mask & !fnv_game::nvse_gaps::EQUIP_SLOT_WEAPON_BIT) != 0;
+    let force_weapon = update_3d || (equip_mask & fnv_game::nvse_gaps::EQUIP_SLOT_WEAPON_BIT) != 0;
+    if update_3d {
+        state.force_anim_refresh = true;
+    }
     let mut rebuilt = false;
     // A new look rebuilds the body, at most every [`LOOK_REBUILD`] seconds while a
-    // slider is dragged [design].
+    // slider is dragged [design]. Explicit UpdatePlayer3D / non-weapon ReloadEquippedModels
+    // bypasses the slider throttle so scripted 3D/equipment reloads apply immediately.
     // AgeRace and SexChange before the creator gave a look (`crate::appearance`).
     let change = world.change(FormId::PLAYER_REF.0);
     let look_changed = state.body.as_ref().is_some_and(|b| b.look != look || b.change != change);
     let look_due = look_changed && real.elapsed_secs() - *last_look >= LOOK_REBUILD;
-    if state.body.as_ref().is_none_or(|b| b.worn != worn) || look_due {
+    if state.body.as_ref().is_none_or(|b| b.worn != worn) || look_due || force_body {
         if look_due {
             *last_look = real.elapsed_secs();
             debug!("player body: the look changed; rebuilt");
+        } else if update_3d {
+            debug!("player body: rebuilt for UpdatePlayer3D");
+        } else if force_body {
+            debug!("player body: rebuilt for ReloadEquippedModels ({equip_mask:#x})");
         }
         let old = state.body.take();
         if let Some(old) = &old {
@@ -1893,7 +1911,7 @@ fn ensure_body(
     let m = &mut state.motion;
     let w = weapon.and_then(|id| world.actors.weapons.get(&id));
     let drawn = [false, true].map(|first| w.and_then(|w| w.model_for(first, weapon_mods)));
-    if !rebuilt && m.weapon == weapon && m.weapon_mods == weapon_mods && m.weapon_models.iter().zip(drawn).all(|(a, b)| a.as_deref() == b) {
+    if !rebuilt && !force_weapon && m.weapon == weapon && m.weapon_mods == weapon_mods && m.weapon_models.iter().zip(drawn).all(|(a, b)| a.as_deref() == b) {
         return;
     }
     m.weapon = weapon;
@@ -3273,13 +3291,19 @@ fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&m
 /// the new files and forgets the clips it chose, so the next pick finds them.
 fn apply_anim_overrides(mut script: Option<ResMut<nvf_play::script::ScriptState>>, sim: Option<ResMut<nvf_play::sim::SimState>>, mut state: ResMut<PlayerBody>, mut current: Local<[(Vec<String>, Overrides); 2]>) {
     let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
+    let forced = rt.game.take_player_anim_refresh() || std::mem::take(&mut state.force_anim_refresh);
     let empty = rt.game.anim_paths.actor.is_empty() && rt.game.anim_paths.weapon.is_empty() && rt.game.anim_folders.active.is_empty() && current.iter().all(|c| c.0.is_empty());
-    if empty {
+    if empty && !forced {
         return;
     }
-    let now = nvf_play::script::with_world(rt, &mut sim, |rt| [rt.game.anim_overrides_now(FormId::PLAYER_REF, false), rt.game.anim_overrides_now(FormId::PLAYER_REF, true)]);
+    let now = nvf_play::script::with_world(rt, &mut sim, |rt| {
+        if forced {
+            rt.game.refresh_anim_folders_for(FormId::PLAYER_REF);
+        }
+        [rt.game.anim_overrides_now(FormId::PLAYER_REF, false), rt.game.anim_overrides_now(FormId::PLAYER_REF, true)]
+    });
     for (i, paths) in now.into_iter().enumerate() {
-        if current[i].0 != paths {
+        if forced || current[i].0 != paths {
             // By file name, in stack order (a later file wins, `Rig::clip`).
             let mut map: HashMap<String, Vec<String>> = HashMap::new();
             for p in &paths {
@@ -3293,7 +3317,7 @@ fn apply_anim_overrides(mut script: Option<ResMut<nvf_play::script::ScriptState>
     let rigs = [Some(&mut body.third), body.first.as_mut()];
     for (i, rig) in rigs.into_iter().enumerate() {
         let Some(rig) = rig else { continue };
-        if !Arc::ptr_eq(&rig.overrides, &current[i].1) {
+        if forced || !Arc::ptr_eq(&rig.overrides, &current[i].1) {
             rig.overrides = current[i].1.clone();
             rig.clips.clear();
             rig.variants.clear();
@@ -4482,6 +4506,210 @@ mod tests {
         assert!((start..end).contains(&t), "{t}");
         // No repeated part to go round.
         assert_eq!(loop_time(3.0, 2.5, 2.5), 3.0);
+    }
+
+    fn player_refresh_fixture() -> (App, crate::outfits::tests::TestFiles) {
+        let (mut app, files) = crate::outfits::tests::asset_fixture();
+        {
+            let mut world = app.world_mut().resource_mut::<ActorWorld>();
+            let mut npc = world.actors.npcs[&crate::outfits::tests::OTHER].clone();
+            npc.id = FormId::PLAYER_BASE;
+            world.actors.npcs.insert(FormId::PLAYER_BASE, npc);
+        }
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(crate::outfits::tests::actor_forms(vec![])));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::default());
+        let mut sim = fnv_sim::World::new(forms, refs, Default::default());
+        sim.get(FormId::PLAYER_REF).unwrap().inventory = Some(crate::outfits::tests::equipped());
+        app.insert_resource(SimState { forms, refs, world: sim })
+            .insert_resource(nvf_play::script::ScriptState::over_plugins(&[]))
+            .init_resource::<PlayerBody>()
+            .init_resource::<crate::death_cam::DeathCam>()
+            .init_resource::<crate::player_knockdown::PlayerKnockdown>()
+            .init_resource::<Time<Real>>();
+        app.world_mut().spawn(WorldRoot);
+        app.add_systems(Update, (ensure_body, apply_anim_overrides).chain());
+        // Initial frame builds the player body and weapon model.
+        app.update();
+        assert!(app.world().resource::<PlayerBody>().body.is_some(), "player body built");
+        assert!(
+            app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.weapon_model.is_some(),
+            "player weapon model built"
+        );
+        (app, files)
+    }
+
+    #[test]
+    fn update_player_3d_rebuilds_body_and_weapon_bypassing_look_throttle_and_clears_anim_cache() {
+        use fnv_game::game::RunCtx;
+        use fnv_script::vm::XVal;
+        let (mut app, _files) = player_refresh_fixture();
+        let before_root = app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.root;
+        let before_weapon = app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.weapon_model.unwrap();
+
+        // Real script call at elapsed Real time 0.0 (within LOOK_REBUILD cooldown).
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<nvf_play::script::ScriptState>()
+                .rt
+                .as_mut()
+                .unwrap()
+                .game
+                .run_query(
+                    "Begin Function {}\nSetFunctionValue (UpdatePlayer3D)\nEnd",
+                    RunCtx::default(),
+                ),
+            Ok(XVal::Num(0.0))
+        );
+        assert!(app.world().resource::<nvf_play::script::ScriptState>().rt.as_ref().unwrap().game.update_player_3d_pending());
+
+        app.update();
+        let body = app.world().resource::<PlayerBody>().body.as_ref().unwrap();
+        let after_root = body.third.root;
+        let after_weapon = body.third.weapon_model.unwrap();
+        assert_ne!(after_root, before_root, "UpdatePlayer3D rebuilds player rig immediately");
+        assert_ne!(after_weapon, before_weapon, "UpdatePlayer3D respawns equipped weapon model");
+        assert!(app.world().get_entity(before_root).is_err(), "old rig despawned");
+        assert!(!app.world().resource::<nvf_play::script::ScriptState>().rt.as_ref().unwrap().game.update_player_3d_pending());
+        assert!(!app.world().resource::<PlayerBody>().force_anim_refresh, "anim refresh flag consumed by apply_anim_overrides");
+
+        // Next frame: strictly one-shot, no second rebuild.
+        app.update();
+        let body2 = app.world().resource::<PlayerBody>().body.as_ref().unwrap();
+        assert_eq!(body2.third.root, after_root);
+        assert_eq!(body2.third.weapon_model, Some(after_weapon));
+    }
+
+    #[test]
+    fn reload_equipped_models_weapon_slot_respawns_player_weapon_without_rebuilding_body() {
+        use fnv_game::game::RunCtx;
+        use fnv_script::vm::XVal;
+        let (mut app, _files) = player_refresh_fixture();
+        let before_root = app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.root;
+        let before_weapon = app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.weapon_model.unwrap();
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<nvf_play::script::ScriptState>()
+                .rt
+                .as_mut()
+                .unwrap()
+                .game
+                .run_query(
+                    "Begin Function {}\nSetFunctionValue (ReloadEquippedModels 5)\nEnd",
+                    RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() },
+                ),
+            Ok(XVal::Num(0.0))
+        );
+
+        app.update();
+        let body = app.world().resource::<PlayerBody>().body.as_ref().unwrap();
+        assert_eq!(body.third.root, before_root, "slot 5 reload keeps body skeleton intact");
+        let after_weapon = body.third.weapon_model.unwrap();
+        assert_ne!(after_weapon, before_weapon, "slot 5 reload respawns weapon model");
+        assert!(app.world().get_entity(before_weapon).is_err(), "old weapon model despawned");
+
+        // Next frame: strictly one-shot.
+        app.update();
+        assert_eq!(app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.weapon_model, Some(after_weapon));
+    }
+
+    #[test]
+    fn reload_equipped_models_armor_slot_rebuilds_player_body_and_weapon_one_shot() {
+        use fnv_game::game::RunCtx;
+        use fnv_script::vm::XVal;
+        let (mut app, _files) = player_refresh_fixture();
+        let before_root = app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.root;
+        let before_weapon = app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.weapon_model.unwrap();
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<nvf_play::script::ScriptState>()
+                .rt
+                .as_mut()
+                .unwrap()
+                .game
+                .run_query(
+                    "Begin Function {}\nSetFunctionValue (ReloadEquippedModels 2)\nEnd",
+                    RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() },
+                ),
+            Ok(XVal::Num(0.0))
+        );
+
+        app.update();
+        let body = app.world().resource::<PlayerBody>().body.as_ref().unwrap();
+        let after_root = body.third.root;
+        let after_weapon = body.third.weapon_model.unwrap();
+        assert_ne!(after_root, before_root, "armour slot reload rebuilds player body");
+        assert_ne!(after_weapon, before_weapon, "rebuilt body respawns weapon model");
+
+        // Next frame: strictly one-shot.
+        app.update();
+        assert_eq!(app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.root, after_root);
+    }
+
+    #[test]
+    fn refresh_anim_data_clears_player_rig_clips_and_variants_one_shot() {
+        use fnv_game::game::RunCtx;
+        use fnv_script::vm::XVal;
+        let (mut app, _files) = player_refresh_fixture();
+        // Seed cached clip & variant entries on the third-person rig.
+        {
+            let mut pb = app.world_mut().resource_mut::<PlayerBody>();
+            let rig = &mut pb.body.as_mut().unwrap().third;
+            rig.clips.insert(ClipKey::Idle(Stance::Stand, false), None);
+            rig.variants.insert("test_up.kf".into(), None);
+        }
+
+        // Steady frame without RefreshAnimData leaves cached clips intact.
+        app.update();
+        {
+            let pb = app.world().resource::<PlayerBody>();
+            let rig = &pb.body.as_ref().unwrap().third;
+            assert_eq!(rig.clips.len(), 1);
+            assert_eq!(rig.variants.len(), 1);
+        }
+
+        // Script calls RefreshAnimData on PlayerREF.
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<nvf_play::script::ScriptState>()
+                .rt
+                .as_mut()
+                .unwrap()
+                .game
+                .run_query(
+                    "Begin Function {}\nSetFunctionValue (RefreshAnimData)\nEnd",
+                    RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() },
+                ),
+            Ok(XVal::Num(0.0))
+        );
+
+        // Next frame: apply_anim_overrides consumes the one-shot flag and clears caches.
+        app.update();
+        {
+            let pb = app.world().resource::<PlayerBody>();
+            let rig = &pb.body.as_ref().unwrap().third;
+            assert!(rig.clips.is_empty(), "RefreshAnimData clears cached player clips");
+            assert!(rig.variants.is_empty(), "RefreshAnimData clears cached player variants");
+        }
+        assert!(
+            !app.world()
+                .resource::<nvf_play::script::ScriptState>()
+                .rt
+                .as_ref()
+                .unwrap()
+                .game
+                .anim_refresh_pending(FormId::PLAYER_REF)
+        );
+
+        // Re-populate cache and run another frame: must NOT clear again (one-shot).
+        {
+            let mut pb = app.world_mut().resource_mut::<PlayerBody>();
+            let rig = &mut pb.body.as_mut().unwrap().third;
+            rig.clips.insert(ClipKey::Idle(Stance::Stand, false), None);
+        }
+        app.update();
+        assert_eq!(app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.clips.len(), 1);
     }
 }
 

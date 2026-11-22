@@ -422,17 +422,17 @@ fn entry_node(f: &Face, i: usize) -> Node {
 }
 
 /// The entries' labels drawn again in the new language, or in the new face when the Menu Font
-/// row changed (both chosen on the settings page, which opens over this menu).
+/// row changed (both chosen on the settings page), or a CJK fallback font is ready.
 fn relabel(
     mut menu: ResMut<MainMenu>,
-    mut seen: Local<Option<(u32, bool)>>,
+    mut seen: Local<Option<(u32, bool, u32)>>,
     mut menu_font: Option<ResMut<crate::pause::MenuFont>>,
     mut fonts: Option<ResMut<Assets<bevy::text::Font>>>,
     entries: Query<(Entity, &EntryNode)>,
     mut commands: Commands,
 ) {
     let sharp = menu_font.as_deref().is_some_and(crate::pause::MenuFont::drawn_sharp);
-    let now = (fnv_util::words::generation(), sharp);
+    let now = (fnv_util::words::generation(), sharp, crate::cjk_font::revision());
     if *seen == Some(now) {
         return;
     }

@@ -291,7 +291,7 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
 
 ### `monitor`: Monitor
 
-- On the page: The display the game opens on in full screen (the first display until you
+- On the page: The display the game opens on in full screen (the main display until you
   pick one).
 - Command-line switches: `--window`
 - Registered in `engine/nvforever/src/settings.rs`

@@ -48,6 +48,7 @@ original what the [hypothesis] values below leave open.
 | SwapTextureEx `ref block path slot` | slot 0, the diffuse map, as SwapTexture [documented]; other slots are not drawn [decision: NVForever's texture swaps change the diffuse map only] |
 | GetBlockTextureSet `block` | no array [decision: NVForever's scene mirror keeps no texture sets; the page's answer for a block without one] |
 | Get/SetAnimSequenceFrequency `sequence [f]` | a script's frequency, "*" every sequence [documented]; 1 when none set for a sequence the drawn model has [hypothesis]; -1 for a sequence it lacks [observed: jip14 seqfreq.doc]. The engine tells the game each drawn object's sequence names (`object_anims::publish_sequences`); an actor's animation files are not told, so an actor's unset sequence is -1 [decision]. Kept, not yet played at [decision, follow-up] |
+| UpdatePlayer3D | queues a transient one-shot full player 3D rebuild (`Game::take_update_player_3d`, not saved) and immediately refreshes the player's `AnimGroupOverride` folder entries [documented: UpdatePlayer3D; design]; `engine/nvforever`'s `player_body::ensure_body` rebuilds the third- and first-person rigs and equipped weapon models on the next frame (bypassing the `LOOK_REBUILD` slider throttle) and triggers `apply_anim_overrides` to clear cached clips |
 
 ## 5. Projectiles and inventory references
 
@@ -62,8 +63,7 @@ original what the [hypothesis] values below leave open.
 
 AttachExtraCamera, ProjectExtraCamera (render-to-texture cameras are not built; 0, the
 pages' failure), AttachLine (line meshes; 0), HasKeywordCond (the page is marked
-Incomplete), FreePlayer (the page: "don't use this"), UpdatePlayer3D (NVForever draws the
-player's 3D from the game each frame: nothing to reload).
+Incomplete), FreePlayer (the page: "don't use this").
 
 ## 7. Follow-ups
 

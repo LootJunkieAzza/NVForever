@@ -49,6 +49,21 @@ pub struct Jip14State {
     pub item_running: Option<(FormId, FormId)>,
     /// The drawn objects' sequence names (lower case), as the engine tells them.
     pub sequences: BTreeMap<FormId, Vec<String>>,
+    /// Transient one-shot `UpdatePlayer3D` request for the engine's player body rebuild
+    /// (not saved) [design].
+    pub update_player_3d: bool,
+}
+
+impl Game<'_> {
+    /// Whether `UpdatePlayer3D` has a pending full player 3D rebuild request.
+    pub fn update_player_3d_pending(&self) -> bool {
+        self.other.jip14.update_player_3d
+    }
+
+    /// Consume the pending `UpdatePlayer3D` request, if any.
+    pub fn take_update_player_3d(&mut self) -> bool {
+        std::mem::take(&mut self.other.jip14.update_player_3d)
+    }
 }
 
 fn num(args: &[XVal], k: usize) -> Option<f64> {
@@ -502,9 +517,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // [decision: NVForever does not crash the game on purpose; the page: "don't use
         // this"]
         "freeplayer" | "goodbyeworldspace" => zero,
-        // [decision: NVForever draws the player's 3D from the game each frame; nothing to
-        // reload, as Update3D]
-        "updateplayer3d" => zero,
+        // Queues a full player 3D rig, equipped-model and animation-override reload for
+        // the next engine frame [documented: UpdatePlayer3D; design].
+        "updateplayer3d" => {
+            g.other.jip14.update_player_3d = true;
+            g.refresh_anim_folders_for(FormId::PLAYER_REF);
+            zero
+        }
         _ => return None,
     };
     Some(Ok(v))

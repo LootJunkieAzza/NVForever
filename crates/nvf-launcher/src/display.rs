@@ -15,13 +15,15 @@ fn choice(label: impl Into<String>, stored: impl Into<String>) -> Choice {
 }
 
 /// A display attached to the desktop: its device name (what `monitor=` keeps, `\\.\DISPLAY1`
-/// on Windows), its desktop size and position, and the sizes of its video modes.
+/// on Windows), its desktop size and position, the sizes of its video modes and whether it
+/// is the system's primary display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Monitor {
     pub name: String,
     pub size: (u32, u32),
     pub position: (i32, i32),
     pub modes: Vec<(u32, u32)>,
+    pub primary: bool,
 }
 
 /// Display sync, as `DisplaySync::name` / `stored` have it (frame_pace.rs).
@@ -161,9 +163,10 @@ pub fn monitor_choices(monitors: &[Monitor]) -> Vec<Choice> {
     monitors.iter().enumerate().map(|(i, m)| choice(monitor_label(i, m), m.name.clone())).collect()
 }
 
-/// The display `monitor=` names, else the first (the game's rule).
+/// The display `monitor=` names, else the primary display, else the first (the game's rule,
+/// window_mode.rs `chosen_index`, #3334).
 pub fn chosen_monitor<'a>(monitors: &'a [Monitor], stored: Option<&str>) -> Option<&'a Monitor> {
-    stored.and_then(|s| monitors.iter().find(|m| m.name.eq_ignore_ascii_case(s.trim()))).or_else(|| monitors.first())
+    stored.and_then(|s| monitors.iter().find(|m| m.name.eq_ignore_ascii_case(s.trim()))).or_else(|| monitors.iter().find(|m| m.primary)).or_else(|| monitors.first())
 }
 
 /// Sizes offered when the displays cannot be asked (not Windows): the common ones.
@@ -253,7 +256,7 @@ pub fn chosen(key: &str, choices: &[Choice], value: &str) -> Option<usize> {
 /// gives the game, so `monitor=` matches.
 #[cfg(windows)]
 pub fn monitors() -> Vec<Monitor> {
-    use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, EnumDisplaySettingsW, DEVMODEW, DISPLAY_DEVICEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, ENUM_CURRENT_SETTINGS};
+    use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, EnumDisplaySettingsW, DEVMODEW, DISPLAY_DEVICEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE, ENUM_CURRENT_SETTINGS};
     let wide = |w: &[u16]| String::from_utf16_lossy(&w[..w.iter().position(|c| *c == 0).unwrap_or(w.len())]);
     let blank_mode = || {
         // SAFETY: DEVMODEW is plain data (integers, arrays, unions of integers); all zeros is
@@ -290,7 +293,7 @@ pub fn monitors() -> Vec<Monitor> {
             }
             modes.push((mode.dmPelsWidth, mode.dmPelsHeight));
         }
-        out.push(Monitor { name: wide(&dd.DeviceName), size: (dm.dmPelsWidth, dm.dmPelsHeight), position: (p.x, p.y), modes });
+        out.push(Monitor { name: wide(&dd.DeviceName), size: (dm.dmPelsWidth, dm.dmPelsHeight), position: (p.x, p.y), modes, primary: dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE != 0 });
     }
     out.sort_by_key(|m| m.position);
     out
@@ -425,7 +428,7 @@ mod tests {
     }
 
     fn monitor(name: &str, size: (u32, u32), modes: &[(u32, u32)]) -> Monitor {
-        Monitor { name: name.into(), size, position: (0, 0), modes: modes.to_vec() }
+        Monitor { name: name.into(), size, position: (0, 0), modes: modes.to_vec(), primary: false }
     }
 
     #[test]
@@ -457,6 +460,11 @@ mod tests {
         assert_eq!(chosen_monitor(&ms, Some("gone")).unwrap().name, r"\\.\DISPLAY1", "the first display");
         assert_eq!(chosen_monitor(&ms, None).unwrap().name, r"\\.\DISPLAY1");
         assert_eq!(chosen("monitor", &c, r"\\.\DISPLAY2"), Some(1));
+        // #3334: the primary display right of a portrait one is the default, as in the game.
+        let ms = [monitor(r"\\.\DISPLAY2", (1080, 1920), &[]), Monitor { primary: true, ..monitor(r"\\.\DISPLAY1", (3840, 2160), &[]) }];
+        assert_eq!(chosen_monitor(&ms, None).unwrap().name, r"\\.\DISPLAY1");
+        assert_eq!(chosen_monitor(&ms, Some("gone")).unwrap().name, r"\\.\DISPLAY1");
+        assert_eq!(chosen_monitor(&ms, Some(r"\\.\DISPLAY2")).unwrap().size, (1080, 1920));
     }
 
     /// Windows lists this machine's displays with their modes (none on a machine without

@@ -25,6 +25,18 @@ pub struct WeaponSoundChange {
     pub slots: [Option<Option<FormId>>; WEAPON_SOUND_SLOTS],
 }
 
+/// Biped equipment slot index for the equipped weapon (`ReloadEquippedModels 5`)
+/// [documented: ReloadEquippedModels, biped slot table].
+pub const EQUIP_SLOT_WEAPON: u8 = 5;
+/// Bit mask for the weapon equipment slot (`1 << 5`).
+pub const EQUIP_SLOT_WEAPON_BIT: u32 = 1 << EQUIP_SLOT_WEAPON;
+/// Bit mask covering all 20 biped equipment slots (`0..=19`) when `ReloadEquippedModels`
+/// is called without a slot argument [documented: ReloadEquippedModels].
+pub const ALL_EQUIP_SLOTS: u32 = (1 << 20) - 1;
+/// Bound on queued non-player `ReloadEquippedModels` requests when no renderer drains them
+/// [design].
+const EQUIP_RELOAD_QUEUE_LIMIT: usize = 1024;
+
 /// A placed radio station, as the engine reads it.
 #[derive(Debug, Clone)]
 pub struct RadioSite {
@@ -111,6 +123,67 @@ pub struct GapsState {
     /// on `WEAP`, plus `TempCloneForm` snapshots): `(weapon, slot 0..14) -> Some(SOUN)` or
     /// `None` when cleared.
     pub weapon_sounds: HashMap<(FormId, u8), Option<FormId>>,
+    /// Transient one-shot `ReloadEquippedModels` slot masks by actor (not saved) [design].
+    pub equipped_model_reloads: BTreeMap<FormId, u32>,
+}
+
+impl GapsState {
+    pub(crate) fn queue_equipped_model_reload(&mut self, actor: FormId, mask: u32) {
+        if mask == 0 {
+            return;
+        }
+        let map = &mut self.equipped_model_reloads;
+        if actor != FormId::PLAYER_REF && !map.contains_key(&actor) {
+            let non_player = map.len().saturating_sub(usize::from(map.contains_key(&FormId::PLAYER_REF)));
+            if non_player >= EQUIP_RELOAD_QUEUE_LIMIT {
+                if let Some(evict) = map.keys().copied().find(|&id| id != FormId::PLAYER_REF) {
+                    map.remove(&evict);
+                }
+            }
+        }
+        *map.entry(actor).or_insert(0) |= mask;
+    }
+
+    pub(crate) fn take_player_equipped_model_reload(&mut self) -> u32 {
+        self.equipped_model_reloads.remove(&FormId::PLAYER_REF).unwrap_or(0)
+    }
+
+    pub(crate) fn take_npc_equipped_model_reloads(&mut self) -> BTreeMap<FormId, u32> {
+        let player = self.equipped_model_reloads.remove(&FormId::PLAYER_REF);
+        let npcs = std::mem::take(&mut self.equipped_model_reloads);
+        if let Some(mask) = player {
+            self.equipped_model_reloads.insert(FormId::PLAYER_REF, mask);
+        }
+        npcs
+    }
+}
+
+impl Game<'_> {
+    /// Queue a one-shot `ReloadEquippedModels` slot bitmask for `actor` (OR-coalescing
+    /// repeated calls in the same frame; `PLAYER_REF` is never evicted) [design].
+    pub(crate) fn queue_equipped_model_reload(&mut self, actor: FormId, mask: u32) {
+        self.gaps.queue_equipped_model_reload(actor, mask);
+    }
+
+    /// Pending `ReloadEquippedModels` slot bitmask for `actor` (`0` when none).
+    pub fn equipped_model_reload_mask(&self, actor: FormId) -> u32 {
+        self.gaps.equipped_model_reloads.get(&actor).copied().unwrap_or(0)
+    }
+
+    /// Consume the pending `ReloadEquippedModels` slot bitmask for the player (`0` if none).
+    pub fn take_player_equipped_model_reload(&mut self) -> u32 {
+        self.gaps.take_player_equipped_model_reload()
+    }
+
+    /// Consume all pending non-player `ReloadEquippedModels` requests for NPC/creature systems.
+    pub fn take_npc_equipped_model_reloads(&mut self) -> BTreeMap<FormId, u32> {
+        self.gaps.take_npc_equipped_model_reloads()
+    }
+
+    /// Consume all pending `ReloadEquippedModels` requests (player and NPCs).
+    pub fn take_equipped_model_reloads(&mut self) -> BTreeMap<FormId, u32> {
+        std::mem::take(&mut self.gaps.equipped_model_reloads)
+    }
 }
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
@@ -621,17 +694,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // AMEF DATA: 0 the type, 1 the operation, 2 the value [observed: gaps2, the DT
         // reduction (DT Mod, Subtract, 2) reads 2 2 2, trait 3 reads 0].
         "getammoeffecttraitnumeric" => {
-            let f = form(args, 0).unwrap_or(FormId(0));
-            let key = match num(args, 1, -1.0) as i64 {
-                0 => "type",
-                1 => "operation",
-                2 => "value",
-                _ => return Some(Ok(zero)),
+            let Some(eff) = form(args, 0).and_then(|f| g.ammo_effect_traits(f)) else {
+                return Some(Ok(zero));
             };
-            // SetAmmoEffectTraitNumericAlt's change first (`crate::nvse_one111`).
-            match crate::nvse::record_value(g, f, "DATA", key) {
-                Some(XVal::Num(x)) => XVal::Num(x),
-                _ => XVal::Num(json_num(g.data.record_field(f, "DATA", key))),
+            match num(args, 1, -1.0) as i64 {
+                0 => XVal::Num(f64::from(eff.effect_type)),
+                1 => XVal::Num(f64::from(eff.operation)),
+                2 => XVal::Num(crate::nvse::record_float(f64::from(eff.value))),
+                _ => zero,
             }
         }
         // ---- globals ----
@@ -1309,7 +1379,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Characters\_Male\Skeleton.NIF]; a leveled or templated actor's as NX reads it
         // (`crate::nvse_nx::skeleton_model`).
         "getskeletonmodel" => XVal::Str(form(args, 0).or(subject).map(|f| crate::nvse_nx::skeleton_model(g, f)).unwrap_or_default()),
-        "getownerofcell" => XVal::Ref(form(args, 0).and_then(|c| g.data.cells.get(&c)).and_then(|c| c.owner).map_or(0, |o| o.0)),
+        "getownerofcell" => XVal::Ref(form(args, 0).and_then(|c| g.cell_ownership(c)).map_or(0, |o| o.owner.0)),
         // PKDT general flags bit by bit [observed: gaps7, Doc's sandbox 9 and 21 set];
         // SetPackageFlag returns 0, for the session [observed: gaps8], through
         // `Game::change_package` so every reader of `Game::package_def` sees it.
@@ -1741,8 +1811,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // [documented: IsPCInCombat] the player is hunted (`awareness`).
         "ispcincombat" => yes(g.awareness.hunted(FormId::PLAYER_REF)),
-        // Nothing to reload: the engine draws the equipped models as they are.
-        "reloadequippedmodels" => zero,
+        // `[equipSlot]`: reloads the calling actor's equipped weapon/armour 3D models on
+        // the next engine frame (all slots `0..=19` when omitted; single biped slot bit
+        // when `0..=19` is given; alias `ReloadModels`) [documented: ReloadEquippedModels].
+        "reloadequippedmodels" | "reloadmodels" => {
+            if let Some(r) = subject.or(ctx.self_ref) {
+                let mask = match args.first() {
+                    None => ALL_EQUIP_SLOTS,
+                    Some(XVal::Num(n)) if n.is_finite() => {
+                        let slot = *n as i64;
+                        if (0..20).contains(&slot) { 1u32 << (slot as u32) } else { 0 }
+                    }
+                    _ => 0,
+                };
+                g.queue_equipped_model_reload(r, mask);
+            }
+            zero
+        }
         // Whether the program may use more than 2 GB (the 4 GB patch). The original
         // without the patch answers 0 [observed: gaps4]; NVForever is a 64-bit program with
         // no such limit, so it answers 1 [design, owner 2026-11-08: TTW's start-up check
@@ -1805,5 +1890,58 @@ mod tests {
         assert_eq!(bit(5.0, 1.0), XVal::Num(0.0));
         assert_eq!(bit(5.0, 2.0), XVal::Num(1.0));
         assert_eq!(bit(5.0, -1.0), XVal::Num(0.0));
+    }
+
+    #[test]
+    fn equip_reload_queue_caps_non_player_entries_and_preserves_player() {
+        let mut gaps = GapsState::default();
+        // Enqueue player first, then non-player actors spanning both below and above
+        // PLAYER_REF (0x14) so PLAYER_REF becomes the smallest remaining key during eviction.
+        gaps.queue_equipped_model_reload(FormId::PLAYER_REF, 1 << 2);
+        let mut inserted = Vec::new();
+        let mut raw = 0x10u32;
+        while inserted.len() < EQUIP_RELOAD_QUEUE_LIMIT + 32 {
+            let id = FormId(raw);
+            raw += 1;
+            if id == FormId::PLAYER_REF {
+                continue;
+            }
+            gaps.queue_equipped_model_reload(id, EQUIP_SLOT_WEAPON_BIT);
+            inserted.push(id);
+        }
+
+        assert_eq!(gaps.equipped_model_reloads.get(&FormId::PLAYER_REF), Some(&(1 << 2)), "PLAYER_REF must never be evicted");
+        assert_eq!(gaps.equipped_model_reloads.len(), EQUIP_RELOAD_QUEUE_LIMIT + 1);
+        for &evicted in &inserted[..32] {
+            assert!(!gaps.equipped_model_reloads.contains_key(&evicted), "earliest non-player entry {evicted:?} evicted");
+        }
+        for &kept in &inserted[32..] {
+            assert_eq!(gaps.equipped_model_reloads.get(&kept), Some(&EQUIP_SLOT_WEAPON_BIT));
+        }
+
+        // Re-queueing an existing non-player entry at capacity coalesces without evicting;
+        // zero mask is ignored without evicting.
+        let sample = inserted[32];
+        gaps.queue_equipped_model_reload(sample, 1 << 3);
+        gaps.queue_equipped_model_reload(FormId(0x9000), 0);
+        assert_eq!(gaps.equipped_model_reloads.len(), EQUIP_RELOAD_QUEUE_LIMIT + 1);
+        assert_eq!(gaps.equipped_model_reloads.get(&sample), Some(&(EQUIP_SLOT_WEAPON_BIT | (1 << 3))));
+        assert!(!gaps.equipped_model_reloads.contains_key(&FormId(0x9000)));
+
+        // Draining NPCs yields exactly EQUIP_RELOAD_QUEUE_LIMIT entries and leaves PLAYER_REF intact.
+        let npcs = gaps.take_npc_equipped_model_reloads();
+        assert_eq!(npcs.len(), EQUIP_RELOAD_QUEUE_LIMIT);
+        assert!(!npcs.contains_key(&FormId::PLAYER_REF));
+        assert_eq!(gaps.take_player_equipped_model_reload(), 1 << 2);
+        assert_eq!(gaps.take_player_equipped_model_reload(), 0);
+
+        // Filling 1024 non-player entries first and then queueing PLAYER_REF must not evict any NPC.
+        for &id in &inserted[..EQUIP_RELOAD_QUEUE_LIMIT] {
+            gaps.queue_equipped_model_reload(id, ALL_EQUIP_SLOTS);
+        }
+        gaps.queue_equipped_model_reload(FormId::PLAYER_REF, EQUIP_SLOT_WEAPON_BIT);
+        assert_eq!(gaps.equipped_model_reloads.len(), EQUIP_RELOAD_QUEUE_LIMIT + 1);
+        assert_eq!(gaps.take_npc_equipped_model_reloads().len(), EQUIP_RELOAD_QUEUE_LIMIT);
+        assert_eq!(gaps.take_player_equipped_model_reload(), EQUIP_SLOT_WEAPON_BIT);
     }
 }

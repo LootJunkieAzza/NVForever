@@ -55,8 +55,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // `rank`: the faction rank a reference's owner needs (XRNK), what
-        // GetOwningFactionRequiredRank reads [documented: SetOwningFactionRequiredRank].
+        // `rank`: the faction rank a reference's owner needs (XRNK), read through
+        // `Game::owner_rank` by GetOwningFactionRequiredRank, `Game::ownership_in`, and
+        // IsOwned/HasOwnership [documented: SetOwningFactionRequiredRank].
         "setowningfactionrequiredrank" => {
             if let Some(r) = subject {
                 g.other.owner_ranks.insert(r, num(args, 0, 0.0) as i32);

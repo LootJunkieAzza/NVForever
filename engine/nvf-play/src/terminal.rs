@@ -1233,13 +1233,13 @@ fn draw(
     image: Option<Res<TerminalImage>>,
     (mut rows, read): (ResMut<MenuRows>, Res<ReadEntries>),
     mut faces: Local<Option<screen::Faces>>,
-    mut shown: Local<Option<String>>,
+    mut shown: Local<Option<(String, u32)>>,
 ) {
     // The screen is laid out in its own texture, at its size whatever the UI scale; the
     // picture of it on the window scales (`screen::spawn_backdrop`, #1631).
     let _canvas = crate::interface::original_units();
     let grey = grey_read();
-    let key = screen.0.as_ref().map(|s| format!("{}:{grey}", view_key(s)));
+    let key = screen.0.as_ref().map(|s| (format!("{}:{grey}", view_key(s)), crate::cjk_font::revision()));
     // A closing screen keeps its picture while it fades (`fade_out`); one opened meanwhile
     // takes its place at once.
     if !fading.is_empty() {

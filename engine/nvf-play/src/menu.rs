@@ -203,6 +203,7 @@ impl Plugin for MenuPlugin {
                     open_menus,
                     keep_menu_state,
                     sync_cards,
+                    sync_refresh_items_list,
                     publish_menu_picks,
                     publish_jip_menus,
                     (quantity_keys, menu_keys, menu_mouse, quantity_mouse, apply_input).chain().run_if(menu_open),
@@ -792,6 +793,29 @@ fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script:
         if let Err(e) = m.set_cards(&mut sim.world, cards) {
             warn!("menu: the Caravan cards: {e}");
         }
+    }
+}
+
+/// Consume a pending script `RefreshItemsList` request (`fnv_game::nvse_jip3`) and rebuild
+/// any open item/recipe menu's rows without closing the menu or losing valid selection
+/// [documented: GECK wiki RefreshItemsList; design: docs/spec-notes/ext-menus.md].
+pub(crate) fn sync_refresh_items_list(
+    mut active: ResMut<ActiveMenu>,
+    mut recipe: Option<ResMut<crate::crafting::RecipeMenu>>,
+    script: Option<ResMut<crate::script::ScriptState>>,
+    mut sim: ResMut<SimState>,
+) {
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    if !rt.game.take_refresh_items_list() {
+        return;
+    }
+    if let Some(m) = active.0.as_mut() {
+        if let Err(e) = m.refresh(&mut sim.world) {
+            warn!("menu: RefreshItemsList could not refresh active item list: {e}");
+        }
+    }
+    if let Some(open) = recipe.as_deref_mut().and_then(|r| r.0.as_mut()) {
+        crate::crafting::refresh_open(rt, &mut sim, open);
     }
 }
 

@@ -1087,6 +1087,8 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
         s.cells_loaded, s.load_ms, s.spawn_frames, s.cells_waited, s.cells_forced, models.held(), models.in_flight(), late.marked
     );
     info!("{}", nvf_assets::tangents::summary());
+    // Shapes that asked to be blended and are drawn opaque (#3230).
+    info!("{}", nvf_assets::nif_spawn::blend_opaque_summary());
     // What the two readers of each model file cost (#3149).
     info!("{}", nvf_assets::load_times::summary());
     // The smoke scenario `terrain-smoothing` reads it (#2149).

@@ -557,6 +557,7 @@ fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32, co
 
 /// A line of text whose characters have colours of their own, by the column each stands
 /// in (every character of font 5 is [`CHAR`] wide): the lit cells of the dump.
+/// The addresses, puzzle words and filler are ASCII (`fnv_game::hacking`).
 /// `is_lit` explicitly selects the dark colour, `lit`'s picture (the same layout as
 /// `face`'s), and the ordering above fills.
 fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Line, x: f32, top: f32, is_lit: impl Fn(usize) -> bool) {
@@ -703,6 +704,15 @@ pub fn note_text(n: Option<&NoteDef>) -> String {
     }
 }
 
+/// Menu choices and the result prompt have a single row. Keep long CJK text within it.
+fn fit_cjk_line<'a>(font: &Font, text: &'a str, room: f32) -> std::borrow::Cow<'a, str> {
+    if crate::cjk_font::enabled() && text.chars().any(fnv_font::is_cjk) {
+        crate::pause::fit_text(|s| font.width(s), text, room).into()
+    } else {
+        text.into()
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, rows: &mut Vec<(usize, Rect)>, read: Option<&super::ReadEntries>) {
     let bright = bright();
@@ -762,6 +772,7 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
                 rows.push((row, Rect::new(MENU_X, top, MENU_X + LIST_WIDTH, top + LIST_ROW)));
                 c.spawn(at(MENU_X, top, LIST_WIDTH, LIST_ROW)).with_children(|b| {
                     let s = format!("> {label}");
+                    let s = fit_cjk_line(&face.font, &s, LIST_WIDTH - CHAR);
                     let w = face.font.width(&s);
                     if lit {
                         // [documented] A filled box (224 of 255) behind the chosen row.
@@ -780,7 +791,9 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
     // The result line at the bottom: the prompt, the last result, the cursor.
     let top = CANVAS.y - LINE - RESULT_GAP;
     text(c, face, ">", MENU_X, top, bright);
-    let w = text(c, face, &m.result, MENU_X + RESULT_X, top, bright);
+    let result_room = CANVAS.x - 2.0 * MENU_X - RESULT_X - CHAR - BLOCK;
+    let result = fit_cjk_line(&face.font, &m.result, result_room);
+    let w = text(c, face, &result, MENU_X + RESULT_X, top, bright);
     let x = MENU_X + RESULT_X + if m.result.is_empty() { 0.0 } else { w + CHAR };
     c.spawn((Blink, at(x, top + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright), OVER_LINES, if cursor_on { Visibility::Inherited } else { Visibility::Hidden }));
 }
@@ -794,6 +807,24 @@ pub fn lit(p: &Puzzle, cursor: usize, index: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cjk_terminal_labels_fit_on_one_row() {
+        let mut font = plain_font(25.0, 10.0);
+        let glyph = fnv_font::Glyph {
+            width: 18.0,
+            ..default()
+        };
+        for c in "甲乙丙丁".chars() {
+            font.extra.insert(c, glyph);
+        }
+        assert_eq!(fit_cjk_line(&font, "甲乙丙丁甲", 66.0), "甲乙丙丁甲");
+        crate::cjk_font::with_enabled_for_test(|| {
+            assert_eq!(fit_cjk_line(&font, "甲乙", 66.0), "甲乙");
+            assert_eq!(fit_cjk_line(&font, "甲乙丙丁甲", 66.0), "甲乙...");
+            assert_eq!(fit_cjk_line(&font, "abcdefghi", 66.0), "abcdefghi");
+        });
+    }
 
     #[test]
     fn composed_layers_match_the_measured_screen_in_both_modes() {

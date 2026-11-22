@@ -20,6 +20,102 @@ pub struct ProjectileLaunchTraits {
     pub flags: Option<u16>,
 }
 
+/// AMMO DATA flag bits [documented: schemas/fnv/objects.json `AMMO.DATA.flags`].
+pub const AMMO_FLAG_IGNORES_NORMAL_WEAPON_RESISTANCE: u8 = 1 << 0;
+pub const AMMO_FLAG_NON_PLAYABLE: u8 = 1 << 1;
+
+/// Canonical live session view of an `AMMO` record (or `TempCloneForm` clone of one),
+/// combining `Game::field_overrides`, `Jip7State::ammo_effects`, `Game::playable_overrides`,
+/// and `Game::name_overrides` over the authored ESM record (`Game::ammo_traits`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AmmoTraits {
+    /// Authored ESM `AMMO` form (identical to the queried id when not a clone).
+    pub original: FormId,
+    pub speed: f32,
+    pub flags: u8,
+    pub value: i32,
+    pub clip_rounds: u8,
+    pub projectiles_per_shot: i32,
+    pub projectile: Option<FormId>,
+    pub weight: f32,
+    pub casing: Option<FormId>,
+    pub consumed_percentage: f32,
+    pub effects: Vec<FormId>,
+    pub full_name: Option<String>,
+    pub short_name: Option<String>,
+    pub abbrev: Option<String>,
+}
+
+impl AmmoTraits {
+    /// Whether flag bit `bit` (0..8) is set in `DATA/flags`.
+    pub fn has_flag(&self, bit: u8) -> bool {
+        bit < 8 && (self.flags & (1u8 << bit)) != 0
+    }
+
+    pub fn ignores_normal_weapon_resistance(&self) -> bool {
+        self.flags & AMMO_FLAG_IGNORES_NORMAL_WEAPON_RESISTANCE != 0
+    }
+
+    pub fn non_playable(&self) -> bool {
+        self.flags & AMMO_FLAG_NON_PLAYABLE != 0
+    }
+
+    pub fn is_playable(&self) -> bool {
+        !self.non_playable()
+    }
+}
+
+/// Canonical live session view of an `AMEF` record (or `TempCloneForm` clone of one),
+/// combining `SetAmmoEffectTraitNumeric` / `SetAmmoEffectTraitNumericAlt` overrides over
+/// the authored ESM record (`Game::ammo_effect_traits`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AmmoEffectTraits {
+    /// Authored ESM `AMEF` form (identical to the queried id when not a clone).
+    pub original: FormId,
+    /// 0 Damage Mod, 1 DR Mod, 2 DT Mod, 3 Spread Mod, 4 Weapon Condition Mod,
+    /// 5 Fatigue Mod (plus One111 6..=9).
+    pub effect_type: u8,
+    /// 0 Add, 1 Multiply, 2 Subtract.
+    pub operation: u8,
+    pub value: f32,
+}
+
+impl AmmoEffectTraits {
+    /// Apply this ammo effect's operation to `base`.
+    pub fn apply(&self, base: f64) -> f64 {
+        let v = f64::from(self.value);
+        match self.operation {
+            0 => base + v,
+            1 => base * v,
+            2 => base - v,
+            _ => base,
+        }
+    }
+
+    /// Combat kind label matching `fnv_combat::data::AmmoEffect::kind` for vanilla types 0..=5.
+    pub fn kind_label(&self) -> Option<&'static str> {
+        Some(match self.effect_type {
+            0 => "Damage Mod",
+            1 => "DR Mod",
+            2 => "DT Mod",
+            3 => "Spread Mod",
+            4 => "Weapon Condition Mod",
+            5 => "Fatigue Mod",
+            _ => return None,
+        })
+    }
+
+    /// Combat operation label matching `fnv_combat::data::AmmoEffect::operation`.
+    pub fn operation_label(&self) -> Option<&'static str> {
+        Some(match self.operation {
+            0 => "Add",
+            1 => "Multiply",
+            2 => "Subtract",
+            _ => return None,
+        })
+    }
+}
+
 /// Effective non-flag `PROJ` record traits for a projectile (or `TempCloneForm` `PROJ`
 /// alias), resolving active session overrides (`SetProjectileTraitNumeric`,
 /// `SetProjectileExplosion`, `SetProjectileLight`, `SetProjectileMuzzleFlash`,
@@ -230,6 +326,27 @@ fn json_form(v: Option<&Json>) -> Option<FormId> {
     v.and_then(Json::as_str).and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()).filter(|&f| f != 0).map(FormId)
 }
 
+fn amef_type_code(label: &str) -> Option<u8> {
+    Some(match label.to_ascii_lowercase().as_str() {
+        "damage mod" => 0,
+        "dr mod" => 1,
+        "dt mod" => 2,
+        "spread mod" => 3,
+        "weapon condition mod" => 4,
+        "fatigue mod" => 5,
+        _ => return None,
+    })
+}
+
+fn amef_op_code(label: &str) -> Option<u8> {
+    Some(match label.to_ascii_lowercase().as_str() {
+        "add" => 0,
+        "multiply" => 1,
+        "subtract" => 2,
+        _ => return None,
+    })
+}
+
 /// AMMO numeric traits 0-3 [documented: SetAmmoTraitNumeric's table: 0 speed, 1
 /// projectiles per shot, 2 ammo consumed percent, 3 clip rounds]; the fields: xEdit AMMO.
 /// Each with its field's range (u32 projectiles, u8 clip rounds).
@@ -411,12 +528,173 @@ const HEAVY: u64 = 1 << 7;
 
 impl Game<'_> {
     /// An ammunition's effects (RCIL), AddAmmoEffect's and RemoveAmmoEffect's changes
-    /// first.
+    /// first. Follows `TempCloneForm` originals when the clone has no list override yet.
     pub fn ammo_effects(&self, ammo: FormId) -> Vec<FormId> {
         if let Some(v) = self.other.jip7.ammo_effects.get(&ammo) {
             return v.clone();
         }
-        self.data.record_all(ammo, "RCIL").into_iter().filter_map(|v| json_form(Some(v))).collect()
+        self.data.record_all(self.unclone(ammo), "RCIL").into_iter().filter_map(|v| json_form(Some(v))).collect()
+    }
+
+    /// Resolve an `AMEF` form's (or `TempCloneForm` clone's) live numeric traits
+    /// (`SetAmmoEffectTraitNumeric` / `SetAmmoEffectTraitNumericAlt` over authored `DATA`).
+    pub fn ammo_effect_traits(&self, effect: FormId) -> Option<AmmoEffectTraits> {
+        let original = self.unclone(effect);
+        if self.data.sig(original) != Some(*b"AMEF") {
+            return None;
+        }
+        let effect_type = match crate::nvse::record_value(self, effect, "DATA", "type") {
+            Some(XVal::Num(n)) if n.is_finite() && n >= 0.0 => n.trunc().min(255.0) as u8,
+            Some(XVal::Str(s)) => amef_type_code(&s).unwrap_or(0),
+            _ => 0,
+        };
+        let operation = match crate::nvse::record_value(self, effect, "DATA", "operation") {
+            Some(XVal::Num(n)) if n.is_finite() && n >= 0.0 => n.trunc().min(255.0) as u8,
+            Some(XVal::Str(s)) => amef_op_code(&s).unwrap_or(0),
+            _ => 0,
+        };
+        let value = match crate::nvse::record_value(self, effect, "DATA", "value") {
+            Some(XVal::Num(n)) if n.is_finite() && (n as f32).is_finite() => n as f32,
+            _ => 0.0,
+        };
+        Some(AmmoEffectTraits { original, effect_type, operation, value })
+    }
+
+    /// Resolve every active `AMEF` attached to `ammo` (respecting `AddAmmoEffect`,
+    /// `RemoveAmmoEffect`, and live `AMEF` trait overrides).
+    pub fn ammo_effect_defs(&self, ammo: FormId) -> Vec<AmmoEffectTraits> {
+        self.ammo_effects(ammo).into_iter().filter_map(|e| self.ammo_effect_traits(e)).collect()
+    }
+
+    /// Apply all live ammo effects of `ammo` matching `effect_type` to `base`, in order.
+    pub fn apply_ammo_effects_value(&self, ammo: FormId, effect_type: u8, mut base: f64) -> f64 {
+        for eff in self.ammo_effect_defs(ammo) {
+            if eff.effect_type == effect_type {
+                base = eff.apply(base);
+            }
+        }
+        base
+    }
+
+    /// Resolve the effective session traits, flags, projectile/casing, names, and effects
+    /// of an `AMMO` form (or `TempCloneForm` clone of one), reading `Game::field_overrides`,
+    /// `Jip7State::ammo_effects`, `Game::playable_overrides`, and `Game::name_overrides`
+    /// over the authored ESM record. Returns `None` for non-`AMMO` forms.
+    pub fn ammo_traits(&self, ammo: FormId) -> Option<AmmoTraits> {
+        let original = self.unclone(ammo);
+        if self.data.sig(original) != Some(*b"AMMO") {
+            return None;
+        }
+        let f32_field = |sub: &str, path: &str| match crate::nvse::record_value(self, ammo, sub, path) {
+            Some(XVal::Num(n)) if n.is_finite() && (n as f32).is_finite() => n as f32,
+            _ => 0.0,
+        };
+        let form_field = |sub: &str, path: &str| match crate::nvse::record_value(self, ammo, sub, path) {
+            Some(XVal::Ref(id)) if id != 0 => Some(FormId(id)),
+            _ => None,
+        };
+        let mut flags = match crate::nvse::record_value(self, ammo, "DATA", "flags") {
+            Some(XVal::Num(n)) if n.is_finite() && n >= 0.0 => (n as u64 & 0xFF) as u8,
+            _ => 0,
+        };
+        if let Some(&playable) = self.playable_overrides.get(&ammo) {
+            if playable {
+                flags &= !AMMO_FLAG_NON_PLAYABLE;
+            } else {
+                flags |= AMMO_FLAG_NON_PLAYABLE;
+            }
+        }
+        let value = match crate::nvse::record_value(self, ammo, "DATA", "value") {
+            Some(XVal::Num(n)) if n.is_finite() => n.trunc().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+            _ => 0,
+        };
+        let clip_rounds = match crate::nvse::record_value(self, ammo, "DATA", "clip_rounds") {
+            Some(XVal::Num(n)) if n.is_finite() => (n.trunc() as i64).rem_euclid(256) as u8,
+            _ => 0,
+        };
+        let projectiles_per_shot = match crate::nvse::record_value(self, ammo, "DAT2", "projectiles_per_shot") {
+            Some(XVal::Num(n)) if n.is_finite() => n.trunc().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+            _ => 0,
+        };
+        let name_sub = |sub: &str| -> Option<String> {
+            if let Some(XVal::Str(s)) = self.field_overrides.get(&(ammo, format!("{sub}/"))) {
+                return Some(s.clone());
+            }
+            if sub == "FULL" {
+                if let Some(s) = self.name_overrides.get(&ammo) {
+                    return Some(s.clone());
+                }
+            }
+            self.data
+                .record_field(original, sub, "")
+                .and_then(Json::as_str)
+                .map(str::to_string)
+                .or_else(|| (sub == "FULL").then(|| self.data.full_names.get(&original).cloned()).flatten())
+        };
+        Some(AmmoTraits {
+            original,
+            speed: f32_field("DATA", "speed"),
+            flags,
+            value,
+            clip_rounds,
+            projectiles_per_shot,
+            projectile: form_field("DAT2", "projectile"),
+            weight: f32_field("DAT2", "weight"),
+            casing: form_field("DAT2", "consumed_ammo"),
+            consumed_percentage: f32_field("DAT2", "consumed_percentage"),
+            effects: self.ammo_effects(ammo),
+            full_name: name_sub("FULL"),
+            short_name: name_sub("ONAM"),
+            abbrev: name_sub("QNAM"),
+        })
+    }
+
+    /// Read a single `AMMO` flag bit (`0..8`: bit 0 Ignores Normal Weapon Resistance,
+    /// bit 1 Non-Playable) with session overrides applied; `None` for non-`AMMO` forms
+    /// or bits `>= 8`.
+    pub fn ammo_flag(&self, ammo: FormId, bit: u8) -> Option<bool> {
+        if bit >= 8 {
+            return None;
+        }
+        Some(self.ammo_traits(ammo)?.has_flag(bit))
+    }
+
+    /// Snapshot all canonical `AMMO` or `AMEF` fields from `source` onto `clone` at
+    /// `TempCloneForm` creation time so pre-clone edits on `source` carry onto `clone`
+    /// while post-clone edits on `source` stay isolated from already-created clones.
+    pub(crate) fn snapshot_ammo_traits(&mut self, source: FormId, clone: FormId) {
+        let original = self.unclone(source);
+        match self.data.sig(original) {
+            Some(sig) if &sig == b"AMMO" => {
+                let Some(t) = self.ammo_traits(source) else { return };
+                self.field_overrides.insert((clone, "DATA/speed".into()), XVal::Num(f64::from(t.speed)));
+                self.field_overrides.insert((clone, "DATA/flags".into()), XVal::Num(f64::from(t.flags)));
+                self.field_overrides.insert((clone, "DATA/value".into()), XVal::Num(f64::from(t.value)));
+                self.field_overrides.insert((clone, "DATA/clip_rounds".into()), XVal::Num(f64::from(t.clip_rounds)));
+                self.field_overrides.insert((clone, "DAT2/projectiles_per_shot".into()), XVal::Num(f64::from(t.projectiles_per_shot)));
+                self.field_overrides.insert((clone, "DAT2/projectile".into()), XVal::Ref(t.projectile.map_or(0, |f| f.0)));
+                self.field_overrides.insert((clone, "DAT2/weight".into()), XVal::Num(f64::from(t.weight)));
+                self.field_overrides.insert((clone, "DAT2/consumed_ammo".into()), XVal::Ref(t.casing.map_or(0, |f| f.0)));
+                self.field_overrides.insert((clone, "DAT2/consumed_percentage".into()), XVal::Num(f64::from(t.consumed_percentage)));
+                for sub in ["FULL", "ONAM", "QNAM"] {
+                    if let Some(v) = self.field_overrides.get(&(source, format!("{sub}/"))).cloned() {
+                        self.field_overrides.insert((clone, format!("{sub}/")), v);
+                    }
+                }
+                if let Some(name) = self.name_overrides.get(&source).cloned() {
+                    self.name_overrides.insert(clone, name);
+                }
+                self.playable_overrides.insert(clone, t.is_playable());
+                self.other.jip7.ammo_effects.insert(clone, t.effects);
+            }
+            Some(sig) if &sig == b"AMEF" => {
+                let Some(e) = self.ammo_effect_traits(source) else { return };
+                self.field_overrides.insert((clone, "DATA/type".into()), XVal::Num(f64::from(e.effect_type)));
+                self.field_overrides.insert((clone, "DATA/operation".into()), XVal::Num(f64::from(e.operation)));
+                self.field_overrides.insert((clone, "DATA/value".into()), XVal::Num(f64::from(e.value)));
+            }
+            _ => {}
+        }
     }
 
     /// A climate's weathers (WLST), ClimateAddWeatherType's and ClimateRemoveWeatherType's
@@ -729,6 +1007,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     // Validate the inherited type, but write to the exact session clone. Replacing
     // the clone ID with its original here would edit every user of that original.
     let projectile = |g: &Game, f: Option<FormId>| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"PROJ"));
+    let ammo = |g: &Game, f: Option<FormId>| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"AMMO"));
+    let amef = |g: &Game, f: Option<FormId>| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"AMEF"));
     let zero = XVal::Num(0.0);
     // The setters of a trait return 0 [hypothesis: as the record setters of batch 5 were
     // observed to, jip-records-5.md].
@@ -736,7 +1016,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- ammunition
         "setammotraitnumeric" => {
             let t = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| AMMO_NUMERIC.get(i));
-            if let (Some(a), Some(&(sub, path, how))) = (of_sig(g, form(args, 0), b"AMMO"), t) {
+            if let (Some(a), Some(&(sub, path, how))) = (ammo(g, form(args, 0)), t) {
                 if let Some(v) = take(num(args, 2, f64::NAN), how) {
                     g.set_field(a, sub, path, XVal::Num(v));
                 }
@@ -744,17 +1024,26 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `ammo [form]`: left out, none [documented: SetAmmoProjectile, SetAmmoCasing].
+        // SetAmmoProjectile validates PROJ (following clones) when a form is given [hypothesis].
         "setammoprojectile" | "setammocasing" => {
-            if let Some(a) = of_sig(g, form(args, 0), b"AMMO") {
+            if let Some(a) = ammo(g, form(args, 0)) {
+                let target = form(args, 1);
+                if name == "setammoprojectile" {
+                    if let Some(p) = target {
+                        if g.data.sig(g.unclone(p)) != Some(*b"PROJ") {
+                            return Some(Ok(zero));
+                        }
+                    }
+                }
                 let path = if name == "setammoprojectile" { "projectile" } else { "consumed_ammo" };
-                g.set_field(a, "DAT2", path, XVal::Ref(form(args, 1).map_or(0, |f| f.0)));
+                g.set_field(a, "DAT2", path, XVal::Ref(target.map_or(0, |f| f.0)));
             }
             zero
         }
         // `ammo effect`: 1 when the list changed [documented: `successful`; hypothesis: 0
         // for an effect already there, or not there to remove].
         "addammoeffect" | "removeammoeffect" => {
-            let (Some(a), Some(e)) = (of_sig(g, form(args, 0), b"AMMO"), of_sig(g, form(args, 1), b"AMEF")) else { return Some(Ok(zero)) };
+            let (Some(a), Some(e)) = (ammo(g, form(args, 0)), amef(g, form(args, 1))) else { return Some(Ok(zero)) };
             let mut list = g.ammo_effects(a);
             let had = list.contains(&e);
             let changed = if name == "addammoeffect" { !had } else { had };
@@ -770,7 +1059,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         "setammoeffecttraitnumeric" => {
             let t = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| AMEF_NUMERIC.get(i));
-            if let (Some(e), Some(&(path, how))) = (of_sig(g, form(args, 0), b"AMEF"), t) {
+            if let (Some(e), Some(&(path, how))) = (amef(g, form(args, 0)), t) {
                 if let Some(v) = take(num(args, 2, f64::NAN), how) {
                     g.set_field(e, "DATA", path, XVal::Num(v));
                 }

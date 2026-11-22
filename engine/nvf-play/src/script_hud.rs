@@ -357,7 +357,7 @@ fn draw(
     script: Res<ScriptState>,
     sim: Res<SimState>,
     mut panel: ResMut<MessagePanel>,
-    mut shown: Local<Subtitles>,
+    (mut shown, mut font_revision): (Local<Subtitles>, Local<u32>),
     mut commands: Commands,
     areas: Query<Entity, With<SubtitleArea>>,
     player: Option<Res<crate::player::Player>>,
@@ -378,11 +378,13 @@ fn draw(
     if panel.view != p || panel.showing != showing {
         panel.show(p, showing);
     }
-    if subs != *shown {
+    let revision = crate::cjk_font::revision();
+    let font_changed = std::mem::replace(&mut *font_revision, revision) != revision;
+    if subs != *shown || font_changed {
         if let Some(line) = subs.log_change(&shown) {
             info!("{line}");
         }
-        if subs.on_screen != shown.on_screen {
+        if subs.on_screen != shown.on_screen || font_changed {
             let _hud = crate::interface::hud_units();
             let face = font.get_or_insert_with(|| face(SUBTITLE_FONT, plain_font(36.0, 17.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
             let lines = subtitle_layout(&subs.on_screen, &face.font);

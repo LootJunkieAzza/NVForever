@@ -149,7 +149,7 @@ impl Game<'_> {
     /// "the same check that the game does"]. In the air is the player's IsInAir;
     /// "in combat" the player's combat state, where the map reads the battle music
     /// [hypothesis: the same moments].
-    fn can_fast_travel(&mut self, ctx: &RunCtx) -> bool {
+    pub(crate) fn can_fast_travel(&mut self, ctx: &RunCtx) -> bool {
         let p = FormId::PLAYER_REF;
         if self.player.fast_travel.travel_disabled {
             return false;

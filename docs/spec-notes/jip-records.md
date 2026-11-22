@@ -84,7 +84,12 @@ returns a form [documented: GetExplosionTraitForm; observed]. NVForever accepts 
 
 The page gives the range 0–2 but lists 3, and 3 works [observed: ammotrait.*].
 GetAmmoProjectile → DAT2 projectile: Ammo12GaSlug → 12GaSlugProjectile; Ammo10mm →
-none [observed: ammoproj.*].
+none [observed: ammoproj.*]. Session `AMMO` traits, `DATA/flags` (bit 0 Ignores Normal
+Weapon Resistance, bit 1 Non-Playable synced with `SetIsPlayable` / `LNSetIsPlayable`),
+`SetAmmoConsumedPercent` (validating `AMMO` and finite f32 range), `SetAmmoName`,
+`SetWeight`, and `AMEF` overrides are exposed through `Game::ammo_traits`,
+`Game::ammo_flag`, and `Game::ammo_effect_traits` with `TempCloneForm` snapshot isolation
+(`jip-records-7.md` §1) [design].
 
 ## 4. Weapons (WEAP)
 

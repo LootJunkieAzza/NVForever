@@ -28208,6 +28208,21 @@ order = [[
 ]]
 
 [[scenario]]
+name = "cjk-font-fallback"
+source = "[design] docs/spec-notes/fonts.md §§2.3 and 3: ordinary interface text draws missing CJK characters with an external font in both Original and Sharp mode."
+note = "Set NVF_CJK_SMOKE_HOME to a disposable writable home with [Interface] CjkFontPath in its NVForever.ini, pointing to a CJK font on your system. Pass --out with a directory outside the checkout for the screenshots. The language file is an authored smoke fixture."
+areas = ["settings", "ui"]
+paths = ["crates/fnv-font/", "engine/nvf-play/src/cjk_font.rs", "engine/nvf-play/src/interface.rs", "engine/nvforever/src/setup.rs", "tools/smoke/fixtures/cjk-lang/"]
+requires = ["NVF_CJK_SMOKE_HOME"]
+env = { NVFOREVER_HOME = "{env:NVF_CJK_SMOKE_HOME}", NVF_LANG_DIR = "{repo}/tools/smoke/fixtures/cjk-lang", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "10.5:menu-font=Sharp,11:menu-font=Original,12:language=CJK Smoke,15:menu-font=Sharp", NVF_PLAY_TEST_SHOTS = "14:cjk-original.png,17:cjk-sharp.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [{ text = "interface: CJK fallback font ", count = 1, label = "the configured font is read once across both menu modes" }]
+order = [["settings: menu-font Original", "language: cjk-smoke", "settings: menu-font Sharp"]]
+forbid = ["interface: CjkFontPath cannot be read as a font:"]
+manual = "cjk-original.png and cjk-sharp.png: the settings rail reads 'Aa 字形检查，继续。' with visible CJK and Latin glyphs on the same baseline"
+
+[[scenario]]
 name = "language-choice"
 source = "#1443: the settings page's Language row lists the languages found in the lang folders (NVF_LANG_DIR here, a made-up one), takes one at once and draws the page again; a broken language file is skipped with a warning"
 areas = ["settings"]

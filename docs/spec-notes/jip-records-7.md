@@ -15,14 +15,21 @@ setters of batch 5 were observed to, jip-records-5.md].
 
 | Function | NVForever |
 |---|---|
-| SetAmmoTraitNumeric `ammo trait value` | 0 speed (DATA), 1 projectiles per shot (DAT2), 2 ammo consumed percent (DAT2), 3 clip rounds (DATA) [documented: the page's table, which lists 0-3 though its argument says 0-2] |
-| SetAmmoProjectile, SetAmmoCasing `ammo [form]` | DAT2's projectile and consumed ammo; left out, none [documented] |
-| AddAmmoEffect, RemoveAmmoEffect `ammo effect` | the RCIL list: 1 when it changed, 0 for an effect already there or not there [documented: `successful`; hypothesis: the 0 cases]; GetNumAmmoEffects, GetNthAmmoEffect, ApplyAmmoEffects and GetCalculatedWeaponDegradation read the changed list |
-| SetAmmoEffectTraitNumeric `effect trait value` | AMEF DATA: 0 type, 1 operation, 2 value [documented] |
+| SetAmmoTraitNumeric `ammo trait value` | 0 speed (DATA), 1 projectiles per shot (DAT2), 2 ammo consumed percent (DAT2), 3 clip rounds (DATA) [documented: the page's table, which lists 0-3 though its argument says 0-2]; accepts `TempCloneForm` `AMMO` clones [design] |
+| SetAmmoProjectile, SetAmmoCasing `ammo [form]` | DAT2's projectile and consumed ammo; left out, none [documented]; accepts `TempCloneForm` `AMMO` clones, and `SetAmmoProjectile` validates `PROJ` (following clones) when a non-null form is supplied [hypothesis] |
+| AddAmmoEffect, RemoveAmmoEffect `ammo effect` | the RCIL list: 1 when it changed, 0 for an effect already there or not there [documented: `successful`; hypothesis: the 0 cases]; accepts `TempCloneForm` `AMMO` and `AMEF` clones [design]; `GetNumAmmoEffects`, `GetNthAmmoEffect`, `ApplyAmmoEffects`, `GetCalculatedWeaponDegradation`, and `Game::ammo_traits` / `Game::ammo_effect_defs` read the changed list |
+| SetAmmoEffectTraitNumeric `effect trait value` | AMEF DATA: 0 type, 1 operation, 2 value [documented]; accepts `TempCloneForm` `AMEF` clones [design] |
 
-Combat builds each ammunition's effects once, when the data loads (`fnv_combat::data`,
-`ammo`), so a list changed by these functions does not reach a shot's damage, DT or
-spread (follow-up: combat's ammo effects through `Game::ammo_effects`).
+Session `AMMO` and `AMEF` overrides are exposed canonically through `Game::ammo_traits`,
+`Game::ammo_flag`, `Game::ammo_effect_traits`, `Game::ammo_effect_defs`, and
+`Game::apply_ammo_effects_value` (`crates/fnv-game/src/nvse_jip7.rs`), and `TempCloneForm`
+snapshots all effective `AMMO` / `AMEF` fields (`Game::snapshot_ammo_traits`) so pre-clone
+edits carry over while post-clone edits on the original or parent clone remain isolated
+[design]. `fnv-combat` provides `AmmoEffect::from_numeric` and `CombatForms::chain_with_ammo`
+for live overridden `AmmoStats` / `AmmoEffect` evaluation in shot chains, damage, spread,
+and weapon wear [design]. Wiring engine combat (`engine/nvf-play`) to read
+`Game::ammo_traits` at shot creation remains a follow-up, and original-game capture parity
+for wrong-type `SetAmmoProjectile` rejection and clone-of-clone isolation remain unqualified.
 
 ## 2. Projectiles and explosions
 

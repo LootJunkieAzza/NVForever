@@ -110,7 +110,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getammoname" | "setammoname" => {
             let set = name == "setammoname";
             let at = usize::from(set);
-            let Some(a) = form(args, at + 1).or(subject).map(|f| base(g, f)).filter(|&a| g.data.sig(a) == Some(*b"AMMO")) else { return Some(Ok(if set { zero } else { XVal::Str(String::new()) })) };
+            let Some(a) = form(args, at + 1).or(subject).map(|f| base(g, f)).filter(|&a| g.data.sig(g.unclone(a)) == Some(*b"AMMO")) else {
+                return Some(Ok(if set { zero } else { XVal::Str(String::new()) }));
+            };
             let sub = match num(args, at, 0.0) as i64 {
                 1 => "ONAM",
                 2 => "QNAM",
@@ -125,11 +127,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 zero
             } else {
                 // A name the record lacks reads "<no name>" [observed: showoff2, 10mm ammo's
-                // abbreviation].
-                match crate::nvse::record_value(g, a, sub, "") {
-                    Some(XVal::Str(s)) => XVal::Str(s),
-                    _ if sub == "FULL" => XVal::Str(g.data.full_names.get(&a).cloned().unwrap_or_else(|| "<no name>".into())),
-                    _ => XVal::Str("<no name>".into()),
+                // abbreviation]. Check `a`'s own session override before falling back to the
+                // authored record of `unclone(a)` so post-clone edits on the original stay
+                // isolated from existing clones.
+                if let Some(XVal::Str(s)) = g.field_overrides.get(&(a, format!("{sub}/"))) {
+                    return Some(Ok(XVal::Str(s.clone())));
+                }
+                let orig = g.unclone(a);
+                if let Some(s) = g.data.record_field(orig, sub, "").and_then(serde_json::Value::as_str) {
+                    XVal::Str(s.to_string())
+                } else if sub == "FULL" {
+                    XVal::Str(g.name_overrides.get(&a).or_else(|| g.data.full_names.get(&orig)).cloned().unwrap_or_else(|| "<no name>".into()))
+                } else {
+                    XVal::Str("<no name>".into())
                 }
             }
         }

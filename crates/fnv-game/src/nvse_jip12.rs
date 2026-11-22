@@ -272,9 +272,112 @@ impl Game<'_> {
         self.other.jip12.light = Some(field);
     }
 
-    /// The player fast travelled (the Pip-Boy's map).
-    pub fn note_fast_travel(&mut self) {
+    /// Whether `marker` is a placed map marker that the player may fast-travel to:
+    /// discovered (`set_found_markers`), or shown and enabled for travel by `ShowMap` /
+    /// `ShowAllMapMarkers` (respecting `skip_hidden` via `map_marker_shown` and
+    /// `MARKER_HIDDEN`, without treating authored `FNAM` bit 2 `Can Travel To` on
+    /// undiscovered markers as discovered) [documented: GetMapMarkerVisible, ShowMap,
+    /// ShowAllMapMarkers].
+    fn map_marker_can_travel(&self, marker: FormId) -> bool {
+        let Some(flags) = self.marker_flags(marker) else { return false };
+        let p = &self.player;
+        if p.found_markers.contains(&marker) {
+            return true;
+        }
+        let hidden = flags & crate::nvse_lu2::MARKER_HIDDEN != 0;
+        let shown = self.map_marker_shown(marker, hidden);
+        shown && (p.travel_markers.contains(&marker) || p.all_markers.is_some_and(|a| a.shown && a.travel))
+    }
+
+    /// The arrival reference for a fast travel to `marker`: its linked reference
+    /// (`XLKR` / `SetLinkedReference`) when present, else `marker` itself
+    /// [documented: GECK wiki SetOnFastTravelEventHandler; hypothesis: marker itself
+    /// when unlinked, docs/spec-notes/fast-travel.md §4].
+    fn fast_travel_destination(&self, marker: FormId) -> Option<&fnv_sim::refs::PlacedRef> {
+        let placed = self.world.placed.get(marker)?;
+        self.linked_ref(marker).and_then(|l| self.world.placed.get(l)).or(Some(placed))
+    }
+
+    /// Find the fast-travel destination marker matching the player's current arrival
+    /// position (set by `nvf_play::pipboy::data::travel::depart` immediately before
+    /// calling [`Game::note_fast_travel`]).
+    fn fast_travel_marker_at_player(&self) -> Option<FormId> {
+        let p = self.world.peek(FormId::PLAYER_REF)?;
+        let player_world = p.cell.and_then(|c| self.world.placed.world_of(c));
+        let mut best: Option<(f32, f32, u32)> = None;
+        for m in self.world.placed.refs.values().filter(|r| r.map_marker.is_some()) {
+            let dest = self.fast_travel_destination(m.id).unwrap_or(m);
+            let dest_world = dest.cell.and_then(|c| self.world.placed.world_of(c));
+            let same_space = if player_world.is_some() || dest_world.is_some() {
+                dest_world == player_world
+            } else {
+                dest.cell == p.cell
+            };
+            if !same_space {
+                continue;
+            }
+            let d2 = (0..3).map(|i| (dest.pos[i] - p.pos[i]).powi(2)).sum::<f32>();
+            if d2 > 1.0 {
+                continue;
+            }
+            let yaw = (dest.rot[2] - p.rot[2]).abs();
+            let cand = (d2, yaw, dest.id.0);
+            if best.is_none_or(|b| cand.0 < b.0 || (cand.0 == b.0 && (cand.1 < b.1 || (cand.1 == b.1 && cand.2 < b.2)))) {
+                best = Some(cand);
+            }
+        }
+        best.map(|(_, _, id)| FormId(id))
+    }
+
+    /// Record a completed player fast travel to `marker` (the destination marker
+    /// reference, which may be a map marker's linked arrival reference rather than
+    /// the MapMarker-based reference itself) [documented: SetOnFastTravelEventHandler,
+    /// GetPCFastTravelled]: increments `GetPCFastTravelled`'s counter and fires
+    /// `SetOnFastTravelEventHandler` (`fasttravel`) with `marker`, returning how
+    /// many handlers ran.
+    pub fn note_fast_travel_to(&mut self, marker: FormId) -> usize {
         self.other.jip12.fast_travels += 1;
+        self.jip_event("fasttravel", None, vec![XVal::Ref(marker.0)])
+    }
+
+    /// The player fast travelled (the Pip-Boy's map): counts the travel for
+    /// `GetPCFastTravelled` and fires JIP's `SetOnFastTravelEventHandler`
+    /// (`fasttravel`) with the arrival marker reference at the player's destination
+    /// (or form 0 when none matches) [documented: SetOnFastTravelEventHandler,
+    /// GetPCFastTravelled].
+    pub fn note_fast_travel(&mut self) {
+        let marker = self.fast_travel_marker_at_player().unwrap_or(FormId(0));
+        self.note_fast_travel_to(marker);
+    }
+
+    /// Attempt to fast-travel the player to `marker`: checks `can_fast_travel`
+    /// (`EnableFastTravel 0`, cell/world flags, air, combat, hostiles near,
+    /// encumbrance without Long Haul) and verifies `marker` is a placed, travelable
+    /// map marker. Refused travel changes nothing and fires no event; on success,
+    /// moves the player to the marker's linked arrival reference (if any) or the
+    /// marker itself, updates `player_entered` / `bring_teammates` /
+    /// `GetPCFastTravelled`, and fires `SetOnFastTravelEventHandler` (`fasttravel`)
+    /// with the destination marker reference [documented: SetOnFastTravelEventHandler,
+    /// EnableFastTravel, GetPCCanFastTravel].
+    pub fn fast_travel(&mut self, marker: FormId) -> bool {
+        if !self.can_fast_travel(&RunCtx::default()) || !self.map_marker_can_travel(marker) {
+            return false;
+        }
+        let Some((dest_id, dest_cell, dest_pos, dest_rot)) = self
+            .fast_travel_destination(marker)
+            .map(|d| (d.id, d.cell, d.pos, d.rot))
+        else {
+            return false;
+        };
+        let cell = dest_cell.map(|c| self.world.placed.exterior_cell_at(c, dest_pos).unwrap_or(c));
+        let from = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos));
+        if let Ok(p) = self.world.get(FormId::PLAYER_REF) {
+            (p.cell, p.pos, p.rot) = (cell, dest_pos, [0.0, 0.0, dest_rot[2]]);
+        }
+        self.player_entered(cell);
+        self.note_fast_travel_to(dest_id);
+        self.bring_teammates(from);
+        true
     }
 
     /// The engine loaded a save made with another load order.

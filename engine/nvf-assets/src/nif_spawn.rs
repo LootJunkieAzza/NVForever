@@ -829,6 +829,10 @@ pub(crate) trait TextureSource {
     /// (`texture::WorkerTextures::alpha_is_mask`): asked only for the shapes
     /// [`blended_cutout`] concerns.
     fn alpha_is_mask(&self, raw_path: &str) -> bool;
+    /// Whether every texel of the texture at a NIF texture path is opaque
+    /// (`texture::alpha_all_opaque`), read from the archives once per file: asked only
+    /// for the shapes [`blend_is_opaque`] concerns.
+    fn alpha_is_opaque(&self, raw_path: &str) -> bool;
     /// The key a NIF texture path loads under (`texture::resolved_path` over this source's
     /// VFS): the diffuse's key is what an authored set is looked up by.
     fn resolve(&self, raw_path: &str) -> String;
@@ -868,6 +872,9 @@ impl TextureSource for StoreTextures<'_> {
 
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         self.textures.workers.alpha_is_mask(raw_path, self.data)
+    }
+    fn alpha_is_opaque(&self, raw_path: &str) -> bool {
+        self.textures.workers.alpha_is_opaque(raw_path, self.data)
     }
 
     fn resolve(&self, raw_path: &str) -> String {
@@ -921,6 +928,68 @@ pub(crate) fn blended_cutout(props: &Props, cut: Option<f32>, alpha_mode: AlphaM
     (matches!(alpha_mode, AlphaMode::Blend) && source_over && tested && alpha_from_texture_only && mask()).then_some(BLENDED_CUTOUT_CUT)
 }
 
+/// Whether a shape that asks to be blended draws the same as an opaque one: it blends
+/// SRC_ALPHA / INV_SRC_ALPHA and nothing gives it an alpha below 1. Its base texture is
+/// opaque in every texel (`opaque_texture`, asked last), its material alpha is 1, it has no
+/// vertex alpha, no vertex-alpha cut, no alpha animation, view-angle falloff, light,
+/// decal, refraction, hair shading or window environment map. With alpha 1 the blend is `colour x 1 + behind x 0`:
+/// the shape's own colour, as if opaque.
+///
+/// Drawn opaque it is in the depth and motion prepasses, which a blended shape is not
+/// (docs/design/fsr-upscaling.md "Blended cut-outs"). Drawn blended, the placed T-45d
+/// Power Armor (`armor\powerarmor\powerarmorgo.nif`: one NiTriStrips, NiAlphaProperty
+/// flags 4333 = blend on, test off, threshold 0, material alpha 1, no vertex colours,
+/// `PowerArmorBody.dds` in DXT1) showed as a faint see-through outline on a table with
+/// DLSS, frame generation and the room's haze on, which all take a blended shape for
+/// something to see through [observed: player report R-C66YZC4D, #3230; fnvtool nif
+/// decode]. In a plain scene it drew solid either way [observed: a placed ArmorPowerT45d
+/// on the Searchlight Airport runway, 2026-11-21].
+pub(crate) fn blend_is_opaque(props: &Props, cut: Option<f32>, alpha_mode: AlphaMode, opaque_texture: impl FnOnce() -> bool) -> bool {
+    let Some((flags, _)) = props.alpha else { return false };
+    let source_over = (flags >> 1) & 0xF == 6 && (flags >> 5) & 0xF == 7;
+    let nothing_thins_it = cut.is_none()
+        && !props.vertex_alpha
+        && props.material_alpha.unwrap_or(1.0) >= 1.0
+        && !props.animated_alpha
+        && props.falloff.is_none()
+        && !props.unlit
+        && !props.decal
+        && props.refraction.is_none()
+        && !props.hair
+        // A shape with a window environment map (`window_env`) keeps its blend: blended,
+        // its reflection is added over it (`premultiply` below), and that path is left as
+        // it is [design, #3230]. (The drinking glass, the glass pitcher and the NCR
+        // glasses are not such shapes: they have the plain environment-map flag only,
+        // material alpha 1 and an opaque texture, so the rule takes them too; they drew
+        // at alpha 1 before as well [observed: fnvtool nif decode of
+        // `clutter\cafeteria\drinkingglass01.nif`; the smoke runs' summary lines].)
+        && props.window_env.is_none();
+    matches!(alpha_mode, AlphaMode::Blend) && source_over && nothing_thins_it && opaque_texture()
+}
+
+/// How many materials [`blend_is_opaque`] turned opaque this run, and the first few
+/// textures they were for (the exit's summary line).
+static BLEND_DRAWN_OPAQUE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static BLEND_DRAWN_OPAQUE_FIRST: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn note_blend_drawn_opaque(texture: &str) {
+    BLEND_DRAWN_OPAQUE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut first) = BLEND_DRAWN_OPAQUE_FIRST.lock() {
+        let t = texture.to_ascii_lowercase();
+        if first.len() < 8 && !first.contains(&t) {
+            first.push(t);
+        }
+    }
+}
+
+/// The exit's line: how many materials that asked to be blended were made opaque because
+/// nothing could thin them ([`blend_is_opaque`]), and the first few textures.
+pub fn blend_opaque_summary() -> String {
+    let n = BLEND_DRAWN_OPAQUE.load(std::sync::atomic::Ordering::Relaxed);
+    let first = BLEND_DRAWN_OPAQUE_FIRST.lock().map(|f| f.join(", ")).unwrap_or_default();
+    format!("blended shapes drawn opaque: {n} material builds (alpha 1 everywhere: opaque texture, material alpha 1, no vertex alpha){}", if first.is_empty() { String::new() } else { format!("; first textures: {first}") })
+}
+
 /// The material for a shape's properties; also returns the base texture path when it
 /// could not be loaded. Adds tangents to `mesh` when a normal map is used.
 pub(crate) fn shape_material(
@@ -966,6 +1035,13 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     let (normal, unmasked) = normal.map_or((None, false), |(h, unmasked)| (Some(h), unmasked));
     let cut = blend_cut(props, mesh);
     let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
+    // A blended shape that nothing can thin is drawn opaque (#3230).
+    let alpha_mode = if blend_is_opaque(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_opaque(t))) {
+        note_blend_drawn_opaque(props.textures.first().map_or("", String::as_str));
+        AlphaMode::Opaque
+    } else {
+        alpha_mode
+    };
     // The window environment map: the cube, the mask and the scale (docs/spec-notes/nif.md
     // §6 "Window glass and environment maps"). A blended shape that reflects is drawn
     // premultiplied, so its reflection is added over the blend whatever its alpha.
@@ -1459,6 +1535,9 @@ mod tests {
         fn alpha_is_mask(&self, _: &str) -> bool {
             false
         }
+        fn alpha_is_opaque(&self, _: &str) -> bool {
+            false
+        }
         fn resolve(&self, raw_path: &str) -> String {
             fnv_vfs::texture_path(raw_path)
         }
@@ -1481,6 +1560,9 @@ mod tests {
         }
         fn alpha_is_mask(&self, raw_path: &str) -> bool {
             raw_path.contains("mask")
+        }
+        fn alpha_is_opaque(&self, raw_path: &str) -> bool {
+            raw_path.contains("solid")
         }
         fn resolve(&self, raw_path: &str) -> String {
             fnv_vfs::texture_path(raw_path)
@@ -1569,6 +1651,48 @@ mod tests {
         ] {
             assert_eq!(shape_material_with(&props, &mut quad(), &mut MaskTextures, Tangents::Generate).0.extension.blended_cutout, None, "{props:?}");
         }
+    }
+
+    /// #3230: a shape that asks to be blended and that nothing can thin is drawn opaque.
+    /// The placed T-45d Power Armor: blend SRC_ALPHA / INV_SRC_ALPHA, test off, threshold 0
+    /// (flags 4333), material alpha 1, no vertex colours, an opaque texture.
+    #[test]
+    fn a_blended_shape_that_nothing_thins_is_opaque() {
+        let quad = || {
+            let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+            m
+        };
+        let mode = |p: &Props| shape_material_with(p, &mut quad(), &mut MaskTextures, Tangents::Generate).0.base.alpha_mode;
+        let armour = Props { alpha: Some((4333, 0)), material_alpha: Some(1.0), textures: vec![r"armor\powerarmor\powerarmorbody_solid.dds".into()], ..Default::default() };
+        assert!(matches!(mode(&armour), AlphaMode::Opaque), "{:?}", mode(&armour));
+        // No stated material alpha is 1 too; so is one tested below the cut (0x12ED).
+        assert!(matches!(mode(&Props { material_alpha: None, ..armour.clone() }), AlphaMode::Opaque));
+        assert!(matches!(mode(&Props { alpha: Some((0x12ED, 0)), ..armour.clone() }), AlphaMode::Opaque));
+        // A texture with any alpha below 1 (or none loaded), and everything else that can
+        // thin a shape, keeps the blend.
+        for props in [
+            Props { textures: vec![r"clutter\glass.dds".into()], ..armour.clone() },
+            Props { textures: vec![String::new()], ..armour.clone() },
+            Props { textures: Vec::new(), ..armour.clone() },
+            Props { material_alpha: Some(0.99), ..armour.clone() },
+            Props { vertex_alpha: true, ..armour.clone() },
+            Props { animated_alpha: true, ..armour.clone() },
+            Props { falloff: Some(crate::nif_material::Falloff { params: Vec4::new(1.0, 0.5, 1.0, 0.0) }), ..armour.clone() },
+            Props { unlit: true, ..armour.clone() },
+            Props { decal: true, ..armour.clone() },
+            Props { hair: true, ..armour.clone() },
+            Props { window_env: Some(1.0), ..armour.clone() },
+        ] {
+            assert!(matches!(mode(&props), AlphaMode::Blend), "{props:?} drawn {:?}", mode(&props));
+            assert!(!blend_is_opaque(&props, None, AlphaMode::Blend, || props.textures.first().is_some_and(|t| t.contains("solid"))), "{props:?}");
+        }
+        // Other blends are not this one: additive stays additive, multiply multiply.
+        assert!(matches!(mode(&Props { alpha: Some((4333 & !(0xF << 5), 0)), ..armour.clone() }), AlphaMode::Add));
+        assert!(matches!(mode(&Props { alpha: Some(((4333 & !(0xF << 1)) | (1 << 1), 0)), ..armour.clone() }), AlphaMode::Multiply));
+        // A shape that is not blended at all is as it was.
+        assert!(matches!(mode(&Props { alpha: None, ..armour.clone() }), AlphaMode::Opaque));
+        assert!(matches!(mode(&Props { alpha: Some((0x12ED, 128)), ..armour }), AlphaMode::Mask(_)));
     }
 
     fn triangle() -> Mesh {

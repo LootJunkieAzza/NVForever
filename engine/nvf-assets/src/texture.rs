@@ -108,6 +108,9 @@ pub struct WorkerTextures {
     /// Whether a texture's alpha is a cut-out mask, by resolved path
     /// ([`Self::alpha_is_mask`]).
     masks: Mutex<HashMap<String, bool>>,
+    /// Whether every texel of a texture is opaque, by resolved path
+    /// ([`Self::alpha_is_opaque`]).
+    opaques: Mutex<HashMap<String, bool>>,
     /// Authored material sets' scalar files and warnings (`crate::authored::find`), shared
     /// by the main thread and the workers.
     pub(crate) authored: crate::authored::Memo,
@@ -922,6 +925,34 @@ pub fn alpha_shares(bytes: &[u8]) -> Option<AlphaShares> {
     Some(AlphaShares { clear: counts[0] as f32 / n, opaque: counts[1] as f32 / n, partial: counts[2] as f32 / n })
 }
 
+/// Whether every texel of a DDS file's top level is opaque (alpha 255), all of them
+/// looked at: a layout without alpha is, a DX10 header stating opaque alpha is, and one
+/// with alpha is when no texel has less. `None` for a file that does not parse and for
+/// BC7 without that statement (no CPU decoder). Unlike [`alpha_shares`] nothing is
+/// sampled: one clear texel in a large texture is a hole someone drew.
+pub fn alpha_all_opaque(bytes: &[u8]) -> Option<bool> {
+    let dds = Dds::parse(bytes).ok()?;
+    if dds.alpha_opaque() {
+        return Some(true);
+    }
+    let top = *dds.levels.first()?.first()?;
+    let (w, h) = (dds.header.width as usize, dds.header.height as usize);
+    match dds.format {
+        Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
+            let size = dds.format.block_bytes()?;
+            let blocks = (w.div_ceil(4) * h.div_ceil(4)).min(top.len() / size);
+            Some(top.chunks_exact(size).take(blocks).all(|b| block_alpha(dds.format, b).iter().all(|&a| a == 255)))
+        }
+        Format::A8R8G8B8 | Format::A4R4G4B4 | Format::A8B8G8R8 | Format::A1R5G5B5 | Format::A8L8 => {
+            let rgba = to_rgba8(dds.format, top)?;
+            Some(rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 255))
+        }
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8
+        | Format::Bc5U | Format::Bc5S | Format::Bc4U | Format::Bc4S => Some(true),
+        Format::Bc7 => None,
+    }
+}
+
 /// A texture's top-level alpha, one byte per texel, rows from the top.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AlphaMap {
@@ -1047,6 +1078,14 @@ impl WorkerTextures {
     pub fn alpha_is_mask(&self, raw_path: &str, data: &GameData) -> bool {
         let path = resolved_path(raw_path, |p| data.vfs.exists(p));
         remembered(&self.masks, path, |path| data.read(path).and_then(|bytes| alpha_shares(&bytes)).is_some_and(|s| s.is_mask()))
+    }
+
+    /// Whether every texel of the texture at a NIF texture path is opaque
+    /// ([`alpha_all_opaque`]); false for a file that is missing or cannot be told. Read
+    /// once per file and remembered, as [`Self::alpha_is_mask`].
+    pub fn alpha_is_opaque(&self, raw_path: &str, data: &GameData) -> bool {
+        let path = resolved_path(raw_path, |p| data.vfs.exists(p));
+        remembered(&self.opaques, path, |path| data.read(path).and_then(|bytes| alpha_all_opaque(&bytes)).unwrap_or(false))
     }
 }
 
@@ -1333,6 +1372,21 @@ mod tests {
         let s = alpha_shares(&dds(b"DXT1", 4, 4, &dxt1)).unwrap();
         assert_eq!(s, AlphaShares { clear: 0.5, opaque: 0.5, partial: 0.0 });
         assert!(s.is_mask());
+        // #3230: whether every texel is opaque, all of them looked at.
+        assert_eq!(super::alpha_all_opaque(&dds(b"DXT1", 4, 4, &dxt1)), Some(false), "punch-through texels");
+        // The same indices with colour 0 above colour 1: four colours, no clear one.
+        let mut solid = dxt1;
+        (solid[0], solid[2]) = (2, 1);
+        assert_eq!(super::alpha_all_opaque(&dds(b"DXT1", 4, 4, &solid)), Some(true));
+        assert_eq!(super::alpha_all_opaque(&dds(b"DXT5", 4, 4, &dxt5_block(255))), Some(true));
+        assert_eq!(super::alpha_all_opaque(&dds(b"DXT5", 4, 4, &dxt5_block(254))), Some(false));
+        // One clear block among many opaque ones is found (nothing is sampled).
+        let mut many: Vec<u8> = std::iter::repeat_n(solid, 64 * 64).flatten().collect();
+        assert_eq!(super::alpha_all_opaque(&dds(b"DXT1", 256, 256, &many)), Some(true));
+        let last = many.len() - 8;
+        many[last..].copy_from_slice(&dxt1);
+        assert_eq!(super::alpha_all_opaque(&dds(b"DXT1", 256, 256, &many)), Some(false));
+        assert_eq!(super::alpha_all_opaque(b"not a dds"), None);
         // DXT3: explicit 4-bit alphas, 0x0F → 255 then 0.
         let mut dxt3 = [0u8; 16];
         dxt3[..8].copy_from_slice(&[0x0F; 8]);

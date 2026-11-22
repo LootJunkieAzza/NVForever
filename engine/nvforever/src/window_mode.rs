@@ -71,14 +71,15 @@ pub struct MonitorModes {
 }
 
 /// A monitor: its connector name (stable — kept in the INI), its entity, its native size
-/// (for the list's label), and its position in the desktop (for a stable left-to-right,
-/// top-to-bottom order).
+/// (for the list's label), its position in the desktop (for a stable left-to-right,
+/// top-to-bottom order) and whether it is the system's primary display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MonitorInfo {
     pub name: String,
     pub entity: Entity,
     pub size: UVec2,
     pub position: IVec2,
+    pub primary: bool,
 }
 
 impl MonitorModes {
@@ -97,9 +98,9 @@ impl MonitorModes {
     }
 }
 
-/// The display borderless full screen opens on: the Display "Monitor" choice (kept in the
-/// INI by connector name), or the first display until one is chosen (or if the chosen one
-/// is not attached now).
+/// The display full screen opens on: the Display "Monitor" choice (kept in the INI by
+/// connector name), or the system's primary display until one is chosen (or if the chosen
+/// one is not attached now), else the first.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub struct MonitorChoice(pub Option<String>);
 
@@ -115,14 +116,20 @@ fn ordered(mut monitors: Vec<MonitorInfo>) -> Vec<MonitorInfo> {
     monitors
 }
 
-/// The monitor selection for [`MonitorChoice`]: the chosen monitor by its name, else the
-/// first monitor (the default); no monitor known yet → `Primary`.
+/// The index in `modes.monitors` of the display full screen goes to: the chosen monitor by
+/// its name, else the system's primary display, else the first. The list is ordered left
+/// to right, so the first is not the primary on a desk whose primary display is not the
+/// leftmost (#3334: a portrait display left of the main one took the game). `None` while
+/// no monitor is known.
+fn chosen_index(modes: &MonitorModes, monitor: &MonitorChoice) -> Option<usize> {
+    let chosen = monitor.0.as_ref().and_then(|name| modes.monitors.iter().position(|m| &m.name == name));
+    chosen.or_else(|| modes.monitors.iter().position(|m| m.primary)).or_else(|| (!modes.monitors.is_empty()).then_some(0))
+}
+
+/// The monitor selection for [`MonitorChoice`] ([`chosen_index`]); no monitor known yet →
+/// `Primary`.
 fn borderless_selection(modes: &MonitorModes, monitor: &MonitorChoice) -> MonitorSelection {
-    let chosen = match &monitor.0 {
-        Some(name) => modes.monitors.iter().find(|m| &m.name == name),
-        None => None,
-    };
-    chosen.or_else(|| modes.monitors.first()).map_or(MonitorSelection::Primary, |m| MonitorSelection::Entity(m.entity))
+    chosen_index(modes, monitor).map_or(MonitorSelection::Primary, |i| MonitorSelection::Entity(modes.monitors[i].entity))
 }
 
 pub struct WindowModePlugin;
@@ -220,15 +227,12 @@ pub fn monitor_names(world: &World) -> Vec<String> {
     world.resource::<MonitorModes>().monitors.iter().enumerate().map(|(i, m)| monitor_label(i, m)).collect()
 }
 
-/// The chosen display: the saved choice while it is still attached, else the first display.
+/// The chosen display: the saved choice while it is still attached, else the primary
+/// display ([`chosen_index`]).
 pub fn monitor_chosen(world: &World) -> String {
     let m = world.resource::<MonitorModes>();
     let c = world.resource::<MonitorChoice>();
-    let idx = match &c.0 {
-        Some(name) => m.monitors.iter().position(|m| &m.name == name).unwrap_or(0),
-        None => 0,
-    };
-    m.monitors.get(idx).map(|m| monitor_label(idx, m)).unwrap_or_default()
+    chosen_index(m, c).map(|i| monitor_label(i, &m.monitors[i])).unwrap_or_default()
 }
 
 /// Choose a display by its label; false when it is not attached now.
@@ -245,22 +249,25 @@ pub fn monitor_save(world: &World) -> String {
     world.resource::<MonitorChoice>().0.clone().unwrap_or_default()
 }
 
-/// The monitor choice from its INI text; "" is none (the first display).
+/// The monitor choice from its INI text; "" is none (the primary display).
 pub fn monitor_load(world: &mut World, text: &str) -> bool {
     let name = text.trim();
     world.resource_mut::<MonitorChoice>().0 = (!name.is_empty()).then(|| name.to_string());
     true
 }
 
-/// Note the window's monitor for the resolution list (its video modes and, while not in
-/// exclusive full screen, its size), and the window's actual monitor (from `OnMonitor`, for
-/// comparing against a chosen display).
-fn watch_monitor(windows: Query<(&Window, Option<&OnMonitor>), With<PrimaryWindow>>, monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>, mut modes: ResMut<MonitorModes>) {
+/// Note the monitor full screen goes to ([`chosen_index`]) for the resolution list (its
+/// video modes and, while not in exclusive full screen, its size), and the window's actual
+/// monitor (from `OnMonitor`, for comparing against a chosen display). The modes are those
+/// of the display the window is sent to, not of the one it is on: #3334 asked the portrait
+/// display for a 1920x1080 at 160 Hz mode read from the other one.
+fn watch_monitor(windows: Query<(&Window, Option<&OnMonitor>), With<PrimaryWindow>>, monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>, choice: Res<MonitorChoice>, mut modes: ResMut<MonitorModes>) {
     let Ok((w, on)) = windows.single() else { return };
-    let monitor = on.and_then(|o| monitors.get(o.0).ok()).or_else(|| monitors.iter().find(|m| m.2)).or_else(|| monitors.iter().next());
+    let all = ordered(monitors.iter().map(|(e, m, primary)| MonitorInfo { name: m.name.clone().unwrap_or_default(), entity: e, size: m.physical_size(), position: m.physical_position, primary }).collect());
+    let target = chosen_index(&MonitorModes { monitors: all.clone(), ..default() }, &choice).map(|i| all[i].entity);
+    let monitor = target.and_then(|e| monitors.get(e).ok()).or_else(|| on.and_then(|o| monitors.get(o.0).ok())).or_else(|| monitors.iter().find(|m| m.2)).or_else(|| monitors.iter().next());
     let Some((_, m, _)) = monitor else { return };
     let desktop = if matches!(w.mode, WindowMode::Fullscreen(..)) { modes.desktop } else { Some(m.physical_size()) };
-    let all = ordered(monitors.iter().map(|(e, m, _)| MonitorInfo { name: m.name.clone().unwrap_or_default(), entity: e, size: m.physical_size(), position: m.physical_position }).collect());
     let current = on.map(|o| o.0);
     if modes.desktop != desktop || modes.modes != m.video_modes || modes.monitors != all || modes.current != current {
         info!("window: monitor {} {}, {} video modes", m.name.as_deref().unwrap_or("?"), desktop.map_or("?".to_string(), size_text), m.video_modes.len());
@@ -553,16 +560,38 @@ mod tests {
     fn borderless_opens_on_the_chosen_display_else_the_first() {
         let e1 = Entity::from_raw_u32(1).unwrap();
         let e2 = Entity::from_raw_u32(2).unwrap();
-        let info = |name: &str, e| MonitorInfo { name: name.to_string(), entity: e, size: UVec2::new(1920, 1080), position: IVec2::ZERO };
+        let info = |name: &str, e| MonitorInfo { name: name.to_string(), entity: e, size: UVec2::new(1920, 1080), position: IVec2::ZERO, primary: false };
         let modes = MonitorModes { monitors: vec![info("DP-1", e1), info("HDMI-A-1", e2)], ..default() };
-        // No choice: the first display.
+        // No choice and no display marked primary: the first display.
         assert_eq!(borderless_selection(&modes, &MonitorChoice(None)), MonitorSelection::Entity(e1));
         // A chosen display that is attached: its entity.
         assert_eq!(borderless_selection(&modes, &MonitorChoice(Some("HDMI-A-1".into()))), MonitorSelection::Entity(e2));
-        // A chosen display that is not attached now (unplugged): the first display.
+        // A chosen display that is not attached now (unplugged): the first display (none is
+        // marked primary here).
         assert_eq!(borderless_selection(&modes, &MonitorChoice(Some("DP-2".into()))), MonitorSelection::Entity(e1));
         // No monitors known yet: the initial (primary) selection.
         assert_eq!(borderless_selection(&MonitorModes::default(), &MonitorChoice(None)), MonitorSelection::Primary);
+    }
+
+    /// #3334: a portrait display left of the primary one. With no choice kept the game goes
+    /// to the primary display, not the leftmost, and the Monitor row says so.
+    #[test]
+    fn with_no_choice_full_screen_goes_to_the_primary_display() {
+        let (portrait, main) = (Entity::from_raw_u32(1).unwrap(), Entity::from_raw_u32(2).unwrap());
+        let monitors = ordered(vec![
+            MonitorInfo { name: "DISPLAY1".into(), entity: main, size: UVec2::new(3840, 2160), position: IVec2::ZERO, primary: true },
+            MonitorInfo { name: "DISPLAY2".into(), entity: portrait, size: UVec2::new(1080, 1920), position: IVec2::new(-1080, 0), primary: false },
+        ]);
+        let modes = MonitorModes { monitors, ..default() };
+        assert_eq!(modes.monitors[0].entity, portrait, "the list stays left to right");
+        assert_eq!(borderless_selection(&modes, &MonitorChoice(None)), MonitorSelection::Entity(main));
+        assert_eq!(borderless_selection(&modes, &MonitorChoice(Some("DISPLAY2".into()))), MonitorSelection::Entity(portrait));
+        // A kept choice that is unplugged: the primary again.
+        assert_eq!(borderless_selection(&modes, &MonitorChoice(Some("DISPLAY3".into()))), MonitorSelection::Entity(main));
+        let mut world = World::new();
+        world.insert_resource(modes);
+        world.init_resource::<MonitorChoice>();
+        assert_eq!(monitor_chosen(&world), "Display 2 (3840x2160)");
     }
 
     #[test]
@@ -570,7 +599,7 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<MonitorModes>();
         world.init_resource::<MonitorChoice>();
-        world.resource_mut::<MonitorModes>().monitors = vec![MonitorInfo { name: "HDMI-A-1".to_string(), entity: Entity::from_raw_u32(1).unwrap(), size: UVec2::new(1920, 1080), position: IVec2::ZERO }];
+        world.resource_mut::<MonitorModes>().monitors = vec![MonitorInfo { name: "HDMI-A-1".to_string(), entity: Entity::from_raw_u32(1).unwrap(), size: UVec2::new(1920, 1080), position: IVec2::ZERO, primary: true }];
         // The list shows each display's label, and the default (nothing saved) is the first.
         assert_eq!(monitor_names(&world), vec!["Display 1 (1920x1080)".to_string()]);
         assert_eq!(monitor_chosen(&world), "Display 1 (1920x1080)");
@@ -585,7 +614,7 @@ mod tests {
 
     #[test]
     fn displays_are_ordered_left_to_right_then_top_to_bottom() {
-        let m = |x, y| MonitorInfo { name: format!("({x},{y})"), entity: Entity::PLACEHOLDER, size: UVec2::ZERO, position: IVec2::new(x, y) };
+        let m = |x, y| MonitorInfo { name: format!("({x},{y})"), entity: Entity::PLACEHOLDER, size: UVec2::ZERO, position: IVec2::new(x, y), primary: false };
         let ordered = ordered(vec![m(0, 100), m(-200, 0), m(0, 0), m(200, 0)]);
         let pos: Vec<IVec2> = ordered.iter().map(|m| m.position).collect();
         assert_eq!(pos, vec![IVec2::new(-200, 0), IVec2::new(0, 0), IVec2::new(0, 100), IVec2::new(200, 0)]);
@@ -621,7 +650,7 @@ mod tests {
     fn the_display_device_is_the_chosen_monitor_s_name() {
         let mut modes = MonitorModes::default();
         let e = Entity::from_raw_u32(3).unwrap();
-        modes.monitors = vec![MonitorInfo { name: r"\.\DISPLAY2".to_string(), entity: e, size: UVec2::new(1920, 1080), position: IVec2::ZERO }];
+        modes.monitors = vec![MonitorInfo { name: r"\.\DISPLAY2".to_string(), entity: e, size: UVec2::new(1920, 1080), position: IVec2::ZERO, primary: false }];
         assert_eq!(device_of(&modes, MonitorSelection::Entity(e)).as_deref(), Some(r"\.\DISPLAY2"));
         assert_eq!(device_of(&modes, MonitorSelection::Primary), None);
     }
