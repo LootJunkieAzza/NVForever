@@ -6,13 +6,13 @@
 //! - **Its time.** Player 1's game makes it the frame split screen starts, before its own
 //!   window goes to its half, so the desktop never shows while the windows move. It covers
 //!   the whole monitor and stays until split screen ends.
-//! - **Under the halves.** It is kept just under player 1's window in the z-order, and
-//!   player 2's window, owned by player 1's, is above that. A window owned by player 1's
-//!   would always be over it, so the backdrop has no owner [documented: Win32 "Owned
-//!   Windows", an owned window is always above its owner]. It follows player 1's window
-//!   into and out of the topmost band (the taskbar fix, split.rs `set_on_top`), so the
-//!   taskbar stays hidden while either half has the focus, and it hides while player 1's
-//!   window is minimised.
+//! - **Under the halves.** Player 1's game keeps the stack every frame: player 2's window
+//!   (while it shows), player 1's, then the backdrop, together. A window owned by player
+//!   1's would always be over it, so the backdrop has no owner [documented: Win32 "Owned
+//!   Windows", an owned window is always above its owner]. All three are topmost while
+//!   either half has the focus (the taskbar fix, split.rs `p1_watch_focus`), so the
+//!   taskbar stays hidden, and go back under the program that takes the focus. The
+//!   backdrop hides while player 1's window is minimised.
 //! - **Never in the way.** It is a tool window (no taskbar button, not in Alt+Tab) and is
 //!   never activated, not even by a click, so the keyboard stays with player 1's window
 //!   and Alt+Tab to another program works as before.
@@ -24,7 +24,25 @@
 //! loop already dispatches), not a Bevy one: it draws nothing but black and a line of
 //! text, with no GPU surface.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use bevy::prelude::*;
+
+/// Frames the backdrop has been up and painted ([`ready`]); [`FAILED`] when it could not be made.
+static FRAMES_UP: AtomicU32 = AtomicU32::new(0);
+const FAILED: u32 = u32::MAX;
+/// Frames the backdrop is up before player 1's window may leave the whole screen: one
+/// for Windows to compose it on the screen, one to spare [engineering choice].
+const READY_AFTER: u32 = 2;
+
+/// Whether player 1's window may go to its half: the backdrop has been on the screen for
+/// [`READY_AFTER`] frames (or could not be made), so nothing behind shows as it shrinks
+/// [observed: the two-window check of 2026-11-22 and the owner's "start of split", the
+/// desktop showed as player 1's window shrank before the backdrop was painted].
+pub fn ready() -> bool {
+    let n = FRAMES_UP.load(Ordering::Relaxed);
+    n == FAILED || n >= READY_AFTER
+}
 
 /// What the backdrop says in player 2's half while it waits [design: our own words].
 pub const JOINING: &str = "Player 2 is joining\u{2026}";
@@ -45,34 +63,38 @@ pub struct Look {
 pub struct Backdrop {
     hwnd: Option<isize>,
     look: Option<Look>,
-    /// Whether it is in the topmost band now.
-    topmost: bool,
     hidden: bool,
-    /// Times it was put back under player 1's window (a window came between them).
+    /// Times the stack was put right again (a window came between, or the band changed).
     restacks: u32,
     /// Making it failed (tried once a split screen).
     failed: bool,
 }
 
 impl Backdrop {
-    /// Up as `look` says, under `p1` (player 1's window), topmost when `on_top`: made the
-    /// first time, then kept in place.
-    pub fn show(&mut self, p1: isize, look: Look, on_top: bool) {
+    /// Up as `look` says, under the halves: `p1` (player 1's window) and `p2` (player 2's,
+    /// once known), all three topmost when `on_top`. Made the first time, then kept in place.
+    pub fn show(&mut self, p1: isize, p2: Option<isize>, look: Look, on_top: bool) {
         if self.hwnd.is_some_and(|h| !imp::alive(h)) {
             self.hwnd = None;
         }
         let h = match self.hwnd {
-            Some(h) => h,
+            Some(h) => {
+                let n = FRAMES_UP.load(Ordering::Relaxed);
+                if n < READY_AFTER {
+                    FRAMES_UP.store(n + 1, Ordering::Relaxed);
+                }
+                h
+            }
             None if self.failed => return,
             None => {
                 let Some(h) = imp::create(look.screen) else {
                     warn!("split: no backdrop: the desktop may show while the windows move and player 2's game loads");
                     self.failed = true;
+                    FRAMES_UP.store(FAILED, Ordering::Relaxed);
                     return;
                 };
                 info!("split: backdrop up under the halves ({}x{} at {:?})", look.screen.1.x, look.screen.1.y, look.screen.0);
                 self.hwnd = Some(h);
-                self.topmost = false;
                 self.hidden = false;
                 self.look = None;
                 h
@@ -97,15 +119,42 @@ impl Backdrop {
         if iconic {
             return;
         }
-        if on_top != self.topmost {
-            self.topmost = on_top;
-            imp::set_topmost(h, on_top);
+        // The stack, top down: player 2's window (while it shows), player 1's, the
+        // backdrop. Player 1's game keeps all three, since a window owned by another
+        // process's window does not follow it into the topmost band [observed: the
+        // two-window check of 2026-11-22, player 2's window stayed out of it, under the
+        // backdrop].
+        let order: Vec<isize> = p2.filter(|&w| imp::shown(w)).into_iter().chain([p1, h]).collect();
+        let mut moved = false;
+        let mut why = "the band";
+        let mut left_top = false;
+        // The band, bottom up, so they land in their order.
+        for &w in order.iter().rev() {
+            if imp::topmost(w) != on_top {
+                imp::set_topmost(w, on_top);
+                left_top |= !on_top;
+                moved = true;
+            }
         }
-        if !imp::just_under(h, p1) {
-            imp::put_under(h, p1);
+        // Leaving the topmost band puts a window over every one that isn't topmost
+        // [documented: SetWindowPos, HWND_NOTOPMOST]: the halves go back under the program
+        // that took the focus.
+        if left_top {
+            if let Some(fg) = imp::foreground().filter(|f| !order.contains(f)) {
+                imp::put_under(order[0], fg);
+            }
+        }
+        for pair in order.windows(2) {
+            if !imp::just_under(pair[1], pair[0]) {
+                imp::put_under(pair[1], pair[0]);
+                why = if pair[1] == h { "the backdrop was not under player 1's window" } else { "player 1's window was not under player 2's" };
+                moved = true;
+            }
+        }
+        if moved {
             self.restacks += 1;
-            if self.restacks == 1 || self.restacks.is_power_of_two() {
-                debug!("split: backdrop put back under player 1's window ({} times)", self.restacks);
+            if self.restacks <= 2 || self.restacks.is_power_of_two() {
+                info!("split: backdrop: the halves and the backdrop stacked again ({} windows, {}; {why}; {} times)", order.len(), if on_top { "over the taskbar" } else { "under the focused program" }, self.restacks);
             }
         }
     }
@@ -117,9 +166,10 @@ impl Backdrop {
             info!("split: backdrop gone ({why})");
         }
         self.look = None;
-        self.topmost = false;
         self.hidden = false;
         self.failed = false;
+        self.restacks = 0;
+        FRAMES_UP.store(0, Ordering::Relaxed);
     }
 }
 
@@ -135,11 +185,11 @@ mod imp {
     use bevy::math::{IVec2, UVec2};
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows_sys::Win32::Graphics::Gdi::{
-        BeginPaint, CreateFontW, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject, InvalidateRect, SelectObject, SetBkMode, SetTextColor, BLACK_BRUSH, CLEARTYPE_QUALITY, DEFAULT_CHARSET, DT_CENTER, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_NORMAL, HBRUSH, OUT_DEFAULT_PRECIS, PAINTSTRUCT, TRANSPARENT,
+        BeginPaint, CreateFontW, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject, InvalidateRect, SelectObject, SetBkMode, SetTextColor, UpdateWindow, BLACK_BRUSH, CLEARTYPE_QUALITY, DEFAULT_CHARSET, DT_CENTER, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_NORMAL, HBRUSH, OUT_DEFAULT_PRECIS, PAINTSTRUCT, TRANSPARENT,
     };
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindow, GetWindowLongPtrW, IsIconic, IsWindow, IsWindowVisible, RegisterClassW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_PAINT, WNDCLASSW,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetForegroundWindow, GetWindow, GetWindowLongPtrW, IsIconic, IsWindow, IsWindowVisible, RegisterClassW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT, HWND_NOTOPMOST, HWND_TOPMOST, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_PAINT, WNDCLASSW,
         WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
 
@@ -204,6 +254,10 @@ mod imp {
                 return None;
             }
             ShowWindow(h, SW_SHOWNOACTIVATE);
+            // Painted now, not when the game's loop next gets to its messages: player 1's
+            // game can be busy for seconds as split screen starts [observed: the two-window
+            // check of 2026-11-22, the desktop showed through for 3 s].
+            UpdateWindow(h);
             Some(h as isize)
         }
     }
@@ -238,30 +292,54 @@ mod imp {
     }
 
     pub fn set_topmost(h: isize, on: bool) {
-        // SAFETY: this process's own backdrop; its place under player 1's window is set
-        // again right after (`put_under`).
+        // SAFETY: a window of the stack (this process's, or player 2's game's); its place
+        // in the stack is set again right after (`put_under`).
         unsafe {
-            SetWindowPos(h as HWND, if on { HWND_TOPMOST } else { HWND_NOTOPMOST }, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            SetWindowPos(h as HWND, if on { HWND_TOPMOST } else { HWND_NOTOPMOST }, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
         }
     }
 
-    /// Whether the window right under `p1` is the backdrop, in the band `p1` is in.
-    pub fn just_under(h: isize, p1: isize) -> bool {
-        // SAFETY: only asks about two windows.
-        unsafe { GetWindow(p1 as HWND, GW_HWNDNEXT) as isize == h && topmost(h) == topmost(p1) }
-    }
-
-    pub fn put_under(h: isize, p1: isize) {
-        // SAFETY: this process's own backdrop, placed right under player 1's window.
+    /// Whether the first shown window under `above` is `h`. Hidden windows between are
+    /// left where they are: the games' own hidden windows sit there, and putting `h` back
+    /// over them every frame moved the stack every frame [observed: the two-window check
+    /// of 2026-11-22, 8192 restacks in 4 minutes].
+    pub fn just_under(h: isize, above: isize) -> bool {
+        let mut w = above as HWND;
+        // SAFETY: only asks about windows.
         unsafe {
-            if topmost(h) != topmost(p1) {
-                SetWindowPos(h as HWND, if topmost(p1) { HWND_TOPMOST } else { HWND_NOTOPMOST }, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            for _ in 0..64 {
+                w = GetWindow(w, GW_HWNDNEXT);
+                if w.is_null() {
+                    return false;
+                }
+                if w as isize == h {
+                    return true;
+                }
+                if IsWindowVisible(w) != 0 {
+                    return false;
+                }
             }
-            SetWindowPos(h as HWND, p1 as HWND, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+        false
+    }
+
+    /// `h` right under `above`, never activated. Asynchronous for a window of another
+    /// thread (player 2's game's), so player 1's game never waits on player 2's while it
+    /// loads [documented: SetWindowPos, SWP_ASYNCWINDOWPOS].
+    pub fn put_under(h: isize, above: isize) {
+        // SAFETY: a window of the stack (this process's, or player 2's game's).
+        unsafe {
+            SetWindowPos(h as HWND, above as HWND, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
         }
     }
 
-    fn topmost(h: isize) -> bool {
+    pub fn foreground() -> Option<isize> {
+        // SAFETY: only asks which window has the focus.
+        let h = unsafe { GetForegroundWindow() };
+        (!h.is_null()).then_some(h as isize)
+    }
+
+    pub fn topmost(h: isize) -> bool {
         // SAFETY: only reads the window's extended style.
         unsafe { GetWindowLongPtrW(h as HWND, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0 }
     }
@@ -302,10 +380,16 @@ mod imp {
     pub fn set_text(_h: isize, _half: Option<(IVec2, UVec2)>, _origin: IVec2) {}
     pub fn set_shown(_h: isize, _on: bool) {}
     pub fn set_topmost(_h: isize, _on: bool) {}
-    pub fn just_under(_h: isize, _p1: isize) -> bool {
+    pub fn just_under(_h: isize, _above: isize) -> bool {
         true
     }
-    pub fn put_under(_h: isize, _p1: isize) {}
+    pub fn put_under(_h: isize, _above: isize) {}
+    pub fn foreground() -> Option<isize> {
+        None
+    }
+    pub fn topmost(_h: isize) -> bool {
+        false
+    }
     pub fn iconic(_h: isize) -> bool {
         false
     }
