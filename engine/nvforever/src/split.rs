@@ -493,6 +493,8 @@ struct P1 {
     p2_child: Option<std::process::Child>,
     /// This game's window, once marked full screen for the taskbar ([`mark_fullscreen`]).
     marked: Option<isize>,
+    /// This game's window is kept over the taskbar now ([`set_on_top`]).
+    on_top: bool,
 }
 
 /// A window as it was, to give it back.
@@ -584,6 +586,7 @@ fn split_asks(
                     focused: None,
                     p2_child: None,
                     marked: None,
+                    on_top: false,
                 });
                 split.on = true;
                 info!("split: split screen on");
@@ -613,6 +616,9 @@ fn end_split(commands: &mut Commands, p1: &P1, window: Option<&mut Window>, conn
     let _ = std::fs::remove_file(p1.dir.join("p2.txt"));
     if let Some(h) = p1.marked {
         mark_fullscreen(h, false);
+        if p1.on_top {
+            set_on_top(h, false);
+        }
     }
     if let (Some(w), Some(before)) = (window, &p1.before) {
         before.give_back(w);
@@ -859,6 +865,22 @@ fn p1_count_input(
 /// notes, Focus).
 fn p1_watch_focus(mut p1: ResMut<P1>, windows: Query<&Window, With<PrimaryWindow>>) {
     let Ok(w) = windows.single() else { return };
+    // Over the taskbar while the halves are played: while this game's window has the
+    // focus, or player 2's (which gives it back). Another program's window, or the
+    // taskbar itself (the Windows key, a click on it), taking the focus puts it back
+    // under them, so they show as over any game.
+    if let Some(h) = p1.marked {
+        let fg = (!w.focused).then(foreground_window).flatten();
+        let want = w.focused || (fg.is_some() && fg == p1.p2_hwnd);
+        if want != p1.on_top {
+            p1.on_top = want;
+            if set_on_top(h, want) {
+                info!("split: the halves {} the taskbar", if want { "are over" } else { "go back under" });
+            } else {
+                warn!("split: player 1's window could not be put {} the taskbar", if want { "over" } else { "back under" });
+            }
+        }
+    }
     if p1.focused == Some(w.focused) {
         return;
     }
@@ -1828,6 +1850,25 @@ fn mark_fullscreen(window: isize, on: bool) -> bool {
 
 #[cfg(not(windows))]
 fn mark_fullscreen(_window: isize, _on: bool) -> bool {
+    false
+}
+
+/// Puts player 1's window over the taskbar (`on`: always on top), or back among the other
+/// windows. Its owned windows (player 2's, the panel over player 2's half) go with it
+/// [documented: Win32 `SetWindowPos`, "When a non-topmost window is made topmost, its owned
+/// windows are also made topmost"]. Marking the window full screen for the taskbar
+/// ([`mark_fullscreen`]) was not enough: the taskbar stayed over the halves' bottom edge
+/// with the mark taken [observed: the owner's split screen game and screenshot, 2026-11-21
+/// 23:19, and the night pass's frames]. True when Windows did it.
+#[cfg(windows)]
+fn set_on_top(window: isize, on: bool) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE};
+    // SAFETY: `window` is this process's own top-level window; only its z-order changes.
+    unsafe { SetWindowPos(window as _, if on { HWND_TOPMOST } else { HWND_NOTOPMOST }, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0 }
+}
+
+#[cfg(not(windows))]
+fn set_on_top(_window: isize, _on: bool) -> bool {
     false
 }
 
