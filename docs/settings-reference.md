@@ -29,7 +29,8 @@ one).
 
 The Controls tab's own rows (Input Device, Automatic Input Switching, Rumble, Invert Y, the
 sensitivities, the controls) stand under the Controls headings the page shows them in. The
-Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
+Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md; the
+flashlight's own rows, on that tab too, are listed here (Tweaks › Flashlight).
 
 ## Gameplay › Game
 
@@ -1427,6 +1428,105 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - On the page: Quick Loot lists each item's value divided by its weight.
 - Greyed while Quick Loot is off. Off by default.
 - Registered in `engine/nvf-play/src/quick_loot.rs`
+
+## Tweaks › Flashlight
+
+The rows of the player's flashlight (`engine/nvforever/src/flashlight.rs`), in the Tweaks
+tab's Quality of Life group. None is in the original, whose Pip-Boy light is no such light
+[design]: the flashlight itself is NVForever's, and these rows are those flashlight mods of
+other games commonly offer. They apply at once: the light is made again each time one of
+them changes. At their defaults it is the light the flashlight had before them: warm white,
+about 40 m of reach, a cone 60 degrees across that casts shadows.
+
+In co-op each player's rows are their own: the other players see that player's light as
+that player has set it (type, colour, with Pip-Boy their own Pip-Boy's colour, reach,
+brightness, beam and shadows), on their body, and see it change as they change the rows
+(`PlayerState::light`, engine/nvf-coop net.rs) [owner statement 2026-11-21].
+
+### `flashlight-shadows`: Shadows
+
+- On the page: On: walls and objects stop the flashlight and cast shadows from it. Off: it
+  costs less, but lights through walls. Not in the original.
+- In full: A spot's shadows are one map of Shadow resolution's size; a point light's are a
+  cube of six, which costs more frame time. The player casts none either way. On by
+  default [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-type`: Type
+
+- On the page: Spot: a cone of light ahead of you, as a flashlight. Point: light all round
+  you, as a lantern. Not in the original.
+- In full: Which of Bevy's lights the flashlight is: `SpotLight` (Spot) or `PointLight`
+  (Point). Both sit in front of the face and both can cast shadows. A list: Spot, Point;
+  Spot by default [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-colour`: Colour
+
+- On the page: Warm white (the default), Pip-Boy (your Pip-Boy's colour, as the original's
+  light) or another; the sliders below set any colour. Not in the original.
+- In full: A list: Warm white (the default), Pip-Boy, Cool white, Amber, Red, Green and
+  Blue; Custom is listed too while the sliders make none of the named colours. Taking a
+  named colour sets the three sliders [design]. **Pip-Boy** makes the light the colour of
+  Display › Colours › Pip-Boy colour, and follows it when that changes: the original's
+  Pip-Boy light takes the Pip-Boy's colour [owner statement 2026-11-21]. It leaves the
+  sliders as they were and greys them ("Not while Colour is Pip-Boy."); taking Custom
+  or a named colour gives the sliders' colour back. The INI keeps it as
+  `flashlight-colour=Pip-Boy`.
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-red`: Red
+
+- On the page: The red in the flashlight's colour, 0 to 255. Not in the original.
+- Greyed while Colour is Pip-Boy ("Not while Colour is Pip-Boy.").
+- A slider: 0 to 255 in ones; 255 by default.
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-green`: Green
+
+- On the page: The green in the flashlight's colour, 0 to 255. Not in the original.
+- Greyed while Colour is Pip-Boy ("Not while Colour is Pip-Boy.").
+- A slider: 0 to 255 in ones; 242 by default.
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-blue`: Blue
+
+- On the page: The blue in the flashlight's colour, 0 to 255. Not in the original.
+- Greyed while Colour is Pip-Boy ("Not while Colour is Pip-Boy.").
+- A slider: 0 to 255 in ones; 219 by default.
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-range`: Range
+
+- On the page: How far the flashlight reaches, in metres (40 by default). Not in the
+  original.
+- A slider: 400 to 8000 game units in steps of 200 (about 6 to 114 m, 70 units a metre);
+  2800 (40 m) by default [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-brightness`: Brightness
+
+- On the page: How bright the flashlight is, as a part of its default brightness (100%).
+  Not in the original.
+- A slider: 25% to 400% of the default brightness in steps of 25%; 100% by default
+  [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-beam-width`: Beam width
+
+- On the page: How wide the spot's cone of light is, edge to edge, in degrees (60 by
+  default). Not in the original.
+- A slider: 10 to 160 degrees across in steps of 5; 60 by default. Greyed while the type
+  is Point, which has no cone [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-beam-softness`: Beam softness
+
+- On the page: How much of the spot's cone fades out to its edge: low draws a hard rim,
+  high a soft glow. Not in the original.
+- A slider: 0% to 100% of the cone in thirtieths; 53% by default (the default light's
+  bright middle, 28 of its 60 degrees). Greyed while the type is Point [design].
+- Registered in `engine/nvforever/src/settings.rs`
 
 ## Debug
 

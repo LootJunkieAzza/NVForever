@@ -5336,6 +5336,32 @@ args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice"]
 run_seconds = 28
 order = [["flashlight: on", "flashlight: off"]]
 
+[[scenario]]
+name = "flashlight-settings"
+source = "Tweaks > Flashlight rows (nvforever flashlight.rs, settings.rs): with the flashlight on (at 7 s, after the start scripts' ResetPipboyManager turns it off), it is the default warm white spot; Type remakes it as a point light and back as a spot, Beam width takes it to its narrowest (10 degrees across), Colour Pip-Boy gives it the Pip-Boy's amber and then the Pip-Boy colour's green; the rows are put back (its home keeps them for the next run) and the flashlight goes off; in a dark interior, with a home of its own so a player's settings are untouched"
+areas = ["flashlight", "settings"]
+paths = ["engine/nvforever/src/flashlight.rs", "engine/nvforever/src/settings.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVFOREVER_HOME = "flashlight-settings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "7:flashlight,22:flashlight", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:flashlight-type=Point,13:flashlight-type=Spot,15:flashlight-beam-width=0.0625,16:flashlight-colour=Pip-Boy,17:pipboy-colour=Green,17.4:flashlight-beam-width=0.375,17.6:flashlight-colour=Warm white,17.8:pipboy-colour=Amber" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice"]
+run_seconds = 28
+order = [[
+  "flashlight: on",
+  { re = 'flashlight light: Spot, shadows on, colour \[1\.0, 0\.949\d*, 0\.858\d*\], range 2800, brightness 2\.00, cone 14\.0/30\.0 degrees', label = "the default light: warm white, 40 m, 60 degrees" },
+  "settings: flashlight-type Point",
+  { re = 'flashlight light: Point, shadows on', label = "the light made again as a point light" },
+  "settings: flashlight-type Spot",
+  { re = 'flashlight light: Spot, shadows on', label = "and as a spot again" },
+  "settings: flashlight-beam-width 10",
+  { re = 'flashlight light: Spot, .*cone [0-9.]+/5\.0 degrees', label = "the narrowest beam: 10 degrees across" },
+  "settings: flashlight-colour Pip-Boy",
+  { re = 'flashlight light: Spot, shadows on, colour \[1\.0, 0\.713\d*, 0\.258\d*\]', label = "Pip-Boy: the Pip-Boy's colour, amber by default" },
+  "settings: pipboy-colour Green",
+  { re = 'flashlight light: Spot, shadows on, colour \[0\.101\d*, 1\.0, 0\.501\d*\]', label = "and it follows the Pip-Boy colour to green" },
+  "settings: pipboy-colour Amber",
+  "flashlight: off",
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the light changes type" }]
+
 # ------------------------------------------------------------------ sounds
 
 [[scenario]]
