@@ -29,10 +29,12 @@
 //!
 //! The cover belongs to the new run's process: if that run dies, the cover goes with it.
 
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 /// The cover's window while it is up (0: none).
 static COVER: AtomicIsize = AtomicIsize::new(0);
+/// Set by [`up_over_screen`]: the cover waits for split screen to end before it may go.
+static TILL_SPLIT_ENDS: AtomicBool = AtomicBool::new(false);
 
 /// Whether the cover is up.
 pub fn is_up() -> bool {
@@ -45,8 +47,29 @@ pub fn up_over(pid: u32) -> Result<String, String> {
     imp::up_over(pid)
 }
 
+/// Puts a cover up over the whole monitor of `window` (this run's), holding what is on
+/// the screen now, for split screen's end on the way to the main menu: player 2's game
+/// quit and its window went before player 1's window was back at its own size, and the
+/// black backdrop showed over both halves for about 0.1 s [observed: the check of
+/// 2026-11-22, item 215, cover6 15.91-15.97 s]. It stays while split screen is on and goes
+/// like a load's cover (`crate::handoff::lower_cover`) once this window has drawn at its
+/// own size and is in front.
+pub fn up_over_screen(window: isize) -> Result<String, String> {
+    let r = imp::up_over_screen(window);
+    if r.is_ok() {
+        TILL_SPLIT_ENDS.store(true, Ordering::Relaxed);
+    }
+    r
+}
+
+/// Whether the cover is [`up_over_screen`]'s, held while split screen is still on.
+pub fn till_split_ends() -> bool {
+    TILL_SPLIT_ENDS.load(Ordering::Relaxed)
+}
+
 /// Takes the cover down.
 pub fn down() {
+    TILL_SPLIT_ENDS.store(false, Ordering::Relaxed);
     let h = COVER.swap(0, Ordering::Relaxed);
     if h != 0 {
         imp::close(h);
@@ -236,6 +259,28 @@ mod imp {
         let Some((_, r)) = window_of(pid) else {
             return Err(format!("the old run (process {pid}) has no window showing"));
         };
+        put_up(r)
+    }
+
+    pub fn up_over_screen(window: isize) -> Result<String, String> {
+        use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+        // SAFETY: only asks about this run's window's monitor.
+        let r = unsafe {
+            let m = MonitorFromWindow(window as HWND, MONITOR_DEFAULTTONEAREST);
+            let mut info: MONITORINFO = std::mem::zeroed();
+            info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            if m.is_null() || GetMonitorInfoW(m, &mut info) == 0 {
+                return Err("its monitor is not known".into());
+            }
+            info.rcMonitor
+        };
+        put_up(r)
+    }
+
+    fn put_up(r: RECT) -> Result<String, String> {
+        if super::is_up() {
+            return Err("a cover is up already".into());
+        }
         let Some(bmp) = copy_screen(&r) else {
             return Err("the screen could not be copied".into());
         };
@@ -400,6 +445,9 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     pub fn up_over(_pid: u32) -> Result<String, String> {
+        Err("not made on this system".into())
+    }
+    pub fn up_over_screen(_window: isize) -> Result<String, String> {
         Err("not made on this system".into())
     }
     pub fn close(_h: isize) {}

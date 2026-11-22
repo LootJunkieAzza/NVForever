@@ -447,7 +447,7 @@ impl Plugin for CoopPlugin {
             .init_resource::<HoldLeave>()
             .init_resource::<LitPuppets>()
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
-            .add_systems(Last, leave::host_ends)
+            .add_systems(Last, leave::host_ends.after(crate::split::hold_screen_on_quit))
             .add_systems(Update, story::share_story.after(take_events).after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, second_listener, draw, scene::hide_players_in_scene, peer_lights, pipboy_share, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));

@@ -728,7 +728,21 @@ const COVER_MAX_SECS: f64 = 3.0;
 /// at most [`COVER_MAX_SECS`] after the window shows.
 pub fn lower_cover(windows: Query<(&Window, &bevy::window::RawHandleWrapper), With<PrimaryWindow>>, mut since: Local<Option<(u32, Instant)>>, mut raised: Local<bool>, _main_thread: NonSendMarker) {
     let Ok((window, handle)) = windows.single() else { return };
-    if !cover::is_up() || !window.visible {
+    if !cover::is_up() {
+        // Counted again for the next cover: split screen's end held the screen 111 s after
+        // the load's cover went, and went at once on the count left from it [observed: the
+        // check of 2026-11-22, item 215].
+        *since = None;
+        *raised = false;
+        return;
+    }
+    if !window.visible {
+        return;
+    }
+    // Split screen's end on the way to the main menu (`cover::up_over_screen`): counted
+    // from the end, at this window's own size.
+    if cover::till_split_ends() && std::env::var_os("NVF_SPLIT_P1").is_some() {
+        *since = None;
         return;
     }
     let mine = match handle.get_window_handle() {

@@ -336,6 +336,7 @@ impl Plugin for SplitPlugin {
                 .add_systems(PreUpdate, note_last_pad.after(gamepad_connection_system).before(gamepad_event_processing_system))
                 .add_systems(PreUpdate, p1_route_pads.run_if(resource_exists::<P1>).after(note_last_pad).before(gamepad_event_processing_system))
                 .add_systems(PreUpdate, p1_count_input.run_if(resource_exists::<P1>).before(bevy::input::InputSystems))
+                .add_systems(Last, hold_screen_on_quit)
                 .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), p1_watch_focus.run_if(resource_exists::<P1>), close_lobby_after, split_ui, p1_backdrop, sound::p1_sound).chain());
             test_pads::setup(app);
         }
@@ -644,6 +645,16 @@ fn end_split(commands: &mut Commands, p1: &P1, window: Option<&mut Window>, conn
     let text = std::fs::read_to_string(&file).unwrap_or_default();
     write_file(&file, &format!("{text}end=1\n"));
     let _ = std::fs::remove_file(p1.dir.join("p2.txt"));
+    // The screen as it is, held till this window is back at its own size and drawn there
+    // (`crate::handoff::cover::up_over_screen`): the window's last split picture showed
+    // squeezed into it for a frame [observed: the End Split check of 2026-11-22, item 215].
+    // On Quit to Main Menu it is up already ([`hold_screen_on_quit`]).
+    if let Some(h) = p1.marked.filter(|_| !crate::handoff::cover::is_up()) {
+        match crate::handoff::cover::up_over_screen(h) {
+            Ok(at) => info!("split: the screen held for the end of split screen ({at})"),
+            Err(why) => info!("split: the screen not held for the end of split screen: {why}"),
+        }
+    }
     if let Some(h) = p1.marked {
         mark_fullscreen(h, false);
         if p1.on_top {
@@ -674,6 +685,27 @@ fn end_split(commands: &mut Commands, p1: &P1, window: Option<&mut Window>, conn
         commands.insert_resource(CloseLobbyAfter { until: now + P2_GONE });
     }
     info!("split: split screen ended ({why})");
+}
+
+/// Quit to Main Menu in split screen: before player 2's game is told (`crate::coop`'s
+/// host ends its lobby, in the same frame), player 1's game holds the whole screen as it
+/// is (`crate::handoff::cover::up_over_screen`) until split screen has ended and its window
+/// is back, drawn, at its own size: player 2's game went first and the black backdrop
+/// showed over both halves for about 0.1 s [observed: the check of 2026-11-22, item 215].
+pub fn hold_screen_on_quit(mut to_menu: MessageReader<nvf_play::pause::MainMenuRequest>, windows: Query<&RawHandleWrapper, With<PrimaryWindow>>, _main_thread: bevy::ecs::system::NonSendMarker) {
+    if to_menu.read().count() == 0 || std::env::var_os("NVF_SPLIT_P1").is_none() {
+        return;
+    }
+    let Some(mine) = windows.single().ok().and_then(|h| match h.get_window_handle() {
+        wgpu::rwh::RawWindowHandle::Win32(w) => Some(w.hwnd.get()),
+        _ => None,
+    }) else {
+        return;
+    };
+    match crate::handoff::cover::up_over_screen(mine) {
+        Ok(at) => info!("split: the screen held for the end of split screen ({at})"),
+        Err(why) => info!("split: the screen not held for the end of split screen: {why}"),
+    }
 }
 
 /// After split screen: the lobby opened for player 2 closes once player 2 has left it and

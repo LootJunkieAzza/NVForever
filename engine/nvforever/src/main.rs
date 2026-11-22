@@ -2395,6 +2395,11 @@ fn main() -> AppExit {
         console_toggles::register(&mut app);
         app.init_resource::<handoff::Handoff>().add_systems(Update, (handoff::leave, handoff::reveal.after(world::loading_gate), handoff::hold_restore.after(handoff::reveal)));
         handoff::add_end_now(&mut app);
+        // Every run: a load's new run lowers the old window's cover, and any run that ends
+        // split screen lowers the screen it held (`handoff::cover::up_over_screen`); a run
+        // started without `--handoff` kept that one up for good [observed: the End Split
+        // check of 2026-11-22, item 215].
+        app.add_systems(Last, handoff::lower_cover);
         if let Some(why) = load_failed {
             app.insert_resource(handoff::LoadFailed(why)).add_systems(Update, handoff::tell_load_failed);
         }
@@ -2406,7 +2411,7 @@ fn main() -> AppExit {
                 Some(Err(e)) => warn!("handoff: started as the new run, but cannot tell the old run so ({}: {e}); it ends after {} s", handoff::started_marker(&file).display(), handoff::JOIN_WAIT_SECS),
                 _ => info!("handoff: started as the new run (ready file {})", file.display()),
             }
-            app.insert_resource(handoff::Hidden::new(file, args.window_maximized)).add_systems(First, handoff::watch_old_run).add_systems(Last, handoff::lower_cover).add_systems(Startup, handoff::log_before_gpu);
+            app.insert_resource(handoff::Hidden::new(file, args.window_maximized)).add_systems(First, handoff::watch_old_run).add_systems(Startup, handoff::log_before_gpu);
             // The save waits from the first frame, not only once `hold_restore` has run:
             // the first frame's Update takes seconds (7.2 s observed), long enough for the
             // script data to come in during it, and `run_scripts` took it, putting the
