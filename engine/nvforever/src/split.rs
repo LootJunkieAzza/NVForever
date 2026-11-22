@@ -553,7 +553,18 @@ fn split_asks(
     mut saved: MessageReader<nvf_play::save::SaveDone>,
     mut last_save: Local<Option<Option<String>>>,
     layout: Res<SplitLayout>,
+    mut to_menu: MessageReader<nvf_play::pause::MainMenuRequest>,
 ) {
+    // Quit to Main Menu ends split screen: player 2's game closes and the main menu's run
+    // starts without `--split` [owner 2026-11-22: "when quitting to main menu splitscreen
+    // should end"; before, the main menu came back in player 1's half with player 2's
+    // black under it]. A load from the pause menu keeps it.
+    if to_menu.read().count() > 0 && (p1.is_some() || split.on_load) {
+        split.on_load = false;
+        if p1.is_some() {
+            split.ask = Some(false);
+        }
+    }
     let last_save = last_save.get_or_insert_with(loaded_stem);
     for d in saved.read().filter(|d| d.result.is_ok()) {
         *last_save = d.path.file_stem().map(|s| s.to_string_lossy().into_owned());
@@ -1724,6 +1735,12 @@ fn p1_backdrop(p1: Option<Res<P1>>, mut panel: Local<backdrop::Backdrop>, window
     let p2_half = halves(screen.0, screen.1, p1.layout)[1];
     let joining = !p1.p2_hwnd.is_some_and(backdrop::shown);
     panel.show(mine, p1.p2_hwnd, backdrop::Look { screen, p2_half, joining }, p1.on_top);
+    // A load's new run: the old window's picture stays over the stack until this run's
+    // screen is drawn under it (`crate::handoff::cover`), the backdrop's black never seen.
+    let stack: Vec<isize> = p1.p2_hwnd.into_iter().chain([mine]).chain(panel.hwnd()).collect();
+    if crate::handoff::cover::stay_over(&stack) {
+        info!("split: the handoff's cover put back over the halves");
+    }
 }
 
 // ---- Windows --------------------------------------------------------------------------

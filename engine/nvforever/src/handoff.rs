@@ -34,7 +34,11 @@
 //!    is read and before it opens its GPU device, writes a second file ([`gpu_file`]) and
 //!    waits for this run's process to end ([`before_gpu`], at most [`OLD_GPU_WAIT_SECS`]):
 //!    the two runs never have a GPU device each, and the old window goes a few seconds
-//!    before the new one shows. Steps 2 and 3 below are then what is left of the old
+//!    before the new one shows. That gap is never seen: just before writing the file, the
+//!    new run puts a copy of the old window's picture over it, a plain window with no GPU
+//!    surface, and takes it down once its own window shows its screen under it
+//!    ([`cover`], [`lower_cover`]; owner 2026-11-22, "there should be no gap or visible
+//!    switch between programs"). Steps 2 and 3 below are then what is left of the old
 //!    order, kept for a new run that could not wait.
 //! 3. This run sees the file, takes it away and ends: the frame's exit logs are written
 //!    (`Last`), then the process ends at once ([`EndNow`]) instead of taking its world
@@ -621,12 +625,15 @@ static BEFORE_GPU: std::sync::Mutex<Option<(bool, String)>> = std::sync::Mutex::
 /// old run ([`gpu_file`]) and wait until its process has ended, so the two runs never
 /// have a GPU device each [owner's playtest 2026-11-09, queue item 132: on a 4 GB laptop
 /// card the old run, still holding 3 GB, lost its device while the new run opened its
-/// own and its main menu]. The old run's window goes when it ends; the new one shows
-/// once its loading screen (or main menu) is drawn.
+/// own and its main menu]. The old run's window goes when it ends, under the cover put up
+/// here first ([`cover`]); the new one shows once its loading screen (or main menu) is
+/// drawn, and the cover goes after ([`lower_cover`]).
 pub fn before_gpu(file: &Path) {
     let note = match old_pid(file).and_then(|pid| open_process(pid).map(|h| (pid, h))) {
         None => (true, "the old run had already ended; this run's GPU device opens".to_string()),
         Some((pid, h)) => {
+            // The old window's picture goes up first, so its going is never seen (`cover`).
+            let covered = cover::up_over(pid);
             let started = Instant::now();
             let note = match std::fs::write(gpu_file(file), b"") {
                 Err(e) => (false, format!("cannot tell the old run (process {pid}) to end ({}: {e}); this run's GPU device opens with it still going", gpu_file(file).display())),
@@ -634,7 +641,11 @@ pub fn before_gpu(file: &Path) {
                 Ok(()) => (false, format!("the old run (process {pid}) is still going {OLD_GPU_WAIT_SECS} s after it was told; this run's GPU device opens anyway")),
             };
             close_process(h);
-            note
+            let (ok, text) = note;
+            match covered {
+                Ok(at) => (ok, format!("{text}; the old window's picture covered it ({at})")),
+                Err(why) => (false, format!("{text}; no cover over the old window: {why}")),
+            }
         }
     };
     *BEFORE_GPU.lock().unwrap_or_else(|e| e.into_inner()) = Some(note);
@@ -700,6 +711,31 @@ fn settle(h: &mut Hidden, up: bool, now: Instant) -> Option<bool> {
         h.ready = None;
     }
     (now.duration_since(h.started).as_secs_f64() >= SHOW_AFTER_SECS).then_some(true)
+}
+
+/// Frames the new run's window has drawn under the cover before the cover goes
+/// ([`lower_cover`]) [engineering choice: one for the window's first picture, one for
+/// Windows to put it on the screen, one to spare].
+const COVER_FRAMES_UNDER: u32 = 3;
+/// The cover goes this long after the new run's window shows, whatever split screen's
+/// backdrop is doing [engineering choice: a backdrop that cannot be made never holds it].
+const COVER_MAX_SECS: f64 = 5.0;
+
+/// The new run's side: the cover over the change of program ([`cover`]) goes once this
+/// run's window shows and has drawn its own screen for [`COVER_FRAMES_UNDER`] frames,
+/// and, as player 1 of split screen, once the black backdrop is up under it too.
+pub fn lower_cover(windows: Query<&Window, With<PrimaryWindow>>, mut since: Local<Option<(u32, Instant)>>) {
+    if !cover::is_up() || !windows.single().is_ok_and(|w| w.visible) {
+        return;
+    }
+    let (frames, at) = since.get_or_insert((0, Instant::now()));
+    *frames += 1;
+    let split_ready = std::env::var_os("NVF_SPLIT_P1").is_none() || crate::split::backdrop::ready();
+    let waited = at.elapsed().as_secs_f64();
+    if (*frames >= COVER_FRAMES_UNDER && split_ready) || waited >= COVER_MAX_SECS {
+        cover::down();
+        info!("handoff: the cover goes after {frames} frames under it ({waited:.2} s){}", if split_ready { "" } else { ", without split screen's backdrop" });
+    }
 }
 
 /// The new run's save waits while [`Hidden`] says the old run has not ended
@@ -782,6 +818,8 @@ pub fn reveal(
         }
     }
 }
+
+pub mod cover;
 
 #[cfg(test)]
 mod death_smoke_tests;

@@ -160,6 +160,11 @@ impl Backdrop {
     }
 
     /// Gone (split screen ended).
+    /// The backdrop's window, while it is made.
+    pub fn hwnd(&self) -> Option<isize> {
+        self.hwnd
+    }
+
     pub fn hide(&mut self, why: &str) {
         if let Some(h) = self.hwnd.take() {
             imp::destroy(h);
