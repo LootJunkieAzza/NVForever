@@ -7239,6 +7239,7 @@ mod tests {
                 forms: CombatForms::default(),
                 rules: Rules::defaults(),
                 tuning: CombatTuning::default(),
+                chosen_ammo: std::collections::BTreeMap::new(),
                 weapon: Some(FormId(RIFLE)),
                 equipped: Some(Some(FormId(RIFLE))),
                 mods: 0,
