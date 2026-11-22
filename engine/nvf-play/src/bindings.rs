@@ -474,9 +474,11 @@ impl Binding {
 pub struct Bindings {
     map: Vec<(Control, Binding)>,
     pad: Vec<(Control, Option<PadBinding>)>,
-    /// The Controls tab's Hold time and Double-tap window, seconds (`crate::pad::resolver`).
+    /// The Controls tab's Hold time, Double-tap window and Combo window, seconds
+    /// (`crate::pad::resolver`).
     pub hold_time: f32,
     pub double_tap: f32,
+    pub combo_window: f32,
     pub always_run_by_default: bool,
     pub invert_y: bool,
     pub mouse_sensitivity: f32,
@@ -544,6 +546,7 @@ impl Bindings {
             pad: game_pad_defaults(),
             hold_time: crate::pad::resolver::HOLD_TIME,
             double_tap: crate::pad::resolver::DOUBLE_TAP_WINDOW,
+            combo_window: crate::pad::resolver::COMBO_WINDOW,
             always_run_by_default: ALWAYS_RUN_BY_DEFAULT,
             invert_y: INVERT_Y,
             mouse_sensitivity: MOUSE_SENSITIVITY,
@@ -578,9 +581,9 @@ impl Bindings {
         GAME_CONTROLS.iter().filter_map(|&(c, _, _)| self.pad_binding(c).map(|b| (c, b))).collect()
     }
 
-    /// The Hold time and Double-tap window in use.
+    /// The Hold time, Double-tap window and Combo window in use.
     pub fn timing(&self) -> crate::pad::resolver::Timing {
-        crate::pad::resolver::Timing { hold: self.hold_time, double: self.double_tap }
+        crate::pad::resolver::Timing { hold: self.hold_time, double: self.double_tap, combo: self.combo_window }
     }
 
     /// The split control `c` ([`SPLITS`]) has a controller binding of its own and the
@@ -956,10 +959,12 @@ const LOOK_KEYS: [&str; 2] = ["Look Speed Horizontal", "Look Speed Vertical"];
 pub const RUMBLE_KEY: &str = "Rumble";
 /// `[Controller]`'s mark of an INI written with the binding kinds ([`read_controls`]).
 const KINDS_KEY: &str = "Binding Kinds";
-/// `[Controller]`'s Hold time and Double-tap window, seconds.
+/// `[Controller]`'s Hold time, Double-tap window and Combo window, seconds.
 pub const HOLD_KEY: &str = "Hold Time";
 pub const DOUBLE_KEY: &str = "Double Tap Window";
-/// The longest Hold time or Double-tap window a hand-edited INI may give, seconds.
+pub const COMBO_KEY: &str = "Combo Window";
+/// The longest Hold time, Double-tap window or Combo window a hand-edited INI may give,
+/// seconds.
 const TIMING_MOST: f32 = 5.0;
 const STICK_SENSITIVITY_KEY: &str = "Stick Sensitivity";
 /// Where each device's Vertical Sensitivity is kept ([`Bindings::vertical`]): a multiple,
@@ -999,6 +1004,7 @@ pub fn with_controls(text: &str, b: &Bindings) -> String {
     t = b.all().fold(t, |t, (c, _)| ini_set(&t, PAD_SECTION, Bindings::name(c), &b.pad_text_of(c)));
     t = ini_set(&t, PAD_SECTION, HOLD_KEY, &format!("{:.2}", b.hold_time));
     t = ini_set(&t, PAD_SECTION, DOUBLE_KEY, &format!("{:.2}", b.double_tap));
+    t = ini_set(&t, PAD_SECTION, COMBO_KEY, &format!("{:.3}", b.combo_window));
     for (k, v) in LOOK_KEYS.iter().zip(b.look_speed) {
         t = ini_set(&t, PAD_SECTION, k, &format!("{v:.0}"));
     }
@@ -1100,7 +1106,7 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
             Err(e) => bad.push(format!("[{PAD_SECTION}] {name}={v} ({e})")),
         }
     }
-    for (k, at, choices) in [(HOLD_KEY, &mut b.hold_time, &crate::pad::resolver::HOLD_TIMES), (DOUBLE_KEY, &mut b.double_tap, &crate::pad::resolver::DOUBLE_TAP_WINDOWS)] {
+    for (k, at, choices) in [(HOLD_KEY, &mut b.hold_time, &crate::pad::resolver::HOLD_TIMES), (DOUBLE_KEY, &mut b.double_tap, &crate::pad::resolver::DOUBLE_TAP_WINDOWS), (COMBO_KEY, &mut b.combo_window, &crate::pad::resolver::COMBO_WINDOWS)] {
         let Some(v) = ini_get(text, PAD_SECTION, k) else { continue };
         found += 1;
         match v.trim().parse::<f32>() {
@@ -1164,7 +1170,7 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
 
 /// The number of `[Controls]` and `[Controller]` lines a full INI has: each control's key
 /// (not the controller's split holds, [`PAD_ONLY`]) and button, the switches, the look
-/// settings, and `Binding Kinds`, `Hold Time`, `Double Tap Window`.
+/// settings, and `Binding Kinds`, `Hold Time`, `Double Tap Window`, `Combo Window`.
 const LINES: usize = 2 * GAME_CONTROLS.len() - PAD_ONLY.len() + 5 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len() + AIM_KEYS.len() + 3;
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
@@ -1256,15 +1262,49 @@ pub fn rebind_pad_binding(world: &mut World, c: Control, p: PadBinding) {
     store(world);
 }
 
-/// Set the Controls tab's Hold time (`hold`) or Double-tap window, seconds, and keep it.
-pub fn set_timing(world: &mut World, hold: bool, secs: f32) {
-    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
-    if hold {
-        b.hold_time = secs;
-    } else {
-        b.double_tap = secs;
+/// Which of the Controls tab's timings [`set_timing`] sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimingRow {
+    Hold,
+    Double,
+    Combo,
+}
+
+impl TimingRow {
+    /// Its `[Controller]` key.
+    pub fn key(self) -> &'static str {
+        match self {
+            TimingRow::Hold => HOLD_KEY,
+            TimingRow::Double => DOUBLE_KEY,
+            TimingRow::Combo => COMBO_KEY,
+        }
     }
-    info!("controls: {} {secs:.2} s", if hold { HOLD_KEY } else { DOUBLE_KEY });
+
+    /// Its row's choices, seconds.
+    pub fn choices(self) -> &'static [f32] {
+        match self {
+            TimingRow::Hold => &crate::pad::resolver::HOLD_TIMES,
+            TimingRow::Double => &crate::pad::resolver::DOUBLE_TAP_WINDOWS,
+            TimingRow::Combo => &crate::pad::resolver::COMBO_WINDOWS,
+        }
+    }
+}
+
+/// Set the Controls tab's Hold time, Double-tap window or Combo window, seconds, and keep
+/// it.
+pub fn set_timing(world: &mut World, row: TimingRow, secs: f32) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    match row {
+        TimingRow::Hold => b.hold_time = secs,
+        TimingRow::Double => b.double_tap = secs,
+        TimingRow::Combo => b.combo_window = secs,
+    }
+    // Two decimals, as before, but the Combo window's three (0.075).
+    if row == TimingRow::Combo {
+        info!("controls: {} {secs:.3} s", row.key());
+    } else {
+        info!("controls: {} {secs:.2} s", row.key());
+    }
     store(world);
 }
 
@@ -1342,7 +1382,7 @@ fn overlap_text(a: Control, x: PadBinding, c: Control, y: PadBinding, n: &impl F
         (PadBinding::Combo { modifier: m, button: k }, y) => {
             let this = combo(m, k);
             match y {
-                PadBinding::Press(PadInput::Button(p)) if p == m && held_nature(c) => (format!("{} also works {} while held ({this} is {}).", n(m), label(c), label(a)), false),
+                PadBinding::Press(PadInput::Button(p)) if p == m && held_nature(c) => (format!("{} works {} once held past the Combo window ({this} is {}).", n(m), label(c), label(a)), false),
                 PadBinding::Press(PadInput::Button(p)) if p == m => (format!("{} alone acts as {} when let go ({this} is {}).", n(m), label(c), label(a)), false),
                 PadBinding::Hold(p) if p == m => (format!("Holding {} too long acts as {} instead of {this} ({}).", n(m), label(c), label(a)), false),
                 PadBinding::Double(p) if p == m => (format!("{}: double-tap for {}, or hold it for {this} ({}).", n(m), label(c), label(a)), false),
@@ -1556,7 +1596,7 @@ pub fn reset(world: &mut World) {
     let d = Bindings::game_defaults();
     if b.device == InputDevice::Controller {
         b.pad = d.pad;
-        (b.hold_time, b.double_tap) = (d.hold_time, d.double_tap);
+        (b.hold_time, b.double_tap, b.combo_window) = (d.hold_time, d.double_tap, d.combo_window);
         info!("controls: every control back to the game's controller buttons");
     } else {
         b.map = d.map;
@@ -1580,6 +1620,7 @@ pub fn changed_controls(b: &Bindings) -> Vec<crate::settings_view::ControlRow> {
         R::Binding(c, InputDevice::Controller) => b.pad_binding(c) == d.pad_binding(c),
         R::HoldTime => (b.hold_time - d.hold_time).abs() <= 1e-4,
         R::DoubleTap => (b.double_tap - d.double_tap).abs() <= 1e-4,
+        R::ComboWindow => (b.combo_window - d.combo_window).abs() <= 1e-4,
         R::Invert => b.invert_y == d.invert_y,
         R::Sensitivity(InputDevice::KeyboardMouse) => ((b.mouse_sensitivity - d.mouse_sensitivity) / MOUSE_SENSITIVITY).abs() <= 1e-4,
         R::Sensitivity(InputDevice::Controller) => (b.stick_sensitivity - d.stick_sensitivity).abs() <= 1e-4,
@@ -1609,6 +1650,7 @@ pub fn restore_rows(world: &mut World, rows: &[crate::settings_view::ControlRow]
             R::Binding(c, InputDevice::Controller) => b.set_pad_binding(c, d.pad_binding(c)),
             R::HoldTime => b.hold_time = d.hold_time,
             R::DoubleTap => b.double_tap = d.double_tap,
+            R::ComboWindow => b.combo_window = d.combo_window,
             R::Invert => b.invert_y = d.invert_y,
             R::Sensitivity(InputDevice::KeyboardMouse) => b.mouse_sensitivity = d.mouse_sensitivity,
             R::Sensitivity(InputDevice::Controller) => b.stick_sensitivity = d.stick_sensitivity,
