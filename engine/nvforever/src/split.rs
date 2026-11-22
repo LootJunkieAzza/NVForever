@@ -875,16 +875,13 @@ fn p1_watch_focus(mut p1: ResMut<P1>, windows: Query<&Window, With<PrimaryWindow
     // focus, or player 2's (which gives it back). Another program's window, or the
     // taskbar itself (the Windows key, a click on it), taking the focus puts it back
     // under them, so they show as over any game.
-    if let Some(h) = p1.marked {
+    // The windows are put there with the backdrop ([`p1_backdrop`], later in the chain).
+    if p1.marked.is_some() {
         let fg = (!w.focused).then(foreground_window).flatten();
         let want = w.focused || (fg.is_some() && fg == p1.p2_hwnd);
         if want != p1.on_top {
             p1.on_top = want;
-            if set_on_top(h, want) {
-                info!("split: the halves {} the taskbar", if want { "are over" } else { "go back under" });
-            } else {
-                warn!("split: player 1's window could not be put {} the taskbar", if want { "over" } else { "back under" });
-            }
+            info!("split: the halves go {} the taskbar", if want { "over" } else { "back under" });
         }
     }
     if p1.focused == Some(w.focused) {
@@ -1070,7 +1067,8 @@ fn p1_session(
     // Re-applied each frame (`place`).
     let mine = halves(screen.0, screen.1, p1.layout)[0];
     p1.half = Some(mine.1);
-    if place(&mut window, mine) && p1.placed != Some(mine) {
+    // Not before the black backdrop is on the screen under it ([`backdrop::ready`]).
+    if (p1.placed.is_some() || backdrop::ready()) && place(&mut window, mine) && p1.placed != Some(mine) {
         p1.placed = Some(mine);
         info!("split: player 1's window on {:?} at {}x{}", mine.0, mine.1.x, mine.1.y);
     }
@@ -1719,7 +1717,7 @@ fn p1_backdrop(p1: Option<Res<P1>>, mut panel: Local<backdrop::Backdrop>, window
     let screen = (monitor.physical_position, UVec2::new(monitor.physical_width, monitor.physical_height));
     let p2_half = halves(screen.0, screen.1, p1.layout)[1];
     let joining = !p1.p2_hwnd.is_some_and(backdrop::shown);
-    panel.show(mine, backdrop::Look { screen, p2_half, joining }, p1.on_top);
+    panel.show(mine, p1.p2_hwnd, backdrop::Look { screen, p2_half, joining }, p1.on_top);
 }
 
 // ---- Windows --------------------------------------------------------------------------

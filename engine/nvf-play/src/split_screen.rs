@@ -4,8 +4,8 @@
 //!
 //! - Player 1's game: the pause menu's **Add Player 2** (or **End Split Screen** while it
 //!   is on), beside Lobby, asks for split screen to start or end ([`SplitScreen::ask`]);
-//!   the main menu's **Split Screen** opens Load Game, and the save loaded starts with
-//!   split screen on ([`SplitScreen::on_load`]).
+//!   the main menu's **Split Screen** loads the newest save straight into split screen
+//!   ([`SplitScreen::on_load`]).
 //! - Player 2's game ([`PlayerTwo`]): its main menu is a black screen, with no pictures,
 //!   music or entries, under the join screen's picker of premade characters (owner: "player
 //!   2's half is black until player 2 picks a character").
@@ -22,8 +22,7 @@ pub struct SplitScreen {
     pub on: bool,
     /// Asked by a menu: `Some(true)` start, `Some(false)` end (nvforever takes it).
     pub ask: Option<bool>,
-    /// The main menu's Split Screen entry: the save loaded from Load Game starts with split
-    /// screen on (cleared on going back to the main menu's column).
+    /// The main menu's Split Screen entry: the save it loads starts with split screen on.
     pub on_load: bool,
 }
 

@@ -50,8 +50,9 @@
 //! `main_menu.png` in the working folder).
 //! Log: `main menu: open (…)`, `main menu: <entry>`, `main menu: slide <texture>`.
 //!
-//! **Split screen** (private fork, `crate::split_screen`): the Split Screen entry opens
-//! Load Game, and the save loaded starts with split screen on; in player 2's game
+//! **Split screen** (private fork, `crate::split_screen`): the Split Screen entry loads the
+//! newest save, as Continue does, straight into split screen [owner 2026-11-22: "the split
+//! screen option on main menu should boot straight into splitscreen"]; in player 2's game
 //! ([`crate::split_screen::PlayerTwo`]) the menu is only black: no pictures, logo, music
 //! or entries, under the join screen's picker.
 
@@ -98,7 +99,7 @@ pub enum Entry {
     Load,
     /// Co-op (private fork): the join screen, `crate::lobby`.
     JoinLobby,
-    /// Split screen (private fork): Load Game, the save loaded with split screen on.
+    /// Split screen (private fork): the newest save, loaded with split screen on.
     Split,
     Settings,
     Quit,
@@ -478,6 +479,9 @@ fn relabel(
 
 /// Split screen's switches, as the main menu reads them (`crate::split_screen`).
 type SplitParts<'w> = (Option<ResMut<'w, crate::split_screen::SplitScreen>>, Option<Res<'w, crate::split_screen::PlayerTwo>>);
+/// The menu's other parts: the player's tweaks, whether the tweak's continue was done,
+/// split screen's switches, and the Split Screen entry's load waiting a frame.
+type MenuExtras<'w, 's> = (Option<Res<'w, crate::tweaks::TweakSettings>>, Local<'s, bool>, SplitParts<'w>, Local<'s, Option<std::path::PathBuf>>);
 
 #[allow(clippy::too_many_arguments)]
 fn choose(
@@ -496,10 +500,17 @@ fn choose(
     mut last_page: Local<Option<Page>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut lobby: Option<ResMut<crate::lobby::LobbyScreen>>,
-    (tweaks, mut auto_done, (mut split, bare)): (Option<Res<crate::tweaks::TweakSettings>>, Local<bool>, SplitParts),
+    (tweaks, mut auto_done, (mut split, bare), mut split_load): MenuExtras,
 ) {
     let keys = keys.snapshot();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
+    // The Split Screen entry's load, a frame after it set `on_load`, so the load's restart
+    // (`crate::handoff`) is sure to carry split screen [engineering choice].
+    if let Some(p) = split_load.take() {
+        info!("main menu: split screen: continue from {}", p.display());
+        loads.write(crate::save::LoadRequest { path: p });
+        return;
+    }
     // Player 2's black menu has no entries: the join screen's picker is all of it.
     if !menu.open || bare.is_some() {
         return;
@@ -510,7 +521,7 @@ fn choose(
     }
     // The frame a pause page goes away is not this menu's: its click or key was that page's.
     let came_back = last_page.replace(*page).is_some_and(|p| p != Page::Main);
-    // Back from the Load Game the Split Screen entry opened: no split screen.
+    // Back on the column with split screen still asked for a load: none.
     if came_back && *page == Page::Main {
         if let Some(s) = split.as_mut().filter(|s| s.on_load) {
             s.on_load = false;
@@ -597,13 +608,14 @@ fn choose(
             info!("main menu: closed, the intro film plays");
         }
         Entry::Load => request.0 = Some(Page::Load { selected: 0 }),
-        Entry::Split => match split.as_mut() {
-            Some(s) => {
+        Entry::Split => match (split.as_mut(), menu.newest.clone()) {
+            (Some(s), Some(p)) => {
                 s.on_load = true;
-                request.0 = Some(Page::Load { selected: 0 });
-                info!("main menu: split screen with the save loaded");
+                *split_load = Some(p);
+                info!("main menu: split screen with the newest save");
             }
-            None => warn!("main menu: split screen is not in this build"),
+            (Some(_), None) => warn!("main menu: split screen: no save to load"),
+            (None, _) => warn!("main menu: split screen is not in this build"),
         },
         Entry::JoinLobby => match lobby.as_mut() {
             Some(l) => l.open(crate::lobby::Mode::Join),
