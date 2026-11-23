@@ -30,6 +30,8 @@ enum Page {
     Settings,
     Mods,
     Game,
+    /// The co-op build: Play Co-Op and the mods it is made with (NVForever-MP).
+    Coop,
 }
 
 enum NewsState {
@@ -129,9 +131,11 @@ pub struct App {
     // Starting the game.
     newest: Option<NewestSave>,
     exe: Option<PathBuf>,
+    /// The co-op build beside the launcher ([`launch::find_coop`]), when the package has one.
+    coop_exe: Option<PathBuf>,
     child: Option<Child>,
     /// Test aid: `NVF_LAUNCHER_SHOT=<file.png>[;page]` saves the window once the news has
-    /// settled and closes (`NVF_LAUNCHER_PAGE`: home, settings, mods, game).
+    /// settled and closes (`NVF_LAUNCHER_PAGE`: home, settings, mods, game, coop).
     shot: Option<(PathBuf, u32)>,
 }
 
@@ -188,6 +192,7 @@ impl App {
             upd_open: false,
             newest: None,
             exe: None,
+            coop_exe: launch::find_coop(),
             child: None,
             shot: std::env::var_os("NVF_LAUNCHER_SHOT").map(|p| (PathBuf::from(p), 0)),
         };
@@ -195,6 +200,7 @@ impl App {
             Ok("settings") => Page::Settings,
             Ok("mods") => Page::Mods,
             Ok("game") => Page::Game,
+            Ok("coop") => Page::Coop,
             Ok("update") => {
                 app.upd_open = true;
                 Page::Home
@@ -502,6 +508,92 @@ impl App {
         }
     }
 
+    /// Play Co-Op: the co-op build at its main menu (Host, Join, Split Screen), in its own
+    /// home beside the game's ([`launch::coop_home`]), which is given the game folder set here.
+    fn start_coop(&mut self, ctx: &egui::Context) {
+        if !self.edits.is_empty() {
+            let r = self.save_settings();
+            let bad = r.is_err();
+            self.after_write(r, None);
+            if bad {
+                return;
+            }
+        }
+        if !self.folder_known() {
+            self.page = Page::Game;
+            self.message = Some((NEEDS_FOLDER_FIRST.into(), true));
+            return;
+        }
+        let (Some(exe), Some(home)) = (self.coop_exe.clone(), self.home.as_ref().map(|h| launch::coop_home(&h.root))) else {
+            self.message = Some((format!("{} was not found beside the launcher.", launch::COOP_EXE), true));
+            return;
+        };
+        if let Err(e) = coop_home_ready(&home, Config::from_ini(&self.ini_text).game_dir.as_deref()) {
+            self.message = Some((format!("{}: {e}", home.display()), true));
+            return;
+        }
+        match launch::spawn_in_home(&exe, &Start::MainMenu, &home) {
+            Ok(c) => {
+                self.child = Some(c);
+                self.message = Some((STARTING.into(), false));
+                if self.launcher_flag("CloseOnPlay", false) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+            Err(e) => self.message = Some((format!("{}: {e}", exe.display()), true)),
+        }
+    }
+
+    /// The Co-op page: what the co-op build is, Play Co-Op, and the minigame mods it is made
+    /// with, which are other authors' and so are not in this package.
+    fn coop_page(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Co-op");
+        ui.label(RichText::new("NVForever-MP, the co-op build: play the Mojave with friends online (host or join), or two players on one PC in split screen. It runs on the game and its DLC alone, with its own saves, settings and mods folder.").color(WEAK));
+        ui.add_space(8.0);
+        let running = self.child.is_some();
+        ui.add_enabled_ui(self.coop_exe.is_some() && !running, |ui| {
+            if big_button(ui, "Play Co-Op", "host, join or split screen", true).clicked() {
+                self.start_coop(ui.ctx());
+            }
+        });
+        if self.coop_exe.is_none() {
+            ui.label(RichText::new(format!("{} is not beside the launcher: this package has no co-op build.", launch::COOP_EXE)).color(BAD));
+        }
+        ui.add_space(16.0);
+        ui.heading("Recommended mods");
+        ui.label(
+            RichText::new("Co-op is built to play these minigames together (shared tables, stakes and celebrations), but they are other authors' mods and are not included. Co-op plays fine without them: their tables and boards are simply not in the world. To add them, download each from Nexus Mods and put its files in the co-op mods folder.")
+                .color(WEAK),
+        );
+        ui.add_space(6.0);
+        for (name, what, url) in RECOMMENDED {
+            Frame::new().fill(CARD).corner_radius(4).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(*name).strong());
+                        ui.label(RichText::new(*what).small().color(WEAK));
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button("Nexus Mods page").on_hover_text(*url).clicked() {
+                            launch::open_url(url);
+                        }
+                    });
+                });
+            });
+            ui.add_space(4.0);
+        }
+        if let Some(home) = self.home.as_ref().map(|h| launch::coop_home(&h.root)) {
+            ui.add_space(4.0);
+            if ui.button("Open co-op mods folder").clicked() {
+                let mods = EngineHome::new(&home).mods();
+                let _ = std::fs::create_dir_all(&mods);
+                launch::open_folder(&mods);
+            }
+            ui.label(RichText::new(format!("Co-op's saves, settings and logs are in {}", home.display())).small().color(WEAK));
+        }
+    }
+
     fn save_settings(&mut self) -> Result<(), String> {
         let edits = self.edits.clone();
         self.write_ini(|mut t| {
@@ -538,6 +630,7 @@ impl eframe::App for App {
             Page::Settings => self.settings_page(ui),
             Page::Mods => self.mods_page(ui),
             Page::Game => self.game_page(ui),
+            Page::Coop => self.coop_page(ui),
         });
         // Last, after everything that can draw a link (a post's Markdown is in the central
         // panel): egui's own link opening would skip the https rule.
@@ -645,7 +738,7 @@ impl App {
     fn nav(&mut self, root: &mut egui::Ui) {
         egui::Panel::left("nav").exact_size(210.0).resizable(false).frame(Frame::new().fill(theme::PANEL).inner_margin(Margin::same(12))).show(root, |ui| {
             ui.add_space(4.0);
-            for (page, name) in [(Page::Home, "HOME"), (Page::Settings, "SETTINGS"), (Page::Mods, "MODS"), (Page::Game, "GAME FOLDER")] {
+            for (page, name) in [(Page::Home, "HOME"), (Page::Settings, "SETTINGS"), (Page::Mods, "MODS"), (Page::Game, "GAME FOLDER"), (Page::Coop, "CO-OP")] {
                 if nav_button(ui, name, self.page == page).clicked() {
                     self.page = page;
                     self.message = None;
@@ -705,6 +798,9 @@ impl App {
                                 self.start(ctx, s);
                             }
                         }
+                        if self.coop_exe.is_some() && !running && big_button(ui, "Play Co-Op", "host, join or split screen", false).clicked() {
+                            self.start_coop(ctx);
+                        }
                         if self.newest.is_some() && !running && big_button(ui, "Main menu", "load or start a game", false).clicked() {
                             self.start(ctx, Start::MainMenu);
                         }
@@ -719,6 +815,27 @@ impl App {
 }
 
 const REPO: &str = "https://github.com/LootJunkieAzza/NVForever";
+
+/// The minigame mods co-op is made with (the Co-op page): name, what it adds, Nexus page.
+/// All three are Luke2172's [observed: their Nexus pages, 2026-11-23].
+const RECOMMENDED: [(&str, &str, &str); 3] = [
+    ("Pool Tables Of The Mojave", "Playable pool tables (Pool Table Minigame.esp)", "https://www.nexusmods.com/newvegas/mods/100097"),
+    ("Dart Boards Of The Mojave", "Playable dart boards (Darts Minigame.esp)", "https://www.nexusmods.com/newvegas/mods/100118"),
+    ("Five Finger Fillet", "The knife game at tables (Knife Minigame.esp)", "https://www.nexusmods.com/newvegas/mods/100243"),
+];
+
+/// The co-op home made ready: its INI is given the game folder `game` when it has none, so
+/// co-op starts on the folder the launcher has set.
+fn coop_home_ready(home: &std::path::Path, game: Option<&std::path::Path>) -> std::io::Result<()> {
+    std::fs::create_dir_all(home)?;
+    let Some(game) = game else { return Ok(()) };
+    let ini = EngineHome::new(home).config_file();
+    let text = std::fs::read_to_string(&ini).unwrap_or_default();
+    if Config::from_ini(&text).game_dir.is_some() {
+        return Ok(());
+    }
+    std::fs::write(&ini, ini_set(&text, "Game", "Path", &game.display().to_string()))
+}
 
 /// A page button of the left bar; the open page's has a gold edge and mark.
 fn nav_button(ui: &mut egui::Ui, name: &str, on: bool) -> egui::Response {
@@ -2029,6 +2146,28 @@ fn preview(body: &str, open: bool) -> (&str, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Co-op page's links are web pages the launcher will open (`launch::open_url`).
+    #[test]
+    fn recommended_mods_open() {
+        for (_, _, url) in RECOMMENDED {
+            assert!(launch::is_web_url(url) && url.starts_with("https://www.nexusmods.com/newvegas/mods/"), "{url}");
+        }
+    }
+
+    /// The co-op home is given the game folder once, and a folder it has is kept.
+    #[test]
+    fn coop_home_gets_the_game_folder() {
+        let home = std::env::temp_dir().join(format!("nvf-launcher-coop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let game = std::path::Path::new("C:/Games/FNV");
+        coop_home_ready(&home, Some(game)).unwrap();
+        let ini = EngineHome::new(&home).config_file();
+        assert_eq!(Config::from_ini(&std::fs::read_to_string(&ini).unwrap()).game_dir.as_deref(), Some(game));
+        coop_home_ready(&home, Some(std::path::Path::new("C:/Other"))).unwrap();
+        assert_eq!(Config::from_ini(&std::fs::read_to_string(&ini).unwrap()).game_dir.as_deref(), Some(game));
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     #[test]
     fn parts_as_the_ini_keeps_them() {
