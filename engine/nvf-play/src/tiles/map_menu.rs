@@ -832,11 +832,13 @@ fn with_map_picture(ui: &Ui, mut pieces: Vec<Piece>, picture: Option<Piece>) -> 
 }
 
 /// A co-op player's head on the pages drawn from the file, its square's side in the file's units
-/// whatever the magnification, as the arrow keeps its size [design]: the face fills about
-/// two-thirds of its message icon, so 56 shows a face about as wide as the hand-built page's
-/// whole 34 square at 1080p and plainly bigger than the arrow (owner via parity, 2026-11-23: the
-/// 34 square read as a blob, "those heads don't look like head at all").
-pub(crate) const HEAD_ON_PAGE: f64 = 56.0;
+/// whatever the magnification, as the arrow keeps its size [design]: the face fills only the
+/// middle of its message icon, so at 56 it came out about 12 px across in a 960x540 frame
+/// [observed: duo-heads-apart2, 2026-11-23]; 80 shows a face about 17 px there (about 34 at
+/// 1080p, as the pre-0.8 hand-built page drew heads, `data::HEAD`), plainly bigger than the arrow
+/// and no bigger than the location icons (owner, 2026-11-23: the old square read as a blob,
+/// "those heads don't look like head at all").
+pub(crate) const HEAD_ON_PAGE: f64 = 80.0;
 /// The gap kept between a head nudged aside and the arrow or head it would cover [design].
 const HEAD_NUDGE_GAP: f64 = 2.0;
 
