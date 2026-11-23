@@ -203,7 +203,7 @@ impl EngineHome {
     }
 
     pub fn config_file(&self) -> PathBuf {
-        child_ci(&self.root, CONFIG_FILE).unwrap_or_else(|| self.root.join(CONFIG_FILE))
+        self.root.join(CONFIG_FILE)
     }
     pub fn saves(&self) -> PathBuf {
         self.root.join("saves")
@@ -826,24 +826,6 @@ mod tests {
         assert_eq!(Config::load(&home).unwrap(), c);
         let text = std::fs::read_to_string(home.config_file()).unwrap();
         assert!(text.starts_with("; NVForever settings") && text.contains("\n[Game]\nPath="), "{text}");
-        std::fs::remove_dir_all(&t).ok();
-    }
-
-    #[test]
-    fn an_existing_ini_is_used_whatever_its_case() {
-        let t = tmp("cfg-case");
-        let home = EngineHome::new(t.join("home"));
-        home.create().unwrap();
-        let lower = home.root.join("nvforever.ini");
-        std::fs::write(&lower, "[Game]\nPath=F:\\FNV\n").unwrap();
-        let exact = home.root.join("NVForever.ini");
-        if exact.exists() {
-            assert!(home.config_file().is_file());
-        } else {
-            assert_eq!(home.config_file(), lower);
-            std::fs::write(&exact, "[Game]\nPath=G:\\FNV\n").unwrap();
-            assert_eq!(home.config_file(), exact);
-        }
         std::fs::remove_dir_all(&t).ok();
     }
 

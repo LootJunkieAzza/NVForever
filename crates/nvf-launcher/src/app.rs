@@ -172,8 +172,6 @@ pub struct App {
     profile_note: String,
     /// Archive names stored with the profile. The mod list does not show them.
     profile_archives: Vec<String>,
-    /// This profile's saves stay beside the profile, not in My Games.
-    profile_local_saves: bool,
     /// Mod list and load order last saved or loaded, so the page can show unsaved changes.
     saved_lists: String,
     /// Plugins that were ticked before a mod was unticked, so ticking it again can put them back.
@@ -407,7 +405,6 @@ impl App {
             plugin_only_folder: None,
             profile_note: String::new(),
             profile_archives: Vec::new(),
-            profile_local_saves: false,
             saved_lists: String::new(),
             plugin_ticks: HashMap::new(),
             drag_undo: None,
@@ -653,9 +650,7 @@ impl App {
 
     fn find_newest_save(&mut self) {
         let Some(h) = &self.home else { return };
-        let save_dir = self.profile_saves_dir().unwrap_or_else(|| h.saves());
-        let _ = std::fs::create_dir_all(&save_dir);
-        self.newest = fnv_save::list(&save_dir).into_iter().next().map(|(path, hd)| {
+        self.newest = fnv_save::list(&h.saves()).into_iter().next().map(|(path, hd)| {
             let shot = fnv_save::read_header(&path).ok().map(|s| s.shot).filter(|s| !s.is_empty()).map(Arc::from);
             let name = if hd.player_name.is_empty() { path.file_stem().unwrap_or_default().to_string_lossy().into_owned() } else { hd.player_name.clone() };
             let hours = hd.play_seconds / 3600.0;
@@ -3914,17 +3909,6 @@ impl App {
                     self.ask_new_profile();
                 }
             });
-            ui.horizontal_wrapped(|ui| {
-                if ui.checkbox(&mut self.profile_local_saves, "Profile-specific saves").on_hover_text("This profile's saves stay with the profile, next to its mod list. Not in the original My Games folder.").changed() {
-                    self.mods_dirty = true;
-                    if self.profile_local_saves {
-                        if let Some(dir) = self.profile_saves_dir() {
-                            let _ = std::fs::create_dir_all(dir);
-                        }
-                    }
-                    self.find_newest_save();
-                }
-            });
             if let Some(name) = self.profile_replace.clone() {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{name} already has a mod list.")).small().color(BAD));
@@ -4098,16 +4082,6 @@ impl App {
         archives.dedup();
         let body = if archives.is_empty() { String::new() } else { format!("{}\n", archives.join("\n")) };
         std::fs::write(dir.join("archives.txt"), body).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let marker = dir.join("local-saves.txt");
-        if self.profile_local_saves {
-            std::fs::write(&marker, "1\n").map_err(|e| format!("{}: {e}", marker.display()))?;
-            let saves = dir.join("saves");
-            if !Self::under_original_documents(&saves) {
-                std::fs::create_dir_all(&saves).map_err(|e| format!("{}: {e}", saves.display()))?;
-            }
-        } else if marker.is_file() {
-            let _ = std::fs::remove_file(marker);
-        }
         Ok(())
     }
 
@@ -4215,7 +4189,6 @@ impl App {
         self.recompute_clashes();
         self.profile_note = std::fs::read_to_string(dir.join("note.txt")).unwrap_or_default();
         self.profile_archives = std::fs::read_to_string(dir.join("archives.txt")).unwrap_or_default().lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
-        self.profile_local_saves = dir.join("local-saves.txt").is_file();
         self.saved_lists = self.lists_text();
         self.mods_dirty = false;
         self.remember_profile(&name);
@@ -4341,7 +4314,7 @@ impl App {
         let mods = format!("{}{}", Self::modlist_text(&self.mod_rows), Self::locks_text(&self.mod_rows));
         let (plugins_text, order) = Self::plugin_list_text(self.mods.as_ref());
         let archives = self.profile_archives.join("\n");
-        format!("{mods}\n{plugins_text}\n{order}\n{}\n{archives}\n{}", self.profile_note, self.profile_local_saves)
+        format!("{mods}\n{plugins_text}\n{order}\n{}\n{archives}", self.profile_note)
     }
 
     fn remember_profile(&mut self, name: &str) {
@@ -4352,22 +4325,6 @@ impl App {
         let Some(home) = &self.home else { return };
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let _ = crate::modlist::append_log(&home.logs().join("mods.log"), &format!("{stamp} {line}"));
-    }
-
-    fn profile_saves_dir(&self) -> Option<PathBuf> {
-        if !self.profile_local_saves {
-            return None;
-        }
-        let name = self.profile_pick.as_ref()?;
-        let home = self.home.as_ref()?;
-        let dir = home.root.join("profiles").join(name).join("saves");
-        if Self::under_original_documents(&dir) {
-            return None;
-        }
-        if self.game().as_ref().is_some_and(|g| dir.starts_with(&g.root)) {
-            return None;
-        }
-        Some(dir)
     }
 
     /// Picks up new mod folders without rewriting the load order or dropping unsaved drags.
