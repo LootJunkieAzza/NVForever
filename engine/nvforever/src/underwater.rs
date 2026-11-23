@@ -162,7 +162,7 @@ pub fn underwater_fog(
     let camera = bevy_to_game(gt.translation());
     let under = water_above(&world, &streamer, &mut dw, phys.as_deref(), sim.as_deref(), &mut placed_types, camera, enhanced);
     let water = under.and_then(|(_, wid)| {
-        let wid = if enhanced { remaps.as_ref().map_or(wid, |r| r.resolve(wid)) } else { wid };
+        let wid = remaps.as_ref().map_or(wid, |r| r.resolve(wid));
         types.0.entry(wid).or_insert_with(|| fnv_world::sky::water(world.lo, world.schema, wid)).clone()
     });
     let Some(w) = water else {

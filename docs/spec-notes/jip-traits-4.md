@@ -127,8 +127,18 @@ not decode yet.
 - `Get/SetWaterSound`, `Get/SetWaterNoiseTexture`: WATR SNAM and NNAM [documented]. NVCleanWater:
   sound 167340, noise `Data\Textures\Water\WastelandWaterPotomac.dds`. Not built:
   GetWaterTrait's 51 IDs, many of which its page leaves "Unknown".
-- `GetSoundFlag sound id` [documented: IDs 0–13]: SNDD flags (SNDX in older records),
-  bits the schema names the same way. EMTMedicalBeep01: loop (4) 1, 2D (6) 0.
+- `GetSoundFlag sound id` / `SetSoundFlag sound id newValue` [documented: GECK wiki
+  GetSoundFlag, SetSoundFlag; `schemas/fnv/objects.json` `SOUN.SNDD.flags`/`SNDX.flags`
+  bits `0..=13` (`0` Random Frequency Shift, `1` Play At Random, `2` Environment Ignored,
+  `3` Random Location, `4` Loop, `5` Menu Sound, `6` 2D, `7` 360 LFE, `8` Dialogue Sound,
+  `9` Envelope Fast, `10` Envelope Slow, `11` 2D Radius, `12` Mute When Submerged, `13`
+  Start at Random Position); observed: gaps4, SetSoundFlag returns 0]: SNDD flags (SNDX
+  in older records), bits the schema names the same way. EMTMedicalBeep01: loop (4) 1,
+  2D (6) 0. `SetSoundFlag` stores per-`SOUN` session bitmask overrides
+  (`Game::sound_flags`, `Game::sound_flag`, `Game::set_sound_flag`,
+  `Game::sound_flags_override`) with `TempCloneForm` snapshotting and post-clone isolation
+  (`Game::snapshot_sound_flags`) [design; hypothesis: session-only lifetime and rejection
+  of fractional/out-of-range flag IDs and non-`SOUN` forms].
 
 ### 9.1 `TempCloneForm` SOUN aliases and engine sound overrides
 

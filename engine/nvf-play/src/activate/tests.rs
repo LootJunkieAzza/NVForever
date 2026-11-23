@@ -14,6 +14,7 @@ use fnv_sim::{FormStore, RefTable, SimConfig, World};
 use fnv_world::{Cell, WorldIndex};
 
 mod crosshair_bars_tests;
+mod crosshair_bed_item_tests;
 mod crosshair_prompt_tests;
 mod crosshair_sleeper_tests;
 mod crosshair_water_tests;

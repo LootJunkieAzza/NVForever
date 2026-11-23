@@ -560,9 +560,27 @@ inversion sits after the two bindings' samples, so they cannot diverge; the marc
 refinements read only through this function. It changes the convention for every
 `StandardMaterial::depth_map` in the engine: none was set in production before (terrain
 asserts landscape materials have none; the one positive assignment is a Pip-Boy test
-fixture), and the only maps set now are the authored `_p` (nvf-assets `authored.rs`). Keep it
-while NVForever's height maps are heights; drop it if they are ever converted to depth on the
-CPU instead.
+fixture), and the only maps set now are the authored `_p` and the game's own slot-3 height
+maps (#2979; nvf-assets `authored.rs`, `nif_spawn.rs`). Keep it while NVForever's height maps
+are heights; drop it if they are ever converted to depth on the CPU instead.
+
+A third change in the same file (#2979), in `parallaxed_uv`, marked `NVForever grazing
+clamp`: the step's divisor is `max(view_steepness, 0.15)` instead of `view_steepness`, so a
+shallow view no longer throws the samples several texture repeats away and a view along the
+surface no longer gives non-finite coordinates (the full-depth shift stays under about 6.6 x
+the depth scale). The layer count still mixes by the unclamped steepness. nvf-assets
+`authored::Parallax::full_depth_shift` mirrors the step on the CPU and its test checks this line. Drop
+it when upstream bounds the division. It applies to every height map, the authored `_p` too: an
+intentional change to authored materials (at |Vt.z| = 0.05 a floor's step is a third of
+upstream's), kept for both so no view gives runaway or non-finite coordinates.
+
+Two guards in the same file (#2979): `sample_depth_map` holds the sampled height to 0..1
+before the inversion (`1.0 - clamp(r, 0.0, 1.0)`, comment `NVForever height range`), so a
+signed texture read through the linear loader cannot leave the march's layers; and the
+occlusion refinement (comment `NVForever occlusion guard`) interpolates only when the march
+brackets a hit (last layer at or below the surface, the one before above it, a non-zero
+denominator), keeping the last layer's coordinates otherwise instead of extrapolating or
+dividing by zero. The relief refinement is unchanged.
 
 Another change (fog parameters, #2993, docs/design/graphics-enhanced.md §3.18), each part
 marked `NVForever fog parameters`, for nvforever's `aerial.rs`:

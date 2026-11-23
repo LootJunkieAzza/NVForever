@@ -388,8 +388,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             })
         }
         // `item path`: the hotkeys' icon for the item; "" resets it [documented:
-        // SetItemHotkeyIconPath]. Read here; the engine's hotkey pictures do not read it
-        // yet [not built: ext-showoff.md §7 follow-ups].
+        // SetItemHotkeyIconPath]. Read by `Game::item_hotkey_icon_path` for the engine's
+        // hotkey pictures (`weapon_wheel::draw`, `pipboy::hotkey_panel`).
         "setitemhotkeyiconpath" => {
             if let Some(item) = form(args, 0) {
                 let p = text(args, 1);
@@ -555,6 +555,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         _ => return None,
     };
     Some(Ok(v))
+}
+
+impl Game<'_> {
+    /// The custom hotkey icon path set for `item` by `SetItemHotkeyIconPath`, if any
+    /// (empty or whitespace-only paths return `None` so engine consumers fall back to the
+    /// item's default hotkey icon) [documented: SetItemHotkeyIconPath; design:
+    /// whitespace-only paths ignored by engine consumers].
+    pub fn item_hotkey_icon_path(&self, item: FormId) -> Option<&str> {
+        self.showoff.hotkey_icons.get(&item).map(String::as_str).filter(|p| !p.trim().is_empty())
+    }
 }
 
 #[cfg(test)]

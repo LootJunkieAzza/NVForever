@@ -102,10 +102,15 @@ Every count is the player's; others' deeds count nothing [design].
   the player at the start of the next rules frame, in its own variables (InstKey
   Challenge), never inside the hit or kill [design; hypothesis that every reward script
   is such an effect script, §2].
-- Corner messages [hypothesis: wording and icon; the masters hold no setting for them]:
-  "Challenge completed: <name>" with `interface\icons\pipboyimages\perks\perk_challenge.dds`
-  (the only interface texture named for challenges); "<name> <progress>/<threshold>" each
-  time progress passes a multiple of the interval.
+- Corner messages [hypothesis: wording and icon; the masters hold no setting for them,
+  and no master CHAL record has an ICON (§1)]: "Challenge completed: <name>" and
+  "<name> <progress>/<threshold>" (each time progress passes a multiple of the interval)
+  both use the default Vault Boy corner-message icon (`glow_message_vaultboy_neutral.dds`,
+  127 × 127 in `InterfaceShared.tai`) [hypothesis: exact original mood face for challenge
+  completion is not yet observed in the running original game]. Earlier builds passed the
+  Pip-Boy perk illustration `interface\icons\pipboyimages\perks\perk_challenge.dds`
+  (256 × 256, not in `InterfaceShared.tai`), which overflowed the corner bracket
+  (issue #3433).
 - Log: `challenge: <name> <p>/<t>` for each step (damage challenges only at an interval),
   `challenge: <name> <t>/<t>, completed`, `challenge notice: <text>`.
 - Saved: `PlayerState::challenges` (progress, the part step, completed, times, unlocked,

@@ -47,7 +47,7 @@ xNVSE's own forms (QFromAxisAngle …) are different functions with observed con
 | GetQuestCompletedAlt `quest` | 1 when completed and not failed [documented] |
 | GetZoneLevel `zone` | the level the zone took when its first cell loaded (encounter-zones.md); 0 before [documented: "the current level"; hypothesis: 0] |
 | GetZoneMinLevel, GetZoneMatchLevel, GetZoneOwner `zone` | the ECZN record's minimum level, "Match PC Below Minimum Level" flag and owner [documented] |
-| SetZoneMinLevel `zone level`, SetZoneOwner `zone owner` | for the session, read by the getters; a zone already entered keeps its level [documented: the pages' examples; hypothesis: not applied to entering] |
+| SetZoneMinLevel `zone level`, SetZoneOwner `zone owner` | for the session (carried across same-run loads via `WorldSession` / `Game::Session`, not saved), read by the getters and by `World::enter_zone` / `World::level_at`; a zone already entered keeps its level [documented: the pages' examples; hypothesis: session-only lifetime and entering behavior] |
 
 ## 4. The last three (2026-11-01)
 

@@ -195,3 +195,15 @@ fn a_perk_is_listed_unless_hidden_playable_or_not() {
     assert!(PerkData::of(&[0, 0, 1, 0]).listed(), "4-byte DATA, not Playable: listed");
     assert_eq!(PerkData::of(&[]).ranks, 1, "no DATA: one rank");
 }
+
+/// #3400: an actor value's short name (AVIF ANAM) is read in the load order's code page,
+/// as FULL is: on a Russian install Windows-1251's "Крас." (Charisma's abbreviation, say),
+/// not the Latin-1 letters "Êðàñ." the font has no glyphs for.
+#[test]
+fn a_short_name_is_read_in_the_code_page() {
+    use fnv_util::text::CodePage;
+    let anam = [0xCA, 0xF0, 0xE0, 0xF1, b'.', 0];
+    assert_eq!(zstring(&anam, CodePage::Windows1251), "Крас.");
+    assert_eq!(zstring(b"CHR\0junk", CodePage::Windows1252), "CHR", "stops at the first NUL");
+    assert_ne!(zstring(&anam, CodePage::Windows1252), "Крас.");
+}

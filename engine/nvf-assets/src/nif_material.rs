@@ -566,15 +566,27 @@ pub struct NifSurface {
     /// them off only while this is set. Tracked explicitly, not by comparing handles, so a
     /// baseline depth map of the game's own (#2979) would never be mistaken for one. CPU only.
     pub height_overlay: bool,
-    /// Window environment map (`nif_spawn::window_env`; docs/spec-notes/nif.md §6 "Window
-    /// glass and environment maps"): x the scale of the reflection (0: none), y 1 when
-    /// [`env_mask`](Self::env_mask) is set; z, w unused. The reflection, the cube read in
-    /// the reflected view direction × the scale × the mask's red channel, is added to the
-    /// lit colour; on a premultiplied shape (a blended one that reflects) after the colour
-    /// is multiplied by its alpha [hypothesis, the note above].
+    /// Environment map (`nif_spawn::shape_env`, `env_map::env_uniforms`;
+    /// docs/spec-notes/nif.md §6 "Window glass and environment maps", "Environment maps on
+    /// other shapes"): x the scale of the reflection (0: none), y how the mask is read
+    /// (`env_map::MaskMode`: 0 none, 1 [`env_mask`](Self::env_mask)'s red channel, 2 the
+    /// alpha of [`env_mask`](Self::env_mask), which then holds the game's own normal map),
+    /// z and w the camera distances over which it fades out (both 0:
+    /// no fade). The reflection, the cube read in the reflected view direction × the scale
+    /// × the mask × the fade, is added to the lit colour; on a premultiplied shape (a
+    /// blended window shape that reflects) after the colour is multiplied by its alpha, on
+    /// a blended one it is weighted by the alpha like the rest of the colour
+    /// [hypothesis, the notes above].
     pub env: Vec4,
+    /// How the environment map is read (`env_map::env_uniforms`): x the cube orientation
+    /// (`env_map::Axes`, 0 #2669's lookup), y 1 when the reflection is scaled by the light
+    /// the fragment receives (a debug switch's stand-in), 2 by the scene light, z 1 for a
+    /// window shape (the Window_Environment_Mapping flag), w 1 on every shape with an
+    /// environment map (a premultiplied one is premultiplied by it even where the
+    /// reflection has faded out). All zero without an environment map.
+    pub env_how: Vec4,
     /// The environment cube (texture-set slot 4), loaded as a cube map
-    /// (`texture::dds_cube_image`); `None` without a window environment map.
+    /// (`texture::dds_cube_image`); `None` without an environment map.
     #[texture(54, dimension = "cube")]
     #[sampler(55)]
     pub env_cube: Option<Handle<Image>>,
@@ -604,8 +616,9 @@ pub struct NifSurfaceUniform {
     /// [`NifSurface::metal_gain`] (#2981; read only by the opted-in main pass of a view with
     /// a reflection cube, on authored materials); z, w unused.
     pub terrain: Vec4,
-    /// [`NifSurface::env`].
+    /// [`NifSurface::env`], [`NifSurface::env_how`].
     pub env: Vec4,
+    pub env_how: Vec4,
 }
 
 /// Screen UV of shift per unit of refraction strength and of view-space tilt
@@ -617,7 +630,7 @@ pub const REFRACTION_SCREEN: f32 = 0.1;
 
 impl From<&NifSurface> for NifSurfaceUniform {
     fn from(s: &NifSurface) -> Self {
-        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, s.metal_gain, 0.0, 0.0), env: s.env }
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, s.metal_gain, 0.0, 0.0), env: s.env, env_how: s.env_how }
     }
 }
 
@@ -692,6 +705,7 @@ impl Default for NifSurface {
             legacy: None,
             height_overlay: false,
             env: Vec4::ZERO,
+            env_how: Vec4::ZERO,
             env_cube: None,
             env_mask: None,
         }
@@ -1310,21 +1324,22 @@ mod tests {
     }
 
     /// [design] The ordinary interface (with #2551's `terrain` row and #2462's window
-    /// environment map: the `env` row after it, the cube, its sampler and the mask at
-    /// 54-56): 50..57, table 100, data 101, and ten 16-byte rows (160 bytes). No
+    /// environment map: the `env` row after it, then #2841's `env_how` row, the cube, its
+    /// sampler and the mask at 54-56): 50..57, table 100, data 101, and eleven 16-byte rows
+    /// (176 bytes). No
     /// enabled-only resource may enter this type.
     #[test]
     fn ordinary_surface_gpu_interface_matches_main() {
         use bevy::render::render_resource::BindlessResourceType as R;
-        assert_eq!(NifSurfaceUniform::min_size().get(), 160);
-        assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).size().get(), 160);
+        assert_eq!(NifSurfaceUniform::min_size().get(), 176);
+        assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).size().get(), 176);
         let descriptor = NifSurface::bindless_descriptor().unwrap();
         assert_eq!(descriptor.index_tables.len(), 1);
         let table = &descriptor.index_tables[0];
         assert_eq!((table.indices.start.0, table.indices.end.0, table.binding_number.0), (50, 57, 100));
         assert_eq!(&descriptor.resources[50..], &[R::DataBuffer, R::Texture2d, R::SamplerFiltering, R::Texture2d, R::TextureCube, R::SamplerFiltering, R::Texture2d]);
         assert_eq!(descriptor.buffers.len(), 1);
-        assert_eq!((descriptor.buffers[0].binding_number.0, descriptor.buffers[0].bindless_index.0, descriptor.buffers[0].size), (101, 50, Some(160)));
+        assert_eq!((descriptor.buffers[0].binding_number.0, descriptor.buffers[0].bindless_index.0, descriptor.buffers[0].size), (101, 50, Some(176)));
         // Non-bindless declarations are from this exact derived production type.
         let source = include_str!("nif_material.rs");
         let extension = source.split("pub struct NifSurface {").nth(1).unwrap().split("\n}").next().unwrap();

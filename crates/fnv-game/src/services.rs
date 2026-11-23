@@ -27,8 +27,11 @@
 //!   dealer sells Alcohol and Chems; observed in FalloutNV.esm], falling back to the
 //!   wiki's flags when the equip type is none of the four; AMMO and IMOD Weapons
 //!   [hypothesis: Mick (Weapons, Armor, Repair) stocks bare boxes of ammunition and no
-//!   Misc, observed]; everything else (MISC, KEYM, NOTE, LIGH, CHIP, CCRD, CMNY)
-//!   Miscellaneous [hypothesis for all but MISC].
+//!   Misc, observed]; everything else that can be bartered (MISC, NOTE, LIGH, CHIP, CCRD,
+//!   CMNY) Miscellaneous [hypothesis for all but MISC]. Keys (KEYM) are not sold by
+//!   vendors (`item_service` returns `None`, `Game::sells` returns `false`, #3432)
+//!   [hypothesis: issue #3432 reports that keys do not appear in barter in the original
+//!   engine].
 //! - **Offers services now** [`Game::offers_services_now`]: the actor's current package
 //!   has "Offers Services" ("If the actor is a service provider, he will offer services
 //!   so long as this package is running" [documented: GECK wiki Category:Packages]); not
@@ -86,15 +89,15 @@ pub fn name(flag: u32) -> &'static str {
     NAMES.iter().find(|(b, _)| *b == flag).map_or("?", |(_, n)| n)
 }
 
-/// The service category an item is sold under (one flag), `None` for what is no item
-/// (module notes).
+/// The service category an item is sold under (one flag), `None` for keys (not sold by
+/// vendors, #3432) and for what is no item (module notes).
 pub fn item_service(data: &GameData, item: FormId) -> Option<u32> {
     Some(match &data.sig(item)? {
         b"WEAP" | b"AMMO" | b"IMOD" => WEAPONS,
         b"ARMO" => ARMOR,
         b"BOOK" => BOOKS,
         b"ALCH" => ingestible_service(data.ingestibles.get(&item)),
-        b"MISC" | b"KEYM" | b"NOTE" | b"LIGH" | b"CHIP" | b"CCRD" | b"CMNY" => MISC,
+        b"MISC" | b"NOTE" | b"LIGH" | b"CHIP" | b"CCRD" | b"CMNY" => MISC,
         _ => return None,
     })
 }
@@ -141,9 +144,13 @@ impl Game<'_> {
         }
     }
 
-    /// Whether `vendor` sells `item`: the item's category is among its services. Caps and
-    /// what is no item are always let through (the barter menu handles the caps itself).
+    /// Whether `vendor` sells `item`: the item's category is among its services. Keys
+    /// (`KEYM`, including `TempCloneForm` clones) are never sold (#3432). Caps and what
+    /// is no item are always let through (the barter menu handles the caps itself).
     pub fn sells(&self, vendor: FormId, item: FormId) -> bool {
+        if self.data.sig(self.unclone(item)) == Some(*b"KEYM") {
+            return false;
+        }
         self.refused_category(vendor, item).is_none()
     }
 

@@ -24,6 +24,16 @@ nodes are part of the 3D whenever it is built]. On the player one call goes into
 models, third and first person [hypothesis: B42 True Leaning inserts under `Camera1st`,
 a node of the first-person skeleton only, and names no model; observed: its
 `ln_B42Leaning.txt`].
+A node a script takes out of a drawn model stays out of that model, though its entry
+stays in the list: RemoveNifBlock's block with what is under it [hypothesis: what is
+under it goes with it, and the list does not undo the removal], and the old name of
+RenameNifBlock's [documented: RenameNifBlock changes the block's name,
+nif-script-root-renames.md; hypothesis: the list does not undo the rename]. It goes in
+again when that model is drawn anew (another identity, or its 3D forgotten) or
+InsertNode is called for it again [hypothesis: the list is applied when the 3D is built
+and by the call, not over a script's later change]. A model told without an identity
+counts as the same one until its 3D is forgotten [design: nothing else tells the two
+apart].
 
 | Function | NVForever |
 |---|---|

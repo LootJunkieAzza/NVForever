@@ -294,10 +294,10 @@ pub(crate) fn find_target(
         if sc.distance(o) - sr > REACH {
             return None;
         }
-        Some((r.0, pick::ray_box(o, d, &t, c, h)?))
+        Some((r.0, pick::ray_box_span(o, d, &t, c, h)?))
     });
     // An actor's box is rough (`pick::choose_precise_first`, #3125).
-    let bounds: Vec<(u32, f32, bool)> = bounds.map(|(id, d)| (id, d, sim.is_actor(id))).collect();
+    let bounds: Vec<(u32, f32, f32, bool)> = bounds.map(|(id, (d, out))| (id, d, out, sim.is_actor(id))).collect();
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
         if rt.game.other.jip13.reticle_node != far_node {
@@ -313,6 +313,15 @@ pub(crate) fn find_target(
     // when furniture is under the crosshair.
     let is_furniture = |id: u32| sim.base_of(id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Furniture));
     let furniture_seen = hit.and_then(|h| h.form_id).into_iter().chain(bounds.iter().map(|b| b.0)).any(is_furniture);
+    // Beds among the boxes (FURN marker flags with Sleep, bit 31, furniture.md §1) may
+    // yield to what lies in them (`pick::set_aside_enclosing`, #3323).
+    let beds: std::collections::HashSet<u32> = match script.as_deref().and_then(|s| s.rt.as_ref()) {
+        Some(rt) if furniture_seen => {
+            let bed = |id: u32| sim.base_of(id).and_then(|b| rt.game.data.furniture.get(&b)).is_some_and(|f| f & fnv_game::package::furniture::SLEEP != 0);
+            bounds.iter().map(|b| b.0).filter(|&id| bed(id)).collect()
+        }
+        _ => Default::default(),
+    };
     let sleepers: HashMap<u32, u32> = match script.as_deref().and_then(|s| s.rt.as_ref()) {
         Some(rt) if furniture_seen => rt
             .game
@@ -380,8 +389,17 @@ pub(crate) fn find_target(
             })
             .clone()
     };
+    // A bed's box does not hide the suitcase lying in it (`pick::set_aside_enclosing`,
+    // #3323), cut off at the raw first hit, not a door promoted from behind it.
+    let kept = pick::set_aside_enclosing(hit, &bounds, REACH, |id| beds.contains(&id), |id| describe_once(id).is_some());
+    // `NVF_PLAY_TEST_PICK_LOG`: what the pick was made from, logged with each new target.
+    let note = pick_log().then(|| {
+        let aside: Vec<String> = bounds.iter().filter(|b| !kept.iter().any(|k| k.0 == b.0)).map(|b| format!("0x{:08X}", b.0)).collect();
+        let boxes: Vec<String> = bounds.iter().map(|b| format!("0x{:08X} {:.1}-{:.1}{}{}", b.0, b.1, b.2, if b.3 { " rough" } else { "" }, if beds.contains(&b.0) { " bed" } else { "" })).collect();
+        format!("pick: raw hit {:?}; boxes [{}]; set aside [{}]", hit.map(|h| (h.form_id.map(|id| format!("0x{id:08X}")), h.distance)), boxes.join(", "), aside.join(", "))
+    });
     let hit = pick::door_behind(hit, behind, |id| describe_once(id).is_some());
-    let picked = pick::choose_precise_first(hit, bounds, REACH, |id| describe_once(id).is_some());
+    let picked = pick::choose_precise_first(hit, kept, REACH, |id| describe_once(id).is_some());
     // How far the sleeper's body is from the eye: its posed bones (`crate::hitvol::ActorParts`,
     // which follow the lying body), else its render boxes (rough: the bind pose).
     let body_distance = |actor: u32| {
@@ -409,6 +427,9 @@ pub(crate) fn find_target(
     });
     let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty, t.through));
     if key(&target.0) != key(&new) {
+        if let Some(note) = note {
+            info!("{note}");
+        }
         match &new {
             Some(t) => info!(
                 "target 0x{:08X} {} ({}{}{}) by {:?}{} at {:.0}",
@@ -431,6 +452,14 @@ pub(crate) fn find_target(
 
 /// How far past a surface the ray behind it starts, game units.
 const NUDGE: f32 = 0.5;
+
+/// Whether `NVF_PLAY_TEST_PICK_LOG` is on: each new target logs the raw first collision
+/// hit, every render box the view ray enters (reference, entry and exit, rough, bed) and
+/// the boxes set aside (`pick::set_aside_enclosing`, #3323).
+fn pick_log() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_PICK_LOG").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "off" | "false")))
+}
 
 /// Seconds a creature's "has something to say" answer is kept before it is asked again.
 const TALKER_SECONDS: f64 = 2.0;
@@ -839,7 +868,8 @@ pub(crate) fn activate(
         }
         return;
     }
-    let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
+    let mut script = script.map(|s| s.into_inner());
+    let a = match crate::script::activate_by_hand(script.as_deref_mut(), &mut sim, t.form_id) {
         Ok(crate::script::ByHand::Default(a)) => {
             sounds.write(crate::world_sounds::Activated { reference: t.form_id });
             if t.action == Action::Drink {
@@ -890,13 +920,21 @@ pub(crate) fn activate(
     if let (true, Outcome::PickedUp { item, .. }) = (quick, &a.outcome) {
         let armour = sim.forms.item(*item).is_some_and(|i| i.kind == ItemKind::Armor && i.armor_dt.is_some_and(|dt| dt > 0.0));
         if !armour {
-            let r = crate::hotkeys::use_slot(&mut sim.world, Some(crate::hotkeys::Slot { item: item.0, mods: 0 }));
-            if let crate::hotkeys::Used::UsedUp(u) = r {
-                if let Some(m) = used.as_mut() {
-                    m.write(crate::ItemUsed { item: u.0, limb: None });
+            let allowed = match script.and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.has_pre_activate_inventory_handlers()) {
+                Some(rt) => crate::script::with_world(rt, &mut sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, *item, 0, true)),
+                None => true,
+            };
+            if allowed {
+                let r = crate::hotkeys::use_slot(&mut sim.world, Some(crate::hotkeys::Slot { item: item.0, mods: 0 }));
+                if let crate::hotkeys::Used::UsedUp(u) = r {
+                    if let Some(m) = used.as_mut() {
+                        m.write(crate::ItemUsed { item: u.0, limb: None });
+                    }
                 }
+                info!("activate 0x{:08X} {}: quick use: {} (tweak)", t.form_id, t.name, r.describe(&t.name));
+            } else {
+                info!("activate 0x{:08X} {}: quick use prevented by script", t.form_id, t.name);
             }
-            info!("activate 0x{:08X} {}: quick use: {} (tweak)", t.form_id, t.name, r.describe(&t.name));
         }
     }
     // Opened with the player's key: the lock's opening sound, as a picked lock's

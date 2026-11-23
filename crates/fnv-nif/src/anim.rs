@@ -166,9 +166,82 @@ pub const BSPLINE_DEGREE: usize = 3;
 /// `n` points of degree `d` (`d >= 1`), clamped at the end: the interior knots are 1, 2, …
 /// so it is `d + floor(x)`, at most `n - 1`, with no walk over the knots (#1994). A NaN `x`
 /// gives `d`, as the walk did.
+#[inline]
 fn span(x: f32, n: usize, d: usize) -> usize {
     let whole = if x >= 1.0 { x.floor() as usize } else { 0 };
     (d + whole).min(n - 1)
+}
+
+const BSPLINE_STEPS: usize = BSPLINE_DEGREE * (BSPLINE_DEGREE + 1) / 2;
+
+/// Knot span start and de Boor interpolation weights `(1 - alpha, alpha)` for cubic
+/// (`n >= 4`) open uniform B-splines, computed once per channel sample and applied to
+/// every component in de Boor's exact operation order (#3487).
+#[inline]
+fn cubic_weights(n: usize, u: f32) -> (usize, [(f32, f32); BSPLINE_STEPS]) {
+    const _: () = assert!(BSPLINE_DEGREE == 3);
+    // Open uniform knot vector: 4 zeros, uniform interior knots, 4 maxima.
+    let max_knot = (n - 3) as f32;
+    let x = u.clamp(0.0, 1.0) * max_knot;
+    let s = span(x, n, 3);
+    let base = s - 3;
+    // De Boor's algorithm [documented: de Boor 1972]: every component of the channel
+    // shares the same span and step weights. On interior spans (with exact integer knots
+    // in f32), denominators are exact 3.0, 2.0 and 1.0.
+    let steps = if s >= 5 && s + 3 <= n && n <= (1 << 24) {
+        let k2 = (s - 3) as f32;
+        let k1 = (s - 4) as f32;
+        let k0 = (s - 5) as f32;
+        let a0 = (x - k2) / 3.0;
+        let a1 = (x - k1) / 3.0;
+        let a2 = (x - k0) / 3.0;
+        let a3 = (x - k2) / 2.0;
+        let a4 = (x - k1) / 2.0;
+        let a5 = x - k2;
+        [
+            (1.0 - a0, a0), // r = 1, j = 3, i = s
+            (1.0 - a1, a1), // r = 1, j = 2, i = s - 1
+            (1.0 - a2, a2), // r = 1, j = 1, i = s - 2
+            (1.0 - a3, a3), // r = 2, j = 3, i = s
+            (1.0 - a4, a4), // r = 2, j = 2, i = s - 1
+            (1.0 - a5, a5), // r = 3, j = 3, i = s
+        ]
+    } else {
+        let knot = |i: usize| -> f32 {
+            if i <= 3 {
+                0.0
+            } else if i >= n {
+                max_knot
+            } else {
+                (i - 3) as f32
+            }
+        };
+        let step = |lo: f32, hi: f32| -> (f32, f32) {
+            let denom = hi - lo;
+            let alpha = if denom > 0.0 { (x - lo) / denom } else { 0.0 };
+            (1.0 - alpha, alpha)
+        };
+        let k0 = knot(s - 2);
+        let k1 = knot(s - 1);
+        let k2 = knot(s);
+        let k3 = knot(s + 1);
+        let k4 = knot(s + 2);
+        let k5 = knot(s + 3);
+        [
+            step(k2, k5), // r = 1, j = 3, i = s
+            step(k1, k4), // r = 1, j = 2, i = s - 1
+            step(k0, k3), // r = 1, j = 1, i = s - 2
+            step(k2, k4), // r = 2, j = 3, i = s
+            step(k1, k3), // r = 2, j = 2, i = s - 1
+            step(k2, k3), // r = 3, j = 3, i = s
+        ]
+    };
+    (base, steps)
+}
+
+#[inline(always)]
+fn blend_array<const N: usize>(a: [f32; N], b: [f32; N], (w0, w1): (f32, f32)) -> [f32; N] {
+    std::array::from_fn(|k| w0 * a[k] + w1 * b[k])
 }
 
 impl BSplineChannel {
@@ -178,52 +251,96 @@ impl BSplineChannel {
 
     /// Evaluate the open uniform B-spline at normalised time `u` in [0, 1].
     pub fn eval(&self, u: f32) -> Vec<f32> {
-        (0..self.dim).map(|c| self.eval_component(u, c)).collect()
+        let dim = self.dim;
+        if dim == 0 {
+            return Vec::new();
+        }
+        let n = self.count();
+        match n {
+            0 => vec![0.0; dim],
+            1 => self.points[..dim].to_vec(),
+            2 => {
+                let x = u.clamp(0.0, 1.0);
+                let (w0, w1) = (1.0 - x, x);
+                (0..dim).map(|c| w0 * self.points[c] + w1 * self.points[dim + c]).collect()
+            }
+            3 => {
+                let x = u.clamp(0.0, 1.0);
+                let (w0, w1) = (1.0 - x, x);
+                (0..dim)
+                    .map(|c| {
+                        let p0 = self.points[c];
+                        let p1 = self.points[dim + c];
+                        let p2 = self.points[2 * dim + c];
+                        let q2 = w0 * p1 + w1 * p2;
+                        let q1 = w0 * p0 + w1 * p1;
+                        w0 * q1 + w1 * q2
+                    })
+                    .collect()
+            }
+            _ => {
+                let (base, steps) = cubic_weights(n, u);
+                let row0 = base * dim;
+                let row1 = row0 + dim;
+                let row2 = row1 + dim;
+                let row3 = row2 + dim;
+                (0..dim)
+                    .map(|c| {
+                        let p0 = self.points[row0 + c];
+                        let mut p1 = self.points[row1 + c];
+                        let mut p2 = self.points[row2 + c];
+                        let mut p3 = self.points[row3 + c];
+                        p3 = steps[0].0 * p2 + steps[0].1 * p3;
+                        p2 = steps[1].0 * p1 + steps[1].1 * p2;
+                        p1 = steps[2].0 * p0 + steps[2].1 * p1;
+                        p3 = steps[3].0 * p2 + steps[3].1 * p3;
+                        p2 = steps[4].0 * p1 + steps[4].1 * p2;
+                        steps[5].0 * p2 + steps[5].1 * p3
+                    })
+                    .collect()
+            }
+        }
     }
 
     /// [`Self::eval`] for an `N`-component channel without allocating (animation runs
     /// every frame); `None` when the channel does not have `N` components.
+    #[inline]
     pub fn eval_array<const N: usize>(&self, u: f32) -> Option<[f32; N]> {
-        (self.dim == N).then(|| std::array::from_fn(|k| self.eval_component(u, k)))
-    }
-
-    /// Component `c` of the spline at `u`: de Boor's algorithm on that component.
-    fn eval_component(&self, u: f32, c: usize) -> f32 {
-        let n = self.count();
-        if n == 0 {
-            return 0.0;
+        if self.dim != N {
+            return None;
         }
-        let d = BSPLINE_DEGREE.min(n - 1);
-        if d == 0 {
-            return self.points[c];
+        if N == 0 {
+            return Some([0.0; N]);
         }
-        // Open uniform knot vector: d+1 zeros, uniform interior knots, d+1 maxima.
-        let max_knot = (n - d) as f32;
-        let knot = |i: usize| -> f32 {
-            if i <= d {
-                0.0
-            } else if i >= n {
-                max_knot
-            } else {
-                (i - d) as f32
+        let (chunks, _) = self.points.as_chunks::<N>();
+        let n = chunks.len();
+        if n >= 4 {
+            let (base, steps) = cubic_weights(n, u);
+            let [p0, mut p1, mut p2, mut p3] = [chunks[base], chunks[base + 1], chunks[base + 2], chunks[base + 3]];
+            p3 = blend_array(p2, p3, steps[0]);
+            p2 = blend_array(p1, p2, steps[1]);
+            p1 = blend_array(p0, p1, steps[2]);
+            p3 = blend_array(p2, p3, steps[3]);
+            p2 = blend_array(p1, p2, steps[4]);
+            p3 = blend_array(p2, p3, steps[5]);
+            return Some(p3);
+        }
+        match *chunks {
+            [] => Some([0.0; N]),
+            [p0] => Some(p0),
+            [p0, p1] => {
+                let x = u.clamp(0.0, 1.0);
+                Some(blend_array(p0, p1, (1.0 - x, x)))
             }
-        };
-        let x = u.clamp(0.0, 1.0) * max_knot;
-        let s = span(x, n, d);
-        // De Boor's algorithm [documented: de Boor 1972].
-        let mut pts = [0.0f32; BSPLINE_DEGREE + 1];
-        for (j, p) in pts.iter_mut().enumerate().take(d + 1) {
-            *p = self.points[(s - d + j) * self.dim + c];
-        }
-        for r in 1..=d {
-            for j in (r..=d).rev() {
-                let i = s - d + j;
-                let denom = knot(i + d + 1 - r) - knot(i);
-                let alpha = if denom > 0.0 { (x - knot(i)) / denom } else { 0.0 };
-                pts[j] = (1.0 - alpha) * pts[j - 1] + alpha * pts[j];
+            [p0, p1, p2] => {
+                let x = u.clamp(0.0, 1.0);
+                let w = (1.0 - x, x);
+                let p2 = blend_array(p1, p2, w);
+                let p1 = blend_array(p0, p1, w);
+                Some(blend_array(p1, p2, w))
             }
+            _ => unreachable!(),
         }
-        pts[d]
     }
 }
 
@@ -1474,6 +1591,288 @@ mod span_tests {
                         assert_eq!(span(x, n, d), walk(x, n, d), "n {n} d {d} x {x}");
                     }
                 }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod bspline_weight_tests {
+    use super::*;
+
+    /// Reference per-component de Boor evaluator from before #3487.
+    fn ref_eval_component(ch: &BSplineChannel, u: f32, c: usize) -> f32 {
+        let n = ch.count();
+        if n == 0 {
+            return 0.0;
+        }
+        let d = BSPLINE_DEGREE.min(n - 1);
+        if d == 0 {
+            return ch.points[c];
+        }
+        let max_knot = (n - d) as f32;
+        let knot = |i: usize| -> f32 {
+            if i <= d {
+                0.0
+            } else if i >= n {
+                max_knot
+            } else {
+                (i - d) as f32
+            }
+        };
+        let x = u.clamp(0.0, 1.0) * max_knot;
+        let s = span(x, n, d);
+        let mut pts = [0.0f32; BSPLINE_DEGREE + 1];
+        for (j, p) in pts.iter_mut().enumerate().take(d + 1) {
+            *p = ch.points[(s - d + j) * ch.dim + c];
+        }
+        for r in 1..=d {
+            for j in (r..=d).rev() {
+                let i = s - d + j;
+                let denom = knot(i + d + 1 - r) - knot(i);
+                let alpha = if denom > 0.0 { (x - knot(i)) / denom } else { 0.0 };
+                pts[j] = (1.0 - alpha) * pts[j - 1] + alpha * pts[j];
+            }
+        }
+        pts[d]
+    }
+
+    fn make_points(n: usize, dim: usize, seed: u32) -> Vec<f32> {
+        let mut state = seed.wrapping_mul(0x9E37_79B9) ^ 0xA5A5_5A5A;
+        (0..n * dim)
+            .map(|i| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let frac = (state >> 8) as f32 / ((1u32 << 24) as f32);
+                // Mix signs, small/large magnitudes, and -0.0 to catch any op-order drift.
+                match i % 17 {
+                    0 => -0.0,
+                    7 => (frac - 0.5) * 1e-20,
+                    13 => (frac - 0.5) * 1e4,
+                    _ => (frac - 0.5) * 3.7,
+                }
+            })
+            .collect()
+    }
+
+    fn sample_times_for(n: usize) -> Vec<f32> {
+        let mut us = vec![
+            f32::NEG_INFINITY,
+            -10.0,
+            -1.0,
+            -1e-6,
+            -0.0,
+            0.0,
+            f32::MIN_POSITIVE,
+            1e-6,
+            0.5,
+            1.0 - 1e-6,
+            1.0,
+            1.0 + 1e-6,
+            2.0,
+            10.0,
+            f32::INFINITY,
+            f32::NAN,
+        ];
+        for k in 0..=128 {
+            us.push(k as f32 / 128.0);
+        }
+        if n >= 2 {
+            let d = BSPLINE_DEGREE.min(n - 1);
+            let spans = n - d;
+            for k in 0..=spans {
+                let u = k as f32 / spans as f32;
+                us.extend([u.next_down(), u, u.next_up(), u - 1e-5, u + 1e-5]);
+            }
+        }
+        us
+    }
+
+    fn assert_bits_eq(got: f32, expected: f32, ctx: &str) {
+        if got.is_nan() && expected.is_nan() {
+            assert_eq!(got.to_bits(), expected.to_bits(), "NaN payload mismatch: {ctx}");
+        } else {
+            assert_eq!(got.to_bits(), expected.to_bits(), "{ctx}: got {got:?} ({:#010x}) != expected {expected:?} ({:#010x})", got.to_bits(), expected.to_bits());
+        }
+    }
+
+    fn check_channel_exact<const N: usize>(ch: &BSplineChannel, times: &[f32]) {
+        for &u in times {
+            let got_arr = ch.eval_array::<N>(u).expect("matching dim");
+            let got_vec = ch.eval(u);
+            assert_eq!(got_vec.len(), N);
+            for k in 0..N {
+                let expected = ref_eval_component(ch, u, k);
+                let ctx = format!("N={N} n={} len={} u={u:?} k={k}", ch.count(), ch.points.len());
+                assert_bits_eq(got_arr[k], expected, &format!("eval_array {ctx}"));
+                assert_bits_eq(got_vec[k], expected, &format!("eval {ctx}"));
+            }
+        }
+    }
+
+    #[test]
+    fn shared_weights_match_reference_bit_for_bit() {
+        for n in [0, 1, 2, 3, 4, 5, 6, 7, 10, 25, 40] {
+            let times = sample_times_for(n);
+            check_channel_exact::<1>(&BSplineChannel { dim: 1, points: make_points(n, 1, n as u32 + 1) }, &times);
+            check_channel_exact::<2>(&BSplineChannel { dim: 2, points: make_points(n, 2, n as u32 + 2) }, &times);
+            check_channel_exact::<3>(&BSplineChannel { dim: 3, points: make_points(n, 3, n as u32 + 3) }, &times);
+            check_channel_exact::<4>(&BSplineChannel { dim: 4, points: make_points(n, 4, n as u32 + 4) }, &times);
+        }
+    }
+
+    #[test]
+    fn small_control_point_counts_and_clamped_endpoints() {
+        // 0 control points: zero vector at every time.
+        let c0 = BSplineChannel { dim: 3, points: Vec::new() };
+        for u in [-2.0, 0.0, 0.5, 1.0, 3.0, f32::NAN] {
+            assert_eq!(c0.eval_array::<3>(u), Some([0.0, 0.0, 0.0]));
+            assert_eq!(c0.eval(u), vec![0.0, 0.0, 0.0]);
+        }
+
+        // 1 control point: constant value at every time.
+        let c1 = BSplineChannel { dim: 4, points: vec![0.5, -0.5, 0.25, 0.75] };
+        for u in [-5.0, 0.0, 0.37, 1.0, 9.0, f32::NAN] {
+            assert_eq!(c1.eval_array::<4>(u), Some([0.5, -0.5, 0.25, 0.75]));
+            assert_eq!(c1.eval(u), vec![0.5, -0.5, 0.25, 0.75]);
+        }
+
+        // 2 control points (degree 1): linear interpolation clamped at [0, 1].
+        let c2 = BSplineChannel { dim: 3, points: vec![1.0, 2.0, 3.0, 5.0, -2.0, 11.0] };
+        assert_eq!(c2.eval_array::<3>(-1.0), Some([1.0, 2.0, 3.0]));
+        assert_eq!(c2.eval_array::<3>(0.0), Some([1.0, 2.0, 3.0]));
+        assert_eq!(c2.eval_array::<3>(0.5), Some([3.0, 0.0, 7.0]));
+        assert_eq!(c2.eval_array::<3>(1.0), Some([5.0, -2.0, 11.0]));
+        assert_eq!(c2.eval_array::<3>(2.5), Some([5.0, -2.0, 11.0]));
+
+        // 3 control points (degree 2): open uniform quadratic Bezier clamped at [0, 1].
+        let c3 = BSplineChannel { dim: 2, points: vec![0.0, 10.0, 4.0, 2.0, 8.0, 18.0] };
+        assert_eq!(c3.eval_array::<2>(-0.5), Some([0.0, 10.0]));
+        assert_eq!(c3.eval_array::<2>(0.0), Some([0.0, 10.0]));
+        // At u = 0.5: 0.25*p0 + 0.5*p1 + 0.25*p2 = (4.0, 8.0).
+        assert_eq!(c3.eval_array::<2>(0.5), Some([4.0, 8.0]));
+        assert_eq!(c3.eval_array::<2>(1.0), Some([8.0, 18.0]));
+        assert_eq!(c3.eval_array::<2>(1.5), Some([8.0, 18.0]));
+
+        // >= 4 control points (degree 3): clamped endpoints match first and last points.
+        let c5 = BSplineChannel { dim: 3, points: make_points(5, 3, 99) };
+        let first = [c5.points[0], c5.points[1], c5.points[2]];
+        let last = [c5.points[12], c5.points[13], c5.points[14]];
+        for u in [f32::NEG_INFINITY, -3.0, 0.0] {
+            assert_eq!(c5.eval_array::<3>(u), Some(first));
+        }
+        for u in [1.0, 3.0, f32::INFINITY] {
+            assert_eq!(c5.eval_array::<3>(u), Some(last));
+        }
+    }
+
+    #[test]
+    fn mismatched_component_counts_and_degenerate_slices() {
+        for dim in 0..=5usize {
+            let ch = BSplineChannel { dim, points: make_points(6, dim.max(1), dim as u32 + 7) };
+            assert_eq!(ch.eval_array::<0>(0.35).is_some(), dim == 0);
+            assert_eq!(ch.eval_array::<1>(0.35).is_some(), dim == 1);
+            assert_eq!(ch.eval_array::<2>(0.35).is_some(), dim == 2);
+            assert_eq!(ch.eval_array::<3>(0.35).is_some(), dim == 3);
+            assert_eq!(ch.eval_array::<4>(0.35).is_some(), dim == 4);
+            assert_eq!(ch.eval(0.35).len(), dim);
+        }
+
+        // Trailing partial control points (points.len() not a multiple of dim).
+        let times = [-0.5, 0.0, 0.25, 0.5, 0.75, 1.0, 1.5, f32::NAN];
+        for len in [0, 1, 2, 4, 5, 7, 10, 11, 13] {
+            let ch3 = BSplineChannel { dim: 3, points: make_points(len, 1, len as u32 + 30) };
+            check_channel_exact::<3>(&ch3, &times);
+        }
+        for len in [0, 1, 3, 5, 7, 11, 15, 17] {
+            let ch4 = BSplineChannel { dim: 4, points: make_points(len, 1, len as u32 + 60) };
+            check_channel_exact::<4>(&ch4, &times);
+        }
+        let zero_dim = BSplineChannel { dim: 0, points: vec![1.0, 2.0, 3.0, 4.0] };
+        for &u in &times {
+            assert_eq!(zero_dim.eval_array::<0>(u), Some([]));
+            assert_eq!(zero_dim.eval_array::<3>(u), None);
+            assert!(zero_dim.eval(u).is_empty());
+        }
+    }
+
+    #[test]
+    fn playback_sweeps_wrap_backward_held_and_crossfade_match_reference() {
+        let trans_a = BSplineChannel { dim: 3, points: make_points(19, 3, 101) };
+        let trans_b = BSplineChannel { dim: 3, points: make_points(11, 3, 202) };
+        let rot_a = BSplineChannel { dim: 4, points: make_points(23, 4, 303) };
+        let rot_b = BSplineChannel { dim: 4, points: make_points(9, 4, 404) };
+        let scale_a = BSplineChannel { dim: 1, points: make_points(14, 1, 505) };
+
+        let ref_channel = |start: f32, stop: f32, ch: &BSplineChannel, t: f32| -> Vec<f32> {
+            let span = stop - start;
+            let u = if span > 0.0 { (t - start) / span } else { 0.0 };
+            (0..ch.dim).map(|c| ref_eval_component(ch, u, c)).collect()
+        };
+
+        let ch_ta = Channel::<3>::BSpline { start: 0.2, stop: 1.8, spline: trans_a.clone() };
+        let ch_tb = Channel::<3>::BSpline { start: 0.0, stop: 1.2, spline: trans_b.clone() };
+        let ch_ra = Channel::<4>::BSpline { start: 0.2, stop: 1.8, spline: rot_a.clone() };
+        let ch_rb = Channel::<4>::BSpline { start: 0.0, stop: 1.2, spline: rot_b.clone() };
+        let ch_sa = Channel::<1>::BSpline { start: 0.2, stop: 1.8, spline: scale_a.clone() };
+
+        // Forward wrap, backward seek, held start/stop, and crossfade-paired sampling.
+        let mut sweep = Vec::new();
+        for step in 0..=100 {
+            // Wrapping across 2.5 cycles.
+            let wrapped = 0.2 + ((step as f32 * 0.04) % 1.6);
+            sweep.push(wrapped);
+        }
+        for step in (0..=64).rev() {
+            // Backward seek past both ends.
+            sweep.push(-0.2 + step as f32 * 0.035);
+        }
+        sweep.extend([-1.0, 0.2, 0.2, 1.8, 1.8, 4.0]); // Held poses at/beyond endpoints.
+
+        for (idx, &t) in sweep.iter().enumerate() {
+            let ta = ch_ta.sample(t).unwrap();
+            let ra = ch_ra.sample(t).unwrap();
+            let sa = ch_sa.sample(t).unwrap();
+            let exp_ta = ref_channel(0.2, 1.8, &trans_a, t);
+            let exp_ra = ref_channel(0.2, 1.8, &rot_a, t);
+            let exp_sa = ref_channel(0.2, 1.8, &scale_a, t);
+            for k in 0..3 {
+                assert_bits_eq(ta[k], exp_ta[k], &format!("trans_a step {idx} t={t} k={k}"));
+            }
+            for k in 0..4 {
+                assert_bits_eq(ra[k], exp_ra[k], &format!("rot_a step {idx} t={t} k={k}"));
+            }
+            assert_bits_eq(sa[0], exp_sa[0], &format!("scale_a step {idx} t={t}"));
+
+            // Crossfade pair: sample companion clip at offset phase and blend.
+            let t_b = (idx as f32 * 0.03) % 1.2;
+            let w = (idx % 11) as f32 / 10.0;
+            let tb = ch_tb.sample(t_b).unwrap();
+            let rb = ch_rb.sample(t_b).unwrap();
+            let exp_tb = ref_channel(0.0, 1.2, &trans_b, t_b);
+            let exp_rb = ref_channel(0.0, 1.2, &rot_b, t_b);
+            for k in 0..3 {
+                let got_blend = ta[k] + (tb[k] - ta[k]) * w;
+                let exp_blend = exp_ta[k] + (exp_tb[k] - exp_ta[k]) * w;
+                assert_bits_eq(got_blend, exp_blend, &format!("crossfade trans step {idx} k={k}"));
+            }
+            let got_q = slerp(normalize(ra), normalize(rb), w);
+            let exp_q = slerp(
+                normalize([exp_ra[0], exp_ra[1], exp_ra[2], exp_ra[3]]),
+                normalize([exp_rb[0], exp_rb[1], exp_rb[2], exp_rb[3]]),
+                w,
+            );
+            for k in 0..4 {
+                assert_bits_eq(got_q[k], exp_q[k], &format!("crossfade quat step {idx} k={k}"));
+            }
+        }
+
+        // Degenerate zero-span and inverted-span channels hold start (u = 0.0).
+        for (start, stop) in [(1.0, 1.0), (2.0, 0.5)] {
+            let ch = Channel::<4>::BSpline { start, stop, spline: rot_a.clone() };
+            let got = ch.sample(1.25).unwrap();
+            let exp = ref_channel(start, stop, &rot_a, 1.25);
+            for k in 0..4 {
+                assert_bits_eq(got[k], exp[k], &format!("degenerate span ({start}, {stop}) k={k}"));
             }
         }
     }

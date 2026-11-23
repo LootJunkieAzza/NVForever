@@ -242,3 +242,67 @@ fn requests_and_switches() {
     // The nothing values by decision.
     assert_eq!(n(&mut g, "ar_Size (StatRef.GetBlockTextureSet \"Box:0\")"), -1.0);
 }
+
+#[test]
+fn anim_sequence_frequency_semantics_and_sanitization() {
+    let f = fixture();
+    let mut g = game(&f);
+    let stat = FormId(STAT_REF);
+    let acti = FormId(ACTI_REF);
+
+    // Absent override (vanilla fast path): empty map, no override returned.
+    assert!(!g.has_anim_frequencies());
+    assert_eq!(g.anim_frequency(stat, "Forward"), None);
+
+    g.set_sequences(stat, Some(vec!["Forward".to_string(), "Idle".to_string()]));
+    assert_eq!(n(&mut g, "StatRef.GetAnimSequenceFrequency \"Forward\""), 1.0);
+
+    // Wildcard "*" applies to all sequences on that reference, not other references.
+    q(&mut g, "StatRef.SetAnimSequenceFrequency \"*\" 1.5");
+    assert!(g.has_anim_frequencies());
+    assert_eq!(g.anim_frequency(stat, "Forward"), Some(1.5));
+    assert_eq!(g.anim_frequency(stat, "Idle"), Some(1.5));
+    assert_eq!(g.anim_frequency(acti, "Idle"), None);
+
+    // Exact sequence name (case-insensitive) takes precedence over "*"; alias works too.
+    q(&mut g, "StatRef.SetAnimSeqFreq \"FoRwArD\" 2.25");
+    assert_eq!(g.anim_frequency(stat, "forward"), Some(2.25));
+    assert_eq!(g.anim_frequency(stat, "FORWARD"), Some(2.25));
+    assert_eq!(g.anim_frequency(stat, "Idle"), Some(1.5));
+    assert_eq!(n(&mut g, "StatRef.GetAnimSeqFreq \"FORWARD\""), 2.25);
+
+    // 0.0 (pause) and negative values clamp to 0.0 without producing -0.0.
+    q(&mut g, "StatRef.SetAnimSequenceFrequency \"Forward\" 0");
+    assert_eq!(g.anim_frequency(stat, "Forward"), Some(0.0));
+    q(&mut g, "StatRef.SetAnimSequenceFrequency \"Forward\" -3.5");
+    assert_eq!(g.anim_frequency(stat, "Forward"), Some(0.0));
+    assert!(g.anim_frequency(stat, "Forward").unwrap().is_sign_positive());
+
+    // Direct sanitization helper rejects NaN/Inf and normalizes negative/signed zero.
+    assert_eq!(fnv_game::nvse_jip14::sanitize_anim_frequency(f32::NAN), None);
+    assert_eq!(fnv_game::nvse_jip14::sanitize_anim_frequency(f32::INFINITY), None);
+    assert_eq!(fnv_game::nvse_jip14::sanitize_anim_frequency(f32::NEG_INFINITY), None);
+    assert_eq!(fnv_game::nvse_jip14::sanitize_anim_frequency(-1.0), Some(0.0));
+    assert_eq!(fnv_game::nvse_jip14::sanitize_anim_frequency(-0.0).unwrap().to_bits(), 0.0_f32.to_bits());
+
+    // Non-finite map entries are ignored on read (falling back to wildcard) and
+    // negative map entries clamp to 0.0.
+    g.other.jip14.anim_freq.insert((stat, "forward".to_string()), f32::NAN);
+    assert_eq!(g.anim_frequency(stat, "Forward"), Some(1.5));
+    g.other.jip14.anim_freq.insert((stat, "forward".to_string()), f32::INFINITY);
+    assert_eq!(g.anim_frequency(stat, "Forward"), Some(1.5));
+    g.other.jip14.anim_freq.insert((stat, "forward".to_string()), -4.0);
+    assert_eq!(g.anim_frequency(stat, "Forward"), Some(0.0));
+
+    // A finite f64 value overflowing f32::MAX (1e40 > f32::MAX) is ignored by the
+    // script setter instead of storing f32::INFINITY.
+    q(&mut g, "StatRef.SetAnimSequenceFrequency \"Forward\" 2.0");
+    assert_eq!(g.anim_frequency(stat, "Forward"), Some(2.0));
+    let huge = n(&mut g, "10000000000.0 * 10000000000.0 * 10000000000.0 * 10000000000.0");
+    assert!(huge.is_finite() && (huge as f32).is_infinite(), "expected f64 finite value overflowing f32::MAX, got {huge}");
+    q(
+        &mut g,
+        "let fX := 10000000000.0 * 10000000000.0 * 10000000000.0 * 10000000000.0\nStatRef.SetAnimSequenceFrequency \"Forward\" fX",
+    );
+    assert_eq!(g.anim_frequency(stat, "Forward"), Some(2.0));
+}

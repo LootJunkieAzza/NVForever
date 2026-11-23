@@ -57,8 +57,13 @@ actors, `resolve_changed_at`), `engine/nvforever/src/zones.rs` (the engine's cop
 - The level is **fixed for the reference when its cell first loads**
   (`World::fix_level`, saved as `ref_levels`) [hypothesis: an actor made at a load stays
   the same actor after the player levels up, until its cell is reset]. Before that, the
-  rules give the level the load would fix (its zone's level, or the level the zone would
-  take now, or the player's level), so a query before the load agrees with it.
+  rules give the level the load would fix (its effective zone's level — including session
+  `SetRefEncounterZone`, `SetCellEncounterZone`, `SetWorldspaceEncounterZone`,
+  `SetZoneMinLevel`, and `SetZoneFlag` bit 2 overrides stored in `WorldSession` — or the
+  level that zone would take now, or the player's level), so a query before the load
+  agrees with it; `GetInZone` (`functions/refs.rs`) also reads `World::cell_zone_of`
+  [hypothesis: session-only overrides carried across same-run loads via
+  `WorldSession` / `Game::Session`, excluded from snapshots].
 - What reads it: the actor a placed leveled actor list (LVLN/LVLC) stands for, and every
   `TPLT` chain through a list (factions, packages, name, scripts, actor values, spells,
   `fnv_game::templates`; the drawn actor, `fnv_actor::resolve`; the same seed as before,

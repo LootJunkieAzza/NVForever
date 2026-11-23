@@ -178,6 +178,28 @@ pub fn targets(ui: &Ui, t: TileId) -> bool {
     flag(ui, t, "target")
 }
 
+/// The tile a script click (`ClickMenuTile`) acts on: `t` itself when its own `target` is
+/// true, else the nearest `<hotrect>` above it whose `target` is true [documented:
+/// Hotrect, "Hotrect with Target set to 1 will enforce it to its childs even if child
+/// Target is set 0"; ClickMenuTile, "should work with any interactable UI tile"].
+pub fn clickable_target(ui: &Ui, t: TileId) -> Option<TileId> {
+    if !ui.is_live(t) {
+        return None;
+    }
+    if targets(ui, t) {
+        return Some(t);
+    }
+    let mut at = ui.tile(t).parent;
+    while let Some(id) = at {
+        let tile = ui.tile(id);
+        if tile.kind == "hotrect" && targets(ui, id) {
+            return Some(id);
+        }
+        at = tile.parent;
+    }
+    None
+}
+
 /// The tile itself, or the nearest above it, whose own `target` is true.
 fn event_tile(ui: &Ui, t: TileId) -> Option<TileId> {
     let mut at = Some(t);

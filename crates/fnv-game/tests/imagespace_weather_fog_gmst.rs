@@ -20,6 +20,8 @@ const WTHR_A: u32 = 0xD03;
 const GMST_F: u32 = 0xD04;
 const GMST_I: u32 = 0xD05;
 const GMST_S: u32 = 0xD06;
+const WRLD_A: u32 = 0xD07;
+const IMAD_A: u32 = 0xD08;
 
 fn imgs_dnam(saturation: f32, brightness: f32, tint: [f32; 3], tint_amount: f32) -> Vec<u8> {
     // 152-byte DNAM layout (14 HDR + 1 skin dimmer + 3 bloom + 3 get hit + 4 night eye +
@@ -79,13 +81,17 @@ fn plugin_bytes() -> Vec<u8> {
         ],
     );
     let player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]);
+    let wrld = record(b"WRLD", 0, WRLD_A, &[sub(b"EDID", z("OwnedCartoWorld")), sub(b"INAM", u32s(&[IMGS_A]))]);
+    let imad = record(b"IMAD", 0, IMAD_A, &[sub(b"EDID", z("OwnedCartoAdpt")), sub(b"DNAM", vec![0; 244])]);
     [
         tes4(),
         top(b"GMST", &gmsts),
         top(b"NPC_", &player),
         top(b"IMGS", &imgs),
+        top(b"IMAD", &imad),
         top(b"WTHR", &wthr),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+        top(b"WRLD", &wrld),
     ]
     .concat()
 }
@@ -254,4 +260,79 @@ fn game_settings_presets_update_vanilla_gmst_live_and_reject_unknown_safely() {
     assert_eq!(q(&mut g, "SetFunctionValue (SetNumericGameSetting \"uSyntheticUnknownSetting\" 7)"), XVal::Num(0.0));
     assert_eq!(q(&mut g, "SetFunctionValue (SetNumericGameSetting \"bSyntheticUnknownToggle\" 0)"), XVal::Num(0.0));
     assert_eq!(g.world.setting_f32("fOwnedCartoFloat"), Some(42.25));
+}
+
+#[test]
+fn weather_visual_and_worldspace_imagespace_tokens_track_live_edits_and_isolate_instances() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    let (id0, img_rev0) = g.image_space_sync_token();
+    let fog_rev0 = g.weather_fog_sync_token().1;
+    let (vid0, vis_rev0) = g.weather_visual_sync_token();
+    assert_eq!((id0, vis_rev0), (vid0, 0));
+
+    // SetWorldspaceImagespace bumps image_space_revision without touching weather tokens.
+    q(&mut g, "SetWorldspaceImagespace OwnedCartoWorld OwnedImgB");
+    let img_rev1 = g.image_space_sync_token().1;
+    assert!(img_rev1 > img_rev0);
+    assert_eq!(g.weather_fog_sync_token().1, fog_rev0);
+    assert_eq!(g.weather_visual_sync_token().1, vis_rev0);
+    // Idempotent repeat does not churn image_space_revision.
+    q(&mut g, "SetWorldspaceImagespace OwnedCartoWorld OwnedImgB");
+    assert_eq!(g.image_space_sync_token().1, img_rev1);
+
+    // SetWeatherRGBColor (NAM0 + PNAM cloud layer) bumps weather_visual_revision only.
+    q(
+        &mut g,
+        "SetWeatherRGBColor OwnedWeatherA 1 1 200100050\n\
+         SetWeatherRGBColor OwnedWeatherA 3 1 040080120\n\
+         SetWeatherRGBColor OwnedWeatherA 2 1 120140160 2",
+    );
+    let vis_rev1 = g.weather_visual_sync_token().1;
+    assert!(vis_rev1 > vis_rev0);
+    assert_eq!(g.weather_fog_sync_token().1, fog_rev0, "RGB edits must not bump weather_fog_revision");
+    let colors = g.weather_color_overrides();
+    assert_eq!(colors[&WTHR_A][1][1], Some([200, 100, 50]));
+    assert_eq!(colors[&WTHR_A][3][1], Some([40, 80, 120]));
+    assert_eq!(colors[&WTHR_A][2][1], None, "type 2 belongs to cloud_colors, not NAM0");
+    let clouds = g.weather_cloud_color_overrides();
+    assert_eq!(clouds[&WTHR_A][2][1], Some([120, 140, 160]));
+    // Idempotent repeat does not churn weather_visual_revision.
+    q(&mut g, "SetWeatherRGBColor OwnedWeatherA 1 1 200100050");
+    assert_eq!(g.weather_visual_sync_token().1, vis_rev1);
+
+    // SetWeatherImageSpaceMod (assign and explicit clear to 0) bumps weather_visual_revision.
+    q(&mut g, "SetWeatherImageSpaceMod OwnedWeatherA 1 OwnedCartoAdpt");
+    let vis_rev2 = g.weather_visual_sync_token().1;
+    assert!(vis_rev2 > vis_rev1);
+    assert_eq!(g.weather_adapter_overrides()[&WTHR_A][1], Some(IMAD_A));
+    q(&mut g, "SetWeatherImageSpaceMod OwnedWeatherA 1 OwnedCartoAdpt");
+    assert_eq!(g.weather_visual_sync_token().1, vis_rev2);
+    q(&mut g, "SetWeatherImageSpaceMod OwnedWeatherA 1 0");
+    let vis_rev3 = g.weather_visual_sync_token().1;
+    assert!(vis_rev3 > vis_rev2);
+    assert_eq!(g.weather_adapter_overrides()[&WTHR_A][1], Some(0));
+
+    // SetWeatherTransitionTimeOverride bumps weather_visual_revision on change, not on repeat.
+    q(&mut g, "SetWeatherTransitionTimeOverride 10");
+    let vis_rev4 = g.weather_visual_sync_token().1;
+    assert!(vis_rev4 > vis_rev3);
+    assert_eq!(g.weather_transition_override(), Some(10.0));
+    q(&mut g, "SetWeatherTransitionTimeOverride 10");
+    assert_eq!(g.weather_visual_sync_token().1, vis_rev4);
+    q(&mut g, "SetWeatherTransitionTimeOverride 0");
+    let vis_rev5 = g.weather_visual_sync_token().1;
+    assert!(vis_rev5 > vis_rev4);
+    assert_eq!(g.weather_transition_override(), None);
+
+    // Game::restore gets a distinct instance_id and clears session-only weather visual overrides.
+    let snap = g.snapshot();
+    let g2 = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..GameConfig::default() }, &snap).unwrap();
+    assert_ne!(g2.weather_visual_sync_token().0, id0);
+    assert_eq!(g2.weather_visual_sync_token().1, 0);
+    assert!(g2.weather_color_overrides().is_empty());
+    assert!(g2.weather_cloud_color_overrides().is_empty());
+    assert!(g2.weather_adapter_overrides().is_empty());
+    assert_eq!(g2.weather_transition_override(), None);
 }

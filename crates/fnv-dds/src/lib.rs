@@ -103,21 +103,25 @@ impl Format {
         }
     }
 
+    /// Bytes per pixel for uncompressed formats decoded by [`to_rgba8`] / [`to_rgba8_rect`],
+    /// `None` for block-compressed formats.
+    pub fn bytes_per_pixel(self) -> Option<usize> {
+        match self {
+            Format::A8R8G8B8 | Format::X8R8G8B8 | Format::A8B8G8R8 | Format::X8B8G8R8 => Some(4),
+            Format::R8G8B8 => Some(3),
+            Format::A4R4G4B4 | Format::R5G6B5 | Format::A1R5G5B5 | Format::X1R5G5B5 | Format::A8L8 => Some(2),
+            Format::L8 => Some(1),
+            _ => None,
+        }
+    }
+
     /// Bytes of one level `w`×`h`, saturating on absurd sizes (a product that would wrap
     /// gave 0, so an empty payload matched a 2-billion-wide header [#1995]).
     pub fn level_size(self, w: u32, h: u32) -> usize {
         let (w, h) = (w as usize, h as usize);
         match self.block_bytes() {
             Some(b) => w.div_ceil(4).max(1).saturating_mul(h.div_ceil(4).max(1)).saturating_mul(b),
-            None => {
-                let bpp = match self {
-                    Format::A8R8G8B8 | Format::X8R8G8B8 | Format::A8B8G8R8 | Format::X8B8G8R8 => 4,
-                    Format::R8G8B8 => 3,
-                    Format::L8 => 1,
-                    _ => 2,
-                };
-                w.saturating_mul(h).saturating_mul(bpp)
-            }
+            None => w.saturating_mul(h).saturating_mul(self.bytes_per_pixel().unwrap_or(2)),
         }
     }
 }
@@ -516,24 +520,19 @@ impl<'a> Dds<'a> {
     }
 }
 
-/// Convert one level of an uncompressed format to RGBA8. `None` for block formats.
-pub fn to_rgba8(format: Format, src: &[u8]) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
+fn append_rgba8(format: Format, src: &[u8], out: &mut Vec<u8>) -> bool {
     match format {
         Format::A8R8G8B8 => {
-            out.reserve(src.len());
             for p in src.as_chunks::<4>().0 {
                 out.extend_from_slice(&[p[2], p[1], p[0], p[3]]);
             }
         }
         Format::R8G8B8 => {
-            out.reserve(src.len() / 3 * 4);
             for p in src.as_chunks::<3>().0 {
                 out.extend_from_slice(&[p[2], p[1], p[0], 255]);
             }
         }
         Format::A4R4G4B4 => {
-            out.reserve(src.len() * 2);
             for p in src.as_chunks::<2>().0 {
                 let v = u16::from_le_bytes([p[0], p[1]]);
                 let ch = |shift: u16| (((v >> shift) & 0xF) as u8) * 17;
@@ -560,7 +559,10 @@ pub fn to_rgba8(format: Format, src: &[u8]) -> Option<Vec<u8>> {
         Format::A1R5G5B5 | Format::X1R5G5B5 => {
             for p in src.as_chunks::<2>().0 {
                 let v = u16::from_le_bytes([p[0], p[1]]);
-                let ch = |shift: u16| { let c = ((v >> shift) & 31) as u8; (c << 3) | (c >> 2) };
+                let ch = |shift: u16| {
+                    let c = ((v >> shift) & 31) as u8;
+                    (c << 3) | (c >> 2)
+                };
                 let a = if format == Format::X1R5G5B5 || v & 0x8000 != 0 { 255 } else { 0 };
                 out.extend_from_slice(&[ch(10), ch(5), ch(0), a]);
             }
@@ -578,7 +580,43 @@ pub fn to_rgba8(format: Format, src: &[u8]) -> Option<Vec<u8>> {
                 out.extend_from_slice(&[p[0], p[0], p[0], p[1]]);
             }
         }
-        _ => return None,
+        _ => return false,
+    }
+    true
+}
+
+/// Convert one level of an uncompressed format to RGBA8. `None` for block formats.
+pub fn to_rgba8(format: Format, src: &[u8]) -> Option<Vec<u8>> {
+    let bpp = format.bytes_per_pixel()?;
+    let mut out = Vec::with_capacity(src.len() / bpp * 4);
+    append_rgba8(format, src, &mut out).then_some(out)
+}
+
+/// Convert a sub-rectangle `rect` (`[x, y, width, height]`) of one uncompressed level of
+/// `w`×`h` texels to RGBA8 without allocating or decoding the rest of the level [design].
+/// `None` for block formats, invalid dimensions or bounds, or data too short.
+pub fn to_rgba8_rect(format: Format, w: u32, h: u32, src: &[u8], rect: [u32; 4]) -> Option<Vec<u8>> {
+    let bpp = format.bytes_per_pixel()?;
+    let [rx, ry, rw, rh] = rect;
+    if !(1..=MAX_SIDE).contains(&w)
+        || !(1..=MAX_SIDE).contains(&h)
+        || rw == 0
+        || rh == 0
+        || rx.checked_add(rw).is_none_or(|e| e > w)
+        || ry.checked_add(rh).is_none_or(|e| e > h)
+        || src.len() < format.level_size(w, h)
+    {
+        return None;
+    }
+    let (w, rx, ry, rw, rh) = (w as usize, rx as usize, ry as usize, rw as usize, rh as usize);
+    let mut out = Vec::new();
+    out.try_reserve_exact(rw.checked_mul(rh)?.checked_mul(4)?).ok()?;
+    let row_bytes = rw * bpp;
+    for y in ry..ry + rh {
+        let off = (y * w + rx) * bpp;
+        if !append_rgba8(format, &src[off..off + row_bytes], &mut out) {
+            return None;
+        }
     }
     Some(out)
 }
@@ -724,46 +762,68 @@ pub fn decode_bc5(format: Format, w: u32, h: u32, src: &[u8]) -> Option<Vec<[f32
     Some(pixels)
 }
 
+fn decode_dxt_block(format: Format, b: &[u8]) -> [[u8; 4]; 16] {
+    match format {
+        Format::Dxt1 => color_block(b, false),
+        Format::Dxt3 => {
+            let mut c = color_block(&b[8..], true);
+            for (i, t) in c.iter_mut().enumerate() {
+                let nib = (b[i / 2] >> (4 * (i % 2))) & 15;
+                t[3] = nib * 17;
+            }
+            c
+        }
+        _ => {
+            let a = alpha_block5(b);
+            let mut c = color_block(&b[8..], true);
+            for (t, a) in c.iter_mut().zip(a) {
+                t[3] = a;
+            }
+            c
+        }
+    }
+}
+
 /// Decode one level of DXT1/3/5 data of `w`×`h` texels to RGBA8 (row-major); `None` for
 /// other formats, data too short, or a side of 0 or above [`MAX_SIDE`] (every caller's
 /// size comes from a parsed header, which is within those bounds), checked before
 /// anything is allocated.
 pub fn decode_blocks(format: Format, w: u32, h: u32, src: &[u8]) -> Option<Vec<u8>> {
+    decode_blocks_rect(format, w, h, src, [0, 0, w, h])
+}
+
+/// Decode a sub-rectangle `rect` (`[x, y, width, height]`) of one level of DXT1/3/5 data
+/// of `w`×`h` texels to RGBA8 (row-major), touching only the 4×4 blocks overlapping `rect`
+/// [design]. `None` for other formats, data too short, invalid dimensions, or an empty or
+/// out-of-bounds rectangle, checked before anything is allocated.
+pub fn decode_blocks_rect(format: Format, w: u32, h: u32, src: &[u8], rect: [u32; 4]) -> Option<Vec<u8>> {
     let block = format.block_bytes().filter(|_| matches!(format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5))?;
-    if !(1..=MAX_SIDE).contains(&w) || !(1..=MAX_SIDE).contains(&h) || src.len() < format.level_size(w, h) {
+    let [rx, ry, rw, rh] = rect;
+    if !(1..=MAX_SIDE).contains(&w)
+        || !(1..=MAX_SIDE).contains(&h)
+        || rw == 0
+        || rh == 0
+        || rx.checked_add(rw).is_none_or(|e| e > w)
+        || ry.checked_add(rh).is_none_or(|e| e > h)
+        || src.len() < format.level_size(w, h)
+    {
         return None;
     }
-    let (bw, bh) = (w.div_ceil(4) as usize, h.div_ceil(4) as usize);
-    let (w, h) = (w as usize, h as usize);
+    let bw = (w as usize).div_ceil(4);
+    let (rx, ry, rw, rh) = (rx as usize, ry as usize, rw as usize, rh as usize);
     let mut out = Vec::new();
-    out.try_reserve_exact(w.checked_mul(h)?.checked_mul(4)?).ok()?;
-    out.resize(w * h * 4, 0u8);
-    for by in 0..bh {
-        for bx in 0..bw {
+    out.try_reserve_exact(rw.checked_mul(rh)?.checked_mul(4)?).ok()?;
+    out.resize(rw * rh * 4, 0u8);
+    let (bx0, bx1) = (rx / 4, (rx + rw).div_ceil(4));
+    let (by0, by1) = (ry / 4, (ry + rh).div_ceil(4));
+    for by in by0..by1 {
+        for bx in bx0..bx1 {
             let b = &src[(by * bw + bx) * block..][..block];
-            let texels: [[u8; 4]; 16] = match format {
-                Format::Dxt1 => color_block(b, false),
-                Format::Dxt3 => {
-                    let mut c = color_block(&b[8..], true);
-                    for (i, t) in c.iter_mut().enumerate() {
-                        let nib = (b[i / 2] >> (4 * (i % 2))) & 15;
-                        t[3] = nib * 17;
-                    }
-                    c
-                }
-                _ => {
-                    let a = alpha_block5(b);
-                    let mut c = color_block(&b[8..], true);
-                    for (t, a) in c.iter_mut().zip(a) {
-                        t[3] = a;
-                    }
-                    c
-                }
-            };
+            let texels = decode_dxt_block(format, b);
             for (i, t) in texels.iter().enumerate() {
                 let (x, y) = (bx * 4 + i % 4, by * 4 + i / 4);
-                if x < w && y < h {
-                    out[(y * w + x) * 4..][..4].copy_from_slice(t);
+                if x >= rx && x < rx + rw && y >= ry && y < ry + rh {
+                    out[((y - ry) * rw + (x - rx)) * 4..][..4].copy_from_slice(t);
                 }
             }
         }
@@ -1255,6 +1315,66 @@ mod dx10_tests {
         }
         assert_eq!(decode_blocks(Format::Dxt5, 3, 2, &block).unwrap().len(), 3 * 2 * 4);
         assert!(decode_blocks(Format::Dxt5, 5, 4, &block).is_none(), "two blocks needed");
+    }
+
+    #[test]
+    fn decode_blocks_rect_matches_full_decode_and_handles_4k_subrects() {
+        // Non-multiple-of-4 size (10 x 6 = 3 x 2 blocks) across DXT1, DXT3 and DXT5.
+        for format in [Format::Dxt1, Format::Dxt3, Format::Dxt5] {
+            let block_len = format.block_bytes().unwrap();
+            let src: Vec<u8> = (0..6 * block_len).map(|i| ((i * 73 + 19) & 0xFF) as u8).collect();
+            let full = decode_blocks(format, 10, 6, &src).unwrap();
+            for rect in [[0, 0, 10, 6], [1, 1, 5, 4], [3, 2, 7, 4], [8, 4, 2, 2], [4, 0, 4, 4]] {
+                let sub = decode_blocks_rect(format, 10, 6, &src, rect).unwrap();
+                let [rx, ry, rw, rh] = rect.map(|v| v as usize);
+                let mut expected = Vec::with_capacity(rw * rh * 4);
+                for y in ry..ry + rh {
+                    expected.extend_from_slice(&full[(y * 10 + rx) * 4..(y * 10 + rx + rw) * 4]);
+                }
+                assert_eq!(sub, expected, "{format:?} rect={rect:?}");
+            }
+            assert!(decode_blocks_rect(format, 10, 6, &src, [0, 0, 0, 2]).is_none());
+            assert!(decode_blocks_rect(format, 10, 6, &src, [0, 0, 2, 0]).is_none());
+            assert!(decode_blocks_rect(format, 10, 6, &src, [9, 0, 2, 2]).is_none());
+            assert!(decode_blocks_rect(format, 10, 6, &src, [0, 5, 2, 2]).is_none());
+            assert!(decode_blocks_rect(format, 10, 6, &src, [u32::MAX, 0, 2, 2]).is_none());
+        }
+        // 4096 x 4096 DXT5: decode a non-block-aligned sub-rect without allocating 64 MiB.
+        let bw = 1024usize;
+        let mut big = vec![0u8; bw * bw * 16];
+        let off = (833 * bw + 353) * 16;
+        big[off] = 255;
+        big[off + 1] = 255;
+        big[off + 8..off + 10].copy_from_slice(&0xFFFFu16.to_le_bytes());
+        let sub = decode_blocks_rect(Format::Dxt5, 4096, 4096, &big, [1410, 3330, 6, 6]).unwrap();
+        assert_eq!(sub.len(), 6 * 6 * 4);
+        assert_eq!(&sub[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&sub[(2 * 6 + 2) * 4..(2 * 6 + 2) * 4 + 4], &[255, 255, 255, 255]);
+        assert!(decode_blocks_rect(Format::Bc7, 4, 4, &[0; 16], [0, 0, 4, 4]).is_none());
+    }
+
+    #[test]
+    fn to_rgba8_rect_matches_full_decode_and_checks_bounds() {
+        for format in [Format::A8R8G8B8, Format::R8G8B8, Format::A4R4G4B4, Format::L8] {
+            let bpp = format.bytes_per_pixel().unwrap();
+            let src: Vec<u8> = (0..6 * 5 * bpp).map(|i| ((i * 41 + 7) & 0xFF) as u8).collect();
+            let full = to_rgba8(format, &src).unwrap();
+            for rect in [[0, 0, 6, 5], [1, 2, 4, 2], [5, 4, 1, 1]] {
+                let sub = to_rgba8_rect(format, 6, 5, &src, rect).unwrap();
+                let [rx, ry, rw, rh] = rect.map(|v| v as usize);
+                let mut expected = Vec::with_capacity(rw * rh * 4);
+                for y in ry..ry + rh {
+                    expected.extend_from_slice(&full[(y * 6 + rx) * 4..(y * 6 + rx + rw) * 4]);
+                }
+                assert_eq!(sub, expected, "{format:?} rect={rect:?}");
+            }
+            assert!(to_rgba8_rect(format, 6, 5, &src, [0, 0, 0, 1]).is_none());
+            assert!(to_rgba8_rect(format, 6, 5, &src, [5, 0, 2, 1]).is_none());
+            assert!(to_rgba8_rect(format, 6, 5, &src, [0, 4, 1, 2]).is_none());
+            assert!(to_rgba8_rect(format, 6, 5, &src, [u32::MAX, 0, 1, 1]).is_none());
+            assert!(to_rgba8_rect(format, 6, 5, &src[..src.len() - 1], [0, 0, 1, 1]).is_none());
+        }
+        assert!(to_rgba8_rect(Format::Dxt5, 4, 4, &[0; 16], [0, 0, 4, 4]).is_none());
     }
 
     #[test]

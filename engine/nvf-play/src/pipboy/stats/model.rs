@@ -42,11 +42,12 @@ pub const DOCTORS_BAG: usize = 1;
 pub const RADAWAY: usize = 2;
 
 /// Why the CND page does not use a hint's item, or `None` when it does [design: owner's
-/// request 2026-10-23]: none carried; a Stimpak on the body at full health, or on a limb
+/// request 2026-10-23, #3431]: none carried; a Stimpak on the body at full health, or on a limb
 /// that is whole; a Stimpak on a limb in Hardcore mode, where it mends no limb
 /// [observed: FalloutNV.esm's help text, "In Hardcore Mode, a Doctor's Bag or an actual
-/// doctor is required"]; a Doctor's Bag when no limb is hurt. `hp` is current and whole,
-/// `limbs` each part's condition from 0 to 1 (as [`Snapshot::limbs`]).
+/// doctor is required"]; a Doctor's Bag on a limb that is whole, or on the body when no limb
+/// is hurt. `hp` is current and whole, `limbs` each part's condition from 0 to 1 (as
+/// [`Snapshot::limbs`]).
 pub fn refusal(hint: usize, limb: Option<usize>, count: i32, hp: (f64, f64), limbs: &[f64; 6], hardcore: bool) -> Option<String> {
     refusal_with(hint, limb, count, hp, limbs, hardcore, false)
 }
@@ -62,7 +63,8 @@ pub fn refusal_with(hint: usize, limb: Option<usize>, count: i32, hp: (f64, f64)
         (STIMPAK, Some(_)) if hardcore => Some("a Stimpak mends no limb in Hardcore mode".into()),
         (STIMPAK, Some(i)) if !at_full && limbs.get(i).is_none_or(|&c| c >= WHOLE) => Some(format!("the {} is not hurt", LIMB_NAMES.get(i).unwrap_or(&"limb"))),
         (STIMPAK, None) if !at_full && hp.0 >= hp.1 - 1e-6 => Some("health is full".into()),
-        (DOCTORS_BAG, _) if !at_full && limbs.iter().all(|&c| c >= WHOLE) => Some("no limb is hurt".into()),
+        (DOCTORS_BAG, Some(i)) if !at_full && limbs.get(i).is_none_or(|&c| c >= WHOLE) => Some(format!("the {} is not hurt", LIMB_NAMES.get(i).unwrap_or(&"limb"))),
+        (DOCTORS_BAG, None) if !at_full && limbs.iter().all(|&c| c >= WHOLE) => Some("no limb is hurt".into()),
         (STIMPAK | DOCTORS_BAG, _) => None,
         _ => Some("not used from the STATS page".into()),
     }
@@ -317,10 +319,14 @@ mod tests {
         // None carried; this CND refusal helper does not handle the RAD actions.
         assert_eq!(refusal(STIMPAK, None, 0, (10.0, 100.0), &arm, false).as_deref(), Some("none carried"));
         assert!(refusal(2, None, 5, (10.0, 100.0), &arm, false).is_some());
-        // Hardcore: a Stimpak on a limb is refused, on the body it is not.
+        // Hardcore: a Stimpak on a limb is refused, on the body it is not; a Doctor's Bag on
+        // a hurt limb is allowed and on a whole limb is refused (unless Aid at Full Health).
         assert_eq!(refusal(STIMPAK, Some(2), 3, (60.0, 100.0), &arm, true).as_deref(), Some("a Stimpak mends no limb in Hardcore mode"));
         assert_eq!(refusal(STIMPAK, None, 3, (60.0, 100.0), &arm, true), None);
         assert_eq!(refusal(DOCTORS_BAG, None, 1, (100.0, 100.0), &arm, true), None);
+        assert_eq!(refusal(DOCTORS_BAG, Some(2), 1, (100.0, 100.0), &arm, true), None);
+        assert_eq!(refusal(DOCTORS_BAG, Some(3), 1, (100.0, 100.0), &arm, true).as_deref(), Some("the right arm is not hurt"));
+        assert_eq!(refusal_with(DOCTORS_BAG, Some(3), 1, (100.0, 100.0), &arm, true, true), None);
         assert_eq!(hint_text("RadAway", 0), "RadAway");
     }
 

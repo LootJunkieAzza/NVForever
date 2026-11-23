@@ -112,11 +112,57 @@ Read here as [hypothesis where marked]:
   (no fill) painted the player's hair flat orange with a bright rim and the head looked
   bald (owner's playtest, 2026-10-24; smoke `hair-under-fire`). Whether the original
   draws the membrane on hair, and through its alpha, is not known.
+- Except under a hologram colour (§9): the membrane never showed on Dead Money's
+  holograms [observed: `effect shaders summary: 6 played, 3 ended, 0 overlays drawn`
+  and `2 played, 1 ended, 0 overlays drawn` in smoke runs of 2026-11-20, with
+  `NVDLC01HologramNeutral` playing on HoloGalREF, HoloDudeREF and VaultHoloCREF, and on
+  NVDLC01HologramVendor2REF; in the run of 2026-11-21 every `fades with its actor` line
+  of CasinoHologramB said `0 overlays on 8 meshes` (its `covers 8 meshes` line counted
+  meshes left bare as covered)]. Why: their body meshes are see-through by their own
+  materials (blended or cut out), which this rule leaves bare [documented: a code
+  finding in `effect_shaders.rs::cover`, inferred from the counts; the materials
+  themselves were not dumped]. Under one of the six hologram colours a blended or
+  cut-out mesh with a texture gets overlays cut where that texture's alpha is below its
+  own cut or 8/255, one without a texture gets them whole [design: the membrane is the
+  hologram's look; `effect_shaders.rs::hologram_cover`]. The 8/255 floor drops faint
+  texels below it as well as empty ones [design]. A cut of 1 (only fully opaque texels)
+  is drawn as 254.5 in the holes test, which reads 255 as "no holes" [design]. The `covers` line counts the meshes given
+  overlays and those left bare: `(overlays on <k>; none on <b> blended or cut out, <c>
+  cloaked)`.
 - Blend: destination 2 (One) and 5 (Source Alpha) are drawn additively, 6 (Source
   Inverted Alpha) as ordinary blending, 9 (Dest Colour) multiplied [design over the
   documented blend factors; 5 + 5 is "source × alpha + destination × alpha", nearest to
-  additive on a dark backdrop]. The "Edge Effect Inverse" flag is not applied
-  [design: the wiki's "darken rather than lighten" needs a subtractive blend].
+  additive on a dark backdrop]. The destination's own factor (5: the surface behind
+  times the alpha) is not drawn: the mesh under an additive membrane keeps its full
+  colour [design].
+- "Edge Effect Inverse" (flag bit 4): the edge's blend is "inverted relative to the
+  fill effect"; with an additive fill it makes the edge "darken rather than lighten the
+  mesh" [documented: GECK wiki EffectShader, Edge Effect]. Drawn (#3017) for an additive
+  fill only (destination One or Source Alpha): the edge overlay multiplies what lies
+  behind by 1 − colour × alpha (Bevy's multiply blend with the colour 1 − edge colour),
+  the nearest the renderer comes to subtracting the colour [design: there is no
+  subtractive blend; on a bright surface the two agree, on a dark one subtracting
+  darkens more]. Over any other fill the flag changes nothing [design: the wiki gives no
+  inverse for an alpha-blended or multiplied fill]. The start line says `fill and
+  darkening edge`. On the same mesh the darkening edge is drawn after the additive
+  fill (a sort bias of 0.5 on the edge's material, below the 1 the depth test's bias
+  would take), so the rim takes the colour off the mesh and the fill's light together
+  [design: without it the two tie in the transparent sort; the wiki's "darken the
+  mesh" read as the end result]. Before #3017 the edge was added: Dead Money's holograms
+  got an added rim in their pale edge colours (fall off 0.95, edge colours from
+  (164, 206, 240) to (213, 210, 191)). That it looked near-white and washed the yellow
+  and red fills out is a hypothesis until frames of both engines are compared
+  [hypothesis: observer-checks.md item 270]. The maintainer's run of 2026-11-22 saw a calm
+  hologram's edges brighter than its middle by eye, without telling the membrane's edge
+  from the model's own texture, and saw no yellow or red from a scripted `pms`
+  [observed: item 270]; the darkening edge stays a [hypothesis].
+- Which records the flag reaches [observed: the main session's EFSH listing over the
+  masters, 2026-11-21]: it is set on FalloutNV.esm's `PlasmaGooification`,
+  `PlasmaGooificationGlow` and `PlasmaGooificationSmall` (destination Source Inverted
+  Alpha: alpha-blended, so unchanged here), Dead Money's `NVDLC01TurretShieldShader`
+  (destination One: its edge now darkens), the three Dead Money hologram colours and
+  Old World Blues' `NVDLC03HologramNeutral`, `…Attention` and `…Aggressive`
+  (destination Source Alpha, classed additive above: their edges now darken).
 - Z test: the overlay is drawn at the surface (Equal To is the only value in the
   masters' membranes); "Greater Than" (seen through walls) is not built.
 - The particle shader: §6; holes: §7; add-on models: §8. Not built: "Affect Skin
@@ -152,6 +198,34 @@ Read here as [hypothesis where marked]:
   calling actor is; "does not affect the weapon they carry". Drawn here by giving the
   actor's meshes blended copies of their materials with their alpha multiplied by the
   value; 1 gives the original materials back. Kept per actor, not saved [design].
+- An effect shader on an actor drawn see-through keeps its overlays: coverage is judged
+  on the mesh's own material, not its blended copy, and the overlays' alpha is the
+  record's cycle times the actor's alpha, so at 0 the membrane goes with the body
+  [observed at 0: in the original a placed Dead Money hologram at alpha 0 drew nothing,
+  no glow without the body; observer-checks.md item 270, the maintainer's run of
+  2026-11-22]. Between 0 and 1 the fade in step with the alpha is a [hypothesis]: the
+  same run saw the hologram unchanged at 0.5 and at about 0.7 of its brightness at 0.1. The factor is the alpha of the see-through copy the
+  reference's meshes wear that frame (the actor alpha is drawn first, so a membrane
+  started on an actor already at 0 starts unseen), 1 without one: the player's
+  third-person body is not
+  given one (`AlphaDrawing` reaches only meshes with a `RefVisual`), so a player's
+  membrane is not faded by a script alpha the body does not show [design]. The log says
+  `effect shader: <EDID> on <who> fades with its actor to <a> (<n> overlays on <m>
+  meshes)` when the factor changes, after that frame's coverage. Dead Money's holograms
+  set their alpha to 0, 0.7 and back to 1 while their membrane plays [observed: smoke
+  runs of 2026-11-20 logged `actor alpha: NVDLC01StarLobby 0.70`, `HoloGalREF 0.00` and
+  `1.00` while `NVDLC01HologramNeutral` played on them]. Before #3017 the blended copy
+  counted as a blended mesh (§4), so the overlays came off whenever the alpha went below
+  1 [documented: a code finding in `effect_shaders.rs::cover` at 069ef9bde, not seen on
+  screen]. With the actor see-through, the overlays draw over a body that writes no
+  depth, so both faces of the double-sided overlay show [design].
+- A see-through copy made while a fade (`nvf_play::fade`) draws the mesh is made from
+  the fade's copy, which the fade removes at its end, putting the mesh's own material
+  back. From then on that material is the copy's original: the next alpha's copy comes
+  from it and the release gives it back. Before #3017 the release gave the mesh the
+  removed copy, and the membrane's coverage stayed judged on it [documented: a code
+  finding in `effect_shaders.rs::AlphaDrawing::sync`]. The lobby starlet fades in for
+  2 s while it starts to flicker [observed: smoke run of 2026-11-21].
 - **Reset3DState** (12 calls) [documented: GECK wiki]: "clears any saved data
   regarding a reference's animation/Havok state", mainly to reset triggered traps; it
   does not move the reference back. Here: the reference's script animation state is
@@ -328,3 +402,80 @@ Drawn here [hypothesis or design where marked]:
   it was to the scale end over the scale out time and fades out over the fade out time,
   and goes when both are done [hypothesis: the field names; linear ramps]. Without the
   timing fields (248-byte DATA): full size and alpha at once, gone at once [hypothesis].
+
+## 9. Dead Money's holograms (#3017)
+
+What the data asks for [observed: the maintainer's `fnvtool esm decode` and `script
+decompile` over FalloutNV.esm and DeadMoney.esm, 2026-11-18, quoted in #3017]:
+
+- Three EFSH: `NVDLC01HologramNeutral` (blue, 0x01001118), `NVDLC01HologramAttention`
+  (yellow, 0x0100307D), `NVDLC01HologramAggressive` (red, 0x0100307C). All three:
+  Source Alpha / Add / Source Alpha, z test Equal To, flags 0x18 (no particle shader,
+  edge inverse), fill panning at U −0.5 with persistent 0.9 and a 0.1 pulse at 20 per
+  second, edge fall off 0.95. Fill textures `NVDLC01\effects\NVDLC01panningFX.dds`,
+  `…_yellow.dds`, `…_red.dds`; fill tint (119, 218, 255) for blue and grey (185–187) for
+  yellow and red. That the colour comes mostly from the texture is inferred from the
+  grey tints and the texture names [hypothesis].
+- An ability on the hologram creatures (`NVDLC01HologramNeutralSpell`, its script effect
+  `NVDLC01HologramEffect01SCRIPT`) plays Neutral at ScriptEffectStart; after 60 updates
+  it plays Neutral again and Aggressive if the actor is in combat, without stopping
+  Neutral; a load restarts the count (MenuMode 1007 and 1013); its finish plays Neutral
+  [observed: also the main session's decompile of 2026-11-21]. The code holders' OnLoad
+  plays the colour of the stored threat, and their trigger and after-load paths play the
+  current colour again [observed: the same decompile].
+- A threat machine per hologram (`NVDLC01HoloBaseCodeHolderSCRIPT`,
+  `NVDLC01HoloCasinoCodeHolderSCRIPT`): Neutral to Attention within 600 units (at once
+  within 300), Attention to Aggressive with `StartCombat player` when its timer ends with
+  the player still in range or within 300, and back down when the player leaves; each
+  step is `StopMagicShaderVisuals` of the old shader, then `PlayMagicShaderVisuals` of
+  the new.
+
+What runs here:
+
+- The script functions those scripts name are all implemented (`fnv_game::functions`:
+  GetDistance, Look, AddScriptPackage, StartCombat, IsInCombat, GetSecondsPassed,
+  PlayMagicShaderVisuals, StopMagicShaderVisuals) [documented: the function table,
+  `functions/mod.rs`]. A play is kept per (reference, shader): playing one again starts
+  it over, stopping one ends only that one, and different shaders on one reference are
+  drawn together, but for the hologram colours below [design:
+  `misc::play_magic_shader_visuals`, `effect_shaders.rs::play`].
+  So each threat step ends the old colour (`… ends (stopped)`) before the new one
+  starts. The machine moves in a running game [observed: smoke
+  `dead-money-hologram-threat`, run of 2026-11-21: CasinoHologramB yellow 0.3 s after
+  the player was put 450 units away, red about 7 s later with its StartCombat, yellow
+  about 7 s after the player was put 1500 units away, blue 7 s after that; one colour
+  in its set at every step].
+- The ability's replay plays Aggressive over a Neutral it never stopped, so in combat
+  after a load both are played on one hologram; out of combat it plays Neutral over
+  whatever colour a code holder's OnLoad has just restored. The script's shape suggests
+  its authors expected a threat colour to take over and the neutral replay not to undo
+  a code holder's alert [hypothesis: inferred from the call sequence; observer-checks.md
+  item 270]. The colour rule, applied at the script call
+  (`fnv_game::functions::misc::ScriptLooks::play`), so HasEffectShader and the drawing
+  agree:
+  - a threat colour (Attention, Aggressive) played on a hologram ends the other colours
+    of its set playing there;
+  - the neutral colour is not played while another colour of its set plays there; a
+    code holder reaches it only after stopping the threat colour, so it still shows on
+    the way down;
+  - a neutral colour a threat colour ends, or a neutral play refused under one, is held
+    back under it (`ScriptLooks::hologram_fallbacks`) and comes back when that threat
+    colour ends by its time; a script's `StopMagicShaderVisuals` of the neutral colour
+    lets it go, and a threat colour stopped by a script brings nothing back by itself
+    (the code holders play the next colour after their Stop). A timed red over the
+    always-on blue so leaves blue when it runs out, not a bare hologram.
+  So "Neutral, Neutral, Aggressive" in one update leaves Aggressive; Attention restored
+  by OnLoad survives the ability's Neutral replay; Stop Attention then Play Neutral shows
+  Neutral [design over the hypothesis above]. Old World Blues' set follows the same rule.
+- The sets are named by identity, the plugin that defines each and its FormID in it
+  (`HOLOGRAM_COLOURS`): DeadMoney.esm 0x001118, 0x00307D, 0x00307C and OldWorldBlues.esm
+  0x012080, 0x012081, 0x012082 [observed: the maintainer's decode and the main session's
+  EFSH listing, 2026-11-21]; a colour is neutral when its editor ID ends in "Neutral".
+  Not by flags [design]: a mod's membrane with the same flags is left alone. Every other
+  shader stacks as before, the turret shield and the plasma glows included [design: no
+  rule of "the last shader wins" for unrelated shaders].
+- Each reference's set of script-played shaders is logged when it changes: `effect
+  shaders by script on <who>: <EDIDs, sorted, or none>`, so one colour alone can be
+  checked.
+- The edge is drawn darkening (§4) and the membrane fades with the holograms' flicker
+  (§5), both since #3017.

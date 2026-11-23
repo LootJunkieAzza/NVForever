@@ -131,8 +131,8 @@ people building the same thing:
    The template's **clean-room checklist is required**: a pull request is not merged until
    all six items are in its description and ticked. Tick only what is true. Where a
    constant or behaviour has no cited source or observation in the original game, tag it
-   `[hypothesis]` or `[design]` in the notes and list it in the description, as the
-   template says.
+   `[hypothesis]` or `[design]` in the notes and list it in the description; item 4 then
+   holds and is ticked (owner decision 2026-11-22, #3491).
 
 ### What a good pull request looks like
 

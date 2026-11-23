@@ -13,6 +13,10 @@ use fnv_sim::FormId;
 /// The events' names as SetEventHandler takes them, lower case.
 pub const ON_ADD: &str = "showoff:onadd";
 pub const ON_EXPLOSION_HIT: &str = "showoff:onexplosionhit";
+pub const ON_PRE_SCRIPTED_ACTIVATE: &str = "showoff:onprescriptedactivate";
+pub const ON_PRE_ACTIVATE_INVENTORY_ITEM: &str = "showoff:onpreactivateinventoryitem";
+pub const ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT: &str = "showoff:onpreactivateinventoryitemalt";
+pub const ON_POV_CHANGE: &str = "showoff:onpovchange";
 
 #[derive(Debug, Default)]
 pub struct ShowOffState {
@@ -62,6 +66,9 @@ pub struct ShowOffState {
     /// a save writes that one (`Game::snapshot`); SetOwnership or SetCellOwnership on the
     /// target drops the entry [documented: SetOwnershipTemp, session persistent].
     pub temp_owners: std::collections::HashMap<FormId, Option<FormId>>,
+    /// Re-entrancy guard while `ShowOff:OnPreActivateInventoryItem[Alt]` handlers run,
+    /// so a handler calling `EquipItem` / `UseAidItem` does not recurse infinitely [design].
+    pub in_pre_activate_item: bool,
 }
 
 fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {
@@ -108,6 +115,143 @@ impl Game<'_> {
     pub fn explosion_hit_damage(&mut self, explosion: FormId, target: FormId) -> Option<f64> {
         let damage = f64::from(self.explosion_traits(explosion)?.damage);
         Some(self.explosion_hit(target, damage))
+    }
+
+    /// Whether any `ShowOff:OnPreActivateInventoryItem` or
+    /// `ShowOff:OnPreActivateInventoryItemAlt` handler is registered.
+    pub fn has_pre_activate_inventory_handlers(&self) -> bool {
+        self.handled(ON_PRE_ACTIVATE_INVENTORY_ITEM)
+            || self.handled(ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT)
+    }
+
+    /// `ShowOff:OnPreActivateInventoryItem` followed by
+    /// `ShowOff:OnPreActivateInventoryItemAlt` before a player inventory, hotkey,
+    /// quick-use, or stats-page item activation. An explicit numeric `SetFunctionValue 0`
+    /// prevents vanilla activation (sticky across handlers). Free when no handlers are
+    /// registered. See `docs/spec-notes/preactivation-events.md`.
+    pub fn pre_activate_inventory_item(
+        &mut self,
+        actor: FormId,
+        item: FormId,
+        key: i32,
+        equipping: bool,
+    ) -> bool {
+        if self.showoff.in_pre_activate_item || !self.has_pre_activate_inventory_handlers() {
+            return true;
+        }
+        self.showoff.in_pre_activate_item = true;
+        let inv_ref = self.temp_ref(actor, item);
+        let mut allowed = true;
+        if self.handled(ON_PRE_ACTIVATE_INVENTORY_ITEM) {
+            allowed = self.dispatch_pre_event(
+                "ShowOff:OnPreActivateInventoryItem",
+                Some(actor),
+                Some(actor),
+                allowed,
+                |allowed| {
+                    vec![
+                        XVal::Ref(item.0),
+                        XVal::Ref(inv_ref.0),
+                        XVal::Num(if allowed { 1.0 } else { 0.0 }),
+                        XVal::Num(f64::from(key)),
+                    ]
+                },
+            );
+        }
+        if self.handled(ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT) {
+            allowed = self.dispatch_pre_event(
+                "ShowOff:OnPreActivateInventoryItemAlt",
+                Some(actor),
+                Some(actor),
+                allowed,
+                |allowed| {
+                    vec![
+                        XVal::Ref(item.0),
+                        XVal::Ref(inv_ref.0),
+                        XVal::Num(if allowed { 1.0 } else { 0.0 }),
+                        XVal::Num(f64::from(key)),
+                        XVal::Num(if equipping { 1.0 } else { 0.0 }),
+                    ]
+                },
+            );
+        }
+        self.showoff.in_pre_activate_item = false;
+        allowed
+    }
+
+    /// `ShowOff:OnPreActivateInventoryItemAlt` for scripted `EquipItem` / `UseAidItem`.
+    /// Free when no `ShowOff:OnPreActivateInventoryItemAlt` handler is registered.
+    pub(crate) fn pre_activate_inventory_item_alt(
+        &mut self,
+        actor: FormId,
+        item: FormId,
+        key: i32,
+        equipping: bool,
+    ) -> bool {
+        if self.showoff.in_pre_activate_item || !self.handled(ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT) {
+            return true;
+        }
+        self.showoff.in_pre_activate_item = true;
+        let inv_ref = self.temp_ref(actor, item);
+        let allowed = self.dispatch_pre_event(
+            "ShowOff:OnPreActivateInventoryItemAlt",
+            Some(actor),
+            Some(actor),
+            true,
+            |allowed| {
+                vec![
+                    XVal::Ref(item.0),
+                    XVal::Ref(inv_ref.0),
+                    XVal::Num(if allowed { 1.0 } else { 0.0 }),
+                    XVal::Num(f64::from(key)),
+                    XVal::Num(if equipping { 1.0 } else { 0.0 }),
+                ]
+            },
+        );
+        self.showoff.in_pre_activate_item = false;
+        allowed
+    }
+
+    /// `ShowOff:OnPreScriptedActivate` before a scripted `Activate` runs its block or
+    /// default action. Calling reference is `target`; arguments are `(actor, allowed,
+    /// run_on_activate_block)`. Explicit `SetFunctionValue 0` prevents activation.
+    /// See `docs/spec-notes/preactivation-events.md`.
+    pub(crate) fn pre_scripted_activation_allows(
+        &mut self,
+        actor: FormId,
+        target: FormId,
+        run_block: bool,
+    ) -> bool {
+        if !self.handled(ON_PRE_SCRIPTED_ACTIVATE) {
+            return true;
+        }
+        self.dispatch_pre_event(
+            "ShowOff:OnPreScriptedActivate",
+            Some(target),
+            Some(actor),
+            true,
+            |allowed| {
+                vec![
+                    XVal::Ref(actor.0),
+                    XVal::Num(if allowed { 1.0 } else { 0.0 }),
+                    XVal::Num(if run_block { 1.0 } else { 0.0 }),
+                ]
+            },
+        )
+    }
+
+    /// `ShowOff:OnPOVChange`, fired when the player's camera perspective transitions
+    /// between first-person (`1`) and third-person (`0`) [documented: GECK wiki
+    /// ShowOff:OnPOVChange].
+    pub(crate) fn showoff_on_pov_change(&mut self, first_person: bool) {
+        if !self.handled(ON_POV_CHANGE) {
+            return;
+        }
+        self.dispatch_event(
+            "ShowOff:OnPOVChange",
+            vec![XVal::Num(if first_person { 1.0 } else { 0.0 })],
+            None,
+        );
     }
 
     /// The stop handlers of an aux timer that ran out or was stopped with its event: each

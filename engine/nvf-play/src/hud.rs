@@ -776,7 +776,8 @@ fn place_name(
         let (st, loc, player) = (markers.as_deref()?, location.as_deref().filter(|l| l.interior.is_none())?, player.as_deref()?);
         let heading = control.as_deref().map_or(player.heading, |c| c.view_heading(player.heading)).to_degrees();
         let range = crate::compass::place_range();
-        let list = st.named_markers_of(loc.world);
+        let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+        let list = st.named_markers_of(loc.world, game);
         let list = list.iter().filter(|m| sim.present(m.0)).map(|m| ([m.1[0], m.1[1]], m.2, m.3));
         place_ahead(list, [player.feet[0], player.feet[1]], heading, range, t.marker_name_angle, t.marker_name_hide_unfound, t.marker_name_units)
     })();

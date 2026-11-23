@@ -301,14 +301,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let path = text(args, 0).unwrap_or_default();
             let key = text(args, 1).unwrap_or_default();
             let cached = num(args, 2, 0.0) != 0.0;
-            let ck = path.trim().replace('/', "\\").to_ascii_lowercase();
-            let root = match g.mod_files.json.get(&ck).filter(|_| cached) {
+            let ck = crate::nvse_json::key_of(&path);
+            let root = match g.other.json.cache.get(&ck).filter(|_| cached) {
                 Some(v) => Some(v.clone()),
                 None => json_file(g, &path).ok(),
             };
             let Some(root) = root else { return Some(Ok(list(g, vec![XVal::Str(String::new())]))) };
             if cached {
-                g.mod_files.json.insert(ck, root.clone());
+                g.other.json.cache.entry(ck).or_insert_with(|| crate::nvse_json::sorted(root.clone()));
             }
             match json_lookup(&root, &key).cloned() {
                 Some(v @ (serde_json::Value::Array(_) | serde_json::Value::Object(_))) => json_value(g, &v),

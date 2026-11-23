@@ -3599,6 +3599,50 @@ already talking takes over at once, same topic or another; nothing is queued or 
      stands sizes it. Not in the list: the original's way is the theft (or a speech or
      barter line not in our list).
 
+## Added 2026-11-23 (two navmeshes of one cell with no link, #3473)
+
+279. **Do actors walk up the stairs to the Sunset Sarsaparilla HQ's prize room?** (P2:
+     #3473, the quest pilot cannot reach Allen Marks' terminal in Legend of the Star;
+     navmesh.md §1.2.) The stairs and the two rooms are a navmesh of their own with no
+     link to the rest of the cell [observed: records]. In the original, with VMS09a at
+     stage 10 or later (the door unlocked) and a follower (Boone, or ED-E), walk from the
+     lobby up the stairs into the prize room and wait there 30 s: does the follower come
+     up after the player, wait at the foot of the stairs, or appear in the room some other
+     way (a jump to the player)? Then wait outside the room and `prid` the follower,
+     `MoveTo` it into the prize room, and see whether it walks back down to the player.
+     If it climbs, the original joins such navmeshes by a rule the records do not hold
+     (say how near the two edges are: 17 to 31 units across, a step of 31 or more); if
+     it does not, the rooms are the player's alone in the original too.
+
+## Added 2026-11-23 (Harland's greeting as the player leaves, #3464)
+
+280. **Does Harland greet a player who leaves his room in the REPCONN basement?** (P2:
+     #3464, a player could not leave; packages.md §3.) His Dialogue package has an
+     activate distance of 1200 and the doorway trigger as its trigger location; a second
+     trigger 370 units out on the way to the stairs calls `ResetAI` on him. In the
+     original, with VMS01 at stage 30 (the ghouls' friend not found yet): talk to Harland
+     and say goodbye, then walk out of his room towards the stairs and on past the reset
+     trigger. Say whether he greets again on the way out (where: in the doorway, past the
+     reset trigger, not at all), whether the player is walked back towards the doorway
+     or held, and whether coming back into the doorway greets again. If he greets past
+     the reset trigger without walking the player back, NVForever's 30 s rule matches;
+     if he never greets on the way out, the activate distance or sight is read
+     differently by the original.
+
+## Added 2026-11-22 (ammo the equipped weapon cannot fire, #3442)
+
+288. **Does the Pip-Boy's Ammo tab dim the ammo the equipped weapon cannot fire?** (P3:
+     #3442, a player expected it; with check 193, the mark on the loaded ammo.) Ours
+     [design]: every row at full strength; the loaded ammo's row carries the equipped
+     square. In the original, carry four kinds of ammo (12 gauge, 20 gauge, 9mm, .357)
+     and equip a 12 gauge shotgun, then open ITEMS, Ammo and take a frame; equip the 9mm
+     pistol and take another; holster the weapon and take a third; equip nothing (fists)
+     and take a fourth. For each frame say which rows are dimmer than the others (sample
+     the text's colour of a full-strength row and of a dim one), which row carries the
+     square, and whether a dim row can still be selected, dropped or put on a hotkey.
+     With a weapon that takes several kinds (12 gauge and its slugs, or the .357 with
+     .38 Special), say whether the other kinds it can fire are at full strength.
+
 ## Added 2026-11-21 (the compass's actor ticks against the strip, #3310)
 
 261. **Where does an actor's tick on the compass end against the strip's line?** (P3;
@@ -3649,6 +3693,30 @@ already talking takes over at once, same topic or another; nothing is queued or 
      on the ground below the target in the open (a frame after each shot does it); the
      splatters' size tells the spurt's decal (`BloodSpoutRedData`, 70-90 wide) from the
      bullet's (`BallisticOrganicImpact`, 12-19).
+     **Partly answered 2026-11-22** [observed: base game + xNVSE 6.4.9 + JIP LN, plugin
+     version 10, save `nvfdoc`, first person, the window in front; job `o263_blood_10`].
+     Setup:
+     - `fCombatEnvironmentBloodChance` read 0.75.
+     - The player, at the spot `coc GSGeneralStore` arrives at (near the door), aimed at
+       Chet's chest (his position + 95, eye + 120) and fired a BB gun with
+       `TapControl 4`, 10 times. `tgm` and `tcai` were on, and a screenshot was taken
+       45 loops after each shot.
+     - Chet was then moved outside onto the road at (-18, 0), 200 units in front of the
+       player, and shot 10 more times.
+     - Chet's health shows which shots hit (0.4–0.5 off per hit). The aim was a
+       script's, not a person's.
+     Results:
+     - **Store: one splatter in 6 hits.** Hits fell on shots 2, 3, 5, 6, 8 and 9. After
+       shot 6 a single cluster of about five dark-red drops appeared on the plank wall
+       just right of Chet (from the shooter), about level with his chest. No other shot
+       left a mark visible at 1280 × 720 from about 580 units, on the wall or the
+       counter.
+     - **Open street: blood on the ground below the target.** The road was clean before.
+       After the first street shot, a hit, one red splatter lay on the road at Chet's
+       feet. The line of fire was level there (pitch −0.1°), with open road beyond.
+       Chet walked away down the road during the next shots, so whether later hits mark
+       the ground was not seen.
+     - **Not measured: the splatters' size**, so which decal they are is still open.
 
 ## Added 2026-11-21 (is the HUD's condition bar see-through, #3309)
 
@@ -3680,6 +3748,87 @@ already talking takes over at once, same topic or another; nothing is queued or 
        world shows through the fill while it flashes and from what condition it starts.
      And what is the slider's default?
 
+## Added 2026-11-21 (the game's own parallax height maps, #2979)
+
+265. **How deep is the original's parallax on shapes with a slot-3 height map, and is it one
+     offset or stepped?** (P2; #2979, nif.md §6 "Parallax height maps", pbr-materials.md
+     "The game's own height maps".) What NVForever implements since #2979 [design]: a lit
+     shape with BSShaderFlags bit 11 and a slot-3 texture draws it as parallax, on by
+     default, at 0.015 UV units, with relief mapping (at most 8 layers, then 4 refinement
+     steps), the step's divisor held at a view steepness of at least 0.15 (about 81 degrees
+     from the normal; the grazing clamp), no fade with distance, and only on opaque,
+     single-sided, non-decal, lit shapes; cut-outs (alpha-tested shapes) stay flat unless
+     the development switch `NVF_PBR_PARALLAX_MASK=1` is set. Whether the original draws
+     them anything like this is the [hypothesis] this check settles; the GECK wiki calls bit
+     11 alone "pretty weak" [documented: GECK wiki "NIF Shader Properties"]. In the
+     original, take frames of (a) a McCarran flagstone floor and (b) a rubble pile (one of
+     the seven `_p` texture sets nif.md §6 "Normal maps" lists), each at a steep view
+     (looking almost straight down), a shallow one (eye height, the surface running away
+     from the camera) and a grazing one (the eye a few centimetres above the floor, looking
+     along it), close (under 2 m) and far (about 15 m). Compare with NVForever at the same
+     views, once at the default and once with `NVF_GAME_PARALLAX_DEPTH=0` (flat). Read: how
+     far a stone's edge moves between the steep and shallow frames (in texels of the floor
+     texture), whether stones hide the grout behind them at the shallow view (stepped or
+     occlusion mapping) or only slide (a single offset), what the grazing view does (the
+     texture smeared, the relief flattened, or nothing odd), whether the relief is gone in
+     the far frames (a distance fade), whether a cut-out with a height map shows relief, and
+     whether the concrete impact decal shows any. The depth switch (0 to 0.08) and
+     `NVF_PBR_PARALLAX_METHOD=occlusion|relief:<n>` let the default be fitted to the frames.
+
+## Added 2026-11-21 (the music under the Pip-Boy radio, #3311)
+
+266. **What does the Pip-Boy radio do to the music?** (P2; #3311, audio.md §13.2 item 9,
+     radio.md §8.) A player's report says the place's music should stop while the radio
+     is on. Ours: while the Pip-Boy plays its station (a line or song sounding now or
+     within 8 s) the place's music is turned down to silence over 3 s and plays on
+     unheard, battle music keeps its level over the radio, a placed radio leaves the
+     music alone, and the place's music fades back in over 3 s where it has got to when
+     the radio is turned off [hypothesis]. In Goodsprings at noon
+     (`player.setpos x -69000`, `y 3500`, `z 8900`), with the music playing, turn the
+     Pip-Boy radio on to Mojave Music Radio: does the music fade or cut, and how fast?
+     Turn the radio off: does the music come back at once, after a wait, or only on the
+     next place, and does it resume or start its track again? With the radio on, let
+     Violet's dogs see the player (north of town): does the battle music play over the
+     radio, and does the radio go quiet under it? Then two cases apart, which ours
+     treats differently: (a) at the edge of a Radius station's range, where the station
+     is still received but heard as nearly all static (Black Mountain Radio near
+     `x -47300`, `y 5300`, `z 9000`, radio.md §8), does the music stay away (ours: yes
+     while any of the song is heard under the static, no once it is all static)? (b) walked out of reception
+     altogether, the Pip-Boy still on, does the music come back (ours: yes)? Last, with
+     the Radio volume at 0 and a station playing: is the music still turned down (ours:
+     no)?
+
+## Added 2026-11-21 (a suitcase lying on a bed, #3323)
+
+267. **Is a suitcase lying on a bed the crosshair's target, from every aim at it?** (P3;
+     #3323, simulation.md §5 crosshair activation.) A player reports the Suitcase
+     0x000AFA24 lying on BedQueenRight 0x000D72C7 in BisonSteve02 can be looted in the
+     original [reported: the player's issue, not captured]. Ours since #3323: a bed's
+     boxes are set aside when one of them wholly holds, along the ray, the box of
+     something the player can activate, entered before the first collision hit; otherwise
+     the nearest box or collision hit wins [design]. Stand beside that bed and sweep the
+     crosshair over the suitcase's lid, its side, its edge against the mattress, a corner
+     hanging over the bed's edge if there is one, and the bare mattress beside it. At each
+     aim write down the HUD prompt (Open Suitcase or the bed's) and what E does (the
+     suitcase's container menu or the bed's sleep/wait menu); log `GetCrosshairRef`
+     separately, as it may name another reference than the prompt. Record which aims give
+     the suitcase and which the bed, without reading a rule into them yet; compare with
+     ours afterwards (aim for aim in the same spot in NVForever).
+
+## Added 2026-11-21 (relief on the landscape's texture layers, #3322)
+
+268. **Does the original draw any parallax or relief on the landscape's texture layers?**
+     (P3; #3322, pbr-materials.md "Terrain layers: parallax".) NVForever's terrain
+     parallax is an addition of its own until this is answered; ours assumes the original
+     draws none, as no landscape texture set is known to name a height texture
+     [hypothesis]. Outside Goodsprings at noon, stand on a stony layer (gravel or rocks
+     painted over the dirt base), look down at about 30 degrees and strafe slowly sideways
+     for a few seconds, then crouch and repeat closer: stones whose painted bumps slide
+     against each other as the view moves say the original draws relief; texels that move
+     rigidly with the ground say it draws none. The data offers none: no LTEX texture set
+     of FalloutNV.esm names a `TX04` map [documented: counted with fnvtool, 2026-11-21;
+     pbr-materials.md "Terrain layers: parallax"].
+
 ## Added 2026-11-21 (a lakelurk standing on a deep lake bed, #2980)
 
 269. **How does a creature that swims stand on a lake bed deeper than it is tall?**
@@ -3700,6 +3849,252 @@ already talking takes over at once, same topic or another; nothing is queued or 
      idle at rest, and one that rises to float near the surface says swimming actors
      have buoyancy. Note also how an idle lakelurk on the shore looks before it is alerted
      (a T-pose there in the original would make #2980 the original's own look).
+     **Partly answered 2026-11-22** [observed: base game + xNVSE 6.4.9 + JIP LN, plugin
+     version 10, save `nvfdoc`, the window in front; campaigns `o33_lakelurk_bed`,
+     `o34_lakelurk_near`, `o35_lakelurk_deep`, `o36_lakelurk_view`, fight field set every
+     game loop]:
+     - **Where it lands.** With the player at (58300, 37536, 2380), `PlaceAtMe`
+       CrLakelurkCG at 250 units put the lakelurk on the deep bed about 3,000 units east,
+       at about (61200–61300, 38700–38800), in both runs. A `MoveTo` beside the player
+       afterwards did not take.
+     - **No buoyancy.** With AI on, it rose from where it was placed (z 1302–1332) to
+       z 1409–1413 within half a second and stayed there. That was the bed: the player,
+       put at z 1420 on the same spot, stood upright on the sand in the screenshot. It
+       never rose toward the surface while it wandered (procedure 7, about 13 s), stood
+       idle (procedure 0, about 25 s), or held its ground in combat without moving
+       (procedure 13, about 35 s).
+     - **While it wandered** over about 130 units, its z stayed within 2 units (1408.7–1410.7).
+       The terrain's `LAND` heights under those points read 1306–1336. Why they lie
+       75–105 units below the bed the player stood on was not looked into.
+     - **Not seen: its pose.** In every screenshot the lakelurk was out of view, behind
+       the bed's rocks. `GetAnimAction` read -1 throughout. The shore idle was not
+       observed: the placed lakelurk again landed on the deep bed.
+     Still open: the pose at rest on the bed (standing idle or swim idle) and the
+     T-pose question, which need someone at the controls.
+
+## Added 2026-11-21 (Dead Money's hologram colours, #3017)
+
+270. **How does a Dead Money hologram look in each threat state, and does its membrane
+     fade with its flicker?** (P2; #3017, effect-shaders.md §4, §5, §9.) The three shaders
+     (`NVDLC01HologramNeutral` blue, `NVDLC01HologramAttention` yellow,
+     `NVDLC01HologramAggressive` red) are additive membranes with "Edge Effect Inverse"
+     [observed: the maintainer's decode in #3017]. Ours since #3017: the edge darkens the
+     rim instead of adding a pale one, the membrane stays on through SetActorAlpha and
+     fades with the actor's alpha (gone at 0), a threat colour played on a hologram ends
+     its other colour, and a neutral play over a threat colour is not played [hypothesis,
+     each]. In the Sierra Madre casino (or the Villa),
+     take one 1280 x 720 frame of one hostile hologram calm (blue, the player beyond 600
+     units), noticing (yellow, within 600) and attacking (red); then (a) whether the rim
+     of each is darker or brighter than the middle; (b) during a flicker (the hologram
+     blinks out), whether the coloured glow stays visible while the body is gone; (c) after
+     a save loaded with the hologram in combat (its ability script plays the red shader
+     without stopping the blue one), whether one colour shows or a blue-red mix. Ours
+     shows red alone [hypothesis]; (d) after a save loaded with the hologram alerted but
+     not fighting, whether it stays yellow or turns blue about a second later (ours: stays
+     yellow) [hypothesis].
+     **Partly answered 2026-11-22** [observed: the maintainer's run in #3423, base game + all
+     DLC + xNVSE + JIP LN, save `nvfdoc`, `coc NVDLC01Vault`, 1280 x 720; job
+     `o270_holograms`]. No Dead Money save: a hologram (CREA `NVDLC01CrHologramVaultMale`)
+     was placed with `PlaceAtMe` in the Sierra Madre vault and never turned hostile.
+     - **Calm look:** at 200 units pale cyan, about (167, 233, 241) over its pixels; by eye
+       its edges read brighter than its middle, which carries horizontal scan lines.
+       Whether the blue membrane or the model's own texture makes the bright edge was not
+       separated, so it neither confirms nor rules out ours (a darkening edge).
+     - **Yellow and red: not seen.** With `pms` of `NVDLC01HologramAttention` and then
+       `NVDLC01HologramAggressive` (after `sms` of the others) it stayed pale cyan, only
+       dimmer or brighter between frames.
+     - **SetActorAlpha:** at 0.5 unchanged by eye, at 0.1 still plainly visible (about 0.7
+       of its brightness), at 0 nothing drawn and no glow left without the body, also
+       after `sms`. Ours agrees at 0; ours fades the membrane in step with the alpha
+       between, which the 0.1 frame does not show.
+     Still open: (b) the colours during its own flicker, (c) and (d) after a save loaded
+     in combat or alert, and the threat colours; they need a hostile security hologram
+     with its emitter, in the casino or the Villa, from a Dead Money save.
+
+## Added 2026-11-16 (environment maps on other shapes, #2841)
+
+Each can be compared with ours from one build: the debug switches
+`NVF_PLAY_DEBUG_ENV_*` (engine/nvf-assets/src/env_map.rs) draw the variants named
+below; frames at the same view and window size on both sides. The items' FormIDs come
+from the GECK or `fnvtool`; they are placed with `player.placeatme` in a lit interior
+such as the Prospector Saloon (GSProspectorSaloonInterior).
+
+Status lines below come from captures of the original, jobs envmap, envmap2 … envmap5
+(run 2026-11-16 at Primm, first person, 1280 × 720; nif.md §6 "Environment maps on
+other shapes" has the numbers). They are exteriors only: interior shots fail in the
+capture setup, so every part of a check that needs an interior is still open.
+
+271. **How strong is the reflection on a masked prop without the window flag, and does it
+     follow the view?** (P3; #2841, nif.md §6 "Environment maps on other shapes".) Ours:
+     the cube read along the view reflected about the normal, × the shape's
+     `environment_map_scale` × its slot-5 mask, added to the lit colour [hypothesis]. Place
+     an empty Sunset Sarsaparilla bottle (SSBottleEmpty, `ssbottle02.nif`, scale 1.2) and
+     a full one (SSBottleFull, `ssbottle01.nif`, scale 0.5) side by side about 100 units
+     in front of the player; take one frame, then strafe slowly past them and take two
+     more. Highlights that move across the glass with the view agree with ours; how much
+     brighter the empty bottle's are than the full one's says whether the scale
+     multiplies as ours does (about 2.4 times). Compare with `NVF_PLAY_DEBUG_ENV_STRENGTH`
+     at 0.5 and 2.
+     *Status: partly answered.* The bright patches are fixed in the world (a pot turned
+     in place, the held pistol at four headings) and a streak's place does not follow the
+     light's direction [observed]; that the view sets it is an inference (the camera did
+     not move) and that the patches are the cube is a hypothesis. A fit asks for 1-8.5
+     times our strength-1 term by day depending on the object [hypothesis, medium]; ours
+     stays at 1 by day (the scene light can only dim it). Still open: the absolute
+     strength, and whether the scale
+     multiplies: the two bottles' glass differs in colour (4.0-4.6× under moonlight), so
+     they cannot show it; a pair with the same texture and different scales is needed.
+272. **Does a shape with Environment_Mapping and a cube but no slot-5 mask reflect?** (P3;
+     #2841, nif.md §6.) Ours: at full strength over the whole shape [hypothesis]. Place
+     an empty whiskey bottle (WhiskeyBottle01Empty01, `whiskeybottle01empty.nif`,
+     `shinydull_e.dds`, no mask) and a cafeteria drinking glass (DrinkingGlass01,
+     `clutter\cafeteria\drinkingglass01.nif`, no mask) in front of the player and take a
+     frame, then one strafing past. Even streaks over the whole bottle agree with ours;
+     none at all, or streaks only where the normal map's alpha is bright, match
+     `NVF_PLAY_DEBUG_ENV_NO_MASK=none` or `=normal-alpha`.
+     *Status: open.* The whiskey bottle is patterned with one glossy patch, not evenly
+     washed; the cafeteria glass is evenly milky [observed]; their own textures cannot be
+     told from an unmasked term.
+273. **Which way is the cube turned on a shape without the window flag, and on a window?**
+     (P3; #2841, nif.md §6.) The GECK wiki says the window flag "simply flips the cubemap
+     orientation" without saying which axis. Ours: both read the game-space reflection
+     (x, y, z) as (x, z, y) [hypothesis]. In Lucky 38, frame a shape that reflects
+     `textures\effects\nv\nvl38reflect_e.dds` (a distinctive cube; 9 shapes in 6 models
+     set it without the window flag) from a level view and from looking down at it, and
+     do the same for a window shape (both flags) under any cube, e.g. the observation
+     window of check 249. Compare where the bright parts of the cube land with
+     `NVF_PLAY_DEBUG_ENV_AXES` (`base`, `flip-x`, `flip-y`, `flip-z`, `swap-yz`) and
+     `NVF_PLAY_DEBUG_ENV_AXES_WINDOW`.
+     *Status: partly answered.* The bright patches are fixed in the world, not in the
+     object or the view [observed, firm: envmap4's pot and held pistol]; whether they are
+     the cube or the sun's own highlight cannot be told, so that the cube lookup is
+     world-fixed is a hypothesis. Which axis is up and what the window flag flips are
+     open: no cube content could be recognised. Lucky 38 is an interior: not captured.
+     The wiki also says Lighting30ShaderProperty flips the cube orientation and is "Used
+     by the engine for … advanced effect combinations (e.g. parallax + cube mapping)": if
+     the engine switches a PPLighting shape with parallax and a cube to it at run time,
+     such shapes would show a flipped cube too [hypothesis]; frame one if any is found.
+274. **On blended glass without the window flag, is the reflection weighted by the glass's
+     alpha?** (P3; #2841, nif.md §6.) Ours: the shape keeps its blend, so its reflection
+     fades with its alpha like the rest of its colour; window shapes are drawn with the
+     reflection over the blend (check 249) [hypothesis]. Place a drinking glass
+     (DrinkingGlass02, `clutter\junk\drinkingglass01.nif`, masked) in front of a dark
+     wall and take a frame close up (about 60 units) and one strafing. A faint film whose
+     streaks are no brighter than the glass itself agrees with ours; bright streaks over a
+     nearly clear glass match `NVF_PLAY_DEBUG_ENV_BLEND=premultiplied`.
+     *Status: open.* The glass tried (the cafeteria glass placed in the air) drew opaque
+     in the original, transmission below about 0.1 [observed], so it had no faint alpha
+     to compare; the junk drinking glass named here is the one to use.
+     **Partly answered 2026-11-22** [observed: job `oenv2_reflections`]. The junk drinking
+     glass (DrinkingGlass02, 0005B633, placed) was held 60 units ahead of the flying
+     player, the view 20° down onto the rocky ground. It was framed at 23:00 and at
+     12:00, then moved 20 units to each side.
+     - The same screen patch (75 x 140 pixels) was read with the glass over it and
+       without it (the glass moved aside).
+     - At night the glass reads brighter and bluer than the ground behind it: mean RGB
+       (47, 48, 55) over (20, 19, 21). Its brightest 2 % reads 107 over 37, as pale
+       bands up its side.
+     - At noon it reads darker than the ground behind it: (78, 72, 55) over
+       (133, 119, 88), brightest 2 % 109 over 150.
+     - So this glass is far from clear: by day it hides about half of what is behind it.
+       By night it carries a pale, bluish film over 2× as bright as the ground. That fits
+       a term not weighted down by a faint alpha, but with an alpha this high, ours and
+       the premultiplied reading may not differ much [hypothesis].
+275. **Does the reflection depend on the light, with and without Env Map Fade?** (P3;
+     #2841, nif.md §6.) The wiki: Env Map Fade (Shader Flags 2 bit 15) "Fades the
+     cubemap's brightness based on the distance to the nearest light". Ours (since the
+     captures below): shapes without the window flag are scaled by the scene light, the
+     ambient colour plus the sun's or moon's (an interior's ambient plus directional),
+     without N·L, held to 1; point lights are left out; the flag changes nothing
+     [hypothesis]. Place a Nuka-Cola bottle (NukaColaBottle, `sodabottle01.nif`, sets the
+     bit) and a Sunset Sarsaparilla bottle (SSBottleEmpty, `ssbottle02.nif`, which does
+     not: its shader flags 2 are 1) side by side, first under a lamp, then in a dark
+     corner of the same interior (or with the lamp's light switched off), and frame both
+     each time; then the same in two interiors with dark and bright cell lighting.
+     Streaks that follow the cell's light and not the lamp agree with ours; streaks that
+     follow the lamp match `NVF_PLAY_DEBUG_ENV_LIGHT=all` (or `=fade-flag` if only the
+     Nuka-Cola bottle's do; both rough stand-ins); streaks as bright in the dark as in
+     the light match `=off`.
+     *Status: partly answered (exteriors).* A streak on a static Sarsaparilla bottle kept
+     its place under sun, fire and moon, took the light's colour and fell to 0.33× from
+     day to night while the ground fell to 0.07-0.10× [observed for that bottle;
+     hypothesis as a rule]; the fit needs about none of the term at night. The flag
+     showed no difference: fire-made highlights vanished with the fire on flagged and
+     unflagged bottles alike [observed]. No clear glow in the dark: at night the
+     env-mapped bottles kept about the share of their day brightness that the no-cube wine
+     bottle (Environment_Mapping flag, no cube) kept, some somewhat more: the
+     Sarsaparilla bottles 1.1-2.0×, the Nuka-Cola bottle 0.7-1.1× (confounded by the night
+     light's direction, and on the blended bottle by the ground seen through it)
+     [observed]. Open: interiors, the
+     role of point lights, and what L is exactly (sun intensity, ambient, or a light sum
+     at the surface).
+     **Interiors, 2026-11-22** [observed: job `oenv_reflections`]. A Nuka-Cola bottle and
+     an empty Sarsaparilla bottle were held side by side 50 units ahead, in GSGeneralStore
+     (lit by its windows) and in Vault34a (dark). Each was framed three ways: alone, with
+     a placed light (LIGH VaultWhite256, 00004034) 20 units above them, and after that
+     light was disabled.
+     - The placed light raised the mean brightness of both bottles' boxes by about the
+       same share: the Nuka-Cola bottle 1.45× in the store and 1.41× in the vault, the
+       Sarsaparilla bottle 1.52× and 1.33×. Their brightest 2 % rose by 1.4-1.6×.
+       Disabling the light gave back the first frame's numbers exactly. So a point light
+       changes how the bottles look, whether it is their diffuse light or the
+       reflection's.
+     - The Env Map Fade flag again made no difference that could be seen.
+     - Between the rooms, the wall behind the bottles read 127 in the store and 12.5 in
+       the vault. The bottles read 24 and 19 (Nuka-Cola) and 24 and 22 (Sarsaparilla).
+       They kept about 0.8-0.9 of their brightness in a room about ten times darker.
+     - Rough: the boxes take in some floor and background, and the frames are single
+       views, so streaks were not told apart from the glass's own colour.
+276. **Do reflections fade out between 1,500 and 1,800 units from the camera?** (P3;
+     #2841, nif.md §6.) The INI settings `fEnvMapLOD1` 1500 and `fEnvMapLOD2` 1800
+     [documented: GECK wiki "INI Settings"]. Ours: no fade by default [design, kept out of
+     #2841 because it would change window shapes too]; under
+     `NVF_PLAY_DEBUG_ENV_DISTANCE_FADE=1`, whole up to 1,500 units, none from 1,800,
+     linear between, on window shapes too [hypothesis for the curve]. In a long
+     room or outdoors at night, frame a shiny prop (e.g. a cooking pot, MSTT CookingPot01,
+     `metalpot.nif`) from 1,200, 1,500, 1,650, 1,800 and 2,000 units, with the same view
+     direction. A reflection that is whole at 1,500, about half at 1,650 and gone at
+     1,800 agrees with the switch's fade; no change agrees with the default; a sudden cut
+     says neither is right. The switch's fade goes by the distance to
+     the shape node's origin (usually the reference's), so a long shape fades as a
+     whole and a model whose parts sit under nodes of their own fades part by part.
+     *Status: open.* The running original reported 1500 and 1800 (envmap); setting both
+     to 1 in memory changed no picture at 51-1,200 units (envmap5), so either the setting
+     does not apply live or the fade does not act there; a crate at 600-1,900 units
+     showed no sheen to lose (envmap4). Use an object with a strong visible sheen, the
+     camera fixed and the object moved, at a fixed game time.
+     **Tried 2026-11-22: no fade seen, weak** [observed: jobs `oenv_reflections`,
+     `oenv2_reflections`].
+     - The setup: the player flying (`tcl`) 9,000 units above Goodsprings with
+       `fov 15`, the view fixed due north and level. A placed cooking pot (CookingPot01)
+       was moved along the view to 300, 600, 1,200, 1,500, 1,650, 1,800 and 2,000 units,
+       at its height, at 12:00 and 23:00, with the sky behind it.
+     - At noon its pixels darker than the sky read: mean 80, 78, 84, 88, 88, 91, 92;
+       95th percentile 132, 124, 130, 136, 136, 139, 140. There is no step down between
+       1,500 and 1,800; the slow rise fits the sky mixing in at its edges as it shrinks.
+     - But the pot showed no distinct moving sheen at any distance, only a matte grey
+       with a pale rim, so this does not rule a fade out. The night frames look the same
+       by eye.
+277. **Does a shape with Environment_Mapping but no cube in slot 4 reflect anything?**
+     (P3; #2841, nif.md §6.) 214 such shapes in the data (the wine bottle Wine,
+     `clutter\food\winebottle01.nif`, 238 placements; the Pimp-Boy). Ours: no reflection
+     (no default cube) [hypothesis]. Frame a wine bottle close up and strafing. A plain
+     bottle agrees with ours; moving highlights say the game supplies a cube of its own
+     (as the wiki says it does for Eye Environment Mapping).
+     *Status: partly answered.* The wine bottle's glass is near black in every view, with
+     no streak like the env-mapped bottles' [observed]; its glass texture is very dark,
+     so a weak default cube would be hard to see. A lighter bit-7 shape without a cube
+     (the Pimp-Boy's) would settle it.
+     **Tried 2026-11-22, not settled** [observed: job `oenv2_reflections`; base game +
+     xNVSE + JIP LN, save `nvfdoc`]. The Pimp-Boy (ARMO PimpBoy 0011BACB, placed with
+     `PlaceAtMe`) was framed at noon 45 units ahead, the player flying (`tcl`) 9,000
+     units above Goodsprings. An empty Sarsaparilla bottle stood beside it, and the pair
+     was moved 15 units left and right of the view between frames. Its gold body and top
+     face read bright, and its silver rings show bright and dark bands with white glints
+     in all three frames. Whether the bands move across the rings with the view, as a
+     cube's would, or are the sun's highlight, could not be told from three frames
+     [hypothesis: either]. A turntable of frames in a dim interior, where the sun's
+     highlight is gone, would separate them.
 
 ## Added 2026-11-22 (the grab key on pickable plants, #3389)
 
@@ -3709,3 +4104,48 @@ already talking takes over at once, same topic or another; nothing is queued or 
      there. In the original, by Goodsprings (the nettles south of the town, 0016AF22 at
      -68223, -3810), harvest one and not another, then hold Z on each; also shoot or throw
      a grenade at one. Say whether either moves.
+     **Partly answered 2026-11-22** [observed: base game + xNVSE 6.4.9 + JIP LN, plugin
+     version 10, save `nvfdoc`, first person, the window in front; jobs
+     `o278_grab_plants` and `o278b_grab_broc`]. For each plant, the player stood 70
+     units west of it facing east. At pitches 30–82° in 4° steps the job read
+     `GetCrosshairRef`, held the grab control (`GetControl 27`: key 44, Z) for 40 game
+     loops while lifting the view 25°, read JIP `GetPlayerGrabbedRef` and the plant's
+     position, then released the key. One of each pair was first harvested with
+     `Activate player 1`. A screenshot confirmed this for the nettle: no prompt on the
+     picked one, "E) Pick White Horse Nettle" on the other.
+     - **White Horse Nettle: yes, it can be grabbed, harvested or not.** Both 0016AF22
+       (harvested) and 0016C86D (not) were named by `GetPlayerGrabbedRef` at pitches 30°
+       and 38°. While held they rose 20–26 units and shifted 2–10 sideways, and they
+       stayed displaced after release.
+       - At 34° and 42° the crosshair named the nettle but nothing was grabbed. From 46°
+         on, no grab took for either nettle.
+       - After the 30°–38° grabs, the harvested nettle was read at z 7932–7941, about
+         170 units below where it was placed, through the ground. At the 42° release it
+         read its placed position again.
+     - **Broc Flower: no grab.** Both 0016D423 (harvested) and 0016D425 (not), in cell
+       (-15, -1), were named by the crosshair at 30–70°. `GetPlayerGrabbedRef` stayed 0
+       at every aim, and neither plant moved.
+     - **Shot and explosion: neither plant moved** [observed: job `o278c_shots_blast`].
+       The console's `placeatme 179DA` after `prid` did not go off in the first two runs
+       (no blast in the screenshots, and the first run crashed at that step). A script's
+       `rR.PlaceAtMe` of the same frag grenade explosion (000179DA) did go off: there is a
+       flash three frames after it. It was placed at the unharvested nettle 0016C86D and
+       at the unharvested Broc Flower 0016D425, the player 400 units away. Each plant's
+       position (x, y, z) and heading read the same before and 3 s after, to 0.1.
+       Before that, three 9mm shots were fired at each from 150 units, aimed by script at
+       its base. A bullet mark appeared on the ground at the Broc Flower's foot, and
+       neither plant's reading changed. Whether a bullet struck the plant itself was not
+       confirmed: the crosshair read no reference at 150 units. These positions are
+       meaningful because the same reading followed the grabbed nettles above.
+
+## Added 2026-11-23 (the GOODBYE topic without the Goodbye flag, #3477)
+
+283. **Does a GOODBYE line without the Goodbye flag end the conversation?** (P2; #3477,
+     dialogue.md §5.) Ours since #3477 [hypothesis]: yes, when the line is over, if
+     nothing it links to can be said (none in the data links anywhere). Talk to Keith (NPC
+     1EKeith 000F839C, reference 000F83A5, Aerotech Suite 200, cell
+     AerotechOfficeInterior02) and pick the generic Goodbye at the end of his topic list
+     (INFO 0014E019): does the dialogue menu close after the line, or does his topic list
+     come back? Note also whether the generic Goodbye is offered at all, as his only
+     flagged entry is the game of Caravan. Jerry the Punk (reference 001413BF) has the
+     other line, 0014C483; in Fallout 3, Pronto (Paradise Falls) has 000384CF.

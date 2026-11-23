@@ -236,6 +236,29 @@ fn the_synchronous_source_loads_a_set_by_its_exact_member_paths() {
 }
 
 #[test]
+fn a_texture_outside_the_shapes_takes_only_its_sets_height_map() {
+    // #3322: the landscape's layers ask for the `_p` alone (TextureCache::authored_height).
+    let pack = Pack::new();
+    let mut cache = TextureCache::default();
+    let mut images = Assets::<Image>::default();
+    // Off: nothing is asked of the index.
+    assert!(cache.authored_height_with(false, "walls/stone.dds", &pack.data, &mut images, None).is_none());
+    assert!(!pack.data.pbr_index_built(), "the index is never built while the setting is off");
+    // A height-only set: its `_p` at the default depth, by the raw path as the layers name it.
+    let (stone, depth) = cache.authored_height_with(true, r"Walls\Stone.dds", &pack.data, &mut images, None).expect("height-only set");
+    assert_eq!(depth, fnv_pbr::DEFAULT_PARALLAX_DEPTH);
+    assert_eq!(images.get(&stone).unwrap().texture_descriptor.format, TextureFormat::Bc4RUnorm);
+    // An authored set: its `_p` at the scalar file's depth, and its `_orm` not loaded.
+    let (_, depth) = cache.authored_height_with(true, "walls/relief.dds", &pack.data, &mut images, None).expect("authored set with _p");
+    assert_eq!(depth, 0.05);
+    assert!(!cache.has_or_ahead(r"textures\pbr\walls\relief_orm.dds"), "only the height map is loaded");
+    // No `_p`, a depth of 0, a refused `_p`, a `_p` that does not load, no set at all: none.
+    for none in ["walls/brick.dds", "walls/flat.dds", "walls/signed.dds", "walls/brokenheight.dds", "walls/plain.dds"] {
+        assert!(cache.authored_height_with(true, none, &pack.data, &mut images, None).is_none(), "{none}");
+    }
+}
+
+#[test]
 fn off_asks_nothing_of_the_index() {
     let pack = Pack::new();
     let memo = Memo::default();
@@ -623,6 +646,91 @@ fn alpha_tested_and_blended_shapes_are_refused_apart() {
     }
     assert_eq!(height_alpha(AlphaMode::Mask(0.5), false), Err(HeightSkip::AlphaTested));
     assert_eq!(height_alpha(AlphaMode::Mask(0.5), true), Ok(()));
+}
+
+/// #2979: the game depth switch takes a depth in the scalar file's range, 0 included (no
+/// game height map); garbage and out-of-range text keep the default.
+#[test]
+fn the_game_depth_switch_takes_0_to_0_08() {
+    assert_eq!(parse_game_parallax_depth("0.05"), Ok(0.05));
+    assert_eq!(parse_game_parallax_depth(" 0 "), Ok(0.0));
+    assert_eq!(parse_game_parallax_depth("0.08"), Ok(0.08));
+    for bad in ["0.1", "-0.01", "NaN", "inf", "deep", ""] {
+        assert!(parse_game_parallax_depth(bad).is_err(), "{bad}");
+    }
+    let depth = |text: Option<&str>| switch_value(GAME_PARALLAX_DEPTH_ENV, text, GAME_PARALLAX_DEPTH, parse_game_parallax_depth, |d| format!("{d}"), |_| false);
+    assert_eq!(depth(None), (GAME_PARALLAX_DEPTH, SwitchLog::Quiet));
+    assert!(matches!(depth(Some("0")), (0.0, SwitchLog::Taken(_))));
+    assert!(matches!(depth(Some("0.5")), (d, SwitchLog::Refused(_)) if d == GAME_PARALLAX_DEPTH));
+    assert!(fnv_pbr::PARALLAX_DEPTH_RANGE.contains(&GAME_PARALLAX_DEPTH) && GAME_PARALLAX_DEPTH > 0.0);
+    if std::env::var_os(GAME_PARALLAX_DEPTH_ENV).is_none() {
+        assert_eq!(game_parallax_depth(), GAME_PARALLAX_DEPTH);
+    }
+}
+
+/// #2979: the game height maps' exit line reads its counts back, and says when the switch
+/// turned them off.
+#[test]
+fn the_game_height_line_names_every_count() {
+    let s = Stats::default();
+    for (c, n) in [(&s.game_height_drawn, 5), (&s.game_height_flat, 2), (&s.game_height_not_loaded, 1), (&s.game_height_replaced, 3), (&s.game_height_dropped, 4)] {
+        for _ in 0..n {
+            Stats::add(c);
+        }
+    }
+    let shape = format!("{}, {} layers", parallax_method_name(parallax_method()), parallax_layers());
+    assert_eq!(
+        s.game_line(0.03),
+        format!("depth 0.03 ({shape}); 2 material builds draw a NIF's own height map (texture-set slot 3, shader flag 11), 3 more had it replaced by an authored _p, 2 left it flat (alpha-tested, blended, double-sided, decal, unlit, refracting, a holes effect or without tangents on the drawn mesh), 1 could not load it; 4 later copies dropped one")
+    );
+    let off = Stats::default();
+    assert_eq!(off.game_line(0.0), format!("off (NVF_GAME_PARALLAX_DEPTH=0) ({shape}); 0 material builds draw a NIF's own height map (texture-set slot 3, shader flag 11), 0 more had it replaced by an authored _p, 0 left it flat (alpha-tested, blended, double-sided, decal, unlit, refracting, a holes effect or without tangents on the drawn mesh), 0 could not load it; 0 later copies dropped one"));
+}
+
+/// #2979 review: the march's step at a grazing view. The divisor stops at
+/// [`PARALLAX_MIN_STEEPNESS`], so a view along the surface gives a finite, bounded shift and
+/// steeper views are as upstream; the vendored shader carries the same clamp (read here).
+#[test]
+fn the_grazing_clamp_bounds_the_parallax_shift() {
+    let d = 0.015;
+    let along = Parallax::full_depth_shift(d, Vec3::new(1.0, 0.0, 0.0));
+    assert!(along.is_finite());
+    assert!((along.x - d / PARALLAX_MIN_STEEPNESS).abs() < 1e-6 && along.y == 0.0, "{along:?}");
+    let grazing = Parallax::full_depth_shift(d, Vec3::new(0.0, (1.0f32 - 0.01).sqrt(), 0.1));
+    assert!((grazing.y + d * (0.99f32).sqrt() / PARALLAX_MIN_STEEPNESS).abs() < 1e-6, "y is flipped and clamped: {grazing:?}");
+    let steep = Parallax::full_depth_shift(d, Vec3::new(0.6, 0.0, 0.8));
+    assert!((steep.x - d * 0.6 / 0.8).abs() < 1e-7, "above the clamp the step is upstream's: {steep:?}");
+    for z in [0.0f32, 0.01, 0.1, 0.15, 0.5, 1.0] {
+        let vt = Vec3::new((1.0 - z * z).sqrt(), 0.0, z);
+        assert!(Parallax::full_depth_shift(d, vt).length() <= d / PARALLAX_MIN_STEEPNESS + 1e-6, "z {z}");
+    }
+    let shader = include_str!("../../../vendor/bevy_pbr/src/render/parallax_mapping.wesl");
+    assert!(shader.contains(&format!("/ max(view_steepness, {PARALLAX_MIN_STEEPNESS});")), "the vendored march clamps at the same steepness");
+}
+
+/// #2979 review: a material made on a copy of a drawn mesh (an actor's texture set, here one
+/// giving a normal map to a shape whose drawn mesh has no tangents) records the drawn mesh's
+/// tangents, so a later swap to a diffuse with a height map puts none on; the same material
+/// built for its own mesh takes it.
+#[test]
+fn a_swap_on_a_copy_of_a_drawn_mesh_uses_the_drawn_meshs_tangents() {
+    use crate::nif_spawn::{shape_material, shape_material_reusing_tangents, Props};
+    use crate::texture::bc5_tests::triangle;
+    let pack = Pack::new();
+    let mut cache = TextureCache::default();
+    let mut images = Assets::<Image>::default();
+    let mut props = Props::default();
+    props.textures = vec![r"walls\plain.dds".into(), r"walls\brick.dds".into()];
+    let mut copy = triangle();
+    let (mut swapped, _) = shape_material_reusing_tangents(&props, &mut copy, &mut cache, &pack.data, &mut images, None);
+    assert!(copy.attribute(Mesh::ATTRIBUTE_TANGENT).is_some(), "the copy gained tangents for the normal map");
+    assert!(!swapped.extension.legacy.as_ref().unwrap().tangents, "the drawn mesh has none");
+    assert_eq!(retexture(&mut swapped, r"walls\stone.dds", &mut cache, &pack.data, &mut images, None), Retextured::HeightOnly);
+    assert!(swapped.base.depth_map.is_none() && !height_on(&swapped), "no height map the GPU would skip");
+    let (mut own, _) = shape_material(&props, &mut triangle(), &mut cache, &pack.data, &mut images, None);
+    assert!(own.extension.legacy.as_ref().unwrap().tangents);
+    assert_eq!(retexture(&mut own, r"walls\stone.dds", &mut cache, &pack.data, &mut images, None), Retextured::HeightOnly);
+    assert!(own.base.depth_map.is_some() && height_on(&own), "its own mesh: the height map goes on");
 }
 
 /// The metal gain override's value: a gain from 1 to 40 (the scalar file's range), nothing for

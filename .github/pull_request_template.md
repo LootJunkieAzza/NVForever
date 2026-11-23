@@ -13,7 +13,8 @@ See [CONTRIBUTING.md](https://github.com/LootJunkieAzza/NVForever/blob/main/CONT
 - [ ] Nothing was taken from leaked, decompiled or disassembled Bethesda/Gamebryo code
       (no Ghidra, IDA or similar on the game or the G.E.C.K.), and nv-rs was not opened.
 - [ ] Every new constant or behaviour is backed by a cited source or an observation
-      in the original game, and no text the game shows was transcribed from it.
+      in the original game, or is tagged `[hypothesis]` or `[design]` and listed in
+      "What changed", and no text the game shows was transcribed from it.
 - [ ] No parity-lab goldens, scenarios, tolerances or comparators were changed to make
       a test pass.
 - [ ] This is my own work (or I have the right to submit it), I license it under

@@ -10,8 +10,9 @@
 //!     number's token (`frame_token.rs`); DLSS's evaluate then sets none of its own.
 //!   - [`tag`] (after the post passes, before the UI, where FSR's frame generation copies its
 //!     frame without the HUD, `crate::frame_gen` `capture_hudless`): on a frame that may be
-//!     generated ([`may_generate`]) the frame without the HUD is copied into a display-sized
-//!     texture of its own (two used in turn), the upscaler's depth (`PreparedUpscale::depth`,
+//!     generated ([`may_generate`]) the frame without the HUD is written, sRGB-encoded, into a
+//!     display-sized `Rgba8Unorm` texture of its own (two used in turn; [`ENCODED_FORMAT`]: the
+//!     back buffer's colour space, as the guide asks), the upscaler's depth (`PreparedUpscale::depth`,
 //!     render size), the prepass motion (its render rectangle) and that copy are moved to
 //!     `RESOURCE` on Bevy's encoder and tagged `eValidUntilPresent` with `slSetTagForFrame`,
 //!     each `Resource` reporting the layout wgpu-hal puts `RESOURCE` in, as the SR evaluate does
@@ -38,7 +39,16 @@
 //!     is divided by (`fg_cap.rs`, #2731): the frames DLSS-G presents while it generates, 1 in
 //!     menus and while it presents one per real frame; each change is one `frame cap:` line.
 //! - **UI buffer** ([`ui_buffer`], stage 4 item 2; after the UI, before Bevy's upscaling blit,
-//!   where FSR's frame generation's `generate` sits): on a tagged frame a full-screen pass writes
+//!   where FSR's frame generation's `generate` sits): on a tagged frame the UI is drawn a second
+//!   time, alone, over transparent black (`fg_ui_layer.rs`, the main texture's format), which
+//!   gives the UI's coverage (its alpha); a full-screen pass ([`UI_COLOUR_WGSL`]) turns it, the
+//!   frame and the HUD-less copy into the UI colour and alpha in the back buffer's encoded values
+//!   (`Rgba8Unorm`, two used in turn), its colour premultiplied and chosen so DLSS-G's blend gives
+//!   back the real frame, and tags it `kBufferTypeUIColorAndAlpha` `eValidUntilPresent`
+//!   [documented: `ProgrammingGuideDLSS_G.md` §5.1: "the RGB channels must be pre-multiplied by
+//!   alpha", `Final_Color.RGB = UI.RGB + (1 - UI.Alpha) x Hudless.RGB`]: see-through HUD pixels
+//!   keep their own alpha. With
+//!   `NVF_FG_UI_LAYER=0`, as before, a full-screen pass writes
 //!   a display-sized `R16Float` UI alpha from the frame (with the UI) and its HUD-less copy: 1
 //!   where they differ, 0 elsewhere. With alpha 1 the UI's colour is the frame's, so the guide's
 //!   rules hold: 0 where there is no UI, above 0 where there is, and `Final = UI.RGB + (1 -
@@ -146,7 +156,7 @@ use bevy::render::sync_world::MainEntity;
 use bevy::render::view::{create_surfaces, extract_windows, prepare_view_targets, ExtractedView, ExtractedWindow, HoldSurfaceReconfigure, SurfaceData, ViewTarget};
 use bevy::render::{Extract, ExtractSchedule, Render, RenderSystems};
 use bevy::window::{PrimaryWindow, WindowClosing};
-use bevy::ui_render::ui_pass;
+use bevy::ui_render::{ui_pass, UiCameraView};
 
 use super::evaluate::{constants_for, describe, ConstantsInput, VIEWPORT};
 use super::ffi::{
@@ -185,12 +195,31 @@ struct Decision {
     output: UVec2,
 }
 
-/// The frame without the HUD: two textures used in turn, at the output size and in the main
-/// texture's format.
+/// The frame without the HUD, or the UI colour and alpha: two textures used in turn, at the
+/// output size, in [`ENCODED_FORMAT`].
 struct Hudless {
     textures: [wgpu::Texture; 2],
     views: [wgpu::TextureView; 2],
     next: usize,
+}
+
+impl Hudless {
+    fn new(device: &wgpu::Device, size: wgpu::Extent3d, label: &'static str) -> Self {
+        let textures: [wgpu::Texture; 2] = std::array::from_fn(|_| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: ENCODED_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        });
+        let views = std::array::from_fn(|i| textures[i].create_view(&wgpu::TextureViewDescriptor::default()));
+        Self { textures, views, next: 0 }
+    }
 }
 
 /// Real and presented frames since the period began.
@@ -250,8 +279,16 @@ struct FrameGen {
     exit_off: bool,
     /// This frame's HUD-less copy, for the UI buffer ([`ui_buffer`]); set by a tagged frame.
     ui_source: Option<wgpu::TextureView>,
-    /// The UI buffer's pass and its two textures.
+    /// The UI buffer's pass and its two textures (`NVF_FG_UI_LAYER=0`: the UI alpha).
     ui: Option<UiPass>,
+    /// The UI drawn alone (`fg_ui_layer.rs`, the main texture's format), read in the same frame.
+    ui_layer: Option<(wgpu::Texture, wgpu::TextureView)>,
+    /// The UI colour and alpha tagged ([`ENCODED_FORMAT`], two used in turn) and its pass
+    /// (the module comment's "UI buffer").
+    ui_colour: Option<Hudless>,
+    ui_colour_pass: Option<Fullscreen>,
+    /// The HUD-less copy's encoding pass.
+    hudless_pass: Option<Fullscreen>,
     /// The UI buffer was tagged once (said).
     ui_said: bool,
     /// The swapchain was just made again by the live toggle: the mode stays off one frame more
@@ -261,15 +298,151 @@ struct FrameGen {
     cap: super::fg_cap::CapDivisor,
 }
 
-/// The UI buffer's full-screen pass, its textures (two used in turn, as the HUD-less) and the
-/// bind groups made for them (the main texture's two views and the HUD-less copies).
+/// The UI alpha's full-screen pass (`NVF_FG_UI_LAYER=0`) and its textures (two used in turn,
+/// as the HUD-less).
 struct UiPass {
-    pipeline: wgpu::RenderPipeline,
-    layout: wgpu::BindGroupLayout,
+    pass: Fullscreen,
     textures: Option<([wgpu::Texture; 2], [wgpu::TextureView; 2])>,
     next: usize,
-    groups: Vec<((wgpu::TextureView, wgpu::TextureView), wgpu::BindGroup)>,
 }
+
+/// A full-screen pass of DLSS-G's own: its inputs loaded at the pixel (bindings 0, 1, ...), one
+/// target, no blending; the bind groups made once for each set of input views (the main
+/// texture's two views, the copies used in turn), the last eight kept.
+struct Fullscreen {
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    groups: Vec<(Vec<wgpu::TextureView>, wgpu::BindGroup)>,
+}
+
+impl Fullscreen {
+    /// `body` after [`COMMON_WGSL`] (the vertex stage and `encode`); `inputs` textures.
+    fn new(device: &wgpu::Device, label: &'static str, body: &str, inputs: u32, format: wgpu::TextureFormat) -> Self {
+        let source = format!("{COMMON_WGSL}{body}");
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(label), source: wgpu::ShaderSource::Wgsl(source.into()) });
+        let entries: Vec<wgpu::BindGroupLayoutEntry> = (0..inputs)
+            .map(|binding| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                count: None,
+            })
+            .collect();
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(label), entries: &entries });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some(label), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vertex"), compilation_options: default(), buffers: &[] },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fragment"),
+                compilation_options: default(),
+                targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            primitive: default(),
+            depth_stencil: None,
+            multisample: default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        Self { pipeline, layout, groups: Vec::new() }
+    }
+
+    /// Draws every pixel of `target` (load, not clear) from `inputs`.
+    fn draw(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, inputs: &[&wgpu::TextureView], target: &wgpu::TextureView) {
+        let group = match self.groups.iter().find(|(k, _)| k.iter().eq(inputs.iter().copied())) {
+            Some((_, group)) => group.clone(),
+            None => {
+                let entries: Vec<wgpu::BindGroupEntry> =
+                    inputs.iter().zip(0..).map(|(view, binding)| wgpu::BindGroupEntry { binding, resource: wgpu::BindingResource::TextureView(view) }).collect();
+                let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("dlssg_fullscreen"), layout: &self.layout, entries: &entries });
+                if self.groups.len() >= 8 {
+                    self.groups.remove(0);
+                }
+                self.groups.push((inputs.iter().map(|v| (*v).clone()).collect(), group.clone()));
+                group
+            }
+        };
+        let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("dlssg_fullscreen"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        render.set_pipeline(&self.pipeline);
+        render.set_bind_group(0, &group, &[]);
+        render.draw(0..3, 0..1);
+    }
+}
+
+/// The HUD-less copy's and the UI colour and alpha's format: the window's 8-bit kind holding
+/// sRGB-encoded values, as the back buffer DLSS-G is given does. DLSS-G wants the HUD-less "same
+/// color space ... as the color back buffer" and blends `UI.RGB + (1 - UI.Alpha) x Hudless.RGB`
+/// in it, and does not take FP16 [documented: `ProgrammingGuideDLSS_G.md` §5.1 table, §11.0].
+/// The window's image is a UNORM image drawn through an sRGB view (Streamline refuses sRGB
+/// back buffers; vendored `bevy_render` `view/window/mod.rs` `formats`), so it holds encoded
+/// values; the main texture is linear `Rgba16Float`, which a plain copy left linear: the
+/// generated frames' HUD then sat on a background unlike the real frames' (the crosshair's
+/// faint glow flickered [observed: #3595]). `VK_FORMAT_R8G8B8A8_UNORM` is in Streamline's table
+/// [documented: `source/platforms/sl.chi/vulkan.cpp` `getFormat`].
+const ENCODED_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// The full-screen vertex stage and the sRGB encoding (IEC 61966-2-1), in every pass here.
+const COMMON_WGSL: &str = "
+@vertex
+fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+
+fn encode(c: vec3<f32>) -> vec3<f32> {
+    let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    return select(1.055 * pow(x, vec3<f32>(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3<f32>(0.0031308));
+}
+";
+
+/// The HUD-less copy: the frame before the UI, sRGB-encoded ([`ENCODED_FORMAT`]).
+const HUDLESS_WGSL: &str = "
+@group(0) @binding(0) var frame: texture_2d<f32>;
+
+@fragment
+fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(encode(textureLoad(frame, vec2<i32>(position.xy), 0).rgb), 1.0);
+}
+";
+
+/// The UI colour and alpha from the frame with the UI (linear), its HUD-less copy (encoded) and
+/// the UI drawn alone (`fg_ui_layer.rs`, linear, premultiplied): the alpha is the layer's, as the
+/// 8-bit target will hold it; the colour is what makes DLSS-G's blend in the encoded values give
+/// back the real frame exactly, `UI.RGB = encode(Final) - (1 - UI.A) x Hudless`. A blend in
+/// encoded values cannot equal the frame's linear blend over every background; this one is
+/// exact over the real frame's own and close over the nearby ones a generated frame shows.
+/// Where the alpha is 0, nothing (the guide's "0.0 for pixels with no UI elements").
+const UI_COLOUR_WGSL: &str = "
+@group(0) @binding(0) var final_color: texture_2d<f32>;
+@group(0) @binding(1) var hudless: texture_2d<f32>;
+@group(0) @binding(2) var layer: texture_2d<f32>;
+
+@fragment
+fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let p = vec2<i32>(position.xy);
+    let a = round(clamp(textureLoad(layer, p, 0).a, 0.0, 1.0) * 255.0) / 255.0;
+    if a <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    let f = encode(textureLoad(final_color, p, 0).rgb);
+    let h = textureLoad(hudless, p, 0).rgb;
+    return vec4<f32>(clamp(f - (1.0 - a) * h, vec3<f32>(0.0), vec3<f32>(1.0)), a);
+}
+";
 
 /// The format of the UI alpha (one channel, 0 or 1 is all it holds). `R16Float`, not `R8Unorm`:
 /// Streamline 2.14.16 reads a tagged Vulkan image's format through its own table, which has
@@ -278,23 +451,19 @@ struct UiPass {
 /// `isFormatSupported` 3070-3081; observed in the 2026-11-13 runs].
 const UI_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
 
-/// The UI buffer from the frame and its HUD-less copy (the module comment's "UI buffer").
+/// The UI alpha (`NVF_FG_UI_LAYER=0`) from the frame (linear) and its HUD-less copy (encoded,
+/// 8 bits): 1 where they differ by more than the copy's own rounding (the same `encode` of the
+/// same value, stored to 8 bits: at most half a step off, 0.6 with a GPU's looser rounding).
 const UI_BUFFER_WGSL: &str = "
 @group(0) @binding(0) var final_color: texture_2d<f32>;
 @group(0) @binding(1) var hudless: texture_2d<f32>;
 
-@vertex
-fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
-    let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
-    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-}
-
 @fragment
 fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let p = vec2<i32>(position.xy);
-    let f = textureLoad(final_color, p, 0);
-    let h = textureLoad(hudless, p, 0);
-    return vec4<f32>(select(0.0, 1.0, any(f.rgb != h.rgb)), 0.0, 0.0, 0.0);
+    let f = encode(textureLoad(final_color, p, 0).rgb) * 255.0;
+    let h = round(textureLoad(hudless, p, 0).rgb * 255.0);
+    return vec4<f32>(select(0.0, 1.0, any(abs(f - h) > vec3<f32>(0.75))), 0.0, 0.0, 0.0);
 }
 ";
 
@@ -341,6 +510,10 @@ impl FrameGen {
             exit_off: false,
             ui_source: None,
             ui: None,
+            ui_layer: None,
+            ui_colour: None,
+            ui_colour_pass: None,
+            hudless_pass: None,
             ui_said: false,
             just_switched: false,
             cap: super::fg_cap::CapDivisor::default(),
@@ -600,7 +773,7 @@ fn tag(
         failed: fg.status_failed.is_some() || fg.window_off || !fg.loaded,
     };
     let tagged = match motion.filter(|_| may_generate(facts)) {
-        Some(motion) => tag_inputs(fg, &mut ctx, &adapter, index, prepared, main, &motion.texture.texture, &motion.texture.default_view),
+        Some(motion) => tag_inputs(fg, &mut ctx, &adapter, index, prepared, (main, target.main_texture_view()), &motion.texture.texture, &motion.texture.default_view),
         None => {
             let tags = null_tags();
             let result = frame_token::set_tags(index, &tags);
@@ -624,26 +797,13 @@ fn tag_inputs(
     adapter: &RenderAdapter,
     index: u32,
     prepared: &PreparedUpscale,
-    main: &wgpu::Texture,
+    (main, main_view): (&wgpu::Texture, &wgpu::TextureView),
     motion: &wgpu::Texture,
     motion_view: &wgpu::TextureView,
 ) -> bool {
     let device = ctx.render_device().wgpu_device().clone();
-    if fg.hudless.as_ref().is_none_or(|h| h.textures[0].size() != main.size() || h.textures[0].format() != main.format()) {
-        let textures: [wgpu::Texture; 2] = std::array::from_fn(|_| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("dlssg_hudless"),
-                size: main.size(),
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: main.format(),
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            })
-        });
-        let views = std::array::from_fn(|i| textures[i].create_view(&wgpu::TextureViewDescriptor::default()));
-        fg.hudless = Some(Hudless { textures, views, next: 0 });
+    if fg.hudless.as_ref().is_none_or(|h| h.textures[0].size() != main.size()) {
+        fg.hudless = Some(Hudless::new(&device, main.size(), "dlssg_hudless"));
     }
     let Some(hudless) = fg.hudless.as_mut() else { return false };
     let at = hudless.next;
@@ -668,8 +828,9 @@ fn tag_inputs(
         return false;
     };
     {
+        let pass = fg.hudless_pass.get_or_insert_with(|| Fullscreen::new(&device, "dlssg_hudless", HUDLESS_WGSL, 1, ENCODED_FORMAT));
         let encoder = ctx.command_encoder();
-        encoder.copy_texture_to_texture(main.as_image_copy(), hudless_texture.as_image_copy(), main.size());
+        pass.draw(&device, encoder, &[main_view], &hudless_view);
         let transition = |texture, state| wgpu::TextureTransition { texture, selector: None, state };
         encoder.transition_resources(
             std::iter::empty(),
@@ -842,34 +1003,9 @@ fn state(world: &mut World) {
     }
 }
 
-/// The UI buffer's pass for the main texture's format.
+/// The UI alpha's pass.
 fn ui_pass_for(device: &wgpu::Device, format: wgpu::TextureFormat) -> UiPass {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("dlssg_ui_buffer"), source: wgpu::ShaderSource::Wgsl(UI_BUFFER_WGSL.into()) });
-    let texture = |binding| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
-        ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
-        count: None,
-    };
-    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("dlssg_ui_buffer"), entries: &[texture(0), texture(1)] });
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("dlssg_ui_buffer"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("dlssg_ui_buffer"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState { module: &shader, entry_point: Some("vertex"), compilation_options: default(), buffers: &[] },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fragment"),
-            compilation_options: default(),
-            targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
-        }),
-        primitive: default(),
-        depth_stencil: None,
-        multisample: default(),
-        multiview_mask: None,
-        cache: None,
-    });
-    UiPass { pipeline, layout, textures: None, next: 0, groups: Vec::new() }
+    UiPass { pass: Fullscreen::new(device, "dlssg_ui_buffer", UI_BUFFER_WGSL, 2, format), textures: None, next: 0 }
 }
 
 /// The tags a frame that is not generated sets null (DLSS-G's inputs, the HUD-less and
@@ -882,13 +1018,20 @@ fn null_tags() -> [ResourceTag; 5] {
 /// The UI buffer on a tagged frame (the module comment's "UI buffer"): the pass, the move to
 /// `RESOURCE`, the tag. When it cannot be made, whatever the reason, the frame is not
 /// generated: its tags go null.
-fn ui_buffer(view: ViewQuery<(&ViewTarget, &PreparedUpscale)>, adapter: Res<RenderAdapter>, mut ctx: RenderContext) {
-    let (target, prepared) = view.into_inner();
+fn ui_buffer(
+    world: &World,
+    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &ExtractedCamera, Option<&UiCameraView>)>,
+    adapter: Res<RenderAdapter>,
+    mut ctx: RenderContext,
+) {
+    let (target, prepared, camera, ui) = view.into_inner();
     let mut guard = frame_gen();
     let Some(fg) = guard.as_mut() else { return };
     let hudless_view = fg.ui_source.take();
     let (Some(index), Some(decision)) = (fg.last_index, fg.decision.filter(|d| d.generate)) else { return };
+    let layer = *crate::fg_ui_layer::ENABLED;
     let result = match hudless_view {
+        Some(hudless_view) if layer => draw_ui_layer(fg, &mut ctx, &adapter, world, ui, camera, target, prepared, index, &hudless_view),
         Some(hudless_view) => draw_ui_alpha(fg, &mut ctx, &adapter, target, prepared, index, &hudless_view),
         None => Err("no HUD-less copy this frame".to_string()),
     };
@@ -896,10 +1039,15 @@ fn ui_buffer(view: ViewQuery<(&ViewTarget, &PreparedUpscale)>, adapter: Res<Rend
         Ok(()) => {
             if !fg.ui_said {
                 fg.ui_said = true;
+                let what = if layer {
+                    format!("{ENCODED_FORMAT:?} UI colour and alpha (the UI drawn alone over transparent black, premultiplied, sRGB-encoded as the back buffer with the HUD-less copy)")
+                } else {
+                    "R16Float UI alpha (1 where the frame differs from its HUD-less copy, 0 elsewhere)".to_string()
+                };
                 note_fg(
                     Level::INFO,
                     format!(
-                        "UI buffer: {}x{} R16Float UI alpha (1 where the frame differs from its HUD-less copy, 0 elsewhere), tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on",
+                        "UI buffer: {}x{} {what}, tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on",
                         prepared.output_size.x, prepared.output_size.y
                     ),
                 );
@@ -916,7 +1064,64 @@ fn ui_buffer(view: ViewQuery<(&ViewTarget, &PreparedUpscale)>, adapter: Res<Rend
     }
 }
 
-/// The UI alpha's pass, transition and tag for frame number `index`.
+/// The UI drawn alone (`fg_ui_layer.rs`), the UI colour and alpha made from it with the frame
+/// and its HUD-less copy ([`UI_COLOUR_WGSL`], [`ENCODED_FORMAT`]), its transition and its tag
+/// for frame number `index`: `Final = UI.RGB + (1 - UI.A) * Hudless` with the colour
+/// premultiplied, as DLSS-G asks [documented: `ProgrammingGuideDLSS_G.md` §5.1].
+#[allow(clippy::too_many_arguments)]
+fn draw_ui_layer(
+    fg: &mut FrameGen,
+    ctx: &mut RenderContext,
+    adapter: &RenderAdapter,
+    world: &World,
+    ui: Option<&UiCameraView>,
+    camera: &ExtractedCamera,
+    target: &ViewTarget,
+    prepared: &PreparedUpscale,
+    index: u32,
+    hudless_view: &wgpu::TextureView,
+) -> Result<(), String> {
+    let main: &wgpu::Texture = target.main_texture();
+    let main_view: &wgpu::TextureView = target.main_texture_view();
+    let device = ctx.render_device().wgpu_device().clone();
+    if fg.ui_layer.as_ref().is_none_or(|(t, _)| t.size() != main.size() || t.format() != main.format()) {
+        let texture = crate::fg_ui_layer::layer_texture(&device, main.size(), main.format(), "dlssg_ui_layer");
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        fg.ui_layer = Some((texture, view));
+        if let Some(pass) = fg.ui_colour_pass.as_mut() {
+            pass.groups.clear();
+        }
+    }
+    if fg.ui_colour.as_ref().is_none_or(|c| c.textures[0].size() != main.size()) {
+        fg.ui_colour = Some(Hudless::new(&device, main.size(), "dlssg_ui_color_alpha"));
+    }
+    let (Some((_, layer_view)), Some(colour)) = (fg.ui_layer.as_ref(), fg.ui_colour.as_mut()) else { return Err("no UI layer texture".to_string()) };
+    let layer_view = layer_view.clone();
+    let at = colour.next;
+    colour.next = 1 - at;
+    let (ui_texture, ui_view) = (colour.textures[at].clone(), colour.views[at].clone());
+    let described = {
+        // SAFETY: only read.
+        let Some(hal) = (unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan>() }) else { return Err("not a Vulkan adapter".to_string()) };
+        describe(&hal, &ui_texture, &ui_view, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+    };
+    let Some(mut ui_res) = described else { return Err("the UI colour and alpha has no Vulkan handle".to_string()) };
+    crate::fg_ui_layer::draw(world, ui, camera, ctx, &layer_view)?;
+    let pass = fg.ui_colour_pass.get_or_insert_with(|| Fullscreen::new(&device, "dlssg_ui_color_alpha", UI_COLOUR_WGSL, 3, ENCODED_FORMAT));
+    let encoder = ctx.command_encoder();
+    pass.draw(&device, encoder, &[main_view, hudless_view, &layer_view], &ui_view);
+    encoder.transition_resources(std::iter::empty(), std::iter::once(wgpu::TextureTransition { texture: &ui_texture, selector: None, state: wgpu::TextureUses::RESOURCE }));
+    let output = Extent { top: 0, left: 0, width: prepared.output_size.x, height: prepared.output_size.y };
+    let tag = [ResourceTag::new(&raw mut ui_res, BUFFER_UI_COLOR_AND_ALPHA, LIFECYCLE_VALID_UNTIL_PRESENT, output)];
+    let result = frame_token::set_tags(index, &tag);
+    if let Some(kept) = fg.kept.back_mut() {
+        kept.0.push(ui_texture);
+        kept.1.push(ui_view);
+    }
+    if result.is_ok() { Ok(()) } else { Err(format!("slSetTagForFrame {}", result.name())) }
+}
+
+/// The UI alpha's pass, transition and tag for frame number `index` (`NVF_FG_UI_LAYER=0`).
 #[allow(clippy::too_many_arguments)]
 fn draw_ui_alpha(
     fg: &mut FrameGen,
@@ -946,58 +1151,21 @@ fn draw_ui_alpha(
         });
         let views = std::array::from_fn(|i| textures[i].create_view(&wgpu::TextureViewDescriptor::default()));
         pass.textures = Some((textures, views));
-        pass.groups.clear();
+        pass.pass.groups.clear();
     }
     let Some((textures, views)) = pass.textures.as_ref() else { return Err("no UI texture".to_string()) };
     let at = pass.next;
     pass.next = 1 - at;
     let (ui_texture, ui_view) = (textures[at].clone(), views[at].clone());
-    // The bind groups made once for each pair of the main texture's views and the HUD-less copies.
-    let key = (main_view.clone(), hudless_view.clone());
-    let bind_group = match pass.groups.iter().find(|(k, _)| *k == key) {
-        Some((_, group)) => group.clone(),
-        None => {
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("dlssg_ui_buffer"),
-                layout: &pass.layout,
-                entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(main_view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(hudless_view) }],
-            });
-            if pass.groups.len() >= 8 {
-                pass.groups.remove(0);
-            }
-            pass.groups.push((key, group.clone()));
-            group
-        }
-    };
     let described = {
         // SAFETY: only read.
         let Some(hal) = (unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan>() }) else { return Err("not a Vulkan adapter".to_string()) };
         describe(&hal, &ui_texture, &ui_view, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
     };
     let Some(mut ui_res) = described else { return Err("the UI texture has no Vulkan handle".to_string()) };
-    {
-        let encoder = ctx.command_encoder();
-        {
-            // Load, not clear: the draw writes every pixel.
-            let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("dlssg_ui_buffer"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &ui_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            render.set_pipeline(&pass.pipeline);
-            render.set_bind_group(0, &bind_group, &[]);
-            render.draw(0..3, 0..1);
-        }
-        encoder.transition_resources(std::iter::empty(), std::iter::once(wgpu::TextureTransition { texture: &ui_texture, selector: None, state: wgpu::TextureUses::RESOURCE }));
-    }
+    let encoder = ctx.command_encoder();
+    pass.pass.draw(&device, encoder, &[main_view, hudless_view], &ui_view);
+    encoder.transition_resources(std::iter::empty(), std::iter::once(wgpu::TextureTransition { texture: &ui_texture, selector: None, state: wgpu::TextureUses::RESOURCE }));
     let output = Extent { top: 0, left: 0, width: prepared.output_size.x, height: prepared.output_size.y };
     let tag = [ResourceTag::new(&raw mut ui_res, BUFFER_UI_ALPHA, LIFECYCLE_VALID_UNTIL_PRESENT, output)];
     let result = frame_token::set_tags(index, &tag);
@@ -1163,10 +1331,14 @@ fn toggle_switch(world: &mut World) {
     if result.is_ok() && !load {
         // Nothing reads them while DLSS-G is unloaded (the GPU was drained above).
         fg.hudless = None;
+        fg.ui_layer = None;
+        fg.ui_colour = None;
         fg.kept.clear();
+        for pass in [fg.hudless_pass.as_mut(), fg.ui_colour_pass.as_mut(), fg.ui.as_mut().map(|u| &mut u.pass)].into_iter().flatten() {
+            pass.groups.clear();
+        }
         if let Some(pass) = fg.ui.as_mut() {
             pass.textures = None;
-            pass.groups.clear();
         }
     }
     fg.hold_frames = 0;
@@ -1321,6 +1493,54 @@ fn ratio_line(over: Duration, real: u64, presented: u64, failed: Option<&str>) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_passes_shaders_are_valid_wgsl() {
+        use wgpu::naga;
+        for body in [HUDLESS_WGSL, UI_COLOUR_WGSL, UI_BUFFER_WGSL] {
+            let source = format!("{COMMON_WGSL}{body}");
+            let module = naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+            naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty()).validate(&module).unwrap_or_else(|e| panic!("{e:?}"));
+        }
+    }
+
+    /// `encode` of `COMMON_WGSL`, one channel.
+    fn encode(x: f32) -> f32 {
+        let x = x.clamp(0.0, 1.0);
+        if x <= 0.003_130_8 { x * 12.92 } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 }
+    }
+
+    /// Stored to 8 bits and read back.
+    fn unorm8(x: f32) -> f32 {
+        (x.clamp(0.0, 1.0) * 255.0).round() / 255.0
+    }
+
+    /// The UI colour and alpha (`UI_COLOUR_WGSL`, stored to 8 bits) blended by DLSS-G's rule over
+    /// the HUD-less copy (encoded, 8 bits) gives back the real frame as the window holds it
+    /// (encoded), for faint glows and opaque HUD over dark and bright scenes; no UI, nothing.
+    #[test]
+    fn dlss_gs_blend_of_the_ui_colour_gives_back_the_frame() {
+        let mut worst: f32 = 0.0;
+        for alpha in [0.0, 0.004, 0.02, 0.1, 0.35, 0.7, 1.0] {
+            for ui in [0.0, 0.3, 0.9, 1.0] {
+                for scene in [0.0, 0.002, 0.05, 0.2, 0.6, 1.0] {
+                    let layer_a = alpha;
+                    let layer_rgb = ui * alpha; // premultiplied, linear (`fg_ui_layer.rs`)
+                    let frame = layer_rgb + (1.0 - layer_a) * scene; // Bevy's blend, linear
+                    let hudless = unorm8(encode(scene));
+                    let a = unorm8(layer_a);
+                    let rgb = if a <= 0.0 { 0.0 } else { unorm8((encode(frame) - (1.0 - a) * hudless).clamp(0.0, 1.0)) };
+                    if a <= 0.0 {
+                        assert_eq!(rgb, 0.0);
+                    }
+                    let shown = rgb + (1.0 - a) * hudless;
+                    let real = unorm8(encode(frame));
+                    worst = worst.max((shown - real).abs());
+                }
+            }
+        }
+        assert!(worst <= 1.5 / 255.0, "worst {worst}");
+    }
 
     #[test]
     fn dlss_to_fsr_stays_blocked_until_unload_succeeds() {

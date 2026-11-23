@@ -307,8 +307,8 @@ mod tests {
     /// Quick Loot rows; #2965's heat haze row; #2675's desert haze row; Sprint; #2671's terrain
     /// shadows row; #2981's authored materials row and its reflections row; #2701's
     /// full-detail scenery row; #3014's distant objects row; #2993's aerial perspective row;
-    /// #2995's night sky detail row; #3013's distant lights row), by the group it registers with.
-    const KNOWN: [(&str, &str); 148] = [
+    /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row), by the group it registers with.
+    const KNOWN: [(&str, &str); 149] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -428,6 +428,7 @@ mod tests {
         ("authored-reflections", "Graphics"),
         ("terrain-height-blend", "Graphics"),
         ("terrain-anti-tiling", "Graphics"),
+        ("terrain-parallax", "Graphics"),
         ("mesh-terrain-blend", "Graphics"),
         ("full-detail", "Graphics"),
         ("distant-objects", "Graphics"),
@@ -566,7 +567,8 @@ mod tests {
         hide-hud-on-load grey-read-notes remember-item-places player-weapon-volume npc-weapon-volume \
         keep-fall-height-on-load no-marker-popup marker-shift-removes marker-removed-on-it clear-marker-within \
         place-marker-here-says repeat-activate-takes-only hi-res-npc-weapons empty-reload-swaps-ammo keep-chosen-ammo \
-        objectives-on-arrival objectives-gap sleep-in-owned-beds power-armor-no-training";
+        objectives-on-arrival objectives-gap sleep-in-owned-beds power-armor-no-training \
+        sleep-misc-stat-requires-duration revive-on-cell-change no-self-explosion-non-hostiles grabbing-is-theft-min-value";
 
     /// [`TWEAK_ROWS`] as keys, under the Tweaks tab's group.
     fn tweak_rows() -> Vec<(&'static str, &'static str)> {
@@ -675,6 +677,8 @@ mod tests {
         assert_eq!(at("authored-materials"), "Graphics > Detail and Distance", "beside anisotropic filtering, the other texture row (#2981)");
         assert_eq!(at("authored-reflections"), "Graphics > Detail and Distance", "right after Authored materials (#2981 reflections)");
         assert_eq!(at("mesh-terrain-blend"), "Graphics > Detail and Distance", "beside the terrain rows (#2661)");
+        assert_eq!(at("terrain-parallax"), "Graphics > Detail and Distance", "after terrain anti-tiling (#3322)");
+        assert_eq!(nvf_settings_layout::needs("terrain-parallax").iter().map(|r| r.parent).collect::<Vec<_>>(), ["authored-materials"], "it draws the authored height maps");
         assert_eq!(at("cloud-shadows"), "Graphics > Shadows", "after Longer sun shadows (#2670)");
         assert_eq!(at("terrain-shadows"), "Graphics > Shadows", "after Cloud shadows (#2671)");
         assert_eq!(at("light-shadows"), "Graphics > Shadows", "after Terrain shadows (light_shadows.rs)");
@@ -757,8 +761,8 @@ mod tests {
     fn every_tweak_of_1892_has_its_group_and_category() {
         let tweaks = tweak_rows();
         // 564 less the console and screenshot keys, bindings since 2026-11-16 (Controls),
-        // plus Keep Chosen Ammo (#3305).
-        assert_eq!(tweaks.len(), 563);
+        // plus Keep Chosen Ammo (#3305) and the four Stewie 9.45 sub-options (#3179).
+        assert_eq!(tweaks.len(), 567);
         let mut rows: Vec<(&'static str, &'static str)> = KNOWN.to_vec();
         rows.extend(&tweaks);
         let list = registry(&rows);
@@ -780,7 +784,14 @@ mod tests {
         let next = |k: &str| list[l.ordered_settings().skip_while(|&i| list[i].key != k).nth(1).unwrap()].key;
         assert_eq!(next("tweak-take-all-confirm"), "tweak-take-all-confirm-min");
         assert_eq!(next("tweak-revive-companions"), "tweak-revive-down-seconds");
+        assert_eq!(next("tweak-revive-down-seconds"), "tweak-revive-on-cell-change");
         assert_eq!(next("tweak-hack-mark-guesses-as-duds"), "tweak-hack-keep-matching-chars");
+        assert_eq!(next("tweak-sleep-heal-min-hours"), "tweak-sleep-misc-stat-requires-duration");
+        assert_eq!(next("tweak-grabbing-is-theft"), "tweak-grabbing-is-theft-min-value");
+        assert_eq!(next("tweak-no-self-explosion-damage"), "tweak-no-self-explosion-non-hostiles");
+        assert_eq!(needs("tweak-revive-on-cell-change")[0].parent, "tweak-revive-companions");
+        assert_eq!(needs("tweak-no-self-explosion-non-hostiles")[0].parent, "tweak-no-self-explosion-damage");
+        assert_eq!(needs("tweak-grabbing-is-theft-min-value")[0].parent, "tweak-grabbing-is-theft");
         // The engine's own tabs are as they were.
         assert_eq!(keys(&list, &l, "Audio"), keys(&registry(&KNOWN), &resolve_layout(&registry(&KNOWN)), "Audio"));
     }

@@ -76,3 +76,126 @@ fn reticle_range_is_minus_one_with_nothing_under_the_crosshair() {
         assert_eq!(query(g, "SetFunctionValue (GetReticleRange)"), XVal::Num(-1.0));
     });
 }
+
+/// `OwnedRefA` drawn as `model` (an identity, or none) with InsertNode's `Added` shown.
+fn with_shown_node(g: &mut fnv_game::game::Game<'_>, model: Option<u64>) {
+    tell(g, model, &["OwnedRoot"]);
+    query(g, "InsertNode OwnedRefA 3 \"OwnedRoot|Added\"");
+    tell(g, model, &["OwnedRoot", "Added"]);
+    g.tick();
+    g.scene.take_edits();
+}
+
+fn tell(g: &mut fnv_game::game::Game<'_>, model: Option<u64>, names: &[&str]) {
+    match model {
+        Some(model) => g.scene.set_identified_model_for(FIRST, ModelView::Reference, model, nodes(names)),
+        None => g.scene.set_tree(FIRST, nodes(names)),
+    }
+}
+
+/// A frame passes: how many nodes it inserted.
+fn frame(g: &mut fnv_game::game::Game<'_>) -> usize {
+    g.tick();
+    inserts(&g.scene.take_edits())
+}
+
+#[test]
+fn a_removed_node_stays_removed_in_that_model() {
+    for model in [None, Some(7)] {
+        with_game(|g| {
+            with_shown_node(g, model);
+            query(g, "OwnedRefA.RemoveNifBlock \"added\"");
+            assert_eq!(frame(g), 0, "{model:?}: the next frame");
+            // The host applies the removal late: it tells the node once more, then without it.
+            tell(g, model, &["OwnedRoot", "Added"]);
+            assert_eq!(frame(g), 0, "{model:?}: still shown");
+            tell(g, model, &["OwnedRoot"]);
+            assert_eq!(frame(g), 0, "{model:?}: shown no more");
+            assert_eq!(has(g, "OwnedRefA", "Added"), XVal::Num(0.0));
+        });
+    }
+}
+
+#[test]
+fn a_node_removed_with_the_one_above_it_stays_removed() {
+    with_game(|g| {
+        tell(g, Some(7), &["OwnedRoot"]);
+        query(g, "InsertNode OwnedRefA 3 \"OwnedRoot|^Above\"");
+        tell(g, Some(7), &["Scene Root", "Holder", "Above"]);
+        g.tick();
+        g.scene.take_edits();
+        query(g, "OwnedRefA.RemoveNifBlock \"Holder\"");
+        // The target stands elsewhere in the model, so the entry could go in again.
+        tell(g, Some(7), &["Scene Root", "OwnedRoot"]);
+        assert_eq!(frame(g), 0);
+    });
+}
+
+#[test]
+fn a_renamed_node_is_not_inserted_again_under_its_old_name() {
+    for model in [None, Some(7)] {
+        with_game(|g| {
+            with_shown_node(g, model);
+            query(g, "OwnedRefA.RenameNifBlock \"Added\" \"Renamed\"");
+            assert_eq!(frame(g), 0, "{model:?}: the next frame");
+            tell(g, model, &["OwnedRoot", "Renamed"]);
+            assert_eq!(frame(g), 0, "{model:?}: told renamed");
+        });
+    }
+}
+
+#[test]
+fn a_removed_node_comes_back_with_a_new_model_or_a_new_insert_node() {
+    with_game(|g| {
+        with_shown_node(g, Some(7));
+        query(g, "OwnedRefA.RemoveNifBlock \"Added\"");
+        tell(g, Some(8), &["OwnedRoot"]);
+        assert_eq!(frame(g), 1, "another model identity");
+    });
+    with_game(|g| {
+        with_shown_node(g, None);
+        query(g, "OwnedRefA.RemoveNifBlock \"Added\"");
+        g.scene.forget(FIRST);
+        tell(g, None, &["OwnedRoot"]);
+        assert_eq!(frame(g), 1, "the 3D was gone");
+    });
+    with_game(|g| {
+        with_shown_node(g, None);
+        query(g, "OwnedRefA.RemoveNifBlock \"Added\"");
+        g.scene.forget_model(FIRST, ModelView::Reference);
+        tell(g, None, &["OwnedRoot"]);
+        assert_eq!(frame(g), 1, "the model was gone");
+    });
+    for model in [None, Some(7)] {
+        with_game(|g| {
+            // Removed before the host ever showed it, and asked for again.
+            tell(g, model, &["OwnedRoot"]);
+            query(g, "InsertNode OwnedRefA 3 \"OwnedRoot|Added\"\nOwnedRefA.RemoveNifBlock \"Added\"");
+            g.scene.take_edits();
+            assert_eq!(frame(g), 0, "{model:?}: removed before it was shown");
+            query(g, "InsertNode OwnedRefA 3 \"OwnedRoot|Added\"");
+            assert_eq!(inserts(&g.scene.take_edits()), 1, "{model:?}: asked for again");
+        });
+    }
+}
+
+#[test]
+fn a_removal_holds_in_the_player_model_it_was_made_in() {
+    with_game(|g| {
+        let player = FormId::PLAYER_REF;
+        g.scene.use_separate_player_models();
+        for (view, id) in [(ModelView::ThirdPerson, 3), (ModelView::FirstPerson, 1)] {
+            g.scene.set_identified_model_for(player, view, id, nodes(&["OwnedRoot"]));
+        }
+        query(g, "InsertNode PlayerREF 3 \"OwnedRoot|Added\"");
+        for (view, id) in [(ModelView::ThirdPerson, 3), (ModelView::FirstPerson, 1)] {
+            g.scene.set_identified_model_for(player, view, id, nodes(&["OwnedRoot", "Added"]));
+        }
+        g.tick();
+        g.scene.take_edits();
+        query(g, "PlayerREF.RemoveNifBlock \"Added\" 2");
+        assert_eq!(frame(g), 0);
+        assert!(g.scene.node_for_model(player, ModelView::FirstPerson, "Added").is_none());
+        assert!(g.scene.node_for_model(player, ModelView::ThirdPerson, "Added").is_some());
+    });
+}

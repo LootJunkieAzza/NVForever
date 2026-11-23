@@ -779,3 +779,42 @@ SetOnMenuClickEventHandler f 0 "bartermenu\BARTERCATEGORIES""#,
     assert_eq!(g.ui_tree.get_float("ContainerMenu/_hits"), Some(1.0));
     assert_eq!(g.ui_tree.get_float("ContainerMenu/_menuId"), Some(1008.0));
 }
+
+#[test]
+fn click_menu_tile_resolves_target_hotrect_child_and_fires_menu_click_event() {
+    use fnv_game::ui_input;
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus\\hotchild.xml",
+        r#"<menu name="ChildMenu"> <class> &QuantityMenu; </class>
+           <_hits> 0 </_hits> <_id> 0 </_id> <_name> "" </_name>
+           <rect name="Main">
+             <hotrect name="ActionBtn"> <id> 7 </id> <target> &true; </target>
+               <text name="Label"> <string> OK </string> </text>
+             </hotrect>
+             <image name="Plain"> <id> 8 </id> </image>
+           </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&src, "menus\\hotchild.xml").unwrap();
+    g.ui_tree.update();
+    query(
+        &mut g,
+        r#"SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "ChildMenu/_hits" 1
+SetUIFloat "ChildMenu/_id" t
+SetUIString "ChildMenu/_name" sN
+End) 1 "ChildMenu/Main/ActionBtn""#,
+    );
+    // Child inside a target <hotrect> resolves to the owning target <hotrect>.
+    assert_eq!(n(run(&mut g, "ClickMenuTile", &[s("ChildMenu/Main/ActionBtn/Label")])), 1.0);
+    assert_eq!(g.ui_tree.get_float("ChildMenu/Main/ActionBtn/clicked"), Some(1.0));
+    // Non-target tile outside any target <hotrect> still returns 0.
+    assert_eq!(n(run(&mut g, "ClickMenuTile", &[s("ChildMenu/Main/Plain")])), 0.0);
+    let report = ui_input::idle(&mut g).expect("queued script click is reported");
+    assert_eq!(report.clicks.len(), 1);
+    assert_eq!(g.ui_tree.get_float("ChildMenu/Main/ActionBtn/clicked"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("ChildMenu/_hits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("ChildMenu/_id"), Some(7.0));
+    assert_eq!(g.ui_tree.get_string("ChildMenu/_name").as_deref(), Some("actionbtn"));
+}

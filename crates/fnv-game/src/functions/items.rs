@@ -154,6 +154,12 @@ pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
 pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
+    if g.handled(crate::nvse_showoff::ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT)
+        && g.world.item_count(actor, item).unwrap_or(0) > 0
+        && !g.pre_activate_inventory_item_alt(actor, item, 0, true)
+    {
+        return none();
+    }
     if g.world.equip_lock(actor, item) == Some(EquipLock::NoEquip) {
         g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
     }

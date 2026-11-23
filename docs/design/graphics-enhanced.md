@@ -1458,8 +1458,14 @@ billboard holder that turns it to the camera (#2549; `excluded-billboard`, last 
 reasons' order, merge of upstream main f4dbc82f8). A material is left out
 for Add, Multiply, Premultiplied or AlphaToCoverage alpha, unlit, refraction, first person,
 depth write, transmission, falloff, holes, FaceGen, the Pip-Boy screen, linear add, soft
-edges, a non-finite depth bias or a window environment map (#2462;
-`excluded-environment-map`: the blend type has no environment bindings); ordinary Blend, a finite depth bias, the lit decal flag,
+edges, a non-finite depth bias or an environment map, window shapes (#2462) and, since
+#2841, every lit shape with the Environment_Mapping flag and a cube
+(`excluded-environment-map`: the blend type has no environment bindings, its index
+table's 54-453 hold the landscape palette). Where both could apply, the reflection wins
+and the shape is drawn without the blend [design: the reflection is the original's
+own effect, the blend NVForever's opt-in addition, off by default in both looks;
+carrying the cube, sampler and mask into the blend type would move its palette indices];
+ordinary Blend, a finite depth bias, the lit decal flag,
 Mask and an alpha cut are admitted and keep their descriptors exactly. A material owned for
 the moment by a fade, an effect shader or a material override never blends; the owner's
 restore brings the blend back. Never by asset name.

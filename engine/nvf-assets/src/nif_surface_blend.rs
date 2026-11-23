@@ -751,7 +751,7 @@ mod tests {
             assert_eq!(descriptor.fragment.as_ref().unwrap().shader_defs.contains(&"MESH_TERRAIN_BLEND".into()), !prepass);
         }}
         assert_eq!(NifSurfaceBlendUniform::min_size().get(), 192, "the ordinary rows up to #2551's terrain row (144 bytes), then three vec4s");
-        assert_eq!(crate::nif_material::NifSurfaceUniform::min_size().get(), 160, "the ordinary uniform: the same 144 bytes, then #2462's env row, which the blend type has not");
+        assert_eq!(crate::nif_material::NifSurfaceUniform::min_size().get(), 176, "the ordinary uniform: the same 144 bytes, then #2462's env row and #2841's env_how row, which the blend type has not");
     }
 
     fn textures(descriptor: &BindlessDescriptor) -> usize {

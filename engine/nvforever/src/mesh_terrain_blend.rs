@@ -1714,6 +1714,13 @@ mod tests {
             (m(default(), NifSurface { add_linear: true, ..default() }), reason::ADD_LINEAR),
             (m(default(), NifSurface { soft: Vec4::X, ..default() }), reason::SOFT),
             (m(StandardMaterial { depth_bias: f32::NAN, ..default() }, default()), reason::DEPTH_BIAS),
+            // [design] #2841: a reflecting shape without the window flag (env_how z 0) is
+            // left out like a window one (z 1): the reflection wins over the blend
+            // (docs/design/graphics-enhanced.md "Selection").
+            (m(default(), NifSurface { env: Vec4::new(1.0, 1.0, 0.0, 0.0), env_how: Vec4::new(0.0, 2.0, 0.0, 1.0), env_cube: Some(image.clone()), ..default() }), reason::ENVIRONMENT_MAP),
+            (m(default(), NifSurface { env: Vec4::new(1.0, 0.0, 0.0, 0.0), env_how: Vec4::new(0.0, 0.0, 1.0, 1.0), env_cube: Some(image.clone()), ..default() }), reason::ENVIRONMENT_MAP),
+            // A strength-0 run (NVF_PLAY_DEBUG_ENV_STRENGTH=0) still binds the cube: still out.
+            (m(default(), NifSurface { env_how: Vec4::new(0.0, 2.0, 0.0, 1.0), env_cube: Some(image.clone()), ..default() }), reason::ENVIRONMENT_MAP),
         ];
         for (material, bit) in &cases {
             assert_eq!(material_reasons(material), *bit, "{}", reason::list(*bit));

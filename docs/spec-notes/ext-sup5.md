@@ -63,7 +63,7 @@ with cycle detection, invalid sector shifts are rejected, and `Book::parse` retu
 | Function | NVForever |
 |---|---|
 | JSONIsFileValid `file` | 1 valid, -3 not valid JSON, -4 missing, -5 outside the game folder, -6 not `.json` [documented: the page's table]; a UTF-8 byte order mark passed over |
-| JSONGetValue `file key cached` | the key's value as an array: an object as a string map, a list as a list, any other value (number, text, true/false as 1/0, null as 0) in a one-element list; the key whole, else a path split at `.` or `/` with list indexes; no array for a missing key [hypothesis: the article the page points to is not in the export]. A missing file gives a one-element list whatever the key, its element empty text [observed: json.name … json.missing, size 1, `%z` printed it as nothing]. `cached` keeps the parsed file for later cached calls of the session [hypothesis: the parameter's name] |
+| JSONGetValue `file key cached` | the key's value as an array: an object as a string map, a list as a list, any other value (number, text, true/false as 1/0, null as 0) in a one-element list; the key whole, else a path split at `.` or `/` with list indexes; no array for a missing key [hypothesis: the article the page points to is not in the export]. A missing file gives a one-element list whatever the key, its element empty text [observed: json.name … json.missing, size 1, `%z` printed it as nothing]. `cached` shares the session JSON cache (`Game::other.json.cache`) with `JSONCacheFile` / `JSONSetValue*` / `JSONCloseFile` (`nvse_json.rs`) [design]. `Data\...` paths also resolve through NVForever's layer and VFS (`ModFiles::read_root_bytes`) [design] |
 
 ## 3. File sizes and times, the load-order dump
 

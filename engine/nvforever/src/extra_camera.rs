@@ -112,6 +112,7 @@ impl Plugin for ExtraCameraPlugin {
             PostUpdate,
             sync.after(MirrorSystems)
                 .after(TransformSystems::Propagate)
+                .after(crate::underwater::underwater_fog)
                 .before(VisibilitySystems::UpdateFrusta)
                 // Active secondary cameras need sun cascades and camera projection
                 // updates in the same frame (matching `reflection` and `minimap_render`).

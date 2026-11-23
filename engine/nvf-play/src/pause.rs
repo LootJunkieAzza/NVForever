@@ -293,6 +293,11 @@ impl PlayClock {
         self.stopped
     }
 
+    /// This frame's real time while the virtual clock stands still (capped at 0.25 s).
+    pub fn frame_secs(&self) -> Option<f32> {
+        self.frame
+    }
+
     /// A clock whose frame stood still for `secs` of real time (tests).
     #[cfg(test)]
     pub(crate) fn frozen_frame(secs: f32) -> PlayClock {

@@ -388,7 +388,8 @@ impl Vfs {
             self.loose_roots.push(root.to_path_buf());
         }
         let mut files = Vec::new();
-        walk(root, root, &mut files, &mut self.skipped, skip_top);
+        let mut open: Vec<PathBuf> = std::fs::canonicalize(root).into_iter().collect();
+        walk(root, root, &mut open, &mut files, &mut self.skipped, skip_top);
         for rel in files {
             let key = normalize(&rel.to_string_lossy());
             // Plugins and archives at the top level are not part of the asset namespace.
@@ -688,45 +689,77 @@ fn top_archives(dir: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Every loose file under `dir`. A folder or entry that cannot be read is skipped (and
-/// noted in `skipped`); the rest of the walk goes on.
-fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>, skipped: &mut Vec<(String, String)>, skip_top: &[String]) {
-    let mut skip = |p: &Path, e: std::io::Error| {
+/// Every loose file under `dir`, following directory symlinks and Windows NTFS directory
+/// junctions while skipping cycles (links back into an active ancestor in `open`) and
+/// broken links. A folder or entry that cannot be read is skipped (and noted in `skipped`);
+/// the rest of the walk goes on. A folder directly under `root` named in `skip_top` (a mod
+/// folder, seen from the top of the mods folder) is not entered, linked or not.
+fn walk(root: &Path, dir: &Path, open: &mut Vec<PathBuf>, out: &mut Vec<PathBuf>, skipped: &mut Vec<(String, String)>, skip_top: &[String]) {
+    fn skip(skipped: &mut Vec<(String, String)>, p: &Path, e: std::io::Error) {
         tracing::warn!(path = %p.display(), error = %e, "loose files skipped: cannot be read");
         skipped.push((p.display().to_string(), e.to_string()));
-    };
+    }
     let rd = match std::fs::read_dir(dir) {
         Ok(rd) => rd,
-        Err(e) => return skip(dir, e),
+        Err(e) => return skip(skipped, dir, e),
     };
-    let mut subdirs = Vec::new();
+    let mut subdirs: Vec<(PathBuf, bool)> = Vec::new();
     for e in rd {
         let e = match e {
             Ok(e) => e,
             Err(err) => {
-                skip(dir, err);
+                skip(skipped, dir, err);
                 continue;
             }
         };
         let p = e.path();
-        let name = e.file_name().to_string_lossy().into_owned();
         match e.file_type() {
-            Ok(t) if t.is_dir() => {
-                if dir == root && skip_top.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
-                    continue;
-                }
-                subdirs.push(p);
-            }
-            Ok(_) => {
+            Ok(t) if t.is_dir() => subdirs.push((p, false)),
+            Ok(t) if t.is_file() => {
                 if let Ok(rel) = p.strip_prefix(root) {
                     out.push(rel.to_path_buf());
                 }
             }
-            Err(err) => skip(&p, err),
+            // Symlinks and Windows NTFS directory junctions report neither `is_dir` nor
+            // `is_file` on `DirEntry::file_type()`: follow via `metadata` and guard cycles.
+            Ok(_) => match std::fs::metadata(&p) {
+                Ok(m) if m.is_dir() => subdirs.push((p, true)),
+                Ok(m) if m.is_file() => {
+                    if let Ok(rel) = p.strip_prefix(root) {
+                        out.push(rel.to_path_buf());
+                    }
+                }
+                Ok(_) => {}
+                Err(err) => skip(skipped, &p, err),
+            },
+            Err(err) => skip(skipped, &p, err),
         }
     }
-    for p in subdirs {
-        walk(root, &p, out, skipped, skip_top);
+    for (p, linked) in subdirs {
+        // A mod folder seen from the top of the mods folder is a layer of its own, or off.
+        if dir == root && p.file_name().is_some_and(|n| skip_top.iter().any(|s| n.eq_ignore_ascii_case(s))) {
+            continue;
+        }
+        let real = match open.last() {
+            Some(parent) if !linked => p.file_name().map(|name| parent.join(name)),
+            _ => match std::fs::canonicalize(&p) {
+                Ok(r) => Some(r),
+                Err(err) => {
+                    skip(skipped, &p, err);
+                    continue;
+                }
+            },
+        };
+        if let Some(real) = real {
+            if open.contains(&real) {
+                continue;
+            }
+            open.push(real);
+            walk(root, &p, open, out, skipped, skip_top);
+            open.pop();
+        } else {
+            walk(root, &p, open, out, skipped, skip_top);
+        }
     }
 }
 
@@ -1127,6 +1160,75 @@ mod tests {
         let order = Vfs::archive_order(&dir, &[], &["Merge.esp", "Merge3.esp"]);
         assert_eq!(order, ["Merge.bsa", "Merge1 - Textures.bsa", "Merge1.bsa", "Merge2.bsa", "Merge10.bsa", "Merge3.bsa"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn link_dir(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        return std::os::unix::fs::symlink(target, link).is_ok();
+        #[cfg(windows)]
+        return std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .is_ok_and(|o| o.status.success());
+        #[cfg(not(any(unix, windows)))]
+        return false;
+    }
+
+    /// Directory junctions (Windows) and directory symlinks (Unix) inside `Data` or a mods
+    /// overlay are followed so loose files inside linked folders (e.g. `textures\pbr`) are
+    /// indexed and readable, while cyclic links back to an ancestor terminate without looping.
+    #[test]
+    fn loose_walk_follows_directory_links_and_stops_on_cycles() {
+        let base = std::env::temp_dir().join(format!("nvf-vfs-junctions-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let data = base.join("Data");
+        let mods = base.join("mods");
+        let overlay = base.join("overlay_pbr");
+        std::fs::create_dir_all(data.join("textures")).unwrap();
+        std::fs::create_dir_all(mods.join("textures")).unwrap();
+        std::fs::create_dir_all(overlay.join("landscape")).unwrap();
+        std::fs::write(overlay.join("landscape").join("dirt_p.dds"), b"height-bytes").unwrap();
+
+        let pbr_link = mods.join("textures").join("pbr");
+        let cycle_link = overlay.join("loop_back");
+        let made = link_dir(&overlay, &pbr_link) && link_dir(&mods, &cycle_link);
+        #[cfg(any(unix, windows))]
+        assert!(made, "directory link creation should succeed on unix and windows");
+        if made {
+            let vfs = Vfs::open_for_plugins_in(&data, Some(&mods), &[] as &[&str]).unwrap();
+            let pbr_paths = vfs.paths(|k| k.starts_with("textures\\pbr\\"));
+            assert_eq!(pbr_paths, ["textures\\pbr\\landscape\\dirt_p.dds"]);
+            assert!(!vfs.exists("textures\\pbr"), "linked directory must not be indexed as a file");
+            assert_eq!(vfs.read("textures\\pbr\\landscape\\dirt_p.dds").unwrap().unwrap(), b"height-bytes");
+        }
+        let _ = std::fs::remove_dir(&cycle_link);
+        let _ = std::fs::remove_dir(&pbr_link);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A dangling directory link is skipped cleanly without registering a phantom file.
+    #[test]
+    fn loose_walk_skips_dangling_directory_link() {
+        let base = std::env::temp_dir().join(format!("nvf-vfs-dangling-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let data = base.join("Data");
+        let target = base.join("vanished");
+        std::fs::create_dir_all(data.join("textures")).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        let link = data.join("textures").join("broken_dir");
+        let made = link_dir(&target, &link);
+        #[cfg(any(unix, windows))]
+        assert!(made, "directory link creation should succeed on unix and windows");
+        if made {
+            std::fs::remove_dir(&target).unwrap();
+            let vfs = Vfs::open(&data, &[]).unwrap();
+            assert!(!vfs.exists("textures\\broken_dir"));
+            assert!(!vfs.skipped().is_empty(), "dangling link should be recorded in skipped");
+        }
+        let _ = std::fs::remove_dir(&link);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
 

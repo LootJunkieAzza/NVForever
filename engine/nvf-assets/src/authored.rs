@@ -138,6 +138,29 @@ pub const PARALLAX_METHOD_ENV: &str = "NVF_PBR_PARALLAX_METHOD";
 /// The environment variable of the alpha-tested switch ([`parallax_mask`]).
 pub const PARALLAX_MASK_ENV: &str = "NVF_PBR_PARALLAX_MASK";
 
+/// The depth a NIF's own height map (texture-set slot 3 with shader flag bit 11, upstream
+/// issue #2979; `nif_spawn::game_height_slot`) is drawn at, in UV units: 0.015, half the
+/// authored default ([`fnv_pbr::DEFAULT_PARALLAX_DEPTH`]) [hypothesis: how deep the original
+/// draws these maps is not observed (docs/handoff/observer-checks.md #265). The GECK wiki
+/// calls bit 11's effect "pretty weak" without bit 28 "Parallax_Occlusion" [documented:
+/// GECK wiki "NIF Shader Properties"], which no shipped shape sets, and 0.015 looked
+/// convincing on a 512 floor map in the authored tests (docs/spec-notes/pbr-materials.md
+/// "Height maps: guidance for pack authors"). The shader property's stored `parallax_scale`
+/// ("a multiplier for the strength", the same wiki page) and `parallax_max_passes` are not
+/// read]. On by default; the value is provisional until that check and a frame-cost
+/// measurement on a parallax-heavy view. The depth switch ([`game_parallax_depth`]) changes
+/// it for a run.
+pub const GAME_PARALLAX_DEPTH: f32 = 0.015;
+
+/// The least view steepness (|Vt.z|, the cosine of the view's angle to the surface normal)
+/// the parallax march divides by: the vendored `parallax_mapping.wesl` "NVForever grazing
+/// clamp" (engine/vendor/README.md). A shallower view shifts no further than at about 81
+/// degrees, and a view along the surface stays finite [design, #2979].
+pub const PARALLAX_MIN_STEEPNESS: f32 = 0.15;
+
+/// The environment variable of the game depth switch ([`game_parallax_depth`]).
+pub const GAME_PARALLAX_DEPTH_ENV: &str = "NVF_GAME_PARALLAX_DEPTH";
+
 /// The layer counts the layer switch takes.
 pub const PARALLAX_LAYERS_RANGE: std::ops::RangeInclusive<u32> = 2..=64;
 
@@ -187,6 +210,18 @@ pub fn parse_parallax_mask(text: &str) -> Result<bool, String> {
         "0" => Ok(false),
         _ => Err("is neither 1 nor 0".to_string()),
     }
+}
+
+/// The game depth switch's text (`NVF_GAME_PARALLAX_DEPTH`): a number in the scalar file's
+/// range for `parallax_depth` ([`fnv_pbr::PARALLAX_DEPTH_RANGE`], 0 to 0.08), 0 drawing no
+/// game height map at all; why not otherwise.
+pub fn parse_game_parallax_depth(text: &str) -> Result<f32, String> {
+    let range = fnv_pbr::PARALLAX_DEPTH_RANGE;
+    let d: f32 = text.trim().parse().map_err(|_| format!("is no number ({} to {})", range.start(), range.end()))?;
+    if !d.is_finite() || !range.contains(&d) {
+        return Err(format!("is outside {} to {}", range.start(), range.end()));
+    }
+    Ok(d)
 }
 
 /// A method as the switch spells it (`occlusion`, `relief:5`).
@@ -283,6 +318,30 @@ pub fn parallax_mask() -> bool {
     })
 }
 
+/// The depth the game's own height maps are drawn at this run: [`GAME_PARALLAX_DEPTH`], or
+/// the game depth switch's (`NVF_GAME_PARALLAX_DEPTH=<0..0.08>`, read once at the start; a
+/// development aid for fitting the depth to the original by picture; 0 draws them flat and
+/// loads none). The method and the layers are the authored height maps' switches
+/// ([`parallax_method`], [`parallax_layers`]) [design].
+pub fn game_parallax_depth() -> f32 {
+    static V: OnceLock<f32> = OnceLock::new();
+    *V.get_or_init(|| {
+        read_switch(
+            GAME_PARALLAX_DEPTH_ENV,
+            GAME_PARALLAX_DEPTH,
+            parse_game_parallax_depth,
+            |d| {
+                if d > 0.0 {
+                    format!("the game's own height maps (slot 3, shader flag 11) are drawn at depth {d} (default {GAME_PARALLAX_DEPTH})")
+                } else {
+                    "the game's own height maps (slot 3, shader flag 11) are not drawn".to_string()
+                }
+            },
+            |_| false,
+        )
+    })
+}
+
 /// The parallax fields of a material, as Bevy's standard material has them: the depth map,
 /// its depth, the method and the most layers. What a set's `_p` puts on a material
 /// ([`Parallax::height`]) and what the legacy look keeps to put back ([`LegacyLook::parallax`]).
@@ -307,6 +366,23 @@ impl Parallax {
     /// [`PARALLAX_METHOD`], [`MAX_PARALLAX_LAYERS`] unless a development switch is set).
     pub fn height(image: Handle<Image>, depth_scale: f32) -> Parallax {
         Parallax { depth_map: Some(image), depth_scale, method: parallax_method(), max_layers: parallax_layers() }
+    }
+
+    /// The march's shift at full depth (layers x step) for a tangent-space view vector `vt`, as
+    /// the vendored `parallax_mapping.wesl` `parallaxed_uv` computes it with its "NVForever
+    /// grazing clamp": `depth_scale x vt.xy x (1, -1) / max(|vt.z|, PARALLAX_MIN_STEEPNESS)`.
+    /// A CPU mirror for tests; the GPU does not call it [design, #2979].
+    pub fn full_depth_shift(depth_scale: f32, vt: Vec3) -> Vec2 {
+        depth_scale * vt.truncate() * Vec2::new(1.0, -1.0) / vt.z.abs().max(PARALLAX_MIN_STEEPNESS)
+    }
+
+    /// A NIF's own height map (#2979): `image` (texture-set slot 3, linear) at the run's game
+    /// depth ([`game_parallax_depth`]), with the method and layers a set's height map takes.
+    /// The file is height as a set's `_p` is (brighter is higher [observed:
+    /// docs/spec-notes/nif.md §6 "Normal maps"]), read from its red channel by the same march
+    /// [hypothesis: the shipped maps are grey].
+    pub fn game(image: Handle<Image>) -> Parallax {
+        Parallax::height(image, game_parallax_depth())
     }
 
     /// The fields as `material` has them.
@@ -432,6 +508,25 @@ pub(crate) fn find(data: &GameData, enabled: bool, key: &str, memo: &Memo, mut l
         }
         SetState::Incomplete => None,
     }
+}
+
+/// The height map alone of the set for the resolved diffuse `key`: an authored set's `_p` or a
+/// height-only set's, at its scalars' depth, the set's other members not loaded; for a surface
+/// that takes nothing else of a set (the landscape's texture layers, nvforever terrain.rs
+/// "Parallax", #3322) [design]. `None` as [`find`] gives no height map: the setting off (the
+/// index not asked), no active set, no `_p`, a depth of 0, or a `_p` that does not load or is
+/// refused ([`height_map`], one warning per file). Unlike [`find`], an authored set whose
+/// `_orm` does not load keeps its height map here, as nothing of the `_orm` is used.
+pub(crate) fn find_height(data: &GameData, enabled: bool, key: &str, memo: &Memo, mut load: impl FnMut(&str, TextureUsage) -> Option<Loaded>) -> Option<Parallax> {
+    if !enabled {
+        return None;
+    }
+    let found = data.pbr_index().lookup(key)?;
+    if found.state() == SetState::Incomplete {
+        return None;
+    }
+    let scalars = found.path(Member::Scalars).map(|path| data.pbr_scalars(&path)).unwrap_or_default();
+    height_map(&found, &scalars, memo, &mut load)
 }
 
 /// The set's `_p` as a height map at the scalars' depth ([`Scalars::parallax_depth_or_default`]),
@@ -566,14 +661,16 @@ pub struct LegacyLook {
     pub roughness: f32,
     pub reflectance: f32,
     pub metallic: f32,
-    /// The drawn mesh has tangents, so a set's `_n` can be applied to it even where the game
-    /// gives no normal map.
+    /// The drawn mesh has tangents, so a set's `_n` or a height map can be applied to it even
+    /// where the game gives no normal map. Those of the mesh the shape is drawn with: a
+    /// material made on a copy of a drawn mesh (`nif_spawn::Tangents::Keep`, an actor's texture
+    /// swap or texture set) records the drawn mesh's own, not any made on the copy (#2979).
     pub tangents: bool,
     /// The specular tint (Bevy multiplies the reflectance by it): white as built, a script's
     /// specular colour once one is set ([`set_legacy_specular_tint`]).
     pub specular_tint: Color,
-    /// The parallax fields as built (no depth map on any game material today; the game's
-    /// own height slot would set them, upstream issue #2979: [`game_height_map`]).
+    /// The parallax fields as built: the game's own height map where the shape draws one
+    /// ([`apply_game_height`], #2979), else Bevy's no-depth-map defaults.
     pub parallax: Parallax,
     /// A specular colour a script set itself (the colour was the value it changed), which a
     /// set put on later keeps drawing in place of white ([`apply`]); `None` as built, and when
@@ -581,13 +678,38 @@ pub struct LegacyLook {
     pub scripted_tint: Option<Color>,
 }
 
-/// Where the game's own height map would give a material its baseline parallax (the
-/// texture set's slot 3 with shader flag bit 11, upstream issue #2979, which wants an
-/// observation of the original first): this branch reads neither and returns `None` always,
-/// so [`LegacyLook::parallax`] stays Bevy's no-depth-map defaults. The one place that source
-/// would plug in, beside the authored `_p` [design]. Unused.
-pub fn game_height_map(_height_slot: Option<&str>, _parallax_flag: bool) -> Option<Parallax> {
-    None
+/// What became of a shape's own height map (texture-set slot 3 with the parallax flag,
+/// #2979) when its material was built ([`apply_game_height`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GameHeight {
+    /// On the material: the game's material draws it, whatever the Authored materials setting.
+    Drawn,
+    /// Not on: the shape may draw no height map ([`height_gate`]: alpha-tested, blended,
+    /// double-sided, a decal, unlit, refracting or without tangents or texture coordinates).
+    Flat,
+    /// The shape may draw it, but the file did not load.
+    NotLoaded,
+}
+
+/// Put a shape's own height map on its freshly built `material` (#2979): `image` (the slot-3
+/// texture, `None` when it was not asked for or did not load) at the game depth
+/// ([`Parallax::game`]) when the shape may draw one (`wanted`, the build's early test that
+/// decides whether the file is loaded at all and tangents made for it) and [`height_gate`]
+/// passes with the drawn mesh's `tangents`. It is the game's material, not an overlay
+/// (`NifSurface::height_overlay` stays clear): taken before the legacy look, it is that look's
+/// baseline, which a set's `_p` replaces and a set taken off puts back [design,
+/// docs/spec-notes/pbr-materials.md "Height maps"]. Counted for the exit summary.
+pub fn apply_game_height(material: &mut crate::NifMaterial, image: Option<Handle<Image>>, wanted: bool, tangents: bool) -> GameHeight {
+    let out = match image {
+        Some(image) if wanted && height_gate(material, tangents).is_ok() => {
+            Parallax::game(image).put(&mut material.base);
+            GameHeight::Drawn
+        }
+        None if wanted => GameHeight::NotLoaded,
+        _ => GameHeight::Flat,
+    };
+    note_game_height(out);
+    out
 }
 
 /// Whether a shape may take an authored set, by what is known when its material is made:
@@ -871,7 +993,11 @@ pub fn height_alpha(alpha_mode: AlphaMode, mask: bool) -> Result<(), HeightSkip>
 
 /// Whether `material` may draw a height map now, its drawn mesh having tangents (`tangents`):
 /// opaque (or alpha-tested under the alpha-tested switch: [`height_alpha`]), single-sided,
-/// not a decal, lit, not refracting, without holes [design, the stage 4 review A3]. Why: the
+/// not a decal, lit, not refracting, without holes [design, the stage 4 review A3]. A copy
+/// with any holes set-up (a holes value at or above 0, 255 included, or a holes texture) is
+/// refused for its whole life: an effect shader's holes start at 255 (none eaten yet) and
+/// fall later by animation alone (nvforever `effect_shaders.rs` `animate_material`), which
+/// asks this gate no more (#2979 review). Why: the
 /// depth prepass, the shadow passes and the holes test read alpha at the unshifted texture
 /// coordinates, so a cut-out's or a blend's coverage would not follow the shifted texels (the
 /// switch keeps an alpha-tested shape's cut at the unshifted coordinates in the main pass too,
@@ -881,7 +1007,7 @@ pub fn height_alpha(alpha_mode: AlphaMode, mask: bool) -> Result<(), HeightSkip>
 /// ([`retexture`]) and when a copy changes how it draws ([`recheck_height`]).
 pub fn height_gate(material: &crate::NifMaterial, tangents: bool) -> Result<(), HeightSkip> {
     let (b, e) = (&material.base, &material.extension);
-    if b.unlit || e.refract || (e.holes.x >= 0.0 && e.holes.x < 255.0) {
+    if b.unlit || e.refract || e.holes.x >= 0.0 || e.holes_texture.is_some() {
         Err(HeightSkip::Other)
     } else if let Err(why) = height_alpha(b.alpha_mode, parallax_mask()) {
         Err(why)
@@ -951,17 +1077,18 @@ pub fn take_off(material: &mut crate::NifMaterial, legacy: &LegacyLook) {
 /// A copy of a material whose drawing changed after it was made (an effect shader's holes
 /// making an opaque copy `Mask(0)`, a fade making it `Blend`: nvforever `effect_shaders.rs`,
 /// nvf-play `fade.rs`; a cloak's refracting copy: `nif_spawn::refraction_material`): if it
-/// carries a height overlay that [`height_gate`] no longer allows, the overlay comes off (the
-/// depth map cleared, the legacy look's other parallax fields back). A material without an
-/// overlay is left as it is. Whether it took one off.
+/// carries a height map that [`height_gate`] no longer allows, a set's overlay or the game's
+/// own (#2979; no other source puts a depth map on a NIF material), it comes off (the depth
+/// map cleared, the legacy look's other parallax fields back). A material without a depth map
+/// is left as it is. Whether it took one off.
 pub fn recheck_height(material: &mut crate::NifMaterial) -> bool {
-    if !material.extension.height_overlay || height_gate(material, true).is_ok() {
+    if material.base.depth_map.is_none() || height_gate(material, true).is_ok() {
         return false;
     }
     let baseline = material.extension.legacy.as_ref().map(|l| l.parallax.clone()).unwrap_or_default();
     Parallax { depth_map: None, ..baseline }.put(&mut material.base);
+    Stats::add(if material.extension.height_overlay { &stats().height_dropped } else { &stats().game_height_dropped });
     material.extension.height_overlay = false;
-    Stats::add(&stats().height_dropped);
     true
 }
 
@@ -1159,6 +1286,14 @@ pub struct Stats {
     pub height_refused: AtomicU64,
     /// Later copies that dropped a height map ([`recheck_height`]).
     pub height_dropped: AtomicU64,
+    /// The game's own height maps (#2979, [`apply_game_height`]), whatever the setting:
+    /// material builds that drew one, that left it flat, whose file did not load, that drew
+    /// a set's `_p` in its place, and later copies that dropped one ([`recheck_height`]).
+    pub game_height_drawn: AtomicU64,
+    pub game_height_flat: AtomicU64,
+    pub game_height_not_loaded: AtomicU64,
+    pub game_height_replaced: AtomicU64,
+    pub game_height_dropped: AtomicU64,
     stems: Mutex<HashSet<String>>,
 }
 
@@ -1202,6 +1337,40 @@ impl Stats {
     }
 }
 
+impl Stats {
+    /// The game height maps' summary line (without its prefix), `depth` the run's game depth.
+    /// The first count is of the builds that still draw the game's map after a set's `_p`
+    /// replaced it on some (drawn minus replaced); a depth of 0 says "off" and counts nothing.
+    pub fn game_line(&self, depth: f32) -> String {
+        let state = if depth > 0.0 { format!("depth {depth}") } else { format!("off ({GAME_PARALLAX_DEPTH_ENV}=0)") };
+        let replaced = Self::get(&self.game_height_replaced);
+        format!(
+            "{state} ({}, {} layers); {} material builds draw a NIF's own height map (texture-set slot 3, shader flag 11), {} more had it replaced by an authored _p, {} left it flat (alpha-tested, blended, double-sided, decal, unlit, refracting, a holes effect or without tangents on the drawn mesh), {} could not load it; {} later copies dropped one",
+            parallax_method_name(parallax_method()),
+            parallax_layers(),
+            Self::get(&self.game_height_drawn).saturating_sub(replaced),
+            replaced,
+            Self::get(&self.game_height_flat),
+            Self::get(&self.game_height_not_loaded),
+            Self::get(&self.game_height_dropped),
+        )
+    }
+}
+
+/// A build's [`GameHeight`], counted.
+pub(crate) fn note_game_height(what: GameHeight) {
+    Stats::add(match what {
+        GameHeight::Drawn => &stats().game_height_drawn,
+        GameHeight::Flat => &stats().game_height_flat,
+        GameHeight::NotLoaded => &stats().game_height_not_loaded,
+    });
+}
+
+/// A build whose own height map a set's `_p` replaced.
+pub(crate) fn note_game_height_replaced() {
+    Stats::add(&stats().game_height_replaced);
+}
+
 /// The run's counts ([`Stats`]).
 pub fn stats() -> &'static Stats {
     static STATS: OnceLock<Stats> = OnceLock::new();
@@ -1232,11 +1401,13 @@ pub(crate) fn note_built(set: &AuthoredSet) {
 }
 
 /// The exit summary (Last, on the app's exit, as the other systems' summary lines): one line,
-/// `authored materials summary: ...`, or that the setting was off.
+/// `authored materials summary: ...`, or that the setting was off; and one for the game's own
+/// height maps, `game height maps summary: ...`, whatever the setting.
 pub fn report(mut exit: MessageReader<AppExit>) {
     if exit.read().last().is_none() {
         return;
     }
+    info!("game height maps summary: {}", stats().game_line(game_parallax_depth()));
     if enabled() {
         info!("authored materials summary: {}", stats().line());
     } else {

@@ -300,7 +300,7 @@ pub fn marker_grab(ui: &Ui, menu: TileId, list: TileId, pointer_y: f64) -> Optio
 /// [`marker_grab`] of a scrollbar by its own tile; `owner` is what [`Drag::list`] holds.
 pub fn marker_grab_on(ui: &Ui, menu: TileId, owner: TileId, bar: TileId, pointer_y: f64) -> Option<Drag> {
     let marker = child(ui, bar, MARKER)?;
-    let placed = super::layout::layout(ui, marker, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker)?.rect;
+    let placed = super::layout::tile_box(ui, marker, &|_, _, _| (0.0, 0.0), true)?.rect;
     Some(Drag { menu, list: owner, bar, top: placed.top - num(ui, marker, "y"), grab: pointer_y - placed.top })
 }
 

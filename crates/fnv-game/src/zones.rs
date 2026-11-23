@@ -120,12 +120,12 @@ impl<'a> Game<'a> {
         let mut zones: Vec<FormId> = crate::nvse_jg5::cell_zone(self, cell).into_iter().collect();
         let refs: Vec<FormId> = placed.by_cell.get(&cell).cloned().unwrap_or_default();
         for &r in &refs {
-            zones.extend(placed.get(r).and_then(|p| p.encounter_zone));
+            zones.extend(self.world.ref_own_zone(r));
         }
         for z in zones {
             if let Some(level) = self.world.enter_zone(z, player_level) {
                 self.zone_levels_set += 1;
-                let min_level = self.world.forms.zones.get(&z).map_or(0, |d| d.min_level);
+                let min_level = self.zone(z).map_or(0, |d| d.min_level);
                 self.push_level_news(LevelNews::Zone { zone: z, level, min_level, player_level });
             }
         }
@@ -156,7 +156,7 @@ impl<'a> Game<'a> {
         let (base, list) = self.chain_end(p.base, crate::templates::Picks::at(self.pick_seed(r), at));
         if let Some(list) = list {
             let (at_display, _) = self.chain_end(p.base, crate::templates::Picks::new(self.pick_seed(r)));
-            self.push_level_news(LevelNews::Actor { actor: r, list, at, base, at_display, zone: placed.zone_of(r) });
+            self.push_level_news(LevelNews::Actor { actor: r, list, at, base, at_display, zone: self.world.zone_of(r) });
         }
     }
 

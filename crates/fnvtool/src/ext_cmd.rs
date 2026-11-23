@@ -161,8 +161,9 @@ pub enum ExtCmd {
     },
     /// Compile the JIP Script Runner files (`Data\NVSE\plugins\scripts\*.txt`,
     /// fnv_game::script_runner) against the load order, and with `--run` run the game
-    /// restart and new-game files in a headless new game (fnv.ext.script_runner/1): each
-    /// file's name and whether it compiled (ran), or the error. No script text is printed.
+    /// restart, new-game, and game-exit files in a headless new game
+    /// (fnv.ext.script_runner/1): each file's name and whether it compiled (ran), or the
+    /// error. No script text is printed.
     ScriptRunner {
         #[command(flatten)]
         lo: LoadOrderArgs,
@@ -176,7 +177,7 @@ pub enum ExtCmd {
         /// in order. Only read.
         #[arg(long = "root")]
         roots: Vec<PathBuf>,
-        /// Also run the files of the game restart, then of a new game.
+        /// Also run the files of the game restart, new game, and game exit.
         #[arg(long)]
         run: bool,
         /// Include private unit names and printed/error text in the new diagnostics.
@@ -547,7 +548,8 @@ fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, 
         let restart = rows(g.run_script_runner(Moment::Restart));
         g.new_game();
         let new_game = rows(g.run_script_runner(Moment::NewGame));
-        doc["ran"] = json!({"restart": restart, "new_game": new_game});
+        let exit = rows(g.run_exit_scripts());
+        doc["ran"] = json!({"restart": restart, "new_game": new_game, "exit": exit});
         doc["diagnostics"] = crate::runner_diagnostics::document(&g.events, detail);
     }
     Ok(doc)
@@ -1156,4 +1158,46 @@ End
         assert!(summary["entries"].as_array().unwrap().iter().any(|r| r["kind"] == "printed" && r["words"].as_str().unwrap().contains("authored-print-witness")));
     }
 
+    #[test]
+    fn script_runner_compiles_and_runs_gx_exit_stage() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let base = std::env::temp_dir().join(format!("nvf-ext-sr-gx-{}-{stamp}", std::process::id()));
+        let data = base.join("Data");
+        let mods = base.join("mods");
+        let scripts = mods.join("NVSE/Plugins/Scripts");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::create_dir_all(scripts.join("optional")).unwrap();
+        std::fs::write(data.join("OwnedSR.esm"), plugin()).unwrap();
+        std::fs::write(scripts.join("gr_start.txt"), "RegisterSRScript \"optional\\gx_late.txt\"\n").unwrap();
+        std::fs::write(scripts.join("gx_flush.txt"), "PrintC \"gx-exit-witness\"\n").unwrap();
+        std::fs::write(scripts.join("optional/gx_late.txt"), "PrintC \"gx-late-witness\"\n").unwrap();
+
+        let lo = LoadOrderArgs {
+            data_dir: data.clone(),
+            plugins: vec!["OwnedSR.esm".into()],
+        };
+        let doc = script_runner(&lo, &root().join("schemas/fnv"), None, vec![mods.clone()], true, true, true).unwrap();
+        assert_eq!(doc["schema"], "fnv.ext.script_runner/1");
+        assert_eq!(doc["files"], 2);
+        assert_eq!(doc["compiled"], 2);
+        assert_eq!(doc["failed"], 0);
+        assert_eq!(doc["ran"]["restart"], json!([{"file": "gr_start.txt", "ok": true}]));
+        assert_eq!(doc["ran"]["new_game"], json!([]));
+        assert_eq!(
+            doc["ran"]["exit"],
+            json!([{"file": "gx_flush.txt", "ok": true}, {"file": "optional\\gx_late.txt", "ok": true}])
+        );
+        let entries = doc["diagnostics"]["entries"].as_array().unwrap();
+        assert!(entries.iter().any(|r| r["kind"] == "printed" && r["words"].as_str().unwrap().contains("gx-exit-witness")));
+        assert!(entries.iter().any(|r| r["kind"] == "printed" && r["words"].as_str().unwrap().contains("gx-late-witness")));
+
+        // Absent gx_ files: ran.exit stays empty.
+        std::fs::remove_file(scripts.join("gr_start.txt")).unwrap();
+        std::fs::remove_file(scripts.join("gx_flush.txt")).unwrap();
+        let empty = script_runner(&lo, &root().join("schemas/fnv"), None, vec![mods], true, false, true).unwrap();
+        assert_eq!(empty["files"], 0);
+        assert_eq!(empty["ran"]["exit"], json!([]));
+
+        std::fs::remove_dir_all(&base).ok();
+    }
 }

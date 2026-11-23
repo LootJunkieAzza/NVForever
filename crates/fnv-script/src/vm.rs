@@ -3296,6 +3296,12 @@ impl Vm<'_, '_> {
                 };
                 Ok(XVal::Num(f64::from(u8::from(ok))))
             }
+            // [documented: Let; observed: JustAssortedMods.esp, `eval x && let s += "+"`]
+            // Nested `let` inside an expression evaluates its assignment argument.
+            "let" => match c.args.first() {
+                Some(e) => self.xeval(e),
+                None => Ok(XVal::Num(0.0)),
+            },
             // [documented: GetCallingScript] 0 from a dialogue or stage result.
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
             // [documented: SetNameEx `"format" values… form`; SetNthFactionRankNameEx

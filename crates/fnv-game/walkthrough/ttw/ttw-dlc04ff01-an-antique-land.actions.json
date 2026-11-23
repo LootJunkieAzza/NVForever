@@ -1,0 +1,38 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless TTW An Antique Land (DLC04FF01): from the Bysshe Co. terminal's mission through the three soil survey tapes to the expedition's supplies (stage 100, quest completed)",
+  "plugins": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "YUPTTW.esm", "The Mod Configuration Menu.esp"],
+  "given": [
+    {"kind": "quest", "quest": "MQ01", "running": true, "completed": false, "stage": 10, "done": [10]},
+    {"kind": "quest", "quest": "DLC04MQ01", "running": false, "completed": true, "stage": 200, "done": [10, 20, 30, 50, 100, 120, 130, 150, 160, 165, 170, 190, 200]},
+    {"kind": "place", "ref": "player", "cell": "DLC4Pointlookout", "pos": [-2853.26, -7405.28, -1603.47]}
+  ],
+  "actions": [
+    {"op": "note", "text": "Given: the player out of Vault 101 (MQ01 10), across to Point Lookout with The Local Flavor done (DLC04MQ01 200: its chain), standing on Point Lookout's landing (where the voyage puts the player [observed]). An Antique Land (DLC04FF01) runs from the start [observed]."},
+    {"op": "note", "text": "Path: the Bysshe Co. terminal's Mission Parameters (stage 10: the three soil survey tapes to find), the three tapes picked up at their sample sites (DLC04FF01holoNote01 to 03), the capture trigger by the first site (DLC04FF01CaptureHoloAcquireSCRIPT: each tape's objective, then 50), the terminal's three auth codes (holo1in to holo3in) and Access Expedition Supplies (100: the supplies' safe unlocked, the Bio-Gas grenade schematics) [observed: DLC04FF01ByssheTerminal]."},
+    {"op": "note", "text": "Travel stand-in: to the Bysshe Co. terminal."},
+    {"op": "move_player", "to": "placed:DLC04FF01ByssheTerminal"},
+    {"op": "terminal", "target": "placed:DLC04FF01ByssheTerminal", "item": 1, "label": "Mission Parameters (stage 10)"},
+    {"op": "get_quest", "quest": "DLC04FF01", "fields": ["stage", "objective.11.displayed"], "label": "milestone: DLC04FF01 10, find the tapes"},
+    {"op": "note", "text": "Travel stand-in: to each sample site; each tape is picked up where it lies."},
+    {"op": "move_player", "to": "placed:DLC04FF01holoNote01"},
+    {"op": "player_activate", "target": "placed:DLC04FF01holoNote01", "label": "Soil Survey Tape #1"},
+    {"op": "move_player", "to": "placed:DLC04FF01holoNote02"},
+    {"op": "player_activate", "target": "placed:DLC04FF01holoNote02", "label": "Soil Survey Tape #2"},
+    {"op": "move_player", "to": "placed:DLC04FF01holoNote03"},
+    {"op": "player_activate", "target": "placed:DLC04FF01holoNote03", "label": "Soil Survey Tape #3"},
+    {"op": "note", "text": "Back by the first site, the capture trigger (an OnTrigger block: it runs while the player is inside) ticks off each tape the player has and sets 50 with all three [observed]."},
+    {"op": "move_player", "to": "scripted:DLC04FF01CaptureHoloAcquireSCRIPT"},
+    {"op": "trigger_enter", "trigger": "scripted:DLC04FF01CaptureHoloAcquireSCRIPT", "event": "inside", "frames": 5},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "DLC04FF01", "fields": ["stage", "objective.11.completed", "objective.12.completed", "objective.13.completed", "objective.50.displayed"], "label": "milestone: DLC04FF01 50, back to the terminal"},
+    {"op": "move_player", "to": "placed:DLC04FF01ByssheTerminal"},
+    {"op": "terminal", "target": "placed:DLC04FF01ByssheTerminal", "item": 3, "label": "Enter Auth Code 001"},
+    {"op": "terminal", "target": "placed:DLC04FF01ByssheTerminal", "item": 6, "label": "Enter Auth Code 002"},
+    {"op": "terminal", "target": "placed:DLC04FF01ByssheTerminal", "item": 9, "label": "Enter Auth Code 003"},
+    {"op": "terminal", "target": "placed:DLC04FF01ByssheTerminal", "item": 0, "label": "Access Expedition Supplies (stage 100)"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "call", "line": "player.GetHasNote SchematicsBioGasGrenadeNote", "label": "the Bio-Gas grenade schematics (1)"},
+    {"op": "get_quest", "quest": "DLC04FF01", "fields": ["completed", "stage"], "label": "final: DLC04FF01 completed"}
+  ]
+}

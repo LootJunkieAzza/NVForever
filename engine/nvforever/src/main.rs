@@ -110,6 +110,7 @@ mod limbs;
 mod lips;
 mod memory_budget;
 mod gpu_poll;
+mod pilot;
 mod pipeline_gate;
 mod pipeline_disk_cache;
 mod pipeline_prewarm;
@@ -195,6 +196,7 @@ mod ssao_lighting;
 mod taa;
 mod fg_presenter;
 mod ffx_api;
+mod fg_ui_layer;
 mod frame_gen;
 mod fsr;
 mod upscaler;
@@ -209,6 +211,7 @@ mod terrain;
 mod terrain_surface;
 mod mesh_terrain_blend;
 mod terrain_lod;
+mod terrain_parallax_ab;
 mod terrain_shadows;
 mod terrain_wireframe;
 mod texture_swap;
@@ -590,7 +593,7 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
     /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
@@ -698,6 +701,45 @@ struct Args {
     /// or jumps up the ledge (docs/spec-notes/actor-jumps.md).
     #[arg(long, requires = "npc_travel")]
     npc_ledges: bool,
+    /// With --play: the quest pilot (pilot.rs, issue #2365) plays this headless
+    /// walkthrough chain (`fnv.script.actions/1`) with the player character, then exits.
+    /// Given several times: the chains are played one after the other in the one game.
+    #[arg(long, requires = "play")]
+    pilot: Vec<PathBuf>,
+    /// The headless trace of the chain at the same place in the list (`fnvtool script
+    /// run --actions`): the pilot's labelled reads are compared with it.
+    #[arg(long, requires = "pilot")]
+    pilot_expect: Vec<PathBuf>,
+    /// The pilot's chains go on from the game's own state (use with --new-game): their
+    /// given states are checked as preconditions, not set.
+    #[arg(long, requires = "pilot")]
+    pilot_campaign: bool,
+    /// With --pilot-campaign: each chain's given state is set as the headless run sets
+    /// it, instead of being checked (a chain no campaign has reached yet).
+    #[arg(long, requires = "pilot_campaign")]
+    pilot_given: bool,
+    /// The pilot's player can be hurt and runs out of ammunition (god mode is on for
+    /// the pilot otherwise).
+    #[arg(long, requires = "pilot")]
+    pilot_no_god: bool,
+    /// Differences from the headless runs known not to be bugs (a JSON list of
+    /// `{chain, label, reason}`): reported apart, not as divergences.
+    #[arg(long, requires = "pilot")]
+    pilot_known: Option<PathBuf>,
+    /// The game's state goes through a save and a load before each milestone is read.
+    #[arg(long, requires = "pilot")]
+    pilot_save_load: bool,
+    /// The run ends after this many minutes of real time, with the report written (a
+    /// game's own `--run-seconds` does not count time in menus and dialogue).
+    #[arg(long, requires = "pilot")]
+    pilot_minutes: Option<f64>,
+    /// The first chain begins at this step (0-based), from the game's state as loaded: a
+    /// stall replayed from a save near it (with --load).
+    #[arg(long, requires = "pilot")]
+    pilot_from: Option<usize>,
+    /// Where the pilot writes its report (`fnv.pilot.report/1`).
+    #[arg(long, requires = "pilot")]
+    pilot_out: Option<PathBuf>,
     /// Walking speed of --npc-travel NPCs, game units per second.
     #[arg(long, default_value_t = nav::WALK_SPEED)]
     npc_speed: f32,
@@ -1394,19 +1436,41 @@ fn main() -> AppExit {
             }
         }
     }
+    // Test aid (terrain parallax, #3322): a generated height-only set for every landscape
+    // texture the load order names, written into a fresh folder of this run under an explicit
+    // NVFOREVER_HOME, every file created new, then mounted over every other loose layer for
+    // this run only (nvf_assets pbr_field/ground.rs `seed_ground_pack`, terrain.rs
+    // `ground_pack_diffuses`). No mods folder is written.
+    let ground_pack: Option<PathBuf> = if nvf_assets::ground_pack_requested() {
+        match terrain::ground_pack_diffuses(&opened.plugins, &args.esm_schema).and_then(|d| nvf_assets::seed_ground_pack(&d)) {
+            Ok((dir, sets, files)) => {
+                eprintln!("pbr ground pack: {sets} height-only sets for the landscape textures ({files} generated files, depth {}) written under {} (this run's own folder, mounted over every other loose layer)", nvf_assets::GROUND_DEPTH, dir.display());
+                Some(dir)
+            }
+            Err(e) => {
+                eprintln!("pbr ground pack: FAIL {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    // The test aids' folders, the last highest.
+    let overs: Vec<PathBuf> = mount_pack.into_iter().chain(ground_pack).collect();
     // `--mo2` is unchanged: that instance's folders, read only. Otherwise the enabled
     // mod folders are layers over Data. Loose files and archives in Data are still read.
-    // The reflection mount pack, when the test aid asked for one, is the highest loose layer.
+    // The test aids' folders (the reflection mount pack, the ground pack), when asked for,
+    // are the highest loose layers.
     let game = match &mo2 {
         Some(l) => {
-            // The mount pack's folder (test aid) as the highest layer, for this run only.
+            // The test aids' folders as the highest layers, for this run only.
             let mut roots = l.mod_roots();
-            roots.extend(mount_pack.iter().cloned());
+            roots.extend(overs.iter().cloned());
             GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
         }
         None => {
             let mut layers = launcher_layers.clone();
-            layers.extend(mount_pack.iter().cloned());
+            layers.extend(overs.iter().cloned());
             GameData::open_launcher_mods(args.data(), &mods_dir, &layers, &args.plugins, &args.nif_schema)
         }
     };
@@ -2136,6 +2200,8 @@ fn main() -> AppExit {
         app.add_plugins(roulette_view::RouletteViewPlugin);
         // The blackjack table (blackjack_view.rs).
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
+        // Test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: the terrain parallax's readback (#3322).
+        terrain_parallax_ab::install(&mut app);
         // The terminal's monitor (terminal_view.rs).
         app.add_plugins(terminal_view::TerminalViewPlugin);
         // A weapon's scope: its picture, night vision and sway (scope_view.rs).
@@ -2258,7 +2324,7 @@ fn main() -> AppExit {
         }
     }
     if play.is_some() {
-        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game, sky::sync_weather_fog).chain().before(sky::update_sky));
+        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game, sky::sync_weather_fog, sky::sync_weather_visuals).chain().before(sky::update_sky));
         app.add_systems(Update, settings::script_fov.before(nvf_play::PlaySet::Scripts));
         // The weather's sounds, precipitation and lightning (weather_fx.rs).
         app.add_plugins(weather_fx::WeatherFxPlugin);
@@ -2285,6 +2351,9 @@ fn main() -> AppExit {
             .add_systems(Startup, furniture::log_startup)
             .add_systems(Update, (furniture::seat_orders, furniture::drive_actors).chain().after(nav::drive).before(locomotion::walk_test))
             .add_systems(Last, furniture::report);
+    }
+    if !args.pilot.is_empty() {
+        app.add_plugins(pilot::PilotPlugin { chains: args.pilot.clone(), expect: args.pilot_expect.clone(), out: args.pilot_out.clone(), campaign: args.pilot_campaign, set_given: args.pilot_given, god: !args.pilot_no_god, known: args.pilot_known.clone(), save_load: args.pilot_save_load, minutes: args.pilot_minutes, from: args.pilot_from });
     }
     if let Some(n) = nav_state {
         let follow = n.follow;

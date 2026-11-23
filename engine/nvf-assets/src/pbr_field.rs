@@ -941,3 +941,6 @@ mod tests;
 
 /// The reflection field (#2981 reflections, slice 1), on this field's helpers.
 pub(crate) mod reflect;
+
+/// The ground pack test aid (#3322, terrain parallax), on this field's helpers.
+pub(crate) mod ground;

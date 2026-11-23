@@ -1827,6 +1827,9 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     // environment maps").
     let mut env_shapes: Vec<String> = Vec::new();
     let mut env_how = String::new();
+    // Shapes without the window flag drawn with an environment map, each with how
+    // (nif.md §6 "Environment maps on other shapes").
+    let mut other_env: Vec<String> = Vec::new();
     for o in objects.iter().filter(|o| !o.is_node) {
         // Walk to the root: accumulate the transform below the root's own and look
         // for hidden ancestors.
@@ -1901,10 +1904,19 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
         });
         // The normal map's tangents: those the file stores (crate::tangents).
         let (material, missing_diffuse) = shape_material_with(&props, &mut mesh, sink, crate::tangents::Tangents::Stored(&stored));
-        if material.extension.env.x > 0.0 {
+        if material.extension.env.x > 0.0 && material.extension.env_how.z > 0.5 {
             let over = if matches!(material.base.alpha_mode, AlphaMode::Premultiplied) { "over the blend" } else { "added" };
-            env_how = format!("{}, scale {:.2}, {over}", props.textures.get(4).map_or("-", String::as_str), material.extension.env.x);
+            // Scaled by light only under a debug switch (env_map.rs `LIGHT_WINDOW`); the
+            // default line stays #2462's.
+            let light = match material.extension.env_how.y {
+                y if y > 1.5 => ", by scene light",
+                y if y > 0.5 => ", by received light",
+                _ => "",
+            };
+            env_how = format!("{}, scale {:.2}, {over}{light}", props.textures.get(4).map_or("-", String::as_str), material.extension.env.x);
             env_shapes.push(shape_name.clone());
+        } else if material.extension.env.x > 0.0 {
+            other_env.push(format!("{shape_name} ({})", crate::env_map::describe(props.textures.get(4).map_or("-", String::as_str), &material)));
         }
         if let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
             for v in p {
@@ -1991,6 +2003,9 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     }
     if !env_shapes.is_empty() {
         info!("{path}: {} shape(s) with a window environment map ({env_how}): {}", env_shapes.len(), env_shapes.join(", "));
+    }
+    if !other_env.is_empty() {
+        info!("{path}: {} shape(s) with an environment map, no window flag: {}", other_env.len(), other_env.join("; "));
     }
     if !swaps.is_empty() {
         info!("{path}: texture swap: {} entr(ies), {} shape(s) retextured: {}", swaps.len(), swapped.len(), swapped.join(", "));

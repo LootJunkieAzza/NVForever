@@ -221,10 +221,6 @@ fn parse_json_form(v: Option<&Json>) -> Option<FormId> {
     (id != 0).then_some(FormId(id))
 }
 
-fn json_form(v: Option<&Json>) -> XVal {
-    XVal::Ref(parse_json_form(v).map_or(0, |f| f.0))
-}
-
 fn parse_weapon_sound_slot(args: &[XVal], k: usize) -> Option<u8> {
     match args.get(k)? {
         XVal::Num(x) if x.is_finite() && x.fract() == 0.0 && (0.0..WEAPON_SOUND_SLOTS as f64).contains(x) => Some(*x as u8),
@@ -941,21 +937,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // EITM; SetObjectEffect takes only an enchantment of the item's kind, a weapon's
-        // on a weapon [observed: gaps6, an apparel enchantment on the pistol is refused;
-        // hypothesis: the kinds].
-        "getobjecteffect" => {
-            let f = form(args, 0).or_else(|| subject.map(|r| base(g, r))).unwrap_or(FormId(0));
-            match g.field_overrides.get(&(f, "EITM/".to_string())) {
-                Some(v) => v.clone(),
-                None => json_form(g.data.record_field(f, "EITM", "")),
-            }
-        }
+        // EITM; SetObjectEffect takes only an enchantment of the item's kind: Apparel (3) on
+        // ARMO, Weapon (2) on WEAP or EXPL [documented: GECK wiki SetObjectEffect; observed:
+        // gaps6, an apparel enchantment on the pistol is refused].
         "setobjecteffect" => {
-            let (Some(f), e) = (form(args, 0), form(args, 1)) else { return Some(Ok(zero)) };
-            let want = if g.data.sig(f) == Some(*b"WEAP") { 2 } else { 3 };
-            if e.is_none_or(|e| g.data.enchantment_types.get(&e) == Some(&want)) {
-                g.field_overrides.insert((f, "EITM/".into()), XVal::Ref(e.map_or(0, |e| e.0)));
+            if let Some(f) = form(args, 0) {
+                let effect = match args.get(1) {
+                    None | Some(XVal::Ref(0)) => Some(None),
+                    Some(XVal::Num(x)) if *x == 0.0 => Some(None),
+                    Some(_) => form(args, 1).map(Some),
+                };
+                if let Some(effect) = effect {
+                    g.set_object_effect(f, effect);
+                }
             }
             zero
         }
@@ -1562,7 +1556,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "setworldspaceimagespace" => {
             if let (Some(w), Some(i)) = (form(args, 0), form(args, 1)) {
                 if g.data.sig(g.unclone(w)) == Some(*b"WRLD") && g.data.sig(g.unclone(i)) == Some(*b"IMGS") {
-                    g.field_overrides.insert((w, "INAM/".into()), XVal::Ref(i.0));
+                    let next = XVal::Ref(i.0);
+                    let prev = g.field_overrides.insert((w, "INAM/".into()), next.clone());
+                    if prev != Some(next) {
+                        g.traits.note_image_space_change();
+                    }
                 }
             }
             zero
@@ -1884,7 +1882,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
         }
         // Return 0 [observed: gaps4].
-        "setsoundflag" | "stopsoundalt" => zero,
+        "stopsoundalt" => zero,
         // An unknown patch [observed: gaps2 and gaps4, 0 for both].
         "getoptionalpatch" | "setoptionalpatch" => zero,
         _ => return None,

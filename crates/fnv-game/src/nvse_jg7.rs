@@ -160,6 +160,12 @@ impl Game<'_> {
     pub fn top_ui_quest(&self) -> Option<FormId> {
         self.other.jg7.top_quest
     }
+
+    /// The custom map marker texture path set for `r` by `SetCustomMapMarkerIcon`,
+    /// if any (non-empty) [documented: SetCustomMapMarkerIcon].
+    pub fn custom_map_marker_icon(&self, r: FormId) -> Option<&str> {
+        self.other.jg7.marker_icons.get(&r).map(String::as_str).filter(|p| !p.trim().is_empty())
+    }
 }
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
@@ -443,13 +449,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `marker|list path`: a map marker reference, or each one of a form list
-        // [documented: SetCustomMapMarkerIcon], for the session.
+        // [documented: SetCustomMapMarkerIcon], for the session. An empty path clears the
+        // override back to the marker's type icon [hypothesis].
         "setcustommapmarkericon" => {
             let (Some(f), Some(p)) = (form(args, 0), text(args, 1)) else { return Some(Ok(zero)) };
             let list = crate::functions::list_members(g, f);
             let markers = if list.is_empty() { vec![f] } else { list };
             for m in markers {
-                g.other.jg7.marker_icons.insert(m, p.clone());
+                if p.trim().is_empty() {
+                    g.other.jg7.marker_icons.remove(&m);
+                } else {
+                    g.other.jg7.marker_icons.insert(m, p.clone());
+                }
             }
             zero
         }
@@ -460,8 +471,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // reference that is no map marker [hypothesis].
         "getcustommapmarkericon" => {
             let Some(r) = subject else { return Some(Ok(XVal::Str(String::new()))) };
-            let p = g.other.jg7.marker_icons.get(&r).cloned().or_else(|| {
-                let kind = g.world.placed.get(r)?.map_marker.as_ref()?.kind;
+            let p = g.custom_map_marker_icon(r).map(str::to_string).or_else(|| {
+                let kind = g.marker_kind(r)?;
                 let name = MAP_MARKER_ICONS.get(kind as usize).copied().unwrap_or("settlement");
                 Some(format!("Interface\\Icons\\World Map\\icon_map_{name}.dds"))
             });

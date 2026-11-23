@@ -481,15 +481,23 @@ Log lines: `eye adaptation: … modifiers +1.00 EV` when a Target LUM change sta
 ends; `eye adaptation: speed S EV/s (Eye Adapt Speed E)` when the speed changes.
 
 
-## Live nonanimated cinematic trait edits
+## Live nonanimated trait edits
 
 [documented: GECK wiki SetImageSpaceModTrait,
-https://geckwiki.com/index.php/SetImageSpaceModTrait] Traits 37–44 edit the
-cinematic multiply/add pairs; 45–46 edit blur and double vision; 47–50 edit tint RGBA.
+https://geckwiki.com/index.php/SetImageSpaceModTrait] Traits 1–2 edit the radial blur
+centre X/Y; 3–36 edit the 17 HDR/bloom multiply/add pairs (`\x00IAD`..`\x10IAD` /
+`@IAD`..`PIAD`); 37–44 edit the cinematic multiply/add pairs; 45–46 edit blur and double
+vision; 47–50 edit tint RGBA; 51–54 edit fade RGBA (`NAM3`); 55–59 edit radial blur
+strength/ramps (`RNAM`, `SNAM`, `UNAM`, `NAM1`, `NAM2`); 60–62 edit depth of field
+strength/distance/range (`WNAM`, `XNAM`, `YNAM`); 63 edits full-screen motion blur
+strength (`NAM4`).
 
 [design, mapped; engine design choice] For a nonanimatable modifier actually selected
 for the screen or lens, evaluate its ordinary record and then apply the current session's
-assigned values. Follow the existing IMAD getter and decoder: 37–38 are saturation,
+assigned values across traits 1–63 (with a fast exit when no trait overrides exist in the
+session). Follow the existing IMAD getter and decoder: 3–36 map directly to the 17
+`Hdr` multiply/add pairs (`ScreenModifiers::hdr`, feeding eye adaptation, light glow,
+sunlight dimmer, and emissive fog scale), 37–38 are saturation,
 39–40 are contrast average luminance (`0x12`/`0x52` IAD), 41–42 are contrast
 (`0x13`/`0x53` IAD), and 43–44 are brightness [hypothesis: this trait-to-field order
 is the existing getter's, not a capture of the original setter]. Tint RGBA (47–50) are
@@ -509,19 +517,23 @@ contributor playtest in NVForever with that mod (2026-11-18) visually confirmed 
 builds in irradiated water that before this PR the cyan effect persisted, with trait 50
 read as 0–1 alpha the whole screen turned cyan, and with 47–50 all read as 0–255 the tint
 looked correct.
+Fade RGB (51–53) divide by 255 like the getter; NAM3 alpha (54) keeps its normalized
+getter units (unobserved).
 Leave every unassigned component, other effect, sound, duration and track alone.
 [engine design choice] Read only bounded fields of active modifiers; do not clone the
 record cache, mutate the load order or scan unrelated forms each frame. Nonfinite values
-which cannot be represented as finite renderer floats are left off the visual override;
-the existing core setter/getter state and admission policy are unchanged.
+(and finite `f64` values that overflow `f32` to infinity) which cannot be represented as
+finite renderer floats are left off the visual override; the existing core setter/getter
+state and admission policy are unchanged.
 
 [hypothesis] This maps the installed radiation controller's edit/apply/update/
-remove cycle onto the existing grade consumer. Native first-key versus whole-track
-editing for animatable records remains open; this bridge leaves animated
-evaluation unchanged. NAM3 alpha (54) keeps its normalized getter units (unobserved).
+remove cycle (and other nonanimated trait edits) onto the existing grade and HDR
+consumers. Native first-key versus whole-track editing for animatable records remains
+open; this bridge leaves animated evaluation unchanged.
 Existing session-only trait lifetime is preserved, and removal must restore the
 current base/other effects rather than replay a cached grade. Authored fixtures
-must exercise compiled setter calls and getter-to-setter round trips through
-actual ImageSpaceGrade output, warm-cache updates, removal, re-entry, lens
-isolation, missing runtime and fresh restore.
+exercise compiled setter calls and getter-to-setter round trips through
+actual ImageSpaceGrade and ScreenModifiers::hdr output, warm-cache updates, nonfinite
+and f32-overflow guards, removal, re-entry, lens isolation, missing runtime and fresh
+restore.
 No native, GPU or full installed-mod acceptance follows from CPU controls.

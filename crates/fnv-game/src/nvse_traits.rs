@@ -24,13 +24,17 @@ pub struct TraitState {
     /// Unique per-`Game` instance identity so renderer caches never reuse session trait
     /// state across a restored or recreated `Game`.
     pub instance_id: u64,
-    /// Monotonic revision bumped whenever `SetImageSpaceTrait` (`0..=32`) changes an
-    /// `IMGS` trait value (`SetCellImageSpace` applies on next cell load and does not
-    /// bump this revision).
+    /// Monotonic revision bumped whenever `SetImageSpaceTrait` (`0..=32`) or
+    /// `SetWorldspaceImagespace` changes an active image-space override
+    /// (`SetCellImageSpace` applies on next cell load and does not bump this revision).
     pub image_space_revision: u64,
     /// Monotonic revision bumped whenever `SetWeatherTraitNumeric` changes a weather fog
     /// trait (`15..=20`: day/night near/far/power).
     pub weather_fog_revision: u64,
+    /// Monotonic revision bumped whenever `SetWeatherRGBColor`,
+    /// `SetWeatherImageSpaceMod`, or `SetWeatherTransitionTimeOverride` changes a live
+    /// weather visual override.
+    pub weather_visual_revision: u64,
 }
 
 impl Default for TraitState {
@@ -42,6 +46,7 @@ impl Default for TraitState {
             instance_id: NEXT_TRAIT_STATE_ID.fetch_add(1, Ordering::Relaxed),
             image_space_revision: 0,
             weather_fog_revision: 0,
+            weather_visual_revision: 0,
         }
     }
 }
@@ -52,14 +57,22 @@ impl TraitState {
         self.values.get(&(form, IMAD, trait_id)).copied()
     }
 
-    /// Record a live change to an `IMGS` trait (`SetImageSpaceTrait`).
-    fn note_image_space_change(&mut self) {
+    /// Record a live change to an `IMGS` trait (`SetImageSpaceTrait`) or worldspace
+    /// image-space assignment (`SetWorldspaceImagespace`).
+    pub(crate) fn note_image_space_change(&mut self) {
         self.image_space_revision = self.image_space_revision.wrapping_add(1);
     }
 
     /// Record a live change to a weather fog trait (`15..=20`).
     pub(crate) fn note_weather_fog_change(&mut self) {
         self.weather_fog_revision = self.weather_fog_revision.wrapping_add(1);
+    }
+
+    /// Record a live change to a weather RGB colour (`SetWeatherRGBColor`), weather
+    /// image-space adapter (`SetWeatherImageSpaceMod`), or weather transition override
+    /// (`SetWeatherTransitionTimeOverride`).
+    pub(crate) fn note_weather_visual_change(&mut self) {
+        self.weather_visual_revision = self.weather_visual_revision.wrapping_add(1);
     }
 }
 
@@ -172,6 +185,77 @@ impl Game<'_> {
                 if v.is_finite() {
                     out.entry(form.0).or_insert([None; 6])[(slot - 15) as usize] = Some(v);
                 }
+            }
+        }
+        out
+    }
+
+    /// Unique `(game_instance_id, weather_visual_revision)` token for renderer consumers
+    /// tracking live `SetWeatherRGBColor`, `SetWeatherImageSpaceMod`, and
+    /// `SetWeatherTransitionTimeOverride` updates without work on unchanged frames.
+    pub fn weather_visual_sync_token(&self) -> (u64, u64) {
+        (self.traits.instance_id, self.traits.weather_visual_revision)
+    }
+
+    /// Active session `SetWeatherRGBColor` overrides for `NAM0` colour types (`0..=9`,
+    /// excluding type `2` which lives in `PNAM` cloud layers) across times `0..=5`, keyed
+    /// by weather FormID.
+    pub fn weather_color_overrides(&self) -> HashMap<u32, [[Option<[u8; 3]>; 6]; fnv_world::sky::COLOR_TYPES]> {
+        let mut out: HashMap<u32, [[Option<[u8; 3]>; 6]; fnv_world::sky::COLOR_TYPES]> = HashMap::new();
+        for (&(form, fam, slot), &v) in &self.traits.values {
+            if fam != COLOR || slot < 0 || !v.is_finite() {
+                continue;
+            }
+            let layer = slot % 4;
+            let ty = (slot / 24) as usize;
+            let time = ((slot % 24) / 4) as usize;
+            if ty >= fnv_world::sky::COLOR_TYPES || ty == 2 || time >= 6 || layer != 0 {
+                continue;
+            }
+            let packed = v.max(0.0) as i64;
+            let rgb = [
+                ((packed / 1_000_000) & 255) as u8,
+                ((packed / 1_000 % 1_000) & 255) as u8,
+                ((packed % 1_000) & 255) as u8,
+            ];
+            out.entry(form.0).or_insert([[None; 6]; fnv_world::sky::COLOR_TYPES])[ty][time] = Some(rgb);
+        }
+        out
+    }
+
+    /// Active session `SetWeatherRGBColor` type-2 (`PNAM` lower cloud layers `0..=3`)
+    /// overrides across times `0..=5`, keyed by weather FormID.
+    pub fn weather_cloud_color_overrides(&self) -> HashMap<u32, [[Option<[u8; 3]>; 6]; 4]> {
+        let mut out: HashMap<u32, [[Option<[u8; 3]>; 6]; 4]> = HashMap::new();
+        for (&(form, fam, slot), &v) in &self.traits.values {
+            if fam != COLOR || slot < 0 || !v.is_finite() {
+                continue;
+            }
+            let ty = slot / 24;
+            let time = ((slot % 24) / 4) as usize;
+            let layer = (slot % 4) as usize;
+            if ty != 2 || time >= 6 || layer >= 4 {
+                continue;
+            }
+            let packed = v.max(0.0) as i64;
+            let rgb = [
+                ((packed / 1_000_000) & 255) as u8,
+                ((packed / 1_000 % 1_000) & 255) as u8,
+                ((packed % 1_000) & 255) as u8,
+            ];
+            out.entry(form.0).or_insert([[None; 6]; 4])[layer][time] = Some(rgb);
+        }
+        out
+    }
+
+    /// Active session `SetWeatherImageSpaceMod` overrides (`0IAD..5IAD`, times `0..=5`),
+    /// keyed by weather FormID. `Some(0)` represents an explicit clear to no adapter,
+    /// distinct from `None` (keep authored record).
+    pub fn weather_adapter_overrides(&self) -> HashMap<u32, [Option<u32>; 6]> {
+        let mut out: HashMap<u32, [Option<u32>; 6]> = HashMap::new();
+        for (&(form, time), &imad) in &self.traits.ism {
+            if (0..=5).contains(&time) {
+                out.entry(form.0).or_insert([None; 6])[time as usize] = Some(imad);
             }
         }
         out
@@ -391,7 +475,11 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
                 }
                 let w = v / 1_000_000 + (v / 1000 % 1000) * 256 + (v % 1000) * 65536;
                 let (r, gg, b) = (w & 255, (w >> 8) & 255, w >> 16);
-                g.traits.values.insert((x, COLOR, slot), (r * 1_000_000 + gg * 1000 + b) as f64);
+                let packed = (r * 1_000_000 + gg * 1000 + b) as f64;
+                let prev = g.traits.values.insert((x, COLOR, slot), packed);
+                if prev.map(f64::to_bits) != Some(packed.to_bits()) {
+                    g.traits.note_weather_visual_change();
+                }
                 zero
             }
         }
@@ -405,7 +493,11 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         }
         "setweatherimagespacemod" => {
             let time = num(args, 1, -1.0) as i64;
-            g.traits.ism.insert((x, time), form(args, 2).map_or(0, |f| f.0));
+            let id = form(args, 2).map_or(0, |f| f.0);
+            let prev = g.traits.ism.insert((x, time), id);
+            if prev != Some(id) && (0..=5).contains(&time) {
+                g.traits.note_weather_visual_change();
+            }
             zero
         }
         "getimagespacetrait" => XVal::Num(if (0..=32).contains(&t) { changed(g, IMGS, t).unwrap_or_else(|| imgs_trait(g, x, t)) } else { 0.0 }),

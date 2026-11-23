@@ -170,13 +170,23 @@ pub struct SceneMirror {
     /// Set…PropertyValue), laid over each tree the engine tells: reference, node, alpha
     /// (else stencil), item, value.
     prop_sets: Vec<(FormId, ModelView, String, bool, usize, f32)>,
-    /// The nodes InsertNode put into each drawn model (reference, model, node name), with
-    /// that model's identity then and whether a tree the host told since showed the node
-    /// ([`SceneMirror::insert_node`]): the same model is not given a second copy while the
-    /// host has not shown the first yet; a model drawn anew lacks it and gets it again,
-    /// told by its new identity or, without one, by a tree that showed the node and then
-    /// lacked it.
-    inserted: HashMap<(FormId, ModelView, String), (Option<u64>, bool)>,
+    /// What became of each runtime node in each drawn model (reference, model, node name
+    /// in lower case), with that model's identity then ([`SceneMirror::insert_node`]): the
+    /// same model is not given a second copy while the host has not shown the first, nor
+    /// one a script took out of it; a model drawn anew gets the node again, told by its
+    /// new identity or, without one, by a tree that showed the node and then lacked it.
+    inserted: HashMap<(FormId, ModelView, String), (Option<u64>, RuntimeNodeState)>,
+}
+
+/// A runtime node in one drawn model ([`SceneMirror::inserted`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeNodeState {
+    /// Queued; no tree the host told has shown it yet.
+    Waiting,
+    /// A tree the host told showed it: missing after that, the model was drawn anew.
+    Shown,
+    /// A script removed or renamed it: missing on purpose while this model lives.
+    Taken,
 }
 
 impl SceneMirror {
@@ -220,9 +230,9 @@ impl SceneMirror {
         let view = self.resolve_view(r, view);
         // An explicit legacy publication deliberately opts this host back out.
         self.identified.remove(&(r, view));
-        for ((ir, iv, name), (_, shown)) in self.inserted.iter_mut() {
-            if *ir == r && *iv == view && find(&nodes, name).is_some() {
-                *shown = true;
+        for ((ir, iv, name), (_, state)) in self.inserted.iter_mut() {
+            if *ir == r && *iv == view && *state == RuntimeNodeState::Waiting && find(&nodes, name).is_some() {
+                *state = RuntimeNodeState::Shown;
             }
         }
         for (pr, pv, node, alpha, item, v) in &self.prop_sets {
@@ -272,11 +282,29 @@ impl SceneMirror {
     /// The reference's 3D is gone.
     pub fn forget(&mut self, r: FormId) {
         self.trees.retain(|(reference, _), _| *reference != r);
+        // What scripts took out was out of that 3D only (ext-jippp.md §1).
+        self.inserted.retain(|(ir, _, _), (_, state)| *ir != r || *state != RuntimeNodeState::Taken);
     }
 
     pub fn forget_model(&mut self, r: FormId, view: ModelView) {
         let view = self.resolve_view(r, view);
         self.trees.remove(&(r, view));
+        self.inserted.retain(|(ir, iv, _), (_, state)| *ir != r || *iv != view || *state != RuntimeNodeState::Taken);
+    }
+
+    /// A script took these names out of one drawn model (RemoveNifBlock, with what was
+    /// under the block; RenameNifBlock): the runtime node list leaves them out of it.
+    fn taken_out(&mut self, r: FormId, view: ModelView, names: Vec<String>) {
+        let view = self.resolve_view(r, view);
+        let model = self.identified.get(&(r, view)).copied().flatten();
+        for name in names {
+            self.inserted.insert((r, view, name.to_ascii_lowercase()), (model, RuntimeNodeState::Taken));
+        }
+    }
+
+    /// A new InsertNode call asks again for what a script took out.
+    fn asked_again(&mut self, r: FormId, name: &str) {
+        self.inserted.retain(|(ir, _, n), (_, state)| *ir != r || *state != RuntimeNodeState::Taken || !n.eq_ignore_ascii_case(name));
     }
 
     /// The changes made since the last call, for the engine.
@@ -351,11 +379,11 @@ impl SceneMirror {
         let mut any = false;
         for view in views {
             let model = self.identified.get(&(r, view)).copied().flatten();
-            let key = (r, view, name.to_string());
+            let key = (r, view, name.to_ascii_lowercase());
             let Some(t) = self.trees.get_mut(&(r, view)) else { continue };
             let Some(i) = find(t, target) else { continue };
             any = true;
-            if find(t, name).is_some() || self.inserted.get(&key).is_some_and(|&(m, shown)| m == model && !shown) {
+            if find(t, name).is_some() || self.inserted.get(&key).is_some_and(|&(m, state)| m == model && state != RuntimeNodeState::Shown) {
                 continue;
             }
             let node = SceneNode { name: name.to_string(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None };
@@ -364,7 +392,7 @@ impl SceneMirror {
                 let new = t.len() - 1;
                 t[i].parent = Some(new);
             }
-            self.inserted.insert(key, (model, false));
+            self.inserted.insert(key, (model, RuntimeNodeState::Waiting));
             self.queue_for(view, SceneEdit::Insert { r, target: target.to_string(), name: name.to_string(), as_parent });
         }
         any
@@ -805,8 +833,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "renamenifblock" => {
             let (node, to) = (text(args, 0), text(args, 1));
             let target = g.scene.target_for(view, &SceneEdit::Rename { r, node: node.clone(), to: to.clone() });
-            let ok = g.scene.tree_for(r, view).and_then(|t| find(t, &node).map(|i| t[i].name = to.clone())).is_some();
-            if ok {
+            let old = g.scene.tree_for(r, view).and_then(|t| find(t, &node).map(|i| std::mem::replace(&mut t[i].name, to.clone())));
+            let ok = old.is_some();
+            if let Some(old) = old {
+                g.scene.taken_out(r, view, vec![old]);
                 g.scene.queue_targeted(view, SceneEdit::Rename { r, node, to }, target);
             }
             XVal::Num(f64::from(u8::from(ok)))
@@ -814,11 +844,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "removenifblock" => {
             let node = text(args, 0);
             let target = g.scene.target_for(view, &SceneEdit::Remove { r, node: node.clone() });
+            let mut names = Vec::new();
             let ok = match g.scene.tree_for(r, view) {
                 Some(t) => match find(t, &node) {
                     Some(i) => {
                         let mut gone: HashSet<usize> = descendants(t, Some(i)).into_iter().collect();
                         gone.insert(i);
+                        names.extend(gone.iter().map(|&k| t[k].name.clone()));
                         let keep: Vec<usize> = (0..t.len()).filter(|k| !gone.contains(k)).collect();
                         let remap: HashMap<usize, usize> = keep.iter().enumerate().map(|(n, &o)| (o, n)).collect();
                         let mut nt: Vec<SceneNode> = keep.iter().map(|&k| t[k].clone()).collect();
@@ -833,6 +865,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 None => false,
             };
             if ok {
+                g.scene.taken_out(r, view, names);
                 g.scene.queue_targeted(view, SceneEdit::Remove { r, node }, target);
             }
             XVal::Num(f64::from(u8::from(ok)))
@@ -866,6 +899,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                     Some(n) => (true, n),
                     None => (false, what),
                 };
+                g.scene.asked_again(target_ref, nm);
                 return Some(Ok(XVal::Num(f64::from(u8::from(g.scene.insert_node(target_ref, target, nm, as_parent))))));
             }
             let Some(t) = g.scene.tree_for(target_ref, view) else { return Some(Ok(zero)) };
