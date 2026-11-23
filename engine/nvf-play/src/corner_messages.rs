@@ -268,7 +268,7 @@ fn draw(
     // A match's end view holds them as a kill camera does (`HudView::end_view`), and so
     // do the classic VATS style while it plays its queued attacks and a mini-game in the
     // world (`in_world_game`).
-    let cut = kill_cam.is_some_and(|k| k.active()) || hud.as_ref().is_some_and(|h| h.end_view || h.pipboy_up) || vats.is_some_and(|v| v.playing_back()) || in_world_game(script.as_deref());
+    let cut = kill_cam.is_some_and(|k| k.active()) || hud.as_ref().is_some_and(|h| h.holds_notices()) || vats.is_some_and(|v| v.playing_back()) || in_world_game(script.as_deref());
     // Photo mode holds them as a menu does, hidden with their clocks stopped, like the
     // rest of the HUD (`crate::photo_mode`; its "Photo saved" is its own).
     let photo = photo.is_some_and(|p| p.on);

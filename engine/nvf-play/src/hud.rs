@@ -281,11 +281,47 @@ pub struct HudView {
     /// The full Pip-Boy is up (`pipboy_hides_hud`), which hides the HUD's meters and
     /// compass and holds the corner and quest notices (they wait) as a paused menu does.
     pub pipboy_up: bool,
+    /// The player stands in a slideshow's room ([`slideshow_room`]): the ending's slides
+    /// or an add-on's intro slides have the view, which hides the whole HUD as an end view
+    /// does: the bars, the compass, the crosshair and its prompt, the corner and quest
+    /// notices (they wait) (owner, 2026-11-23: "HUD shouldn't draw during slideshow").
+    pub slideshow: bool,
+}
+
+impl HudView {
+    /// The corner and quest notices wait, hidden with their clocks stopped
+    /// (`crate::corner_messages`, `crate::quest_messages`): under a match's end view, the
+    /// full Pip-Boy or a slideshow.
+    pub fn holds_notices(&self) -> bool {
+        self.end_view || self.pipboy_up || self.slideshow
+    }
+}
+
+/// A slideshow's room, by its cell's Editor ID: the ending's slide room `Endgame`
+/// (0x00161E98: the ending's script DisablePlayerControls the player and MoveTos it to the
+/// room's XMarkerHeading 0x001639F6, facing the slide SlideGS01 0x001680A7) and the
+/// add-ons' intro rooms `NVDLC01Slideshow`, `NVDLC02SlideShow`, `NVDLC03Slideshow` and
+/// `NVDLC04SlideShow` [observed: fnvtool world refs --interiors and script decompile of
+/// FalloutNV.esm and the four add-ons; no other interior's Editor ID has "slideshow" in
+/// it]. The rooms hold only the slide, its light and the narrator: a player is there only
+/// for the slides, and the slideshow is over once a script moves the player out (or the
+/// ending's credits end the game). In the original the slideshow shows no HUD and no
+/// crosshair (owner, 2026-11-23: "HUD shouldn't draw during slideshow").
+pub fn slideshow_room(edid: &str) -> bool {
+    edid.eq_ignore_ascii_case("Endgame") || edid.to_ascii_lowercase().contains("slideshow")
+}
+
+/// Whether the interior cell `interior` is a slideshow's room ([`slideshow_room`]), its
+/// Editor ID looked up in the load order's cells (`RefTable::cell_edids`, lower case). A
+/// co-op guest and split screen's player 2 stand in the host's slide room too (the host's
+/// MoveTo takes them along, nvforever `coop::scene`), so each one's own cell says it.
+pub fn in_slideshow(interior: Option<u32>, cell_edids: &std::collections::HashMap<String, FormId>) -> bool {
+    interior.is_some_and(|c| cell_edids.iter().any(|(e, id)| id.0 == c && slideshow_room(e)))
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false, end_view: false, pipboy_up: false }
+        HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false, end_view: false, pipboy_up: false, slideshow: false }
     }
 }
 
@@ -566,6 +602,9 @@ fn gather(
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     arm: Option<Res<crate::armwrestle_coop::ArmSeat>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    location: Option<Res<crate::Location>>,
+    // The last interior looked up for a slideshow's room, and whether it is one.
+    mut slide_room: Local<Option<(u32, bool)>>,
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
@@ -601,10 +640,26 @@ fn gather(
     if pipboy_up != view.pipboy_up {
         info!("hud: {}", if pipboy_up { "hidden under the Pip-Boy" } else { "back from under the Pip-Boy" });
     }
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam && !wrestling && !end_view && !pipboy_up, kill_cam: killcam, end_view, pipboy_up, ..view.clone() };
+    // Nor while a slideshow has the view (`slideshow_room`; owner, 2026-11-23: "HUD
+    // shouldn't draw during slideshow"), the room looked up once per cell.
+    let slideshow = match location.as_deref().and_then(|l| l.interior) {
+        Some(cell) => match *slide_room {
+            Some((c, at)) if c == cell => at,
+            _ => {
+                let at = in_slideshow(Some(cell), &sim.refs.cell_edids);
+                *slide_room = Some((cell, at));
+                at
+            }
+        },
+        None => false,
+    };
+    if slideshow != view.slideshow {
+        info!("hud: {}", if slideshow { "hidden: a slideshow has the view" } else { "back after the slideshow" });
+    }
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam && !wrestling && !end_view && !pipboy_up && !slideshow, kill_cam: killcam, end_view, pipboy_up, slideshow, ..view.clone() };
     // [design, #2659] Only the classic enemy piece survives playback, including its
     // attack camera. All other HUD visibility rules keep using `shown`.
-    now.enemy_shown = *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open
+    now.enemy_shown = *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !slideshow
         && (!killcam || vats.as_ref().is_some_and(|v| v.style() == crate::vats_classic::VatsStyle::Classic && v.active()));
     if let Some(p) = &player {
         // Where the camera looks, not where the character faces (third person).
@@ -1657,6 +1712,29 @@ mod tests {
         assert_eq!(place_ahead(far, [0.0, 0.0], 0.0, 1000.0, 10.0, false, 0), None);
         assert_eq!(place_ahead(far, [0.0, 0.0], 0.0, 10_000.0, 10.0, true, 0), None);
         assert_eq!(place_ahead(far, [0.0, 0.0], 0.0, 10_000.0, 10.0, false, 0).as_deref(), Some("Far North"));
+    }
+
+    #[test]
+    fn a_slideshow_hides_the_hud_and_holds_the_notices_until_the_room_is_left() {
+        // The rooms' Editor IDs as the data spells them, lower case as the table keeps them.
+        let mut cells = std::collections::HashMap::new();
+        for (e, c) in [("endgame", 0x0016_1E98), ("nvdlc01slideshow", 0x0101_09FF), ("nvdlc02slideshow", 0x0201_0124), ("gsdocmitchellhouse", 0x0010_4C6D)] {
+            cells.insert(e.to_string(), FormId(c));
+        }
+        assert!(slideshow_room("Endgame") && slideshow_room("NVDLC04SlideShow") && slideshow_room("NVDLC03Slideshow"));
+        assert!(!slideshow_room("GSDocMitchellHouse") && !slideshow_room("EndgameHall"));
+        // Into the ending's room or an add-on's: hidden; another room or outdoors: back.
+        assert!(in_slideshow(Some(0x0016_1E98), &cells));
+        assert!(in_slideshow(Some(0x0201_0124), &cells));
+        assert!(!in_slideshow(Some(0x0010_4C6D), &cells));
+        assert!(!in_slideshow(None, &cells));
+        let mut view = HudView { slideshow: true, ..HudView::default() };
+        assert!(view.holds_notices());
+        view.slideshow = false;
+        assert!(!view.holds_notices());
+        // The end view and the Pip-Boy still hold them as before.
+        assert!(HudView { end_view: true, ..HudView::default() }.holds_notices());
+        assert!(HudView { pipboy_up: true, ..HudView::default() }.holds_notices());
     }
 
     #[test]
