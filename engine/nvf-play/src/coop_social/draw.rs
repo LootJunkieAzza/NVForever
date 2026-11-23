@@ -207,13 +207,20 @@ enum Lower {
 /// The story wait's prompts [design: owner 2026-11-09, "on the hosts end it'll say waiting
 /// for players, and then give guests only the option to teleport"].
 const STORY_HOST: &str = "WAITING FOR PLAYERS...";
-const STORY_GUEST_KEY: &str = "Y) Teleport to the host";
+fn story_guest_key() -> String {
+    format!("{}) Teleport to the host", crate::bindings::mode_key(crate::bindings::Control::Accept))
+}
 /// The join question for joint progression (plan §3.7) [design: our own words].
 const JOINT_ASK: &str = "SHARE QUEST PROGRESS THIS SESSION?";
 
-/// The invitation's keys, as the input reads them (`super::input`).
-const ACCEPT: &str = "Y) Accept";
-const DECLINE: &str = "N) Decline";
+/// The invitation's keys, as the input reads them (`super::input`): Accept's and
+/// Decline's bindings.
+fn accept() -> String {
+    format!("{}) Accept", crate::bindings::mode_key(crate::bindings::Control::Accept))
+}
+fn decline() -> String {
+    format!("{}) Decline", crate::bindings::mode_key(crate::bindings::Control::Decline))
+}
 
 /// Mockup 1B's measures, interface units under the view's middle: the backing's top and
 /// bottom (with and without a lower line), the title's, the rule's and the lower line's
@@ -251,7 +258,7 @@ fn banner(social: &Social, mates: &SocialMates, now: f32) -> Option<BannerShown>
     }
     match &social.story {
         Some(super::StoryPrompt::Host) => return Some(BannerShown { title: STORY_HOST.into(), lower: Lower::None }),
-        Some(super::StoryPrompt::Guest { host }) => return Some(BannerShown { title: format!("{} IS WAITING FOR YOU", host.to_uppercase()), lower: Lower::Line(STORY_GUEST_KEY.into()) }),
+        Some(super::StoryPrompt::Guest { host }) => return Some(BannerShown { title: format!("{} IS WAITING FOR YOU", host.to_uppercase()), lower: Lower::Line(story_guest_key()) }),
         None => {}
     }
     let said = social.banner.as_ref().filter(|(_, until)| now < *until).map(|(l, _)| l.clone());
@@ -321,7 +328,7 @@ fn draw_banner(
     let Some(title) = line_of(&kit.title, &s.title) else { return };
     let lower_w = match &s.lower {
         Lower::None => 0.0,
-        Lower::Keys => kit.hud.font.width(ACCEPT) + KEY_GAP + kit.hud.font.width(DECLINE),
+        Lower::Keys => kit.hud.font.width(&accept()) + KEY_GAP + kit.hud.font.width(&decline()),
         Lower::Line(l) => kit.hud.font.width(l),
     };
     let widest = title.width.max(lower_w);
@@ -347,8 +354,9 @@ fn draw_banner(
         match &s.lower {
             Lower::Keys => {
                 let left = cx - lower_w / 2.0;
-                lower(r, ACCEPT, left, 1.0);
-                lower(r, DECLINE, left + kit.hud.font.width(ACCEPT) + KEY_GAP, DECLINE_DIM);
+                let (yes, no) = (accept(), decline());
+                lower(r, &yes, left, 1.0);
+                lower(r, &no, left + kit.hud.font.width(&yes) + KEY_GAP, DECLINE_DIM);
             }
             Lower::Line(l) => lower(r, l, cx - lower_w / 2.0, 1.0),
             Lower::None => {}

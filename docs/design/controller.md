@@ -296,6 +296,24 @@ Double-tap window has passed), held past the Hold time a hold (the row shows "Ho
 then), pressed twice a double tap, and held while another is pressed a combo, the first its
 modifier; each is taken once every button is up. A stick direction is taken at once.
 
+## 2b. The screens' own controls (owner 2026-11-22)
+
+[design] Every key a world screen reads is a control with a row on both devices
+(`bindings::MODE_CONTROLS`, `MODE_PADS`): the co-op questions (Accept, Decline), the
+minigames (Start / Next, Leave, Choice 1-5, Bet Less/More, Back to the Menu, Throw, the
+knife race), a stake between two players, and the keys inside Photo Mode.
+
+- Each belongs to one screen (`ModeGroup`); a new binding is swapped only with a control of
+  the same screen, and these controls are left out of the overlap warnings and the binding
+  kinds' resolver: a screen's control is always a press.
+- While a question or a stake is on screen during play (`AskHold`) its buttons answer it
+  and the play controls sharing them read as up until they are let go: A accepts, it does
+  not jump.
+- Darts and pool aim with the right stick on a controller (pool's left stick moves the
+  point fast, the right one slowly); Throw (RT) throws or shoots. The hints name the
+  bindings of the device in use (`bindings::mode_key`).
+- The emote wheel picks with the right stick (B closes it) as the weapon wheel does.
+
 ## 3. Menus and prompts
 
 - Start is Esc (the pause menu) everywhere. In a menu the D-pad is the arrow keys, A

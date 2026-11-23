@@ -9,7 +9,7 @@
 //!   use (`crate::match_lobby::menu_card`), and the stake is agreed as every player game's is
 //!   (`crate::stake::Stake`, coop-interact-wheel's, owner rule 2026-11-11): it starts at 0;
 //!   the first player in the lobby leads and offers (E raises a tenth of the poorest's caps,
-//!   Space offers); the others match (Q) or raise and offer back; the leader's game decides
+//!   Space offers); the others match (Stake Match, W) or raise (Stake Raise, A) and offer back; the leader's game decides
 //!   once every offer is the same and says so ([`DrinkAction::Offer`], `agreed`). A player who
 //!   comes after that joins at the agreed stake (Space). Each game takes its own player's
 //!   stake from its own caps once it is agreed, and gives it back when the contest is called
@@ -760,9 +760,10 @@ fn open_page(mut activated: MessageReader<DrinkActivate>, mut page: ResMut<Stake
     }
 }
 
-fn page_keys(keys: Res<ButtonInput<KeyCode>>, mut page: ResMut<StakePage>) {
+fn page_keys(keys: crate::bindings::ModeInput, mut page: ResMut<StakePage>) {
+    use crate::bindings::Control;
     let Some(p) = page.0.as_mut() else { return };
-    if keys.just_pressed(KeyCode::Tab) {
+    if keys.just_pressed(Control::GameLeave) || keys.key_just_pressed(KeyCode::Escape) {
         p.want = Want::Leave;
         return;
     }
@@ -770,16 +771,17 @@ fn page_keys(keys: Res<ButtonInput<KeyCode>>, mut page: ResMut<StakePage>) {
         return;
     }
     if p.bet.open() {
-        // Q matches the highest offer (back to 0 before any), E raises a tenth of the
-        // poorest player's caps (`crate::stake::Stake`).
-        if keys.just_pressed(KeyCode::KeyQ) {
+        // Stake Match matches the highest offer (back to 0 before any), Stake Raise raises
+        // a tenth of the poorest player's caps (`crate::stake::Stake`), as every players'
+        // stake (W and A, or Y and X).
+        if keys.just_pressed(Control::StakeMatch) {
             p.bet.auto_match();
         }
-        if keys.just_pressed(KeyCode::KeyE) {
+        if keys.just_pressed(Control::StakeRaise) {
             p.bet.raise();
         }
     }
-    if keys.just_pressed(KeyCode::Space) {
+    if keys.just_pressed(Control::GameConfirm) {
         p.want = Want::Stake;
     }
 }
@@ -1456,7 +1458,8 @@ fn draw_page(mut commands: Commands, page: Res<StakePage>, casino: Option<Res<cr
         // The waiting screen shows instead.
         return;
     }
-    use crate::match_lobby::{menu_card, row};
+    use crate::bindings::Control;
+    use crate::match_lobby::{key_row, menu_card};
     let plain;
     let faces = match casino.as_deref() {
         Some(f) => f,
@@ -1468,8 +1471,8 @@ fn draw_page(mut commands: Commands, page: Res<StakePage>, casino: Option<Res<cr
     let drinkers = p.others.len() + 1;
     let agreed = p.bet.agreed.is_some();
     let rows = match (agreed, p.accepted) {
-        (true, _) => vec![row("Space", "Drink at this stake"), row("Tab", "Leave")],
-        (false, _) => vec![row("Q", "Match the highest"), row("E", "Raise"), row("Space", if p.bet.leads { "Offer" } else { "Accept" }), row("Tab", "Leave")],
+        (true, _) => vec![key_row(Control::GameConfirm, "Drink at this stake"), key_row(Control::GameLeave, "Leave")],
+        (false, _) => vec![key_row(Control::StakeMatch, "Match the highest"), key_row(Control::StakeRaise, "Raise"), key_row(Control::GameConfirm, if p.bet.leads { "Offer" } else { "Accept" }), key_row(Control::GameLeave, "Leave")],
     };
     let sub = if p.others.is_empty() {
         "Drinking contest".to_string()

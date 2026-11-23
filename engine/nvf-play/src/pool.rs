@@ -667,10 +667,19 @@ fn test_cursor(now: f32) -> Option<[f32; 2]> {
 }
 
 /// The cursor on the cloth (sim units).
-fn cursor_on_cloth(w: &Window, frame: TableFrame, (cam, gt): (&Camera, &GlobalTransform)) -> Option<[f32; 2]> {
-    let ray = cam.viewport_to_world(gt, w.cursor_position()?).ok()?;
+fn cursor_on_cloth(w: &Window, frame: TableFrame, cam: (&Camera, &GlobalTransform)) -> Option<[f32; 2]> {
+    cloth_at(w.cursor_position()?, frame, cam)
+}
+
+/// The cloth under window point `at` (logical pixels).
+fn cloth_at(at: Vec2, frame: TableFrame, (cam, gt): (&Camera, &GlobalTransform)) -> Option<[f32; 2]> {
+    let ray = cam.viewport_to_world(gt, at).ok()?;
     frame.on_cloth(crate::space::to_game(ray.origin), crate::space::to_game(*ray.direction))
 }
+
+/// The controller's point over the table, the left stick held all the way: window heights
+/// a second [design].
+const PAD_POINT_SPEED: f32 = 0.6;
 
 /// A point of the cloth on the screen, % of the window.
 fn on_screen(p: [f32; 2], frame: TableFrame, (cam, gt): (&Camera, &GlobalTransform), w: &Window) -> Option<Vec2> {
@@ -710,8 +719,7 @@ fn put_white(p: &mut Pool, at: [f32; 2]) {
 
 #[allow(clippy::too_many_arguments)]
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::bindings::ModeInput,
     (windows, cams): crate::minigames::ViewQueries,
     mut screen: ResMut<PoolScreen>,
     mut script: Option<ResMut<ScriptState>>,
@@ -719,15 +727,20 @@ fn keys(
     mut tables: Option<ResMut<Tables>>,
     time: AidTime,
     mut files: MessageWriter<PlayFile>,
+    mut pad_at: Local<Option<Vec2>>,
 ) {
-    let Some(p) = screen.0.as_mut() else { return };
+    use crate::bindings::Control;
+    let Some(p) = screen.0.as_mut() else {
+        *pad_at = None;
+        return;
+    };
     let now = time.elapsed_secs();
     let send = |tables: &mut Option<ResMut<Tables>>, table: u32, a: PoolAction| {
         if let Some(t) = tables.as_deref_mut() {
             t.send(table, game::POOL, a.encode());
         }
     };
-    if keys.any_just_pressed([KeyCode::Tab, KeyCode::Escape]) {
+    if keys.just_pressed(Control::GameLeave) || keys.key_just_pressed(KeyCode::Escape) {
         if matches!(p.page, Page::Bet | Page::Challenge) {
             p.page = Page::Main;
             return;
@@ -752,24 +765,40 @@ fn keys(
         p.leave = true;
         return;
     }
-    p.cursor = test_cursor(now).or_else(|| windows.single().ok().zip(p.frame).zip(cams.single().ok()).and_then(|((w, f), c)| cursor_on_cloth(w, f, c)));
+    // With a controller the sticks move a point of their own over the table (the pointer
+    // sleeps): the left one fast, the right one slowly for the fine aim.
+    let pad_point = keys.controller().then(|| {
+        let w = windows.single().ok()?;
+        let at = pad_at.get_or_insert(Vec2::new(w.width(), w.height()) / 2.0);
+        let (l, r) = (crate::pad::stick(&keys.pads, true), crate::pad::stick(&keys.pads, false));
+        let dt = time.delta_secs_f64() as f32;
+        let step = (l * PAD_POINT_SPEED + r * PAD_POINT_SPEED * 0.25) * w.height() * dt;
+        *at = (*at + Vec2::new(step.x, -step.y)).clamp(Vec2::ZERO, Vec2::new(w.width(), w.height()));
+        Some(*at)
+    }).flatten();
+    p.cursor = test_cursor(now).or_else(|| {
+        windows.single().ok().zip(p.frame).zip(cams.single().ok()).and_then(|((w, f), c)| match pad_point {
+            Some(at) => cloth_at(at, f, c),
+            None => cursor_on_cloth(w, f, c),
+        })
+    });
     match p.page {
         Page::Main => {
             if let Some(owner) = p.joined {
-                if keys.just_pressed(KeyCode::Space) {
+                if keys.just_pressed(Control::GameConfirm) {
                     send(&mut tables, p.table_ref, PoolAction::Join);
                     p.status = format!("Asked {} for a game.", tables.as_deref().map(|t| t.name(owner)).unwrap_or_default());
                 }
                 return;
             }
-            if keys.just_pressed(KeyCode::Digit1) {
+            if keys.just_pressed(Control::GameChoice1) {
                 // In co-op the Challenge page (the house's player, or a players' game).
                 p.page = if tables.as_deref().is_some_and(|t| t.on) { Page::Challenge } else { Page::Bet };
-            } else if keys.just_pressed(KeyCode::Digit2) {
+            } else if keys.just_pressed(Control::GameChoice2) {
                 p.stake = 0;
                 start_game(p, Foe::Practice, &mut files);
                 info!("pool: practice");
-            } else if keys.just_pressed(KeyCode::Digit3) {
+            } else if keys.just_pressed(Control::GameChoice3) {
                 if let Some(o) = p.asking.first().copied() {
                     p.stake = 0;
                     start_game(p, Foe::Player(o), &mut files);
@@ -778,11 +807,11 @@ fn keys(
             }
         }
         Page::Challenge => {
-            if keys.just_pressed(KeyCode::Digit1) {
+            if keys.just_pressed(Control::GameChoice1) {
                 p.page = Page::Bet;
                 return;
             }
-            let picked = [KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5].iter().position(|k| keys.just_pressed(*k));
+            let picked = keys.first_just_pressed(&[Control::GameChoice2, Control::GameChoice3, Control::GameChoice4, Control::GameChoice5]);
             let Some(mode) = picked.and_then(|i| crate::match_lobby::POOL_MODES.get(i).copied()) else { return };
             if !crate::match_lobby::available(mode, p.at_hand) {
                 p.status = format!("{} needs {} players near the table.", mode.label, mode.players);
@@ -798,13 +827,13 @@ fn keys(
         Page::Stake => {
             let (board, joined) = (p.table_ref, p.joined.is_some());
             let Some(st) = p.stakes.bets.as_mut() else { return };
-            if keys.just_pressed(KeyCode::KeyW) {
+            if keys.just_pressed(Control::StakeMatch) {
                 st.auto_match();
             }
-            if keys.just_pressed(KeyCode::KeyA) {
+            if keys.just_pressed(Control::StakeRaise) {
                 st.raise();
             }
-            if keys.just_pressed(KeyCode::KeyF) {
+            if keys.just_pressed(Control::StakeAccept) {
                 if let Some(v) = st.accept() {
                     info!("pool: stake: this player offers {v} (agreed {:?})", st.agreed);
                     if joined {
@@ -815,11 +844,11 @@ fn keys(
             }
         }
         Page::Bet => {
-            if keys.just_pressed(KeyCode::KeyQ) {
+            if keys.just_pressed(Control::BetLess) {
                 p.bet = pool::step_bet(p.bet, false);
-            } else if keys.just_pressed(KeyCode::KeyE) {
+            } else if keys.just_pressed(Control::BetMore) {
                 p.bet = pool::step_bet(p.bet, true);
-            } else if keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) {
+            } else if keys.just_pressed(Control::GameConfirm) || keys.key_just_pressed(KeyCode::Enter) {
                 let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
                 if caps(rt, &mut sim) < p.bet {
                     p.status = "You don't have enough caps.".into();
@@ -832,7 +861,7 @@ fn keys(
             }
         }
         Page::Play => {
-            if p.joined.is_none() && keys.just_pressed(KeyCode::KeyR) && (p.practice() || p.game.winner.is_some()) {
+            if p.joined.is_none() && keys.just_pressed(Control::Rematch) && (p.practice() || p.game.winner.is_some()) {
                 if p.practice() && p.game.winner.is_none() {
                     start_game(p, Foe::Practice, &mut files);
                 } else {
@@ -841,7 +870,7 @@ fn keys(
                 }
                 return;
             }
-            if p.practice() && p.joined.is_none() && keys.just_pressed(KeyCode::Space) && p.idle() {
+            if p.practice() && p.joined.is_none() && keys.just_pressed(Control::GameConfirm) && p.idle() {
                 p.practice_hand = true;
                 p.charge = None;
             }
@@ -851,7 +880,7 @@ fn keys(
             }
             let white = p.placed.unwrap_or(p.table.balls[0].pos);
             if p.placing() {
-                if mouse.just_pressed(MouseButton::Left) {
+                if keys.just_pressed(Control::GameThrow) {
                     if let Some(at) = p.hand_spot() {
                         if p.joined.is_some() {
                             p.placed = Some(at);
@@ -876,14 +905,14 @@ fn keys(
                     p.aim = [dx / l, dy / l];
                 }
             }
-            if mouse.just_pressed(MouseButton::Left) && p.charge.is_none() {
+            if keys.just_pressed(Control::GameThrow) && p.charge.is_none() {
                 p.charge = Some(now);
             }
             if p.joined.is_some() && now - p.last_aim_sent >= AIM_EVERY {
                 p.last_aim_sent = now;
                 send(&mut tables, p.table_ref, PoolAction::Aim { dir: p.aim, power: p.power(now), place: p.placed });
             }
-            if mouse.just_released(MouseButton::Left) && p.charge.is_some() {
+            if keys.just_released(Control::GameThrow) && p.charge.is_some() {
                 let breaking = !p.practice() && p.break_shot();
                 let speed = pool::shot_speed(p.power(now), breaking);
                 if p.joined.is_some() {
@@ -1843,32 +1872,34 @@ fn draw(
         };
         match p.page {
             Page::Main => {
-                use crate::match_lobby::{menu_card, row};
+                use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
                 match p.joined {
-                    Some(owner) => menu_card(ui, faces, "Pool", &format!("{} has this table.", name(owner)), &[row("Space", format!("Ask {} for a game", name(owner))), row("Tab", "Leave")], ""),
+                    Some(owner) => menu_card(ui, faces, "Pool", &format!("{} has this table.", name(owner)), &[key_row(Control::GameConfirm, format!("Ask {} for a game", name(owner))), key_row(Control::GameLeave, "Leave")], ""),
                     None => {
-                        let mut rows = vec![row("1", if p.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), row("2", "Practice")];
+                        let mut rows = vec![key_row(Control::GameChoice1, if p.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), key_row(Control::GameChoice2, "Practice")];
                         if let Some(x) = p.asking.first() {
-                            rows.push(row("3", format!("Play {}", name(*x))));
+                            rows.push(key_row(Control::GameChoice3, format!("Play {}", name(*x))));
                         }
-                        rows.push(row("Tab", "Leave"));
-                        menu_card(ui, faces, "Pool", "", &rows, "Eight-ball. Aim with the mouse; hold the left button to charge, let go to shoot.");
+                        rows.push(key_row(Control::GameLeave, "Leave"));
+                        menu_card(ui, faces, "Pool", "", &rows, &format!("Eight-ball. {}, let go to shoot.", crate::bindings::aim_hint("charge")));
                     }
                 }
             }
             Page::Challenge => {
-                use crate::match_lobby::{available, menu_card, row, POOL_MODES};
-                let mut rows = vec![row("1", "The house's player").note("a bet")];
+                use crate::bindings::Control;
+                use crate::match_lobby::{available, key_row, menu_card, POOL_MODES};
+                let mut rows = vec![key_row(Control::GameChoice1, "The house's player").note("a bet")];
                 for (i, m) in POOL_MODES.iter().enumerate() {
                     let open = available(*m, p.at_hand);
-                    let r = row(&(i + 2).to_string(), m.label).enabled(open);
+                    let r = key_row(crate::bindings::GAME_CHOICES[i + 1], m.label).enabled(open);
                     rows.push(if open { r } else { r.note(format!("{} players near the table", m.players)) });
                 }
-                rows.push(row("Tab", "Back"));
+                rows.push(key_row(Control::GameLeave, "Back"));
                 menu_card(ui, faces, "Challenge", "Who to play", &rows, &p.status);
             }
             Page::Gather => {
-                crate::casino_hud::help_line(ui, faces, "Tab) Leave");
+                crate::casino_hud::help_line(ui, faces, &crate::bindings::hint(crate::bindings::Control::GameLeave, "Leave"));
             }
             Page::Stake => {
                 if let Some(st) = p.stakes.bets.as_ref() {
@@ -1877,8 +1908,9 @@ fn draw(
                 }
             }
             Page::Bet => {
-                use crate::match_lobby::{menu_card, row};
-                let rows = [row("Q", "Less"), row("E", "More"), row("Space", "Rack them up"), row("Tab", "Back")];
+                use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
+                let rows = [key_row(Control::BetLess, "Less"), key_row(Control::BetMore, "More"), key_row(Control::GameConfirm, "Rack them up"), key_row(Control::GameLeave, "Back")];
                 let foot = format!("The opponent plays at {} of 10. A win pays twice the bet.", pool::difficulty(p.bet));
                 menu_card(ui, faces, "Challenge the opponent", &format!("Bet: {} caps", p.bet), &rows, &foot);
             }
@@ -1934,16 +1966,27 @@ fn draw(
                         score_panel(ui, faces, &rows, foot.as_deref());
                     }
                 }
+                let throw = crate::bindings::mode_key(crate::bindings::Control::GameThrow);
                 let help = if p.placing() {
-                    "Ball in hand: move the white, click to put it down"
+                    format!("Ball in hand: move the white, {throw} to put it down")
                 } else if p.my_shot() && p.in_hand() {
-                    "White down: aim with the mouse, hold the left button to charge, let go to shoot"
+                    format!("White down: {}, let go to shoot", crate::bindings::aim_hint("charge").to_lowercase())
                 } else if p.my_shot() {
-                    "Aim with the mouse, hold the left button to charge, let go to shoot"
+                    format!("{}, let go to shoot", crate::bindings::aim_hint("charge"))
                 } else {
-                    ""
+                    String::new()
                 };
-                let keys = if p.joined.is_some() { "Tab  Leave" } else if p.practice() { "R  Rack again   Space  White in hand   Tab  Leave" } else if p.game.winner.is_some() { "R  Menu   Tab  Leave" } else { "Tab  Leave (forfeit)" };
+                let k = |c: crate::bindings::Control| crate::bindings::mode_key(c);
+                let (leave, rematch, confirm) = (k(crate::bindings::Control::GameLeave), k(crate::bindings::Control::Rematch), k(crate::bindings::Control::GameConfirm));
+                let keys = if p.joined.is_some() {
+                    format!("{leave}  Leave")
+                } else if p.practice() {
+                    format!("{rematch}  Rack again   {confirm}  White in hand   {leave}  Leave")
+                } else if p.game.winner.is_some() {
+                    format!("{rematch}  Menu   {leave}  Leave")
+                } else {
+                    format!("{leave}  Leave (forfeit)")
+                };
                 help_line(ui, faces, &format!("{}
 {help}{}{keys}", p.status, if help.is_empty() { "" } else { "      " }));
                 // The power.

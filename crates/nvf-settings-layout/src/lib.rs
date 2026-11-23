@@ -230,6 +230,65 @@ pub const SECTIONS: &[Section] = &[
             "controls:bind:Screenshot",
         ],
     ),
+    // The screens' own controls (`MODE_CONTROLS`, owner 2026-11-22: every multiplayer, minigame
+    // and Photo Mode key rebindable on both devices). Answering a co-op question:
+    section(
+        "Controls",
+        Some("Multiplayer Questions"),
+        &[
+            "controls:bind:Accept",
+            "controls:bind:Decline",
+        ],
+    ),
+    // Darts, pool, fillet (and its race), arm wrestling and the drink contest:
+    section(
+        "Controls",
+        Some("Minigames"),
+        &[
+            "controls:bind:Minigame Confirm",
+            "controls:bind:Minigame Leave",
+            "controls:bind:Minigame Choice 1",
+            "controls:bind:Minigame Choice 2",
+            "controls:bind:Minigame Choice 3",
+            "controls:bind:Minigame Choice 4",
+            "controls:bind:Minigame Choice 5",
+            "controls:bind:Bet Less",
+            "controls:bind:Bet More",
+            "controls:bind:Rematch",
+            "controls:bind:Minigame Throw",
+            "controls:bind:Race Up",
+            "controls:bind:Race Left",
+            "controls:bind:Race Down",
+            "controls:bind:Race Right",
+        ],
+    ),
+    // A stake between two players (duels, the drink contest, the table games):
+    section(
+        "Controls",
+        Some("Minigame Stakes"),
+        &[
+            "controls:bind:Stake Match",
+            "controls:bind:Stake Raise",
+            "controls:bind:Stake Accept",
+            "controls:bind:Stake Decline",
+        ],
+    ),
+    // Inside Photo Mode (opening it is Photo Mode, under Additional Features):
+    section(
+        "Controls",
+        Some("Photo Mode"),
+        &[
+            "controls:bind:Photo Next Tab",
+            "controls:bind:Photo Previous Tab",
+            "controls:bind:Photo Row Up",
+            "controls:bind:Photo Row Down",
+            "controls:bind:Photo More",
+            "controls:bind:Photo Less",
+            "controls:bind:Photo Hide Panel",
+            "controls:bind:Photo Reset",
+            "controls:bind:Photo Take",
+        ],
+    ),
     section("Graphics", Some("Quality"), &["quality"]),
     // Shadow resolution sizes the flashlight's maps too, so it needs no Sun shadows (no NEEDS
     // line) (#2843).

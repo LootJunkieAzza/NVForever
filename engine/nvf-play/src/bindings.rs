@@ -175,6 +175,53 @@ pub enum Control {
     Console,
     /// Save a picture of the screen (NVForever's F12; Stewie's Tweaks iScreenshotKey).
     Screenshot,
+    // A screen's own controls ([`MODE_CONTROLS`], [`mode_group`]): read only while their
+    // screen is up, so they may share keys and buttons with the play controls [design,
+    // owner 2026-11-22: "all multiplayer buttons emote, photomode and anything else should
+    // have a changabel bind for keyboard and controller", "minigames need to be playable"].
+    /// A co-op question's yes: an invitation, shared progress, the story wait's teleport,
+    /// a match lobby's invitation.
+    Accept,
+    /// A co-op question's no.
+    Decline,
+    /// A minigame's start, drink or next turn (darts, pool, the fillet race, arm wrestling,
+    /// the drinking contest).
+    GameConfirm,
+    /// A minigame's leave or back.
+    GameLeave,
+    /// A minigame menu's numbered choices (1 to 5 on its page).
+    GameChoice1,
+    GameChoice2,
+    GameChoice3,
+    GameChoice4,
+    GameChoice5,
+    /// A minigame's bet down and up.
+    BetLess,
+    BetMore,
+    /// A finished or practice minigame back to its menu.
+    Rematch,
+    /// A players' stake: match the highest, raise, accept, decline.
+    StakeMatch,
+    StakeRaise,
+    StakeAccept,
+    StakeDecline,
+    /// Darts' throw and pool's shot: held to charge, let go to throw.
+    GameThrow,
+    /// The fillet race's four keys.
+    RaceUp,
+    RaceLeft,
+    RaceDown,
+    RaceRight,
+    /// Photo mode's panel: the tabs, the rows, a row's value, hide, reset, take the photo.
+    PhotoNextTab,
+    PhotoPreviousTab,
+    PhotoRowUp,
+    PhotoRowDown,
+    PhotoMore,
+    PhotoLess,
+    PhotoHide,
+    PhotoReset,
+    PhotoTake,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
@@ -189,7 +236,7 @@ pub enum Control {
 /// owner request 2026-11-09]; Sprint unbound,
 /// with no controller button either, until the player binds it [design, #3000: the
 /// maintainer's decision on #3002].
-pub const GAME_CONTROLS: [(Control, &str, u32); 66] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 96] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -258,7 +305,118 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 66] = [
     // Bound by default, as before they were bindings (the keys as the INI codes them).
     (Control::Console, "Console", 0x0029FFFF),
     (Control::Screenshot, "Screenshot", 0x0058FFFF),
+    // A screen's own controls ([`MODE_CONTROLS`]): the keys the screens had before they were
+    // bindings; their controller buttons are in [`MODE_PADS`].
+    (Control::Accept, "Accept", 0x0015FFFF),
+    (Control::Decline, "Decline", 0x0031FFFF),
+    (Control::GameConfirm, "Minigame Confirm", 0x0039FFFF),
+    (Control::GameLeave, "Minigame Leave", 0x000FFFFF),
+    (Control::GameChoice1, "Minigame Choice 1", 0x0002FFFF),
+    (Control::GameChoice2, "Minigame Choice 2", 0x0003FFFF),
+    (Control::GameChoice3, "Minigame Choice 3", 0x0004FFFF),
+    (Control::GameChoice4, "Minigame Choice 4", 0x0005FFFF),
+    (Control::GameChoice5, "Minigame Choice 5", 0x0006FFFF),
+    (Control::BetLess, "Bet Less", 0x0010FFFF),
+    (Control::BetMore, "Bet More", 0x0012FFFF),
+    (Control::Rematch, "Rematch", 0x0013FFFF),
+    (Control::StakeMatch, "Stake Match", 0x0011FFFF),
+    (Control::StakeRaise, "Stake Raise", 0x001EFFFF),
+    (Control::StakeAccept, "Stake Accept", 0x0021FFFF),
+    (Control::StakeDecline, "Stake Decline", 0x0013FFFF),
+    (Control::GameThrow, "Minigame Throw", 0x00FF00FF),
+    (Control::RaceUp, "Race Up", 0x0011FFFF),
+    (Control::RaceLeft, "Race Left", 0x001EFFFF),
+    (Control::RaceDown, "Race Down", 0x001FFFFF),
+    (Control::RaceRight, "Race Right", 0x0020FFFF),
+    (Control::PhotoNextTab, "Photo Next Tab", 0x000FFFFF),
+    (Control::PhotoPreviousTab, "Photo Previous Tab", 0xFFFFFFFF),
+    (Control::PhotoRowUp, "Photo Row Up", 0x00C8FFFF),
+    (Control::PhotoRowDown, "Photo Row Down", 0x00D0FFFF),
+    (Control::PhotoMore, "Photo More", 0x00CDFFFF),
+    (Control::PhotoLess, "Photo Less", 0x00CBFFFF),
+    (Control::PhotoHide, "Photo Hide Panel", 0x0023FFFF),
+    (Control::PhotoReset, "Photo Reset", 0x0013FFFF),
+    (Control::PhotoTake, "Photo Take", 0x001C00FF),
 ];
+
+/// How many of [`GAME_CONTROLS`] at its end are a screen's own ([`mode_group`]).
+pub const MODE_CONTROLS: usize = 30;
+
+/// The screens with controls of their own. A key or button is swapped only between two
+/// controls of one screen, and never warned of against the play controls: those are held
+/// while the screen is up [design].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModeGroup {
+    /// A co-op question (Accept, Decline).
+    Ask,
+    /// A minigame's own page and play.
+    Minigame,
+    /// A players' stake.
+    Stake,
+    /// The fillet race's keys.
+    Race,
+    /// Photo mode's panel.
+    Photo,
+}
+
+/// The screen `c` is a control of, or `None` for a play control.
+pub fn mode_group(c: Control) -> Option<ModeGroup> {
+    use Control::*;
+    Some(match c {
+        Accept | Decline => ModeGroup::Ask,
+        GameConfirm | GameLeave | GameChoice1 | GameChoice2 | GameChoice3 | GameChoice4 | GameChoice5 | BetLess | BetMore | Rematch | GameThrow => ModeGroup::Minigame,
+        StakeMatch | StakeRaise | StakeAccept | StakeDecline => ModeGroup::Stake,
+        RaceUp | RaceLeft | RaceDown | RaceRight => ModeGroup::Race,
+        PhotoNextTab | PhotoPreviousTab | PhotoRowUp | PhotoRowDown | PhotoMore | PhotoLess | PhotoHide | PhotoReset | PhotoTake => ModeGroup::Photo,
+        _ => return None,
+    })
+}
+
+/// Whether a binding of `a` and one of `b` are swapped when they meet: both play controls
+/// or both of one screen.
+fn swaps_with(a: Control, b: Control) -> bool {
+    mode_group(a) == mode_group(b)
+}
+
+/// The screens' controls' controller buttons: within a screen as its own menu would place
+/// them (A yes or start, B no or leave, the D-pad the numbered choices, the shoulders the
+/// bet or the tab, RT the throw; the race's four keys as the face buttons' places: Y up, X
+/// left, A down, B right) [design].
+pub const MODE_PADS: [(Control, GamepadButton); 30] = {
+    use GamepadButton::*;
+    [
+        (Control::Accept, South),
+        (Control::Decline, East),
+        (Control::GameConfirm, South),
+        (Control::GameLeave, East),
+        (Control::GameChoice1, DPadUp),
+        (Control::GameChoice2, DPadRight),
+        (Control::GameChoice3, DPadDown),
+        (Control::GameChoice4, DPadLeft),
+        (Control::GameChoice5, North),
+        (Control::BetLess, LeftTrigger),
+        (Control::BetMore, RightTrigger),
+        (Control::Rematch, West),
+        (Control::StakeMatch, North),
+        (Control::StakeRaise, West),
+        (Control::StakeAccept, South),
+        (Control::StakeDecline, East),
+        (Control::GameThrow, RightTrigger2),
+        (Control::RaceUp, North),
+        (Control::RaceLeft, West),
+        (Control::RaceDown, South),
+        (Control::RaceRight, East),
+        (Control::PhotoNextTab, RightTrigger),
+        (Control::PhotoPreviousTab, LeftTrigger),
+        (Control::PhotoRowUp, DPadUp),
+        (Control::PhotoRowDown, DPadDown),
+        (Control::PhotoMore, DPadRight),
+        (Control::PhotoLess, DPadLeft),
+        (Control::PhotoHide, North),
+        (Control::PhotoReset, West),
+        (Control::PhotoTake, South),
+    ]
+};
 
 /// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
 /// player binds it (`crate::tweaks`), but the console's and the screenshot's at the end
@@ -576,9 +734,11 @@ impl Bindings {
         self.pad.iter().find(|(k, _)| *k == c).and_then(|(_, p)| *p)
     }
 
-    /// Every control's controller binding there is, in the INI's order.
+    /// Every play control's controller binding there is, in the INI's order: the binding
+    /// kinds are worked out ([`crate::pad::resolver`]) and warned of ([`overlaps`]) among
+    /// these only, not a screen's own ([`mode_group`]).
     pub fn pad_bindings(&self) -> Vec<(Control, PadBinding)> {
-        GAME_CONTROLS.iter().filter_map(|&(c, _, _)| self.pad_binding(c).map(|b| (c, b))).collect()
+        GAME_CONTROLS.iter().filter(|(c, _, _)| mode_group(*c).is_none()).filter_map(|&(c, _, _)| self.pad_binding(c).map(|b| (c, b))).collect()
     }
 
     /// The Hold time, Double-tap window and Combo window in use.
@@ -618,10 +778,16 @@ impl Bindings {
         if p == PadBinding::BuiltIn && split_origin(c).is_none() {
             return Vec::new();
         }
+        // A screen's control is a press: a hold, a double tap or a combo taken for one is
+        // its button's press.
+        let p = match (mode_group(c), p.main()) {
+            (Some(_), Some(m)) => PadBinding::Press(m),
+            _ => p,
+        };
         let old = self.pad_binding(c);
         let mut swapped = Vec::new();
         let swaps = !self.allow_duplicates && p != PadBinding::BuiltIn;
-        for (k, x) in self.pad.iter_mut().filter(|(k, x)| swaps && *k != c && *x == Some(p)) {
+        for (k, x) in self.pad.iter_mut().filter(|(k, x)| swaps && *k != c && swaps_with(*k, c) && *x == Some(p)) {
             // A split control's built-in place is no binding to hand on to another control.
             *x = match old {
                 Some(PadBinding::BuiltIn) => None,
@@ -709,7 +875,7 @@ impl Bindings {
         let mut swapped = Vec::new();
         // The player's tweak lets two controls share an input [design: docs/design/tweaks.md].
         let swaps = !self.allow_duplicates;
-        for (k, b) in self.map.iter_mut().filter(|(k, _)| swaps && *k != c) {
+        for (k, b) in self.map.iter_mut().filter(|(k, _)| swaps && *k != c && swaps_with(*k, c)) {
             match input {
                 Input::Key(key) if b.key == Some(key) => b.key = old.key,
                 Input::Mouse(m) if b.mouse == Some(m) => b.mouse = old.mouse,
@@ -737,6 +903,11 @@ fn game_pad_defaults() -> Vec<(Control, Option<PadBinding>)> {
     let mut v: Vec<(Control, Option<PadBinding>)> = GAME_CONTROLS.iter().map(|&(c, _, x)| (c, crate::pad::game_pad(x as u8).map(PadBinding::Press))).collect();
     for (c, b) in DPAD_HOTKEYS {
         if let Some((_, x @ None)) = v.iter_mut().find(|(k, _)| *k == c) {
+            *x = Some(PadBinding::Press(PadInput::Button(b)));
+        }
+    }
+    for (c, b) in MODE_PADS {
+        if let Some((_, x)) = v.iter_mut().find(|(k, _)| *k == c) {
             *x = Some(PadBinding::Press(PadInput::Button(b)));
         }
     }
@@ -825,6 +996,36 @@ pub fn label(c: Control) -> &'static str {
         ActivateGrab => "Grab (Hold)",
         Console => "Console",
         Screenshot => "Screenshot",
+        Accept => "Accept",
+        Decline => "Decline",
+        GameConfirm => "Start / Next",
+        GameLeave => "Leave",
+        GameChoice1 => "Choice 1",
+        GameChoice2 => "Choice 2",
+        GameChoice3 => "Choice 3",
+        GameChoice4 => "Choice 4",
+        GameChoice5 => "Choice 5",
+        BetLess => "Bet Less",
+        BetMore => "Bet More",
+        Rematch => "Back to the Menu",
+        GameThrow => "Throw / Shoot (held)",
+        StakeMatch => "Match the Highest",
+        StakeRaise => "Raise",
+        StakeAccept => "Accept the Stake",
+        StakeDecline => "Decline the Stake",
+        RaceUp => "Race: Up",
+        RaceLeft => "Race: Left",
+        RaceDown => "Race: Down",
+        RaceRight => "Race: Right",
+        PhotoNextTab => "Next Tab",
+        PhotoPreviousTab => "Previous Tab",
+        PhotoRowUp => "Row Up",
+        PhotoRowDown => "Row Down",
+        PhotoMore => "Value Up",
+        PhotoLess => "Value Down",
+        PhotoHide => "Hide the Panel",
+        PhotoReset => "Reset the Sliders",
+        PhotoTake => "Take the Photo",
     }
 }
 
@@ -1719,6 +1920,81 @@ pub struct ControlInput<'w, 's> {
     pub capture: Option<Res<'w, KeyboardCapture>>,
     /// Photo mode has the keys (`crate::photo_mode`).
     pub photo: Option<Res<'w, crate::photo_mode::PhotoMode>>,
+    /// A screen in the world has its controls' keys and buttons ([`AskHold`]).
+    pub ask: Option<Res<'w, AskHold>>,
+}
+
+/// A screen in the world (a co-op question: an invitation, shared progress, the story
+/// wait's teleport, a match lobby's invitation; the drinking contest) takes its own
+/// controls' keys and buttons from the play controls (A is Activate's, B the Pip-Boy's by
+/// default): while it is up, and after it goes until they are let go [design, owner
+/// 2026-11-22: "A / B while asked"].
+///
+/// The screens write what they take into [`AskTake`]; [`ControlInput`] reads [`AskHold`],
+/// which [`settle_ask_hold`] works out from it at the start of the next frame (a system
+/// may then read the controls and take a screen's at once).
+#[derive(Resource, Default, Debug)]
+pub struct AskHold {
+    held: Vec<Control>,
+}
+
+/// The screens' controls taken this frame, for [`AskHold`] next frame.
+#[derive(Resource, Default, Debug)]
+pub struct AskTake {
+    asked: Vec<Control>,
+}
+
+impl AskTake {
+    /// A question is up this frame: Accept and Decline (each screen that asks says so every
+    /// frame).
+    pub fn ask(&mut self) {
+        self.take(&[Control::Accept, Control::Decline]);
+    }
+
+    /// A screen up this frame reads controls `cs`.
+    pub fn take(&mut self, cs: &[Control]) {
+        for c in cs {
+            if !self.asked.contains(c) {
+                self.asked.push(*c);
+            }
+        }
+    }
+}
+
+impl AskHold {
+
+    /// Some screen's inputs are held from the play controls now.
+    pub fn held(&self) -> bool {
+        !self.held.is_empty()
+    }
+
+    /// Whether play control `c` is held back: it shares a key, a mouse button or a
+    /// controller button with a screen's control taken now.
+    pub fn holds(&self, b: &Bindings, c: Control) -> bool {
+        if self.held.is_empty() || mode_group(c).is_some() {
+            return false;
+        }
+        let mine = b.get(c);
+        let buttons = |x: Control| b.pad_binding(x).map(|p| p.buttons()).unwrap_or_default();
+        let own = buttons(c);
+        self.held.iter().any(|&a| {
+            let x = b.get(a);
+            (x.key.is_some() && x.key == mine.key) || (x.mouse.is_some() && x.mouse == mine.mouse) || buttons(a).iter().any(|y| own.contains(y))
+        })
+    }
+}
+
+/// Works out [`AskHold`] for this frame from last frame's screens: what they took, and
+/// what is still held down of what they took before.
+pub(crate) fn settle_ask_hold(mut a: ResMut<AskHold>, mut t: ResMut<AskTake>, mode: ModeInput) {
+    let a = &mut *a;
+    let mut held = std::mem::take(&mut t.asked);
+    for c in std::mem::take(&mut a.held) {
+        if !held.contains(&c) && mode.pressed(c) {
+            held.push(c);
+        }
+    }
+    a.held = held;
 }
 
 /// Keys taken from the game's own controls for now: while the real-time VATS lock is
@@ -1757,6 +2033,147 @@ pub fn set_keys_with_pad(on: bool) {
 
 pub fn keys_with_pad() -> bool {
     KEYS_WITH_PAD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A screen's own controls read ([`mode_group`]): its key or mouse button and its
+/// controller button, both whatever the device in use, as the screen reads them itself
+/// (it holds the play controls meanwhile). A screen's control is a press
+/// ([`Bindings::rebind_pad_binding`]); a stick direction counts while pushed.
+#[derive(SystemParam)]
+pub struct ModeInput<'w, 's> {
+    keys: Option<Res<'w, ButtonInput<KeyCode>>>,
+    mouse: Option<Res<'w, ButtonInput<MouseButton>>>,
+    pub bindings: Option<Res<'w, Bindings>>,
+    pub pads: crate::pad::ActionPads<'w, 's>,
+    pub sticks: Option<Res<'w, crate::pad::StickButtons>>,
+}
+
+/// The game's bindings, for a screen read where no [`Bindings`] is in the world (tests).
+static DEFAULT_BINDINGS: std::sync::LazyLock<Bindings> = std::sync::LazyLock::new(Bindings::game_defaults);
+
+impl ModeInput<'_, '_> {
+    fn of(&self, c: Control) -> (Binding, Option<PadInput>) {
+        let b = self.bindings.as_deref().unwrap_or(&DEFAULT_BINDINGS);
+        (b.get(c), b.pad(c))
+    }
+
+    fn ask(&self, c: Control, ask: Ask) -> bool {
+        let (b, p) = self.of(c);
+        let key = b.key.zip(self.keys.as_deref()).is_some_and(|(k, keys)| match ask {
+            Ask::Pressed => keys.pressed(k),
+            Ask::JustPressed => keys.just_pressed(k),
+            Ask::JustReleased => keys.just_released(k),
+        });
+        let mouse = b.mouse.zip(self.mouse.as_deref()).is_some_and(|(m, mouse)| match ask {
+            Ask::Pressed => mouse.pressed(m),
+            Ask::JustPressed => mouse.just_pressed(m),
+            Ask::JustReleased => mouse.just_released(m),
+        });
+        let pad = match p {
+            Some(PadInput::Button(x)) => self.pads.iter().any(|g| match ask {
+                Ask::Pressed => g.pressed(x),
+                Ask::JustPressed => g.just_pressed(x),
+                Ask::JustReleased => g.just_released(x),
+            }),
+            Some(PadInput::Stick(d)) => self.sticks.as_ref().is_some_and(|s| match ask {
+                Ask::Pressed => s.pressed(d),
+                Ask::JustPressed => s.just_pressed(d),
+                Ask::JustReleased => s.just_released(d),
+            }),
+            None => false,
+        };
+        key || mouse || pad
+    }
+
+    pub fn pressed(&self, c: Control) -> bool {
+        self.ask(c, Ask::Pressed)
+    }
+
+    pub fn just_pressed(&self, c: Control) -> bool {
+        self.ask(c, Ask::JustPressed)
+    }
+
+    pub fn just_released(&self, c: Control) -> bool {
+        self.ask(c, Ask::JustReleased)
+    }
+
+    /// The first of `cs` gone down this frame.
+    pub fn first_just_pressed(&self, cs: &[Control]) -> Option<usize> {
+        cs.iter().position(|c| self.just_pressed(*c))
+    }
+
+    /// A key gone down this frame, bound or not (Esc, which no control takes; a screen's
+    /// second key for a control, as Enter beside Space).
+    pub fn key_just_pressed(&self, k: KeyCode) -> bool {
+        self.keys.as_deref().is_some_and(|keys| keys.just_pressed(k))
+    }
+
+    /// A key held, bound or not (Shift, which turns Tab back).
+    pub fn key_pressed(&self, k: KeyCode) -> bool {
+        self.keys.as_deref().is_some_and(|keys| keys.pressed(k))
+    }
+
+    /// A controller works the controls.
+    pub fn controller(&self) -> bool {
+        self.bindings.as_deref().is_some_and(|b| b.device == InputDevice::Controller)
+    }
+}
+
+/// Minigame menus' numbered choices, in order.
+pub const GAME_CHOICES: [Control; 5] = [Control::GameChoice1, Control::GameChoice2, Control::GameChoice3, Control::GameChoice4, Control::GameChoice5];
+
+/// What a screen's hint names for its control `c` on the device in use (`Tab`, `B`), as
+/// [`publish_mode_names`] last saw the bindings; the game's key before then.
+pub fn mode_key(c: Control) -> String {
+    let names = MODE_NAMES.read().unwrap_or_else(|e| e.into_inner());
+    match names.iter().find(|(k, _)| *k == c) {
+        Some((_, n)) => n.clone(),
+        None => shown_name(&DEFAULT_BINDINGS, c),
+    }
+}
+
+fn shown_name(b: &Bindings, c: Control) -> String {
+    match b.device {
+        InputDevice::Controller if b.pad_binding(c).is_some() => b.pad_shown_of(c),
+        _ => {
+            let x = b.get(c);
+            x.key.and_then(key_name).map(String::from).or_else(|| x.mouse.map(mouse_name)).unwrap_or_else(|| "?".into())
+        }
+    }
+}
+
+static MODE_NAMES: std::sync::RwLock<Vec<(Control, String)>> = std::sync::RwLock::new(Vec::new());
+
+/// The screens' hints name the controller's buttons ([`publish_mode_names`]).
+static MODE_PAD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A screen's hint for control `c`: `Tab) Leave`, `B) Leave`.
+pub fn hint(c: Control, label: &str) -> String {
+    format!("{}) {label}", mode_key(c))
+}
+
+/// How a minigame's aim and throw are worked, for its help line: the mouse and Minigame
+/// Throw's key, or the right stick and its button.
+pub fn aim_hint(throw: &str) -> String {
+    if MODE_PAD.load(std::sync::atomic::Ordering::Relaxed) {
+        format!("Aim with the right stick, hold {} to {throw}", mode_key(Control::GameThrow))
+    } else {
+        format!("Aim with the mouse, hold {} to {throw}", mode_key(Control::GameThrow))
+    }
+}
+
+/// Keeps [`mode_key`]'s names up to date with the bindings (the screens draw their hints
+/// from plain text).
+pub(crate) fn publish_mode_names(bindings: Option<Res<Bindings>>, mut last: Local<Option<(InputDevice, crate::pad::Labels)>>) {
+    let Some(b) = bindings else { return };
+    let now = (b.device, crate::pad::pad_labels());
+    if !b.is_changed() && *last == Some(now) {
+        return;
+    }
+    *last = Some(now);
+    let names: Vec<(Control, String)> = GAME_CONTROLS[GAME_CONTROLS.len() - MODE_CONTROLS..].iter().map(|(c, _, _)| (*c, shown_name(&b, *c))).collect();
+    *MODE_NAMES.write().unwrap_or_else(|e| e.into_inner()) = names;
+    MODE_PAD.store(b.device == InputDevice::Controller, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// How a controller input is asked about.
@@ -1809,6 +2226,7 @@ impl ControlInput<'_, '_> {
             // The player's tweak leaves walking and running (docs/design/tweaks.md).
             && !(crate::kill_cam::move_during() && matches!(c, Control::Forward | Control::Back | Control::SlideLeft | Control::SlideRight | Control::Run | Control::AlwaysRun | Control::AutoMove)))
             || self.hold.as_ref().is_some_and(|h| h.holds(c, self.controller()))
+            || self.ask.as_ref().is_some_and(|a| a.holds(&self.bindings, c))
             || (!self.controller() && self.freed.as_ref().is_some_and(|f| self.bindings.get(c).key.is_some_and(|k| f.0.contains(&k))))
     }
 
@@ -2197,7 +2615,7 @@ mod tests {
             assert!(x.key.is_some() || x.mouse.is_some(), "{c:?}");
         }
         assert_eq!(b.get(Control::Sprint), Binding::default());
-        let extra = GAME_CONTROLS.len() - BOUND_EXTRA_CONTROLS;
+        let extra = GAME_CONTROLS.len() - MODE_CONTROLS - BOUND_EXTRA_CONTROLS;
         for (c, _, _) in &GAME_CONTROLS[TWEAK_CONTROLS..extra] {
             assert_eq!(b.get(*c), Binding { key: None, mouse: None }, "{c:?}");
         }
@@ -2383,5 +2801,58 @@ Rumble=1"), "{text}");
         assert_eq!(changed_controls(b), [R::Binding(Control::Forward, InputDevice::KeyboardMouse), R::Binding(Control::Jump, InputDevice::Controller), R::Binding(Control::Vats, InputDevice::Controller), R::Sensitivity(InputDevice::Controller)]);
         restore_rows(world, &changed_controls(world.resource::<Bindings>()));
         assert!(changed_controls(world.resource::<Bindings>()).is_empty());
+    }
+
+    /// The screens' own controls (owner 2026-11-22): a row on both devices, the screens'
+    /// old keys and the controller's buttons by default, swapped only within one screen,
+    /// always a press on a controller.
+    #[test]
+    fn a_screens_controls_swap_within_the_screen_only() {
+        let mut b = Bindings::game_defaults();
+        assert_eq!(GAME_CONTROLS[GAME_CONTROLS.len() - MODE_CONTROLS].0, Control::Accept);
+        assert!(GAME_CONTROLS[GAME_CONTROLS.len() - MODE_CONTROLS..].iter().all(|(c, _, _)| mode_group(*c).is_some()));
+        assert!(GAME_CONTROLS[..GAME_CONTROLS.len() - MODE_CONTROLS].iter().all(|(c, _, _)| mode_group(*c).is_none()));
+        assert_eq!(b.get(Control::Accept).key, Some(KeyCode::KeyY));
+        assert_eq!(b.get(Control::GameLeave).key, Some(KeyCode::Tab));
+        assert_eq!(b.get(Control::GameThrow).mouse, Some(MouseButton::Left));
+        assert_eq!(b.get(Control::PhotoTake), Binding { key: Some(KeyCode::Enter), mouse: Some(MouseButton::Left) });
+        for (c, p) in MODE_PADS {
+            assert_eq!(b.pad_binding(c), Some(PadBinding::Press(PadInput::Button(p))), "{c:?}");
+        }
+        // Decline's N to Accept: they swap. Accept's new N to Minigame Confirm: another
+        // screen's, nothing is taken.
+        assert_eq!(b.rebind(Control::Accept, Input::Key(KeyCode::KeyN)), [Control::Decline]);
+        assert_eq!(b.get(Control::Decline).key, Some(KeyCode::KeyY));
+        assert!(b.rebind(Control::GameConfirm, Input::Key(KeyCode::KeyN)).is_empty());
+        assert_eq!(b.get(Control::Accept).key, Some(KeyCode::KeyN));
+        // A play control's key taken by a screen's control (W, Forward's) stays Forward's.
+        assert!(b.rebind(Control::RaceUp, Input::Key(KeyCode::KeyI)).is_empty());
+        assert!(b.rebind(Control::RaceUp, Input::Key(KeyCode::KeyW)).is_empty());
+        assert_eq!(b.get(Control::Forward).key, Some(KeyCode::KeyW));
+        // A hold given to a screen's control is its button's press.
+        b.rebind_pad_binding(Control::StakeAccept, PadBinding::Hold(GamepadButton::North));
+        assert_eq!(b.pad_binding(Control::StakeAccept), Some(PadBinding::Press(PadInput::Button(GamepadButton::North))));
+        // ... and swapped with Stake Match, which had North.
+        assert_eq!(b.pad_binding(Control::StakeMatch), Some(PadBinding::Press(PadInput::Button(GamepadButton::South))));
+        // The screens' controls are no play controls: the resolver and its warnings skip them.
+        assert!(b.pad_bindings().iter().all(|(c, _)| mode_group(*c).is_none()));
+    }
+
+    /// While a question is up, the play controls sharing its inputs read as up: Accept's A
+    /// is no Activate (owner 2026-11-22: "A / B while asked").
+    #[test]
+    fn a_question_holds_the_play_controls_on_its_buttons() {
+        let b = Bindings::game_defaults();
+        let (mut a, mut t) = (AskHold::default(), AskTake::default());
+        t.ask();
+        // Nothing is held until the frame after a screen took its controls.
+        assert!(!a.held() && !a.holds(&b, Control::Activate));
+        a.held = std::mem::take(&mut t.asked);
+        assert!(a.held());
+        assert!(b.pad_binding(Control::Activate).is_some_and(|p| p.buttons().contains(&GamepadButton::South)), "Activate is on A");
+        assert!(a.holds(&b, Control::Activate));
+        assert!(!a.holds(&b, Control::Jump), "Jump (Y, Space) shares nothing with Y / A and N / B");
+        assert!(!a.holds(&b, Control::Accept), "a screen's own control is never held");
+        assert!(!a.holds(&b, Control::Sprint), "unbound: nothing shared");
     }
 }

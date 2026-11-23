@@ -8,6 +8,12 @@
 //!   (`zzDartsPracticeBoard`) or the fillet mod's knife (`zzKnifeGame`), by Editor ID, so
 //!   wherever the plugins sit in the load order. It is a `PlayState::Menu` like the casino
 //!   tables (in co-op the world goes on, `crate::coop_tables`).
+//! - **Keys** [design, owner 2026-11-22]. Every key below is the default of a control of
+//!   the Controls tab's Minigames and Minigame Stakes rows (`crate::bindings::MODE_CONTROLS`):
+//!   Space Start / Next, Tab Leave, 1-5 the choices, Q/E the bet, R Back to the Menu, the
+//!   left button Throw, W/A/S/D the knife race, W/A/F/R the stake. On a controller they are
+//!   A, B, the D-pad and Y, LB/RB, X, RT, Y/X/A/B and Y/X/A/B; the right stick aims a dart.
+//!   The hints name the bindings of the device in use.
 //! - **Darts.** A menu (1 Challenge Opponent, 2 Practice, Tab leave), the bet page (Q/E
 //!   50..300, Space start). Aim with the mouse: the aim sways by Perception; hold the left
 //!   button and the timing bar runs at Agility's speed, let go on the green pip for a true
@@ -736,7 +742,8 @@ fn guest_bets(d: &mut Darts, b: &crate::coop_tables::StakeView, owner: u8, me: u
 
 /// The stake page's card: whose offer is what, and the keys (each lit when it may be pressed).
 pub(crate) fn stake_card(st: &crate::stake::Stake, name: &dyn Fn(u8) -> String) -> (String, String, Vec<crate::match_lobby::MenuRow>) {
-    use crate::match_lobby::row;
+    use crate::bindings::Control;
+    use crate::match_lobby::key_row;
     let title = match st.agreed {
         Some(0) => "No stake".to_string(),
         Some(v) => format!("Stake: {v} caps each"),
@@ -754,10 +761,10 @@ pub(crate) fn stake_card(st: &crate::stake::Stake, name: &dyn Fn(u8) -> String) 
         .collect();
     sub.push(format!("you have {} caps", st.funds));
     let rows = vec![
-        row("W", "Auto Match").enabled(st.can_match()),
-        row("A", "Raise").enabled(st.can_raise()),
-        row("F", "Accept").enabled(st.can_accept()),
-        row("Tab", "Leave"),
+        key_row(Control::StakeMatch, "Auto Match").enabled(st.can_match()),
+        key_row(Control::StakeRaise, "Raise").enabled(st.can_raise()),
+        key_row(Control::StakeAccept, "Accept").enabled(st.can_accept()),
+        key_row(Control::GameLeave, "Leave"),
     ];
     (title, sub.join(", "), rows)
 }
@@ -794,8 +801,7 @@ fn start_match(d: &mut Darts, foe: Foe, now: f32) {
 
 #[allow(clippy::too_many_arguments)]
 fn darts_keys(
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::bindings::ModeInput,
     (windows, cams): crate::minigames::ViewQueries,
     mut screen: ResMut<DartsScreen>,
     mut script: Option<ResMut<ScriptState>>,
@@ -812,7 +818,8 @@ fn darts_keys(
             t.send(board, game::DARTS, a.encode());
         }
     };
-    if keys.any_just_pressed([KeyCode::Tab, KeyCode::Escape]) {
+    use crate::bindings::Control;
+    if keys.just_pressed(Control::GameLeave) || keys.key_just_pressed(KeyCode::Escape) {
         match d.page {
             Page::Bet | Page::Challenge => d.page = Page::Main,
             Page::Gather if d.joined.is_none() => {
@@ -840,21 +847,21 @@ fn darts_keys(
     match d.page {
         Page::Main => {
             if let Some(owner) = d.joined {
-                if keys.just_pressed(KeyCode::Space) {
+                if keys.just_pressed(Control::GameConfirm) {
                     send(&mut tables, d.board, DartsAction::Join);
                     d.status = format!("Asked {} for a match.", tables.as_deref().map(|t| t.name(owner)).unwrap_or_default());
                 }
                 return;
             }
-            if keys.just_pressed(KeyCode::Digit1) {
+            if keys.just_pressed(Control::GameChoice1) {
                 // In co-op the Challenge page (the house's player, or a players' match);
                 // alone, the bet page as before.
                 d.page = if tables.as_deref().is_some_and(|t| t.on) { Page::Challenge } else { Page::Bet };
-            } else if keys.just_pressed(KeyCode::Digit2) {
+            } else if keys.just_pressed(Control::GameChoice2) {
                 d.stake = 0;
                 start_match(d, Foe::Practice, now);
                 files.write(PlayFile(HAND.into()));
-            } else if keys.just_pressed(KeyCode::Digit3) {
+            } else if keys.just_pressed(Control::GameChoice3) {
                 if let Some(p) = d.asking.first().copied() {
                     d.stake = 0;
                     start_match(d, Foe::Player(p), now);
@@ -863,11 +870,11 @@ fn darts_keys(
             }
         }
         Page::Challenge => {
-            if keys.just_pressed(KeyCode::Digit1) {
+            if keys.just_pressed(Control::GameChoice1) {
                 d.page = Page::Bet;
                 return;
             }
-            let picked = [KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5].iter().position(|k| keys.just_pressed(*k));
+            let picked = keys.first_just_pressed(&[Control::GameChoice2, Control::GameChoice3, Control::GameChoice4, Control::GameChoice5]);
             let Some(mode) = picked.and_then(|i| crate::match_lobby::DARTS_MODES.get(i).copied()) else { return };
             if !crate::match_lobby::available(mode, d.at_hand) {
                 d.status = format!("{} needs {} players near the board.", mode.label, mode.players);
@@ -884,13 +891,13 @@ fn darts_keys(
             let board = d.board;
             let joined = d.joined.is_some();
             let Some(st) = d.bets.as_mut() else { return };
-            if keys.just_pressed(KeyCode::KeyW) {
+            if keys.just_pressed(Control::StakeMatch) {
                 st.auto_match();
             }
-            if keys.just_pressed(KeyCode::KeyA) {
+            if keys.just_pressed(Control::StakeRaise) {
                 st.raise();
             }
-            if keys.just_pressed(KeyCode::KeyF) {
+            if keys.just_pressed(Control::StakeAccept) {
                 if let Some(v) = st.accept() {
                     info!("darts: stake: this player offers {v} (agreed {:?})", st.agreed);
                     if joined {
@@ -901,11 +908,11 @@ fn darts_keys(
             }
         }
         Page::Bet => {
-            if keys.just_pressed(KeyCode::KeyQ) {
+            if keys.just_pressed(Control::BetLess) {
                 d.bet = darts::step_bet(d.bet, false);
-            } else if keys.just_pressed(KeyCode::KeyE) {
+            } else if keys.just_pressed(Control::BetMore) {
                 d.bet = darts::step_bet(d.bet, true);
-            } else if keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) {
+            } else if keys.just_pressed(Control::GameConfirm) || keys.key_just_pressed(KeyCode::Enter) {
                 let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
                 if caps(rt, &mut sim) < d.bet {
                     d.status = "You don't have enough caps.".into();
@@ -921,15 +928,21 @@ fn darts_keys(
         }
         Page::Play => {
             let aid = test_aim();
-            if let Some(aim) = aid.or_else(|| windows.single().ok().and_then(|w| cursor_on_board(w.cursor_position()?, d.frame?, cams.single().ok()?))) {
+            // With a controller the right stick moves the aim (the pointer sleeps); with the
+            // mouse it follows the pointer on the board.
+            let stick = crate::pad::stick(&keys.pads, false);
+            if aid.is_none() && keys.controller() {
+                let step = PAD_AIM_SPEED * time.delta_secs_f64() as f32;
+                d.aim = ((d.aim.0 + stick.x * step).clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT), (d.aim.1 + stick.y * step).clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT));
+            } else if let Some(aim) = aid.or_else(|| windows.single().ok().and_then(|w| cursor_on_board(w.cursor_position()?, d.frame?, cams.single().ok()?))) {
                 d.aim = (aim.0.clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT), aim.1.clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT));
             }
-            if d.joined.is_none() && keys.just_pressed(KeyCode::KeyR) && (d.foe == Foe::Practice || d.m.winner.is_some()) {
+            if d.joined.is_none() && keys.just_pressed(Control::Rematch) && (d.foe == Foe::Practice || d.m.winner.is_some()) {
                 d.page = Page::Main;
                 d.stake = 0;
                 return;
             }
-            if keys.just_pressed(KeyCode::Space) && d.m.turn_over && d.up_is_me() && d.flights.is_empty() {
+            if keys.just_pressed(Control::GameConfirm) && d.m.turn_over && d.up_is_me() && d.flights.is_empty() {
                 if d.joined.is_some() {
                     send(&mut tables, d.board, DartsAction::Next);
                 } else if d.m.next_turn() {
@@ -945,11 +958,11 @@ fn darts_keys(
             if !d.my_turn() || !d.flights.iter().all(|f| f.2 != d.mine()) && d.m.sides[d.m.up].darts.len() + d.flights.len() >= 3 {
                 return;
             }
-            if mouse.just_pressed(MouseButton::Left) && d.press.is_none() {
+            if keys.just_pressed(Control::GameThrow) && d.press.is_none() {
                 let pip = darts::pip(d.rng.next_u32() % 100);
                 d.press = Some(Press { since: now, pip, locked: d.sway_aim(now) });
             }
-            if mouse.just_released(MouseButton::Left) {
+            if keys.just_released(Control::GameThrow) {
                 if let Some(p) = d.press.take() {
                     // The aid's throws go on the pip: true, landing on the crosshair.
                     let at = if aid.is_some() { p.pip } else { darts::bar(d.special.1, now - p.since) };
@@ -974,6 +987,10 @@ fn darts_keys(
 
 /// The window and the player's camera, for a screen point on a table or board.
 pub type ViewQueries<'w, 's> = (Query<'w, 's, &'static Window, With<PrimaryWindow>>, Query<'w, 's, (&'static Camera, &'static GlobalTransform), With<PlayerCamera>>);
+
+/// The aim's speed under the right stick held all the way, board units a second: across
+/// the board's face in about a second and a half [design].
+const PAD_AIM_SPEED: f32 = darts::AIM_LIMIT * 1.3;
 
 const HAND: &str = "sound\\fx\\minigames\\darts\\hand.wav";
 
@@ -1479,19 +1496,22 @@ fn darts_step(
     }
 }
 
-fn key_of(code: KeyCode) -> Option<Key> {
-    match code {
-        KeyCode::KeyW => Some(Key::W),
-        KeyCode::KeyA => Some(Key::A),
-        KeyCode::KeyS => Some(Key::S),
-        KeyCode::KeyD => Some(Key::D),
-        _ => None,
-    }
+/// What the knife shows for its key: the race control's binding (`W`, or `Y` on a
+/// controller).
+fn race_key(k: Key) -> String {
+    RACE_KEYS.iter().find(|(_, x)| *x == k).map_or_else(|| k.letter().to_string(), |(c, _)| crate::bindings::mode_key(*c))
 }
+
+const RACE_KEYS: [(crate::bindings::Control, Key); 4] = [
+    (crate::bindings::Control::RaceUp, Key::W),
+    (crate::bindings::Control::RaceLeft, Key::A),
+    (crate::bindings::Control::RaceDown, Key::S),
+    (crate::bindings::Control::RaceRight, Key::D),
+];
 
 #[allow(clippy::too_many_arguments)]
 fn fillet_keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::bindings::ModeInput,
     mut screen: ResMut<FilletScreen>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
@@ -1502,7 +1522,8 @@ fn fillet_keys(
     let Some(f) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
     let coop = tables.as_deref().is_some_and(|t| t.on);
-    if keys.any_just_pressed([KeyCode::Tab, KeyCode::Escape]) {
+    use crate::bindings::Control;
+    if keys.just_pressed(Control::GameLeave) || keys.key_just_pressed(KeyCode::Escape) {
         if f.page == FPage::Bet {
             f.page = FPage::Main;
         } else if f.page == FPage::Challenge {
@@ -1520,10 +1541,10 @@ fn fillet_keys(
             // The challenger's stake: Auto Match takes it, Accept races for it (every
             // stake starts at 0, owner rule 2026-11-11; a race of 0 is for nothing).
             let Some((bet, seed)) = f.offer else { return };
-            if keys.just_pressed(KeyCode::KeyW) {
+            if keys.just_pressed(Control::StakeMatch) {
                 f.offer_mine = Some((seed, bet));
             }
-            if !keys.any_just_pressed([KeyCode::KeyF, KeyCode::Space, KeyCode::Enter]) {
+            if !(keys.just_pressed(Control::StakeAccept) || keys.just_pressed(Control::GameConfirm) || keys.key_just_pressed(KeyCode::Enter)) {
                 return;
             }
             if race_mine(f) != bet {
@@ -1541,14 +1562,14 @@ fn fillet_keys(
             start_race(f, bet, seed, p, now);
         }
         FPage::Main => {
-            if keys.just_pressed(KeyCode::Digit1) {
+            if keys.just_pressed(Control::GameChoice1) {
                 f.duel_bet = false;
                 f.page = FPage::Bet;
-            } else if keys.just_pressed(KeyCode::Digit3) && coop {
+            } else if keys.just_pressed(Control::GameChoice3) && coop {
                 f.duel_bet = true;
                 f.bet = 0;
                 f.page = FPage::Bet;
-            } else if keys.just_pressed(KeyCode::Digit2) {
+            } else if keys.just_pressed(Control::GameChoice2) {
                 f.game = Some(fillet::Game::new(0, f.key));
                 f.settled = false;
                 f.page = FPage::Play;
@@ -1558,7 +1579,7 @@ fn fillet_keys(
         FPage::Bet => {
             // A race: R picks the racers, 2 to 4, as many as are near the knife.
             let near = 1 + tables.as_deref().map_or(0, |t| t.near.len());
-            if f.duel_bet && keys.just_pressed(KeyCode::KeyR) {
+            if f.duel_bet && keys.just_pressed(Control::Rematch) {
                 let modes = crate::match_lobby::FILLET_MODES;
                 let next = modes.iter().cycle().skip_while(|m| m.players != f.racers).skip(1).take(modes.len()).find(|m| crate::match_lobby::available(**m, near));
                 f.racers = next.map_or(2, |m| m.players);
@@ -1567,17 +1588,17 @@ fn fillet_keys(
             // the challenge at it (as the darts and duel stakes).
             if f.duel_bet {
                 let most = script.as_mut().and_then(|s| s.rt.as_mut()).map_or(0, |rt| caps(rt, &mut sim)).min(fillet::BET_MAX) / fillet::BET_STEP * fillet::BET_STEP;
-                if keys.just_pressed(KeyCode::KeyA) {
+                if keys.just_pressed(Control::StakeRaise) {
                     f.bet = (f.bet + fillet::BET_STEP).min(most);
-                } else if keys.just_pressed(KeyCode::KeyW) {
+                } else if keys.just_pressed(Control::StakeMatch) {
                     f.bet = 0;
                 }
-            } else if keys.just_pressed(KeyCode::KeyQ) {
+            } else if keys.just_pressed(Control::BetLess) {
                 f.bet = fillet::step_bet(f.bet, false);
-            } else if keys.just_pressed(KeyCode::KeyE) {
+            } else if keys.just_pressed(Control::BetMore) {
                 f.bet = fillet::step_bet(f.bet, true);
             }
-            if keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) || f.duel_bet && keys.just_pressed(KeyCode::KeyF) {
+            if keys.just_pressed(Control::GameConfirm) || keys.key_just_pressed(KeyCode::Enter) || f.duel_bet && keys.just_pressed(Control::StakeAccept) {
                 let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
                 if caps(rt, &mut sim) < f.bet {
                     f.status = "You don't have enough caps.".into();
@@ -1628,9 +1649,12 @@ fn fillet_keys(
             if f.pending.is_some() {
                 return;
             }
+            // While a prompt waits for the stab, the race's keys have the buttons (on a
+            // controller Race Down and Start / Next are both A by default).
+            let prompting = now >= f.busy_until && g.state == FState::Prompt;
             if let Some(d) = f.duel.as_ref() {
                 // A race: the rounds start by themselves; Space only closes the result.
-                if keys.just_pressed(KeyCode::Space) {
+                if keys.just_pressed(Control::GameConfirm) && (d.result.is_some() || !prompting) {
                     if d.result.is_some() {
                         f.duel = None;
                         f.game = None;
@@ -1638,7 +1662,7 @@ fn fillet_keys(
                     }
                     return;
                 }
-            } else if keys.just_pressed(KeyCode::Space) {
+            } else if keys.just_pressed(Control::GameConfirm) && !prompting {
                 if g.over() {
                     f.page = FPage::Main;
                     f.key = g.key;
@@ -1651,10 +1675,10 @@ fn fillet_keys(
             if now < f.busy_until || g.state != FState::Prompt {
                 return;
             }
-            if !keys.get_just_pressed().any(|k| key_of(*k).is_some()) {
+            if !RACE_KEYS.iter().any(|(c, _)| keys.just_pressed(*c)) {
                 return;
             }
-            let down: Vec<Key> = keys.get_pressed().filter_map(|k| key_of(*k)).collect();
+            let down: Vec<Key> = RACE_KEYS.iter().filter(|(c, _)| keys.pressed(*c)).map(|(_, k)| *k).collect();
             // The stab starts now (its clip with it) and counts at its contact.
             let Some(strike) = g.strike_of(&down) else { return };
             f.pose = (f.pose.0 + 1, if strike == Strike::Hit { FPose::Stab(g.gap) } else { FPose::Miss(g.gap) });
@@ -2118,33 +2142,36 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
     let k = BOARD_VH / darts::EDGE;
     match d.page {
         Page::Main => {
-            use crate::match_lobby::{menu_card, row};
-            const HOW: &str = "301, double out. Aim with the mouse; hold the left button and let go on the green pip.";
+            use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
+            let how = format!("301, double out. {}, and let go on the green pip.", crate::bindings::aim_hint("throw"));
+            let how = how.as_str();
             match d.joined {
-                Some(o) => menu_card(p, faces, "Darts", &format!("{} is at this board.", name(o)), &[row("Space", "Throw against them"), row("Tab", "Leave")], HOW),
+                Some(o) => menu_card(p, faces, "Darts", &format!("{} is at this board.", name(o)), &[key_row(Control::GameConfirm, "Throw against them"), key_row(Control::GameLeave, "Leave")], how),
                 None => {
-                    let mut rows = vec![row("1", if d.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), row("2", "Practice")];
+                    let mut rows = vec![key_row(Control::GameChoice1, if d.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), key_row(Control::GameChoice2, "Practice")];
                     if let Some(q) = d.asking.first() {
-                        rows.push(row("3", format!("Play {}", name(*q))));
+                        rows.push(key_row(Control::GameChoice3, format!("Play {}", name(*q))));
                     }
-                    rows.push(row("Tab", "Leave"));
-                    menu_card(p, faces, "Darts", "", &rows, HOW);
+                    rows.push(key_row(Control::GameLeave, "Leave"));
+                    menu_card(p, faces, "Darts", "", &rows, how);
                 }
             }
         }
         Page::Challenge => {
-            use crate::match_lobby::{available, menu_card, row, DARTS_MODES};
-            let mut rows = vec![row("1", "The house's player").note("a bet")];
+            use crate::bindings::Control;
+            use crate::match_lobby::{available, key_row, menu_card, DARTS_MODES};
+            let mut rows = vec![key_row(Control::GameChoice1, "The house's player").note("a bet")];
             for (i, m) in DARTS_MODES.iter().enumerate() {
                 let open = available(*m, d.at_hand);
-                let r = row(&(i + 2).to_string(), m.label).enabled(open);
+                let r = key_row(crate::bindings::GAME_CHOICES[i + 1], m.label).enabled(open);
                 rows.push(if open { r } else { r.note(format!("{} players near the board", m.players)) });
             }
-            rows.push(row("Tab", "Back"));
+            rows.push(key_row(Control::GameLeave, "Back"));
             menu_card(p, faces, "Challenge", "Who to play", &rows, "");
         }
         Page::Gather => {
-            crate::casino_hud::help_line(p, faces, "Tab) Leave");
+            crate::casino_hud::help_line(p, faces, &crate::bindings::hint(crate::bindings::Control::GameLeave, "Leave"));
         }
         Page::Stake => {
             if let Some(st) = d.bets.as_ref() {
@@ -2153,8 +2180,9 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
             }
         }
         Page::Bet => {
-            use crate::match_lobby::{menu_card, row};
-            let rows = [row("Q", "Decrease"), row("E", "Increase"), row("Space", "Start"), row("Tab", "Back")];
+            use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
+            let rows = [key_row(Control::BetLess, "Decrease"), key_row(Control::BetMore, "Increase"), key_row(Control::GameConfirm, "Start"), key_row(Control::GameLeave, "Back")];
             menu_card(p, faces, &format!("Bet: {} caps", d.bet), "", &rows, &format!("The bet sets the opponent's skill. A win pays {}.", darts::payout(d.bet)));
         }
         Page::Play if d.frame.is_some() => {
@@ -2206,6 +2234,7 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
 
 /// The timing bar, the chalk scores and the keys' help.
 fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String, faces: &crate::casino_hud::CasinoFaces) {
+    use crate::bindings::{hint, Control};
     let side_name = |i: usize| -> String {
         // A players' match: the seat's player, or a team's two.
         if !d.players.is_empty() {
@@ -2254,14 +2283,14 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
                 score_panel(p, faces, &rows, stake.as_deref());
             }
             let help = if let Some(w) = d.m.winner {
-                format!("{} checked out! {}\n{}Tab) Leave", side_name(w), d.status, if d.joined.is_none() { "R) Menu   " } else { "" })
+                format!("{} checked out! {}\n{}{}", side_name(w), d.status, if d.joined.is_none() { format!("{}   ", hint(Control::Rematch, "Menu")) } else { String::new() }, hint(Control::GameLeave, "Leave"))
             } else if d.m.turn_over && d.up_is_me() {
-                format!("{}Space) {}   Tab) Leave", if d.m.bust { "BUST. " } else { "" }, if d.m.sides.len() > 1 { "Hand over" } else { "Next turn" })
+                format!("{}{}   {}", if d.m.bust { "BUST. " } else { "" }, hint(Control::GameConfirm, if d.m.sides.len() > 1 { "Hand over" } else { "Next turn" }), hint(Control::GameLeave, "Leave"))
             } else if !d.up_is_me() {
                 let up = d.thrower().filter(|_| d.teams).map_or_else(|| side_name(d.m.up), |p| if Some(p) == d.me { "Your".into() } else { name(p) });
-                format!("{up}'s turn.   Tab) Leave")
+                format!("{up}'s turn.   {}", hint(Control::GameLeave, "Leave"))
             } else {
-                format!("Hold and release the left button to throw.   {}Tab) Leave", if d.foe == Foe::Practice { "R) Menu   " } else { "" })
+                format!("{}.   {}{}", crate::bindings::aim_hint("throw"), if d.foe == Foe::Practice { format!("{}   ", hint(Control::Rematch, "Menu")) } else { String::new() }, hint(Control::GameLeave, "Leave"))
             };
             help_line(p, faces, &help);
         }
@@ -2273,45 +2302,52 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
 const GAP_AT: [(f32, f32); 5] = [(-8.773, 4.081), (-6.462, 8.034), (-3.565, 9.525), (-0.223, 9.366), (3.858, 4.769)];
 
 fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, now: f32, name: &dyn Fn(u8) -> String, coop: bool, faces: &crate::casino_hud::CasinoFaces) {
+    use crate::bindings::{hint, Control};
     match f.page {
         FPage::Busy(q) => {
-            use crate::match_lobby::{menu_card, row};
-            menu_card(p, faces, "Five Finger Fillet", &format!("{} is at this table.", name(q)), &[row("Tab", "Leave")], "Watch them, and take your turn when they are done.");
+            use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
+            menu_card(p, faces, "Five Finger Fillet", &format!("{} is at this table.", name(q)), &[key_row(Control::GameLeave, "Leave")], "Watch them, and take your turn when they are done.");
         }
         FPage::Offer(q) => {
             let bet = f.offer.map_or(0, |o| o.0);
-            use crate::match_lobby::{menu_card, row};
+            use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
             let mine = race_mine(f);
             let title = if bet == 0 { "Fillet race: no stake".to_string() } else { format!("Fillet race for {bet} caps") };
             let sub = if mine == bet { format!("{} offers {bet}.", name(q)) } else { format!("{} offers {bet}, you {mine}.", name(q)) };
-            let rows = [row("W", "Auto Match").enabled(mine != bet), row("F", "Accept").enabled(mine == bet), row("Tab", "Decline")];
+            let rows = [key_row(Control::StakeMatch, "Auto Match").enabled(mine != bet), key_row(Control::StakeAccept, "Accept").enabled(mine == bet), key_row(Control::GameLeave, "Decline")];
             menu_card(p, faces, &title, &sub, &rows, "You all get the same prompts at once. A finish beats a loss, then fewer mistakes, then the faster time.");
         }
         FPage::Challenge => {
             let (bet, want, joined) = f.duel.as_ref().map_or((0, 2, 0), |d| (d.bet, u32::from(d.want), d.joining.len() as u32));
-            use crate::match_lobby::{menu_card, row};
+            use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
             let sub = format!("Your challenge is open: {bet} caps each, the winner takes {}.", bet * want);
-            menu_card(p, faces, "Five Finger Fillet race", &sub, &[row("Tab", "Withdraw")], &format!("A race of {want}: {} of {want} here. Waiting for players to open this knife and match it.", joined + 1));
+            menu_card(p, faces, "Five Finger Fillet race", &sub, &[key_row(Control::GameLeave, "Withdraw")], &format!("A race of {want}: {} of {want} here. Waiting for players to open this knife and match it.", joined + 1));
         }
         FPage::Main => {
-            use crate::match_lobby::{menu_card, row};
-            let mut rows = vec![row("1", "Play for caps"), row("2", "Practice")];
+            use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
+            let mut rows = vec![key_row(Control::GameChoice1, "Play for caps"), key_row(Control::GameChoice2, "Practice")];
             if coop {
-                rows.push(row("3", "Race other players"));
+                rows.push(key_row(Control::GameChoice3, "Race other players"));
             }
-            rows.push(row("Tab", "Leave"));
+            rows.push(key_row(Control::GameLeave, "Leave"));
             menu_card(p, faces, "Five Finger Fillet", "", &rows, "Three rounds of 12, 18 and 24 stabs. Press the key shown at the knife. Three mistakes lose; each costs 10 health.");
         }
         FPage::Bet if f.duel_bet => {
-            use crate::match_lobby::{menu_card, row};
-            let rows = [row("W", "No stake").enabled(f.bet > 0), row("A", "Raise").enabled(f.bet < fillet::BET_MAX), row("R", "Racers").note(format!("{} now; up to 4, as many as are near", f.racers)), row("F", "Accept"), row("Tab", "Back")];
+            use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
+            let rows = [key_row(Control::StakeMatch, "No stake").enabled(f.bet > 0), key_row(Control::StakeRaise, "Raise").enabled(f.bet < fillet::BET_MAX), key_row(Control::Rematch, "Racers").note(format!("{} now; up to 4, as many as are near", f.racers)), key_row(Control::StakeAccept, "Accept"), key_row(Control::GameLeave, "Back")];
             let foot = if f.bet == 0 { format!("Every stake starts at 0; a race at 0 is for nothing. {:.0} s on each clock.", fillet::time_limit(f.bet)) } else { format!("The winner takes {}. {:.0} s on each clock.", f.bet * u32::from(f.racers), fillet::time_limit(f.bet)) };
             let title = if f.bet == 0 { "Race stake: none".to_string() } else { format!("Race stake: {} caps each", f.bet) };
             menu_card(p, faces, &title, &format!("Racers: {}", f.racers), &rows, &foot);
         }
         FPage::Bet => {
-            use crate::match_lobby::{menu_card, row};
-            let rows = [row("Q", "Decrease"), row("E", "Increase"), row("Space", "Start"), row("Tab", "Back")];
+            use crate::bindings::Control;
+            use crate::match_lobby::{key_row, menu_card};
+            let rows = [key_row(Control::BetLess, "Decrease"), key_row(Control::BetMore, "Increase"), key_row(Control::GameConfirm, "Start"), key_row(Control::GameLeave, "Back")];
             menu_card(p, faces, &format!("Bet: {} caps", f.bet), &format!("{:.0} s on the clock", fillet::time_limit(f.bet)), &rows, &format!("A win pays {}.", fillet::payout(f.bet)));
         }
         FPage::Play => {
@@ -2324,7 +2360,7 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                     p.spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.6, 0.0, 0.0, 0.25 * ((f.flash_until - now) / 0.6).clamp(0.0, 1.0)))));
                 }
                 if let Some((x, y)) = (g.state == FState::Prompt).then(|| (g.gap as usize).checked_sub(1).and_then(|i| stage.prompts.get(i).copied().flatten())).flatten() {
-                    text(p, g.key.letter(), Val::Percent(x * 100.0 - 1.2), Val::Percent(y * 100.0 - 6.5), 44.0, if now < f.hit_until { Color::srgb(0.3, 1.0, 0.3) } else { CHALK });
+                    text(p, race_key(g.key), Val::Percent(x * 100.0 - 1.2), Val::Percent(y * 100.0 - 6.5), 44.0, if now < f.hit_until { Color::srgb(0.3, 1.0, 0.3) } else { CHALK });
                 }
             }
             if !stage.shown(f.knife) {
@@ -2350,7 +2386,7 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                     let active = g.state == FState::Prompt && g.gap as usize == i + 1;
                     disc(b, x * k, -y * k, if active { 1.6 } else { 0.9 }, if active { Color::srgb(0.95, 0.9, 0.3) } else { Color::srgba(1.0, 1.0, 1.0, 0.35) });
                     if active {
-                        text(b, g.key.letter(), Val::Vh(x * k - 1.3), Val::Vh(-y * k - 7.0), 44.0, if now < f.hit_until { Color::srgb(0.3, 1.0, 0.3) } else { CHALK });
+                        text(b, race_key(g.key), Val::Vh(x * k - 1.3), Val::Vh(-y * k - 7.0), 44.0, if now < f.hit_until { Color::srgb(0.3, 1.0, 0.3) } else { CHALK });
                     }
                 }
             });
@@ -2373,10 +2409,10 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                 return;
             }
             let help = match g.state {
-                FState::Ready => "Space) Start   Tab) Leave".to_string(),
-                FState::Between => format!("Round {} done. Space) Next round   Tab) Leave", g.round),
-                FState::Won | FState::Lost => format!("{} Space) Done   Tab) Leave", f.status),
-                FState::Prompt => "Press the key at the knife.   Tab) Leave".into(),
+                FState::Ready => format!("{}   {}", hint(Control::GameConfirm, "Start"), hint(Control::GameLeave, "Leave")),
+                FState::Between => format!("Round {} done. {}   {}", g.round, hint(Control::GameConfirm, "Next round"), hint(Control::GameLeave, "Leave")),
+                FState::Won | FState::Lost => format!("{} {}   {}", f.status, hint(Control::GameConfirm, "Done"), hint(Control::GameLeave, "Leave")),
+                FState::Prompt => format!("Press the key at the knife.   {}", hint(Control::GameLeave, "Leave")),
             };
             help_line(p, faces, &help);
         }
@@ -2389,6 +2425,7 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
 /// A race's own lines over the table: the countdown, both times, the other racer, the
 /// result.
 fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32, name: &dyn Fn(u8) -> String, status: &str, faces: &crate::casino_hud::CasinoFaces) {
+    use crate::bindings::{hint, Control};
     let foe = name(d.foe.unwrap_or(0));
     if g.state == FState::Ready {
         let left = d.go_at - now;
@@ -2409,10 +2446,10 @@ fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32,
         crate::casino_hud::line(b, faces, 0, &theirs, -crate::casino_hud::width(faces, 0, &theirs), 22.0, crate::interface::amber(200.0));
     });
     let help = match (d.result, g.state) {
-        (Some(_), _) => format!("{status}   Space) Done   Tab) Leave"),
-        (None, FState::Ready) => format!("A race against {foe} for {} caps each.   Tab) Forfeit", d.bet),
-        (None, FState::Between) => format!("Round {} done. The next starts by itself.   Tab) Forfeit", g.round),
-        (None, FState::Prompt) => "Press the key at the knife.   Tab) Forfeit".to_string(),
+        (Some(_), _) => format!("{status}   {}   {}", hint(Control::GameConfirm, "Done"), hint(Control::GameLeave, "Leave")),
+        (None, FState::Ready) => format!("A race against {foe} for {} caps each.   {}", d.bet, hint(Control::GameLeave, "Forfeit")),
+        (None, FState::Between) => format!("Round {} done. The next starts by itself.   {}", g.round, hint(Control::GameLeave, "Forfeit")),
+        (None, FState::Prompt) => format!("Press the key at the knife.   {}", hint(Control::GameLeave, "Forfeit")),
         (None, _) => format!("Your race is done. Waiting for {foe}; leaving now forfeits."),
     };
     crate::casino_hud::help_line(p, faces, &help);

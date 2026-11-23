@@ -568,8 +568,15 @@ fn input(
     if let Some(wheel) = w.wheel.as_mut() {
         if !aid_open {
             wheel.moved(motion.delta * k);
+            // A controller's right stick points at a slot (as the weapon wheel's); let go,
+            // the last slot pointed at stays picked.
+            if let Some(st) = crate::weapon_wheel::wheel_stick(&input).filter(|v| v.length() >= 0.5) {
+                wheel.pointer = st.normalize() * crate::weapon_wheel::REACH;
+                wheel.picked = Some(slot_at(wheel.pointer));
+            }
         }
-        if input.mouse.just_pressed(MouseButton::Right) || input.keys.just_pressed(KeyCode::Escape) {
+        let pad_back = input.bindings.device == crate::bindings::InputDevice::Controller && input.pads.iter().any(|g| g.just_pressed(GamepadButton::East));
+        if input.mouse.just_pressed(MouseButton::Right) || input.keys.just_pressed(KeyCode::Escape) || pad_back {
             close = Some(None);
         } else if !aid_open && (!input.pressed(Control::Emote) || input.mouse.just_pressed(MouseButton::Left)) {
             close = Some(wheel.picked);

@@ -928,8 +928,16 @@ in `engine/nvf-play/src/pause.rs` (`row_note`, `AUTOMATIC_INPUT_NOTE`) and
 ## Controls › Movement, Combat, Actions and Hotkeys
 
 Each control is one of the Controls tab's own rows (`controls:bind:` and its name in
-`SECTIONS`), under Movement, Combat, Actions or Hotkeys, in that order. The two entries
-below cover them all.
+`SECTIONS`), under Movement, Combat, Actions, Hotkeys, Additional Features, Multiplayer
+Questions, Minigames, Minigame Stakes and Photo Mode, in that order. The two entries below
+cover them all.
+
+The last four hold the screens' own controls (owner 2026-11-22): answering a co-op question
+(Accept Y / A, Decline N / B), the minigames (Start / Next Space / A, Leave Tab / B, the
+numbered choices 1-5 / D-pad and Y, bets Q E / LB RB, Back to the Menu R / X, Throw the left
+button / RT, the knife race W A S D / Y X A B), a stake between two players (W A F R /
+Y X A B) and the keys inside Photo Mode. While a question is on screen its buttons answer
+it and do nothing else; a key or button is swapped only with a control of the same screen.
 
 ### A control (keyboard and mouse)
 

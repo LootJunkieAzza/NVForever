@@ -278,8 +278,9 @@ impl Duel {
             (None, None) if !st.leads => format!("Waiting for {name}'s offer. "),
             (None, None) => String::new(),
         };
-        let keys = [(st.can_match(), "W) Auto Match"), (st.can_raise(), "A) Raise"), (st.can_accept(), "F) Accept"), (true, "R) Decline")];
-        lower.push_str(&keys.iter().filter(|(on, _)| *on).map(|(_, k)| *k).collect::<Vec<_>>().join("  "));
+        use crate::bindings::{mode_key, Control};
+        let keys = [(st.can_match(), Control::StakeMatch, "Auto Match"), (st.can_raise(), Control::StakeRaise, "Raise"), (st.can_accept(), Control::StakeAccept, "Accept"), (true, Control::StakeDecline, "Decline")];
+        lower.push_str(&keys.iter().filter(|(on, _, _)| *on).map(|(_, c, k)| format!("{}) {k}", mode_key(*c))).collect::<Vec<_>>().join("  "));
         (title, lower)
     }
 

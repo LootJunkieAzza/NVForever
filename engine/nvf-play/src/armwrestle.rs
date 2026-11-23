@@ -32,6 +32,7 @@
 //! Log lines start `arm wrestle:`.
 
 use crate::armwrestle_coop::{ArmBodies, ArmSeat, Wrestler, TABLE_KEY};
+use crate::bindings::{mode_key, Control};
 use crate::casino_hud::CasinoFaces;
 use crate::coop_tables::Tables;
 use crate::furniture::PlayerSeat;
@@ -47,8 +48,8 @@ use fnv_sim::FormId;
 /// The saloon (FalloutNV.esm 0x00106185) [observed].
 pub const CELL: &str = at::SALOON_EDID;
 /// The tap button [design: one button for everyone; jumping is off while seated].
-pub const TAP: KeyCode = KeyCode::Space;
-pub const TAP_NAME: &str = "Space";
+/// The tap: Start / Next's binding (Space, or A on a controller).
+pub const TAP: Control = Control::GameConfirm;
 /// Seconds the result shows before the player gets up [design].
 pub const RESULT_HOLD: f32 = 2.6;
 
@@ -328,7 +329,7 @@ fn watch_foe(time: AidTime, mut screen: ResMut<ArmScreen>, mut script: Option<Re
     }
 }
 
-fn keys(input: Res<ButtonInput<KeyCode>>, time: AidTime, mut screen: ResMut<ArmScreen>, mut arm: ResMut<ArmSeat>, mut aid_taps: Local<u32>) {
+fn keys(input: crate::bindings::ModeInput, time: AidTime, mut screen: ResMut<ArmScreen>, mut arm: ResMut<ArmSeat>, mut aid_taps: Local<u32>) {
     let Some(a) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
     let test = test_aid();
@@ -338,10 +339,10 @@ fn keys(input: Res<ButtonInput<KeyCode>>, time: AidTime, mut screen: ResMut<ArmS
         // player on the other stool the bout starts by itself; with the opponent seated
         // there, the start key asks for it.
         match a.page {
-            Page::Offer | Page::Bout if input.just_pressed(KeyCode::Tab) => a.leaving = true,
+            Page::Offer | Page::Bout if input.just_pressed(Control::GameLeave) => a.leaving = true,
             Page::Offer => {
                 let seated = a.foe_seated_at.filter(|_| a.foe.is_some());
-                let start = input.just_pressed(TAP) || input.just_pressed(KeyCode::Enter) || seated.is_some_and(|t| test.is_some_and(|aid| now - t >= aid.1));
+                let start = input.just_pressed(TAP) || input.key_just_pressed(KeyCode::Enter) || seated.is_some_and(|t| test.is_some_and(|aid| now - t >= aid.1));
                 if seated.is_some() && start && !arm.asked_npc {
                     info!("arm wrestle: asks for the bout against {} (co-op)", a.foe_name);
                     arm.want_npc = true;
@@ -370,13 +371,13 @@ fn keys(input: Res<ButtonInput<KeyCode>>, time: AidTime, mut screen: ResMut<ArmS
     }
     match a.page {
         Page::Offer => {
-            if input.just_pressed(KeyCode::Tab) {
+            if input.just_pressed(Control::GameLeave) {
                 a.leaving = true;
                 return;
             }
             // Only with him on the other stool.
             let Some(seated_at) = a.foe_seated_at.filter(|_| a.foe.is_some()) else { return };
-            let start = input.just_pressed(TAP) || input.just_pressed(KeyCode::Enter) || test.is_some_and(|t| now - seated_at >= t.1);
+            let start = input.just_pressed(TAP) || input.key_just_pressed(KeyCode::Enter) || test.is_some_and(|t| now - seated_at >= t.1);
             if start {
                 let seed = crate::minigames::seed(a.other.0, now);
                 info!("arm wrestle: {} (Strength {}) against the player (Strength {}); the bout begins", a.foe_name, a.foe_strength, a.player_strength);
@@ -387,7 +388,7 @@ fn keys(input: Res<ButtonInput<KeyCode>>, time: AidTime, mut screen: ResMut<ArmS
         }
         Page::Bout => {
             let Some(b) = a.bout.as_mut() else { return };
-            if input.just_pressed(KeyCode::Tab) {
+            if input.just_pressed(Control::GameLeave) {
                 // Getting up mid-bout gives it up.
                 info!("arm wrestle: left mid-bout; the opponent wins");
                 b.winner = Some(1 - a.side);
@@ -619,15 +620,15 @@ fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: O
     let root = commands.spawn((ArmRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(25), Pickable::IGNORE)).id();
     commands.entity(root).with_children(|p| match a.page {
         Page::Offer => {
-            use crate::match_lobby::{menu_card, row};
+            use crate::match_lobby::{key_row, menu_card};
             let who = if a.foe_name.is_empty() { "The Settler" } else { a.foe_name.as_str() };
             let (status, first) = match a.foe_state {
-                Foe::Seated => (format!("{who} is ready."), row(TAP_NAME, "Start the bout")),
-                Foe::Coming => (format!("{who} is coming over..."), row(TAP_NAME, "Wait")),
-                Foe::Away => ("Nobody is free to wrestle right now.".to_string(), row(TAP_NAME, "Wait")),
+                Foe::Seated => (format!("{who} is ready."), key_row(TAP, "Start the bout")),
+                Foe::Coming => (format!("{who} is coming over..."), key_row(TAP, "Wait")),
+                Foe::Away => ("Nobody is free to wrestle right now.".to_string(), key_row(TAP, "Wait")),
             };
-            let rows = [first, row("Tab", "Get up")];
-            menu_card(p, f, "Arm Wrestling", &status, &rows, &format!("Tap {TAP_NAME} as fast as you can to force the arm down. Strength helps a little."));
+            let rows = [first, key_row(Control::GameLeave, "Get up")];
+            menu_card(p, f, "Arm Wrestling", &status, &rows, &format!("Tap {} as fast as you can to force the arm down. Strength helps a little.", mode_key(TAP)));
         }
         Page::Bout | Page::Result => {
             let Some(b) = a.bout.as_ref() else { return };
@@ -654,7 +655,7 @@ fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: O
                 crate::casino_hud::leaderboard(p, f, &winner, &places);
             } else {
                 let left = b.countdown_left(now);
-                let prompt = if left > 0.0 { format!("{}", left.ceil() as i32) } else { format!("TAP {}", TAP_NAME.to_uppercase()) };
+                let prompt = if left > 0.0 { format!("{}", left.ceil() as i32) } else { format!("TAP {}", mode_key(TAP).to_uppercase()) };
                 prompt_and_meter(p, f, &prompt, b.lean(a.side));
             }
         }

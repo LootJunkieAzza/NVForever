@@ -262,7 +262,7 @@ pub struct Invitation {
 }
 
 /// The invitations in the near players' views: Y or N answers the first.
-fn prompt(keys: Res<ButtonInput<KeyCode>>, state: Res<State<PlayState>>, tables: Option<ResMut<Tables>>, mut inv: ResMut<Invitation>) {
+fn prompt(keys: crate::bindings::ModeInput, state: Res<State<PlayState>>, tables: Option<ResMut<Tables>>, mut inv: ResMut<Invitation>, ask: Option<ResMut<crate::bindings::AskTake>>) {
     let Some(mut t) = tables.filter(|t| t.on) else {
         inv.shown = None;
         return;
@@ -287,8 +287,11 @@ fn prompt(keys: Res<ButtonInput<KeyCode>>, state: Res<State<PlayState>>, tables:
     if *state.get() != PlayState::Playing {
         return;
     }
-    let yes = keys.just_pressed(KeyCode::KeyY);
-    if yes || keys.just_pressed(KeyCode::KeyN) {
+    if let Some(mut a) = ask {
+        a.ask();
+    }
+    let yes = keys.just_pressed(crate::bindings::Control::Accept);
+    if yes || keys.just_pressed(crate::bindings::Control::Decline) {
         if let Some(b) = answer_blob(g, yes) {
             t.send(table, g, b);
             info!("match lobby: {} {}'s invitation", if yes { "accepted" } else { "declined" }, t.name(p));
@@ -305,7 +308,7 @@ fn draw_invitation(mut commands: Commands, inv: Res<Invitation>, tables: Option<
     let line = inv.shown.map(|(p, _, g, m, s)| {
         let name = tables.as_deref().map_or_else(|| "A player".into(), |t| t.name(p));
         match s {
-            Seat::Asked => format!("{}\nY) Accept    N) Decline", invite_line(&name, g, m)),
+            Seat::Asked => format!("{}\n{}) Accept    {}) Decline", invite_line(&name, g, m), crate::bindings::mode_key(crate::bindings::Control::Accept), crate::bindings::mode_key(crate::bindings::Control::Decline)),
             _ => format!("{} ({}) with {name}: walk to the table and use it", game_word(g), m.label),
         }
     });
@@ -480,6 +483,11 @@ pub struct MenuRow {
 /// A line that can be picked.
 pub fn row(key: &str, label: impl Into<String>) -> MenuRow {
     MenuRow { key: key.into(), label: label.into(), note: String::new(), on: true }
+}
+
+/// A line picked by a screen's control `c`, named as bound (`crate::bindings::mode_key`).
+pub fn key_row(c: crate::bindings::Control, label: impl Into<String>) -> MenuRow {
+    row(&crate::bindings::mode_key(c), label)
 }
 
 impl MenuRow {

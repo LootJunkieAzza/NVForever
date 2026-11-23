@@ -1246,10 +1246,8 @@ fn light_row_press(f: &mut PhotoMode, row: Row, dir: f32) {
 #[allow(clippy::too_many_arguments)]
 fn adjust(
     real: Res<Time<Real>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::bindings::ModeInput,
     scroll: Res<AccumulatedMouseScroll>,
-    pads: Query<&Gamepad>,
     time: crate::pause::AidTime,
     mut aid: ResMut<PhotoAid>,
     mut photo: ResMut<PhotoMode>,
@@ -1271,32 +1269,31 @@ fn adjust(
         }
         return;
     }
-    let pad = |b: GamepadButton| pads.iter().any(|g| g.just_pressed(b));
-    let pad_held = |b: GamepadButton| pads.iter().any(|g| g.pressed(b));
     let f = &mut *photo;
-    // Tab (Shift+Tab back) and the shoulders change the tab.
-    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    // Next Tab and Previous Tab (Tab, Shift+Tab; the shoulders) change the tab.
+    let shift = keys.key_pressed(KeyCode::ShiftLeft) || keys.key_pressed(KeyCode::ShiftRight);
     let tabs = Tab::ALL.len();
     // While a light is edited the tab stays on Lights (LB/RB widen the light then).
     let editing = f.lights.editing.is_some();
-    if !editing && ((keys.just_pressed(KeyCode::Tab) && !shift) || pad(GamepadButton::RightTrigger)) {
+    let next_tab = keys.just_pressed(Control::PhotoNextTab);
+    if !editing && next_tab && !shift {
         (f.tab, f.selected) = ((f.tab + 1) % tabs, 0);
-    } else if !editing && ((keys.just_pressed(KeyCode::Tab) && shift) || pad(GamepadButton::LeftTrigger)) {
+    } else if !editing && ((next_tab && shift) || keys.just_pressed(Control::PhotoPreviousTab)) {
         (f.tab, f.selected) = ((f.tab + tabs - 1) % tabs, 0);
     }
     let lights_tab = f.tab() == Tab::Lights;
     let n = if lights_tab { Row::ALL.len() } else { f.tab().settings().len() };
     let row_at = if lights_tab { &mut f.light_row } else { &mut f.selected };
     *row_at = (*row_at).min(n - 1);
-    if keys.just_pressed(KeyCode::ArrowDown) || pad(GamepadButton::DPadDown) {
+    if keys.just_pressed(Control::PhotoRowDown) {
         *row_at = (*row_at + 1) % n;
-    } else if keys.just_pressed(KeyCode::ArrowUp) || pad(GamepadButton::DPadUp) {
+    } else if keys.just_pressed(Control::PhotoRowUp) {
         *row_at = (*row_at + n - 1) % n;
     }
     // Left/Right: a step, then repeating while held.
-    let dir = if keys.pressed(KeyCode::ArrowRight) || pad_held(GamepadButton::DPadRight) {
+    let dir = if keys.pressed(Control::PhotoMore) {
         1.0
-    } else if keys.pressed(KeyCode::ArrowLeft) || pad_held(GamepadButton::DPadLeft) {
+    } else if keys.pressed(Control::PhotoLess) {
         -1.0
     } else {
         0.0
@@ -1386,15 +1383,15 @@ fn adjust(
         }
     }
     let act = |name: &str| acts.iter().any(|a| a == name);
-    if keys.just_pressed(KeyCode::KeyH) || pad(GamepadButton::North) || act("hide") || (act("show") && f.panel_hidden) {
+    if keys.just_pressed(Control::PhotoHide) || act("hide") || (act("show") && f.panel_hidden) {
         f.panel_hidden = !f.panel_hidden;
         info!("photo mode: panel {}", if f.panel_hidden { "hidden" } else { "shown" });
     }
-    if (keys.just_pressed(KeyCode::KeyR) || pad(GamepadButton::West)) && !lights_tab {
+    if keys.just_pressed(Control::PhotoReset) && !lights_tab {
         f.settings.reset();
         info!("photo mode: sliders reset");
     }
-    if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) || mouse.just_pressed(MouseButton::Left) || pad(GamepadButton::South) || act("shot") {
+    if keys.just_pressed(Control::PhotoTake) || keys.key_just_pressed(KeyCode::NumpadEnter) || act("shot") {
         f.shot = Shot::Hiding;
         info!("photo mode: taking a photo");
     }
@@ -1636,24 +1633,47 @@ fn glass(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, h: f32) {
     p.spawn((at(x, y, w, h), ImageNode { color: Color::srgba(1.0, 1.0, 1.0, SOFT_ALPHA), image_mode: NodeImageMode::Sliced(slicer), ..ImageNode::new(SOFT) }));
 }
 
+/// The bound name of a Photo Mode control on the device in use ([`crate::bindings::mode_key`]).
+fn bound(c: Control) -> String {
+    crate::bindings::mode_key(c)
+}
+
+/// Next Tab and Previous Tab together: `Tab`, `LB/RB`.
+fn tabs_key() -> String {
+    let (prev, next) = (bound(Control::PhotoPreviousTab), bound(Control::PhotoNextTab));
+    if prev == "?" || prev.is_empty() || prev == next {
+        next
+    } else {
+        format!("{prev}/{next}")
+    }
+}
+
 /// The help lines on the Lights tab: choosing rows, and while a light is edited, what
-/// moves, aims and widens it.
-pub fn light_help_lines(controller: bool, editing: bool) -> [&'static str; 5] {
+/// moves, aims and widens it. The Photo controls show their bindings.
+pub fn light_help_lines(controller: bool, editing: bool) -> [String; 5] {
+    let take = bound(Control::PhotoTake);
+    let hide = bound(Control::PhotoHide);
+    let rows = format!("{}/{}", bound(Control::PhotoRowUp), bound(Control::PhotoRowDown));
+    let change = format!("{}/{}", bound(Control::PhotoLess), bound(Control::PhotoMore));
     match (controller, editing) {
-        (true, true) => ["Editing light: camera holds", "R Stick) Aim   L Stick) Move", "LT/RT) Down/Up   LB/RB) Width", "D-Pad) Options   A) Take Photo", "B) Done"],
-        (true, false) => ["A) Take Photo   Y) Hide", "B) Exit   LB/RB) Tabs", "D-Pad Up/Down) Options", "D-Pad Left/Right) Change", "Add Light: then aim it"],
-        (false, true) => ["Editing light: camera holds", "Mouse) Aim   WASD) Move", "Space/Ctrl) Up/Down   Wheel) Width", "Arrows) Options   Enter) Photo", "Esc or Right Click) Done"],
-        (false, false) => ["Enter) Take Photo   H) Hide", "Esc) Exit   Tab) Tabs", "Up/Down) Options", "Left/Right) Change", "Add Light: then aim it"],
+        (true, true) => ["Editing light: camera holds".into(), "R Stick) Aim   L Stick) Move".into(), "LT/RT) Down/Up   LB/RB) Width".into(), format!("{rows}) Options   {take}) Take Photo"), "B) Done".into()],
+        (true, false) => [format!("{take}) Take Photo   {hide}) Hide"), format!("B) Exit   {}) Tabs", tabs_key()), format!("{rows}) Options"), format!("{change}) Change"), "Add Light: then aim it".into()],
+        (false, true) => ["Editing light: camera holds".into(), "Mouse) Aim   WASD) Move".into(), "Space/Ctrl) Up/Down   Wheel) Width".into(), format!("{rows}) Options   {take}) Photo"), "Esc or Right Click) Done".into()],
+        (false, false) => [format!("{take}) Take Photo   {hide}) Hide"), format!("Esc) Exit   {}) Tabs", tabs_key()), format!("{rows}) Options"), format!("{change}) Change"), "Add Light: then aim it".into()],
     }
 }
 
 /// The help lines for the device in use and the camera's mode.
-pub fn help_lines(controller: bool, free: bool) -> [&'static str; 5] {
+pub fn help_lines(controller: bool, free: bool) -> [String; 5] {
+    let top = format!("{}) Take Photo   {}) Hide", bound(Control::PhotoTake), bound(Control::PhotoHide));
+    let exit = if controller { "B" } else { "Esc" };
+    let second = format!("{}) Reset   {exit}) Exit", bound(Control::PhotoReset));
+    let third = format!("{}) Tabs   {}/{}) Options", tabs_key(), bound(Control::PhotoRowUp), bound(Control::PhotoRowDown));
     match (controller, free) {
-        (true, true) => ["A) Take Photo   Y) Hide", "X) Reset   B) Exit", "LB/RB) Tabs   D-Pad) Options", "R Stick) Look   L Stick) Fly", "LT/RT) Down/Up"],
-        (true, false) => ["A) Take Photo   Y) Hide", "X) Reset   B) Exit", "LB/RB) Tabs   D-Pad) Options", "R Stick) Circle   L Stick) Move", "LT/RT) Down/Up"],
-        (false, true) => ["Enter) Take Photo   H) Hide", "R) Reset   Esc) Exit", "Tab) Tabs   Arrows) Options", "Mouse) Look   WASD) Fly", "Space/Ctrl) Up/Down"],
-        (false, false) => ["Enter) Take Photo   H) Hide", "R) Reset   Esc) Exit", "Tab) Tabs   Arrows) Options", "Mouse) Circle   WASD) Move", "Space/Ctrl) Up/Down"],
+        (true, true) => [top, second, third, "R Stick) Look   L Stick) Fly".into(), "LT/RT) Down/Up".into()],
+        (true, false) => [top, second, third, "R Stick) Circle   L Stick) Move".into(), "LT/RT) Down/Up".into()],
+        (false, true) => [top, second, third, "Mouse) Look   WASD) Fly".into(), "Space/Ctrl) Up/Down".into()],
+        (false, false) => [top, second, third, "Mouse) Circle   WASD) Move".into(), "Space/Ctrl) Up/Down".into()],
     }
 }
 
@@ -1841,7 +1861,7 @@ fn spawn_panel(commands: &mut Commands, c: &mut Ctx, f: &PhotoMode, controller: 
             }
             let used = if lights_tab { most } else { rows.len() as f32 };
             y += (most - used) * ROW_STEP + 14.0;
-            for line in help {
+            for line in &help {
                 c.text_in(p, FontKind::Body, line, PAD, y, false, dim);
                 y += help_step;
             }

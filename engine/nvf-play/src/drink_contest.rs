@@ -352,6 +352,7 @@ fn open(mut starts: MessageReader<DrinkStart>, mut screen: ResMut<DrinkScreen>, 
 #[allow(clippy::too_many_arguments)]
 fn steer(
     input: Res<ButtonInput<KeyCode>>,
+    (mode, ask): (crate::bindings::ModeInput, Option<ResMut<crate::bindings::AskTake>>),
     motion: Res<AccumulatedMouseMotion>,
     pads: crate::pad::ActionPads,
     real: Res<Time<Real>>,
@@ -363,7 +364,11 @@ fn steer(
 ) {
     let Some(d) = screen.0.as_mut() else { return };
     let playing = *state.get() == PlayState::Playing;
-    let tab = playing && input.just_pressed(KeyCode::Tab);
+    // Leave's key and button are the contest's while it runs (B is the Pip-Boy's in play).
+    if let Some(mut a) = ask.filter(|_| playing && d.page == Page::Play) {
+        a.take(&[crate::bindings::Control::GameLeave]);
+    }
+    let tab = playing && mode.just_pressed(crate::bindings::Control::GameLeave);
     if (tab || link.leave) && d.page == Page::Play && !d.want_leave && d.me.is_some_and(|i| d.contest.slots[i].out.is_none()) {
         d.want_leave = true;
         link.leave = true;
@@ -575,7 +580,7 @@ fn draw(mut commands: Commands, screen: Res<DrinkScreen>, time: AidTime, casino:
                 let warn = me.out.is_none() && c.tick >= dc::COUNTDOWN && (me.drink_in(c.tick) as f32 * dc::DT) < WARN;
                 let flash = d.drank_at.is_some_and(|t| now - t < 0.4);
                 circles(p, f, me, warn, flash, &prompt, now);
-                crate::casino_hud::help_line(p, f, "Mouse, left stick or WASD: steer    Tab: give up");
+                crate::casino_hud::help_line(p, f, &format!("Mouse, left stick or WASD: steer    {}: give up", crate::bindings::mode_key(crate::bindings::Control::GameLeave)));
             }
             Page::Result => {
                 let won = d.won() == Some(true);

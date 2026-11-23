@@ -373,6 +373,8 @@ impl Plugin for CoopSocialPlugin {
 #[allow(clippy::too_many_arguments)]
 fn input(
     input: ControlInput,
+    mode: crate::bindings::ModeInput,
+    ask: Option<ResMut<crate::bindings::AskTake>>,
     motion: Res<AccumulatedMouseMotion>,
     real: Res<Time<Real>>,
     state: Res<State<PlayState>>,
@@ -386,16 +388,26 @@ fn input(
     let playing = *state.get() == PlayState::Playing;
     let mut out: Vec<(u8, Msg)> = Vec::new();
     let keys = &input.keys;
+    // A question on screen has Accept's and Decline's inputs (A and B, Y and N).
+    let staking = s.duel.as_ref().is_some_and(Duel::staking);
+    if let Some(mut a) = ask.filter(|_| playing && s.wheel.is_none()) {
+        if s.invites.shown().is_some() || s.joint_ask || matches!(s.story, Some(StoryPrompt::Guest { .. })) {
+            a.ask();
+        }
+        if staking && s.invites.shown().is_none() {
+            a.take(&[Control::StakeMatch, Control::StakeRaise, Control::StakeAccept, Control::StakeDecline]);
+        }
+    }
     // The story wait's offer on screen (under an invitation, which goes first): Y
     // teleports to the host; there is nothing to decline.
-    if playing && s.wheel.is_none() && s.invites.shown().is_none() && matches!(s.story, Some(StoryPrompt::Guest { .. })) && keys.just_pressed(KeyCode::KeyY) {
+    if playing && s.wheel.is_none() && s.invites.shown().is_none() && matches!(s.story, Some(StoryPrompt::Guest { .. })) && mode.just_pressed(Control::Accept) {
         info!("co-op social: the story wait's teleport to the host accepted");
         s.story_accepted = true;
     }
     // The joint-progression question (under an invitation, which goes first).
     if playing && s.wheel.is_none() && s.invites.shown().is_none() && s.joint_ask {
-        let yes = keys.just_pressed(KeyCode::KeyY);
-        if yes || keys.just_pressed(KeyCode::KeyN) {
+        let yes = mode.just_pressed(Control::Accept);
+        if yes || mode.just_pressed(Control::Decline) {
             info!("co-op social: share quest progress this session: {}", if yes { "yes" } else { "no" });
             s.joint_ask = false;
             s.joint_answer = Some(yes);
@@ -403,8 +415,8 @@ fn input(
     }
     // The invitation on screen.
     if playing && s.wheel.is_none() && s.invites.shown().is_some() {
-        let yes = keys.just_pressed(KeyCode::KeyY);
-        if yes || keys.just_pressed(KeyCode::KeyN) {
+        let yes = mode.just_pressed(Control::Accept);
+        if yes || mode.just_pressed(Control::Decline) {
             let shown = *s.invites.shown().unwrap();
             info!("co-op social: {} the invitation of player {} ({})", if yes { "accepted" } else { "declined" }, shown.with + 1, shown.kind.label());
             if let Some(Settled::Accepted { with, kind, nonce, inviter }) = s.invites.answer(yes, &mut out) {
@@ -412,11 +424,10 @@ fn input(
             }
         }
     }
-    // The duel's stake (W Auto Match, A Raise, F Accept, R Decline), as the Caravan bet
-    // screen's keys; the player is held meanwhile ([`hold`]).
-    let staking = s.duel.as_ref().is_some_and(Duel::staking);
+    // The duel's stake (Stake Match, Raise, Accept and Decline: W, A, F and R, or Y, X, A
+    // and B, as the Caravan bet screen's); the player is held meanwhile ([`hold`]).
     if playing && staking && s.wheel.is_none() && s.invites.shown().is_none() {
-        let pressed = [(KeyCode::KeyW, BetKey::AutoMatch), (KeyCode::KeyA, BetKey::Raise), (KeyCode::KeyF, BetKey::Accept), (KeyCode::KeyR, BetKey::Decline)].into_iter().find(|(k, _)| keys.just_pressed(*k));
+        let pressed = [(Control::StakeMatch, BetKey::AutoMatch), (Control::StakeRaise, BetKey::Raise), (Control::StakeAccept, BetKey::Accept), (Control::StakeDecline, BetKey::Decline)].into_iter().find(|(k, _)| mode.just_pressed(*k));
         if let Some((_, key)) = pressed {
             let d = s.duel.as_mut().unwrap();
             let outs = d.bet(key, now);
