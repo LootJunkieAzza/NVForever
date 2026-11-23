@@ -79,9 +79,7 @@
 //! (`crate::settings::StartStates`; without it, as the page was first shown in this run);
 //! on the Controls tab, the controls' keys (or buttons) and the tab's controller rows; on
 //! the Changed list, the rows it lists. On the search it is the global Defaults.
-//! Esc or Backspace go back. With a controller B goes back a step at a time: from the rows
-//! to the rail (on the tab's line), and from the rail to the column (`pause menu: back to
-//! the rail (<line>)`) [design: owner 2026-11-22].
+//! Esc or Backspace go back.
 //!
 //! **The search** [design: #1953 point 5]: the rail's Search line (a click, or Enter on it
 //! with the keys on the rail) or Ctrl+F anywhere on the page (not while a key is awaited,
@@ -4826,18 +4824,7 @@ fn choose(
                 handled = true;
             }
             let back = !in_search && (pressed.any([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back"));
-            // With a controller, B goes back a step at a time: from the rows (a tab's, a
-            // Tweaks group's, the Changed list's) to the rail on the tab's line, and from the
-            // rail to the column [design: owner 2026-11-22, "issues backing out ... in a sub
-            // menu in settings"]. The keyboard's Esc and a click on Back leave at once.
-            let to_rail = back && controller && clicked.is_none() && matches!(view.focus, SettingsFocus::Rows);
             if !handled { match clicked {
-                _ if to_rail => {
-                    let r = RailItem::of(view.scope);
-                    view.focus = SettingsFocus::Rail(r);
-                    info!("pause menu: back to the rail ({})", r.name());
-                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
-                }
                 _ if back => leave = true,
                 Some(PauseButton::Row(id)) => {
                     sel = Some(id);
@@ -4930,7 +4917,6 @@ fn choose(
                 None => {}
             }
             if leave {
-                info!("pause menu: settings left, back to the column");
                 *page = Page::Main;
             } else {
                 if let Some(scope) = to_scope {
@@ -5041,7 +5027,6 @@ fn choose(
                 view.delete_ask = Some(*selected);
                 info!("pause menu: delete {}?", menu.list.saves.get(*selected).map(|(p, _)| stem(p)).unwrap_or_default());
             } else if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || tab_back || clicked == Some(PauseButton::Back) || act("back") {
-                info!("pause menu: load page left, back to the column");
                 *page = Page::Main;
             } else if let Some(PauseButton::LoadRow(i)) = clicked {
                 *selected = i;
@@ -6699,29 +6684,6 @@ mod tests {
         app.update();
         assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: Some(god) });
         assert_eq!(app.world().resource::<PauseView>().scope, SettingsScope::Tab("Debug"));
-    }
-
-    #[test]
-    fn a_controllers_b_backs_out_of_the_rows_to_the_rail_and_then_to_the_column() {
-        // Owner 2026-11-22: backing out of a sub menu in Settings with the controller.
-        let mut app = search_app(&SEARCHED, "", SettingsFocus::Rows);
-        let mut b = crate::bindings::Bindings::default();
-        b.device = crate::bindings::InputDevice::Controller;
-        app.insert_resource(b);
-        {
-            let mut view = app.world_mut().resource_mut::<PauseView>();
-            view.scope = SettingsScope::Tab("Debug");
-            view.search = SearchState::default();
-        }
-        *app.world_mut().resource_mut::<Page>() = Page::Settings { selected: Some(RowId::Setting(2)) };
-        app.update();
-        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "back".into())];
-        app.update();
-        assert!(matches!(*app.world().resource::<Page>(), Page::Settings { .. }), "still on the page");
-        assert_eq!(app.world().resource::<PauseView>().focus, SettingsFocus::Rail(RailItem::Tab("Debug")));
-        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "back".into())];
-        app.update();
-        assert_eq!(*app.world().resource::<Page>(), Page::Main);
     }
 
     #[test]

@@ -521,12 +521,6 @@ fn keys((mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<nvf_pl
             _ => {}
         }
     }
-    // A controller's B (or Start) is Esc only as a pressed key (`nvf_play::pad::menu_keys`),
-    // with no typed event: it closes the form too (owner 2026-11-22: the controller backs
-    // out of every page of the pause menu). A real Esc has closed it above.
-    if held.just_pressed(KeyCode::Escape) {
-        close(&mut form, &mut commands);
-    }
 }
 
 /// A click on the form.
@@ -884,7 +878,7 @@ fn draw(mut commands: Commands, mut form: ResMut<Form>, roots: Query<Entity, Wit
                     Phase::Sent => button(FormAct::Close, "Close  Esc", true),
                     Phase::Open => {
                         button(FormAct::Send, "Send  Ctrl+Enter", f.endpoint.0.is_ok() && !f.description.trim().is_empty());
-                        button(FormAct::Close, &format!("Cancel  {}", nvf_play::pad::hint_name(&[KeyCode::Escape], nvf_play::pad::PAUSE_AT)), true);
+                        button(FormAct::Close, "Cancel  Esc", true);
                     }
                     _ => button(FormAct::Close, "Sending...", false),
                 }
@@ -926,25 +920,6 @@ mod tests {
         app.world_mut().write_message(KeyboardInput { state: ButtonState::Released, ..escape.clone() });
         app.update();
         app.world_mut().write_message(escape);
-        app.update();
-        assert!(matches!(app.world().resource::<Form>().phase, Phase::Closed));
-    }
-
-    #[test]
-    fn a_controllers_b_closes_the_report() {
-        // B is Esc as a pressed key only (`nvf_play::pad::menu_keys`): no typed event. The
-        // key state is set by hand (no InputPlugin, which clears a press made between two
-        // updates at the start of the next).
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .init_resource::<ButtonInput<KeyCode>>()
-            .add_message::<KeyboardInput>()
-            .insert_resource(Form { phase: Phase::Open, ..default() })
-            .add_message::<nvf_play::save::SaveRequest>()
-            .add_systems(Update, keys);
-        app.update();
-        assert!(matches!(app.world().resource::<Form>().phase, Phase::Open));
-        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
         app.update();
         assert!(matches!(app.world().resource::<Form>().phase, Phase::Closed));
     }
