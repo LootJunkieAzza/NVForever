@@ -166,6 +166,7 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
         clips,
         variants: HashMap::new(),
         overrides: Arc::default(),
+        active_clip: None,
         head: None,
         eye_local: Vec3::ZERO,
         looking: None,
@@ -327,6 +328,7 @@ fn prepared(game: &Game<'_>, clip: &Arc<Clip>) -> Vec<crate::script_sequences::S
                 * f64::from(clip.frequency)) as f32,
             weight: request.weight,
             fade_in: request.ease_in.expect("fixture supplies explicit ease-in"),
+            additive: None,
         })
         .into_iter()
         .collect()
@@ -575,4 +577,53 @@ fn device_menu_sequence_moves_and_blends_with_holstered_or_drawn_hands_and_a_hel
         assert!(!first.rig.animator.layers.iter().any(|layer| layer.tag & 0x4000_0000 != 0), "deactivation releases the visible menu pose while world time is held");
         assert!(game.anim_paths.sequences.is_empty());
     }
+}
+
+#[test]
+fn script_sequence_weight_and_additive_pose_reach_real_rig_transform() {
+    let (mut app, _files) = crate::outfits::tests::asset_fixture();
+    app.add_plugins(bevy::transform::TransformPlugin);
+    let mut first = authored_rig(app.world_mut(), View::First, 100.0);
+    // Underlying idle puts OwnedBone at x=10 (bind is x=5).
+    pose(app.world_mut(), &mut first, &[], 0.25);
+    app.update();
+    assert_pose(&app, &first, 10.0);
+    assert_eq!(first.rig.active_clip.as_ref().map(|(p, _)| p.as_str()), Some("owned-underlying"));
+
+    // 1. Non-additive script sequence at x=30 with SetAnimWeight 0.25 -> 10 + 0.25 * (30 - 10) = 15.
+    let overlay = authored_clip(2, true); // at t=0.5, x=30
+    let make_sample = |serial: u32, weight: f32, time: f32, additive: Option<nvf_assets::anim_blend::AdditivePose>| crate::script_sequences::Sample {
+        request: fnv_game::nvse_anim::ScriptSequence {
+            path: OWNED_PATH.into(),
+            first: true,
+            serial,
+            priority: 3,
+            weight,
+            ease_in: Some(0.0),
+            ease_out: 0.2,
+            stopped: None,
+            auto_finish: false,
+            clock_offset: 0.0,
+        },
+        clip: overlay.clone(),
+        time,
+        weight,
+        fade_in: 0.0,
+        additive,
+    };
+    pose(app.world_mut(), &mut first, &[make_sample(1, 0.25, 0.5, None)], 0.0);
+    app.update();
+    assert_pose(&app, &first, 15.0);
+
+    // Weight 0.0 yields 100% back to the underlying clip (x=10).
+    pose(app.world_mut(), &mut first, &[make_sample(1, 0.0, 0.5, None)], 0.0);
+    app.update();
+    assert_pose(&app, &first, 10.0);
+
+    // 2. Additive script sequence with reference pose at t=0.0 (x=20) sampled at t=0.5 (x=30):
+    //    delta = +10; at weight 0.5 on top of base x=10 -> x=15.
+    let add = Some(nvf_assets::anim_blend::AdditivePose { reference: Some(overlay.clone()), ref_time: 0.0 });
+    pose(app.world_mut(), &mut first, &[make_sample(2, 0.5, 0.5, add)], 0.0);
+    app.update();
+    assert_pose(&app, &first, 15.0);
 }

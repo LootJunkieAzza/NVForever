@@ -728,6 +728,10 @@ struct Rig {
     /// kNVSE's replacement files for this view ([`apply_anim_overrides`]): a clip's file
     /// name, in lower case, to the replacement's path under meshes.
     overrides: Overrides,
+    /// The rig's current main body clip path (under meshes) and clip metadata, updated
+    /// each frame in [`pose_rig`] for `anim_state.rs` (`GetPlayingAnimSequencePaths`,
+    /// `GetAnimationAttributes`, `GetPlayingAnimBySequenceType`) [design].
+    active_clip: Option<(String, Arc<Clip>)>,
     /// Third person: the head bone and the eye in its space.
     head: Option<usize>,
     eye_local: Vec3,
@@ -1302,6 +1306,14 @@ impl PlayerBody {
         self.body.as_ref().is_some_and(|b| b.third.animator.layers.iter().any(|l| l.tag == TAG_LAND && !l.finished()))
     }
 
+    /// The active main body clip (path under meshes and decoded clip) for the player's
+    /// selected view, for `anim_state.rs` and `Game::set_sequence_info` [design].
+    pub fn active_clip(&self, first_person: bool) -> Option<(&str, &Arc<Clip>)> {
+        let b = self.body.as_ref()?;
+        let rig = if first_person { b.first.as_ref().unwrap_or(&b.third) } else { &b.third };
+        rig.active_clip.as_ref().map(|(p, c)| (p.as_str(), c))
+    }
+
     /// The rigs built, root entity and animator (the body's, then the arms rig's): their
     /// clips drive the materials of their shapes too (`actor_materials.rs`).
     pub fn animators(&self) -> Vec<(Entity, &Animator)> {
@@ -1396,7 +1408,7 @@ impl PlayerBody {
             Rig {
                 view, root, lens: None, folder: String::new(), skeleton: actor.skeleton,
                 animator: Animator::new(actor.skel, actor.nodes, None),
-                clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), head: None,
+                clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
                 eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None, script_used: None, translate: None,
                 weapon_node: None, weapon_parent: None, attached: None,
                 weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
@@ -2239,6 +2251,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         clips: HashMap::new(),
         variants: HashMap::new(),
         overrides: Arc::default(),
+        active_clip: None,
         head,
         eye_local,
         looking,
@@ -2668,6 +2681,14 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             want.push((c.clone(), TAG_EQUIP, 1.0, Mode::Once));
         }
     }
+    // Record the rig's main body clip (movement/jump/turn, else standing idle) for
+    // `anim_state.rs` (`GetPlayingAnimSequencePaths`, `GetAnimationAttributes`).
+    let main_clip = want
+        .iter()
+        .filter(|(_, tag, _, _)| *tag == TAG_JUMP || (*tag >= TAG_MOVE && *tag < TAG_MOVE + 4) || *tag == TAG_TURN)
+        .max_by(|a, b| a.2.total_cmp(&b.2))
+        .or_else(|| want.iter().find(|(_, tag, _, _)| *tag == TAG_IDLE));
+    rig.active_clip = main_clip.map(|(c, ..)| (c.path.clone(), c.clip.clone()));
     let a = &mut rig.animator;
     a.begin();
     let covered = special.covers();
@@ -2825,6 +2846,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         let layer = &mut a.layers[i];
         layer.rate = 0.0;
         layer.time = sequence.time;
+        layer.weight = sequence.weight;
+        layer.target = sequence.weight;
+        layer.weight_as_blend = true;
+        layer.additive = sequence.additive.clone();
         layer.sequence_priority = sequence.request.priority;
         layer.fade_out = sequence.request.ease_out;
     }

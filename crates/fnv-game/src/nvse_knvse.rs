@@ -4,8 +4,8 @@
 //! CopyAnimationsToForm [documented: each page in the wiki export; observed: the probe
 //! sets knvse-anim and knvse2, docs/spec-notes/ext-knvse.md]. As the first slice
 //! (`crate::nvse_anim`), the game keeps what scripts asked and answers from it and from
-//! the clip the engine says each actor plays; the engine does not yet blend, weight or
-//! retime what it plays from this state (follow-up, ext-knvse.md §4).
+//! the clip headers the engine publishes; the engine consumes weights, additive poses,
+//! blend transitions, sequence clocks, and AllowAttack during playback (ext-knvse.md §4).
 
 use crate::game::{Game, RunCtx};
 use crate::nvse_anim::{file_exists, same};
@@ -30,18 +30,20 @@ fn text(args: &[XVal], k: usize) -> String {
 // Transition helpers predate the explicit renderer requests. Keep their immediate
 // readbacks and the rendered request on the same state, rather than writing only
 // the legacy map now hidden by ScriptSequence's targeted clock and weight.
-fn transition_weight(g: &mut Game, actor: FormId, path: &str, weight: f64) {
-    g.knvse.weights.insert((actor, key(path)), weight);
-    let first = actor == FormId::PLAYER_REF && g.senses.first_person;
+fn transition_weight(g: &mut Game, actor: FormId, first: bool, path: &str, weight: f64) {
+    let clamped = weight.clamp(0.0, 1.0);
+    g.knvse.weights.insert((actor, key(path)), clamped);
     if let Some(sequence) = g.anim_paths.sequences.get_mut(&(actor, first, key(path))) {
-        sequence.weight = weight.clamp(0.0, 1.0) as f32;
+        sequence.weight = clamped as f32;
     }
 }
 
-fn transition_offset(g: &mut Game, actor: FormId, path: &str, time: f64) {
+fn transition_offset(g: &mut Game, actor: FormId, first: bool, path: &str, time: f64) {
+    if !time.is_finite() {
+        return;
+    }
     let now = g.anim_clock(actor, false);
     g.knvse.offsets.insert((actor, key(path)), time - now);
-    let first = actor == FormId::PLAYER_REF && g.senses.first_person;
     let clock = g.script_sequence_clock(actor, first);
     if let Some(sequence) = g.anim_paths.sequences.get_mut(&(actor, first, key(path))) {
         sequence.clock_offset = time - clock;
@@ -94,6 +96,9 @@ pub struct KnvseState {
     pub weights: HashMap<(FormId, String), f64>,
     /// SetAnimAdditive: (actor, path) -> (first person, reference pose, its time).
     pub additive: HashMap<(FormId, String), (bool, String, f64)>,
+    /// Per-view additive pose config so first- and third-person sequences of the same
+    /// path do not overwrite each other [design].
+    pub additive_views: HashMap<(FormId, bool, String), (String, f64)>,
     /// Text keys scripts gave a sequence: for every actor (`None`: AddAnimTextKey, or
     /// SetAnimTextKeys before a game is loaded) or one actor's.
     pub text_keys: HashMap<(Option<FormId>, String), TextKeys>,
@@ -193,8 +198,27 @@ impl Game<'_> {
             .unwrap_or_default()
     }
 
+    /// Additive pose configuration for `(actor, first, path)` set by `SetAnimAdditive`:
+    /// `(reference_pose_path, reference_time)`. Empty reference path means bind/rest pose
+    /// delta [documented: SetAnimAdditive; design].
+    pub fn sequence_additive(&self, actor: FormId, first: bool, path: &str) -> Option<(&str, f32)> {
+        let k = key(path);
+        if let Some((pose, time)) = self.knvse.additive_views.get(&(actor, first, k.clone())) {
+            return Some((pose.as_str(), *time as f32));
+        }
+        self.knvse
+            .additive
+            .get(&(actor, k))
+            .filter(|(f, _, _)| *f == first)
+            .map(|(_, pose, time)| (pose.as_str(), *time as f32))
+    }
+
     fn plays(&self, a: FormId, path: &str) -> bool {
         self.playing_sequences(a).iter().any(|p| same(p, path))
+    }
+
+    fn plays_for(&self, a: FormId, first: bool, path: &str) -> bool {
+        self.playing_sequences_for(a, first).iter().any(|p| same(p, path))
     }
 }
 
@@ -314,15 +338,26 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // `path weight` [documented: SetAnimWeight]; read back as seqWeight.
         "setanimweight" => {
-            let path = key(&text(args,0));
-            let weight = num(args,1,1.0);
-            if !weight.is_finite() { return Some(Ok(zero)); }
-            let first = a == FormId::PLAYER_REF && g.senses.first_person;
-            let key = (a,first,path.clone());
-            let weight = weight.clamp(0.0,1.0) as f32;
-            g.anim_paths.sequence_resume.entry(key.clone()).or_insert((0.0,1.0)).1 = weight;
-            if let Some(sequence) = g.anim_paths.sequences.get_mut(&key) { sequence.weight = weight; }
-            g.knvse.weights.insert((a,path),f64::from(weight));
+            let path = key(&text(args, 0));
+            let weight = num(args, 1, 1.0);
+            if !weight.is_finite() {
+                return Some(Ok(zero));
+            }
+            let current_first = a == FormId::PLAYER_REF && g.senses.first_person;
+            let first = if g.anim_paths.sequences.contains_key(&(a, current_first, path.clone())) {
+                current_first
+            } else if a == FormId::PLAYER_REF && g.anim_paths.sequences.contains_key(&(a, !current_first, path.clone())) {
+                !current_first
+            } else {
+                current_first
+            };
+            let key = (a, first, path.clone());
+            let weight = weight.clamp(0.0, 1.0) as f32;
+            g.anim_paths.sequence_resume.entry(key.clone()).or_insert((0.0, 1.0)).1 = weight;
+            if let Some(sequence) = g.anim_paths.sequences.get_mut(&key) {
+                sequence.weight = weight;
+            }
+            g.knvse.weights.insert((a, path), f64::from(weight));
             zero
         }
         // `path [firstPerson] [refPose] [refTime]`: 1 when it can be applied [documented:
@@ -331,8 +366,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let (path, pose) = (text(args, 0), text(args, 2));
             let ok = file_exists(&path) && (pose.is_empty() || file_exists(&pose));
             if ok {
-                let first = num(args, 1, 0.0) != 0.0;
-                g.knvse.additive.insert((a, key(&path)), (first, pose, num(args, 3, 0.0)));
+                let first = a == FormId::PLAYER_REF && num(args, 1, 0.0) != 0.0;
+                let ref_time = num(args, 3, 0.0);
+                let k = key(&path);
+                g.knvse.additive.insert((a, k.clone()), (first, pose.clone(), ref_time));
+                g.knvse.additive_views.insert((a, first, k), (pose, ref_time));
             }
             XVal::Num(f64::from(u8::from(ok)))
         }
@@ -400,54 +438,151 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `source dest …`: the source must play and the destination not; then the source
-        // stops and the destination plays, at `weight` (default 1); 1 / 0 [documented:
-        // CrossFadeAnims, "simply a convenience function that calls DeactivateAnim on the
-        // source sequence and ActivateAnim on the destination"].
+        // `source dest [first] [ease] [priority] [startOver] [weight] [timeSync]`: the
+        // source must play and the destination not; then the source stops (fading over
+        // `ease`) and the destination plays at `weight` (default 1) with `ease` and
+        // `priority`; 1 / 0 [documented: CrossFadeAnims, "simply a convenience function
+        // that calls DeactivateAnim on the source sequence and ActivateAnim on the
+        // destination"].
         "crossfadeanims" => {
             let (src, dst) = (text(args, 0), text(args, 1));
-            if !g.plays(a, &src) || g.plays(a, &dst) || !file_exists(&dst) {
+            let first = a == FormId::PLAYER_REF && num(args, 2, f64::from(u8::from(g.senses.first_person))) != 0.0;
+            if !g.plays_for(a, first, &src) || g.plays_for(a, first, &dst) || !file_exists(&dst) {
                 return Some(Ok(zero));
             }
-            crate::nvse_anim::call(g, "deactivateanim", Some(a), &[XVal::Str(src)]);
-            crate::nvse_anim::call(g, "activateanim", Some(a), &[XVal::Str(dst.clone())]);
-            transition_weight(g, a, &dst, num(args, 6, 1.0));
+            let ease = args.get(3).map(|_| num(args, 3, 0.2));
+            let priority = num(args, 4, 1.0);
+            let start_over = num(args, 5, 1.0);
+            let weight = num(args, 6, 1.0);
+            let sync = text(args, 7);
+            if !priority.is_finite()
+                || !weight.is_finite()
+                || ease.is_some_and(|v| !v.is_finite() || v < 0.0 || v > f64::from(f32::MAX))
+                || !sync.is_empty()
+            {
+                return Some(Ok(zero));
+            }
+            let mut activate_args = vec![
+                XVal::Str(dst.clone()),
+                XVal::Num(f64::from(u8::from(first))),
+                XVal::Num(priority),
+                XVal::Num(start_over),
+                XVal::Num(weight),
+            ];
+            if let Some(e) = ease {
+                activate_args.push(XVal::Num(e));
+            }
+            let Some(Ok(XVal::Num(started))) = crate::nvse_anim::call(g, "activateanim", Some(a), &activate_args) else {
+                return Some(Ok(zero));
+            };
+            if started == 0.0 {
+                return Some(Ok(zero));
+            }
+            crate::nvse_anim::deactivate_anim_for(g, a, first, &src, ease.unwrap_or(0.2));
+            transition_weight(g, a, first, &dst, weight);
             XVal::Num(1.0)
         }
-        // `source dest [first] [duration] [destFrame] [sourceWeight] [destWeight] …`: the
-        // destination plays at its weight (default 1) and a playing source keeps its
-        // weight, stopping at 0 [documented: BlendToAnim; hypothesis: the default source
-        // weight is 0]. 1 when the destination exists, also when the source does not play
-        // [observed: knvse2, 1 with a source not playing; the page says "The source
-        // sequence must be an actively playing animation"].
+        // `source dest [first] [duration] [destFrame] [sourceWeight] [destWeight] [priority] [timeSync]`:
+        // the destination plays at `destWeight` (default 1) over `duration` and a playing
+        // source keeps `sourceWeight`, stopping at 0 (fading over `duration`)
+        // [documented: BlendToAnim; hypothesis: the default source weight is 0]. 1 when
+        // the destination exists, also when the source does not play [observed: knvse2,
+        // 1 with a source not playing; the page says "The source sequence must be an
+        // actively playing animation"].
         "blendtoanim" => {
             let (src, dst) = (text(args, 0), text(args, 1));
             if !file_exists(&dst) {
                 return Some(Ok(zero));
             }
-            crate::nvse_anim::call(g, "activateanim", Some(a), &[XVal::Str(dst.clone())]);
-            transition_weight(g, a, &dst, num(args, 6, 1.0));
+            let first = a == FormId::PLAYER_REF && num(args, 2, f64::from(u8::from(g.senses.first_person))) != 0.0;
+            let duration = args.get(3).map(|_| num(args, 3, 0.2));
+            let dest_frame = match args.get(4) {
+                Some(XVal::Num(f)) => Some(*f),
+                _ => None,
+            };
             let sw = num(args, 5, 0.0);
-            if sw <= 0.0 {
-                crate::nvse_anim::call(g, "deactivateanim", Some(a), &[XVal::Str(src)]);
-            } else {
-                transition_weight(g, a, &src, sw);
+            let dw = num(args, 6, 1.0);
+            let priority = num(args, 7, 1.0);
+            let sync = text(args, 8);
+            if !priority.is_finite()
+                || !sw.is_finite()
+                || !dw.is_finite()
+                || duration.is_some_and(|v| !v.is_finite() || v < 0.0 || v > f64::from(f32::MAX))
+                || dest_frame.is_some_and(|v| !v.is_finite())
+                || !sync.is_empty()
+            {
+                return Some(Ok(zero));
             }
-            if let Some(XVal::Num(f)) = args.get(4) {
-                transition_offset(g, a, &dst, *f);
+            let mut activate_args = vec![
+                XVal::Str(dst.clone()),
+                XVal::Num(f64::from(u8::from(first))),
+                XVal::Num(priority),
+                XVal::Num(1.0),
+                XVal::Num(dw),
+            ];
+            if let Some(d) = duration {
+                activate_args.push(XVal::Num(d));
+            }
+            crate::nvse_anim::call(g, "activateanim", Some(a), &activate_args);
+            if let Some(seq) = g.anim_paths.sequences.get_mut(&(a, first, key(&dst))) {
+                seq.priority = priority as i32;
+                if let Some(d) = duration {
+                    seq.ease_in = Some(d as f32);
+                }
+            }
+            transition_weight(g, a, first, &dst, dw);
+            if sw <= 0.0 {
+                crate::nvse_anim::deactivate_anim_for(g, a, first, &src, duration.unwrap_or(0.2));
+            } else {
+                transition_weight(g, a, first, &src, sw);
+            }
+            if let Some(f) = dest_frame {
+                transition_offset(g, a, first, &dst, f);
             }
             XVal::Num(1.0)
         }
-        // `path [first] [duration] [destFrame] …`: the sequence plays from the pose
-        // [documented: BlendToAnimFromPose; hypothesis: 1 when the file exists].
+        // `path [first] [duration] [destFrame] [priority] [timeSync]`: the sequence plays
+        // from the pose over `duration` [documented: BlendToAnimFromPose; hypothesis: 1
+        // when the file exists].
         "blendtoanimfrompose" => {
             let path = text(args, 0);
             if !file_exists(&path) {
                 return Some(Ok(zero));
             }
-            crate::nvse_anim::call(g, "activateanim", Some(a), &[XVal::Str(path.clone())]);
-            if let Some(XVal::Num(f)) = args.get(3) {
-                transition_offset(g, a, &path, *f);
+            let first = a == FormId::PLAYER_REF && num(args, 1, f64::from(u8::from(g.senses.first_person))) != 0.0;
+            let duration = args.get(2).map(|_| num(args, 2, 0.2));
+            let dest_frame = match args.get(3) {
+                Some(XVal::Num(f)) => Some(*f),
+                _ => None,
+            };
+            let priority = num(args, 4, 1.0);
+            let sync = text(args, 5);
+            if !priority.is_finite()
+                || duration.is_some_and(|v| !v.is_finite() || v < 0.0 || v > f64::from(f32::MAX))
+                || dest_frame.is_some_and(|v| !v.is_finite())
+                || !sync.is_empty()
+            {
+                return Some(Ok(zero));
+            }
+            let mut activate_args = vec![
+                XVal::Str(path.clone()),
+                XVal::Num(f64::from(u8::from(first))),
+                XVal::Num(priority),
+                XVal::Num(1.0),
+                XVal::Num(1.0),
+            ];
+            if let Some(d) = duration {
+                activate_args.push(XVal::Num(d));
+            }
+            crate::nvse_anim::call(g, "activateanim", Some(a), &activate_args);
+            if let Some(seq) = g.anim_paths.sequences.get_mut(&(a, first, key(&path))) {
+                seq.priority = priority as i32;
+                if let Some(d) = duration {
+                    seq.ease_in = Some(d as f32);
+                }
+            }
+            if let Some(f) = dest_frame {
+                transition_offset(g, a, first, &path, f);
             }
             XVal::Num(1.0)
         }

@@ -72,7 +72,16 @@ fn write_files() {
     use fnv_game::mod_files::{set_roots, Roots};
     let dir = std::env::temp_dir().join(format!("nvf-anim-folders-{}", std::process::id()));
     let ago = dir.join("Meshes/AnimGroupOverride");
-    for f in ["Gun/_male/2hrAttack3.kf", "Gun/_1stPerson/2hrAttack3.kf", "Gun/_1stPerson/Mod1/2hrReloadA.kf", "Gun/_1stPerson/chances.txt", "Gun/Flag/_1stperson/2hrAttack3.kf", "Everyone/_Male/Locomotion/mtidle.kf"] {
+    for f in [
+        "Gun/_male/2hrAttack3.kf",
+        "Gun/_1stPerson/2hrAttack3.kf",
+        "Gun/_1stPerson/Mod1/2hrReloadA.kf",
+        "Gun/_1stPerson/chances.txt",
+        "Gun/Flag/_1stperson/2hrAttack3.kf",
+        "Everyone/_Male/Locomotion/mtidle.kf",
+        "Polled/_1stPerson/mtfastforward.kf",
+        "Keyworded/_Male/Locomotion/mtforward.kf",
+    ] {
         let p = ago.join(f);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, b"kf").unwrap();
@@ -89,6 +98,8 @@ fn write_files() {
     )
     .unwrap();
     std::fs::write(ago.join("everyone.json"), r#"{"folder": "Everyone", "condition": "this == Player"}"#).unwrap();
+    std::fs::write(ago.join("polled.json"), r#"{"folder": "Polled", "condition": "TestFlag == 2", "pollCondition": true}"#).unwrap();
+    std::fs::write(ago.join("keyworded.json"), r#"{"folder": "Keyworded", "condition": "HasKeyWord (this.GBO) \"OwnedKnvseTag\"", "pollCondition": true}"#).unwrap();
     std::fs::write(ago.join("Empty.json"), "").unwrap();
     std::fs::write(ago.join("Broken.json"), "[{").unwrap();
     set_roots(Roots { read: vec![dir], ..Roots::default() });
@@ -106,12 +117,11 @@ fn folder_overrides_follow_the_weapon_and_the_condition() {
     let mut g = Game::new(&f.data, world, GameConfig::default());
     g.player_entered(Some(FormId(ROOM)));
     g.tick();
-    // Three entries kept, the files read in name order without regard to case:
-    // everyone's, the gun's and the conditioned one.
+    // Five entries kept, the files read in name order without regard to case.
     let folders: Vec<&str> = g.anim_folders.entries.iter().map(|e| e.folder.as_str()).collect();
-    assert_eq!(folders, ["Everyone", "Gun", "Gun\\Flag"]);
+    assert_eq!(folders, ["Everyone", "Keyworded", "Polled", "Gun", "Gun\\Flag"]);
     // The Mod1 file and the text file are not among the gun's.
-    assert_eq!(g.anim_folders.entries[1].first, ["AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf"]);
+    assert_eq!(g.anim_folders.entries[3].first, ["AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf"]);
     // Without the gun: only everyone's entry (its condition holds on the player).
     g.refresh_anim_folders();
     assert_eq!(g.anim_overrides(FormId::PLAYER_REF, false), ["AnimGroupOverride\\Everyone\\_Male\\Locomotion\\mtidle.kf"]);
@@ -202,4 +212,44 @@ player.ActivateAnim \"AnimGroupOverride/Gun/_1stPerson/2hrAttack3.kf\"");
         .collect();
     kept.sort();
     assert_eq!(kept, [("animgroupoverride/gun/_1stperson/2hrattack3.kf".to_string(), false), ("animgroupoverride/gun/_male/2hrattack3.kf".to_string(), true)]);
+}
+
+/// `pollCondition: true` entries re-evaluate on the very next tick (without waiting 15
+/// frames), and `HasKeyWord (this.GBO) "..."` compiles and evaluates against the actor's
+/// base form keywords.
+#[test]
+fn polled_folder_conditions_and_has_keyword_this_gbo_react_next_frame() {
+    files();
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig::default());
+    g.player_entered(Some(FormId(ROOM)));
+    // Tick past frame 1 so the periodic REFRESH_FRAMES (15) boundary is not hit on frame 2/3.
+    g.tick();
+    assert!(g.anim_folders.entries.iter().any(|e| e.folder == "Polled" && e.poll_condition));
+    assert!(g.anim_folders.entries.iter().any(|e| e.folder == "Keyworded" && e.poll_condition));
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, true).iter().any(|p| p.contains("Polled")));
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("Keyworded")));
+
+    // Flip TestFlag to 2 on frame 2: pollCondition: true activates on this single tick.
+    q(&mut g, "set TestFlag to 2");
+    g.tick();
+    assert!(g.anim_overrides(FormId::PLAYER_REF, true).iter().any(|p| p.contains("Polled")));
+
+    // Assign keyword to Player base form: `HasKeyWord (this.GBO) "OwnedKnvseTag"` activates next tick.
+    q(&mut g, "AssignKeyword Player \"OwnedKnvseTag\"");
+    g.tick();
+    assert!(g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("Keyworded")));
+    // Reference-syntax `PlayerREF.HasKeyword "OwnedKnvseTag"` also reads the same keyword.
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.HasKeyword \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
+        fnv_script::vm::XVal::Num(1.0)
+    );
+
+    // Removing the keyword and clearing TestFlag deactivates both on the very next tick.
+    g.jip2.keywords.remove(&FormId::PLAYER_BASE);
+    q(&mut g, "set TestFlag to 0");
+    g.tick();
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("Keyworded")));
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, true).iter().any(|p| p.contains("Polled")));
 }

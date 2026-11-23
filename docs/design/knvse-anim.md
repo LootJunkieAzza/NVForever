@@ -54,8 +54,12 @@ slice 2 plays; CopyAnimationsToForm copies the entries too.
 
 GetAnimationAttributes, Get/SetGlobalAnimTime, the blend functions, SetAnimWeight,
 SetAnimAdditive, the text-key functions, CopyAnimationsToForm and the rest are built on
-the game side (`nvse_knvse.rs`, docs/spec-notes/ext-knvse.md). The engine's per-actor
-player does not read their state yet.
+the game side (`nvse_knvse.rs`, docs/spec-notes/ext-knvse.md). Engine playback now
+consumes per-actor/per-view script-sequence weights (`SetAnimWeight`), additive poses
+(`SetAnimAdditive`), blend transition durations/priorities/views (`CrossFadeAnims`,
+`BlendToAnim`, `BlendToAnimFromPose`), `AllowAttack` cooldown/flinch release (`nvf-play`
+`combat.rs`), and clip metadata publication (`Game::set_sequence_info` from `anim_state.rs`,
+`idles.rs`, `script_sequences.rs`) [design].
 
 ## 5. The player, conditions and folders (2026-11-13)
 
@@ -97,10 +101,25 @@ player does not read their state yet.
 - **Script-played sequences on NPCs** (`nvforever` idles.rs, `play_npc_sequences`):
   PlayAnimationPath's sequence starts on the drawn actor's idle slot, bound to its
   skeleton, once or looping as on the player; DeactivateAnim stops it; an actor out of
-  view starts it again when drawn (smoke `knvse-npc-sequences`).
-- **NPCs' conditional paths** (anim_paths.rs): an actor with a conditional
-  SetActorAnimationPath gets `Game::anim_overrides_now` each frame, the world put back,
-  so the replacement comes and goes with its condition; the others keep
-  `Game::anim_overrides`.
-- **Still not built:** ActivateAnim's layered sequences on NPCs; NPCs' replacements
-  for anything but their standing locomotion.
+  view starts it again when drawn (smoke `knvse-npc-sequences`). ActivateAnim's layered
+  sequences (and the blend helpers) play on `BlendPlayer::script_layers` with explicit
+  sequence priority, weight, ease-in/ease-out, clock/seek, and additive reference poses
+  [design].
+- **Idles and `ForcePlayIdle` / `ForceStopIdle` POV** (`nvforever` idles.rs): kNVSE
+  filename overrides apply to idle clips (`clip_path_for`) while leaving actors without
+  overrides unchanged [hypothesis: idle overrides match the overridden file name as
+  `Rig::clip` does]. `ForcePlayIdle` and `ForceStopIdle` accept optional `playerPOV`
+  (`1` third-person, `2` first-person) [documented: GECK wiki ForcePlayIdle, ForceStopIdle];
+  first-person arm-only idles without `Camera1st` play on the first-person rig without
+  locking camera/movement [design].
+- **Player body clip reporting** (`nvforever` anim_state.rs, player_body.rs): the active
+  rig's main body clip is reported in `AnimState::clip` and its header published via
+  `Game::set_sequence_info` for both player and NPCs [design].
+- **NPCs' conditional paths and posture sets** (anim_paths.rs): an actor with a
+  conditional SetActorAnimationPath gets `Game::anim_overrides_now` each frame, the world
+  put back, so the replacement comes and goes with its condition; the others keep
+  `Game::anim_overrides`. Standing (`mt`), crouched (`sneakmt`), limping (`hurtmt`),
+  swimming (`swim`), and alert (`h2h`) locomotion sets apply matching replacements and
+  restore their shared sets when cleared [design].
+- **Still not built:** NPCs' weapon-group overrides (attacks, reloads, aims, equips) and
+  synchronizing sequence time to another clip (`time sync sequence path`).

@@ -893,3 +893,77 @@ fn stewie_worn_armor_weightless_queries_follow_handoff_and_keep_item_mask_fallba
     assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bWeightlessWornArmor:Tweaks\")"), n(0.0));
     assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bWeightlessWornPowerArmor:Tweaks\")"), n(1.0));
 }
+
+#[test]
+fn knvse_transition_duration_view_additive_and_force_play_idle_pov() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    g.senses.first_person = false;
+
+    // CrossFadeAnims forwards explicit first-person view, ease time, priority and weight.
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 1 2 1 0.8 0.1)"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.CrossFadeAnims \"test\\a.kf\" \"test\\b.kf\" 1 0.45 5 1 0.65)"), n(1.0));
+    let src = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\a.kf".into())).unwrap();
+    assert!(src.stopped.is_some());
+    assert!((src.ease_out - 0.45).abs() < 1e-6);
+    let dst = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\b.kf".into())).unwrap();
+    assert!(dst.stopped.is_none());
+    assert_eq!(dst.priority, 5);
+    assert!((dst.weight - 0.65).abs() < 1e-6);
+    assert_eq!(dst.ease_in, Some(0.45));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.GetAnimWeight \"test\\b.kf\")"), n(f64::from(0.65f32)));
+
+    // BlendToAnim forwards duration, priority, source weight and dest frame on the requested view.
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.BlendToAnim \"test\\b.kf\" \"test\\c.kf\" 1 0.35 0.5 0.2 0.75 7)"), n(1.0));
+    let b = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\b.kf".into())).unwrap();
+    assert!(b.stopped.is_none(), "positive source weight keeps source active");
+    assert!((b.weight - 0.2).abs() < 1e-6);
+    let c = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\c.kf".into())).unwrap();
+    assert_eq!(c.priority, 7);
+    assert_eq!(c.ease_in, Some(0.35));
+    assert!((c.weight - 0.75).abs() < 1e-6);
+    assert!((g.script_sequence_time_for(FormId::PLAYER_REF, "test\\c.kf", true) - 0.5).abs() < 1e-6);
+
+    // BlendToAnimFromPose forwards view, duration, dest frame and priority.
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.BlendToAnimFromPose \"test\\d.kf\" 1 0.25 0.4 9)"), n(1.0));
+    let d = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\d.kf".into())).unwrap();
+    assert_eq!(d.priority, 9);
+    assert_eq!(d.ease_in, Some(0.25));
+    assert!((g.script_sequence_time_for(FormId::PLAYER_REF, "test\\d.kf", true) - 0.4).abs() < 1e-6);
+
+    // SetAnimAdditive keeps first- and third-person additive configs isolated per view.
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.SetAnimAdditive \"test\\d.kf\" 1 \"test\\a.kf\" 0.2)"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.SetAnimAdditive \"test\\d.kf\" 0 \"test\\b.kf\" 0.8)"), n(1.0));
+    assert_eq!(g.sequence_additive(FormId::PLAYER_REF, true, "test\\d.kf"), Some(("test\\a.kf", 0.2)));
+    assert_eq!(g.sequence_additive(FormId::PLAYER_REF, false, "test\\d.kf"), Some(("test\\b.kf", 0.8)));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.IsAnimAdditive \"test\\d.kf\")"), n(1.0));
+
+    // ForceStopIdle with explicit playerPOV 1/2 records POV-scoped stops without stopping the other rig.
+    q(&mut g, "PlayerREF.ForceStopIdle 2\nPlayerREF.ForceStopIdle 1");
+    assert_eq!(
+        g.gaps.idle_stop_pov,
+        vec![(FormId::PLAYER_REF, fnv_game::idles::IdlePov::First), (FormId::PLAYER_REF, fnv_game::idles::IdlePov::Third)]
+    );
+    assert!(g.gaps.idle_stops.is_empty());
+
+    // Non-finite destFrame in BlendToAnim / BlendToAnimFromPose is rejected without activating or poisoning clock_offset.
+    const INF: &str = "(Pow 10 400)";
+    const NEG_INF: &str = "(-1 * (Pow 10 400))";
+    const NAN: &str = "((Pow 10 400) - (Pow 10 400))";
+    for bad in [NAN, INF, NEG_INF] {
+        assert_eq!(
+            q(&mut g, &format!("SetFunctionValue (PlayerREF.BlendToAnim \"test\\d.kf\" \"test\\a.kf\" 0 0.2 {bad} 0 1 2)")),
+            n(0.0),
+            "BlendToAnim must reject non-finite destFrame {bad}"
+        );
+        assert!(!g.anim_paths.sequences.contains_key(&(FormId::PLAYER_REF, false, "test\\a.kf".into())));
+        assert_eq!(
+            q(&mut g, &format!("SetFunctionValue (PlayerREF.BlendToAnimFromPose \"test\\b.kf\" 0 0.2 {bad} 2)")),
+            n(0.0),
+            "BlendToAnimFromPose must reject non-finite destFrame {bad}"
+        );
+        assert!(!g.anim_paths.sequences.contains_key(&(FormId::PLAYER_REF, false, "test\\b.kf".into())));
+    }
+    assert!(g.script_sequence_time_for(FormId::PLAYER_REF, "test\\d.kf", true).is_finite());
+}

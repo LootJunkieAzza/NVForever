@@ -2,11 +2,13 @@
 //! an animated wrist display must leave walking and mouse input with the player.
 
 use bevy::prelude::*;
+use fnv_actor::idle::meshes_path;
 use fnv_actor::idle_play::IdleKeys;
 use fnv_game::nvse_anim::ScriptSequence;
 use fnv_game::nvse_knvse::SequenceInfo;
 use fnv_sim::FormId;
 use nvf_assets::actor::{ActorCtx, ActorParts};
+use nvf_assets::anim_blend::AdditivePose;
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::ModelCtx;
 use nvf_play::script::ScriptState;
@@ -20,6 +22,7 @@ pub(crate) struct Sample {
     pub time: f32,
     pub weight: f32,
     pub fade_in: f32,
+    pub additive: Option<AdditivePose>,
 }
 
 #[derive(Resource, Default)]
@@ -41,6 +44,10 @@ fn prepare_frame(game: &fnv_game::Game<'_>, samples: &mut PlayerSequences, clock
     if !game.loading && game.in_menu() && game.menu_open(fnv_game::game::menus::PIPBOY) && elapsed.is_finite() {
         samples.first_menu_dt = elapsed as f32;
     }
+}
+
+fn additive_ref_path(ref_pose: &str) -> String {
+    meshes_path(ref_pose)
 }
 
 pub(crate) fn prepare(
@@ -85,10 +92,21 @@ pub(crate) fn prepare(
         let weight = f64::from(request.weight);
         let phase = (clock * f64::from(clip.frequency)) as f32;
         if !phase.is_finite() || !weight.is_finite() { continue; }
+        let additive = match g.sequence_additive(FormId::PLAYER_REF, request.first, &request.path) {
+            Some((ref_pose, ref_time)) if !ref_pose.is_empty() => {
+                let ref_path = additive_ref_path(ref_pose);
+                if !ctx.clip_ready(&ref_path) {
+                    continue;
+                }
+                Some(AdditivePose { reference: ctx.clip(&ref_path), ref_time })
+            }
+            Some((_, ref_time)) => Some(AdditivePose { reference: None, ref_time }),
+            None => None,
+        };
         let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
         let sample = Sample { time:phase,
             weight:weight.clamp(0.0,1.0) as f32, fade_in:request.ease_in.unwrap_or(keys.blend_in),
-            request, clip };
+            additive, request, clip };
         if told.insert(sample.request.serial) {
             info!("script sequence: player {} {:?}, priority {}, weight {}, {} tracks", if sample.request.first {"first"} else {"third"}, sample.request.path, sample.request.priority, sample.weight, sample.clip.tracks.len());
         }
@@ -164,5 +182,12 @@ mod tests {
             app.update();
             assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.0, "a current frame is never replayed");
         }
+    }
+
+    #[test]
+    fn additive_ref_path_normalizes_forward_slashes_without_double_meshes_prefix() {
+        assert_eq!(additive_ref_path("meshes/foo/bar.kf"), "meshes\\foo\\bar.kf");
+        assert_eq!(additive_ref_path("Meshes\\Foo/Bar.kf"), "meshes\\foo\\bar.kf");
+        assert_eq!(additive_ref_path("foo/bar.kf"), "meshes\\foo\\bar.kf");
     }
 }

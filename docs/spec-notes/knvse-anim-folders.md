@@ -76,13 +76,13 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   was seen in an archive].
 - **A set's files:** every `.kf` under its `_male` (third person) and `_1stPerson` (first
   person) folders, at any depth, except under `Mod1`–`Mod3` (left for a follow-up).
-- **Which hold:** four times a second, for the player and each actor the engine draws: the
-  entries for the actor's reference, its base or its equipped weapon, and those for every
-  actor, whose condition holds on the actor (EvaluateString's compiler; a condition that
-  fails to compile or run counts as false and is logged once). [decision: the original
-  checks a condition when the animation starts, or continually with `pollCondition`
-  (hypothesis); a quarter second covers both closely enough, so `pollCondition` is read
-  but changes nothing.]
+- **Which hold:** four times a second (or every frame when any loaded entry sets
+  `pollCondition: true`), for the player and each actor the engine draws: the entries for
+  the actor's reference, its base or its equipped weapon, and those for every actor, whose
+  condition holds on the actor (EvaluateString's compiler, including `HasKeyWord (this.GBO)
+  "..."` and `this.HasKeyWord "..."`; a condition that fails to compile or run counts as
+  false and is logged once) [design: `pollCondition: true` upgrades evaluation from
+  `REFRESH_FRAMES` (15) to every tick; entries without it keep the quarter-second cadence].
 - **Which wins:** the holding entries in order of priority (none is 0), then of reading;
   their files are given in that order, and of two files of the same group the later wins
   (as the engine applies SetActorAnimationPath's paths) [hypothesis: the higher priority
@@ -99,9 +99,11 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
 
 ## 4. Not built (follow-ups)
 
-- The engine plays no first-person override, no weapon group (attacks, reloads, aims,
-  equips) and no idle from them: it has no player for SetWeaponAnimationPath's either.
-  Weapon sets are read and matched game-side, ready for it.
+- The engine plays player first-person, third-person, and weapon-group overrides
+  (`player_body.rs`), player and NPC idle overrides (`idles.rs`), and NPC posture
+  locomotion sets (`anim_paths.rs`), but still plays no NPC weapon-group overrides
+  (attacks, reloads, aims, equips): weapon sets are read and matched game-side, ready
+  for it.
 - The group of a file from its sequence name instead of its file name; several files of
   one group (`2haJamF.kf`, `2haJamF_a.kf`) and `chances.txt` [hypothesis: variants picked
   at random].

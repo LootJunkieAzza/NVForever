@@ -24,8 +24,18 @@ impl Plugin for AnimPathsPlugin {
     }
 }
 
-/// Per actor: the paths applied and the shared standing set to go back to.
-type Applied = HashMap<u32, (Vec<String>, Arc<crate::locomotion::ClipSet>)>;
+/// Original shared posture sets saved before applying per-actor kNVSE overrides.
+#[derive(Clone)]
+struct SharedSets {
+    stand: Arc<crate::locomotion::ClipSet>,
+    sneak: Option<Arc<crate::locomotion::ClipSet>>,
+    hurt: Option<Arc<crate::locomotion::ClipSet>>,
+    swim: Option<Arc<crate::locomotion::ClipSet>>,
+    alert: Option<Arc<crate::locomotion::ClipSet>>,
+}
+
+/// Per actor: the paths applied and the shared posture sets to go back to.
+type Applied = HashMap<u32, (Vec<String>, SharedSets)>;
 
 /// Each frame: the files that apply to each drawn actor now. SetActorAnimationPath's
 /// conditional paths count while their condition holds (`Game::anim_overrides_now`, run
@@ -64,17 +74,38 @@ fn apply(mut script: Option<ResMut<ScriptState>>, sim: Option<ResMut<nvf_play::s
         }
         let shared = match applied.get(&rig.reference) {
             Some((_, s)) => s.clone(),
-            None => lo.stand_set(),
+            None => SharedSets {
+                stand: lo.stand_set(),
+                sneak: lo.sneak.clone(),
+                hurt: lo.hurt.clone(),
+                swim: lo.swim.clone(),
+                alert: lo.alert.clone(),
+            },
         };
         if paths.is_empty() {
             info!("anim paths: {:08X} plays its shared set again", rig.reference);
-            lo.replace_stand(shared);
+            lo.replace_posture_sets(shared.stand, shared.sneak, shared.hurt, shared.swim, shared.alert);
             applied.remove(&rig.reference);
             continue;
         }
-        let (set, n) = shared.with_replacements(&mut ctx, &rig.skel, &paths);
-        info!("anim paths: {:08X} plays {n} replaced move(s) from {} file(s)", rig.reference, paths.len());
-        lo.replace_stand(Arc::new(set));
+        let (stand, n_stand) = shared.stand.with_replacements(&mut ctx, &rig.skel, &paths);
+        let mut total = n_stand;
+        let replace_opt = |opt: &Option<Arc<crate::locomotion::ClipSet>>, stance: &str, ctx: &mut ActorCtx, total: &mut usize| -> Option<Arc<crate::locomotion::ClipSet>> {
+            let base = opt.as_ref()?;
+            let (set, n) = base.with_replacements_for_stance(ctx, &rig.skel, &paths, stance);
+            if n > 0 {
+                *total += n;
+                Some(Arc::new(set))
+            } else {
+                Some(base.clone())
+            }
+        };
+        let sneak = replace_opt(&shared.sneak, "sneakmt", &mut ctx, &mut total);
+        let hurt = replace_opt(&shared.hurt, "hurtmt", &mut ctx, &mut total);
+        let swim = replace_opt(&shared.swim, "swim", &mut ctx, &mut total);
+        let alert = replace_opt(&shared.alert, "h2h", &mut ctx, &mut total);
+        info!("anim paths: {:08X} plays {total} replaced move(s) from {} file(s)", rig.reference, paths.len());
+        lo.replace_posture_sets(Arc::new(stand), sneak, hurt, swim, alert);
         applied.insert(rig.reference, (paths, shared));
     }
 }

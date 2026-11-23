@@ -220,13 +220,21 @@ impl ClipSet {
     /// H2HIdle, did not change Idle]. Paths are under meshes. Also returns how many moves
     /// were replaced.
     pub fn with_replacements(&self, ctx: &mut impl ClipSource, skel: &PreparedSkeleton, paths: &[String]) -> (ClipSet, usize) {
+        self.with_replacements_for_stance(ctx, skel, paths, STANCE)
+    }
+
+    /// As [`Self::with_replacements`], matching files whose stem is `stance` + move group
+    /// (e.g. `sneakmt`, `hurtmt`, `swim`, `h2h`) [hypothesis: replacement file stems match
+    /// the stance prefix they override].
+    pub fn with_replacements_for_stance(&self, ctx: &mut impl ClipSource, skel: &PreparedSkeleton, paths: &[String], stance: &str) -> (ClipSet, usize) {
         let mut set = self.clone();
         let mut n = 0;
+        let stance = stance.to_ascii_lowercase();
         for p in paths {
             let p = p.replace('/', "\\");
             let stem = p.rsplit('\\').next().unwrap_or("").to_ascii_lowercase();
             let stem = stem.strip_suffix(".kf").unwrap_or(&stem).to_string();
-            let Some(m) = Move::ALL.into_iter().find(|m| stem == format!("{STANCE}{}", m.group().to_ascii_lowercase())) else { continue };
+            let Some(m) = Move::ALL.into_iter().find(|m| stem == format!("{stance}{}", m.group().to_ascii_lowercase())) else { continue };
             let path = format!("meshes\\{p}");
             let Some(clip) = ctx.clip(&path) else { continue };
             let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
@@ -559,9 +567,21 @@ impl Locomotion {
         self.stand.clone()
     }
 
-    /// Take `set` as the standing set and play from it now if it is the one in use.
-    pub fn replace_stand(&mut self, set: Arc<ClipSet>) {
-        self.stand = set;
+    /// Replace standing and optional posture sets (`sneak`, `hurt`, `swim`, `alert`)
+    /// together (kNVSE overrides on NPCs, `anim_paths.rs`) and switch to the active one.
+    pub fn replace_posture_sets(
+        &mut self,
+        stand: Arc<ClipSet>,
+        sneak: Option<Arc<ClipSet>>,
+        hurt: Option<Arc<ClipSet>>,
+        swim: Option<Arc<ClipSet>>,
+        alert: Option<Arc<ClipSet>>,
+    ) {
+        self.stand = stand;
+        self.sneak = sneak;
+        self.hurt = hurt;
+        self.swim = swim;
+        self.alert = alert;
         self.switch_set(self.posture_set());
     }
 

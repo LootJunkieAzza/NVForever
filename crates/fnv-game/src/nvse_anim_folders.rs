@@ -34,6 +34,10 @@ pub struct FolderEntry {
     pub folder: String,
     /// A script condition, tested on the actor [observed: `this != Player`].
     pub condition: Option<String>,
+    /// JSON `pollCondition: true`: evaluate this entry every frame instead of only on
+    /// the periodic `REFRESH_FRAMES` cadence [documented: AnimGroupOverride JSON;
+    /// observed: 12 entries in the 25-mod survey; design: per-frame evaluation].
+    pub poll_condition: bool,
     /// Higher wins over lower [hypothesis: values 1, 2 and 10 next to entries without
     /// one, the more special case given the higher number].
     pub priority: i64,
@@ -49,6 +53,8 @@ pub struct FolderEntry {
 pub struct AnimFolders {
     loaded: bool,
     pub entries: Vec<FolderEntry>,
+    /// True when at least one loaded entry requests per-frame polling (`pollCondition: true`).
+    has_polled: bool,
     /// The files each actor's entries give now, by (actor, first person), the lowest
     /// priority first (a later file of the same group wins, as with the engine's
     /// replacements).
@@ -158,8 +164,9 @@ fn load(g: &Game) -> Vec<FolderEntry> {
                 continue;
             }
             let condition = it.get("condition").and_then(Json::as_str).map(str::trim).filter(|c| !c.is_empty()).map(str::to_string);
+            let poll_condition = it.get("pollCondition").and_then(Json::as_bool).unwrap_or(false) && condition.is_some();
             let priority = it.get("priority").and_then(Json::as_i64).unwrap_or(0);
-            out.push(FolderEntry { forms, folder, condition, priority, order: out.len(), third, first });
+            out.push(FolderEntry { forms, folder, condition, poll_condition, priority, order: out.len(), third, first });
         }
     }
     if !out.is_empty() {
@@ -221,10 +228,11 @@ impl Game<'_> {
     }
 
     /// Read the folders once (when the Data folder is known), then every
-    /// [`REFRESH_FRAMES`] the entries of the player and each actor the engine draws.
+    /// [`REFRESH_FRAMES`] (or every frame when any entry sets `pollCondition: true`)
+    /// the entries of the player and each actor the engine draws.
     pub(crate) fn anim_folders_tick(&mut self) {
         self.load_anim_folders();
-        if self.anim_folders.entries.is_empty() || self.frame % REFRESH_FRAMES != 1 {
+        if self.anim_folders.entries.is_empty() || (!self.anim_folders.has_polled && self.frame % REFRESH_FRAMES != 1) {
             return;
         }
         self.refresh_anim_folders();
@@ -235,6 +243,7 @@ impl Game<'_> {
         if !self.anim_folders.loaded && crate::mod_files::data_dir().is_some() {
             self.anim_folders.loaded = true;
             self.anim_folders.entries = load(self);
+            self.anim_folders.has_polled = self.anim_folders.entries.iter().any(|e| e.poll_condition);
         }
     }
 

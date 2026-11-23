@@ -3633,7 +3633,21 @@ pub(crate) fn fire(
     c.player_spread = None;
     // Scripts' EjectCasing requests (`fnv_game::nvse_jg10`) are taken every frame, so
     // those made with no gun out (or for other actors) do not pile up or fire later.
-    let asked = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| rt.game.take_casing_requests()).unwrap_or_default();
+    let (asked, allow_attack) = script
+        .as_deref_mut()
+        .and_then(|s| s.rt.as_mut())
+        .map(|rt| (rt.game.take_casing_requests(), rt.game.take_allow_attack()))
+        .unwrap_or_default();
+    // kNVSE `AllowAttack`: clear the player's current attack/cooldown/flinch lock so
+    // the next attack may start at once [documented: GECK wiki AllowAttack; design].
+    if allow_attack.contains(&FormId::PLAYER_REF) {
+        if let Some(cycle) = c.cycle.as_mut() {
+            cycle.phase = Phase::Ready;
+        }
+        c.swings.reset();
+        anim.swing = None;
+        c.flinch_until = 0.0;
+    }
     if c.melee {
         c.vats_cone = None;
         return;
@@ -7893,6 +7907,57 @@ mod tests {
             sim.world.equip(FormId::PLAYER_REF, PISTOL).unwrap();
             equip_sync_step(&mut combat, &mut sim, &mut anim, false);
             assert_eq!(combat.player_ammo(), Some(AMMO_PLAIN));
+        }
+
+        #[test]
+        fn allow_attack_clears_player_cooldown_and_flinch_without_affecting_vanilla() {
+            let (mut sim, mut combat) = make_sim_and_combat();
+            let mut anim = WeaponAnim::default();
+            sim.world.equip(FormId::PLAYER_REF, PISTOL).unwrap();
+            equip_sync_step(&mut combat, &mut sim, &mut anim, false);
+
+            // Put the player in attack cooldown and flinch lock.
+            combat.cycle.as_mut().unwrap().phase = Phase::Cooldown { left: 1.2 };
+            combat.flinch_until = 5.0;
+            anim.swing = Some("attackleft".into());
+
+            let mut app = App::new();
+            let script = ScriptState::over_plugins(&[]);
+            // Vanilla frame: AllowAttack not called -> cooldown & flinch remain active.
+            app.insert_resource(Time::<()>::default())
+                .insert_resource(combat)
+                .insert_resource(sim)
+                .insert_resource(PhysState::default())
+                .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+                .insert_resource(PlayerControl::default())
+                .insert_resource(anim)
+                .insert_resource(CombatStats::default())
+                .insert_resource(script)
+                .insert_resource(PlayerLimbs::default())
+                .add_message::<ShotFired>()
+                .add_message::<PlaySound>()
+                .add_message::<CasingFx>()
+                .add_message::<LoopSound>()
+                .add_message::<ScaledSound>()
+                .add_systems(Update, fire);
+            app.update();
+            assert!(matches!(app.world().resource::<Combat>().cycle.as_ref().unwrap().phase, Phase::Cooldown { .. }), "vanilla cooldown untouched");
+            assert_eq!(app.world().resource::<Combat>().flinch_until, 5.0);
+
+            // Script calls PlayerREF.AllowAttack -> next frame clears cooldown, swing and flinch.
+            app.world_mut()
+                .resource_mut::<ScriptState>()
+                .rt
+                .as_mut()
+                .unwrap()
+                .game
+                .run_query("Begin Function {}\nPlayerREF.AllowAttack\nEnd", Default::default())
+                .unwrap();
+            app.update();
+            assert_eq!(app.world().resource::<Combat>().cycle.as_ref().unwrap().phase, Phase::Ready);
+            assert_eq!(app.world().resource::<Combat>().flinch_until, 0.0);
+            assert_eq!(app.world().resource::<WeaponAnim>().swing, None);
+            assert!(app.world_mut().resource_mut::<ScriptState>().rt.as_mut().unwrap().game.take_allow_attack().is_empty());
         }
     }
 }

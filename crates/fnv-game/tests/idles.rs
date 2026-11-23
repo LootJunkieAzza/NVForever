@@ -295,7 +295,7 @@ const ADD_SCRIPT_PACKAGE: u16 = 0x1097;
 const REMOVE_SCRIPT_PACKAGE: u16 = 0x1098;
 
 fn asked(g: &mut Game) -> Vec<(u32, u32, IdleSource)> {
-    std::mem::take(&mut g.idle_requests).into_iter().map(|IdleRequest { actor, idle, source }| (actor.0, idle.0, source)).collect()
+    std::mem::take(&mut g.idle_requests).into_iter().map(|IdleRequest { actor, idle, source, .. }| (actor.0, idle.0, source)).collect()
 }
 
 #[test]

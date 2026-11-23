@@ -80,6 +80,14 @@ run does not have:
 A first run's `Floor (time × 10)` the frame after SetAnimCurrentTime 1.5 read 16 (the
 game's frames were slow); the row keeps whole seconds.
 
-Follow-ups (engine side, slice 2 of knvse-anim.md): the engine's animation player does
-not yet read the weights, offsets, global time, additive poses or text keys kept here,
-take AllowAttack, or tell the sequence headers (`Game::set_sequence_info`).
+Follow-ups (engine side, slice 2 of knvse-anim.md):
+- **Wired [design]:** script-sequence weights (`SetAnimWeight`), additive poses
+  (`SetAnimAdditive`, both bind-pose delta and reference-clip delta), blend transition
+  durations/views/priorities (`CrossFadeAnims`, `BlendToAnim`, `BlendToAnimFromPose`),
+  global/per-sequence clocks (`SetGlobalAnimTime`, `SetAnimCurrentTime`), `AllowAttack`
+  cooldown/flinch release (`nvf-play` `combat.rs`), and clip metadata publication
+  (`Game::set_sequence_info` from `script_sequences.rs`, `anim_state.rs`, and `idles.rs`)
+  for both the player (`Animator`) and drawn NPCs (`BlendPlayer::script_layers`).
+- **Remaining:** runtime text-key triggers (`AddAnimTextKey` / `SetAnimTextKeys`) driving
+  engine sound/hit events, and cross-sequence morph/time synchronization (`time sync
+  sequence path`).

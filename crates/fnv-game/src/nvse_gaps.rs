@@ -70,6 +70,9 @@ pub struct GapsState {
     /// Actors whose special idle scripts stopped (StopIdle, ForceStopIdle), for the
     /// engine to take.
     pub idle_stops: Vec<FormId>,
+    /// POV-scoped `ForceStopIdle` requests (`1` third-person, `2` first-person), for the
+    /// engine to take without stopping the other player rig [documented: ForceStopIdle].
+    pub idle_stop_pov: Vec<(FormId, crate::idles::IdlePov)>,
     /// The placed radio stations, from the engine; `None` until the engine sets them.
     pub radio_sites: Option<Vec<RadioSite>>,
     /// The armed mines of the loaded cells that someone other than the player put down,
