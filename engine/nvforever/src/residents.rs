@@ -2728,6 +2728,16 @@ impl Core {
         // In co-op a minigame table does not hold it (`nvf_play::coop_tables`).
         // Nor, in a co-op session, any menu or conversation (queue item 195).
         self.held_now = ((game.menu.is_some() || game.dialogue.is_some()) && !nvf_play::coop_tables::keeps_world()) || game.loading;
+        // In co-op the Wait menu does not hold the world (queue item 195), but the hours
+        // waited still pass for the residents, as they do held: a schedule or a GameMode
+        // block keyed to the hour goes on (issue #2445, Chauncey's warp to the bathhouse
+        // at 15 h while the host waits in the steam room) [observed: ship-081 solo run of
+        // chauncey-steam-room while hosting: no waited hour passed for the AI].
+        if !self.held_now && waited > 0 && game.menu == Some(nvf_play::script::MENU_SLEEP_WAIT) && !self.ai.agents.is_empty() {
+            self.pass_hours(game, nav, world, waited, phys.as_deref_mut(), &held, now);
+            self.note_presence(game);
+            return;
+        }
         if self.held_now {
             for b in phys.iter_mut().flat_map(|p| p.npcs.values_mut()) {
                 b.velocity = [0.0, 0.0];

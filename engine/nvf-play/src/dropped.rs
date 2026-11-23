@@ -370,6 +370,14 @@ fn sync_drawn(
             Some(rig) if rig.door.is_some() || rig.idle.as_ref().map_or(!rig.groups.is_empty(), |c| !c.only_free_motion()) => {
                 let (r, drawn_shapes, by_name) = rig.spawn_nodes(&mut commands, root, Transform::IDENTITY, &path, 0.0);
                 commands.entity(r).insert(RefVisual(id));
+                // Script groups play on it as on a model a script enabled
+                // (`crate::script_draw::ScriptDrawnRig`): the Nellis artillery's strike
+                // (SCPT 0x0016657D) plays Forward on load and places its explosion once
+                // IsAnimPlaying Forward is 0, which a group waiting for a rig never drawn
+                // never was [observed: ship-081 solo run, nellis-artillery-fires].
+                if !rig.groups.is_empty() {
+                    commands.entity(r).insert(crate::script_draw::ScriptDrawnRig { reference: id, path: path.clone(), nodes: by_name.clone() });
+                }
                 for e in &drawn_shapes {
                     commands.entity(*e).insert(RefVisual(id));
                 }
