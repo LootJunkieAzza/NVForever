@@ -1352,10 +1352,21 @@ fn main() -> AppExit {
         Some(l) => GameData::open_for_plugins_layered(args.data(), &l.mod_roots(), &args.plugins, &args.nif_schema),
         None => GameData::open_for_plugins_in(args.data(), mods.first().map(|p| p.as_path()), &args.plugins, &args.nif_schema),
     };
-    let game = match game {
+    let mut game = match game {
         Ok(g) => g,
         Err(e) => return fail(e),
     };
+    // NVForever's own pictures (the co-op perks' and the interaction wheel's icons,
+    // `Interface\Icons\NVForever`) ship in `coop-assets` beside the exe, laid over the data
+    // as loose files, so a plain install has them without a mod manager [design: owner
+    // via parity 2026-11-23, "The extra perks are in the build right?"]. Their paths are
+    // NVForever's own, so they replace nothing of the game's.
+    if let Some(dir) = exe_dir.as_ref().map(|d| d.join("coop-assets")).filter(|d| d.is_dir()) {
+        if let Some(vfs) = std::sync::Arc::get_mut(&mut game.vfs) {
+            let n = vfs.add_loose_dir(&dir);
+            eprintln!("vfs: {n} file(s) of NVForever's own from {}", dir.display());
+        }
+    }
     // A damaged archive stops the start (owner 2026-10-25): the player is told which one
     // and why, and no save or world loads with its assets missing. A file inside a
     // readable archive that fails later is only that file's error.
