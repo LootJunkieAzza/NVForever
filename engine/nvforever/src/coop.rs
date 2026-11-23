@@ -444,6 +444,8 @@ impl Plugin for CoopPlugin {
             .add_systems(Update, (replication::corpses_out.before(replication::replicate), replication::corpses_in.after(replication::replicate)))
             .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
             .add_systems(Update, scene::story_prompts.after(scene::share_scene).before(downed))
+            // On the slide marker before the camera is placed, so the frame shows its view.
+            .add_systems(Update, scene::slide_spot.in_set(nvf_play::PlaySet::Physics).before(nvf_play::control::place_camera))
             .init_resource::<HoldLeave>()
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends.after(crate::split::hold_screen_on_quit))
