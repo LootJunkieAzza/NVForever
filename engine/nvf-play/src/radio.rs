@@ -1683,7 +1683,7 @@ mod tests {
             entity: Entity::PLACEHOLDER,
             level: Arc::new(AtomicU32::new(level.to_bits())),
             meter: Arc::new(AtomicU32::new(0)),
-            track: Track::Line { info: FormId(1), part: 0 },
+            track: Track::Line { info: FormId(1), part: 0, rejoined: 0 },
             song: true,
             station,
         }

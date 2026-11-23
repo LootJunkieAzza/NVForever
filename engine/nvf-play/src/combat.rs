@@ -7826,6 +7826,9 @@ mod tests {
             let mut combat = Combat {
                 forms: CombatForms::default(),
                 rules: Rules::defaults(),
+                sent_booms: Vec::new(),
+                remote_booms: Vec::new(),
+                lock: Default::default(),
                 tuning: CombatTuning::default(),
                 blood_rng: SplitMix(6),
                 blood_chance_logged: false,
@@ -8050,6 +8053,9 @@ mod tests {
             let combat = Combat {
                 forms,
                 rules: Rules::defaults(),
+                sent_booms: Vec::new(),
+                remote_booms: Vec::new(),
+                lock: Default::default(),
                 tuning: CombatTuning::default(),
                 blood_rng: SplitMix(6),
                 blood_chance_logged: false,

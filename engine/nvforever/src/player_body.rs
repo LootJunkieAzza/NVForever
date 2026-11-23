@@ -4944,7 +4944,7 @@ mod tests {
             sighting: None, scope_eye: None, use_lens: false, sight_relief: None, drawn: Vec::new(),
             spawned_forms: Vec::new(), shown: Some(false), seen: None, furniture: None,
             since_attack: f32::INFINITY, attack_loop: None, wound_up: None, wound_hit: None,
-            sighting2: None, attack_eject: None, ejected: false, carry: None,
+            sighting2: None, attack_eject: None, ejected: false, carry: None, warm: false, furniture_over: None,
         };
         let mut first_rig = Rig {
             view: View::First, root, lens: Some([outer, inner]), folder: String::new(), skeleton: String::new(),
@@ -4958,7 +4958,7 @@ mod tests {
             sighting: None, scope_eye: None, use_lens: false, sight_relief: None, drawn: Vec::new(),
             spawned_forms: Vec::new(), shown: Some(false), seen: None, furniture: None,
             since_attack: f32::INFINITY, attack_loop: None, wound_up: None, wound_hit: None,
-            sighting2: None, attack_eject: None, ejected: false, carry: None,
+            sighting2: None, attack_eject: None, ejected: false, carry: None, warm: false, furniture_over: None,
         };
         first_rig.clips.insert(ClipKey::Idle(Stance::Stand, false, false), Some(Arc::new(ClipInfo::new("idle".into(), idle, None))));
 
@@ -5029,7 +5029,7 @@ mod tests {
             sighting: None, scope_eye: None, use_lens: false, sight_relief: None, drawn: Vec::new(),
             spawned_forms: Vec::new(), shown, seen: None, furniture: None,
             since_attack: f32::INFINITY, attack_loop: None, wound_up: None, wound_hit: None,
-            sighting2: None, attack_eject: None, ejected: false, carry: None,
+            sighting2: None, attack_eject: None, ejected: false, carry: None, warm: false, furniture_over: None,
         };
         let pb = PlayerBody {
             body: Some(Body {
@@ -5045,13 +5045,13 @@ mod tests {
         world.insert_resource(pb);
         let seen = Seen { body: false, head: true, arms: true, weapon: true };
         world.run_system_once(move |mut pb: ResMut<PlayerBody>, mut commands: Commands, mut vis: Query<&mut Visibility>| {
-            show_rigs(pb.body.as_mut().unwrap(), &mut commands, &mut vis, seen, true);
+            show_rigs(pb.body.as_mut().unwrap(), &mut commands, &mut vis, seen, true, false, false);
         }).unwrap();
         assert_eq!(*world.get::<Visibility>(first_root).unwrap(), Visibility::Inherited);
         assert!(world.resource::<PlayerBody>().first_person_drawn());
         // Hiding hides cleanly; re-showing shows again.
         world.run_system_once(move |mut pb: ResMut<PlayerBody>, mut commands: Commands, mut vis: Query<&mut Visibility>| {
-            show_rigs(pb.body.as_mut().unwrap(), &mut commands, &mut vis, seen, false);
+            show_rigs(pb.body.as_mut().unwrap(), &mut commands, &mut vis, seen, false, false, false);
         }).unwrap();
         assert_eq!(*world.get::<Visibility>(first_root).unwrap(), Visibility::Hidden);
         assert!(!world.resource::<PlayerBody>().first_person_drawn());

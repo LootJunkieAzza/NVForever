@@ -768,7 +768,7 @@ fn target(
         })
         .min_by(|a, b| a.0.total_cmp(&b.0));
     if let Some((d, m)) = down {
-        let t = crate::activate::Targeted { form_id: m.reference, name: m.name.clone(), action: crate::activate::outcome::Action::Revive { with: kit.0.as_ref().map(|(_, n)| n.clone()) }, distance: d, source: crate::activate::pick::Source::Collision, crime: false, empty: false };
+        let t = crate::activate::Targeted { form_id: m.reference, name: m.name.clone(), action: crate::activate::outcome::Action::Revive { with: kit.0.as_ref().map(|(_, n)| n.clone()) }, distance: d, source: crate::activate::pick::Source::Collision, crime: false, empty: false, through: None };
         if found.0.as_ref() != Some(&t) {
             found.0 = Some(t);
         }
@@ -799,7 +799,7 @@ fn target(
     if found.0.as_ref().is_some_and(|t| t.distance + 8.0 < d && t.form_id != m.reference) {
         return;
     }
-    let t = crate::activate::Targeted { form_id: m.reference, name: m.name.clone(), action: crate::activate::outcome::Action::Player, distance: d, source: crate::activate::pick::Source::Collision, crime: false, empty: false };
+    let t = crate::activate::Targeted { form_id: m.reference, name: m.name.clone(), action: crate::activate::outcome::Action::Player, distance: d, source: crate::activate::pick::Source::Collision, crime: false, empty: false, through: None };
     if found.0.as_ref() != Some(&t) {
         found.0 = Some(t);
     }

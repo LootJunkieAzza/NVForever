@@ -1294,7 +1294,7 @@ mod tests {
     use fnv_world::placed::BaseObject;
 
     fn base(sig: &[u8; 4], model: Option<&str>, world_model: Option<&str>) -> BaseObject {
-        BaseObject { form_id: 0x0012_0855, sig: *sig, edid: None, model: model.map(Into::into), world_model: world_model.map(Into::into), world_alt_textures: Vec::new(), worn_only: false }
+        BaseObject { form_id: 0x0012_0855, sig: *sig, edid: None, model: model.map(Into::into), world_model: world_model.map(Into::into), world_alt_textures: Vec::new(), worn_only: false, flags: 0, bounds: None }
     }
 
     #[test]

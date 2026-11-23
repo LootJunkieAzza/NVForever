@@ -1125,7 +1125,7 @@ mod tests {
         let rt = script.rt.as_mut().unwrap();
         let mut sim = SimState { forms: rt.game.world.forms, refs: rt.game.world.placed, world: fnv_sim::World::new(rt.game.world.forms, rt.game.world.placed, fnv_sim::SimConfig::default()) };
 
-        let mut open = Open { category: FormId(CAT), station: None, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, pointer_pick: false, navigated: 0 };
+        let mut open = Open { category: FormId(CAT), station: None, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, pointer_pick: false, navigated: 0, made: Vec::new() };
         let initial = view(rt, &mut sim, &open);
         assert_eq!(initial.rows.iter().map(|r| (r.recipe, r.ready)).collect::<Vec<_>>(), vec![(FormId(RCPE_B), true), (FormId(RCPE_A), false)]);
         open.selected = 0;

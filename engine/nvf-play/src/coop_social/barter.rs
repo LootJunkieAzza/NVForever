@@ -135,6 +135,7 @@ pub fn fill(m: &mut MenuModel, book: &Trade, name: &str, mine: &[(u32, u16)], fo
             _ => FormId(0),
         },
         stock: FormId(0),
+        hidden: Default::default(),
         caps: model::CAPS,
         discount: 0,
         skill: 0.0,

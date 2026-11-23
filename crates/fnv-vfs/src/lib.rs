@@ -419,7 +419,8 @@ impl Vfs {
     pub fn add_loose_dir(&mut self, dir: &Path) -> usize {
         let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
         let mut files = Vec::new();
-        walk(&dir, &dir, &mut files, &mut self.skipped);
+        let mut open: Vec<PathBuf> = std::fs::canonicalize(&dir).into_iter().collect();
+        walk(&dir, &dir, &mut open, &mut files, &mut self.skipped);
         let mut n = 0;
         for rel in files {
             let key = normalize(&rel.to_string_lossy());
