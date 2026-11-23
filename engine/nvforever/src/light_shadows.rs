@@ -235,11 +235,21 @@ pub const KEEP: f32 = 1.25;
 /// than 16 let the light through].
 pub const NEAR_Z: f32 = 8.0;
 
+/// Default depth and normal shadow biases for casting point and spot lights in game units
+/// (`1 m = 70 units`, so `2.4` units ≈ 3.4 cm; Bevy's upstream default `0.08` is 1.1 mm
+/// in game units and causes contour-band self-shadow acne on curved faces and necks).
+pub const DEFAULT_DEPTH_BIAS: f32 = 2.4;
+pub const DEFAULT_NORMAL_BIAS: f32 = 0.35;
+
 /// A shape or a skeleton counts as moved for the lamps' maps once it is this far from where
 /// it last marked them (game units, about 6 cm) [engineering choice, 2026-11-18: in the
 /// Prospector Saloon the actors' idle skeletons and the head parts that follow them (eyes,
 /// mouth, hat) marked about 116 times a frame, every lamp near an actor every frame].
 pub const MOVE_EPS: f32 = 4.0;
+
+/// Movement threshold (game units) for dynamic actor parts and skeletons so head turns and
+/// nods in dialogue redraw nearby lamp shadow faces without waiting for the periodic refresh.
+pub const DYNAMIC_MOVE_EPS: f32 = 1.25;
 
 /// A casting light counts as moved once it is this far from where its maps were last
 /// marked or drawn in full (game units, about 11 cm) [engineering choice, 2026-11-18: a
@@ -568,10 +578,10 @@ struct LampShadowState {
     /// themselves (moved or their full redraw due); and a few of the shapes' names.
     causes: [u64; 4],
     names: Vec<String>,
-    /// Where each shape (its bounds' centre) and each skeleton (by its first joint; its joints'
-    /// box) was when it last marked the lamps, and the frame: moves under [`MOVE_EPS`] add up until they
-    /// reach it.
-    shapes_at: EntityHashMap<(Vec3, u64)>,
+    /// Where each shape (its bounds' centre and orientation probe) and each skeleton (by
+    /// its first joint; its joints' box) was when it last marked the lamps, and the frame:
+    /// moves under [`MOVE_EPS`] add up until they reach it.
+    shapes_at: EntityHashMap<(Vec3, Vec3, u64)>,
     skeletons_at: EntityHashMap<(Vec3, Vec3, u64)>,
     frames: u64,
     since: f32,
@@ -1218,16 +1228,22 @@ fn near_z() -> f32 {
     })
 }
 
-/// `NVF_LIGHT_SHADOW_BIAS=<depth>,<normal>` (a test aid): the shadow biases of the casting
-/// lights in place of Bevy's defaults, for comparing.
-fn biases() -> Option<(f32, f32)> {
-    static BIAS: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
+/// `NVF_LIGHT_SHADOW_BIAS=<depth>,<normal>` (a test aid): overrides the game-unit shadow
+/// biases ([`DEFAULT_DEPTH_BIAS`], [`DEFAULT_NORMAL_BIAS`]) of the casting lights.
+fn biases() -> (f32, f32) {
+    static BIAS: std::sync::OnceLock<(f32, f32)> = std::sync::OnceLock::new();
     *BIAS.get_or_init(|| {
-        let v = std::env::var("NVF_LIGHT_SHADOW_BIAS").ok()?;
-        let (d, n) = v.split_once(',')?;
-        let b = (d.trim().parse().ok()?, n.trim().parse().ok()?);
-        info!("light shadows: NVF_LIGHT_SHADOW_BIAS depth {} normal {}", b.0, b.1);
-        Some(b)
+        let parsed = std::env::var("NVF_LIGHT_SHADOW_BIAS").ok().and_then(|v| {
+            let (d, n) = v.split_once(',')?;
+            Some((d.trim().parse().ok()?, n.trim().parse().ok()?))
+        });
+        match parsed {
+            Some(b) => {
+                info!("light shadows: NVF_LIGHT_SHADOW_BIAS depth {} normal {}", b.0, b.1);
+                b
+            }
+            None => (DEFAULT_DEPTH_BIAS, DEFAULT_NORMAL_BIAS),
+        }
     })
 }
 
@@ -1634,16 +1650,24 @@ fn shadow_lights(
             if rl.is_some_and(|l| !l.intersects(&layers)) {
                 continue;
             }
-            // Shown, hidden or new at once; moved once it went MOVE_EPS from its last mark.
+            // Shown, hidden or new at once; moved once it went past its movement threshold
+            // from its last mark. Dynamic actor parts also track orientation via an off-centre
+            // probe so rotating a head in dialogue redraws nearby lamps immediately.
             let centre = t.transform_point(Vec3::from(aabb.center));
-            let last = state.shapes_at.get(&e).map(|(c, _)| *c);
-            let moved_enough = last.is_none_or(|c| c.distance(centre) > MOVE_EPS);
+            let probe = if dynamic {
+                t.transform_point(Vec3::from(aabb.center) + Vec3::from(aabb.half_extents) * 0.5)
+            } else {
+                centre
+            };
+            let eps = if dynamic { DYNAMIC_MOVE_EPS } else { MOVE_EPS };
+            let last = state.shapes_at.get(&e).copied();
+            let moved_enough = last.is_none_or(|(_, p, _)| p.distance(probe) > eps);
             if !vis.is_changed() && !moved_enough {
                 continue;
             }
             let sphere = Sphere { center: centre.into(), radius: Vec3::from(aabb.half_extents).length() * max_scale(t) };
             // Where it last marked, for the cut-off (a shape shown, hidden or new: none).
-            let old = (!vis.is_changed()).then(|| last.map(|c| Sphere { center: c.into(), radius: sphere.radius })).flatten();
+            let old = (!vis.is_changed()).then(|| last.map(|(c, _, _)| Sphere { center: c.into(), radius: sphere.radius })).flatten();
             // With the static cache: a static shape shown, hidden or new marks the caches
             // where it is; one that moved becomes dynamic and marks the caches where it was
             // and is; a dynamic one marks only the composites, where it was and is.
@@ -1669,7 +1693,7 @@ fn shadow_lights(
             state.pass.cut_marks += u64::from(m.cut);
             // Where it was is kept only for shapes near a lamp.
             if m.reached {
-                state.shapes_at.insert(e, (centre, frame));
+                state.shapes_at.insert(e, (centre, probe, frame));
             }
             if m.marked {
                 state.causes[0] += 1;
@@ -1700,14 +1724,16 @@ fn shadow_lights(
             let (mut changed, mut lo, mut hi) = (false, Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for j in skin.joints.iter().filter_map(|&j| joints.get(j).ok()) {
                 changed |= j.is_changed();
-                lo = lo.min(j.translation());
-                hi = hi.max(j.translation());
+                let pos = j.translation();
+                let tip = pos + j.forward().as_vec3() * 6.0;
+                lo = lo.min(pos).min(tip);
+                hi = hi.max(pos).max(tip);
             }
             if !changed || lo.x > hi.x {
                 continue;
             }
             let last = state.skeletons_at.get(&e).copied();
-            let moved_enough = last.is_none_or(|(l, h, _)| (l - lo).abs().max_element() > MOVE_EPS || (h - hi).abs().max_element() > MOVE_EPS);
+            let moved_enough = last.is_none_or(|(l, h, _)| (l - lo).abs().max_element() > DYNAMIC_MOVE_EPS || (h - hi).abs().max_element() > DYNAMIC_MOVE_EPS);
             if !moved_enough {
                 continue;
             }
@@ -1938,10 +1964,8 @@ fn shadow_lights(
             if cast && p.shadow_map_near_z != near {
                 p.shadow_map_near_z = near;
             }
-            if let (true, Some((d, n))) = (cast, bias) {
-                if (p.shadow_depth_bias, p.shadow_normal_bias) != (d, n) {
-                    (p.shadow_depth_bias, p.shadow_normal_bias) = (d, n);
-                }
+            if cast && (p.shadow_depth_bias, p.shadow_normal_bias) != bias {
+                (p.shadow_depth_bias, p.shadow_normal_bias) = bias;
             }
         }
         if let Some(mut s) = spot {
@@ -1953,10 +1977,8 @@ fn shadow_lights(
             if cast && s.shadow_map_near_z != near {
                 s.shadow_map_near_z = near;
             }
-            if let (true, Some((d, n))) = (cast, bias) {
-                if (s.shadow_depth_bias, s.shadow_normal_bias) != (d, n) {
-                    (s.shadow_depth_bias, s.shadow_normal_bias) = (d, n);
-                }
+            if cast && (s.shadow_depth_bias, s.shadow_normal_bias) != bias {
+                (s.shadow_depth_bias, s.shadow_normal_bias) = bias;
             }
         }
         match (cast, casting) {
@@ -2052,7 +2074,7 @@ fn shadow_lights(
             state.names.clear();
             // Forget shapes and skeletons that have not marked for a while.
             let old = frame.saturating_sub(4800);
-            state.shapes_at.retain(|_, (_, f)| *f >= old);
+            state.shapes_at.retain(|_, (_, _, f)| *f >= old);
             state.skeletons_at.retain(|_, (_, _, f)| *f >= old);
         }
     }
