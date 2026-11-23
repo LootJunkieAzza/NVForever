@@ -932,9 +932,13 @@ mod tests {
 
     #[test]
     fn a_controllers_b_closes_the_report() {
-        // B is Esc as a pressed key only (`nvf_play::pad::menu_keys`): no typed event.
+        // B is Esc as a pressed key only (`nvf_play::pad::menu_keys`): no typed event. The
+        // key state is set by hand (no InputPlugin, which clears a press made between two
+        // updates at the start of the next).
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin))
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_message::<KeyboardInput>()
             .insert_resource(Form { phase: Phase::Open, ..default() })
             .add_message::<nvf_play::save::SaveRequest>()
             .add_systems(Update, keys);
