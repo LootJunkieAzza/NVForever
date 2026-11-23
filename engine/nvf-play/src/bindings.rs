@@ -1271,9 +1271,13 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
         let Some(v) = ini_get(text, PAD_SECTION, name) else { continue };
         found += 1;
         let p = match v.trim() {
-            n if n.is_empty() || n.eq_ignore_ascii_case("none") => Ok(if kinds.is_none() && split_origin(c).is_some() { Some(PadBinding::BuiltIn) } else { None }),
+            n if n.is_empty() || n.eq_ignore_ascii_case("none") => Ok(if (kinds.is_none() || !crate::pad::binding::KINDS) && split_origin(c).is_some() { Some(PadBinding::BuiltIn) } else { None }),
             n => match PadBinding::parse(n) {
                 Ok(PadBinding::BuiltIn) if split_origin(c).is_none() => Err(format!("{n:?}: only a split hold is built in")),
+                // Ship 0.8.1 co-op: no binding kinds; the split holds stay built in
+                // (`crate::pad::binding::KINDS`).
+                Ok(_) if !crate::pad::binding::KINDS && split_origin(c).is_some() => Ok(Some(PadBinding::BuiltIn)),
+                Ok(PadBinding::Hold(_) | PadBinding::Double(_) | PadBinding::Combo { .. }) if !crate::pad::binding::KINDS => Err(format!("{n:?}: hold, double-tap and combo bindings aren't in this build")),
                 Ok(p) => Ok(Some(p)),
                 Err(e) => Err(e),
             },

@@ -35,10 +35,18 @@ enum State {
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub struct PadCapture {
     state: State,
+    /// The binding kinds taken by gesture; off, the first button pressed is the binding
+    /// ([`crate::pad::binding::KINDS`]).
+    kinds: bool,
 }
 
 impl PadCapture {
     /// Start again (a row starts waiting, or stops).
+    /// A capture that takes every binding kind by its gesture.
+    pub fn with_kinds() -> PadCapture {
+        PadCapture { kinds: true, ..default() }
+    }
+
     pub fn reset(&mut self) {
         self.state = State::Idle;
     }
@@ -54,6 +62,7 @@ impl PadCapture {
     pub fn step(&mut self, down: &[GamepadButton], pressed: &[GamepadButton], timing: Timing, dt: f32) -> Option<PadBinding> {
         self.state = match self.state {
             State::Idle => match pressed.first() {
+                Some(&b) if !(self.kinds || crate::pad::binding::KINDS) => State::Done(PadBinding::Press(crate::pad::PadInput::Button(b))),
                 Some(&b) => State::First(b, 0.0),
                 None => State::Idle,
             },
@@ -122,22 +131,22 @@ mod tests {
         let t = Timing::default();
         let frames = |s: f32| (s / DT).ceil() as usize + 2;
         // A press: up again, and no second press within the window.
-        let (mut c, mut b) = (PadCapture::default(), Vec::new());
+        let (mut c, mut b) = (PadCapture::with_kinds(), Vec::new());
         assert_eq!(feed(&mut c, &mut b, &[West], 3), None);
         assert_eq!(feed(&mut c, &mut b, &[], frames(t.double)), Some(PadBinding::Press(PadInput::Button(West))));
         // A hold: shown as one once held long enough, taken when let go.
-        let (mut c, mut b) = (PadCapture::default(), Vec::new());
+        let (mut c, mut b) = (PadCapture::with_kinds(), Vec::new());
         assert_eq!(feed(&mut c, &mut b, &[West], frames(t.hold)), None);
         assert_eq!(c.shown(t), Some(PadBinding::Hold(West)));
         assert_eq!(feed(&mut c, &mut b, &[], 1), Some(PadBinding::Hold(West)));
         // A double tap.
-        let (mut c, mut b) = (PadCapture::default(), Vec::new());
+        let (mut c, mut b) = (PadCapture::with_kinds(), Vec::new());
         feed(&mut c, &mut b, &[North], 3);
         feed(&mut c, &mut b, &[], 3);
         assert_eq!(feed(&mut c, &mut b, &[North], 3), None, "taken when let go");
         assert_eq!(feed(&mut c, &mut b, &[], 1), Some(PadBinding::Double(North)));
         // A combo, the first button its modifier, taken once both are up.
-        let (mut c, mut b) = (PadCapture::default(), Vec::new());
+        let (mut c, mut b) = (PadCapture::with_kinds(), Vec::new());
         feed(&mut c, &mut b, &[LeftTrigger], 4);
         assert_eq!(feed(&mut c, &mut b, &[LeftTrigger, South], 4), None);
         assert_eq!(feed(&mut c, &mut b, &[LeftTrigger], 2), None, "the modifier still down");

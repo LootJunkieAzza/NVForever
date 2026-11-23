@@ -645,7 +645,7 @@ mod tests {
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
         assert_eq!(keys(&list, &l, "Gameplay")[..11], ["[Game]", "difficulty", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
         assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "", "[Sound]", "music", "voice", "reverb", "voice-reverb"]);
-        assert_eq!(keys(&list, &l, "Controls")[..9], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", "@hold-time", "@double-tap", "@combo-window", ""]);
+        assert_eq!(keys(&list, &l, "Controls")[..9], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", "", "[Look]", "@invert", "@sensitivity"]);
         assert_eq!(
             keys(&list, &l, NVF_FEATURES_TAB),
             ["[Advanced Movement]", "advanced-movement", "movement-weight", "", "[Gameplay]", "movement-inertia", "weapon-handling", "advanced-recoil", "sprint", "", "[Visual Only]", "weapon-inertia", "animation-smoothing", "camera-motion", "", "[World Interaction]", "grass-fire", "", "[Quick Loot]", "quick-loot", "quick-loot-scale", "quick-loot-background", "quick-loot-weight", "quick-loot-value", "quick-loot-value-per-weight"]

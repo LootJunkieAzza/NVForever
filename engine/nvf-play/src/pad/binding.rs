@@ -44,6 +44,14 @@ pub enum PadBinding {
     BuiltIn,
 }
 
+/// Ship 0.8.1 co-op: the binding kinds (hold, double tap, combo) and the split holds' own
+/// rows are left out of this build and kept for a PR of their own [owner 2026-11-23:
+/// "controller too actually - but keep the controller work specifically for our
+/// interaction and stuff like anything co-op related to the controller"]. Off: the Controls
+/// tab takes a controller binding as a press, as upstream does, an INI's hold, double tap
+/// or combo is refused (the default kept), and the split holds stay built in.
+pub const KINDS: bool = false;
+
 /// The words the INI and the page put before a hold and a double tap.
 const HOLD_WORD: &str = "Hold";
 const DOUBLE_WORD: &str = "Double";
