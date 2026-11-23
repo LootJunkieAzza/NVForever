@@ -45,6 +45,17 @@
 //!   then looked out of the host's head (item 205 questsync frame
 //!   guest_quest_failed_IForgot, 2026-11-14).
 //!
+//! - **On the slide marker.** While a slideshow has this guest's view (its own cell is a
+//!   slideshow's room, `nvf_play::hud::slideshow_room`: the ending's `Endgame` or an
+//!   add-on's intro room), it stands on the room's slide marker (its one XMarkerHeading,
+//!   [`slide_marker`]) and looks along it, as the host's MoveTo put the host
+//!   ([`slide_spot`]). The guest came in beside the host (the summon's [`beside_slot`])
+//!   or wherever the Y teleport or a console move put it, and the slide stood off to the
+//!   left of its screen with black down the right (ship-081 duo run E01, 2026-11-23;
+//!   owner: "That slide looks off center bruh wtf"). Each game finds the marker in its
+//!   own data, so nothing more is sent; the view is the player's again when a script
+//!   moves it out of the room.
+//!
 //! - **Dressed as the host.** What the host's scripts put on the host's player
 //!   (EquipItem, `Game::script_worn`) and it still wears goes too: each guest wears it,
 //!   given one if it has none, locked on if the host's is, and it goes again when the
@@ -66,7 +77,9 @@
 //! Log: `co-op: the host's scene holds this player (…)`, `co-op: the host's scene lets
 //! this player go`, `co-op: the host's scene: image space modifier 0x… on this screen`,
 //! `co-op: the host's scene: <texture> on 0x… (<shape>)`,
-//! `co-op: scene: beside the host at …`, `co-op: scene: out of the host's body: …`.
+//! `co-op: scene: beside the host at …`, `co-op: scene: out of the host's body: …`,
+//! `co-op: slideshow: this player watches from the slide marker 0x… …`,
+//! `co-op: slideshow: over; the view is this player's again`.
 
 use super::{place_of, Coop};
 use bevy::prelude::*;
@@ -129,6 +142,9 @@ pub(super) struct Shared {
     host_in_world: Option<f32>,
     /// A guest's: its own scripts' modifiers were taken off (module notes, item 210).
     own_mods_dropped: bool,
+    /// A guest's: the slide marker it watches a slideshow from ([`slide_spot`]), while it
+    /// does.
+    slide: Option<FormId>,
 }
 
 impl Shared {
@@ -573,7 +589,9 @@ pub(super) fn share_scene(
     }
     // Out of the host's body, when no scene holds the view (module notes).
     let loads = loading.as_deref().is_some_and(|l| l.active());
-    let in_host = !scene_holds_view(held) && place_of(&loc) == host.place && in_body(player.feet, host.feet);
+    // On a slide marker the players stand in one another ([`slide_spot`]).
+    let on_slide = s.slide.is_some();
+    let in_host = !on_slide && !scene_holds_view(held) && place_of(&loc) == host.place && in_body(player.feet, host.feet);
     s.in_host_since = if in_host { s.in_host_since.or(Some(now)) } else { None };
     if s.in_host_since.is_some_and(|t| now - t >= SETTLE) && !loads && coop.downed_at.is_none() {
         let feet = beside_slot(host.feet, host.yaw, coop.link.as_ref().and_then(|l| l.id()).unwrap_or(1));
@@ -593,7 +611,8 @@ pub(super) fn share_scene(
             return;
         }
     }
-    if !settled || loads || coop.downed_at.is_some() {
+    // A slideshow's room: the slide marker is this player's spot ([`slide_spot`]).
+    if !settled || loads || coop.downed_at.is_some() || on_slide {
         return;
     }
     let (dx, dy) = (player.feet[0] - host.feet[0], player.feet[1] - host.feet[1]);
@@ -659,15 +678,19 @@ fn scene_holds_view(locks: [bool; 7]) -> bool {
 ///   first person, and a body on that spot would fill the screen; playtest list 7 item
 ///   116: in the original the camera stays on the slideshow's screen with no body in view
 ///   [the owner, 2026-11-09]);
+/// - a slideshow has the view (`nvf_play::hud::HudView::slideshow`), its controls held
+///   or not: every player stands on the room's one slide marker ([`slide_spot`]);
 /// - an idle's camera node drives the view (`nvf_play::player::ViewDriven`: the opening's
 ///   and the Sierra Madre villa's wake-up);
 /// - a script places or turns the camera (JohnnyGuitar's SetCameraTranslate,
 ///   SetCameraRotate, SetCameraRotateToRef: `CameraRequests`' overrides).
 ///
 /// They are drawn again when it ends.
-fn hidden_because(locks: [bool; 7], idle_drives_view: bool, script_camera: bool) -> Option<&'static str> {
+fn hidden_because(locks: [bool; 7], slideshow: bool, idle_drives_view: bool, script_camera: bool) -> Option<&'static str> {
     if scene_holds_view(locks) {
         Some("the scene holds the view")
+    } else if slideshow {
+        Some("a slideshow has the view")
     } else if idle_drives_view {
         Some("an idle's camera node drives the view")
     } else if script_camera {
@@ -688,6 +711,7 @@ pub(super) fn hide_players_in_scene(
     coop: Res<Coop>,
     script: Option<Res<nvf_play::script::ScriptState>>,
     driven: Option<Res<nvf_play::player::ViewDriven>>,
+    hud: Option<Res<nvf_play::hud::HudView>>,
     mut bodies: Query<&mut Visibility, With<super::Puppet>>,
     mut hidden: Local<Option<&'static str>>,
     mut blocks: Option<ResMut<nvf_play::blocking::ActorBlocks>>,
@@ -697,6 +721,7 @@ pub(super) fn hide_players_in_scene(
         .then(|| {
             hidden_because(
                 game.map_or([false; 7], |g| g.scene_locks()),
+                hud.as_deref().is_some_and(|h| h.slideshow),
                 driven.as_deref().is_some_and(|d| d.0),
                 game.is_some_and(|g| script_camera(&g.ui.camera)),
             )
@@ -727,6 +752,94 @@ pub(super) fn hide_players_in_scene(
     for mut v in &mut bodies {
         v.set_if_neq(want);
     }
+}
+
+/// The engine's heading marker base (`XMarkerHeading`, `meshes\markerxheading.nif`).
+const X_MARKER_HEADING: FormId = FormId(0x0000_0034);
+
+/// A slideshow room's slide marker, from its references (each one's FormID, base,
+/// position and angles): its XMarkerHeading. Each of the five rooms has exactly one, the
+/// spot its script moves the player to, facing the slide: `Endgame` 0x001639F6 (the
+/// ending's SCPT 0x00161DE1), NVDLC01Slideshow, NVDLC02SlideShow
+/// (NVDLC02SlideShowMarkerREF), NVDLC03Slideshow and NVDLC04SlideShow, each heading 0
+/// and level, beside one COCMarkerHeading 180 units behind and one AudioMarker [observed:
+/// `fnvtool world refs --interiors` over FalloutNV.esm and the four add-ons, 2026-11-23].
+/// The lowest FormID should a room ever have more.
+fn slide_marker(refs: impl IntoIterator<Item = (FormId, FormId, [f32; 3], [f32; 3])>) -> Option<(FormId, [f32; 3], [f32; 3])> {
+    refs.into_iter().filter(|(_, base, ..)| *base == X_MARKER_HEADING).map(|(id, _, pos, rot)| (id, pos, rot)).min_by_key(|(id, ..)| id.0)
+}
+
+/// Whether feet at `feet` are off the slide marker at `marker`: more than [`ON_SPOT`]
+/// across, or on another floor.
+fn off_the_marker(feet: [f32; 3], marker: [f32; 3]) -> bool {
+    let (dx, dy, dz) = (feet[0] - marker[0], feet[1] - marker[1], feet[2] - marker[2]);
+    dx * dx + dy * dy > ON_SPOT * ON_SPOT || dz.abs() > IN_BODY_UP
+}
+
+/// The view along a slide marker with angles `rot` (radians, X down positive): its
+/// heading, and its pitch up positive, as the MoveTo of the player gives the host
+/// (`fnv_game::functions::refs::move_ref`).
+fn marker_view(rot: [f32; 3]) -> (f32, f32) {
+    (rot[2], -rot[0])
+}
+
+/// A guest (and split screen's player 2, a guest of player 1's game) in a slideshow's
+/// room stands on its slide marker and looks along it while the slideshow has the view
+/// (module notes, "On the slide marker"), so its screen shows the slide centred and
+/// head-on as the host's does; let go once it is out of the room.
+///
+/// Local to each guest, not sent by the host: the guest's own cell already says a
+/// slideshow has its view (`HudView::slideshow`, which hides its HUD), and the marker is
+/// in the guest's own copy of the same plugins. However the guest came in (the host's
+/// MoveTo's summon, the story wait's Y teleport, a console move) and whether or not the
+/// host's controls hold its looking, it watches from the same spot, with nothing new on
+/// the wire for the laptop's or player 2's build to agree on [design].
+pub(super) fn slide_spot(
+    mut coop: ResMut<Coop>,
+    hud: Option<Res<nvf_play::hud::HudView>>,
+    loc: Option<Res<Location>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
+    loading: Option<Res<Loading>>,
+    mut player: Option<ResMut<Player>>,
+    mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
+) {
+    let room = loc.as_deref().and_then(|l| l.interior).filter(|_| coop.is_guest() && hud.as_deref().is_some_and(|h| h.slideshow));
+    let marker = room.and_then(|cell| {
+        let sim = sim.as_deref()?;
+        let ids = sim.refs.by_cell.get(&FormId(cell))?;
+        slide_marker(ids.iter().filter_map(|id| sim.refs.get(*id)).map(|r| (r.id, r.base, r.pos, r.rot)))
+    });
+    let Some((id, pos, rot)) = marker else {
+        if coop.scene.slide.take().is_some() {
+            info!("co-op: slideshow: over; the view is this player's again");
+        }
+        return;
+    };
+    let Some(player) = player.as_deref_mut() else { return };
+    if loading.as_deref().is_some_and(|l| l.active()) {
+        return;
+    }
+    let first = coop.scene.slide != Some(id);
+    if off_the_marker(player.feet, pos) {
+        // The room is streamed in by now; until it is, try again next frame.
+        let Some(phys) = phys.as_deref_mut().filter(|p| p.player.is_some() && p.ready_at(pos)) else { return };
+        let was = player.feet;
+        phys.place_player(pos, 60.0, 200.0);
+        let at = phys.player.as_ref().map_or(pos, |c| c.feet);
+        player.feet = at;
+        player.placed = Some(at);
+        let off = ((was[0] - pos[0]).powi(2) + (was[1] - pos[1]).powi(2)).sqrt();
+        if first {
+            info!("co-op: slideshow: this player watches from the slide marker {:#010X} at {at:?}, heading {:.0} deg (it stood {off:.0} units off it)", id.0, rot[2].to_degrees());
+        } else {
+            debug!("co-op: slideshow: back on the slide marker {:#010X} ({off:.0} units off it)", id.0);
+        }
+    } else if first {
+        info!("co-op: slideshow: this player watches from the slide marker {:#010X} at {pos:?}, heading {:.0} deg (already on it)", id.0, rot[2].to_degrees());
+    }
+    coop.scene.slide = Some(id);
+    // Its looking too, every frame: the host's controls may not hold it.
+    (player.heading, player.pitch) = marker_view(rot);
 }
 
 #[cfg(test)]
@@ -773,20 +886,50 @@ mod tests {
     }
 
     #[test]
+    fn a_guest_in_a_slide_room_watches_from_its_slide_marker() {
+        // The ending's room `Endgame` 0x00161E98: its COCMarkerHeading, the slide marker
+        // the ending's script moves the host to, and its AudioMarker (fnvtool world refs).
+        let room = [
+            (FormId(0x0016_1EB0), FormId(0x0000_0032), [2622.2, 287.8, 10112.0], [0.0; 3]),
+            (FormId(0x0016_39F6), X_MARKER_HEADING, [2802.5, 256.6, 10112.0], [0.0; 3]),
+            (FormId(0x0017_4AA0), FormId(0x0000_0015), [2897.4, 226.3, 10335.3], [0.0; 3]),
+        ];
+        let (id, pos, rot) = slide_marker(room).expect("the room's slide marker");
+        assert_eq!(id, FormId(0x0016_39F6));
+        // Ship-081 duo run E01: the summon put the guest beside the host (guest place 1)
+        // and the console 120 units to the side; either is off the slide's axis.
+        assert!(off_the_marker(beside_slot(pos, 0.0, 1), pos));
+        assert!(off_the_marker([pos[0] + 120.0, pos[1], pos[2]], pos));
+        // On it (the ground's rest gap, a step's slack): left where it is.
+        assert!(!off_the_marker([pos[0] + 3.0, pos[1] - 2.0, pos[2] + 1.5], pos));
+        // It looks along the marker, level: straight at the slide, as the host does.
+        assert_eq!(marker_view(rot), (0.0, 0.0));
+        // A marker turned and tipped down 0.1 rad: that heading, the pitch 0.1 down.
+        assert_eq!(marker_view([0.1, 0.0, 1.5]), (1.5, -0.1));
+        // No slide marker (a room with none): nothing to watch from, the view stays free.
+        assert_eq!(slide_marker([room[0], room[2]]), None);
+        // Two (none of the five rooms has): the lower FormID.
+        let twin = (FormId(0x0016_39F0), X_MARKER_HEADING, [0.0; 3], [0.0; 3]);
+        assert_eq!(slide_marker([room[1], twin]).map(|m| m.0), Some(FormId(0x0016_39F0)));
+    }
+
+    #[test]
     fn other_players_are_hidden_while_anything_but_the_player_drives_the_camera() {
         // Item 214: slides, the villa wake-up's idle camera, a script's camera.
         let free = [false; 7];
-        assert_eq!(hidden_because(free, false, false), None, "the player's own view: drawn");
+        assert_eq!(hidden_because(free, false, false, false), None, "the player's own view: drawn");
         let mut slides = free;
         slides[0] = true;
         slides[4] = true;
-        assert_eq!(hidden_because(slides, false, false), Some("the scene holds the view"));
-        assert_eq!(hidden_because(free, true, false), Some("an idle's camera node drives the view"));
-        assert_eq!(hidden_because(free, false, true), Some("a script drives the camera"));
+        assert_eq!(hidden_because(slides, false, false, false), Some("the scene holds the view"));
+        // A slideshow's room with nothing held (a console or teleport move into it).
+        assert_eq!(hidden_because(free, true, false, false), Some("a slideshow has the view"));
+        assert_eq!(hidden_because(free, false, true, false), Some("an idle's camera node drives the view"));
+        assert_eq!(hidden_because(free, false, false, true), Some("a script drives the camera"));
         // Movement alone held (a talk): the others are seen.
         let mut talk = free;
         talk[0] = true;
-        assert_eq!(hidden_because(talk, false, false), None);
+        assert_eq!(hidden_because(talk, false, false, false), None);
         let mut c = fnv_game::functions::camera::CameraRequests::default();
         assert!(!script_camera(&c));
         c.rotate_override[2] = Some(90.0);
