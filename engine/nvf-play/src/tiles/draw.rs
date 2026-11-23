@@ -1757,6 +1757,11 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
         }
     }
     if !spawn.is_empty() {
+        for &i in &spawn {
+            if let Look::Text { font, .. } = &pieces[i].look {
+                kit.load(f64::from(*font));
+            }
+        }
         let bc = bc_supported(kit.formats.as_deref());
         let data = kit.data.as_deref();
         let pictures = drawn.pictures.get_or_insert_with(|| Pictures::load(data));

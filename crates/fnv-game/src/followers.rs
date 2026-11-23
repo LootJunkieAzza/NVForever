@@ -69,9 +69,11 @@ impl Game<'_> {
         COMPANION_NERVE_PER_CHARISMA * crate::functions::actor_value_capped(self, FormId::PLAYER_REF, crate::actor_values::CHARISMA)
     }
 
-    /// The player's teammates, by FormID.
+    /// The player's teammates, sorted by FormID.
     pub fn teammates(&self) -> Vec<FormId> {
-        self.extra.iter().filter(|(r, e)| e.teammate && !e.dead && **r != FormId::PLAYER_REF).map(|(r, _)| *r).collect()
+        let mut out: Vec<FormId> = self.extra.iter().filter(|(r, e)| e.teammate && !e.dead && **r != FormId::PLAYER_REF).map(|(r, _)| *r).collect();
+        out.sort_unstable();
+        out
     }
 
     /// Whether `actor`'s current package is a Follow or Accompany package with the player

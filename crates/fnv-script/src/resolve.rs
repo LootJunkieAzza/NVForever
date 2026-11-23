@@ -22,13 +22,21 @@ pub enum Viewer {
     LoadOrder,
 }
 
-/// One definition of a form: the plugin it is in, its `SCRI` and `NAME` (global FormIDs).
+/// One definition of a form: the plugin it is in, record type, its `SCRI`, `NAME`,
+/// and (`NPC_`/`CREA`) `TPLT` / `ACBS` `Use Script` flag (global FormIDs).
 #[derive(Debug, Clone, Copy)]
 struct Def {
     plugin: usize,
+    sig: [u8; 4],
     script: Option<u32>,
     base: Option<u32>,
+    template: Option<u32>,
+    template_script: bool,
 }
+
+const MAX_TEMPLATE_DEPTH: usize = 16;
+const ACBS_TEMPLATE_FLAGS_OFFSET: usize = 22;
+const ACBS_TEMPLATE_SCRIPT_BIT: u16 = 1 << 9;
 
 pub struct ScriptIndex {
     plugin_names: Vec<String>,
@@ -75,12 +83,24 @@ impl ScriptIndex {
                             let r = lo.records[pi][d.ordinal as usize];
                             let mut script = None;
                             let mut base = None;
+                            let mut template = None;
+                            let mut template_script = false;
+                            let actor = matches!(&r.header.sig, b"NPC_" | b"CREA");
                             if let Ok(subs) = r.subrecords() {
                                 let mut ctx = DecodeCtx { schema, on_formid: None };
                                 for s in &subs {
+                                    if actor && &s.sig == b"ACBS" {
+                                        template_script = s
+                                            .data
+                                            .get(ACBS_TEMPLATE_FLAGS_OFFSET..ACBS_TEMPLATE_FLAGS_OFFSET + 2)
+                                            .and_then(|b| <[u8; 2]>::try_from(b).ok())
+                                            .is_some_and(|b| u16::from_le_bytes(b) & ACBS_TEMPLATE_SCRIPT_BIT != 0);
+                                        continue;
+                                    }
                                     let slot = match &s.sig {
                                         b"SCRI" if script.is_none() => &mut script,
                                         b"NAME" if base.is_none() => &mut base,
+                                        b"TPLT" if actor && template.is_none() => &mut template,
                                         _ => continue,
                                     };
                                     let v = decode_sub(&r.header.sig, s, &mut ctx).value;
@@ -91,7 +111,7 @@ impl ScriptIndex {
                                         .and_then(|l| lo.to_global(pi, l));
                                 }
                             }
-                            Def { plugin: pi, script, base }
+                            Def { plugin: pi, sig: r.header.sig, script, base, template, template_script }
                         })
                         .collect();
                     (f, defs)
@@ -107,6 +127,19 @@ impl ScriptIndex {
         let bases: HashSet<u32> =
             defs.values().flatten().filter_map(|d| d.base).filter(|b| !defs.contains_key(b)).collect();
         defs.extend(read(&bases));
+        for _ in 0..MAX_TEMPLATE_DEPTH {
+            let templates: HashSet<u32> = defs
+                .values()
+                .flatten()
+                .filter(|d| d.template_script)
+                .filter_map(|d| d.template)
+                .filter(|t| !defs.contains_key(t))
+                .collect();
+            if templates.is_empty() {
+                break;
+            }
+            defs.extend(read(&templates));
+        }
         ScriptIndex { plugin_names, visible, defs, scripts }
     }
 
@@ -126,10 +159,37 @@ impl ScriptIndex {
         self.defs.get(&form)?.iter().rev().find(|d| self.sees(viewer, d.plugin))
     }
 
-    /// The script `form` runs: its own `SCRI`, or its base form's.
+    fn actor_script(&self, base: u32, viewer: Viewer) -> Option<u32> {
+        let mut id = base;
+        for _ in 0..MAX_TEMPLATE_DEPTH {
+            let d = self.def(id, viewer)?;
+            if !matches!(&d.sig, b"NPC_" | b"CREA") {
+                return self.def(base, viewer)?.script;
+            }
+            match d.template.filter(|_| d.template_script) {
+                Some(t) if self.def(t, viewer).is_some_and(|td| matches!(&td.sig, b"NPC_" | b"CREA")) => id = t,
+                _ => return d.script,
+            }
+        }
+        self.def(base, viewer)?.script
+    }
+
+    /// The script `form` runs: its own `SCRI`, or its base form's (following `TPLT` `Use
+    /// Script` on `NPC_`/`CREA`).
     pub fn script_of(&self, form: u32, viewer: Viewer) -> Option<u32> {
         let d = self.def(form, viewer)?;
-        d.script.or_else(|| self.def(d.base?, viewer)?.script)
+        if matches!(&d.sig, b"NPC_" | b"CREA") {
+            return self.actor_script(form, viewer);
+        }
+        d.script.or_else(|| {
+            let base = d.base?;
+            let bd = self.def(base, viewer)?;
+            if matches!(&bd.sig, b"NPC_" | b"CREA") {
+                self.actor_script(base, viewer)
+            } else {
+                bd.script
+            }
+        })
     }
 
     /// The variables of a script as `viewer` sees it.

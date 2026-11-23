@@ -331,6 +331,13 @@ pub fn xtokens(line: &str) -> Vec<XTok> {
         if word_char(c) {
             let n = cs[i..].iter().take_while(|&&w| word_char(w)).count();
             let text: String = cs[i..i + n].iter().collect();
+            if let Some(prev) = out.last_mut() {
+                if prev.kind == XKind::Word && prev.text.ends_with('.') && !is_number(&prev.text) && (c.is_ascii_alphabetic() || c == '_') {
+                    prev.text.push_str(&text);
+                    i += n;
+                    continue;
+                }
+            }
             let kind = if is_number(&text) { XKind::Num } else { XKind::Word };
             out.push(XTok { kind, text, sign: false });
             i += n;
@@ -407,6 +414,8 @@ mod tests {
         assert_eq!(t, ["let", "a", "[", "0", "]", ":=", "b", "->", "key", "+", "$", "c", "::", "2", "!=", "!", "d"]);
         let t = xtokens("x += 1.5, \"s\"");
         assert_eq!(t.iter().map(|t| t.kind).collect::<Vec<_>>(), [XKind::Word, XKind::Op, XKind::Num, XKind::Comma, XKind::Str]);
+        let t: Vec<String> = xtokens("let SomeRef. Flag := 1").into_iter().map(|t| t.text).collect();
+        assert_eq!(t, ["let", "SomeRef.Flag", ":=", "1"]);
     }
 
     #[test]
