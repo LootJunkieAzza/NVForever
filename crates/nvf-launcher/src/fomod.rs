@@ -1342,56 +1342,77 @@ fn archive_kind(path: &Path) -> Option<&'static str> {
     }
 }
 
+/// Why a built-in archive reader stopped.
+#[derive(Debug, PartialEq)]
+enum ReadFail {
+    /// The file could not be read as that format at all, before any entry: an outside tool
+    /// may still read it.
+    Unreadable(String),
+    /// The archive was read and an entry was refused (it would land outside the folder, is a
+    /// link, or is not a file or folder), an entry was broken, or a write failed. Final: no
+    /// outside tool gets the archive after this.
+    Refused(String),
+}
+
+/// Unpack `src` into `dest`. The built-in zip and tar readers come first. An outside tool
+/// (`extract_external`) is used only for a format they do not read (`.7z`, `.rar`) or a file
+/// they cannot read as that format at all; an entry they refused stays refused.
 fn extract_archive(src: &Path, dest: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
     let name = src.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase();
     let kind = archive_kind(src);
     let zip_like = kind == Some("zip") || name.ends_with(".zip") || name.ends_with(".fomod");
     if zip_like {
-        if extract_zip(src, dest).is_ok() {
-            return reject_links(dest);
-        }
-        if extract_external(src, dest).is_ok() {
-            return reject_links(dest);
-        }
-        return extract_zip(src, dest);
+        return match extract_zip(src, dest) {
+            Ok(()) => reject_links(dest),
+            Err(ReadFail::Refused(e)) => Err(e),
+            Err(ReadFail::Unreadable(e)) => match extract_external(src, dest) {
+                Ok(()) => reject_links(dest),
+                Err(_) => Err(e),
+            },
+        };
     }
     let gzip = kind == Some("gz") || name.ends_with(".tar.gz") || name.ends_with(".tgz") || name.ends_with(".taz");
-    if (gzip || name.ends_with(".tar")) && extract_tar(src, dest, gzip).is_ok() {
-        return reject_links(dest);
+    if gzip || name.ends_with(".tar") {
+        match extract_tar(src, dest, gzip) {
+            Ok(()) => return reject_links(dest),
+            Err(ReadFail::Refused(e)) => return Err(e),
+            Err(ReadFail::Unreadable(_)) => {}
+        }
     }
     extract_external(src, dest)?;
     reject_links(dest)
 }
 
-fn extract_zip(archive: &Path, dest: &Path) -> Result<(), String> {
+fn extract_zip(archive: &Path, dest: &Path) -> Result<(), ReadFail> {
     let bad = |e: &dyn std::fmt::Display| format!("{}: {e}", archive.display());
-    let f = std::fs::File::open(archive).map_err(|e| bad(&e))?;
-    let mut z = zip::ZipArchive::new(f).map_err(|e| bad(&e))?;
-    std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    let refused = |e: &dyn std::fmt::Display| ReadFail::Refused(bad(e));
+    let f = std::fs::File::open(archive).map_err(|e| ReadFail::Unreadable(bad(&e)))?;
+    let mut z = zip::ZipArchive::new(f).map_err(|e| ReadFail::Unreadable(bad(&e)))?;
+    std::fs::create_dir_all(dest).map_err(|e| ReadFail::Refused(format!("{}: {e}", dest.display())))?;
     for i in 0..z.len() {
-        let mut entry = z.by_index(i).map_err(|e| bad(&e))?;
+        let mut entry = z.by_index(i).map_err(|e| refused(&e))?;
         let name = entry.name().map(|n| n.into_owned()).unwrap_or_default();
         let Some(rel) = entry.enclosed_name() else {
-            return Err(bad(&format!("entry {name} would land outside the folder")));
+            return Err(refused(&format!("entry {name} would land outside the folder")));
         };
         if entry.is_symlink() {
-            return Err(bad(&format!("entry {name} is a link")));
+            return Err(refused(&format!("entry {name} is a link")));
         }
-        let to = place_in(dest, &rel).map_err(|e| bad(&format!("entry {name}: {e}")))?;
+        let to = place_in(dest, &rel).map_err(|e| refused(&format!("entry {name}: {e}")))?;
         if entry.is_dir() {
-            std::fs::create_dir_all(&to).map_err(|e| format!("{}: {e}", to.display()))?;
+            std::fs::create_dir_all(&to).map_err(|e| ReadFail::Refused(format!("{}: {e}", to.display())))?;
             continue;
         }
-        let mut out = std::fs::File::create(&to).map_err(|e| format!("{}: {e}", to.display()))?;
-        std::io::copy(&mut entry, &mut out).map_err(|e| bad(&e))?;
+        let mut out = std::fs::File::create(&to).map_err(|e| ReadFail::Refused(format!("{}: {e}", to.display())))?;
+        std::io::copy(&mut entry, &mut out).map_err(|e| refused(&e))?;
     }
     Ok(())
 }
 
-fn extract_tar(src: &Path, dest: &Path, gzip: bool) -> Result<(), String> {
+fn extract_tar(src: &Path, dest: &Path, gzip: bool) -> Result<(), ReadFail> {
     let bad = |e: &dyn std::fmt::Display| format!("{}: {e}", src.display());
-    let f = std::fs::File::open(src).map_err(|e| bad(&e))?;
+    let f = std::fs::File::open(src).map_err(|e| ReadFail::Unreadable(bad(&e)))?;
     if gzip {
         unpack_tar(flate2::read::GzDecoder::new(f), dest, &bad)
     } else {
@@ -1399,18 +1420,23 @@ fn extract_tar(src: &Path, dest: &Path, gzip: bool) -> Result<(), String> {
     }
 }
 
-fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, bad: &impl Fn(&dyn std::fmt::Display) -> String) -> Result<(), String> {
+/// A failure before the first entry was read means the stream is not a tar this reader
+/// reads (`Unreadable`); every failure after that is `Refused`.
+fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, bad: &impl Fn(&dyn std::fmt::Display) -> String) -> Result<(), ReadFail> {
     let mut archive = tar::Archive::new(reader);
-    for entry in archive.entries().map_err(|e| bad(&e))? {
-        let mut entry = entry.map_err(|e| bad(&e))?;
-        let path = entry.path().map_err(|e| bad(&e))?.into_owned();
-        let rel = rel_path(&path.to_string_lossy()).map_err(|e| bad(&e))?;
+    let mut read_one = false;
+    let fail = |read_one: bool, e: String| if read_one { ReadFail::Refused(e) } else { ReadFail::Unreadable(e) };
+    for entry in archive.entries().map_err(|e| ReadFail::Unreadable(bad(&e)))? {
+        let mut entry = entry.map_err(|e| fail(read_one, bad(&e)))?;
+        read_one = true;
+        let path = entry.path().map_err(|e| ReadFail::Refused(bad(&e)))?.into_owned();
+        let rel = rel_path(&path.to_string_lossy()).map_err(|e| ReadFail::Refused(bad(&e)))?;
         let kind = entry.header().entry_type();
         if !(kind.is_file() || kind.is_dir()) {
-            return Err(bad(&format!("entry {} is not a file or folder", path.display())));
+            return Err(ReadFail::Refused(bad(&format!("entry {} is not a file or folder", path.display()))));
         }
-        let to = place_in(dest, &rel).map_err(|e| bad(&e))?;
-        entry.unpack(&to).map_err(|e| format!("{}: {e}", to.display()))?;
+        let to = place_in(dest, &rel).map_err(|e| ReadFail::Refused(bad(&e)))?;
+        entry.unpack(&to).map_err(|e| ReadFail::Refused(format!("{}: {e}", to.display())))?;
     }
     Ok(())
 }
@@ -1875,9 +1901,79 @@ mod tests {
         }
         let bad = |e: &dyn std::fmt::Display| e.to_string();
         // Refused by the path check itself (`rel_path`), not by a broken header.
-        assert_eq!(super::unpack_tar(&bytes[..], &dest, &bad), Err(super::rel_path(r"C:\Windows\x").unwrap_err()));
+        assert_eq!(super::unpack_tar(&bytes[..], &dest, &bad), Err(super::ReadFail::Refused(super::rel_path(r"C:\Windows\x").unwrap_err())));
         assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `stage` on an archive the built-in reader refuses: the refusal is the result, and no
+    /// outside tool (7z, bsdtar, unar, unrar) gets the archive after it.
+    fn stage_error(archive: &Path) -> String {
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        match stage(archive, facts) {
+            Err(e) => e,
+            Ok(_) => panic!("{} was installed although an entry was refused", archive.display()),
+        }
+    }
+
+    #[test]
+    fn a_refused_zip_entry_stops_the_install() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-refused-zip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(t.join("inside")).unwrap();
+        let zip_path = t.join("inside").join("Evil.zip");
+        {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+            let o = zip::write::SimpleFileOptions::default();
+            z.start_file("Mod/ok.esp", o).unwrap();
+            z.write_all(b"TES4").unwrap();
+            z.start_file("../evil.esp", o).unwrap();
+            z.write_all(b"TES4").unwrap();
+            z.finish().unwrap();
+        }
+        let e = stage_error(&zip_path);
+        assert!(e.contains("would land outside the folder"), "{e}");
+        assert!(!t.join("evil.esp").exists());
+        assert_eq!(std::fs::read_dir(t.join("inside")).unwrap().count(), 1, "only the archive");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_refused_tar_entry_stops_the_install() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-refused-tar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let tar_path = t.join("Evil.tar");
+        {
+            let mut b = tar::Builder::new(std::fs::File::create(&tar_path).unwrap());
+            let mut h = tar::Header::new_gnu();
+            let name = r"C:\Windows\x".as_bytes();
+            h.as_gnu_mut().unwrap().name[..name.len()].copy_from_slice(name);
+            h.set_size(1);
+            h.set_mode(0o644);
+            h.set_entry_type(tar::EntryType::Regular);
+            h.set_cksum();
+            b.append(&h, &b"x"[..]).unwrap();
+            b.finish().unwrap();
+        }
+        let e = stage_error(&tar_path);
+        assert!(e.ends_with(&super::rel_path(r"C:\Windows\x").unwrap_err()), "{e}");
+        assert_eq!(std::fs::read_dir(&t).unwrap().count(), 1, "only the archive");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_file_that_is_no_zip_is_unreadable_not_refused() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-not-zip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let fake = t.join("Fake.zip");
+        std::fs::write(&fake, b"this is not a zip archive at all").unwrap();
+        assert!(matches!(super::extract_zip(&fake, &t.join("out")), Err(super::ReadFail::Unreadable(_))));
+        let fake_tar = t.join("Fake.tar");
+        std::fs::write(&fake_tar, vec![b'x'; 1024]).unwrap();
+        assert!(matches!(super::extract_tar(&fake_tar, &t.join("out"), false), Err(super::ReadFail::Unreadable(_))));
+        let _ = std::fs::remove_dir_all(&t);
     }
 
     #[cfg(unix)]
