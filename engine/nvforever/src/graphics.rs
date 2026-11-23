@@ -1039,7 +1039,11 @@ fn apply(
         }
         // FSR already runs its own RCAS sharpening; do not sharpen the picture twice.
         if g.bloom || (g.sharpen && fsr.is_none()) {
-            e.insert(PostEffects::new(g.bloom, g.sharpen && fsr.is_none()));
+            e.insert(PostEffects::new_with_hdr_glow(
+                g.bloom,
+                g.sharpen && fsr.is_none(),
+                nvf_assets::authored::physical_pbr() && g.glow,
+            ));
         } else {
             e.remove::<PostEffects>();
         }

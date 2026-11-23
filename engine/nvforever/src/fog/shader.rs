@@ -84,7 +84,8 @@ pub const GAME_FOG: &str = "    let fog_t = clamp((distance - fog_params.be.x) /
 pub const PHYSICAL_FOG: &str = "    let d = max(distance - fog_params.be.x, 0.0);
     let range = max(fog_params.be.y - fog_params.be.x, 1.0);
     if fog_params.bi.x <= 0.5 {
-        let tau = (d / range) * 1.6;
+        let t = clamp(d / range, 0.0, 1.0);
+        let tau = (t * t) * 2.2;
         let fog_share = (1.0 - exp(-tau)) * fog_color.a;
         return vec4<f32>(mix(input_color.rgb, fog_color.rgb, fog_share), input_color.a);
     }

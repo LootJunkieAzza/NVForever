@@ -62,10 +62,10 @@ const METER_HIGH: f32 = 6.0;
 /// the original's meter may be a plain average, which bright lights hold up (module note)].
 pub const METER_FILTER: std::ops::RangeInclusive<f32> = 0.10..=1.0;
 /// Bi-directional camera auto-exposure parameters for `NVF_PHYSICAL_PBR=1`.
-pub const PHYSICAL_LOW_REF: f32 = -5.2;
-pub const PHYSICAL_HIGH_REF: f32 = -1.0;
-pub const PHYSICAL_LIFT_SLOPE: f32 = 0.70;
-pub const PHYSICAL_MAX_LIFT: f32 = 3.5;
+pub const PHYSICAL_LOW_REF: f32 = -6.0;
+pub const PHYSICAL_HIGH_REF: f32 = -1.2;
+pub const PHYSICAL_LIFT_SLOPE: f32 = 0.68;
+pub const PHYSICAL_MAX_LIFT: f32 = 2.6;
 pub const PHYSICAL_DARKEN_SLOPE: f32 = 0.45;
 pub const PHYSICAL_MAX_DARKEN: f32 = 1.4;
 pub const PHYSICAL_METER_FILTER: std::ops::RangeInclusive<f32> = 0.10..=0.98;
@@ -224,8 +224,10 @@ fn curve_for(target_lum: f32, extra: f32, physical: bool) -> AutoExposureCompens
     let points: Vec<Vec2> = xs
         .into_iter()
         .map(|x| {
-            let exp = if physical { physical_exposure(x, target_lum) } else { lift(x, target_lum) };
-            Vec2::new(x, x + exp + extra)
+            let xq = (x * 256.0).round() / 256.0;
+            let exp = if physical { physical_exposure(xq, target_lum) } else { lift(xq, target_lum) };
+            let yq = ((xq + exp + extra) * 256.0).round() / 256.0;
+            Vec2::new(xq, yq)
         })
         .collect();
     AutoExposureCompensationCurve::from_curve(LinearSpline::new(points)).unwrap_or_default()
@@ -265,9 +267,12 @@ fn follow_target_lum(
     mut told: Local<(bool, f32, f32)>,
 ) {
     let hdr = screen.as_deref().and_then(|s| s.graded_hdr()).or_else(|| sky.as_deref().map(|s| s.cinematic().hdr));
-    let target = sky.as_deref().map_or(BASE_TARGET_LUM, |s| s.cinematic().hdr.v[HDR_TARGET_LUM]);
-    let extra = modifier_ev(screen.as_deref().map_or(1.0, |s| s.hdr_ratio(HDR_TARGET_LUM)));
     let physical = nvf_assets::authored::physical_pbr();
+    let mut target = sky.as_deref().map_or(BASE_TARGET_LUM, |s| s.cinematic().hdr.v[HDR_TARGET_LUM]);
+    if physical && sky.as_deref().is_some_and(|s| s.interior.is_some()) && target > 0.0 {
+        target = target.min(BASE_TARGET_LUM);
+    }
+    let extra = modifier_ev(screen.as_deref().map_or(1.0, |s| s.hdr_ratio(HDR_TARGET_LUM)));
     if (eye.target - target).abs() > 1e-3 || (eye.extra - extra).abs() > 1e-3 || eye.physical != physical || !told.0 {
         // A modifier's change is logged in quarter-EV steps, not every frame.
         let step = (extra * 4.0).round() / 4.0;

@@ -8,9 +8,9 @@ pub(crate) const BEVY_ATTENUATION: &str = "return getRangeFalloff(distanceSquare
 pub(crate) const GAME_ATTENUATION: &str = "return saturate(1.0 - distanceSquare * inverseRangeSquared);";
 
 /// Physical windowed inverse-square attenuation (`NVF_PHYSICAL_PBR=1`): Frostbite/Karis
-/// $1/d^2$ falloff with finite bulb core radius $(0.12 R)$ and $(1 - (d/R)^4)_+^2$ edge
+/// $1/d^2$ falloff with finite bulb core radius $(0.30 R)$ and $(1 - (d/R)^4)_+^2$ edge
 /// windowing, normalized so $d \approx 0.35 R$ matches room-scale luminaire calibration.
-pub(crate) const PHYSICAL_ATTENUATION: &str = "let u = distanceSquare * inverseRangeSquared;\n    let w = saturate(1.0 - u * u);\n    return (w * w) * (0.1225 / (u + 0.0144));";
+pub(crate) const PHYSICAL_ATTENUATION: &str = "let u = distanceSquare * inverseRangeSquared;\n    let w = saturate(1.0 - u * u);\n    return (w * w) * (0.22 / (u + 0.09));";
 
 /// Desktop Filament perceptual roughness floor (`NVF_PHYSICAL_PBR=1`) replacing mobile `0.089`.
 const ROUGHNESS_FLOOR_EDIT: (&str, &str) = (
@@ -79,7 +79,7 @@ fn getDistanceAttenuation(",
     (
         "    return color_times_NdotL * (*light).color_inverse_square_range.rgb *
         rangeAttenuation * texture_sample;",
-        "    return color_times_NdotL * (nvf_light_colour((*light).color_inverse_square_range.rgb) * 1.65) *
+        "    return color_times_NdotL * (nvf_light_colour((*light).color_inverse_square_range.rgb) * 1.10) *
         rangeAttenuation * texture_sample;",
     ),
 ];

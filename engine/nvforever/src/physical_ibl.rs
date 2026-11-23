@@ -50,7 +50,7 @@ impl Plugin for PhysicalIblPlugin {
             return;
         }
         app.init_resource::<PhysicalIblState>()
-            .add_systems(Update, update_physical_ibl.after(crate::sky::update_sky));
+            .add_systems(Update, update_physical_ibl.after(crate::sky::update_sky).after(crate::emittance::update_emittance));
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render
                 .init_resource::<PhysicalIblUpload>()
@@ -91,10 +91,16 @@ enum IblParams {
 }
 
 impl IblParams {
+    #[cfg(test)]
     fn from_sky(sky: &SkyState) -> Self {
+        Self::from_sky_with_daylight(sky, 0.0)
+    }
+
+    pub(crate) fn from_sky_with_daylight(sky: &SkyState, daylight_luma: f32) -> Self {
         if let Some(l) = sky.interior {
-            let ambient = Vec3::from_array(l.ambient.map(fnv_world::sky::srgb_to_linear)) * INTERIOR_AMBIENT_SHARE;
-            let dir_color = Vec3::from_array(l.directional.map(fnv_world::sky::srgb_to_linear)) * l.directional_fade.clamp(0.0, 1.0);
+            let day_lift = 1.0 + 0.45 * daylight_luma.clamp(0.0, 1.0);
+            let ambient = Vec3::from_array(l.ambient.map(fnv_world::sky::srgb_to_linear)) * (INTERIOR_AMBIENT_SHARE * day_lift);
+            let dir_color = Vec3::from_array(l.directional.map(fnv_world::sky::srgb_to_linear)) * (l.directional_fade.clamp(0.0, 1.0) * day_lift);
             let dir_to_light = (game_to_bevy().rotation * interior_light_from(l.directional_rotation_xy, l.directional_rotation_z))
                 .normalize_or(Vec3::Y);
             Self::Indoors { ambient, dir_color, dir_to_light }
@@ -146,6 +152,7 @@ struct CompiledEnvironment {
 }
 
 const OUTDOOR_IBL_SCALE: f32 = 0.62;
+const INDOOR_IBL_SCALE: f32 = 0.45;
 
 fn sample_cube_lut(lut: &[[Vec3; 256]; 6], dir: Vec3) -> Vec3 {
     let c = Vec3::new(dir.x, dir.y, -dir.z);
@@ -271,11 +278,11 @@ impl CompiledEnvironment {
                 mid: Vec3::ZERO,
                 zenith: Vec3::ZERO,
                 sky_scale: Vec3::ONE,
-                target_sky: ambient.max(Vec3::ZERO),
+                target_sky: (ambient * INDOOR_IBL_SCALE).max(Vec3::ZERO),
                 ground: Vec3::ZERO,
                 sun_color: Vec3::ZERO,
                 sun_dir: Vec3::Y,
-                dir_color: dir_color.max(Vec3::ZERO),
+                dir_color: (dir_color * INDOOR_IBL_SCALE).max(Vec3::ZERO),
                 dir_to_light,
                 sky_lut: None,
             },
@@ -285,8 +292,8 @@ impl CompiledEnvironment {
     fn eval_sky_with_boost(&self, dir: Vec3, lut_boost: f32) -> Vec3 {
         if !self.outdoors {
             let t = smoothstep(-1.0, 1.0, dir.y);
-            let grad = 0.75 + 0.45 * t;
-            let bounce = self.dir_color * (0.14 * dir.dot(self.dir_to_light).max(0.0).powi(2));
+            let grad = 0.68 + 0.38 * t;
+            let bounce = self.dir_color * (0.08 * dir.dot(self.dir_to_light).max(0.0).powi(2));
             return self.target_sky * grad + bounce;
         }
         if let Some(lut) = &self.sky_lut {
@@ -320,7 +327,7 @@ impl CompiledEnvironment {
     fn eval_specular_sky(&self, dir: Vec3) -> Vec3 {
         let base = self.eval_sky_with_boost(dir, 1.0);
         if !self.outdoors {
-            let highlight = self.dir_color * (0.45 * dir.dot(self.dir_to_light).max(0.0).powi(4));
+            let highlight = self.dir_color * (0.28 * dir.dot(self.dir_to_light).max(0.0).powi(4));
             return base + highlight;
         }
         let horizon_vis = smoothstep(-0.08, 0.15, self.sun_dir.y);
@@ -635,6 +642,7 @@ fn write_physical_ibl(mut upload: ResMut<PhysicalIblUpload>, images: Res<RenderA
 fn update_physical_ibl(
     mut commands: Commands,
     sky: Res<SkyState>,
+    emittance: Option<Res<crate::emittance::EmittanceState>>,
     mut images: ResMut<Assets<Image>>,
     mut state: ResMut<PhysicalIblState>,
     mut cameras: Query<
@@ -642,7 +650,8 @@ fn update_physical_ibl(
         (With<Camera3d>, Or<(With<FlyCam>, With<ReflectionCamera>, With<LensCamera>)>),
     >,
 ) {
-    let params = IblParams::from_sky(&sky);
+    let daylight = emittance.as_deref().map_or(0.0, |e| e.weather_daylight_luma);
+    let params = IblParams::from_sky_with_daylight(&sky, daylight);
     if params.needs_rebuild(state.last) {
         let state = &mut *state;
         let initial = state.diffuse.is_none() || state.specular.is_none();
@@ -743,6 +752,9 @@ mod tests {
         assert_eq!(diff_len, (DIFFUSE_SIZE * DIFFUSE_SIZE * 6 * 8) as usize);
         let expected_spec_texels: u32 = (0..SPECULAR_MIPS).map(|m| (SPECULAR_SIZE >> m).pow(2)).sum::<u32>() * 6;
         assert_eq!(spec_len, expected_spec_texels as usize * 8);
+        let indoor_env = CompiledEnvironment::new(uniform);
+        let indoor_irr = convolve_diffuse(&indoor_env, Vec3::Y);
+        assert!(indoor_irr.x < 0.4 && indoor_irr.y < 0.5 && indoor_irr.z < 0.6, "indoor IBL stays below raw ambient: {indoor_irr}");
 
         let pure_uniform = IblParams::Outdoors {
             zenith: Vec3::splat(0.5),
@@ -955,5 +967,24 @@ mod tests {
         let ground_irr = convolve_diffuse(&env, Vec3::NEG_Y);
         assert!(up_irr.z > up_irr.x, "clear desert upper hemisphere IBL has cool cobalt sky fill: {up_irr}");
         assert!(ground_irr.x > ground_irr.z, "lower hemisphere IBL has warm Mojave ground bounce: {ground_irr}");
+    }
+
+    #[test]
+    fn windowed_daylight_lifts_indoor_ibl_while_night_and_windowless_stay_unchanged() {
+        let mut sky = SkyState::default();
+        let mut lighting = fnv_world::lighting::CellLighting::default();
+        lighting.ambient = [80, 72, 64];
+        lighting.directional = [120, 108, 92];
+        lighting.directional_fade = 1.0;
+        sky.interior = Some(lighting);
+
+        let night = IblParams::from_sky_with_daylight(&sky, 0.0);
+        let base = IblParams::from_sky(&sky);
+        assert_eq!(night, base);
+
+        let day = IblParams::from_sky_with_daylight(&sky, 1.0);
+        let night_irr = convolve_diffuse(&CompiledEnvironment::new(night), Vec3::Y);
+        let day_irr = convolve_diffuse(&CompiledEnvironment::new(day), Vec3::Y);
+        assert!(day_irr.x > night_irr.x * 1.4, "day={day_irr} night={night_irr}");
     }
 }
