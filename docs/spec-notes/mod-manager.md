@@ -68,6 +68,9 @@ The mods themselves are not deleted.
 
 ## Where an install may write
 
+The archive formats and the FOMOD installer's rules, with their sources, are in
+[fomod.md](fomod.md).
+
 An install writes only inside the new mod's folder [design]. Every path an archive
 entry or a FOMOD installer names is taken as plain names under that folder
 (`fomod::rel_path`). A path is refused when it holds `..`, starts with `/` or `\`

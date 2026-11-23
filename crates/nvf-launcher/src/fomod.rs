@@ -1,8 +1,11 @@
-//! Archive and FOMOD XML install for the Mods page.
+//! Archive and FOMOD XML install for the Mods page. The format, its sources and the
+//! launcher's own choices are in `docs/spec-notes/fomod.md`.
 //!
-//! Packaging follows the Nexus Mods app note: `.zip`, `.rar`, `.7z`, `.tar`, `.gz`,
-//! and a `.fomod` that is a zip. One nested archive (an outer archive whose only file
-//! is another archive) is opened. `fomod/script.cs` is not compiled or run.
+//! Packaging: `.zip`, `.rar`, `.7z`, and a `.fomod` that is a zip, as the Nexus Mods
+//! App's developer note "About FOMOD" says (`docs/developers/misc/AboutFomod.md` in
+//! Nexus-Mods/NexusMods.App); `.tar` and `.gz` too. One nested archive (an outer
+//! archive whose only file is another archive) is opened. `fomod/script.cs` is not
+//! compiled or run.
 //!
 //! The XML installer is one step on screen at a time. A group is
 //! `SelectAtLeastOne`, `SelectAtMostOne`, `SelectExactlyOne`, `SelectAll`, or
@@ -10,7 +13,8 @@
 //! or `CouldBeUsable`. Flags set by a chosen option decide which later steps show
 //! and which conditional files are copied. Where two files land on the same path,
 //! the higher `priority` is copied last and is the one kept. Equal priority keeps
-//! the later file. The published spec is fuzzy on that tie.
+//! the later file in the plan's order. The schema leaves that open, and the note
+//! above says the format is "fuzzy" on priorities.
 
 use eframe::egui::{self, Align2, RichText, ScrollArea};
 use std::collections::{HashMap, HashSet};
