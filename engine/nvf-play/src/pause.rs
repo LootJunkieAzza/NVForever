@@ -867,7 +867,8 @@ fn entries_with(mods: bool, console: bool, split: Option<bool>) -> Vec<Entry> {
         Some(false) => v.push(Entry::AddPlayer2),
         None => {}
     }
-    v.extend([Entry::Photo, Entry::Settings]);
+    // Photo Mode (Entry::Photo) is left out of the 0.8.1 co-op ship: its own PR after it.
+    v.push(Entry::Settings);
     if console {
         v.push(Entry::Console);
     }
@@ -5852,7 +5853,7 @@ mod tests {
     #[test]
     fn the_console_entry_stands_where_help_was() {
         let labels: Vec<&str> = super::entries(true, true).iter().map(|e| e.label()).collect();
-        assert_eq!(labels, ["Continue", "Save", "Load", "Lobby", "Photo Mode", "Settings", CONSOLE_LABEL, MODS_LABEL, "Quit"]);
+        assert_eq!(labels, ["Continue", "Save", "Load", "Lobby", "Settings", CONSOLE_LABEL, MODS_LABEL, "Quit"]);
         assert!(!super::entries(false, false).contains(&Entry::Console));
     }
 
@@ -6957,8 +6958,8 @@ mod tests {
     fn split_screens_entry_follows_lobby_in_player_1s_game_only() {
         use crate::split_screen::SplitScreen;
         let labels = |split| entries_with(false, false, split).iter().map(|e| e.label()).collect::<Vec<_>>();
-        assert_eq!(labels(Some(false)), ["Continue", "Save", "Load", "Lobby", "Add Player 2", "Photo Mode", "Settings", "Quit"]);
-        assert_eq!(labels(Some(true)), ["Continue", "Save", "Load", "Lobby", "End Split Screen", "Photo Mode", "Settings", "Quit"]);
+        assert_eq!(labels(Some(false)), ["Continue", "Save", "Load", "Lobby", "Add Player 2", "Settings", "Quit"]);
+        assert_eq!(labels(Some(true)), ["Continue", "Save", "Load", "Lobby", "End Split Screen", "Settings", "Quit"]);
         assert_eq!(labels(None), labels(None).iter().filter(|l| !l.contains("Split") && !l.contains("Player 2")).copied().collect::<Vec<_>>());
         // No resource (player 2's game, or a build without it): no entry; a guest in
         // another's lobby can't start it, but can end it.
@@ -6971,8 +6972,8 @@ mod tests {
     #[test]
     fn the_mods_entry_stands_before_quit_only_when_a_mod_added_one() {
         let labels = |mods| entries(mods, false).iter().map(|e| e.label()).collect::<Vec<_>>();
-        assert_eq!(labels(false), ["Continue", "Save", "Load", "Lobby", "Photo Mode", "Settings", "Quit"]);
-        assert_eq!(labels(true), ["Continue", "Save", "Load", "Lobby", "Photo Mode", "Settings", "Mods", "Quit"]);
+        assert_eq!(labels(false), ["Continue", "Save", "Load", "Lobby", "Settings", "Quit"]);
+        assert_eq!(labels(true), ["Continue", "Save", "Load", "Lobby", "Settings", "Mods", "Quit"]);
         assert!(Page::Mods.opened_by("Mods"));
         assert!(!Page::Mods.opened_by("Settings"));
         assert_eq!(Page::Mods.settings_row(), None);

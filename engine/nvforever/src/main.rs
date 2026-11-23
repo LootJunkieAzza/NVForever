@@ -107,6 +107,9 @@ mod rigid_head_probe;
 mod idles;
 mod sprint_guard;
 mod lights;
+// Photo Mode is left out of the 0.8.1 co-op ship (its own PR after it): its lights are not
+// registered, the code stays for that PR.
+#[allow(dead_code)]
 mod photo_lights;
 mod limbs;
 mod lips;
@@ -1821,7 +1824,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, photo_lights::PhotoLightsPlugin))
+    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))

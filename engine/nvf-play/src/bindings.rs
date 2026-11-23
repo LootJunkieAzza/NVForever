@@ -236,7 +236,7 @@ pub enum Control {
 /// owner request 2026-11-09]; Sprint unbound,
 /// with no controller button either, until the player binds it [design, #3000: the
 /// maintainer's decision on #3002].
-pub const GAME_CONTROLS: [(Control, &str, u32); 96] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 86] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -270,7 +270,6 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 96] = [
     (Control::Bash, "Weapon Bash", 0x002DFFFF),
     (Control::Ping, "Ping", 0x002E03FF),
     (Control::Emote, "Emote", 0x0030FFFF),
-    (Control::PhotoMode, "Photo Mode", 0x0019FFFF),
     (Control::Sprint, "Sprint", 0xFFFFFFFF),
     (Control::HolsterWeapon, "Holster Weapon", 0xFFFFFFFF),
     (Control::ToggleLight, "Toggle Light", 0xFFFFFFFF),
@@ -328,19 +327,10 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 96] = [
     (Control::RaceLeft, "Race Left", 0x001EFFFF),
     (Control::RaceDown, "Race Down", 0x001FFFFF),
     (Control::RaceRight, "Race Right", 0x0020FFFF),
-    (Control::PhotoNextTab, "Photo Next Tab", 0x000FFFFF),
-    (Control::PhotoPreviousTab, "Photo Previous Tab", 0xFFFFFFFF),
-    (Control::PhotoRowUp, "Photo Row Up", 0x00C8FFFF),
-    (Control::PhotoRowDown, "Photo Row Down", 0x00D0FFFF),
-    (Control::PhotoMore, "Photo More", 0x00CDFFFF),
-    (Control::PhotoLess, "Photo Less", 0x00CBFFFF),
-    (Control::PhotoHide, "Photo Hide Panel", 0x0023FFFF),
-    (Control::PhotoReset, "Photo Reset", 0x0013FFFF),
-    (Control::PhotoTake, "Photo Take", 0x001C00FF),
 ];
 
 /// How many of [`GAME_CONTROLS`] at its end are a screen's own ([`mode_group`]).
-pub const MODE_CONTROLS: usize = 30;
+pub const MODE_CONTROLS: usize = 21;
 
 /// The screens with controls of their own. A key or button is swapped only between two
 /// controls of one screen, and never warned of against the play controls: those are held
@@ -382,7 +372,7 @@ fn swaps_with(a: Control, b: Control) -> bool {
 /// them (A yes or start, B no or leave, the D-pad the numbered choices, the shoulders the
 /// bet or the tab, RT the throw; the race's four keys as the face buttons' places: Y up, X
 /// left, A down, B right) [design].
-pub const MODE_PADS: [(Control, GamepadButton); 30] = {
+pub const MODE_PADS: [(Control, GamepadButton); 21] = {
     use GamepadButton::*;
     [
         (Control::Accept, South),
@@ -406,15 +396,6 @@ pub const MODE_PADS: [(Control, GamepadButton); 30] = {
         (Control::RaceLeft, West),
         (Control::RaceDown, South),
         (Control::RaceRight, East),
-        (Control::PhotoNextTab, RightTrigger),
-        (Control::PhotoPreviousTab, LeftTrigger),
-        (Control::PhotoRowUp, DPadUp),
-        (Control::PhotoRowDown, DPadDown),
-        (Control::PhotoMore, DPadRight),
-        (Control::PhotoLess, DPadLeft),
-        (Control::PhotoHide, North),
-        (Control::PhotoReset, West),
-        (Control::PhotoTake, South),
     ]
 };
 
@@ -2815,7 +2796,6 @@ Rumble=1"), "{text}");
         assert_eq!(b.get(Control::Accept).key, Some(KeyCode::KeyY));
         assert_eq!(b.get(Control::GameLeave).key, Some(KeyCode::Tab));
         assert_eq!(b.get(Control::GameThrow).mouse, Some(MouseButton::Left));
-        assert_eq!(b.get(Control::PhotoTake), Binding { key: Some(KeyCode::Enter), mouse: Some(MouseButton::Left) });
         for (c, p) in MODE_PADS {
             assert_eq!(b.pad_binding(c), Some(PadBinding::Press(PadInput::Button(p))), "{c:?}");
         }
