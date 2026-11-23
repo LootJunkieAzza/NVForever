@@ -98,16 +98,17 @@ The launcher does not write that instance.
 ## A named profile
 
 [documented: docs/spec-notes/launcher-profile.md] **Save** writes
-`<home>/profiles/<name>/` and only `modlist.txt`, `plugins.txt`, and
-`loadorder.txt`. **Load** puts those lists back on the page. An open profile
+`<home>/profiles/<name>/` and only its six text files: `modlist.txt`,
+`plugins.txt`, `loadorder.txt`, `locks.txt`, `note.txt` and `archives.txt`.
+**Load** puts those back on the page. An open profile
 overrides the home lists the next time that profile is opened. The home lists
 still exist on their own.
 
 ## Not in this manager
 
 - The game `Data` folder is not written. Neither is
-  `Documents\My Games\FalloutNV`, except the one case already documented for
-  an external instance ([documented: `crates/fnv-install` module notes]).
+  `Documents\My Games\FalloutNV` [documented: `guard_write` in
+  `crates/fnv-install/src/lib.rs`].
 - An `overwrite` folder is not a layer: the game is not given it, so a file
   there does not win over a mod folder [documented: `launch::spawn`,
   `plugins::mod_content_layers`]. The launcher uses `<home>/overwrite` only for

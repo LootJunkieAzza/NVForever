@@ -19,20 +19,23 @@ No settings row is added. If one is added later it follows
 
 ## A profile is a name and two lists
 
-The player types a name. **Add** and **Save backup** write the same profile:
-the folder order on the left and the plugin order on the right. The name is one
+The player types a name. **Add profile**, and **Save** while a profile is open,
+write the profile: the folder order on the left and the plugin order on the right. The name is one
 plain folder name, not a path. An empty name is refused.
 
 The profile is a folder under the launcher home, `profiles/<name>/`. Saving
-writes only these three text files:
+writes these six text files (`write_profile_lists` and `write_profile_side`):
 
 | File | What it holds |
 |---|---|
 | `modlist.txt` | One mod folder per line. `+` means on, `-` means off. The winning folder is first in the file. The page shows that folder last, which is the order the page already uses when it reads a list. |
 | `plugins.txt` | The plugins that are on, one per line, a `*` before the name. |
 | `loadorder.txt` | Every plugin on the page, first loaded first. |
+| `locks.txt` | The locked mod folders, one name per line. Mod Organizer 2's list has no lock mark, so locks are kept beside it. |
+| `note.txt` | The note on the profile. |
+| `archives.txt` | Archive names stored with the profile, one per line. The mod list does not show them. |
 
-Saving the same name again replaces those three files and leaves any other file
+Saving the same name again replaces those six files and leaves any other file
 in the folder. Nothing is copied. The mods folder is not the place a profile is
 written.
 
@@ -44,7 +47,10 @@ dropped folder, so an older instance is left as it was.
 **Load** of a profile this page saved puts both lists back. The plugin backup
 list (the dated copies made when the live list is saved) is a different store.
 **Save backup** used to write `plugins.txt.bak.1` beside the live list, which
-that dated list never shows. It now writes the named profile instead.
+that dated list never shows. It now writes a dated copy into `plugin-backups/`:
+a `lists-<stamp>/` folder with the four list files (`modlist.txt`,
+`plugins.txt`, `loadorder.txt`, `locks.txt`) and `plugins-<stamp>.txt`
+(`save_dated_backup`). It does not write the named profile.
 
 ## What is not written
 
@@ -53,7 +59,7 @@ or the original game's plugin list. That is the install rule
 ([install-layout.md](https://github.com/LootJunkieAzza/NVForever/blob/main/docs/design/install-layout.md)).
 
 **Apply** writes the launcher home's `plugins.txt` and `mod-order.txt`. The same two files are written when the mod list or the load order changes, with no profile open and without pressing **Save** [design]. That write does not make a backup. A dated copy is made only when **Save backup** is pressed. Those home files are what the next launch of the launcher reads. The game process does not read `mod-order.txt`. When the launcher starts the game it passes each enabled folder as `--mod-layer`, lowest priority first. An open profile is updated as well and still overrides the home lists when that profile is opened. **Save**
-and **Load** write the profile's three text files. None of them link or copy
+writes the profile's six text files and **Load** reads them. None of them link or copy
 files into the game `Data` folder. The game still reads a plugin, an archive, or a loose file that was installed in `Data`. The facts of what the game process then reads are in
 [launcher-mod-visibility.md](../spec-notes/launcher-mod-visibility.md).
 

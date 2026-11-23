@@ -17,7 +17,7 @@ These are the launcher's own choices, written up before the code in
 - The game folder and `Documents\My Games\FalloutNV` are not written
   [documented: docs/design/install-layout.md on NVForever main].
 
-## The three files
+## The profile's files
 
 The launcher's own text files, not a format read out of the original game:
 
@@ -36,6 +36,12 @@ The launcher's own text files, not a format read out of the original game:
   and is not part of the file name.
 - `loadorder.txt`: every plugin on the page, one per line, the first loaded
   first. A leading `*` is ignored if it is present.
+- `note.txt`: the note on the profile [design].
+- `archives.txt`: archive names stored with the profile, one per line, sorted.
+  The mod list does not show them [design].
 
-Saving the same name again replaces these three files and `locks.txt`. Any other file in the
-folder is left in place.
+A save writes all six [documented: `App::write_profile_lists`,
+`App::write_profile_side`]. Saving the same name again replaces these six
+files. Any other file in the folder is left in place. **Save backup** writes
+only the four lists, into `plugin-backups/lists-<stamp>/`, with
+`plugins-<stamp>.txt` beside it [documented: `App::save_dated_backup`].
