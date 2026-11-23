@@ -12,41 +12,13 @@ use bevy::prelude::*;
 use bevy::shader::Shader;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub mod shader;
+#[cfg(test)]
+use shader::{BEVY_ATMOSPHERIC, GAME_FOG};
+use shader::fog_patched;
+
 /// The embedded asset path under which bevy_pbr registers `bevy_pbr::fog`.
 const PBR_FOG: &str = "embedded://bevy_pbr/render/fog.wesl";
-
-/// Bevy's atmospheric fog factors [observed: bevy_pbr 0.20.1 `fog.wesl`].
-const BEVY_ATMOSPHERIC: &str = "    let extinction_factor = 1.0 - 1.0 / exp(distance * fog_params.be);
-    let inscattering_factor = 1.0 - 1.0 / exp(distance * fog_params.bi);
-    return vec4<f32>(
-        input_color.rgb * (1.0 - extinction_factor * fog_color.a)
-            + fog_color.rgb * inscattering_factor * fog_color.a,
-        input_color.a
-    );";
-
-/// The game's fog: near, far and power in `be` (the atmospheric fog's extinction). With
-/// `bi.x` 1 the colour is blended in display values (gamma 2.2), else in linear light.
-/// Outdoors the desert haze (haze.rs, an enhanced-look switch) arrives as `scattering`
-/// (x its share, y its sun weight; Bevy's own use of the argument needs a directional light
-/// alpha above 0, which is never set): the two are blended once, as transmittances, the
-/// haze seen through the weather's fog. Without haze (`scattering.x` 0) the old two lines
-/// run unchanged [design, #2675].
-const GAME_FOG: &str = "    let fog_t = clamp((distance - fog_params.be.x) / max(fog_params.be.y - fog_params.be.x, 1.0), 0.0, 1.0);
-    let fog_share = select(0.0, pow(fog_t, fog_params.be.z), fog_t > 0.0) * fog_color.a;
-    if fog_params.bi.x > 0.5 {
-        if scattering.x > 0.0 && fog_params.directional_light_color.a <= 0.0 {
-            // NVForever desert haze (haze.rs): total share 1 - (1 - fog)(1 - haze), one blend.
-            let haze_share = clamp(scattering.x, 0.0, 1.0);
-            let haze_colour = mix(fog_color.rgb, fog_params.directional_light_color.rgb, clamp(scattering.y, 0.0, 1.0));
-            let veil_share = 1.0 - (1.0 - fog_share) * (1.0 - haze_share);
-            let veil = (pow(max(fog_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)) * fog_share + pow(max(haze_colour, vec3(0.0)), vec3(1.0 / 2.2)) * (haze_share * (1.0 - fog_share))) / max(veil_share, 1e-6);
-            let hazy = mix(pow(max(input_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)), veil, veil_share);
-            return vec4<f32>(pow(hazy, vec3(2.2)), input_color.a);
-        }
-        let shown = mix(pow(max(input_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)), pow(max(fog_color.rgb, vec3(0.0)), vec3(1.0 / 2.2)), fog_share);
-        return vec4<f32>(pow(shown, vec3(2.2)), input_color.a);
-    }
-    return vec4<f32>(mix(input_color.rgb, fog_color.rgb, fog_share), input_color.a);";
 
 /// Set once the patched shader is in place; until then (or if Bevy's shader changed)
 /// [`falloff`] gives Bevy's linear fog.
@@ -85,18 +57,22 @@ fn patch_fog(mut state: ResMut<FogShader>, mut shaders: ResMut<Assets<Shader>>, 
         warn!("{PBR_FOG}: not WESL; the fog stays linear");
         return;
     };
-    let source = crate::lights::unix_lines(source);
-    if !source.contains(BEVY_ATMOSPHERIC) {
+    let physical = nvf_assets::authored::physical_pbr();
+    let Some(patched_src) = fog_patched(source, physical) else {
         warn!("{PBR_FOG}: atmospheric fog not found (Bevy changed?); the fog stays linear");
         return;
-    }
-    let patched = with_source(shader, source.replace(BEVY_ATMOSPHERIC, GAME_FOG));
+    };
+    let patched = with_source(shader, patched_src);
     let _ = shaders.insert(&state.handle, patched);
     INSTALLED.store(true, Ordering::Relaxed);
     if let Some(mut sky) = sky {
         sky.refresh();
     }
-    info!("fog: the game's fog curve installed");
+    if physical {
+        info!("fog: linear Beer-Lambert fog installed (NVF_PHYSICAL_PBR=1)");
+    } else {
+        info!("fog: the game's fog curve installed");
+    }
 }
 
 /// `shader` with its source replaced by `source` (a patched copy of it): the import
@@ -162,5 +138,19 @@ mod tests {
         assert!((share(1_000.0, 5_000.0, 1.0, 2_000.0) - 0.25).abs() < 1e-6);
         assert_eq!(share(350.0, 15_000.0, 0.21, 100.0), 0.0);
         assert_eq!(share(0.0, 100.0, 0.5, 1e6), 1.0);
+    }
+
+    #[test]
+    fn physical_fog_replaces_atmospheric_fog_cleanly() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/bevy_pbr/src/render/fog.wesl");
+        let raw = std::fs::read_to_string(path).expect("vendored fog.wesl");
+        let physical = fog_patched(&raw, true).expect("physical fog patch applies");
+        assert!(physical.contains("exp(-tau)"));
+        assert!(physical.contains("tau_R"));
+        assert!(physical.contains("phase_M"));
+        assert!(!physical.contains("1.0 / 2.2"), "physical fog blends linearly without display gamma");
+        assert!(!physical.contains("fog_params.be.z"), "no concave near-camera fog_power distortion");
+        let game = fog_patched(&raw, false).expect("game fog patch applies");
+        assert!(game.contains("1.0 / 2.2"));
     }
 }

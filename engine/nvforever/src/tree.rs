@@ -90,6 +90,7 @@ impl MaterialExtension for TreeBillboards {
         // Billboards crossfade with the cells whose trees they stand in for (treelod.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
         nvf_assets::soft_edges(descriptor, key.mesh_key);
+        nvf_assets::nif_material::enable_foliage_sss(descriptor);
         Ok(())
     }
 }
@@ -123,6 +124,7 @@ impl MaterialExtension for LeafCards {
         if !LEAVES_READ_AMBIENT_OCCLUSION {
             nvf_assets::ambient_occlusion_opt_out(descriptor);
         }
+        nvf_assets::nif_material::enable_foliage_sss(descriptor);
         Ok(())
     }
 }

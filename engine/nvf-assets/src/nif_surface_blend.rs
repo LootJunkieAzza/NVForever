@@ -496,6 +496,8 @@ pub struct NifSurfaceBlendColour {
     /// How that height atlas is packed (the publication's [`HeightLayout`]); no binding,
     /// it reaches the shader through the key ([`NifSurfaceBlendKey`], [`blend_shader_defs`]).
     pub mesh_terrain_layout: HeightLayout,
+    pub skin: bool,
+    pub foliage: bool,
 }
 
 #[derive(Clone, Default, ShaderType)]
@@ -550,6 +552,8 @@ impl From<&NifSurfaceBlendColour> for NifSurfaceBlendKey {
             // An object blended into the landscape, not a landscape layer: bevy_pbr's rule
             // decides its ambient occlusion.
             terrain_layer: false,
+            skin: s.skin,
+            foliage: s.foliage,
         }, s.mesh_terrain_layout)
     }
 }
@@ -696,6 +700,8 @@ impl NifSurfaceBlendColour {
             mesh_terrain_colour: Some(colour),
             mesh_terrain_height: Some(height.0),
             mesh_terrain_layout: height.1,
+            skin: source.skin,
+            foliage: source.foliage,
         }
     }
 }

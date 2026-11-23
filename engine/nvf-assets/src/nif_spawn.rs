@@ -669,9 +669,15 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (
     if props.hair {
         return (0.0, false);
     }
+    let physical = crate::authored::physical_pbr();
+    let sss = crate::authored::sss_enabled();
     match (has_normal_map, props.specular) {
+        (true, true) if (physical || sss) && props.skin && unmasked => (0.36, false),
+        (true, true) if (physical || sss) && props.skin => (1.15, true),
         (true, true) if unmasked => (UNMASKED_SPECULAR, false),
         (true, true) => (2.0, true),
+        (true, false) | (false, _) if (physical || sss) && props.skin && !props.specular => (0.36, false),
+        (true, false) if physical => (0.32, false),
         (true, false) => (0.0, false),
         (false, _) => (0.3, false),
     }
@@ -947,6 +953,16 @@ pub(crate) fn shape_material_reusing_tangents(
     shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats }, Tangents::Keep)
 }
 
+/// Whether a NIF diffuse path belongs to placed foliage (plants, shrubs, leaves) that
+/// should receive backlit translucency when `NVF_SSS=1`.
+pub(crate) fn is_foliage_texture(path: &str) -> bool {
+    let norm = path.replace('\\', "/").to_ascii_lowercase();
+    norm.contains("textures/landscape/plants/")
+        || norm.contains("textures/plants/")
+        || norm.contains("textures/trees/leaves/")
+        || norm.contains("textures/clutter/plants/")
+}
+
 /// [`shape_material`] with its textures from `textures` and the normal map's tangents from
 /// `tangents`: the static models (`crate::model`) give the ones stored in the shape's data
 /// block ([`crate::tangents`]); every other caller generates them (or keeps them,
@@ -1011,6 +1027,15 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         .flatten()
         .and_then(|t| textures.texture(t, true));
     let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
+    let physical = crate::authored::physical_pbr();
+    let sss = crate::authored::sss_enabled();
+    let perceptual_roughness = if (physical || sss) && props.skin {
+        gloss_roughness(gloss).clamp(0.58, 0.72)
+    } else if physical && !props.specular && !props.hair {
+        gloss_roughness(gloss).max(0.86)
+    } else {
+        gloss_roughness(gloss)
+    };
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
         base_color_texture: base,
@@ -1019,7 +1044,7 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         // Green points down the image (DirectX style), Bevy expects up [observed,
         // docs/spec-notes/nif.md §6 "Normal maps"].
         flip_normal_map_y: true,
-        perceptual_roughness: gloss_roughness(gloss),
+        perceptual_roughness,
         metallic: 0.0,
         reflectance,
         emissive: emissive.unwrap_or(LinearRgba::BLACK),
@@ -1051,6 +1076,8 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         unlit_vertex_colors(&mut material);
     }
     material.extension.decal = props.decal;
+    material.extension.skin = props.skin;
+    material.extension.foliage = !props.skin && !props.hair && !props.unlit && props.refraction.is_none() && diffuse.is_some_and(|t| is_foliage_texture(t));
     if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
     }
@@ -2144,5 +2171,27 @@ mod bc5_material_tests {
         assert!(refused.base.normal_map_texture.is_none());
         assert!(refused.base.specular_texture.is_none());
         assert_eq!(refused.base.reflectance, 0.3);
+    }
+
+    #[test]
+    fn foliage_texture_classification_matches_plants_and_leaves_only() {
+        for yes in [
+            r"textures\landscape\plants\maize_d.dds",
+            r"Data\Textures\Landscape\Plants\JoshuaTree01.dds",
+            r"textures\plants\yucca01.dds",
+            r"textures\trees\leaves\NVTreeLeaves.dds",
+            r"textures/clutter/plants/fern01.dds",
+        ] {
+            assert!(is_foliage_texture(yes), "expected foliage: {yes}");
+        }
+        for no in [
+            r"textures\trees\branches\bark01.dds",
+            r"textures\landscape\dirt01.dds",
+            r"textures\characters\male\headhuman.dds",
+            r"textures\clutter\metal\tincan.dds",
+            "",
+        ] {
+            assert!(!is_foliage_texture(no), "unexpected foliage: {no}");
+        }
     }
 }

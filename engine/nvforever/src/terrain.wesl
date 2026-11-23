@@ -545,18 +545,20 @@ fn fragment(
 
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
-    // Bevy's ambient specular out again, as in nif_material.wesl (the game's ambient light
-    // is a flat colour; highlights come from lights).
-    let m = pbr_input.material;
-    let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
-    let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
-    let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
-    let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
-    var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
-    if lights.ambient_color.a < 0.0 {
-        ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+    // Bevy's ambient specular out again in display-value mode, as in nif_material.wesl
+    // (the game's ambient light is a flat colour; highlights come from lights).
+    @if(!NVF_PHYSICAL_PBR) {
+        let m = pbr_input.material;
+        let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
+        let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
+        let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
+        let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
+        var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
+        if lights.ambient_color.a < 0.0 {
+            ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+        }
+        out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
     }
-    out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;
     }

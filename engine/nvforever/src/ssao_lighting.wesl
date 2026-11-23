@@ -25,7 +25,8 @@ struct NvfAmbientOcclusion {
     // x: the strength the factor was made with; y: the weight of the factor on the light of
     // lamps that cast no shadow (0..1, ssao_lighting.rs `LAMPS`; 0 leaves them whole); z: 1
     // for the multi-bounce fit on the ambient (`nvf_ao_multibounce`, ssao_lighting.rs
-    // `MULTIBOUNCE`), 0 for the factor alone; w unused.
+    // `MULTIBOUNCE`), 0 for the factor alone; w: 1 when physical PBR macro sky-visibility (.b)
+    // and sun contact shadows (.a) are packed in `nvf_ao_texture`, 0 otherwise.
     extra: vec4<f32>,
 }
 
@@ -115,4 +116,56 @@ fn nvf_lamp_visibility(g: f32) -> f32 {
         return 1.0;
     }
     return mix(1.0, g, w);
+}
+
+// Local AO (.x), architectural sky-visibility (.y), and sun contact shadow (.z) from one
+// 2x2 depth-aware upsample of `nvf_ao_texture`. When `extra.w <= 0.5`, `.yz` return 1.0.
+fn nvf_physical_occlusion(frag: vec2<f32>, dist: f32) -> vec3<f32> {
+    if !(dist > 0.0) || dist >= nvf_ao.params.z {
+        return vec3(1.0);
+    }
+    let size = vec2<i32>(textureDimensions(nvf_ao_texture));
+    let t = (frag - 0.5) * 0.5;
+    let base = floor(t);
+    let f = t - base;
+    let first = vec2<i32>(base);
+    let tolerance = nvf_ao.params.w * dist + 1.0;
+    let contact_tol = 0.025 * dist + 0.5;
+    var total_r = 0.0;
+    var total_b = 0.0;
+    var weight = 0.0;
+    var total_a = 0.0;
+    var weight_a = 0.0;
+    var fallback_a = 0.0;
+    for (var y = 0; y < 2; y++) {
+        for (var x = 0; x < 2; x++) {
+            let q = clamp(first + vec2(x, y), vec2(0), size - 1);
+            let texel = textureLoad(nvf_ao_texture, q, 0);
+            let bilinear = select(1.0 - f.x, f.x, x == 1) * select(1.0 - f.y, f.y, y == 1);
+            let surface = select(0.0, max(1.0 - abs(texel.g - dist) / tolerance, 0.0), texel.g > 0.0);
+            let w = bilinear * surface;
+            total_r += texel.r * w;
+            total_b += texel.b * w;
+            fallback_a += texel.a * w;
+            weight += w;
+            let surface_c = select(0.0, max(1.0 - abs(texel.g - dist) / contact_tol, 0.0), texel.g > 0.0);
+            let wc = bilinear * surface_c;
+            total_a += texel.a * wc;
+            weight_a += wc;
+        }
+    }
+    if !(weight >= NVF_AO_MIN_WEIGHT) {
+        return vec3(1.0);
+    }
+    let open = total_r / weight;
+    let safe_ao = select(1.0, clamp(open, 0.0001, 1.0), open >= 0.0);
+    let local_ao = pow(safe_ao, nvf_ao.params.x);
+    if !(nvf_ao.extra.w > 0.5) {
+        return vec3(local_ao, 1.0, 1.0);
+    }
+    let sky_raw = total_b / weight;
+    let sky_vis = select(1.0, clamp(sky_raw, 0.0, 1.0), sky_raw >= 0.0);
+    let contact_raw = select(fallback_a / weight, total_a / weight_a, weight_a >= NVF_AO_MIN_WEIGHT);
+    let sun_contact = select(1.0, clamp(contact_raw, 0.0, 1.0), contact_raw >= 0.0);
+    return vec3(local_ao, sky_vis, sun_contact);
 }

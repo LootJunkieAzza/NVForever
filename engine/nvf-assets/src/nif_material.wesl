@@ -471,6 +471,7 @@ const BODY_CLEARANCE: f32 = 24.0;
     unshadowed.flags |= NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT;
     let lit = apply_pbr_lighting(unshadowed);
     let k = (v_lit + share - sun_shadow_value(sun, in, wanted, view_z)) / missing;
+    @if(!NVF_PHYSICAL_PBR)
     if lights.ambient_color.a < 0.0 {
         // The display-value sum (nvforever lights.rs DISPLAY_HELPERS): the diffuse light is
         // texture × sum^2.2, so its display value (^(1/2.2)) is linear in the shadow
@@ -479,7 +480,7 @@ const BODY_CLEARANCE: f32 = 24.0;
         let shadowed_d = pow(max(shadowed.rgb, vec3(0.0)), vec3(1.0 / 2.2));
         return vec4(pow(max(lit_d - (lit_d - shadowed_d) * k, vec3(0.0)), vec3(2.2)), shadowed.a);
     }
-    return lit - (lit - shadowed) * k;
+    return vec4(max(lit.rgb - (lit.rgb - shadowed.rgb) * k, vec3(0.0)), shadowed.a);
 }
 
 @if(FIRST_PERSON_DEPTH) struct FirstPersonOutput {
@@ -523,6 +524,11 @@ fn nif_fragment(
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dy = vec2(terrain_wdy.x, -terrain_wdy.z);
     // Landscape anti-tiling's footprint, while every fragment of the quad still runs.
     @if(TERRAIN_ANTI_TILING) let terrain_fp = terrain_footprint(in.world_position, nif_surface(in.instance_index).terrain.x, standard_material(in.instance_index).uv_transform);
+    // Pre-integrated skin curvature (NVF_SKIN_SSS): taken in uniform control flow before
+    // any discard. 1 game unit ≈ 14.3 mm; x2 scale tunes for 2010 low-poly FNV heads.
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE) let skin_n_len = length(in.world_normal);
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE) let skin_n_unit = select(vec3(0.0, 1.0, 0.0), in.world_normal / skin_n_len, skin_n_len > 1e-6);
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE) let skin_curv_raw = length(fwidth(skin_n_unit)) / max(length(fwidth(in.world_position.xyz)), 1e-4);
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
     let surface = nif_surface(in.instance_index);
     // NifSurface::pipboy_screen: the picture's texture coordinates and their change across a
@@ -557,6 +563,8 @@ fn nif_fragment(
     // (#2981). No surface is rougher than 1; Bevy raises the low end to 0.089 where the
     // highlight's shape needs it, and 0 here only keeps a signed map's negative out.
     pbr_input.material.perceptual_roughness = clamp(pbr_input.material.perceptual_roughness, 0.0, 1.0);
+    // Carry skin curvature (mm^-1) in unused `material.thickness` for opaque skin.
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE) pbr_input.material.thickness = clamp(0.15 + 0.02 * skin_curv_raw, 0.15, 0.18);
     // NVF_PBR_VIEW (nvf-assets authored.rs `PbrView`, a debug view, off unless NVF_PBR_VIEW is
     // set at the start): one material input, taken here, right after the standard material's
     // sampling and before the mesh terrain blend, and written over the colour at the end.
@@ -705,27 +713,31 @@ fn nif_fragment(
         out.color = apply_pbr_lighting(pbr_input);
         @if(!PREPASS_PIPELINE && SHADE_LIGHT) out.color = with_shade_light(pbr_input, out.color);
         // Bevy's ambient specular, with the same inputs as in apply_pbr_lighting and
-        // bevy_pbr::ambient::ambient_light (no lightmaps are used here).
-        let m = pbr_input.material;
-        let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
-        let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
-        let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
-        let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
-        var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
-        if lights.ambient_color.a < 0.0 {
-            // A world view (nvforever lights.rs DISPLAY_HELPERS): the highlight Bevy added
-            // took the ambient colour as linear light (`nvf_ambient_ratio`).
-            ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+        // bevy_pbr::ambient::ambient_light (no lightmaps are used here). Disabled under
+        // `NVF_PHYSICAL_PBR`, which keeps full physical specular IBL.
+        @if(!NVF_PHYSICAL_PBR) {
+            let m = pbr_input.material;
+            let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
+            let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
+            let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
+            let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
+            var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
+            if lights.ambient_color.a < 0.0 {
+                // A world view (nvforever lights.rs DISPLAY_HELPERS): the highlight Bevy added
+                // took the ambient colour as linear light (`nvf_ambient_ratio`).
+                ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+            }
+            @if(!NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
+            // NVF_PBR_METALLIC (nvf-assets authored.rs `metallic_debug`, a debug switch): on a
+            // material shaded from an authored set (emissive_rule.w), only the dielectric share
+            // (1 - m) of the highlight is removed, m the sampled metallic after the terrain mix,
+            // so a metal keeps its ambient highlight; m = 0 removes it all, as above. Other
+            // materials remove it all.
+            @if(NVF_PBR_METALLIC) let removed = select(1.0, 1.0 - saturate(m.metallic), surface.emissive_rule.w > 0.5);
+            @if(NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec * removed, vec3(0.0)), out.color.a);
         }
-        @if(!NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
-        // NVF_PBR_METALLIC (nvf-assets authored.rs `metallic_debug`, a debug switch): on a
-        // material shaded from an authored set (emissive_rule.w), only the dielectric share
-        // (1 - m) of the highlight is removed, m the sampled metallic after the terrain mix,
-        // so a metal keeps its ambient highlight; m = 0 removes it all, as above. Other
-        // materials remove it all.
-        @if(NVF_PBR_METALLIC) let removed = select(1.0, 1.0 - saturate(m.metallic), surface.emissive_rule.w > 0.5);
-        @if(NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec * removed, vec3(0.0)), out.color.a);
-        @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY) out.color = vec4(hot_light(out.color.rgb, hot_e), out.color.a);
+        @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY && !NVF_PHYSICAL_PBR) out.color = vec4(hot_light(out.color.rgb, hot_e), out.color.a);
+        @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY && NVF_PHYSICAL_PBR) out.color = vec4(out.color.rgb + hot_e, out.color.a);
         // Window environment map (nif_material.rs NifSurface::env; docs/spec-notes/nif.md
         // §6 "Window glass and environment maps"): the cube read in the view direction
         // reflected about the normal, × the scale × the mask, added to the lit colour. The

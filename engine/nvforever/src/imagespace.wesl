@@ -129,6 +129,13 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     var c = to_srgb(clamp(lin, vec3(0.0), vec3(1.0)));
     let marked = abs(src.a - SCREEN_MARK) < 0.02;
     if !marked {
+        if grade.dof_mode.w > 0.5 {
+            // AgX Punchy look (Troy Sobotka) calibrated for Mojave daylight: crisp shadow
+            // toe, clean highlight headroom, and saturated cobalt sky purity.
+            c = pow(clamp(c * 1.05, vec3(1e-6), vec3(1.0)), vec3(1.22));
+            let agx_lum = dot(c, vec3(0.2125, 0.7154, 0.0721));
+            c = clamp(mix(vec3(agx_lum), c, 1.36), vec3(0.0), vec3(1.0));
+        }
         let lum = dot(c, vec3(0.2125, 0.7154, 0.0721));
         c = mix(vec3(lum), c, grade.saturation);
         c = mix(c, lum * grade.tint.rgb, grade.tint.a);

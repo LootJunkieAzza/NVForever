@@ -1115,6 +1115,32 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `physical-pbr`: Physical PBR lighting
+
+- On the page: On: linear Oren-Nayar diffuse, Cook-Torrance specular, sky IBL and
+  Beer-Lambert fog instead of the original's display lighting. Takes effect at the next
+  start.
+- In full: Replaces the display-value lighting bypass with linear OpenPBR Energy-Conserving
+  Oren-Nayar diffuse, full Cook-Torrance GGX specular with reciprocal dielectric coupling,
+  procedural sky/ground/interior cubemap IBL, windowed inverse-square lamp falloff, linear
+  Beer-Lambert fog, and Tony McMapface tonemapping. Off in both presets; can also be
+  overridden per run via `NVF_PHYSICAL_PBR=1` / `0`. Read once at the start, so a change
+  applies at the next start. Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `subsurface-scattering`: Subsurface scattering
+
+- On the page: On: pre-integrated skin shading with warm backlit translucency on characters
+  and two-sided light transmission on foliage. Takes effect at the next start.
+- In full: Enables Penner pre-integrated skin diffusion, dual-lobe sebum specular, and
+  shadow-map backlit transmittance on actor skin and FaceGen heads, plus energy-conserving
+  two-sided backlit translucency on grass, tree foliage, and plant meshes. Off in both
+  presets; can also be overridden per run via `NVF_SSS=1` / `0`. Read once at the start,
+  so a change applies at the next start. Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
 ## Graphics › Water
 
 ### `water-reflections`: Screen-space reflections

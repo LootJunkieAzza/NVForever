@@ -305,8 +305,9 @@ mod tests {
     /// Inertia and Camera Motion in place of weapon sway and head bob, #2843's Shadow
     /// resolution row, Gore Shake and #2670's Cloud shadows; #2661's mesh terrain blend row, the
     /// Quick Loot rows; #2965's heat haze row; #2675's desert haze row; Sprint; #2671's terrain
-    /// shadows row; #2981's authored materials row), by the group it registers with.
-    const KNOWN: [(&str, &str); 141] = [
+    /// shadows row; #2981's authored materials row; Physical PBR & Subsurface scattering),
+    /// by the group it registers with.
+    const KNOWN: [(&str, &str); 143] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -419,6 +420,8 @@ mod tests {
         ("glow", "Graphics"),
         ("eye-adaptation", "Graphics"),
         ("neon-glow", "Graphics"),
+        ("physical-pbr", "Graphics"),
+        ("subsurface-scattering", "Graphics"),
         ("sharpen", "Graphics"),
         ("anisotropic", "Graphics"),
         ("authored-materials", "Graphics"),
@@ -663,6 +666,8 @@ mod tests {
         assert_eq!(at("button-style"), "Controls > Input");
         assert_eq!(at("terrain-anti-tiling"), "Graphics > Detail and Distance", "beside terrain height blending (#2551)");
         assert_eq!(at("authored-materials"), "Graphics > Detail and Distance", "beside anisotropic filtering, the other texture row (#2981)");
+        assert_eq!(at("physical-pbr"), "Graphics > Lighting and Effects");
+        assert_eq!(at("subsurface-scattering"), "Graphics > Lighting and Effects");
         assert_eq!(at("mesh-terrain-blend"), "Graphics > Detail and Distance", "beside the terrain rows (#2661)");
         assert_eq!(at("cloud-shadows"), "Graphics > Shadows", "after Longer sun shadows (#2670)");
         assert_eq!(at("terrain-shadows"), "Graphics > Shadows", "after Cloud shadows (#2671)");

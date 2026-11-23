@@ -177,6 +177,12 @@ pub struct AmbientOcclusion {
     /// The candidate remedy for the shimmer on plants ([`AoVariant::uniform`]); all 0 for
     /// the estimate as shipped.
     pub variant: Vec4,
+    /// View-space world-up direction (xyz) and macro architectural sky-visibility strength
+    /// (w: 0 off, 1 outdoors, 0.25 indoors) under `NVF_PHYSICAL_PBR=1`.
+    pub up_view: Vec4,
+    /// View-space direction toward the primary shadow-casting directional light (xyz) and
+    /// sun contact shadow strength (w: 0..1) under `NVF_PHYSICAL_PBR=1`.
+    pub sun_view: Vec4,
 }
 
 impl Default for AmbientOcclusion {
@@ -210,6 +216,8 @@ impl AmbientOcclusion {
             area: Vec4::ZERO,
             mode,
             variant: debug.variant_at(lighting, level).uniform(),
+            up_view: Vec4::ZERO,
+            sun_view: Vec4::ZERO,
         }
     }
 
@@ -530,6 +538,7 @@ impl AoDebug {
     /// `view-lighting`.
     fn lighting_uniform(self, settings: &AmbientOcclusion) -> AmbientOcclusionLightingUniform {
         AmbientOcclusionLightingUniform::new(self.exponent(), settings.params.w, settings.params.y, self.lamps(), self.multibounce(), self.view && self.lighting())
+            .with_physical(nvf_assets::authored::physical_pbr())
     }
 
     /// The log line for the placement that runs (`lighting`) at Quality, without the level.
@@ -654,7 +663,7 @@ impl Plugin for SsaoPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "ssao.wesl");
         app.add_plugins((ExtractComponentPlugin::<AmbientOcclusion>::default(), UniformComponentPlugin::<AmbientOcclusion>::default()))
-            .add_systems(PostUpdate, (follow_projection.after(bevy::camera::CameraUpdateSystems), log_estimate));
+            .add_systems(PostUpdate, (follow_projection.after(bevy::camera::CameraUpdateSystems).after(bevy::transform::TransformSystems::Propagate), log_estimate));
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .init_resource::<AoLightingGpu>()
@@ -669,22 +678,66 @@ impl Plugin for SsaoPlugin {
     }
 }
 
+fn smoothstep_unit(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// View-space world-up + macro sky-visibility strength and primary directional light vector
+/// + contact shadow strength for `NVF_PHYSICAL_PBR=1`.
+fn physical_occlusion_vectors(
+    cam_rotation: Quat,
+    sky_interior: bool,
+    sun_world_dir_and_active: Option<(Vec3, bool)>,
+    physical: bool,
+) -> (Vec4, Vec4) {
+    if !physical {
+        return (Vec4::ZERO, Vec4::ZERO);
+    }
+    let inv = cam_rotation.inverse();
+    let up_dir = (inv * Vec3::Y).normalize_or(Vec3::Y);
+    let macro_strength = if sky_interior { 0.25 } else { 1.0 };
+    let up_view = up_dir.extend(macro_strength);
+    let sun_view = match sun_world_dir_and_active {
+        Some((to_sun, true)) if !sky_interior => {
+            let elev_fade = smoothstep_unit(0.03, 0.14, to_sun.y);
+            let sun_dir_v = (inv * to_sun).normalize_or(Vec3::Y);
+            sun_dir_v.extend(elev_fade)
+        }
+        _ => Vec4::ZERO,
+    };
+    (up_view, sun_view)
+}
+
 /// The camera's projection into the uniform (the aspect follows the window), and the
 /// strength and remedies of the placement that runs this frame: on the picture until the
 /// lighting hook is in place (or for good if it failed), then the lighting's.
-fn follow_projection(mut cams: Query<(&Projection, &mut AmbientOcclusion), With<FlyCam>>) {
+#[allow(clippy::type_complexity)]
+fn follow_projection(
+    mut cams: Query<(&Projection, &GlobalTransform, &mut AmbientOcclusion), With<FlyCam>>,
+    sky: Option<Res<crate::sky::SkyState>>,
+    suns: Query<(&DirectionalLight, &GlobalTransform), With<crate::sky::Sun>>,
+) {
     let lighting = AO_DEBUG.in_lighting_now();
-    for (proj, mut ao) in &mut cams {
+    let physical = nvf_assets::authored::physical_pbr();
+    let sky_interior = sky.as_ref().is_some_and(|s| s.interior.is_some());
+    let sun_info = suns.iter().next().map(|(light, gt)| {
+        (gt.back().as_vec3().normalize_or(Vec3::Y), light.shadow_maps_enabled && light.illuminance > 0.0)
+    });
+    for (proj, cam_gt, mut ao) in &mut cams {
         let Projection::Perspective(p) = proj else { continue };
         let y = 1.0 / (p.fov * 0.5).tan();
         let x = y / p.aspect_ratio.max(1e-3);
         let params = Vec4::new(RADIUS, AO_DEBUG.strength(lighting), p.near, FADE_END);
         let projv = Vec4::new(x, y, MAX_SCREEN_RADIUS, FADE_START);
         let variant = AO_DEBUG.variant_at(lighting, ao.level()).uniform();
-        if ao.params != params || ao.proj != projv || ao.variant != variant {
+        let (up_view, sun_view) = physical_occlusion_vectors(cam_gt.rotation(), sky_interior, sun_info, physical);
+        if ao.params != params || ao.proj != projv || ao.variant != variant || ao.up_view != up_view || ao.sun_view != sun_view {
             ao.params = params;
             ao.proj = projv;
             ao.variant = variant;
+            ao.up_view = up_view;
+            ao.sun_view = sun_view;
         }
     }
 }
@@ -777,8 +830,8 @@ pub(crate) struct AoLighting {
 }
 
 /// What [`ao_lighting_pass`] clears the denoised texture to when it cannot run: open (factor
-/// 1) at the farthest distance (ssao.wesl `SKY`).
-const OPEN_TEXEL: wgpu::Color = wgpu::Color { r: 1.0, g: 60000.0, b: 0.0, a: 0.0 };
+/// 1) at the farthest distance (ssao.wesl `SKY`), with sky-vis 1 and sun-contact 1.
+const OPEN_TEXEL: wgpu::Color = wgpu::Color { r: 1.0, g: 60000.0, b: 1.0, a: 1.0 };
 
 /// Render world: the lighting's uniform buffer (made the first time a view goes into the
 /// lighting, then kept) and the value last written to it.
@@ -907,6 +960,16 @@ const BEFORE_FSR_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 /// How open a texel is, and its distance (the apply pass weighs texels by it).
 const OCCLUSION_FORMAT: TextureFormat = TextureFormat::Rg16Float;
 
+/// Half-res AO texture format: `Rgba16Float` when `NVF_PHYSICAL_PBR=1` (adds `.b` macro
+/// sky-visibility and `.a` screen-space sun contact shadow); `Rg16Float` otherwise.
+fn occlusion_format() -> TextureFormat {
+    if nvf_assets::authored::physical_pbr() {
+        TextureFormat::Rgba16Float
+    } else {
+        OCCLUSION_FORMAT
+    }
+}
+
 /// The resolved depth's format: the prepass's (Bevy's `CORE_3D_DEPTH_FORMAT`), so a sample
 /// is kept bit for bit and the single-sampled pipelines read it as they read an unsampled
 /// prepass.
@@ -1014,13 +1077,13 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
     });
 }
 
-/// A pipeline of `base` drawing into an [`OCCLUSION_FORMAT`] texture, with `layout` and the
+/// A pipeline of `base` drawing into an [`occlusion_format`] texture, with `layout` and the
 /// `MULTISAMPLED` def for a multisampled depth.
 fn occlusion_format_pipeline(base: &RenderPipelineDescriptor, layout: &BindGroupLayoutDescriptor, multi: bool) -> RenderPipelineDescriptor {
     let mut d = base.clone();
     d.layout = vec![layout.clone()];
     if let Some(f) = d.fragment.as_mut() {
-        f.targets = vec![Some(ColorTargetState { format: OCCLUSION_FORMAT, blend: None, write_mask: ColorWrites::ALL })];
+        f.targets = vec![Some(ColorTargetState { format: occlusion_format(), blend: None, write_mask: ColorWrites::ALL })];
         if multi {
             f.shader_defs.push("MULTISAMPLED".into());
         }
@@ -1128,7 +1191,7 @@ fn prepare(
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: OCCLUSION_FORMAT,
+            format: occlusion_format(),
             usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         };
@@ -1452,7 +1515,7 @@ mod tests {
     fn resolved_shader(multisampled: bool) -> String {
         let source = include_str!("ssao.wesl").replace("\r\n", "\n");
         let mut out = String::from(
-            "struct FullscreenVertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>, };\nfn unsqueeze(d: f32) -> f32 { return d; }\n",
+            "struct FullscreenVertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>, };\nfn unsqueeze(d: f32) -> f32 { return d; }\nconst FIRST_PERSON_DEPTH_SHARE: f32 = 0.015625;\n",
         );
         for line in source.lines() {
             if line.starts_with("import ") {
@@ -1499,11 +1562,20 @@ mod tests {
         for line in [format!("const SLICES: i32 = {GTAO_SLICES};"), format!("const STEPS: i32 = {GTAO_STEPS};")] {
             assert!(source.contains(&line), "ssao.wesl must declare `{line}` (ssao.rs mirrors it)");
         }
-        // The uniform's six fields in the order of the Rust struct.
-        let fields = ["params: vec4<f32>,", "proj: vec4<f32>,", "render_scale: vec4<f32>,", "area: vec4<f32>,", "mode: vec4<f32>,", "variant: vec4<f32>,"];
+        // The uniform's eight fields in the order of the Rust struct.
+        let fields = [
+            "params: vec4<f32>,",
+            "proj: vec4<f32>,",
+            "render_scale: vec4<f32>,",
+            "area: vec4<f32>,",
+            "mode: vec4<f32>,",
+            "variant: vec4<f32>,",
+            "up_view: vec4<f32>,",
+            "sun_view: vec4<f32>,",
+        ];
         let at: Vec<usize> = fields.iter().map(|f| source.find(f).unwrap_or_else(|| panic!("{f}"))).collect();
         assert!(at.windows(2).all(|w| w[0] < w[1]), "the uniform's fields in the Rust order");
-        assert_eq!(<AmbientOcclusion as ShaderType>::min_size().get(), 6 * 16, "six vec4 fields, nothing else");
+        assert_eq!(<AmbientOcclusion as ShaderType>::min_size().get(), 8 * 16, "eight vec4 fields, nothing else");
         // The variant flags.
         for (name, value) in [("VARIANT_WIDE", VARIANT_WIDE), ("VARIANT_WIDE6", VARIANT_WIDE6), ("VARIANT_SOFT", VARIANT_SOFT), ("VARIANT_THIN", VARIANT_THIN), ("VARIANT_NEAREST", VARIANT_NEAREST)] {
             let line = format!("const {name}: u32 = {value}u;");
@@ -2034,5 +2106,36 @@ mod tests {
         assert!(body.contains("var raw = textureLoad(depth, p, 0);") && body.trim_end().ends_with("return raw;"));
         assert!(body.contains("if (u32(ao.variant.z) & VARIANT_NEAREST) != 0u {"));
         assert_eq!(RESOLVED_DEPTH_FORMAT, bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT, "the prepass's format, bit for bit");
+    }
+
+    #[test]
+    fn physical_occlusion_vectors_gate_macro_and_contact() {
+        assert_eq!(physical_occlusion_vectors(Quat::IDENTITY, false, Some((Vec3::Y, true)), false), (Vec4::ZERO, Vec4::ZERO));
+        let (up, sun) = physical_occlusion_vectors(Quat::IDENTITY, false, Some((Vec3::Y, true)), true);
+        assert_eq!(up, Vec4::new(0.0, 1.0, 0.0, 1.0));
+        assert_eq!(sun, Vec4::new(0.0, 1.0, 0.0, 1.0));
+        let (_, horizon_sun) = physical_occlusion_vectors(Quat::IDENTITY, false, Some((Vec3::X, true)), true);
+        assert_eq!(horizon_sun.w, 0.0);
+        let (in_up, in_sun) = physical_occlusion_vectors(Quat::IDENTITY, true, Some((Vec3::Y, true)), true);
+        assert_eq!(in_up.w, 0.25);
+        assert_eq!(in_sun, Vec4::ZERO);
+    }
+
+    #[test]
+    fn composes_via_bevy_wesl_for_both_depth_modes() {
+        use crate::mesh_blend_shader_tests::{compose, vendored_modules};
+        use bevy::shader::ShaderDefVal;
+        let mut modules = vendored_modules();
+        for (name, source) in [
+            ("nvforever/ssao", include_str!("ssao.wesl")),
+            ("nvf_assets/first_person_depth", include_str!("../../nvf-assets/src/first_person_depth.wesl")),
+        ] {
+            modules.push((format!("embedded://{name}.wesl"), source.into()));
+        }
+        for multi in [false, true] {
+            let defs = vec![ShaderDefVal::Bool("MULTISAMPLED".into(), multi)];
+            let source = compose(&modules, "embedded://nvforever/ssao.wesl", &defs);
+            assert!(source.contains("macro_sky_visibility") && source.contains("sun_contact_shadow"), "multi {multi}");
+        }
     }
 }

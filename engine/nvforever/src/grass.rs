@@ -113,6 +113,7 @@ impl MaterialExtension for GrassSway {
         if !GRASS_READS_AMBIENT_OCCLUSION {
             nvf_assets::ambient_occlusion_opt_out(descriptor);
         }
+        nvf_assets::nif_material::enable_foliage_sss(descriptor);
         // A multisampled view with a depth-only prepass: the prepass writes the share of
         // the pixel's samples each blade covers, and the main pass tests depth for
         // equality (nvf_assets `grass_edges`).
@@ -486,12 +487,19 @@ fn merged_mesh(shape: &GrassShape, plants: &[&Plant], fit_to_slope: bool) -> (Me
         let first = pos.len() as u32;
         let t = plant_transform(p, fit_to_slope);
         let shade = shade_colour(p.shade);
+        let tuft_normals = nvf_assets::authored::physical_pbr() || nvf_assets::authored::sss_enabled();
+        let ground = Vec3::from_array(p.normal);
         for (i, v) in shape.positions.iter().enumerate() {
             let w = t.transform_point3(*v);
             lo = lo.min(w);
             hi = hi.max(w);
             pos.push(w.to_array());
-            nor.push(p.normal);
+            if tuft_normals {
+                let radial = Vec3::new(w.x - p.position[0], w.y - p.position[1], (w.z - p.position[2]).max(0.0) * 0.6 + 2.0).normalize_or(ground);
+                nor.push((ground * 0.65 + radial * 0.35).normalize_or(ground).to_array());
+            } else {
+                nor.push(p.normal);
+            }
             uv.push(shape.uvs[i]);
             let c = shape.colors[i];
             uv_b.push([c[3], (w.z - p.position[2]).max(0.0)]);

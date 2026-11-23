@@ -218,14 +218,26 @@ pub struct Graphics {
     /// `authored::set_enabled`, main.rs); this field is the settings row's value for the
     /// next start.
     pub authored_materials: bool,
+    /// Linear Oren-Nayar diffuse, Cook-Torrance specular, sky IBL, and Beer-Lambert fog
+    /// (`NVF_PHYSICAL_PBR`; off in both presets). Read once at the start (nvf_assets
+    /// `authored::set_physical_pbr`, main.rs); this field holds the next start's choice.
+    pub physical_pbr: bool,
+    /// Pre-integrated skin shading and backlit foliage translucency (`NVF_SSS`; off in both
+    /// presets). Read once at the start (nvf_assets `authored::set_sss_enabled`, main.rs);
+    /// this field holds the next start's choice.
+    pub subsurface_scattering: bool,
 }
 
 /// The settings key of the Authored materials row (#2981).
 pub const AUTHORED_MATERIALS_KEY: &str = "authored-materials";
+/// The settings key of the Physical PBR lighting row.
+pub const PHYSICAL_PBR_KEY: &str = "physical-pbr";
+/// The settings key of the Subsurface scattering row.
+pub const SUBSURFACE_SCATTERING_KEY: &str = "subsurface-scattering";
 
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
 /// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 20] = [
+pub const KEYS: [&str; 22] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -246,6 +258,8 @@ pub const KEYS: [&str; 20] = [
     "terrain-shadows",
     "heat-haze",
     "desert-haze",
+    PHYSICAL_PBR_KEY,
+    SUBSURFACE_SCATTERING_KEY,
 ];
 
 impl Graphics {
@@ -305,6 +319,9 @@ impl Graphics {
             desert_haze: false,
             // On in both looks [design, #2981]: without a pack nothing changes.
             authored_materials: true,
+            // Opt-in physical lighting & SSS switches (restart required; `NVF_PHYSICAL_PBR` / `NVF_SSS`).
+            physical_pbr: false,
+            subsurface_scattering: false,
         }
     }
 
@@ -331,6 +348,8 @@ impl Graphics {
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
             AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
+            PHYSICAL_PBR_KEY => &mut self.physical_pbr,
+            SUBSURFACE_SCATTERING_KEY => &mut self.subsurface_scattering,
             _ => return None,
         })
     }
@@ -388,6 +407,8 @@ impl Graphics {
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
             (!self.authored_materials, "no authored materials"),
+            (self.physical_pbr, "physical PBR lighting"),
+            (self.subsurface_scattering, "subsurface scattering"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -616,7 +637,7 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(g)
             .insert_resource(MsaaSetting(self.1))
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
-            .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::heat_haze::HeatHazePlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
+            .add_plugins((crate::ssao::SsaoPlugin, crate::ssgi::SsgiPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::heat_haze::HeatHazePlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
             .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain())
             .add_systems(PostUpdate, log_shadow_map.before(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades));
@@ -960,12 +981,12 @@ fn apply(
         } else {
             e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow)>();
         }
-        if temporal {
+        if temporal || nvf_assets::authored::physical_pbr() {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
         // its own switch.
-        if g.glow && g.eye_adaptation {
+        if (g.glow || nvf_assets::authored::physical_pbr()) && g.eye_adaptation {
             e.insert(crate::eye_adapt::auto_exposure(&eye));
         } else {
             e.remove::<bevy::post_process::auto_exposure::AutoExposure>();
@@ -1616,6 +1637,24 @@ mod tests {
         *g.switch("desert-haze").expect("settings key") = true;
         assert_eq!(g, on);
         assert!(!Graphics::preset(Preset::Enhanced).describe().contains("haze"));
+    }
+
+    #[test]
+    fn physical_pbr_and_sss_are_off_in_both_looks_and_have_their_own_keys() {
+        for preset in [Preset::Vanilla, Preset::Enhanced] {
+            let g = Graphics::preset(preset);
+            assert!(!g.physical_pbr && !g.subsurface_scattering);
+        }
+        let enhanced = crate::quality::enhanced_keys();
+        assert!(!enhanced.contains(&PHYSICAL_PBR_KEY) && !enhanced.contains(&SUBSURFACE_SCATTERING_KEY));
+        let on = Graphics::only(&[PHYSICAL_PBR_KEY.into(), SUBSURFACE_SCATTERING_KEY.into()]).expect("keys");
+        assert!(on.physical_pbr && on.subsurface_scattering);
+        let desc = on.describe();
+        assert!(desc.contains("physical PBR lighting") && desc.contains("subsurface scattering"), "{desc}");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch(PHYSICAL_PBR_KEY).expect("physical-pbr key") = true;
+        *g.switch(SUBSURFACE_SCATTERING_KEY).expect("subsurface-scattering key") = true;
+        assert_eq!(g, on);
     }
 
     // The guard alone: repeated requests and an earlier registration. Both callers
