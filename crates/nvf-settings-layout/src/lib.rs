@@ -205,8 +205,8 @@ pub const SECTIONS: &[Section] = &[
     section("Graphics", Some("Quality"), &["quality"]),
     // Shadow resolution sizes the flashlight's maps too, so it needs no Sun shadows (no NEEDS
     // line) (#2843).
-    section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-resolution", "shadow-distance", "fine-shadows", "cloud-shadows", "terrain-shadows", "light-shadows"]),
-    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "light-shafts", "heat-haze", "desert-haze", "aerial-perspective", "night-sky-detail", "bloom", "grade", "glow", "eye-adaptation", "neon-glow", "physical-pbr", "subsurface-scattering"]),
+    section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-resolution", "shadow-distance", "fine-shadows", "cloud-shadows", "terrain-shadows", "grass-shadows", "light-shadows"]),
+    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "light-shafts", "heat-haze", "desert-haze", "aerial-perspective", "night-sky-detail", "bloom", "grade", "glow", "eye-adaptation", "neon-glow", "physical-pbr", "subsurface-scattering", "ssgi"]),
     section("Graphics", Some("Water"), &["water-reflections", "water-mirror", "water-effects"]),
     section("Graphics", Some("Detail and Distance"), &["distant-lod", "full-detail", "distant-objects", "grass", "anisotropic", "authored-materials", "authored-reflections", "terrain-height-blend", "terrain-anti-tiling", "mesh-terrain-blend", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance", "tree-distance", "distant-lights"]),
     section("Graphics", Some("World and Animation"), &["head-tracking", "foot-ik", "sky-clock"]),
@@ -953,6 +953,7 @@ pub const NEEDS: &[(&str, &str, &str)] = &[
     ("shadow-filter", "sun-shadows", "Needs Sun Shadows."),
     ("shadow-distance", "sun-shadows", "Needs Sun Shadows."),
     ("fine-shadows", "sun-shadows", "Needs Sun Shadows."),
+    ("grass-shadows", "sun-shadows", "Needs Sun Shadows."),
     ("eye-adaptation", "glow", "Needs Light Glow (HDR)."),
     ("neon-glow", "glow", "Needs Light Glow (HDR)."),
     ("grass-distance", "grass", "Needs Grass."),

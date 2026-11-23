@@ -1188,7 +1188,7 @@ fn register_graphics(app: &mut App) {
         Setting { key: AO_KEY, group: GROUP_GRAPHICS, label: "Ambient occlusion", note: AO_NOTE, switches: "--graphics, --ambient-occlusion", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| AO_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: ao_chosen, pick: take_ao, save: ao_chosen, load: take_ao, ask_keep: false },
     );
-    let switches: [Switch; 25] = [
+    let switches: [Switch; 27] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1212,6 +1212,14 @@ fn register_graphics(app: &mut App) {
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().terrain_shadows,
             |w, on| w.resource_mut::<Graphics>().terrain_shadows = on,
+        ),
+        (
+            crate::graphics::GRASS_SHADOWS_KEY,
+            "Grass shadows",
+            GRASS_SHADOWS_NOTE,
+            GRASS_SHADOWS_SWITCHES,
+            |w| w.resource::<Graphics>().grass_shadows,
+            |w, on| w.resource_mut::<Graphics>().grass_shadows = on,
         ),
         (
             "bloom",
@@ -1260,6 +1268,14 @@ fn register_graphics(app: &mut App) {
             SUBSURFACE_SCATTERING_SWITCHES,
             |w| w.resource::<Graphics>().subsurface_scattering,
             |w, on| w.resource_mut::<Graphics>().subsurface_scattering = on,
+        ),
+        (
+            crate::graphics::SSGI_KEY,
+            "Screen-space global illumination",
+            SSGI_NOTE,
+            SSGI_SWITCHES,
+            |w| w.resource::<Graphics>().ssgi,
+            |w, on| w.resource_mut::<Graphics>().ssgi = on,
         ),
         (
             "sharpen",
@@ -1429,6 +1445,10 @@ pub(crate) const PHYSICAL_PBR_NOTE: &str = "On: linear Oren-Nayar diffuse, Cook-
 pub(crate) const PHYSICAL_PBR_SWITCHES: &str = "--graphics-only";
 pub(crate) const SUBSURFACE_SCATTERING_NOTE: &str = "On: pre-integrated skin shading with warm backlit translucency on characters and two-sided light transmission on foliage. Takes effect at the next start.";
 pub(crate) const SUBSURFACE_SCATTERING_SWITCHES: &str = "--graphics-only";
+pub(crate) const SSGI_NOTE: &str = "On: sunlit surfaces, neon signs and lamps bounce one hop of indirect colour and light onto nearby walls, ceilings and ground on the screen. Off in both presets. Not in the original.";
+pub(crate) const SSGI_SWITCHES: &str = "--graphics-only";
+pub(crate) const GRASS_SHADOWS_NOTE: &str = "On: nearby grass and small tufts cast soft sun shadows across the ground, lengthening at dawn and dusk. Costs some frame rate. Needs sun shadows. Not in the original.";
+pub(crate) const GRASS_SHADOWS_SWITCHES: &str = "--graphics-only";
 
 fn env_or_ini_switch(
     env_val: Option<&str>,
@@ -1527,6 +1547,8 @@ fn register_pipeline_waits(app: &mut App) {
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-effects", "water-mirror", "sun-shadows", "grade",
         "terrain-height-blend", "terrain-anti-tiling", "cloud-shadows", "terrain-shadows", "heat-haze", MESH_BLEND_KEY, "distant-lights",
+        crate::graphics::SSGI_KEY,
+        crate::graphics::GRASS_SHADOWS_KEY,
         // ALC shadows' first point and spot light shadow views specialize their passes.
         "light-shadows",
     ] {
@@ -3026,12 +3048,14 @@ dlss-model=Preset K
             ("fine-shadows", &["--shadow-distance", "--graphics"]),
             ("cloud-shadows", &["--graphics", "--graphics-only"]),
             ("terrain-shadows", &["--graphics", "--graphics-only"]),
+            (crate::graphics::GRASS_SHADOWS_KEY, &["--graphics-only"]),
             ("bloom", &["--graphics"]),
             ("glow", &["--graphics-only"]),
             ("eye-adaptation", &["--graphics-only"]),
             ("neon-glow", &["--graphics-only"]),
             (crate::graphics::PHYSICAL_PBR_KEY, &["--graphics-only"]),
             (crate::graphics::SUBSURFACE_SCATTERING_KEY, &["--graphics-only"]),
+            (crate::graphics::SSGI_KEY, &["--graphics-only"]),
             ("sharpen", &["--graphics"]),
             ("anisotropic", &["--graphics"]),
             (crate::graphics::AUTHORED_MATERIALS_KEY, &["--graphics-only"]),
@@ -3113,6 +3137,8 @@ dlss-model=Preset K
         for (key, label, note) in [
             (crate::graphics::PHYSICAL_PBR_KEY, "Physical PBR lighting", PHYSICAL_PBR_NOTE),
             (crate::graphics::SUBSURFACE_SCATTERING_KEY, "Subsurface scattering", SUBSURFACE_SCATTERING_NOTE),
+            (crate::graphics::SSGI_KEY, "Screen-space global illumination", SSGI_NOTE),
+            (crate::graphics::GRASS_SHADOWS_KEY, "Grass shadows", GRASS_SHADOWS_NOTE),
         ] {
             let i = row(&app, key);
             let s = app.world().resource::<Settings>().list()[i];
@@ -3123,6 +3149,8 @@ dlss-model=Preset K
         }
         assert!(app.world().resource::<Graphics>().physical_pbr);
         assert!(app.world().resource::<Graphics>().subsurface_scattering);
+        assert!(app.world().resource::<Graphics>().ssgi);
+        assert!(app.world().resource::<Graphics>().grass_shadows);
 
         let dir = std::env::temp_dir().join(format!("nvf-physical-pbr-sss-rows-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -3130,19 +3158,28 @@ dlss-model=Preset K
         let path = dir.join("NVForever.ini");
         let mut loaded = ini_app(
             &path,
-            "[Settings]\nphysical-pbr=1\nsubsurface-scattering=1\n",
+            "[Settings]\nphysical-pbr=1\nsubsurface-scattering=1\nssgi=1\ngrass-shadows=1\n",
             UpscalerChoice::Off,
             GivenSwitches::default(),
         );
         assert!(loaded.world().resource::<Graphics>().physical_pbr);
         assert!(loaded.world().resource::<Graphics>().subsurface_scattering);
-        for key in [crate::graphics::PHYSICAL_PBR_KEY, crate::graphics::SUBSURFACE_SCATTERING_KEY] {
+        assert!(loaded.world().resource::<Graphics>().ssgi);
+        assert!(loaded.world().resource::<Graphics>().grass_shadows);
+        for key in [
+            crate::graphics::PHYSICAL_PBR_KEY,
+            crate::graphics::SUBSURFACE_SCATTERING_KEY,
+            crate::graphics::SSGI_KEY,
+            crate::graphics::GRASS_SHADOWS_KEY,
+        ] {
             let i = row(&loaded, key);
             nvf_play::settings::flip(loaded.world_mut(), i);
         }
         let ini = std::fs::read_to_string(&path).unwrap();
         assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, crate::graphics::PHYSICAL_PBR_KEY), Some("0".to_string()));
         assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, crate::graphics::SUBSURFACE_SCATTERING_KEY), Some("0".to_string()));
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, crate::graphics::SSGI_KEY), Some("0".to_string()));
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, crate::graphics::GRASS_SHADOWS_KEY), Some("0".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
 
         // Precedence: env var > CLI (when win/given) > INI > default.

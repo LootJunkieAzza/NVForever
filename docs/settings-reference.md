@@ -1022,6 +1022,20 @@ below cover them all.
   shadows off too.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
+
+### `grass-shadows`: Grass shadows
+
+- On the page: On: nearby grass and small tufts cast soft sun shadows across the ground,
+  lengthening at dawn and dusk. Costs some frame rate. Needs sun shadows. Not in the
+  original.
+- In full: Enables sun shadow casting on grass chunks within the near shadow cascade
+  (~1,500 game units) with a core-thickened shadow prepass so clumps cast cohesive, smooth
+  shadows that sway with the wind and lengthen at dawn and dusk while outer tips stay
+  wispy. Off in both presets; takes effect immediately when toggled. Needs sun shadows.
+  Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `light-shadows`: ALC shadows
 
 - On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the
@@ -1200,6 +1214,19 @@ below cover them all.
   two-sided backlit translucency on grass, tree foliage, and plant meshes. Off in both
   presets; can also be overridden per run via `NVF_SSS=1` / `0`. Read once at the start,
   so a change applies at the next start. Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `ssgi`: Screen-space global illumination
+
+- On the page: On: sunlit surfaces, neon signs and lamps bounce one hop of indirect colour
+  and light onto nearby walls, ceilings and ground on the screen. Off in both presets. Not
+  in the original.
+- In full: Traces a half-resolution screen-space horizon march from the camera's depth and
+  lit HDR buffer with a two-stage bilateral plane- and roughness-aware denoiser, adding one
+  bounce of diffuse indirect irradiance from nearby sunlit terrain, walls, and glowing neon
+  or embers. Off in both presets; takes effect immediately when toggled and can also be
+  overridden per run via `NVF_SSGI=1` / `0` / `debug`. Not in the original.
 - Command-line switches: `--graphics-only`
 - Registered in `engine/nvforever/src/settings.rs`
 

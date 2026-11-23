@@ -588,7 +588,7 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, physical-pbr, subsurface-scattering, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, grass-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, physical-pbr, subsurface-scattering, ssgi, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
     /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
@@ -2612,9 +2612,6 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
     )).id();
     if crate::lights::physical_agx() {
         commands.entity(cam).insert(bevy::core_pipeline::tonemapping::Tonemapping::AgX);
-    }
-    if ssgi::enabled() {
-        commands.entity(cam).insert(ssgi::ScreenSpaceGi::default());
     }
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);

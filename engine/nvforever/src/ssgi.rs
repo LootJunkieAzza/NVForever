@@ -11,8 +11,9 @@
 //! 4. `composite`: full-resolution depth-aware 2×2 upsample modulated by estimated surface
 //!    diffuse reflectance and added to the linear HDR picture.
 //!
-//! Disabled unless `nvf_assets::authored::physical_pbr()` is true, and can also be turned
-//! off for A/B comparisons with `NVF_SSGI=0`.
+//! Controlled by the `ssgi` graphics setting (off in both presets; live-toggled via
+//! `Graphics::ssgi` / `graphics::apply`) and can be overridden per run via `NVF_SSGI=1`
+//! / `0` / `debug`.
 
 use crate::fly::FlyCam;
 use bevy::core_pipeline::prepass::ViewPrepassTextures;
@@ -41,22 +42,26 @@ use bevy::render::view::{ExtractedView, ViewTarget};
 use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 
 const SSGI_RADIUS: f32 = 900.0;
-const SSGI_MAX_SCREEN_RADIUS: f32 = 320.0;
+const SSGI_MAX_SCREEN_RADIUS: f32 = 260.0;
 const SSGI_FADE_START: f32 = 3500.0;
 const SSGI_FADE_END: f32 = 6500.0;
 const SSGI_STRENGTH_OUTDOORS: f32 = 2.40;
-const SSGI_STRENGTH_INDOORS: f32 = 1.65;
+const SSGI_STRENGTH_INDOORS: f32 = 0.75;
 const SSGI_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 const RESOLVED_DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 
-/// Whether 1-bounce SSGI is active (`NVF_PHYSICAL_PBR=1`, unless `NVF_SSGI=0`).
-pub(crate) fn enabled() -> bool {
-    if !nvf_assets::authored::physical_pbr() {
-        return false;
+/// Whether 1-bounce SSGI is active: `NVF_SSGI` env var overrides (`1`/`debug` on,
+/// `0`/`off` off), otherwise follows the `ssgi` graphics setting (off by default).
+pub(crate) fn effective_enabled(setting_on: bool) -> bool {
+    effective_enabled_with_env(setting_on, std::env::var("NVF_SSGI").ok().as_deref())
+}
+
+fn effective_enabled_with_env(setting_on: bool, env_val: Option<&str>) -> bool {
+    match env_val.map(|v| v.trim().to_ascii_lowercase()) {
+        Some(v) if matches!(v.as_str(), "0" | "off" | "false" | "no") => false,
+        Some(v) if matches!(v.as_str(), "1" | "on" | "true" | "yes" | "debug") => true,
+        _ => setting_on,
     }
-    !std::env::var("NVF_SSGI").is_ok_and(|v| {
-        matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "no")
-    })
 }
 
 /// Optional `NVF_SSGI=debug`: visualizes the denoised bounce irradiance directly.
@@ -138,6 +143,7 @@ struct SsgiPipelines {
     resolve: CachedRenderPipelineId,
     trace: CachedRenderPipelineId,
     denoise: CachedRenderPipelineId,
+    denoise_wide: CachedRenderPipelineId,
     composite_base: RenderPipelineDescriptor,
     composite: HashMap<TextureFormat, CachedRenderPipelineId>,
 }
@@ -241,6 +247,13 @@ fn init_pipelines(
     }
     let denoise = cache.queue_render_pipeline(denoise_desc);
 
+    let mut denoise_wide_desc = base("ssgi_denoise_wide_pipeline", "denoise_wide");
+    denoise_wide_desc.layout = vec![denoise_layout.clone()];
+    if let Some(f) = denoise_wide_desc.fragment.as_mut() {
+        f.targets = half_target();
+    }
+    let denoise_wide = cache.queue_render_pipeline(denoise_wide_desc);
+
     let mut composite_base = base("ssgi_composite_pipeline", "composite");
     composite_base.layout = vec![composite_layout.clone()];
 
@@ -259,6 +272,7 @@ fn init_pipelines(
         resolve,
         trace,
         denoise,
+        denoise_wide,
         composite_base,
         composite: HashMap::default(),
     });
@@ -403,15 +417,17 @@ fn ssgi_pass(
     if depth_tex.texture.texture.size() != target.main_texture().size() {
         return;
     }
-    let (Some(trace_pipe), Some(denoise_pipe), Some(composite_pipe)) = (
+    let (Some(trace_pipe), Some(denoise_pipe), Some(denoise_wide_pipe), Some(composite_pipe)) = (
         cache.get_render_pipeline(pipelines.trace),
         cache.get_render_pipeline(pipelines.denoise),
+        cache.get_render_pipeline(pipelines.denoise_wide),
         cache.get_render_pipeline(ssgi.composite),
     ) else {
         if !*error_logged {
             for (name, id) in [
                 ("trace", pipelines.trace),
                 ("denoise", pipelines.denoise),
+                ("denoise_wide", pipelines.denoise_wide),
                 ("composite", ssgi.composite),
             ] {
                 if let CachedPipelineState::Err(err) = cache.get_render_pipeline_state(id) {
@@ -548,6 +564,33 @@ fn ssgi_pass(
     denoise_pass.draw(0..3, 0..1);
     drop(denoise_pass);
 
+    let denoise_wide_group = device.create_bind_group(
+        "ssgi_denoise_wide_group",
+        &denoise_layout,
+        &BindGroupEntries::with_indices((
+            (0, depth_view),
+            (1, uniform_binding.clone()),
+            (4, &ssgi.denoised.default_view),
+        )),
+    );
+    let mut denoise_wide_pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
+        label: Some("ssgi_denoise_wide_pass"),
+        color_attachments: &[Some(RenderPassColorAttachment {
+            view: &ssgi.raw.default_view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: Operations::default(),
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    denoise_wide_pass.set_pipeline(denoise_wide_pipe);
+    denoise_wide_pass.set_bind_group(0, &denoise_wide_group, &[]);
+    denoise_wide_pass.draw(0..3, 0..1);
+    drop(denoise_wide_pass);
+
     let composite_layout = cache.get_bind_group_layout(&pipelines.composite_layout);
     let composite_group = device.create_bind_group(
         "ssgi_composite_group",
@@ -556,7 +599,7 @@ fn ssgi_pass(
             (0, depth_view),
             (1, uniform_binding),
             (2, post.source),
-            (4, &ssgi.denoised.default_view),
+            (4, &ssgi.raw.default_view),
         )),
     );
     let mut composite_pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
@@ -632,7 +675,7 @@ mod tests {
             let expected: &[&str] = if multisampled {
                 &["resolve_depth"]
             } else {
-                &["trace", "denoise", "composite"]
+                &["trace", "denoise", "denoise_wide", "composite"]
             };
             for entry in expected {
                 assert!(module.entry_points.iter().any(|e| e.name == *entry), "missing entry point {entry}");
@@ -654,6 +697,19 @@ mod tests {
         assert_eq!(strength_for_interior(false), SSGI_STRENGTH_OUTDOORS);
         assert_eq!(strength_for_interior(true), SSGI_STRENGTH_INDOORS);
         assert!(strength_for_interior(false) > strength_for_interior(true));
+    }
+
+    #[test]
+    fn effective_enabled_defaults_to_setting_and_respects_env_override() {
+        assert!(!effective_enabled_with_env(false, None));
+        assert!(effective_enabled_with_env(true, None));
+        assert!(effective_enabled_with_env(false, Some("1")));
+        assert!(effective_enabled_with_env(false, Some("debug")));
+        assert!(effective_enabled_with_env(false, Some("true")));
+        assert!(!effective_enabled_with_env(true, Some("0")));
+        assert!(!effective_enabled_with_env(true, Some("off")));
+        assert!(!effective_enabled_with_env(true, Some("false")));
+        assert!(effective_enabled_with_env(true, Some("")));
     }
 
     #[test]
