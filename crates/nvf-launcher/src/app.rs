@@ -133,6 +133,9 @@ pub struct App {
     exe: Option<PathBuf>,
     /// The co-op build beside the launcher ([`launch::find_coop`]), when the package has one.
     coop_exe: Option<PathBuf>,
+    /// The CO-OP page's firewall status for the co-op exe ([`crate::firewall`]): whether its
+    /// rules let it in (`None` while being read), and whether the allow button's request runs.
+    firewall: Arc<std::sync::Mutex<(Option<bool>, bool)>>,
     child: Option<Child>,
     /// Test aid: `NVF_LAUNCHER_SHOT=<file.png>[;page]` saves the window once the news has
     /// settled and closes (`NVF_LAUNCHER_PAGE`: home, settings, mods, game, coop).
@@ -193,6 +196,7 @@ impl App {
             newest: None,
             exe: None,
             coop_exe: launch::find_coop(),
+            firewall: Arc::new(std::sync::Mutex::new((None, false))),
             child: None,
             shot: std::env::var_os("NVF_LAUNCHER_SHOT").map(|p| (PathBuf::from(p), 0)),
         };
@@ -559,10 +563,12 @@ impl App {
         if self.coop_exe.is_none() {
             ui.label(RichText::new(format!("{} is not beside the launcher: this package has no co-op build.", launch::COOP_EXE)).color(BAD));
         }
+        #[cfg(windows)]
+        self.firewall_row(ui);
         ui.add_space(16.0);
         ui.heading("Recommended mods");
         ui.label(
-            RichText::new("Co-op is built to play these minigames together (shared tables, stakes and celebrations), but they are other authors' mods and are not included. Co-op plays fine without them: their tables and boards are simply not in the world. To add them, download each from Nexus Mods and put its files in the co-op mods folder.")
+            RichText::new("Co-op is built to play these minigames together (shared tables, stakes and celebrations) and to use these extra emotes, but they are other authors' mods and are not included. Co-op plays fine without them: their tables and boards are simply not in the world, and the emote wheel uses the game's own animations. To add them, download each from Nexus Mods and put its files in the co-op mods folder.")
                 .color(WEAK),
         );
         ui.add_space(6.0);
@@ -592,6 +598,41 @@ impl App {
             }
             ui.label(RichText::new(format!("Co-op's saves, settings and logs are in {}", home.display())).small().color(WEAK));
         }
+    }
+
+    /// Hosting: "Allow co-op through Windows Firewall" and whether the rules let the co-op exe in
+    /// ([`crate::firewall`]). The rules are read once, on a thread, when the page is first shown;
+    /// the button asks Windows to add them (its own UAC prompt) and reads them again after.
+    #[cfg(windows)]
+    fn firewall_row(&mut self, ui: &mut egui::Ui) {
+        let Some(exe) = self.coop_exe.clone() else { return };
+        let (allowed, busy) = *self.firewall.lock().unwrap_or_else(|e| e.into_inner());
+        if allowed.is_none() && !busy {
+            self.firewall.lock().unwrap_or_else(|e| e.into_inner()).1 = true;
+            let (state, exe, ctx) = (self.firewall.clone(), exe.clone(), ui.ctx().clone());
+            std::thread::spawn(move || {
+                let r = crate::firewall::check(&exe);
+                *state.lock().unwrap_or_else(|e| e.into_inner()) = (Some(r.unwrap_or(false)), false);
+                ctx.request_repaint();
+            });
+        }
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            let ok = allowed == Some(true);
+            ui.label(RichText::new(crate::firewall::status_text(if busy { None } else { allowed })).color(if ok { GOOD } else if allowed == Some(false) && !busy { BAD } else { WEAK }));
+            ui.add_enabled_ui(!busy, |ui| {
+                if ui.button("Allow co-op through Windows Firewall").on_hover_text("Windows asks you to agree, then adds a rule letting LAN players reach this co-op build.").clicked() {
+                    self.firewall.lock().unwrap_or_else(|e| e.into_inner()).1 = true;
+                    let (state, ctx) = (self.firewall.clone(), ui.ctx().clone());
+                    std::thread::spawn(move || {
+                        let r = crate::firewall::allow(&exe);
+                        *state.lock().unwrap_or_else(|e| e.into_inner()) = (Some(r.unwrap_or(false)), false);
+                        ctx.request_repaint();
+                    });
+                }
+            });
+        });
+        ui.label(RichText::new("Only needed to host LAN games without Steam.").small().color(WEAK));
     }
 
     fn save_settings(&mut self) -> Result<(), String> {
@@ -816,12 +857,15 @@ impl App {
 
 const REPO: &str = "https://github.com/LootJunkieAzza/NVForever";
 
-/// The minigame mods co-op is made with (the Co-op page): name, what it adds, Nexus page.
-/// All three are Luke2172's [observed: their Nexus pages, 2026-11-23].
-const RECOMMENDED: [(&str, &str, &str); 3] = [
+/// The other authors' mods co-op is made with (the Co-op page): name, what it adds, Nexus
+/// page. The three minigames are Luke2172's, Animated Greetings is Wombat's [observed: their
+/// Nexus pages, 2026-11-23]; its clips (`meshes\AG_*.kf`) are the emote wheel's extra
+/// gestures (nvf-play emotes.rs), the game's own idles play without it.
+const RECOMMENDED: [(&str, &str, &str); 4] = [
     ("Pool Tables Of The Mojave", "Playable pool tables (Pool Table Minigame.esp)", "https://www.nexusmods.com/newvegas/mods/100097"),
     ("Dart Boards Of The Mojave", "Playable dart boards (Darts Minigame.esp)", "https://www.nexusmods.com/newvegas/mods/100118"),
     ("Five Finger Fillet", "The knife game at tables (Knife Minigame.esp)", "https://www.nexusmods.com/newvegas/mods/100243"),
+    ("Animated Greetings", "More gestures for the emote wheel (bow, tip hat, salutes and more)", "https://www.nexusmods.com/newvegas/mods/96211"),
 ];
 
 /// The co-op home made ready: its INI is given the game folder `game` when it has none, so

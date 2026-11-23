@@ -9,6 +9,7 @@ mod app;
 mod catalog;
 mod display;
 mod dlss;
+mod firewall;
 mod fonts;
 mod launch;
 mod news;
