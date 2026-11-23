@@ -91,12 +91,11 @@ pub const MAGIC: [u8; 4] = *b"NVCO";
 /// the host's level and XP, for split screen's XP catch-up) and [`Msg::Relayed`] (kind 27, a
 /// game behind a guest). 134 also named shared progression's `Progress` tag 11
 /// (`Progress::For`, a returning player's catch-up) on its own branch, so the two met at 135.
-/// 133 was also the co-op flashlight branch's number on its own: a player's state carries its
-/// flashlight's look ([`PlayerState::light`], while [`flag::LIGHT`] is set). 136 (the ship of
-/// split screen, shared progression and the co-op flashlight, 2026-11-22): all of these, one
-/// number above every branch's, so no game from one branch alone joins it. Message kinds in
-/// use: 1-27, 30, 31, each once; `Progress` tags 0-11.
-pub const VERSION: u8 = 136;
+/// 133 was also the co-op flashlight branch's number on its own, and 136 the ship that carried
+/// it. 137 (the 0.8.1 co-op ship, 2026-11-23): split screen and shared progression without
+/// the co-op flashlight's light state, so neither a flashlight game nor 136 joins it. Message
+/// kinds in use: 1-27, 30, 31, each once; `Progress` tags 0-11.
+pub const VERSION: u8 = 137;
 pub const MAX_GUESTS: usize = 5;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -350,46 +349,6 @@ pub struct PlayerState {
     pub more: u8,
     /// The emote the player plays (queue item 137), for the others to draw on its puppet.
     pub emote: EmoteState,
-    /// How the player's flashlight looks (its Tweaks › Flashlight rows), for the others to
-    /// light it on its puppet as the player sees it. Sent in every state while
-    /// [`flag::LIGHT`] is set, so a change and a player who joins have it with the next
-    /// state; not sent (and [`LightLook::default`] when read) while the light is off.
-    pub light: LightLook,
-}
-
-/// A player's flashlight as it goes to the others: the light the sender's own game draws
-/// (`flashlight.rs` in the game), its colour already the one shown (the Pip-Boy's, when
-/// the sender's Colour row says Pip-Boy).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct LightLook {
-    /// [`light_kind`] value.
-    pub kind: u8,
-    pub shadows: bool,
-    /// The colour, 0 to 255 a channel.
-    pub rgb: [u8; 3],
-    /// Reach, game units.
-    pub range: f32,
-    /// Brightness at the light, the game's display units.
-    pub brightness: f32,
-    /// A spot's half-angle at the edge of its cone, degrees.
-    pub outer_deg: f32,
-    /// How much of a spot's cone fades to its edge, 0 to 1.
-    pub softness: f32,
-}
-
-/// [`LightLook::kind`] values.
-pub mod light_kind {
-    pub const SPOT: u8 = 0;
-    pub const POINT: u8 = 1;
-}
-
-impl Default for LightLook {
-    /// The flashlight with its rows at their defaults (the game's `FlashlightLook`
-    /// default): a warm white spot, 2800 units, brightness 2, a 30-degree edge fading
-    /// from 14 degrees [design].
-    fn default() -> Self {
-        LightLook { kind: light_kind::SPOT, shadows: true, rgb: [255, 242, 219], range: 2800.0, brightness: 2.0, outer_deg: 30.0, softness: 1.0 - 14.0 / 30.0 }
-    }
 }
 
 /// An emote as it goes to the others: which (`id` 0 for none, else the emote's number
@@ -428,7 +387,7 @@ pub mod more_flag {
 impl PlayerState {
     /// A state with nothing in hand and nothing worn.
     pub fn at(place: Place, feet: [f32; 3], yaw: f32) -> Self {
-        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0, furniture: 0, more: 0, emote: EmoteState { id: 0, variant: 0, phase: 0, step: 0, t: 0.0 }, light: LightLook::default() }
+        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0, furniture: 0, more: 0, emote: EmoteState { id: 0, variant: 0, phase: 0, step: 0, t: 0.0 } }
     }
 
     pub fn has(&self, f: u8) -> bool {
@@ -2717,13 +2676,6 @@ fn encode(msg: &Msg) -> Vec<u8> {
             let e = &state.emote;
             b.extend_from_slice(&[e.id, e.variant, e.phase, e.step]);
             b.extend_from_slice(&e.t.to_le_bytes());
-            if state.has(flag::LIGHT) {
-                let l = &state.light;
-                b.extend_from_slice(&[l.kind, u8::from(l.shadows), l.rgb[0], l.rgb[1], l.rgb[2]]);
-                for v in [l.range, l.brightness, l.outer_deg, l.softness] {
-                    b.extend_from_slice(&v.to_le_bytes());
-                }
-            }
         }
         Msg::Bye { id } => b.extend_from_slice(&[5, *id]),
         Msg::Npcs { seq, npcs } => {
@@ -3170,15 +3122,6 @@ fn decode(b: &[u8]) -> Option<Msg> {
             if !state.emote.t.is_finite() {
                 return None;
             }
-            if state.has(flag::LIGHT) {
-                let (kind, shadows) = (r.u8()?, r.u8()?);
-                let rgb = [r.u8()?, r.u8()?, r.u8()?];
-                let (range, brightness, outer_deg, softness) = (r.f32()?, r.f32()?, r.f32()?, r.f32()?);
-                if kind > light_kind::POINT || shadows > 1 || ![range, brightness, outer_deg, softness].iter().all(|v| v.is_finite()) {
-                    return None;
-                }
-                state.light = LightLook { kind, shadows: shadows == 1, rgb, range, brightness, outer_deg, softness };
-            }
             Msg::State { id, seq, state }
         }
         5 => Msg::Bye { id: r.u8()? },
@@ -3567,36 +3510,10 @@ mod tests {
                     ..state(4.0)
                 },
             },
-            Msg::State { id: 0, seq: 3, state: PlayerState { flags: flag::LIGHT, light: GREEN_POINT, ..state(5.0) } },
-            Msg::State { id: 1, seq: 4, state: PlayerState { flags: flag::LIGHT | flag::SNEAKING, light: YELLOW_SPOT, ..state(6.0) } },
             Msg::Bye { id: 3 },
         ] {
             assert_eq!(decode(&encode(&msg)), Some(msg));
         }
-    }
-
-    /// The owner's co-op example (2026-11-21): the host's green point light, the guest's
-    /// yellow spot.
-    const GREEN_POINT: LightLook = LightLook { kind: light_kind::POINT, shadows: false, rgb: [0, 255, 0], range: 1400.0, brightness: 3.5, outer_deg: 30.0, softness: 0.5 };
-    const YELLOW_SPOT: LightLook = LightLook { kind: light_kind::SPOT, shadows: true, rgb: [255, 255, 0], range: 2800.0, brightness: 2.0, outer_deg: 5.0, softness: 0.0 };
-
-    #[test]
-    fn the_flashlights_look_goes_with_the_state_only_while_it_is_on() {
-        let on = encode(&Msg::State { id: 1, seq: 1, state: PlayerState { flags: flag::LIGHT, light: YELLOW_SPOT, ..state(1.0) } });
-        let off = encode(&Msg::State { id: 1, seq: 1, state: PlayerState { light: YELLOW_SPOT, ..state(1.0) } });
-        // Kind, shadows, the colour and four numbers.
-        assert_eq!(on.len(), off.len() + 5 + 16);
-        // Off, the look is not sent: it reads back as the default light.
-        let Some(Msg::State { state: got, .. }) = decode(&off) else { panic!("{off:?}") };
-        assert_eq!(got.light, LightLook::default());
-        // A kind this build does not know, or a number that is not finite, drops the packet.
-        let kind_at = off.len();
-        let mut bad = on.clone();
-        bad[kind_at] = 2;
-        assert!(decode(&bad).is_none(), "unknown kind");
-        let nan = encode(&Msg::State { id: 1, seq: 1, state: PlayerState { flags: flag::LIGHT, light: LightLook { range: f32::NAN, ..YELLOW_SPOT }, ..state(1.0) } });
-        assert!(decode(&nan).is_none(), "not finite");
-        assert!(decode(&on[..on.len() - 1]).is_none(), "short");
     }
 
     #[test]
