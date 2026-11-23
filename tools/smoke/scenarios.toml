@@ -13759,7 +13759,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 136 of 136 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -14386,7 +14386,7 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+  { re = 'controls: 136 of 136 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
 ]
 
 [[scenario]]
@@ -14460,7 +14460,7 @@ env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 8 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2, Mouse Aim Sensitivity 0\.6, \[Controller\] Stick Aim Sensitivity 1\.5; input device Controller', label = "the stored Invert Y, the two sensitivities, the two vertical sensitivities (#2201) and the two aim sensitivities are taken at the start" },
+  { re = 'controls: 136 of 136 line\(s\) read from .*NVForever\.ini, 8 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2, Mouse Aim Sensitivity 0\.6, \[Controller\] Stick Aim Sensitivity 1\.5; input device Controller', label = "the stored Invert Y, the two sensitivities, the two vertical sensitivities (#2201) and the two aim sensitivities are taken at the start" },
 ]
 
 [[scenario]]
