@@ -123,7 +123,21 @@ impl MenuFiles<'_, '_> {
         }));
     }
 
+    /// Seed SUP/JIP window and cursor state from the primary window before the first
+    /// startup/load scripts run (`PreUpdate` ran before `ScriptState::rt` existed) [design].
+    pub(crate) fn sync_window_and_cursor(&self, game: &mut fnv_game::Game<'_>) {
+        if let Ok(window) = self.windows.single() {
+            game.sup.window = (f64::from(window.physical_width()), f64::from(window.physical_height()));
+            if let Some(p) = window.physical_cursor_position() {
+                game.sup.mouse.pos = (f64::from(p.x), f64::from(p.y));
+            }
+            game.other.jip9.window = Some((f64::from(window.width()), f64::from(window.height())));
+            game.other.jip9.cursor_px = window.cursor_position().map(|p| (f64::from(p.x), f64::from(p.y)));
+        }
+    }
+
     pub(crate) fn load(&self, game: &mut fnv_game::Game<'_>, world: &fnv_sim::World<'_>) {
+        self.sync_window_and_cursor(game);
         let Some(data) = self.data.as_ref() else { return };
         let files = UiFiles::new(data.vfs.clone(), world);
         let paths = files.menu_paths();
@@ -593,7 +607,7 @@ impl MenuTiles<'_, '_> {
             || barter_menu::tiled(switch.barter, game, barter_menu::is_barter(shown))
             || self.inventory.as_ref().is_some_and(|i| i.ready.is_some()));
         let quantity = self.quantity().filter(|_| menus::quantity_tiled(switch.quantity, game, true, container_tiled));
-        let prompt = quantity.and_then(|q| game.ui_tree.menu(menus::QUANTITY_MENU).map(|m| (m, q)));
+        let prompt = game.ui_tree.menu(menus::QUANTITY_MENU).zip(quantity);
         // Which showing the box on screen is (counted up for every box shown, one alike
         // included): its rows are made again for another (`menus::another_box`).
         let showing = game.front_box().map(|b| b.serial);

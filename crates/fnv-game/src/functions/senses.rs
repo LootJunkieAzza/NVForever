@@ -128,15 +128,35 @@ impl Game<'_> {
         self.senses.motion.remove(&actor);
     }
 
+    /// Dispatch the extender's `OnPlayerGrab` / `OnPlayerRelease` event (plain and
+    /// colon-qualified `:formType`) for `r` [documented: GECK wiki OnPlayerGrab,
+    /// OnPlayerRelease; hypothesis: colon-qualified `:formType` dispatch and calling
+    /// reference `Some(r)`, matching `OnCrosshairOn`]. Free when no handler is registered.
+    fn dispatch_player_grab_event(&mut self, event: &str, lower: &str, prefix: &str, r: FormId) {
+        if !self.handlers.iter().any(|h| h.event == lower || h.event.starts_with(prefix)) {
+            return;
+        }
+        // Snapshot the canonical form type before callbacks can mutate the reference.
+        let ty = crate::functions::base_of(self, r)
+            .and_then(|base| self.data.sig(base))
+            .and_then(|sig| fnv_script::vm::form_type_code(&sig));
+        self.dispatch_event(event, vec![fnv_script::vm::XVal::Ref(r.0)], Some(r));
+        if let Some(ty) = ty {
+            self.dispatch_event(&format!("{event}:{ty}"), vec![fnv_script::vm::XVal::Ref(r.0)], Some(r));
+        }
+    }
+
     /// The engine tells what the player holds with the grab (docs/spec-notes/grab.md §4).
-    /// A change runs the OnRelease blocks of the reference let go, then the OnGrab
-    /// blocks of the one taken [documented: GECK wiki block-type list (OnGrab,
+    /// A change updates `senses.grabbed`, runs the OnRelease blocks and `OnPlayerRelease`
+    /// handlers for the reference let go, then the OnGrab blocks and `OnPlayerGrab`
+    /// handlers for the one taken [documented: GECK wiki block-type list (OnGrab,
     /// OnRelease) and the extender's OnPlayerGrab / OnPlayerRelease pages ("when the
     /// player picks up (Control Code 27) / releases (drops the grabbed ref)"); observed:
     /// codes 0x21 and 0x22, VCG01BrahminSkullSCRIPT sets CGTutorial stages 22 and 24 from
-    /// them, script-functions.md §3.3]. The order of a swap within one frame is
-    /// [hypothesis]; one grab key never swaps.
-    /// Returns which ran: (OnRelease, OnGrab).
+    /// them, script-functions.md §3.3]. Handler-vs-block order, colon-qualified form-type
+    /// delivery, and the order of a swap within one frame are [hypothesis]; one grab key
+    /// never swaps.
+    /// Returns which reference script blocks ran: (OnRelease, OnGrab).
     pub fn set_player_grab(&mut self, now: Option<FormId>) -> (bool, bool) {
         let before = self.senses.grabbed;
         if before == now {
@@ -144,14 +164,28 @@ impl Game<'_> {
         }
         self.senses.grabbed = now;
         let player = Some(FormId::PLAYER_REF);
-        let released = before.is_some_and(|r| self.ref_event(r, crate::game::event::ON_RELEASE, None, player));
-        let grabbed = now.is_some_and(|r| self.ref_event(r, crate::game::event::ON_GRAB, None, player));
+        let released = before.is_some_and(|r| {
+            let block = self.ref_event(r, crate::game::event::ON_RELEASE, None, player);
+            self.dispatch_player_grab_event("OnPlayerRelease", "onplayerrelease", "onplayerrelease:", r);
+            block
+        });
+        let grabbed = now.is_some_and(|r| {
+            let block = self.ref_event(r, crate::game::event::ON_GRAB, None, player);
+            self.dispatch_player_grab_event("OnPlayerGrab", "onplayergrab", "onplayergrab:", r);
+            block
+        });
         (released, grabbed)
     }
 
-    /// The engine tells whether the camera is in first person.
+    /// The engine tells whether the camera is in first person. Fires
+    /// `ShowOff:OnPOVChange` only on actual perspective transitions (`1` = first person,
+    /// `0` = third person) [documented: GECK wiki ShowOff:OnPOVChange].
     pub fn set_first_person(&mut self, on: bool) {
+        let changed = self.senses.first_person != on;
         self.senses.first_person = on;
+        if changed {
+            self.showoff_on_pov_change(on);
+        }
     }
 
     pub fn motion(&self, actor: FormId) -> Motion {
@@ -463,4 +497,248 @@ pub fn is_in_dangerous_water(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
 pub fn get_radiation_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     Ok(Value::Num(if r == FormId::PLAYER_REF { g.radiation().resisted } else { 0.0 }))
+}
+
+#[cfg(test)]
+mod player_grab_event_tests {
+    use crate::common::*;
+    use crate::game::{event, Game, GameConfig, RunCtx};
+    use crate::GameData;
+    use fnv_esm::{LoadOrder, Plugin, Schema};
+    use fnv_script::vm::XVal;
+    use fnv_script::FunctionTable;
+    use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
+
+    const CELL_ID: u32 = 0x200;
+    const MISC_BASE: u32 = 0x800;
+    const ACTI_BASE: u32 = 0x801;
+    const SCRIPT_ID: u32 = 0x802;
+    const GRAB_LIST: u32 = 0x803;
+    const MISC_REF: FormId = FormId(0x300);
+    const ACTI_REF: FormId = FormId(0x301);
+
+    const G_BLOCK_GRAB: u32 = 0xA00;
+    const G_BLOCK_REL: u32 = 0xA01;
+    const G_PLAIN_GRAB: u32 = 0xA02;
+    const G_PLAIN_REL: u32 = 0xA03;
+    const G_TYPE_MISC_GRAB: u32 = 0xA04;
+    const G_TYPE_ACTI_GRAB: u32 = 0xA05;
+    const G_TYPE_WEAP_GRAB: u32 = 0xA06;
+    const G_TYPE_MISC_REL: u32 = 0xA07;
+    const G_FIRST_BASE: u32 = 0xA08;
+    const G_FIRST_LIST: u32 = 0xA09;
+    const G_ALT_FILTER: u32 = 0xA0A;
+    const G_ORDER: u32 = 0xA0B;
+    const G_GRAB_SEEN: u32 = 0xA0C;
+    const G_REL_SEEN: u32 = 0xA0D;
+    const G_NAME_OK: u32 = 0xA0E;
+
+    const UDF_GRAB: u32 = 0xB00;
+    const UDF_REL: u32 = 0xB01;
+
+    struct Fixture {
+        data: GameData,
+        forms: FormStore,
+        refs: RefTable,
+    }
+
+    fn glob(id: u32, edid: &str) -> Vec<u8> {
+        record(b"GLOB", 0, id, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())])
+    }
+
+    fn udf(id: u32, edid: &str, source: &str) -> Vec<u8> {
+        let mut fields = vec![sub(b"EDID", z(edid))];
+        fields.extend(unit(0, &script(&[(0, None, Vec::new())]), &[], &[]));
+        fields.push(sub(b"SCTX", source.as_bytes().to_vec()));
+        record(b"SCPT", 0, id, &fields)
+    }
+
+    fn placed(id: FormId, edid: &str, base: u32) -> Vec<u8> {
+        let data = [0f32; 6].iter().flat_map(|v| v.to_le_bytes()).collect();
+        record(b"REFR", 0, id.0, &[sub(b"EDID", z(edid)), sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", data)])
+    }
+
+    fn fixture() -> Fixture {
+        let globs = [
+            glob(G_BLOCK_GRAB, "BlockGrab"),
+            glob(G_BLOCK_REL, "BlockRel"),
+            glob(G_PLAIN_GRAB, "PlainGrab"),
+            glob(G_PLAIN_REL, "PlainRel"),
+            glob(G_TYPE_MISC_GRAB, "TypeMiscGrab"),
+            glob(G_TYPE_ACTI_GRAB, "TypeActiGrab"),
+            glob(G_TYPE_WEAP_GRAB, "TypeWeapGrab"),
+            glob(G_TYPE_MISC_REL, "TypeMiscRel"),
+            glob(G_FIRST_BASE, "FirstBase"),
+            glob(G_FIRST_LIST, "FirstList"),
+            glob(G_ALT_FILTER, "AltFilter"),
+            glob(G_ORDER, "OrderLog"),
+            glob(G_GRAB_SEEN, "GrabSeen"),
+            glob(G_REL_SEEN, "RelSeen"),
+            glob(G_NAME_OK, "NameOk"),
+        ]
+        .concat();
+        // Object script on ACTI_BASE with real OnGrab and OnRelease blocks (string_var admits SCTX).
+        let mut acti_scpt_fields = vec![sub(b"EDID", z("GrabActiScript"))];
+        acti_scpt_fields.extend(unit(
+            0,
+            &script(&[(event::ON_GRAB, None, Vec::new()), (event::ON_RELEASE, None, Vec::new())]),
+            &[],
+            &[],
+        ));
+        acti_scpt_fields.push(sub(
+            b"SCTX",
+            b"scn GrabActiScript\nstring_var sMarker\nBegin OnGrab\n  set BlockGrab to BlockGrab + 1\n  set OrderLog to OrderLog * 10 + 1\nEnd\nBegin OnRelease\n  set BlockRel to BlockRel + 1\n  set OrderLog to OrderLog * 10 + 2\nEnd\n".to_vec(),
+        ));
+        let scpts = [
+            record(b"SCPT", 0, SCRIPT_ID, &acti_scpt_fields),
+            udf(
+                UDF_GRAB,
+                "GrabEventUdf",
+                "scn GrabEventUdf\nref rItem\nstring_var sMarker\nBegin Function {rItem}\n  set PlainGrab to PlainGrab + 1\n  set OrderLog to OrderLog * 10 + 3\n  if eval (IsPlayerGrabbedRef rItem) && (GetPlayerGrabbedRef == rItem)\n    set GrabSeen to GrabSeen + 1\n  endif\n  if eval (GetCurrentEventName) == \"OnPlayerGrab\"\n    set NameOk to NameOk + 1\n  endif\nEnd\n",
+            ),
+            udf(
+                UDF_REL,
+                "RelEventUdf",
+                "scn RelEventUdf\nref rItem\nstring_var sMarker\nBegin Function {rItem}\n  set PlainRel to PlainRel + 1\n  set OrderLog to OrderLog * 10 + 4\n  if eval !(IsPlayerGrabbedRef rItem) && (GetPlayerGrabbedRef != rItem)\n    set RelSeen to RelSeen + 1\n  endif\n  if eval (GetCurrentEventName) == \"OnPlayerRelease\"\n    set NameOk to NameOk + 10\n  endif\nEnd\n",
+            ),
+        ]
+        .concat();
+        let misc = record(b"MISC", 0, MISC_BASE, &[sub(b"EDID", z("GrabMiscBase"))]);
+        let acti = record(b"ACTI", 0, ACTI_BASE, &[sub(b"EDID", z("GrabActiBase")), sub(b"SCRI", SCRIPT_ID.to_le_bytes().to_vec())]);
+        let flst = record(b"FLST", 0, GRAB_LIST, &[sub(b"EDID", z("GrabFilterList")), sub(b"LNAM", ACTI_BASE.to_le_bytes().to_vec())]);
+        let npc = record(b"NPC_", 0, FormId::PLAYER_BASE.0, &[sub(b"EDID", z("Player"))]);
+        let refs = [
+            record(b"ACHR", 0, FormId::PLAYER_REF.0, &[sub(b"EDID", z("PlayerREF")), sub(b"NAME", FormId::PLAYER_BASE.0.to_le_bytes().to_vec())]),
+            placed(MISC_REF, "GrabMiscRef", MISC_BASE),
+            placed(ACTI_REF, "GrabActiRef", ACTI_BASE),
+        ]
+        .concat();
+        let cell = [
+            record(b"CELL", 0, CELL_ID, &[sub(b"EDID", z("GrabCell"))]),
+            group(CELL_ID.to_le_bytes(), 6, &group(CELL_ID.to_le_bytes(), 9, &refs)),
+        ]
+        .concat();
+        let bytes = [
+            tes4(),
+            top(b"GLOB", &globs),
+            top(b"SCPT", &scpts),
+            top(b"MISC", &misc),
+            top(b"ACTI", &acti),
+            top(b"FLST", &flst),
+            top(b"NPC_", &npc),
+            top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+        ]
+        .concat();
+        let plugins = [Plugin::parse(&bytes, "PlayerGrabEvents.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = Schema::load_dir(root.join("fnv")).unwrap();
+        let path = root.join("script/functions.json");
+        let catalogue = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let forms = FormStore::build(&lo, &schema);
+        let refs = RefTable::build(&lo, &schema);
+        let data = GameData::build(&lo, &schema, FunctionTable::load(&path).unwrap(), &catalogue, &refs);
+        assert_eq!(data.source_units.len(), 3, "all three synthetic scripts must be admitted from SCTX: {:?}", data.source_units);
+        assert!(data.source_units.iter().all(|u| u.error.is_none()), "source compile errors: {:?}", data.source_units);
+        Fixture { data, forms, refs }
+    }
+
+    fn game(f: &Fixture) -> Game<'_> {
+        Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..Default::default() })
+    }
+
+    fn q(g: &mut Game, body: &str) -> XVal {
+        g.run_query(&format!("Begin Function {{}}\n{body}\nEnd\n"), RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() })
+            .unwrap_or_else(|e| panic!("{body}: {e}"))
+    }
+
+    fn glob_val(g: &Game, id: u32) -> f32 {
+        g.world.global(FormId(id)).unwrap()
+    }
+
+    fn aux_ref(g: &mut Game, key: &str, idx: u32) -> FormId {
+        match q(g, &format!("SetFunctionValue (PlayerREF.AuxVarGetRef \"{key}\" {idx})")) {
+            XVal::Ref(r) => FormId(r),
+            v => panic!("AuxVarGetRef {key}[{idx}]: {v:?}"),
+        }
+    }
+
+    #[test]
+    fn on_player_grab_and_release_dispatch_plain_typed_filtered_symmetric_and_removed() {
+        let f = fixture();
+        let mut g = game(&f);
+
+        // Vanilla / no-handler control: unscripted ref produces (false, false) and no events.
+        assert_eq!(g.set_player_grab(Some(MISC_REF)), (false, false));
+        assert_eq!(g.set_player_grab(None), (false, false));
+
+        // Register plain UDFs, typed handlers (MISC=31, ACTI=21, WEAP=40), base/list filters, and SetEventHandlerAlt.
+        q(
+            &mut g,
+            "SetEventHandler \"OnPlayerGrab\" GrabEventUdf \"priority\"::2\n\
+             SetEventHandler \"OnPlayerRelease\" RelEventUdf \"priority\"::2\n\
+             SetEventHandler \"OnPlayerGrab\" (Begin Function {ref r}\n  PlayerREF.AuxVarSetRef \"*grabbed\" r -1\nEnd) \"priority\"::1\n\
+             SetEventHandler \"OnPlayerRelease\" (Begin Function {ref r}\n  PlayerREF.AuxVarSetRef \"*released\" r -1\nEnd) \"priority\"::1\n\
+             SetEventHandler \"OnPlayerGrab:31\" (Begin Function {ref r}\n  set TypeMiscGrab to TypeMiscGrab + 1\nEnd)\n\
+             SetEventHandler \"OnPlayerGrab:21\" (Begin Function {ref r}\n  set TypeActiGrab to TypeActiGrab + 1\nEnd)\n\
+             SetEventHandler \"OnPlayerGrab:40\" (Begin Function {ref r}\n  set TypeWeapGrab to TypeWeapGrab + 1\nEnd)\n\
+             SetEventHandler \"OnPlayerRelease:31\" (Begin Function {ref r}\n  set TypeMiscRel to TypeMiscRel + 1\nEnd)\n\
+             SetEventHandler \"OnPlayerGrab\" (Begin Function {ref r}\n  set FirstBase to FirstBase + 1\nEnd) \"first\"::GrabMiscBase\n\
+             SetEventHandler \"OnPlayerGrab\" (Begin Function {ref r}\n  set FirstList to FirstList + 1\nEnd) \"first\"::GrabFilterList\n\
+             SetEventHandlerAlt \"OnPlayerGrab\" (Begin Function {ref r}\n  set AltFilter to AltFilter + 1\nEnd) 0::GrabActiRef 1::GrabActiBase",
+        );
+
+        // Grab MISC_REF: fires plain, :31, first::GrabMiscBase; repeating does not double-fire.
+        assert_eq!(g.set_player_grab(Some(MISC_REF)), (false, false));
+        assert_eq!(g.set_player_grab(Some(MISC_REF)), (false, false));
+        assert_eq!(glob_val(&g, G_PLAIN_GRAB), 1.0);
+        assert_eq!(glob_val(&g, G_TYPE_MISC_GRAB), 1.0);
+        assert_eq!(glob_val(&g, G_TYPE_ACTI_GRAB), 0.0);
+        assert_eq!(glob_val(&g, G_TYPE_WEAP_GRAB), 0.0);
+        assert_eq!(glob_val(&g, G_FIRST_BASE), 1.0);
+        assert_eq!(glob_val(&g, G_FIRST_LIST), 0.0);
+        assert_eq!(glob_val(&g, G_ALT_FILTER), 0.0);
+        assert_eq!(glob_val(&g, G_GRAB_SEEN), 1.0);
+        assert_eq!(glob_val(&g, G_NAME_OK), 1.0);
+        assert_eq!(aux_ref(&mut g, "*grabbed", 0), MISC_REF);
+
+        // Direct swap MISC_REF -> ACTI_REF: releases MISC_REF first, then runs ACTI_REF's OnGrab block and handlers.
+        assert_eq!(g.set_player_grab(Some(ACTI_REF)), (false, true));
+        assert_eq!(glob_val(&g, G_PLAIN_REL), 1.0);
+        assert_eq!(glob_val(&g, G_TYPE_MISC_REL), 1.0);
+        assert_eq!(glob_val(&g, G_REL_SEEN), 1.0);
+        assert_eq!(aux_ref(&mut g, "*released", 0), MISC_REF);
+        assert_eq!(glob_val(&g, G_BLOCK_GRAB), 1.0);
+        assert_eq!(glob_val(&g, G_PLAIN_GRAB), 2.0);
+        assert_eq!(glob_val(&g, G_TYPE_ACTI_GRAB), 1.0);
+        assert_eq!(glob_val(&g, G_FIRST_LIST), 1.0);
+        assert_eq!(glob_val(&g, G_ALT_FILTER), 1.0);
+        assert_eq!(glob_val(&g, G_GRAB_SEEN), 2.0);
+        assert_eq!(glob_val(&g, G_NAME_OK), 12.0);
+        assert_eq!(aux_ref(&mut g, "*grabbed", 1), ACTI_REF);
+
+        // Release ACTI_REF: runs OnRelease block then OnPlayerRelease; repeating None does not double-fire.
+        assert_eq!(g.set_player_grab(None), (true, false));
+        assert_eq!(g.set_player_grab(None), (false, false));
+        assert_eq!(glob_val(&g, G_BLOCK_REL), 1.0);
+        assert_eq!(glob_val(&g, G_PLAIN_REL), 2.0);
+        assert_eq!(glob_val(&g, G_REL_SEEN), 2.0);
+        assert_eq!(glob_val(&g, G_NAME_OK), 22.0);
+        assert_eq!(aux_ref(&mut g, "*released", 1), ACTI_REF);
+        // Order: 3 (MISC grab) -> 4 (MISC release) -> 1 (ACTI OnGrab block) -> 3 (ACTI grab) -> 2 (ACTI OnRelease block) -> 4 (ACTI release).
+        assert_eq!(glob_val(&g, G_ORDER), 341324.0);
+
+        // RemoveEventHandler stops GrabEventUdf while typed/filter handlers still run.
+        assert_eq!(q(&mut g, "SetFunctionValue (RemoveEventHandler \"OnPlayerGrab\" GrabEventUdf)"), XVal::Num(1.0));
+        assert_eq!(g.set_player_grab(Some(MISC_REF)), (false, false));
+        assert_eq!(glob_val(&g, G_PLAIN_GRAB), 2.0, "removed handler must not fire");
+        assert_eq!(glob_val(&g, G_TYPE_MISC_GRAB), 2.0, "remaining typed handler still fires");
+        assert_eq!(g.set_player_grab(None), (false, false));
+        assert_eq!(glob_val(&g, G_PLAIN_REL), 3.0);
+        assert!(
+            g.events.iter().all(|e| !matches!(e.kind, crate::trace::EventKind::ScriptError { .. })),
+            "unexpected script errors: {:?}",
+            g.events
+        );
+    }
 }

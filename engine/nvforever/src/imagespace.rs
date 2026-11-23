@@ -239,21 +239,36 @@ impl ScreenModifiers {
         self.hdr.map(|(_, g)| g)
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_hdr_for_test(&mut self, base: Hdr, graded: Hdr) {
+        self.hdr = Some((base, graded));
+    }
+
     fn record(&mut self, world: &WorldData, form: u32) -> Option<&ImageModifier> {
         self.records.entry(form).or_insert_with(|| image_modifier(world.lo, world.schema, form)).as_ref()
     }
 }
 
-/// Current assigned cinematic values for nonanimated records (image-modifiers.md).
+/// Current assigned trait values for nonanimated records (image-modifiers.md).
 /// Keep the decoded record immutable: another session/lens must not inherit edits.
 fn live_modifier_effect(m: &ImageModifier, seconds: f32, game: Option<&fnv_game::Game<'_>>) -> ScreenEffect {
     let mut effect = m.at(seconds);
-    let Some(game) = game.filter(|_| !m.animatable) else { return effect };
-    for trait_id in 37..=50 {
+    let Some(game) = game.filter(|g| !m.animatable && !g.traits.values.is_empty()) else { return effect };
+    for trait_id in 1..=63 {
         let Some(value) = game.traits.image_modifier_override(fnv_sim::FormId(m.form_id), trait_id) else { continue };
         let value = value as f32;
         if !value.is_finite() { continue; }
         match trait_id {
+            1 => effect.radial.center[0] = value,
+            2 => effect.radial.center[1] = value,
+            3..=36 => {
+                let slot = ((trait_id - 3) / 2) as usize;
+                if (trait_id - 3) % 2 == 0 {
+                    effect.cinematic.hdr[slot].mult = value;
+                } else {
+                    effect.cinematic.hdr[slot].add = value;
+                }
+            }
             37 => effect.cinematic.saturation.mult = value,
             38 => effect.cinematic.saturation.add = value,
             // Match the IMAD getter's IAD signatures and the record decoder's field order.
@@ -267,6 +282,18 @@ fn live_modifier_effect(m: &ImageModifier, seconds: f32, game: Option<&fnv_game:
             46 => effect.double_vision = value,
             // Tint RGBA are all 0–255, alpha included (image-modifiers.md).
             47..=50 => effect.tint[(trait_id - 47) as usize] = value / 255.0,
+            // Fade RGB are 0–255; alpha keeps the getter's normalized units (image-modifiers.md).
+            51..=53 => effect.fade[(trait_id - 51) as usize] = value / 255.0,
+            54 => effect.fade[3] = value,
+            55 => effect.radial.strength = value,
+            56 => effect.radial.ramp_up = value,
+            57 => effect.radial.start = value,
+            58 => effect.radial.ramp_down = value,
+            59 => effect.radial.down_start = value,
+            60 => effect.dof.strength = value,
+            61 => effect.dof.distance = value,
+            62 => effect.dof.range = value,
+            63 => effect.motion_blur = value,
             _ => unreachable!(),
         }
     }

@@ -391,15 +391,15 @@ fn read(
 ) {
     // The player's Weapon Requirements Matter tweak: a slot whose weapon the player may
     // not equip says why instead [design: docs/design/tweaks.md].
-    let mut unmet = |n: usize, sim: &mut SimState| -> Option<String> {
+    fn slot_unmet(hotkeys: &Hotkeys, n: usize, sim: &mut SimState, script: Option<&mut crate::script::ScriptState>) -> Option<String> {
         let item = FormId(hotkeys.0.get(n).copied().flatten()?.item);
         // One already in hand is drawn or put away as ever.
         if sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|i| i.is_equipped(item)) {
             return None;
         }
-        let rt = script.as_deref_mut().and_then(|s| s.rt.as_mut())?;
+        let rt = script.and_then(|s| s.rt.as_mut())?;
         crate::script::with_world(rt, sim, |rt| rt.game.weapon_requirement_unmet(item))
-    };
+    }
     // The player's tweak: no weapon hotkeys while reloading [design: docs/design/tweaks.md].
     let reloading_blocks = tweaks.as_ref().is_some_and(|t| t.no_hotkeys_while_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
     let toggle_in_hand = tweaks.as_ref().is_some_and(|t| t.hotkey_toggles_in_hand);
@@ -409,10 +409,10 @@ fn read(
     // whether it has (`crate::combat::WeaponAnim`; no body to time it: at once).
     let away = anim.as_deref().is_none_or(|a| !a.ready && !a.drawing && !a.holstering);
     match wait.step(clock.delta_secs(), control.weapon_out, away) {
-        Some(SwapStep::Equip(n)) => match unmet(n, &mut sim) {
+        Some(SwapStep::Equip(n)) => match slot_unmet(&hotkeys, n, &mut sim, script.as_deref_mut()) {
             Some(why) => info!("hotkeys: slot {}: refused, {why} (tweak)", n + 1),
             None => {
-                act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, true, toggle_in_hand, quiet);
+                act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, script.as_deref_mut(), true, toggle_in_hand, quiet);
             }
         },
         Some(SwapStep::CalledOff(n)) => info!("hotkeys: slot {}: the swap called off, the weapon in hand drawn again", n + 1),
@@ -496,12 +496,12 @@ fn read(
                 } else {
                     stats.chosen.push(n);
                 }
-                let line = match unmet(n, &mut sim) {
+                let line = match slot_unmet(&hotkeys, n, &mut sim, script.as_deref_mut()) {
                     Some(why) => {
                         info!("hotkeys: slot {}: refused, {why} (tweak)", n + 1);
                         why
                     }
-                    None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand, quiet),
+                    None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, script.as_deref_mut(), false, toggle_in_hand, quiet),
                 };
                 if matches!(o, Outcome::Chose(_)) {
                     info!("weapon wheel: closed: slot {}: {line}", n + 1);
@@ -523,9 +523,9 @@ fn read(
         let step = if notches > 0.0 { 1 } else { hotkeys::SLOTS - 1 };
         let next = (1..hotkeys::SLOTS).map(|k| (from + step * k) % hotkeys::SLOTS).find(|&n| n != hotkeys::AMMO_SWAP && hotkeys::takes_hand(&mut sim.world, hotkeys.0[n]));
         if let Some(n) = next {
-            let line = match unmet(n, &mut sim) {
+            let line = match slot_unmet(&hotkeys, n, &mut sim, script.as_deref_mut()) {
                 Some(why) => why,
-                None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand, quiet),
+                None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, script.as_deref_mut(), false, toggle_in_hand, quiet),
             };
             info!("hotkeys: the mouse wheel or the D-pad steps to slot {}: {line} (tweak)", n + 1);
         }
@@ -562,7 +562,7 @@ fn sound_of(slot: Option<Slot>, outcome: &Used) -> Option<UiEvent> {
 /// Use slot `n` (a tap, or the wheel let go on it); returns what happened. `put_away`:
 /// a waiting swap whose weapon in hand has just gone away (`SwapWait`).
 #[allow(clippy::too_many_arguments)]
-fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>, sounds: &mut MessageWriter<UiSound>, wait: &mut SwapWait, put_away: bool, toggle_in_hand: bool, quiet: bool) -> String {
+fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>, sounds: &mut MessageWriter<UiSound>, wait: &mut SwapWait, script: Option<&mut crate::script::ScriptState>, put_away: bool, toggle_in_hand: bool, quiet: bool) -> String {
     // `quiet`: the player's No Hotkey Sounds tweak [design: docs/design/tweaks.md].
     if n == AMMO_SWAP {
         control.ammo_swap = true;
@@ -571,6 +571,22 @@ fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerCont
     }
     let slot = hotkeys.0[n];
     let name = slot.map_or_else(String::new, |s| crate::menu::model::display_name(sim.forms, FormId(s.item)));
+    if !put_away {
+        if let Some(s) = slot {
+            let item = FormId(s.item);
+            if hotkeys::carried(&mut sim.world, s).0 > 0 {
+                if let Some(rt) = script.and_then(|st| st.rt.as_mut()).filter(|rt| rt.game.has_pre_activate_inventory_handlers()) {
+                    let worn = sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|i| i.is_equipped(item));
+                    let allowed = crate::script::with_world(rt, sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, item, (n + 1) as i32, !worn));
+                    if !allowed {
+                        let line = format!("{name}: activation prevented by script");
+                        info!("hotkeys: slot {}: {line}", n + 1);
+                        return line;
+                    }
+                }
+            }
+        }
+    }
     // A new weapon with one drawn: holster first, equip once it is away. Equipping now
     // would swap the model at once and play the holster clip and the Unequip sound on
     // the new weapon (the #1258 review). Another weapon picked while one waits takes

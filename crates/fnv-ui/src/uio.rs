@@ -164,10 +164,11 @@ impl Lists {
                 i += 1;
                 let condition = Condition::parse(condition)?;
                 let target = normalize(parts[1]);
-                let target = if let Some(p) = target.strip_prefix("@prefabs\\").filter(|s| !s.is_empty()) {
-                    Target::Prefab(prefab_path(p))
-                } else if target.starts_with('@') {
-                    return Err("unknown prefab target".into());
+                let target = if let Some(p) = target.strip_prefix('@') {
+                    let Some(resolved) = menus_path(p) else {
+                        return Err("unknown prefab target".into());
+                    };
+                    Target::Prefab(resolved)
                 } else {
                     Target::Menu(target)
                 };
@@ -267,6 +268,17 @@ pub(crate) fn normalize(path: &str) -> String {
 
 pub(crate) fn prefab_path(path: &str) -> String {
     normalize(&format!("menus\\prefabs\\{path}"))
+}
+
+/// Resolves a UIO `@<path>` target relative to `menus\`, rejecting empty or
+/// parent-escaping paths (`@`, `@.`, `@..\...`) [design].
+pub(crate) fn menus_path(path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let resolved = normalize(&format!("menus\\{trimmed}"));
+    (resolved.starts_with("menus\\") && resolved.len() > "menus\\".len()).then_some(resolved)
 }
 
 #[cfg(test)]
@@ -426,5 +438,47 @@ mod tests {
         assert!(ui.has_mod_added_tiles(root));
         ui.configure_uio(&src, |_| false);
         assert!(ui.mod_added_tiles(root).is_empty() && !ui.has_mod_added_tiles(root));
+    }
+
+    #[test]
+    fn menus_relative_at_targets_patch_globals_and_menus_and_reject_escapes() {
+        let parsed = Lists::parse(
+            "at.txt",
+            "preload.xml::@globals.xml\ntrue\n\
+             patch.xml::@main\\hud.xml\ntrue\n\
+             bad1.xml::@\ntrue\n\
+             bad2.xml::@..\ntrue\n\
+             bad3.xml::@..\\outside.xml\ntrue\n",
+        );
+        assert_eq!(parsed.entries.len(), 2);
+        assert_eq!(parsed.entries[0].target, Target::Prefab("menus\\globals.xml".into()));
+        assert_eq!(parsed.entries[1].target, Target::Prefab("menus\\main\\hud.xml".into()));
+        assert_eq!(parsed.warnings.len(), 3, "{:?}", parsed.warnings);
+
+        let src = MemSource::default()
+            .with("menus/globals.xml", r#"<rect name="Strings"><_base>1</_base></rect>"#)
+            .with("menus/main/hud.xml", r#"<menu name="HUDMainMenu"><rect name="Base"/></menu>"#)
+            .with_loose("menus/prefabs/preload.xml", r#"<_preloaded>42</_preloaded>"#)
+            .with_loose("menus/prefabs/patch.xml", r#"<rect name="Added"><x>7</x></rect>"#)
+            .with_loose("menus/sibling/extra.xml", r#"<_from_sibling>9</_from_sibling>"#)
+            .with(
+                "uio/public/at_targets.txt",
+                "preload.xml::@globals.xml\ntrue\n\
+                 patch.xml::@main\\hud.xml\ntrue\n\
+                 ..\\sibling\\extra.xml::HUDMainMenu\ntrue\n",
+            );
+        let mut ui = Ui::new();
+        ui.configure_uio(&src, |_| false);
+        assert!(ui.uio.warnings.is_empty(), "{:?}", ui.uio.warnings);
+        assert!(ui.load_globals(&src));
+        let hud = ui.load_menu(&src, "menus\\main\\hud.xml").unwrap();
+        ui.update();
+        assert_eq!(ui.uio.applied(), 3);
+        assert_eq!(ui.get_float("globals()/_base"), Some(1.0));
+        assert_eq!(ui.get_float("globals()/_preloaded"), Some(42.0));
+        assert_eq!(ui.get_float("HUDMainMenu/Added/x"), Some(7.0));
+        assert_eq!(ui.get_float("HUDMainMenu/_from_sibling"), Some(9.0));
+        assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+        assert!(ui.has_mod_added_tiles(hud));
     }
 }

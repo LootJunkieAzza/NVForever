@@ -47,6 +47,10 @@ pub struct State {
     /// SetMapMarkerHidden / Travel / Visible's flags and SetMapMarkerType's types, by
     /// marker reference (`Game::marker_flags`, read by the Pip-Boy's map too).
     pub marker_flags: HashMap<FormId, u8>,
+    /// Mask of `MARKER_*` flag bits explicitly set or cleared by a script
+    /// (`SetMapMarkerVisible`, `SetMapMarkerTravel`, `SetMapMarkerHidden`), distinct
+    /// from the authored `FNAM` bits.
+    pub marker_flag_overrides: HashMap<FormId, u8>,
     pub marker_kind: HashMap<FormId, u8>,
     /// SetRadio…'s radio data, by station reference.
     pub radio: HashMap<FormId, fnv_sim::refs::RadioData>,
@@ -60,6 +64,61 @@ impl Game<'_> {
     pub fn marker_flags(&self, r: FormId) -> Option<u8> {
         let m = self.world.placed.get(r).and_then(|p| p.map_marker)?;
         Some(self.other.lutana.lu2.marker_flags.get(&r).copied().unwrap_or(m.flags))
+    }
+
+    /// Whether a script explicitly overrode `bit` (`MARKER_VISIBLE`, `MARKER_TRAVEL`, or
+    /// `MARKER_HIDDEN`) on map marker `r`: `Some(true)` when set on, `Some(false)` when
+    /// cleared, `None` when the bit still comes from the authored `FNAM` record (or `r`
+    /// is no map marker).
+    pub fn marker_flag_override(&self, r: FormId, bit: u8) -> Option<bool> {
+        let mask = self.other.lutana.lu2.marker_flag_overrides.get(&r).copied()?;
+        if mask & bit == 0 {
+            return None;
+        }
+        Some(self.marker_flags(r)? & bit != 0)
+    }
+
+    /// Clear a script override bit on `r` (used when `ShowMap` re-enables travel after a
+    /// prior `SetMapMarkerTravel 0`).
+    pub(crate) fn clear_marker_flag_override(&mut self, r: FormId, bit: u8) {
+        if let Some(mask) = self.other.lutana.lu2.marker_flag_overrides.get_mut(&r) {
+            *mask &= !bit;
+            if *mask == 0 {
+                self.other.lutana.lu2.marker_flag_overrides.remove(&r);
+            }
+        }
+    }
+
+    /// Effective `MARKER_TRAVEL` bit for map marker `r` (`GetMapMarkerTravel`,
+    /// `GetMapMarkerVisible`, and Pip-Boy fast-travel):
+    /// - Explicit `SetMapMarkerTravel` override wins (`Some(on)`), cleared if a subsequent
+    ///   `ShowMap r 1` re-enables travel.
+    /// - Otherwise `true` when the player discovered `r` (`found_markers`), `ShowMap r 1`
+    ///   or `ShowAllMapMarkers` with travel enabled it on a shown marker, or the authored
+    ///   `FNAM` record sets BOTH `MARKER_VISIBLE` and `MARKER_TRAVEL` (`FNAM & 3 == 3`)
+    ///   [observed: observer check 252 (#3468, `o31_mapmarker_visible` control + probe
+    ///   plugin: authored `FNAM=3` reads Vis=2/Trv=1 while authored `FNAM=2` alone reads
+    ///   Vis=0/Trv=0; `ShowMap 1` and discovery set Vis=2/Trv=1) and the 2026-11-22 live
+    ///   map-marker probe documented in `docs/spec-notes/ext-lutana.md` §9
+    ///   (`SetMapMarkerTravel 1` alone reads Vis=0/Trv=1; `SetMapMarkerTravel 0` on
+    ///   `FNAM=3` reads Vis=1/Trv=0)].
+    pub fn marker_travel(&self, r: FormId) -> bool {
+        let Some(m) = self.world.placed.get(r).and_then(|p| p.map_marker) else {
+            return false;
+        };
+        if let Some(on) = self.marker_flag_override(r, MARKER_TRAVEL) {
+            return on;
+        }
+        if self.player.found_markers.contains(&r) {
+            return true;
+        }
+        if m.flags & (MARKER_VISIBLE | MARKER_TRAVEL) == (MARKER_VISIBLE | MARKER_TRAVEL) {
+            return true;
+        }
+        let flags = self.marker_flags(r).unwrap_or(m.flags);
+        let hidden = flags & MARKER_HIDDEN != 0;
+        let shown = self.map_marker_shown(r, hidden);
+        shown && (self.player.travel_markers.contains(&r) || self.player.all_markers.is_some_and(|a| a.shown && a.travel))
     }
 
     /// A map marker's type as it stands (the icon it shows).
@@ -90,6 +149,13 @@ impl Game<'_> {
     fn set_marker_flag(&mut self, r: FormId, bit: u8, on: bool) {
         if let Some(f) = self.marker_flags(r) {
             self.other.lutana.lu2.marker_flags.insert(r, if on { f | bit } else { f & !bit });
+            *self.other.lutana.lu2.marker_flag_overrides.entry(r).or_insert(0) |= bit;
+            if !on && bit == MARKER_VISIBLE {
+                self.player.map_markers.remove(&r);
+            }
+            if !on && bit == MARKER_TRAVEL {
+                self.player.travel_markers.remove(&r);
+            }
         }
     }
 }
@@ -115,7 +181,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // and is not changed.
         "ismapmarker" => yes(subject.and_then(|r| g.marker_flags(r)).is_some()),
         "getmapmarkerhidden" => yes(subject.and_then(|r| g.marker_flags(r)).is_some_and(|f| f & MARKER_HIDDEN != 0)),
-        "getmapmarkertravel" => yes(subject.and_then(|r| g.marker_flags(r)).is_some_and(|f| f & MARKER_TRAVEL != 0)),
+        "getmapmarkertravel" => yes(subject.is_some_and(|r| g.marker_travel(r))),
         "getmapmarkertype" => XVal::Num(subject.and_then(|r| g.marker_kind(r)).map_or(0.0, f64::from)),
         "setmapmarkerhidden" | "setmapmarkertravel" | "setmapmarkervisible" => {
             let bit = match name {

@@ -96,6 +96,11 @@ impl Triggers {
         self.shapes.values().flat_map(|(_, v)| v.iter())
     }
 
+    /// A trigger reference's volumes, once built.
+    pub fn shapes_of(&self, r: FormId) -> Option<&[TriggerShape]> {
+        self.shapes.get(&r).map(|(_, v)| v.as_slice())
+    }
+
     /// The gas clouds' volumes built so far, by reference (`crate::gas_traps`); a
     /// reference disabled since is still listed: the caller asks whether it is present.
     pub fn gas_volumes(&self) -> impl Iterator<Item = (FormId, &TriggerShape)> {

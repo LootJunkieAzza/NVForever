@@ -1723,11 +1723,16 @@ Code: `engine/nvforever/src/underwater.rs` (`fog_bytes`, `DEEP_AT`).
     `SetCellImageSpace` on the cell the player is already in does not switch the active
     grade until the cell next loads.
   - Live `SetImageSpaceTrait` refresh on the already-loaded active `IMGS` (interior bound
-    `IMGS` or exterior `WRLD INAM`) is keyed on `(game_instance_id, image_space_revision)`
-    from `Game::image_space_sync_token()` — doing zero work on unchanged frames while
-    refreshing `SkyState::interior_grade` and `SkyState::image_space` in place without
-    re-reading pending `SetCellImageSpace` assignments [hypothesis: not yet independently
-    verified by an original-game capture].
+    `IMGS` or exterior `WRLD INAM`) and live `SetWorldspaceImagespace` (`WRLD INAM/`,
+    following `WNAM` + `PNAM` Use Image Space Data inheritance) are keyed on
+    `(game_instance_id, image_space_revision)` from `Game::image_space_sync_token()` —
+    doing zero work on unchanged frames while refreshing `SkyState::interior_grade` and
+    `SkyState::image_space` in place without re-reading pending `SetCellImageSpace`
+    assignments [hypothesis: not yet independently verified by an original-game capture].
+    Outdoors, explicit `SetCellImageSpace` assignments on the current exterior cell bind
+    on cell load ahead of `SetWorldspaceImagespace` / `WRLD INAM` while leaving unmodded
+    exterior cells unchanged, and `worldspace::script_sky` preserves active worldspace /
+    exterior image-space overrides across same-worldspace climate rebuilds [design].
 - **Exterior weather fog (`SetWeatherTraitNumeric` traits `15..=20`)** [documented: GECK
   wiki `GetWeatherTraitNumeric` / `SetWeatherTraitNumeric` traits `15..=20` (day/night
   near, far, power); hypothesis: live in-place refresh on active weather]:
@@ -1738,6 +1743,24 @@ Code: `engine/nvforever/src/underwater.rs` (`fog_bytes`, `DEEP_AT`).
     `Weather::fog_power_at_with` in place (zero per-frame allocations) across both the
     current and fading-out weather. Explicit console/CLI `SkyState::fog_override` retains
     precedence.
+- **Exterior weather colours, image-space adapters, and transition time
+  (`SetWeatherRGBColor`, `SetWeatherImageSpaceMod`, `SetWeatherTransitionTimeOverride`)**
+  [documented: GECK wiki `GetWeatherRGBColor` / `SetWeatherRGBColor` (`NAM0` colour types
+  `0..=9` and `PNAM` cloud layers `0..=3` across times `0..=5`), `GetWeatherImageSpaceMod`
+  / `SetWeatherImageSpaceMod` (`0IAD..5IAD`), and `SetWeatherTransitionTimeOverride`;
+  hypothesis: live in-place refresh on active weather]:
+  - `nvforever::sky::sync_weather_visuals` syncs session colour, cloud-colour, weather
+    `IMAD` adapter, and transition-time overrides from `Game` into
+    `SkyState::weather_visual_overrides` keyed on `(game_instance_id,
+    weather_visual_revision)` (`Game::weather_visual_sync_token()`), doing zero work on
+    unchanged frames and clearing cleanly on `Game` restore or runtime drop [design].
+  - `SkyState::color`, `SkyState::color_bytes`, `SkyState::cloud_color_for`,
+    `SkyState::cinematic`, `SkyState::sun_scale`, and `SkyState::advance_fade` apply
+    these overrides in place (zero per-frame allocations) across both current and
+    fading-out weathers, reaching `DistanceFog`, `GlobalAmbientLight`, `DirectionalLight`,
+    `ClearColor`, `SkyDome`, `CloudLayer`, `GetCurrentSkyColor`, and `ImageSpaceGrade`.
+    An explicit `SetWeatherImageSpaceMod weather time 0` clears that time slot's adapter
+    rather than falling back to the authored ESM record [design].
 - **Game settings (`SetNumericGameSetting`, `SetStringSetting`)**:
   - Vanilla numeric (`f*`, `i*`) and string (`s*`) GMST edits write directly to
     `fnv_sim::World::setting_changes` and are visible live to `World::setting_f32`,
@@ -2253,10 +2276,14 @@ unchanged.
 
 [design] Distant-water invalidation includes camera cell, effective LOD radius
 (including off/interior) and the exact loaded-cell keys. Compare stable keys
-without allocating each frame; retain a copy only when coverage changes. Then
-remove no-longer-eligible planes, create newly eligible planes and retain the
-same entities/materials for unaffected cells. Existing water type, depth,
-reflection, alpha, material and mesh policy is unchanged.
+without allocating each frame; retain a copy only when coverage changes, and clear
+those keys alongside planes/surfaces on worldspace switches (`DistantWater::clear`).
+Then remove no-longer-eligible planes, create newly eligible planes and retain the
+same entities/materials for unaffected cells. Order `update_water_sky` and
+`update_ripples` after `world::stream` and `distant_water` so newly streamed water
+materials receive current sky, sun, water-effects, and ripple parameters on their
+first rendered frame rather than flashing placeholder defaults. Existing water type,
+depth, reflection, alpha, material and mesh policy is unchanged.
 
 [hypothesis] Coplanar retained distant/local planes are a causal renderer boundary
 to test for reported water flicker, not yet proof of every observed flicker.
@@ -2269,8 +2296,11 @@ claimed by authored CPU fixtures.
 #### Current-camera underwater fog handoff
 
 [design: engine render scheduling] The water fog override is composed after the current
-camera transform propagates, before the reflection camera copies that fog. The
-weather/interior composition is shared with the ordinary sky updater. Leaving water
+camera transform propagates, before auxiliary world cameras copy that fog (the reflection
+camera in `reflection.rs`, the 3D scope lens fog sync in `scope_view.rs`, and JIP extra
+cameras in `extra_camera.rs`). Active `RemapWaterType` remaps (`WaterRemaps`) apply to
+underwater fog in both classic and enhanced water modes, matching `water::water_material`.
+The weather/interior composition is shared with the ordinary sky updater. Leaving water
 restores its current values in the same frame, including weather, lighting, HDR emissive
 and interior-fog preferences changed while submerged; it does not replay a pre-entry
 snapshot [hypothesis: that the original's fog returns in the frame the camera leaves the
@@ -2289,8 +2319,9 @@ acceptance remains separate from CPU producer results.
 ### CPU validation scope
 
 The water producer/camera-fog and live-IMAD grade controls exercise CPU consumers;
-revision-specific CI and failure history are recorded in PR #2861. The
-identical-fixture baseline comparisons, nonfinite/overflow guard, auxiliary-camera
-and reflection scheduling, worldspace clearing, HDR restoration, native behavior,
-original mod initialization and installed-profile/persistent-cyan/GPU/FPS outcomes
-are not established by those controls.
+revision-specific CI and failure history are recorded in PR #2861, with follow-on CPU
+controls covering nonfinite/f32-overflow guards, nonanimated HDR/fade/radial/DoF/motion
+traits, worldspace clearing, first-frame water sky sync, classic-mode `WaterRemaps`
+underwater fog, and auxiliary-camera fog handoff with HDR emissive restoration. The
+identical-fixture baseline comparisons, native behavior, original mod initialization and
+installed-profile/persistent-cyan/GPU/FPS outcomes are not established by those controls.

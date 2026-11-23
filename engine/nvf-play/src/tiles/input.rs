@@ -860,6 +860,11 @@ pub(crate) fn feed(
     let Others { paused, page, mut stats, mut inventory, mut map, repair, modding, mut item_mod, pip } = others;
     let Some(rt) = script.rt.as_mut() else { return };
     if rt.game.ui_files.is_none() {
+        // Still end script clicks (ClickMenuTile / ClickMenuButton on injected tiles) and
+        // fire SetOnMenuClickEventHandler even before menu XML files are loaded [design].
+        if rt.game.ui_pointer.over.is_some() || rt.game.ui_pointer.pending() {
+            fnv_game::ui_input::idle(&mut rt.game);
+        }
         return;
     }
     if let Some(v) = inputs.view_input.as_deref_mut() {
@@ -1004,6 +1009,10 @@ pub(crate) fn feed(
         if fnv_game::ui_input::idle(&mut rt.game).is_some_and(|r| r.over.is_some()) {
             info!("tiles: pointer over nothing (no menu takes input)");
         }
+        // Clear any stale tile-tree pointer position while no tile menu owns input so
+        // GetCursorPos XML queries in hand-built menus fall back to the live window
+        // cursor (`jip9.cursor_px`) [design].
+        rt.game.ui_pointer.at = None;
         // A click's pulse ended there too: the scroll is the view's again.
         if inputs.container.menu.is_some() {
             inputs.container.rewrite(&mut rt.game.ui_tree);
@@ -1420,5 +1429,98 @@ mod tests {
             }
             assert_eq!(super::super::draw::menu_anchor(true), crate::interface::BOTTOM_MIDDLE);
         }
+    }
+
+    #[test]
+    fn click_menu_tile_advances_tiled_menu_and_fires_menu_click_event_handler() {
+        use fnv_game::game::RunCtx;
+        use fnv_script::vm::XVal;
+        const NEXT: &str = "TutorialMenu/NOGLOW_BRANCH/TM_Background/TM_depth_rect/TM_next_button";
+        const NEXT_TEXT: &str = "TutorialMenu/NOGLOW_BRANCH/TM_Background/TM_depth_rect/TM_next_button/button_text";
+        let mut app = tutorial_app();
+        built_tutorial(&mut app);
+        {
+            let mut st = app.world_mut().resource_mut::<crate::script::ScriptState>();
+            let game = &mut st.rt.as_mut().unwrap().game;
+            let root = game.ui_tree.menu("TutorialMenu").unwrap();
+            game.ui_tree.set_trait(root, "_scriptClicks", fnv_ui::Value::Num(0.0));
+            game.ui_tree.set_trait(root, "_scriptName", fnv_ui::Value::Str(String::new()));
+            game.run_query(
+                &format!(
+                    r#"Begin Function {{}}
+SetOnMenuClickEventHandler (Begin Function {{int m, int t, string_var sN}}
+ModUIFloat "TutorialMenu/_scriptClicks" 1
+SetUIString "TutorialMenu/_scriptName" sN
+End) 1 "{NEXT}"
+ClickMenuTile "{NEXT}"
+End"#
+                ),
+                RunCtx::default(),
+            )
+            .unwrap();
+            assert_eq!(game.ui_tree.get_float(&format!("{NEXT}/clicked")), Some(1.0));
+        }
+        app.update();
+        assert_eq!(tutorial_acted(&app), (1, false), "ClickMenuTile must advance the tiled TutorialMenu");
+        {
+            let st = app.world().resource::<crate::script::ScriptState>();
+            let ui = &st.rt.as_ref().unwrap().game.ui_tree;
+            assert_eq!(ui.get_float(&format!("{NEXT}/clicked")), Some(0.0), "clicked pulse ended");
+            assert_eq!(ui.get_float("TutorialMenu/_scriptClicks"), Some(1.0), "SetOnMenuClickEventHandler fired");
+            assert_eq!(ui.get_string("TutorialMenu/_scriptName").as_deref(), Some("tm_next_button"));
+        }
+
+        // Clicking a child inside a target <hotrect> also advances the menu and fires the handler.
+        {
+            let mut st = app.world_mut().resource_mut::<crate::script::ScriptState>();
+            let game = &mut st.rt.as_mut().unwrap().game;
+            let r = game.run_query(&format!("Begin Function {{}}\nSetFunctionValue (ClickMenuTile \"{NEXT_TEXT}\")\nEnd"), RunCtx::default()).unwrap();
+            assert_eq!(r, XVal::Num(1.0));
+        }
+        app.update();
+        assert_eq!(tutorial_acted(&app), (2, false), "ClickMenuTile on target-hotrect child advances TutorialMenu");
+        {
+            let ui = &app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.ui_tree;
+            assert_eq!(ui.get_float("TutorialMenu/_scriptClicks"), Some(2.0));
+        }
+
+        // Even with `ui_files == None` (e.g. injected tiles before menu XMLs load), `feed`
+        // still drains queued script clicks via `ui_input::idle`.
+        {
+            let mut st = app.world_mut().resource_mut::<crate::script::ScriptState>();
+            let game = &mut st.rt.as_mut().unwrap().game;
+            game.ui_files = None;
+            let r = game.run_query(&format!("Begin Function {{}}\nSetFunctionValue (ClickMenuTile \"{NEXT}\")\nEnd"), RunCtx::default()).unwrap();
+            assert_eq!(r, XVal::Num(1.0));
+        }
+        app.update();
+        let ui = &app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.ui_tree;
+        assert_eq!(ui.get_float("TutorialMenu/_scriptClicks"), Some(3.0), "idle drain fired SetOnMenuClickEventHandler with ui_files == None");
+        assert_eq!(ui.get_float(&format!("{NEXT}/clicked")), Some(0.0));
+    }
+
+    #[test]
+    fn idle_feed_clears_stale_ui_pointer_so_xml_cursor_pos_tracks_live_window() {
+        use fnv_game::game::{menus, RunCtx};
+        use fnv_script::vm::XVal;
+        let mut app = tutorial_app();
+        // Close tiled tutorial switch so taking is empty (hand-built menu open).
+        app.world_mut().resource_mut::<super::super::vanilla::TileMenus>().tutorial = false;
+        {
+            let mut st = app.world_mut().resource_mut::<crate::script::ScriptState>();
+            let game = &mut st.rt.as_mut().unwrap().game;
+            game.menu = Some(menus::MESSAGE);
+            game.other.jip9.window = Some((1280.0, 720.0));
+            game.other.jip9.cursor_px = Some((300.0, 240.0));
+            game.ui_pointer.at = Some((100.0, 80.0));
+        }
+        app.update();
+        let mut st = app.world_mut().resource_mut::<crate::script::ScriptState>();
+        let game = &mut st.rt.as_mut().unwrap().game;
+        assert_eq!(game.ui_pointer.at, None, "stale ui_pointer.at cleared when no tile menu owns input");
+        let x = game.run_query("Begin Function {}\nSetFunctionValue (GetCursorPos X 1)\nEnd", RunCtx::default()).unwrap();
+        let y = game.run_query("Begin Function {}\nSetFunctionValue (GetCursorPos Y 1)\nEnd", RunCtx::default()).unwrap();
+        assert_eq!(x, XVal::Num(400.0));
+        assert_eq!(y, XVal::Num(320.0));
     }
 }

@@ -97,6 +97,11 @@ fn change_text(c: &ValueChange, duration: f64) -> String {
         ChangeKind::Once => "at once".to_string(),
         ChangeKind::PerSecond => format!("a second for {duration:.0} s"),
     };
+    if c.parts && fnv_game::aid::LIMB_CONDITIONS.contains(&c.code) {
+        if let Some(l) = c.limb {
+            return format!("{} {:+.1} {how}", av_name(l), c.amount.max(100.0));
+        }
+    }
     let limbs = if c.parts { ", limbs too" } else { "" };
     format!("{} {:+.1} {how}{limbs}", av_name(c.code), c.amount)
 }

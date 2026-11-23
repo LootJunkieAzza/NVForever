@@ -93,6 +93,7 @@ pub mod difficulty;
 pub mod experience;
 pub mod ext_probes;
 pub mod ext_save;
+pub mod fos_convert;
 pub mod functions;
 pub mod hacking;
 pub mod holotapes;

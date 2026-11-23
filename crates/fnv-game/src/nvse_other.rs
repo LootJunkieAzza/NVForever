@@ -105,14 +105,11 @@ pub struct OtherState {
     /// through `Game::owner_rank` / `Game::ownership_in` and carried across same-run loads
     /// in `Game::Session`.
     pub owner_ranks: HashMap<FormId, i32>,
-    /// SetZoneMinLevel's and SetZoneOwner's changes, by encounter zone (`nvse_anh`).
+    /// SetZoneOwner's and session SetZoneFlag bit-1 changes, by encounter zone (`nvse_anh`).
+    /// Carried across same-run loads in `Game::Session`.
     pub zone_changes: HashMap<FormId, crate::nvse_anh::ZoneChange>,
     /// SetShowOffDebugMode's switch (nothing more is printed).
     pub showoff_debug: bool,
-    /// SetRefEncounterZone's and SetCellEncounterZone's zones (None: removed), by
-    /// reference and by cell (`nvse_jg2`).
-    pub ref_zones: HashMap<FormId, Option<FormId>>,
-    pub cell_zones: HashMap<FormId, Option<FormId>>,
     /// LandTextureAddGrass's and LandTextureRemoveGrass's grass lists (`nvse_jip5`).
     pub ltex_grasses: HashMap<FormId, Vec<FormId>>,
     /// Lutana batch 1's record changes (`nvse_lutana`).

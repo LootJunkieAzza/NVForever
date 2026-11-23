@@ -86,7 +86,10 @@ impl Game<'_> {
                 return changes_text(&changes);
             }
         }
-        let ench = self.data.armor_enchantments.get(&item).copied();
+        let ench = (self.data.sig(self.unclone(item)) == Some(*b"ARMO"))
+            .then(|| self.object_effect(item))
+            .flatten()
+            .filter(|e| self.data.enchantment_types.get(e) == Some(&crate::abilities::ENCHANTMENT_APPAREL));
         ench.map(|e| changes_text(&self.magic_changes(e))).unwrap_or_default()
     }
 }

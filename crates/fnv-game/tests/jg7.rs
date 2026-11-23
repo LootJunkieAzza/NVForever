@@ -162,9 +162,13 @@ fn interface_settings() {
     q(&mut g, "StopVATSCam");
     assert_eq!(g.take_jg7_requests(), vec![Request::CameraShake(2.0, 3.0), Request::StopVatsCamera]);
     assert_eq!(n(&mut g, "RefAddr"), 0.0);
-    // [documented: SetCustomMapMarkerIcon / GetCustomMapMarkerIcon].
+    // [documented: SetCustomMapMarkerIcon / GetCustomMapMarkerIcon; empty string resets].
     q(&mut g, "SetCustomMapMarkerIcon PlayerREF \"icons/camp.dds\"");
     assert_eq!(s(&mut g, "SetFunctionValue (PlayerREF.GetCustomMapMarkerIcon)"), "icons/camp.dds");
+    assert_eq!(g.custom_map_marker_icon(fnv_sim::FormId::PLAYER_REF), Some("icons/camp.dds"));
+    q(&mut g, "SetCustomMapMarkerIcon PlayerREF \"\"");
+    assert_eq!(g.custom_map_marker_icon(fnv_sim::FormId::PLAYER_REF), None);
+    assert_eq!(s(&mut g, "SetFunctionValue (PlayerREF.GetCustomMapMarkerIcon)"), "");
     // [documented: GetLocationSpecificLoadScreensOnly; IsMenuPaused without Real Time
     // Menus; GetJohnnyPatch 1 always 1].
     assert_eq!(n(&mut g, "GetLocationSpecificLoadScreensOnly"), 0.0);

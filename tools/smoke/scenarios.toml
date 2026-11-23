@@ -3909,6 +3909,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "pilot-goodsprings-fight"
+source = "issue #2365, docs/design/quest-pilot.md: the quest pilot walks the player from the Goodsprings start through the saloon's door on the navmesh, draws the pistol it gives and shoots Joe Cobb with the player's own weapon until he dies, then writes its summary and exits"
+note = "A tiny chain kept beside the smoke tests (tools/smoke/pilot/), not a walkthrough: the pilot's walk, door, fight and report in one short run"
+areas = ["quests", "combat", "ai"]
+paths = ["engine/nvforever/src/pilot.rs", "tools/smoke/pilot/goodsprings-fight.actions.json"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "900", NVF_PLAY_TEST_UNATTENDED = "1" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-music", "--pilot", "{repo}/tools/smoke/pilot/goodsprings-fight.actions.json"]
+run_seconds = 150
+ends = "pilot: done:"
+order = [[
+  { re = 'pilot: the player is given WeapNV9mmPistol', label = "the pilot arms the player" },
+  { re = 'pilot: step 3: goes through door ', label = "it walks through the saloon's door" },
+  { re = 'pilot: step 3: GSJoeCobbRef is dead after ', label = "Joe Cobb dies to the player's shots" },
+  { re = 'pilot: done: 1 chain\(s\), 5 steps \(0 failed\)', label = "the run ends with no failed step" },
+]]
+expect = [
+  { re = 'combat: hit 0x00104C68 ', min = 3, label = "the player's shots hit him" },
+]
+
+[[scenario]]
 name = "crucified-stay"
 source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
 areas = ["ai", "furniture"]
@@ -4002,6 +4022,20 @@ order = [[
   { re = 'activate 0x00104C80 .*: asleep, it wakes and gets up before talking', label = "E wakes him" },
   { text = "furniture: 00104C80 got off 00176ACE", label = "woken, he is off the bed (the exit played)" },
   { re = 'dialogue: .* is up after [0-9.]+ s: the player talks to it', label = "and the conversation follows, him off the bed" },
+]]
+
+[[scenario]]
+name = "bed-suitcase-target"
+source = "issue #3323 (simulation.md §5, crosshair activation): the Suitcase 0x000AFA24 lying on BedQueenRight 0x000D72C7 in BisonSteve02 is the target, not the bed whose render box (floor to headboard) encloses it: a bed's boxes are set aside when one wholly holds, along the ray, an activatable box entered before the first collision hit (pick::set_aside_enclosing) [design]"
+note = "FalloutNV.esm: the suitcase at (1623.07, -3061.47, 303.52) lying on its side, the bed at (1672.21, -3093.25, 285.01), turned ~0. At 25 s the player's feet go 75 units north of the suitcase (1623, -2986), onto the floor at 256.7 (the run of 2026-11-21), eye ~369 (112 over the feet); at 27 s the view looks south (180), 40 degrees down, the ray reaching the suitcase's height (303.5) at its middle (~100 units away; at 50 degrees, the first try, it passed in front of the suitcase into the bed's box at 82, by Bounds); a shot at 28.5 s (bed_suitcase.png) to check the aim; E at 30 s opens its container menu. Before the fix the bed, its box entered first along the ray, is the expected target at this pose (`target 0x000D72C7 ... (Activate)`), unconfirmed until the main session's run on a main build shows it. The north side is a guess from the coordinates: the pose counts as confirmed only when the same scenario fails on a main build (the bed targeted) and passes on this change (the suitcase's menu); if the shot shows a wall or the headboard in the way, move the point, do not loosen the lines. NVF_PLAY_TEST_PICK_LOG logs, with each new target, the raw first hit, each box the ray enters (entry-exit, rough, bed) and the boxes set aside: read it before changing the pose or the code"
+areas = ["activate", "furniture"]
+paths = ["engine/nvf-play/src/activate/pick.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "25:1623:-2986:330", NVF_PLAY_TEST_LOOK = "27:180:-40", NVF_PLAY_TEST_PICK_LOG = "1", NVF_PLAY_TEST_SHOTS = "28.5:bed_suitcase.png", NVF_PLAY_TEST_ACTIVATE = "30" }
+args = ["--cell", "BisonSteve02", "--play", "--no-voice"]
+run_seconds = 36
+order = [[
+  { re = 'target 0x000AFA24 Suitcase \(Open[^)]*\) by (Collision|Bounds)', label = "the crosshair on the suitcase lying on the bed" },
+  { text = 'menu: open Container(0x000AFA24) "Suitcase"', label = "E opens the suitcase" },
 ]]
 
 [[scenario]]
@@ -10330,6 +10364,19 @@ commands = [["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/
 expect = [
   { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "CaravanOffer" },
   { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "GOODBYE" },
+]
+
+[[scenario]]
+name = "goodbye-topic-unflagged"
+kind = "tool"
+source = "issue #3477: the GOODBYE topic's line ends the conversation when it is over without the Goodbye flag too, unless it leads on (fnv-game dialogue.rs ends_conversation; docs/spec-notes/dialogue.md §5). Keith (Aerotech Suite 200) says 0x0014E019, one of FalloutNV.esm's two unflagged GOODBYE lines; before, his topic list came back"
+areas = ["dialogue"]
+paths = ["crates/fnv-game/src/dialogue.rs"]
+commands = [["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/keith-goodbye.actions.json", "{data}", "FalloutNV.esm"]]
+expect = [
+  { json = "events.?kind=choice_made.info", equals = "0x0014E019" },
+  { json = "events.?kind=choices_offered.actor", count = 1, label = "his topic list does not come back" },
+  { json = "events.?kind=dialogue_ended.reason", equals = "goodbye" },
 ]
 
 [[scenario]]
@@ -28913,10 +28960,57 @@ paths = ["engine/nvforever/src/effect_shaders.rs", "engine/nvforever/src/weapons
 args = ["--cell", "NVDLC01Lobby", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = [
-  { re = 'effect shader: NVDLC01HologramNeutral covers \d+ meshes of NVDLC01StarLobby', label = "the hologram's effect shader covers it" },
+  { re = 'effect shader: NVDLC01HologramNeutral covers \d+ meshes of NVDLC01StarLobby \(overlays on [1-9]', label = "the hologram's effect shader covers it, with overlays on its see-through body (#3017: 0 before)" },
   { re = 'actor alpha: NVDLC01StarLobby', label = "the hologram is drawn see-through" },
+  { text = "effect shader: NVDLC01HologramNeutral on NVDLC01StarLobby (fill and darkening edge, until stopped)", label = "#3017: the hologram's inverse edge darkens (flags 0x18 in the maintainer's decode)" },
 ]
-forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error" }]
+order = [[
+  { re = 'effect shader: NVDLC01HologramNeutral covers \d+ meshes of NVDLC01StarLobby', label = "the membrane covers the hologram" },
+  { re = 'effect shader: NVDLC01HologramNeutral on NVDLC01StarLobby fades with its actor to 0\.70 \([1-9]\d* overlays on \d+ meshes\)', label = "#3017: then its flicker to 0.70 fades the membrane with its overlays still live (the alpha changes 0.00/0.70/1.00 were logged in runs of 2026-11-20)" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { re = 'effect shader: NVDLC01Hologram\w+: fill texture .* not found', label = "#3017: a hologram colour's fill texture missing" },
+  { re = 'effect shaders by script on \S+: (?:\S+, )*NVDLC0[13]Hologram\w+, (?:\S+, )*NVDLC0[13]Hologram\w+', label = "#3017: two hologram colours on one hologram" },
+]
+
+[[scenario]]
+name = "dead-money-hologram-threat"
+source = "#3017 (effect-shaders.md §9): a hostile Sierra Madre casino hologram goes from blue to yellow when the player comes within 600 units, to red when its timer runs out with the player still in range (StartCombat), and back to yellow and blue when the player leaves; each step of its threat machine (NVDLC01HoloCasinoCodeHolderSCRIPT) stops the old colour before playing the new"
+note = "Data: CasinoHologramB 0x01006377 in NVDLC01Casino. God mode; MoveTo by the call aid (its line marks each move): 450 units at 8 s (yellow), 1500 units at 30 s (the retreat). Seen in a run of 2026-11-21 (combined build): yellow 0.3 s after the move, red about 7 s later by the code holder's timer (its StartCombat logs `fights the player`, checked on its own: the fight and the shaders' playback are separate producers), yellow about 7 s after the retreat, blue 7 s after that; this sequence is what the order wants. The set count (5: blue, yellow, red, yellow, blue) fails on any other set in between, a blue between the red and the retreat included."
+areas = ["effect-shaders", "scripts"]
+paths = ["engine/nvforever/src/effect_shaders.rs", "crates/fnv-game/src/functions/misc.rs"]
+args = ["--cell", "NVDLC01Casino", "--play", "--no-voice", "--no-messages"]
+run_seconds = 55
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "8:call:player:MoveTo:CasinoHologramB:450:0:0,30:call:player:MoveTo:CasinoHologramB:1500:0:0", NVF_PLAY_TEST_SHOTS = "6:holo_calm.png,12:holo_attention.png,24:holo_aggressive.png,40:holo_retreat_attention.png,50:holo_retreat_calm.png" }
+expect = [
+  { re = 'effect shaders by script on CasinoHologramB: ', max = 5, label = "five sets in all (blue, yellow, red, yellow, blue): none in between" },
+  { re = 'npc combat: CasinoHologramB \S+ fights the player', label = "step 2: its timer runs out with the player in range: StartCombat (the fight is set up apart from the shaders' playback, so it is not in the order)" },
+  { re = 'effect shader: NVDLC01HologramNeutral covers \d+ meshes of CasinoHologramB \(overlays on [1-9]', label = "the membrane is on the hologram's see-through body (#3017: 0 before)" },
+]
+order = [[
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramNeutral$', label = "calm before the first move: blue alone" },
+  { re = 'script: test aid calls MoveTo on ', label = "step 1: the player 450 units from it" },
+  { text = "effect shader: NVDLC01HologramNeutral on CasinoHologramB ends (stopped)", label = "step 1: blue stopped" },
+  { text = "effect shader: NVDLC01HologramAttention on CasinoHologramB (fill and darkening edge, until stopped)", label = "step 1: yellow" },
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramAttention$', label = "step 1: yellow alone" },
+  { text = "effect shader: NVDLC01HologramAttention on CasinoHologramB ends (stopped)", label = "step 2: yellow stopped" },
+  { text = "effect shader: NVDLC01HologramAggressive on CasinoHologramB (fill and darkening edge, until stopped)", label = "step 2: red" },
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramAggressive$', label = "step 2: red alone" },
+  { re = 'script: test aid calls MoveTo on ', label = "step 3: the player 1500 units away" },
+  { text = "effect shader: NVDLC01HologramAggressive on CasinoHologramB ends (stopped)", label = "step 3: red stopped" },
+  { text = "effect shader: NVDLC01HologramAttention on CasinoHologramB (fill and darkening edge, until stopped)", label = "step 3: yellow again" },
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramAttention$', label = "step 3: yellow alone" },
+  { text = "effect shader: NVDLC01HologramAttention on CasinoHologramB ends (stopped)", label = "step 3: yellow stopped" },
+  { text = "effect shader: NVDLC01HologramNeutral on CasinoHologramB (fill and darkening edge, until stopped)", label = "step 3: blue again" },
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramNeutral$', label = "step 3: blue alone" },
+]]
+forbid = [
+  { re = 'effect shader: NVDLC01Hologram\w+: fill texture .* not found', label = "a hologram colour's fill texture missing" },
+  { re = 'effect shaders by script on \S+: (?:\S+, )*NVDLC0[13]Hologram\w+, (?:\S+, )*NVDLC0[13]Hologram\w+', label = "two hologram colours on one hologram" },
+  { re = 'effect shader: NVDLC01Hologram\w+ on CasinoHologramB fades with its actor to \S+ \(0 overlays', label = "the membrane off while the hologram flickers" },
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+]
 
 [[scenario]]
 name = "tiles-tag-menu"
@@ -29308,7 +29402,7 @@ forbid = ["NVIDIA Reflex", "DLSS: slInit:", "DLSS: route:", "Validation Error", 
 name = "frame-generation"
 source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors; the performance overlay (--fps, its readings logged by NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**", "engine/vendor/wgpu-hal/src/vulkan/swapchain/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_ui_layer.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**", "engine/vendor/wgpu-hal/src/vulkan/swapchain/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1", NVF_FPS_LOG = "2" }
 args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen", "--fps"]
 run_seconds = 26
@@ -29316,6 +29410,7 @@ expect = [
   "FSR 3.1.4: Quality, 853x480 -> 1280x720, frame generation on",
   "frame generation: 853x480 -> 1280x720, a generated frame between each two real frames",
   "frame generation active: 1280x720, generated frame presented first, the real frame second",
+  { text = "frame generation: the HUD is the UI drawn alone over each generated frame (premultiplied), not interpolated", label = "the UI layer goes over the generated frame (fg_ui_layer.rs)" },
   { text = "frame generation: presenting on a thread of its own", label = "the presenter thread takes the window's images (h9x000/NVForever#1)" },
   { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [200, 1000000], label = "generated frames presented over ten seconds" },
   { text = "frame generation: … presents took … on the presenter thread", label = "presented from the presenter thread, not the render thread" },
@@ -29327,7 +29422,24 @@ forbid = [
   { text = "Caught rendering error", label = "a rendering error" },
   { text = "frame generation: on but not running", label = "frame generation switched on but held off" },
   { text = "the real frame is dropped", label = "a real frame without its second window image" },
+  { text = "such frames take the HUD from the frame without it", label = "the UI layer could not be drawn" },
 ]
+
+[[scenario]]
+name = "frame-generation-hud-compare"
+source = "docs/design/frame-generation.md \"The HUD and menus\": NVF_FG_UI_LAYER=0 keeps AMD's HUD-less mode (the HUD taken where the frame differs from its copy without it), for side-by-side checks against the UI layer"
+manual = "Against frame-generation: walk with the HUD up; with this switch the HP bar's and compass's faint parts smear or double in motion, with the UI layer they stay sharp. Screenshots take the real frame only; NVF_FRAME_GEN_CAPTURE_DIR writes the generated ones."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_ui_layer.rs"]
+env = { WGPU_BACKEND = "vulkan", NVF_FG_UI_LAYER = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--no-voice", "--no-lodgen"]
+run_seconds = 20
+expect = [
+  "frame generation active: 1280x720, generated frame presented first, the real frame second",
+  { text = "frame generation: the HUD is taken from where the frame differs from its copy without it (AMD's HUD-less mode, NVF_FG_UI_LAYER=0)", label = "the switch keeps AMD's HUD-less mode" },
+  { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [100, 1000000], label = "generated frames presented" },
+]
+forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }, { text = "the UI drawn alone over each generated frame", label = "the UI layer used despite the switch" }]
 
 [[scenario]]
 name = "frame-generation-switch"
@@ -30075,18 +30187,18 @@ forbid = [
 
 [[scenario]]
 name = "dlssg-ui"
-source = "#2317, docs/design/dlss-frame-generation.md \"Per frame\" item 3: the UI alpha (R16Float, 1 where the frame differs from its HUD-less copy) tagged with the HUD-less copy and user interface recomposition on, while turning with the HUD up"
+source = "#2317, docs/design/dlss-frame-generation.md \"Per frame\" item 3: the UI drawn alone (fg_ui_layer.rs, premultiplied) tagged as the UI colour and alpha with the HUD-less copy and user interface recomposition on, while turning with the HUD up"
 note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on."
-manual = "Watch the HUD while the view turns (13 to 14 s into play): it should stay sharp, without the smear generated frames gave it before the UI buffer. Screenshots cannot show it: they take the real frame, never a generated one."
+manual = "Watch the HUD while the view turns (13 to 14 s into play): it should stay sharp, the HP bar's and compass's faint parts too, without the smear generated frames gave it before the UI buffer. Screenshots cannot show it: they take the real frame, never a generated one."
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/fg_ui_layer.rs"]
 requires = ["NVF_DLSS_DIR"]
 front = true
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-ui-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "13:220:-6.4,13.2:235:-6.4,13.4:250:-6.4,13.6:265:-6.4" }
 args = ["--cell", "Goodsprings", "--pos=-69814,774,8451", "--heading", "205.5", "--pitch=-6.4", "--play", "--hour", "12", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
 run_seconds = 22
 expect = [
-  { re = 'DLSS-G: UI buffer: 1280x720 R16Float UI alpha \(1 where the frame differs from its HUD-less copy, 0 elsewhere\), tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on', label = "the UI alpha tagged" },
+  { re = 'DLSS-G: UI buffer: 1280x720 Rgba8Unorm UI colour and alpha \(the UI drawn alone over transparent black, premultiplied, sRGB-encoded as the back buffer with the HUD-less copy\), tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on', label = "the UI layer tagged as the UI colour and alpha, encoded as the back buffer" },
   { re = 'DLSS-G: options: mode On, .*user interface recomposition on: eOk', label = "recomposition asked for" },
   { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok" },
 ]
@@ -30098,6 +30210,21 @@ forbid = [
   { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback" },
   { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
 ]
+
+[[scenario]]
+name = "dlssg-ui-alpha"
+source = "#2317, docs/design/dlss-frame-generation.md \"Per frame\" item 3: NVF_FG_UI_LAYER=0 keeps the UI alpha (R16Float, 1 where the frame differs from its HUD-less copy) tagged with the HUD-less copy and user interface recomposition on, for side-by-side checks against dlssg-ui"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on."
+manual = "Against dlssg-ui: watch the HUD while the view turns (13 to 14 s into play); the scene behind see-through HUD parts stands still in generated frames here. Screenshots cannot show it: they take the real frame, never a generated one."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/fg_ui_layer.rs"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-ui-alpha-home", NVF_FG_UI_LAYER = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "13:220:-6.4,13.2:235:-6.4,13.4:250:-6.4,13.6:265:-6.4" }
+args = ["--cell", "Goodsprings", "--pos=-69814,774,8451", "--heading", "205.5", "--pitch=-6.4", "--play", "--hour", "12", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 22
+expect = [{ re = 'DLSS-G: UI buffer: 1280x720 R16Float UI alpha \(1 where the frame differs from its HUD-less copy, 0 elsewhere\), tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on', label = "the UI alpha tagged" }, { re = 'DLSS-G: options: mode On, .*user interface recomposition on: eOk', label = "recomposition asked for" }, { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok" }]
+forbid = [{ re = '\]\[streamline\]\[error\]', label = "an error from Streamline with the UI alpha" }, { text = "Validation Error", label = "a Vulkan validation error" }, { re = 'DLSS-G: UI buffer \(frame \d+\): ', label = "the UI alpha refused or not drawn" }, { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" }]
 
 [[scenario]]
 name = "pipboy-first-open"
@@ -35143,6 +35270,48 @@ expect = [
 ]
 
 [[scenario]]
+name = "game-parallax-vault34"
+source = "[design, #2979] docs/spec-notes/nif.md §6 \"Parallax height maps\", docs/spec-notes/pbr-materials.md \"The game's own height maps\": with authored materials off, Vault 34's shapes whose texture set names a height map (slot 3) with shader flag bit 11 draw it as a depth map; depth and method provisional [hypothesis] until observer check 265; a frame in target/smoke (game_parallax_vault34.png)"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/authored/", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_spawn/", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/actor.rs", "engine/nvforever/src/effect_shaders.rs", "engine/vendor/bevy_pbr/src/render/parallax_mapping.wesl"]
+# The switches the counts depend on are pinned (depth, method, layers, alpha-tested), and authored sets are off, so every count is the game's own maps.
+env = { NVFOREVER_HOME = "game-parallax-home", NVF_GAME_PARALLAX_DEPTH = "0.015", NVF_PBR_PARALLAX_METHOD = "relief:4", NVF_PBR_PARALLAX_LAYERS = "8", NVF_PBR_PARALLAX_MASK = "0", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_LOOK = "6:0:-40", NVF_PLAY_TEST_SHOT_FLATNESS = "1", NVF_PLAY_TEST_SHOTS = "8:game_parallax_vault34.png" }
+args = ["--cell", "Vault34a", "--play", "--no-voice", "--no-messages", "--graphics-only", "no-authored-materials"]
+run_seconds = 14
+expect = [
+  "authored materials: off",
+  { text = "authored materials summary: off (setting)", count = 1 },
+  { re = 'game height maps summary: depth 0\.015 \(relief:4, 8 layers\); [1-9]\d* material builds draw a NIF.s own height map \(texture-set slot 3, shader flag 11\), 0 more had it replaced by an authored _p,', count = 1, label = "Vault 34's flagged shapes draw their slot-3 height maps (none replaced: authored sets off)" },
+  { re = 'game height maps summary: .*, 0 could not load it;', count = 1, label = "every slot-3 height map asked for loads" },
+  { re = 'test aid: game_parallax_vault34\.png: \d+ % of the view is one colour', count = 1, label = "the frame was captured" },
+  { re = 'Screenshot saved to .*game_parallax_vault34\.png', count = 1, label = "the frame was written" },
+]
+forbid = [
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The count is of material builds that still draw the game's map, not distinct shapes (a model built twice counts twice). Vault34a was chosen by probe runs of this branch (2026-11-22, authored materials off, the test install): 69 builds there; RepconHQ01, which the first version of this scenario used, has none [observed: our runs]."
+manual = "Open game_parallax_vault34.png beside game_parallax_vault34_flat.png (game-parallax-vault34-off): floors and rubble with height maps show relief, nothing else changes."
+
+[[scenario]]
+name = "game-parallax-vault34-off"
+source = "[design, #2979] docs/spec-notes/pbr-materials.md \"The game's own height maps\": the control of game-parallax-vault34: the game depth switch at 0 draws and loads no game height map"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/authored/", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_spawn/"]
+env = { NVFOREVER_HOME = "game-parallax-home", NVF_GAME_PARALLAX_DEPTH = "0", NVF_PBR_PARALLAX_METHOD = "relief:4", NVF_PBR_PARALLAX_LAYERS = "8", NVF_PBR_PARALLAX_MASK = "0", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_LOOK = "6:0:-40", NVF_PLAY_TEST_SHOT_FLATNESS = "1", NVF_PLAY_TEST_SHOTS = "8:game_parallax_vault34_flat.png" }
+args = ["--cell", "Vault34a", "--play", "--no-voice", "--no-messages", "--graphics-only", "no-authored-materials"]
+run_seconds = 14
+expect = [
+  "authored materials: off",
+  { text = "NVF_GAME_PARALLAX_DEPTH=0: the game's own height maps (slot 3, shader flag 11) are not drawn", count = 1 },
+  { re = 'test aid: game_parallax_vault34_flat\.png: \d+ % of the view is one colour', count = 1, label = "the frame was captured" },
+  { re = 'Screenshot saved to .*game_parallax_vault34_flat\.png', count = 1, label = "the frame was written" },
+  { re = 'game height maps summary: off \(NVF_GAME_PARALLAX_DEPTH=0\) \(relief:4, 8 layers\); 0 material builds draw a NIF.s own height map \(texture-set slot 3, shader flag 11\), 0 more had it replaced by an authored _p, 0 left it flat .*, 0 could not load it;', count = 1, label = "depth 0: no game height map drawn, left flat or loaded" },
+]
+forbid = [
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+
+[[scenario]]
 name = "spt-shape"
 kind = "tool"
 source = "docs/spec-notes/speedtree.md §4 (billboard width : height [observed] against the generated trees) and §7 (#3126: EuonymusBush01 generated too wide)"
@@ -35246,3 +35415,137 @@ forbid = [
   { re = 'test aid: script (Call|MoveTo)\(.*\): \S', label = "no placement step failed (before)" },
   { re = 'shape\(s\) with an environment map, no window flag', label = "no shape without the window flag reflects" },
 ]
+
+[[scenario]]
+name = "terrain-parallax-no-pack"
+source = "[design, #3322] engine/nvforever/src/terrain.rs \"Parallax\", docs/spec-notes/pbr-materials.md \"Terrain layers: parallax\": the Terrain parallax switch (off by default and in both presets) on from the start, beside Terrain height blending so the folded main-pass pipelines can be told apart in the pipeline log (they carry TERRAIN_HEIGHT_BLEND), and flipped off and on while the game runs, over data with no ground height maps: no folded material holds a height map, none is edited by the flips, and no folded pipeline carries TERRAIN_PARALLAX, so the picture is the one without the switch. What a ground pack's relief looks like needs a generated ground set (no aid yet: the PBR field builds its own panels, not the landscape)"
+areas = ["renderer", "graphics", "terrain", "settings"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_surface.rs",
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/pipeline_gate.rs",
+  "engine/nvf-play/src/settings_layout.rs", "crates/nvf-settings-layout/src/lib.rs",
+  "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/authored.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PIPELINE_DEFS = "1", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:terrain-parallax,13:terrain-parallax" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "terrain-height-blend,terrain-parallax"]
+run_seconds = 20
+expect = [
+  "authored materials: on",
+  { re = 'terrain: the first 6 texture layers of a quadrant are folded into its base', label = "the GPU folds the layers (bindless), so the folded materials are the ones the switch reaches" },
+  { re = 'pipeline \d+ shader-defs: .*TERRAIN_HEIGHT_BLEND', label = "a folded terrain main-pass pipeline was logged with its definitions (so the absence of TERRAIN_PARALLAX below means something)" },
+]
+order = [[
+  { re = 'graphics: light glow, terrain height blending, terrain parallax$', label = "the switch is on from the start (Authored materials on, as --graphics-only leaves it)" },
+  { re = 'terrain: parallax on \(\d+ folded quadrant materials, 0 with height maps, 0 changed', label = "on from the first frame: every material made with it, none holding a height map" },
+  "settings: terrain-parallax off",
+  { re = 'terrain: parallax off \([1-9]\d* folded quadrant materials, 0 with height maps, 0 changed', label = "switching off: the loaded folded materials exist, none is edited (no height map, no key to change)" },
+  "settings: terrain-parallax on",
+  { re = 'terrain: parallax on \([1-9]\d* folded quadrant materials, 0 with height maps, 0 changed', label = "on again, still nothing edited" },
+]]
+forbid = [
+  { re = 'shader-defs: .*TERRAIN_PARALLAX', label = "no material without a height map takes the parallax pipeline" },
+  { text = "first folded material with authored height maps", label = "the test data has no ground height maps (a pack in it would make this scenario's premise false)" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the switch on" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain parallax switched)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap (terrain parallax switched)" },
+]
+
+[[scenario]]
+name = "terrain-parallax-ground-pack"
+source = "[design, #3322] engine/nvforever/src/terrain.rs \"Parallax\", docs/spec-notes/pbr-materials.md \"Terrain layers: parallax\": the Terrain parallax switch on over generated ground sets (the test aid NVF_PLAY_TEST_PBR_GROUND_PACK, engine/nvf-assets/src/pbr_field/ground.rs, its line engine/nvforever/src/main.rs:1366), judged by a readback of the world view (the test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB, engine/nvforever/src/terrain_parallax_ab.rs: its spot line in pose_player, its pose and under-the-centre lines (under_centre: terrain.rs ground_cover), the switch, shot and result lines in tick): on a spot where the folded layers with height maps make up what shows (not the quadrant base, not layers drawn over the folded ones, not a placed object), at a grazing view the switch alone changes the ground's texture at the centre (A and C, both off, agree; the texture decorrelates), and head-on it slides no texture and changes it little; the folded materials' lines terrain.rs sync_parallax and folded_material. Engineering comparator policy (thresholds from reasoning, module constants), not original-game pixels"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_parallax_ab.rs", "engine/nvforever/src/terrain_parallax_ab/",
+  "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/authored.rs",
+  "engine/nvf-assets/src/data.rs", "crates/fnv-pbr/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "1", NVFOREVER_HOME = "terrain-parallax-ground-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-parallax-ground-pack-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PIPELINE_DEFS = "1", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "9:grazing,40:head-on" }
+# On from the start with Authored materials (the height maps load with it), eye adaptation
+# off (its exposure steps could imitate a change); the aid poses the view on its own spot and
+# flips the switch off, on, off for each sequence and puts it back on after.
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,terrain-parallax,no-eye-adaptation"]
+run_seconds = 75
+timeout = 240
+expect = [
+  { re = 'pbr ground pack: [1-9]\d* height-only sets for the landscape textures \(\d+ generated files, depth 0\.08\) written under ', count = 1, label = "the generated ground sets are in the run's own fresh folder, mounted with the game's" },
+  "authored materials: on",
+  { re = 'authored materials: [1-9]\d* sets under ', count = 1, label = "the mount's index counts the generated sets" },
+  { re = 'terrain: the first 6 texture layers of a quadrant are folded into its base', label = "the GPU folds the layers (bindless), so the folded materials are the ones the march draws" },
+  { re = 'terrain: first folded material with authored height maps: [1-6] of [1-6] layers', count = 1, label = "the folded materials took the generated height maps" },
+  { re = 'pipeline \d+ shader-defs: .*TERRAIN_PARALLAX', label = "a folded main-pass pipeline with the march was asked for" },
+  { re = 'test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: 2 sequences of three shots: 9 s \(flip, grazing\), 40 s \(flip, head-on\)', count = 1 },
+  { re = 'terrain parallax ab: spot \(-?\d+, -?\d+, -?\d+\) for the readback, cell \(-?\d+, -?\d+\) quadrant \d: [1-6] folded layers \([1-6] with height maps\), \d+ drawn over them; shifted share (0\.9\d|1\.00)', count = 1, label = "a spot where the march moves almost all of what shows was found near the start" },
+  { re = 'terrain parallax ab at 9 s: under the centre: the landscape at .* shifted share (0\.[5-9]\d|1\.00)', count = 1, label = "grazing: the view's centre is on ground the march moves" },
+  { re = 'terrain parallax ab at 40 s: under the centre: the landscape at .* shifted share (0\.[5-9]\d|1\.00)', count = 1, label = "head-on: likewise" },
+  { re = 'terrain parallax ab at 9 s \(flip\): A-B \d+\.\d+, A-C \d+\.\d+, B-C \d+\.\d+ levels over \d+x\d+ px at the centre; B = A moved by \([+-]\d+, [+-]\d+\) px .*; changed$', count = 1, label = "grazing (about 20 degrees): the switch makes a real, stable change that decorrelates the texture at the centre (changed; a fitted translation is logged but not accepted on its own); the direction is not claimed: relief warps the texture" },
+  { re = 'terrain parallax ab at 40 s \(flip\): .*; still$', count = 1, label = "head-on (straight down): no common translation at the centre and a change of at most 0.3 of the texture's spread (relief still warps a few pixels 2 degrees off the vertical; not claimed unchanged)" },
+]
+order = [[
+  { re = 'graphics: .*terrain parallax', label = "the switch is on from the start" },
+  { re = 'terrain: parallax on \(\d+ folded quadrant materials, \d+ with height maps, 0 changed', label = "on from the first frame: every material made with it" },
+  { re = 'terrain parallax ab: spot ' },
+  { re = 'terrain parallax ab at 9 s: pose grazing: ' },
+  "terrain parallax ab at 9 s: switch off",
+  { re = 'terrain: parallax off \([1-9]\d* folded quadrant materials, [1-9]\d* with height maps, [1-9]\d* changed', label = "the flip edits the folded materials that hold height maps" },
+  { re = 'terrain parallax ab at 9 s: under the centre: ' },
+  { re = 'terrain parallax ab at 9 s: shot a with the switch off' },
+  "terrain parallax ab at 9 s: switch on",
+  { re = 'terrain parallax ab at 9 s: shot b with the switch on' },
+  "terrain parallax ab at 9 s: switch off",
+  { re = 'terrain parallax ab at 9 s: shot c with the switch off' },
+  "terrain parallax ab at 9 s: switch on",
+  { re = 'terrain parallax ab at 9 s \(flip\): ' },
+  { re = 'terrain parallax ab at 40 s: pose head-on: ' },
+  { re = 'terrain parallax ab at 40 s: shot a with the switch off' },
+  { re = 'terrain parallax ab at 40 s \(flip\): ' },
+]]
+forbid = [
+  { re = 'terrain parallax ab at .*; (bare|unclear|unsettled|flat)$', label = "a readback the measure could not judge: the centre not on ground the march moves (bare), the scene changing by itself or pipelines not ready (unsettled), no texture (flat), or neither moved nor still" },
+  { re = 'terrain parallax ab.*FAIL', label = "no spot found, a sequence skipped, or a shot that could not be measured" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the march on" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain parallax)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap (terrain parallax)" },
+]
+note = "Round 2 (2026-11-22). The first run (b76835100) looked down Goodsprings' main street from --pos=-72000,2152,8390 and found no shift anywhere on screen with the switch flipped; its log could not tell why (the street could be a quadrant's base, which takes no height map, or covered by layers past the first six of a quadrant, drawn on their own and unshifted, or a placed mesh). The aid now finds its own spot near the start (the 3 x 3 loaded cells): the nearest landscape vertex where the folded layers with height maps make up at least 0.9 of what shows, at it and its eight neighbours (terrain.rs CellCover: the cell's stitched layers, the folded material's height-map bits, layers drawn over them; layer alpha taken as 1), the physics' landscape under it and a grazing line of sight to it; it logs that spot, poses the view (grazing: about 20 degrees down, three eye heights back; head-on: standing on it, looking straight down) and logs what the centre's physics ray meets and its shifted share before shot A, so a 'bare' verdict says the scene, and a 'still' at the grazing view with a shifted share near 1 says the shader. To confirm with the run: a spot is found (else FAIL), the pose places the player on open ground (nothing in the way, not on a roof), and the thresholds against the first real numbers. Round 3: the run on cc1ee98ea found the spot (-71552, 3200) in cell (-18, 0), shifted share 0.88-0.92, and the ridge grid in strong relief in shot b only; grazing A-B 12.29, A-C 0.10, B-C 12.29, contrast 14.1, translation (+0, +0) (relief warps, it does not slide), so the grazing verdict is now 'changed' (since round 4: the A-B and B-C correlations at most 0.7, A-C at least 0.98; the run on 555ace098 measured 0.231 / 1.000 from its shots); head-on A-B 5.02, A-C 1.02 on contrast 32.5, correlation 0.945, is 'still' (no fitted translation, at most 0.3 of the contrast). Shots are saved as terrain-parallax-ground-pack-shots/terrain_parallax_ab_<seconds>s_<a|b|c>.png: look at them first when a verdict is not the expected one. The expected direction (dy > 0, the texture towards the camera) is the module's [design expectation]."
+manual = "Open terrain-parallax-ground-pack-shots/terrain_parallax_ab_9s_a.png and _b.png: the generated ridge grid in relief on the ground in b, none in a (and c); the 40 s pair alike at the centre but for a slight warp."
+
+[[scenario]]
+name = "terrain-parallax-ground-pack-off"
+source = "[design, #3322] engine/nvforever/src/terrain.rs \"Parallax\", docs/spec-notes/pbr-materials.md \"Terrain layers: parallax\": the generated ground sets mounted (NVF_PLAY_TEST_PBR_GROUND_PACK, engine/nvforever/src/main.rs:1366) and the Terrain parallax switch off: the folded materials hold the height maps (terrain.rs folded_material) but no pipeline carries TERRAIN_PARALLAX and the switch never logs on (terrain.rs sync_parallax), and the readback (NVF_PLAY_TEST_TERRAIN_PARALLAX_AB in hold mode on its own spot, engine/nvforever/src/terrain_parallax_ab.rs) finds the ground at the centre still at the same grazing and head-on poses as terrain-parallax-ground-pack, on ground the march would move, which also shows that what that scenario measures as moved is not the view changing by itself"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_parallax_ab.rs", "engine/nvforever/src/terrain_parallax_ab/",
+  "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/authored.rs",
+  "engine/nvf-assets/src/data.rs", "crates/fnv-pbr/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "1", NVFOREVER_HOME = "terrain-parallax-ground-off-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-parallax-ground-pack-off-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PIPELINE_DEFS = "1", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "9:grazing:hold,40:head-on:hold" }
+# Authored materials on (so the height maps load), Terrain parallax off, eye adaptation off.
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,no-eye-adaptation"]
+run_seconds = 75
+timeout = 240
+expect = [
+  { re = 'pbr ground pack: [1-9]\d* height-only sets for the landscape textures \(\d+ generated files, depth 0\.08\) written under ', count = 1, label = "the generated ground sets are mounted" },
+  "authored materials: on",
+  { re = 'terrain: the first 6 texture layers of a quadrant are folded into its base', label = "the GPU folds the layers (bindless)" },
+  { re = 'terrain: first folded material with authored height maps: [1-6] of [1-6] layers', count = 1, label = "the folded materials hold the generated height maps with the switch off too" },
+  { re = 'pipeline \d+ shader-defs: ', label = "pipelines were logged with their definitions (so the absence of TERRAIN_PARALLAX below means something)" },
+  { re = 'test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: 2 sequences of three shots: 9 s \(hold, grazing\), 40 s \(hold, head-on\)', count = 1 },
+  { re = 'terrain parallax ab: spot \(-?\d+, -?\d+, -?\d+\) for the readback, .*shifted share (0\.9\d|1\.00)', count = 1, label = "the same kind of spot as the switch-on run" },
+  { re = 'terrain parallax ab at 9 s: under the centre: the landscape at .* shifted share (0\.[5-9]\d|1\.00)', count = 1, label = "grazing: the centre is on ground the march would move" },
+  { re = 'terrain parallax ab at 40 s: under the centre: the landscape at .* shifted share (0\.[5-9]\d|1\.00)', count = 1, label = "head-on: likewise" },
+  { re = 'terrain parallax ab at 9 s: shot [abc] with the switch off \(held\)', count = 3, label = "the switch stays off for every shot" },
+  { re = 'terrain parallax ab at 9 s \(hold\): .*; still$', count = 1, label = "grazing, switch off: the ground at the centre does not move" },
+  { re = 'terrain parallax ab at 40 s \(hold\): .*; still$', count = 1, label = "head-on, switch off: still" },
+]
+forbid = [
+  { re = 'shader-defs: .*TERRAIN_PARALLAX', label = "no material takes the parallax pipeline with the switch off, though they hold height maps" },
+  { re = 'terrain: parallax on', label = "the switch is never on" },
+  { re = 'graphics: .*terrain parallax', label = "the switch is off from the start" },
+  { re = 'terrain parallax ab at .*: switch (on|off)$', label = "hold mode never touches the switch" },
+  { re = 'terrain parallax ab at .*; (moved|changed|bare|unclear|unsettled|flat)$', label = "a readback that is not still, or not on ground the march would move" },
+  { re = 'terrain parallax ab.*FAIL', label = "a held sequence that found no spot or could not be measured" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (switch-off run)" },
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+]
+note = "The same start, spot search and poses as terrain-parallax-ground-pack (round 2, 2026-11-22), not yet checked by a run. The shots are saved as terrain-parallax-ground-pack-off-shots/terrain_parallax_ab_<seconds>s_<a|b|c>.png."

@@ -1010,10 +1010,11 @@ pub struct GameData {
     /// The top-level topics of type Topic, in the order they are offered: priority,
     /// highest first, then record order ([`TopicDef::order`]).
     pub top_level: Vec<FormId>,
-    /// The special topics GREETING and GOODBYE, by Editor ID [documented: GECK wiki
-    /// Topics Tab and Conversation Tab, owner export].
+    /// The special topics GREETING, GOODBYE and SpeechChallengeFailure, by Editor ID
+    /// [documented: GECK wiki Topics Tab and Conversation Tab, owner export].
     pub greeting: Option<FormId>,
     pub goodbye: Option<FormId>,
+    pub speech_challenge_failure: Option<FormId>,
     /// PACK begin / end / change result scripts.
     pub packages: HashMap<FormId, [Option<UnitId>; 3]>,
     /// Patrol points' result scripts (REFR, after XPPA), run when a patrolling actor
@@ -1995,6 +1996,7 @@ impl GameData {
             top_level: Vec::new(),
             greeting: None,
             goodbye: None,
+            speech_challenge_failure: None,
             packages: HashMap::new(),
             patrol_scripts: HashMap::new(),
             package_defs: HashMap::new(),
@@ -2447,6 +2449,7 @@ impl GameData {
         d.top_level = top.into_iter().map(|t| t.form).collect();
         d.greeting = d.by_edid("GREETING").filter(|t| d.topic_defs.contains_key(t));
         d.goodbye = d.by_edid("GOODBYE").filter(|t| d.topic_defs.contains_key(t));
+        d.speech_challenge_failure = d.by_edid(crate::dialogue::SPEECH_CHALLENGE_FAILURE).filter(|t| d.topic_defs.contains_key(t));
         clock.lap("topics ordered and linked");
         // An actor whose base takes its script from a template (template flag "Script")
         // runs the template's script, its leveled pick's through a list [documented: GECK

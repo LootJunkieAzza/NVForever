@@ -531,8 +531,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getcellnoisetexture" => XVal::Str(get_str(g, f0, "XNAM", "")),
         "setcellclimate" | "setcelllightingtemplate" => {
             let sub = if name == "setcellclimate" { "XCCM" } else { "LTMP" };
-            set(g, f0, sub, "", XVal::Ref(form(args, 1).map_or(0, |r| r.0)));
-            if name == "setcelllightingtemplate" {
+            let next = XVal::Ref(form(args, 1).map_or(0, |r| r.0));
+            let prev = if name == "setcelllightingtemplate" {
+                g.field_overrides.get(&(f0, "LTMP/".into())).cloned()
+            } else {
+                None
+            };
+            set(g, f0, sub, "", next.clone());
+            if name == "setcelllightingtemplate" && prev != Some(next) {
                 g.bump_lighting_revision();
             }
             zero

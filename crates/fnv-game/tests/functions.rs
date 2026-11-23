@@ -2714,3 +2714,26 @@ fn is_actor_detected_keeps_get_detected_level_and_los_neighbors() {
         assert_eq!(call(&mut g, 0x101B, Some(CHILD_REF), &[r(ADULT_REF)]), 1.0, "line of sight is not the detection band");
     }
 }
+
+#[test]
+fn aim_anim_groups_and_braced_call_args_execute_through_game() {
+    let f = fixture();
+    let mut g = game(&f);
+    for (name, code) in [("AimUp", 18u16), ("AimDown", 19), ("AimIS", 20), ("AimISUp", 21), ("AimISDown", 22)] {
+        assert_eq!(g.anim_group_code(name), Some(code), "{name}");
+        assert_eq!(g.anim_group_name(code).as_deref(), Some(name), "{code}");
+    }
+    let res = g.run_query(
+        "ref fnAdd\nint a\nint b\nBegin Function {}\n\
+         let fnAdd := (begin Function {int x, int y}\n\
+           SetFunctionValue (x * 10 + y)\n\
+         end)\n\
+         let a := 4\n\
+         let b := 7\n\
+         PlayerREF.PlayGroup AimIS 1\n\
+         SetFunctionValue ((call fnAdd {a b}) + (call fnAdd {b, a}))\n\
+         End\n",
+        fnv_game::game::RunCtx::default(),
+    );
+    assert_eq!(res, Ok(fnv_script::vm::XVal::Num(121.0)));
+}

@@ -425,7 +425,18 @@ location, in cell (radius ignored), near reference; the radius is editable.
     something solid in the way, ends and the actor talks where the player stands
     (`fnv_ai::carry::LEAD_STUCK_SECONDS`) [our choice: the player is never held walking
     into a wall]. A trigger location that is a cell, or a reference with
-    neither radius nor box, keeps the plain case 2. Scripts count on it: Paladin Ramos's "Follow me" (INFO
+    neither radius nor box, keeps the plain case 2. Within `LEAD_AGAIN_SECONDS` (30 s) of a conversation
+    from its Dialogue package the same actor does not walk the player in again; it
+    talks where the player stands [our choice, #3464; observer check 280]. Harland in
+    the REPCONN basement (REPCONHarlandDialogPackage 0x00080773: wait location the
+    XMarker 0x0008F0C2 radius 0, trigger location the doorway trigger 0x00080775,
+    activate distance 1200, its end script sets the trigger's `HarlandTalked` to 2) has
+    a second trigger on the way out, REPCONHarlandResetTrigger 0x0008F725, 370 units past
+    the doorway: `OnTriggerEnter player` calls `HarlandREF.ResetAI` and sets
+    `HarlandTalked` to 0 [observed: `fnvtool script decompile --form 0x0008F6FE`]. The
+    package taken up afresh found the leaving player within 1200 units and outside the
+    doorway box, walked them back into it, greeted, and so on for every try: the player
+    could not leave. Scripts count on it: Paladin Ramos's "Follow me" (INFO
     000A3CE0, HVRamosEntryDialogPackage, activate distance 300) disables the controls
     and leaves the escort to the OnTrigger block of HVRamosTargetDialogTrigger, which
     moves Ramos and the player to HiddenValley02 and gives the controls back only

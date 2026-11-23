@@ -6,6 +6,9 @@
   ],
   "actions": [
     {"op": "note", "text": "Path: Eddie (Topic001, 010: stage 10); Chavez (000, 003 with Speech 30: 15); Eddie (006: 20); the 'water merchant' seen through and sent off (007 with Speech 30, 008: 25); Eddie (008: 30); Johnson Nash in Primm (VMS02AnyNPCAboutNCR, JNashInfoSpeech: 35); Eddie (003: 100, complete). The NCR side (Hayes, stage 40, 50) is not walked. All travel is move_player."},
+    {"op": "note", "text": "Dawes at the NCRCF gate lets the player into the visitor center for 100 caps (INFO 0x0015438C: NCRCFVisitorsCenterDoorRef unlocked, VFreeformNCRCF.bPermissionToEnter 1)."},
+    {"op": "add_item", "to": "player", "item": "Caps001", "count": 100},
+    {"op": "say_info", "info": "0x0015438C", "speaker": "placed:NCRCFDawes"},
     {"op": "move_player", "to": "NCRCFEddieREF"},
     {"op": "talk", "actor": "NCRCFEddieREF", "label": "eddie greeting"},
     {"op": "choose", "topic": "VFreeformNCRCFNCRCFEddieTopic001", "label": "eddie 001"},

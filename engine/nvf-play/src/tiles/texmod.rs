@@ -193,17 +193,37 @@ impl Texels {
 /// from the header before anything is decoded, so an oversized texture costs no more than
 /// its file [design: #1833 review]. The error says why, for the log.
 pub fn decode(bytes: &[u8], max: u64) -> Result<Texels, String> {
+    decode_rect(bytes, None, max)
+}
+
+/// Level 0 of DDS `bytes` (or its sub-rectangle `rect` = `[x, y, width, height]`) as
+/// RGBA8 when the decoded region has at most `max` texels: the size is read from the
+/// header before anything is decoded, so an oversized atlas (such as a 4096 x 4096 modded
+/// UI sheet) can supply a small piece within the budget while a region past `max` still
+/// costs no more than its file [design]. The error says why, for the log.
+pub fn decode_rect(bytes: &[u8], rect: Option<[u32; 4]>, max: u64) -> Result<Texels, String> {
     let dds = fnv_dds::Dds::parse(bytes).map_err(|e| e.to_string())?;
     let (w, h) = (dds.header.width, dds.header.height);
     if w == 0 || h == 0 {
         return Err("it has no texels".into());
     }
-    if u64::from(w) * u64::from(h) > max {
-        return Err(format!("it is {w} x {h} texels, more than {max}"));
+    let [rx, ry, rw, rh] = match rect {
+        Some([rx, ry, rw, rh]) => {
+            if rw == 0 || rh == 0 || rx.checked_add(rw).is_none_or(|e| e > w) || ry.checked_add(rh).is_none_or(|e| e > h) {
+                return Err(format!("piece {rw} x {rh} at ({rx}, {ry}) is outside {w} x {h}"));
+            }
+            [rx, ry, rw, rh]
+        }
+        None => [0, 0, w, h],
+    };
+    if u64::from(rw) * u64::from(rh) > max {
+        return Err(format!("it is {rw} x {rh} texels, more than {max}"));
     }
     let level = dds.levels.first().and_then(|f| f.first()).ok_or("it has no level")?;
-    let rgba = fnv_dds::decode_blocks(dds.format, w, h, level).or_else(|| fnv_dds::to_rgba8(dds.format, level)).ok_or("its format is not decoded")?;
-    Texels::new(rgba, w as usize).filter(|t| t.height == h as usize).ok_or_else(|| "its texels are not whole rows".into())
+    let rgba = fnv_dds::decode_blocks_rect(dds.format, w, h, level, [rx, ry, rw, rh])
+        .or_else(|| fnv_dds::to_rgba8_rect(dds.format, w, h, level, [rx, ry, rw, rh]))
+        .ok_or("its format is not decoded")?;
+    Texels::new(rgba, rw as usize).filter(|t| t.height == rh as usize).ok_or_else(|| "its texels are not whole rows".into())
 }
 
 /// The texels across and down a baked image: the source's `across` (one piece, or a
@@ -1039,6 +1059,35 @@ mod tests {
         let err = decode(&dxt1_4x4(), 15).unwrap_err();
         assert!(err.contains("4 x 4"), "{err}");
         assert!(decode(b"not a texture", 16).is_err());
+    }
+
+    #[test]
+    fn a_sub_rect_of_an_oversized_texture_decodes_within_the_budget() {
+        // 8 x 8 DXT1 (64 texels): whole texture exceeds a 16-texel budget, while a 4 x 4
+        // piece inside it fits and decodes cleanly; a 5 x 4 piece (20 texels) or an
+        // out-of-bounds piece is refused before decoding.
+        let mut b = vec![0u8; 128 + 4 * 8];
+        b[..4].copy_from_slice(b"DDS ");
+        b[4..8].copy_from_slice(&124u32.to_le_bytes());
+        b[12..16].copy_from_slice(&8u32.to_le_bytes());
+        b[16..20].copy_from_slice(&8u32.to_le_bytes());
+        b[76..80].copy_from_slice(&32u32.to_le_bytes());
+        b[80..84].copy_from_slice(&4u32.to_le_bytes());
+        b[84..88].copy_from_slice(b"DXT1");
+        // Bottom-right block (bx=1, by=1): solid white (c0 = 0xFFFF, c1 = 0, indices = 0).
+        b[128 + 3 * 8..128 + 3 * 8 + 2].copy_from_slice(&0xFFFFu16.to_le_bytes());
+        assert!(decode(&b, 16).is_err());
+        let piece = decode_rect(&b, Some([4, 4, 4, 4]), 16).unwrap();
+        assert_eq!((piece.width, piece.height), (4, 4));
+        assert!(piece.rgba.chunks(4).all(|px| px == [255, 255, 255, 255]));
+        // Non-block-aligned 2 x 2 crossing into the white block at (3, 3)..(5, 5):
+        // top-left/top-right/bottom-left are opaque black (DXT1 c0=c1=0, idx 0), bottom-right is white.
+        let cross = decode_rect(&b, Some([3, 3, 2, 2]), 16).unwrap();
+        assert_eq!(&cross.rgba[12..16], &[255, 255, 255, 255]);
+        assert_eq!(&cross.rgba[0..4], &[0, 0, 0, 255]);
+        assert!(decode_rect(&b, Some([0, 0, 5, 4]), 16).unwrap_err().contains("5 x 4"));
+        assert!(decode_rect(&b, Some([6, 0, 4, 4]), 16).unwrap_err().contains("outside 8 x 8"));
+        assert!(decode_rect(&b, Some([0, 0, 0, 4]), 16).is_err());
     }
 
     /// A state that baked `tile`'s 4 x 1 picture (texture "src") unshifted, under the mask

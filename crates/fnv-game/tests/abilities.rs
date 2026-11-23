@@ -659,4 +659,279 @@ fn player_speed_follows_speed_mult_at_once() {
     assert_eq!(g.move_speed_mult(P), 0.5);
 }
 
+fn object_effect_fixture() -> Fixture {
+    const PLAIN_HOOD: u32 = 0x893;
+    const ENCH_BURN: u32 = 0x883;
+    const ENCH_SHOCK: u32 = 0x884;
+    const PISTOL: u32 = 0x894;
+    const PLAIN_RIFLE: u32 = 0x895;
+    const BLAST: u32 = 0x896;
+    const TIN_CAN: u32 = 0x897;
+
+    let mgefs = [
+        mgef(MOD_PER, "IncPer", 2, 6),
+        mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10),
+        mgef(REDUCE_PER, "ReducePerception", 2 | 4, 6),
+    ]
+    .concat();
+    let enchs = [
+        ench(ENCH_HAT, "EnchHat", 3, vec![effect(MOD_PER, 1, 6, vec![])]),
+        ench(ENCH_METAL, "EnchMetal", 3, vec![effect(REDUCE_AGI, 1, 10, vec![])]),
+        ench(ENCH_BURN, "EnchBurn", 2, vec![effect(REDUCE_PER, 2, 6, vec![])]),
+        ench(ENCH_SHOCK, "EnchShock", 2, vec![effect(REDUCE_AGI, 2, 10, vec![])]),
+    ]
+    .concat();
+    let plain_hood = {
+        let bmdt = [u32s(&[1 << 0]), vec![0; 4]].concat();
+        let data = [u32s(&[1, 100]), f32b(1.0)].concat();
+        record(b"ARMO", 0, PLAIN_HOOD, &[sub(b"EDID", z("PlainHood")), sub(b"BMDT", bmdt), sub(b"DATA", data)])
+    };
+    let armos = [armo(HAT, "Hat", 1 << 0, ENCH_HAT), plain_hood].concat();
+    let weaps = [
+        record(b"WEAP", 0, PISTOL, &[sub(b"EDID", z("TestPistol")), sub(b"EITM", ENCH_BURN.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 15])]),
+        record(b"WEAP", 0, PLAIN_RIFLE, &[sub(b"EDID", z("PlainRifle")), sub(b"DATA", vec![0; 15])]),
+    ]
+    .concat();
+    let expls = record(b"EXPL", 0, BLAST, &[sub(b"EDID", z("TestBlast"))]);
+    let miscs = record(b"MISC", 0, TIN_CAN, &[sub(b"EDID", z("TinCan"))]);
+    let races = record(b"RACE", 0, RACE_HUMAN, &[sub(b"EDID", z("Human"))]);
+    let npcs = npc(0x7, "Player", vec![acbs(0), sub(b"RNAM", RACE_HUMAN.to_le_bytes().to_vec())]);
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let bytes = [
+        tes4(),
+        top(b"MGEF", &mgefs),
+        top(b"RACE", &races),
+        top(b"NPC_", &npcs),
+        top(b"ENCH", &enchs),
+        top(b"ARMO", &armos),
+        top(b"WEAP", &weaps),
+        top(b"EXPL", &expls),
+        top(b"MISC", &miscs),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+    ]
+    .concat();
+    let plugins = [Plugin::parse(&bytes, "ObjectEffects.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+/// SetObjectEffect updates worn enchantments, actor values, GetObjectEffect, and
+/// item_effect_text / GetItemEffectString live — including clearing while worn, adding to
+/// unenchanted armor, and replacing a previously dispelled worn enchantment.
+#[test]
+fn set_object_effect_updates_worn_enchantments_and_item_effect_text_live() {
+    use fnv_script::vm::XVal;
+    const PLAIN_HOOD: u32 = 0x893;
+
+    let f = object_effect_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game<'_>, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("query runs")
+    };
+
+    // Authored baseline on Hat (ARMO EITM = ENCH_HAT, Perception +1).
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect Hat)"), XVal::Ref(ENCH_HAT));
+    assert_eq!(g.item_effect_text(P, FormId(HAT)), "Perception +1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetItemEffectString Hat)"), XVal::Str("Perception +1".into()));
+
+    g.world.add_item(P, FormId(HAT), 1).unwrap();
+    call(&mut g, P, EQUIP, &[form(HAT)]);
+    assert_eq!(target(&mut g, P, ENCH_HAT), 1.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
+
+    // Clearing Hat's enchantment with omitted 2nd arg removes worn effects immediately.
+    q(&mut g, "SetObjectEffect Hat");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect Hat)"), XVal::Ref(0));
+    assert_eq!(g.object_effect(FormId(HAT)), None);
+    assert_eq!(g.object_effect_override(FormId(HAT)), Some(None));
+    assert_eq!(g.item_effect_text(P, FormId(HAT)), "");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetItemEffectString Hat)"), XVal::Str(String::new()));
+    assert!(g.worn_enchantments(P).is_empty());
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+
+    // Adding an Apparel enchantment to an already-worn plain hood activates immediately.
+    g.world.add_item(P, FormId(PLAIN_HOOD), 1).unwrap();
+    call(&mut g, P, EQUIP, &[form(PLAIN_HOOD)]);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    assert_eq!(g.item_effect_text(P, FormId(PLAIN_HOOD)), "");
+
+    q(&mut g, "SetObjectEffect PlainHood EnchHat");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect PlainHood)"), XVal::Ref(ENCH_HAT));
+    assert_eq!(g.item_effect_text(P, FormId(PLAIN_HOOD)), "Perception +1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetItemEffectString PlainHood)"), XVal::Str("Perception +1".into()));
+    assert_eq!(target(&mut g, P, ENCH_HAT), 1.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
+
+    // Replacing an enchantment after Dispel clears stale worn_dispelled and applies the new one.
+    call(&mut g, P, DISPEL, &[form(ENCH_HAT)]);
+    g.tick();
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+
+    q(&mut g, "SetObjectEffect PlainHood EnchMetal");
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    assert_eq!(target(&mut g, P, ENCH_METAL), 1.0);
+    assert_eq!(av(&mut g, P, AGILITY), 4.0);
+    assert_eq!(g.item_effect_text(P, FormId(PLAIN_HOOD)), "Agility -1");
+}
+
+/// SetObjectEffect supports WEAP and EXPL (Weapon enchantments), keeps weapon enchantments
+/// out of worn_enchantments / apparel card text, and refuses invalid form or enchantment kinds.
+#[test]
+fn set_object_effect_handles_weapons_explosions_and_refuses_invalid_kinds() {
+    use fnv_script::vm::XVal;
+    const ENCH_BURN: u32 = 0x883;
+    const ENCH_SHOCK: u32 = 0x884;
+    const PISTOL: u32 = 0x894;
+    const PLAIN_RIFLE: u32 = 0x895;
+    const BLAST: u32 = 0x896;
+    const TIN_CAN: u32 = 0x897;
+
+    let f = object_effect_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game<'_>, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("query runs")
+    };
+
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(ENCH_BURN));
+    assert_eq!(g.object_effect_override(FormId(PISTOL)), None);
+
+    // Replace and clear on WEAP (both omitted 2nd arg and explicit null 0).
+    q(&mut g, "SetObjectEffect TestPistol EnchShock");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(ENCH_SHOCK));
+    assert_eq!(g.object_effect_override(FormId(PISTOL)), Some(Some(FormId(ENCH_SHOCK))));
+    q(&mut g, "SetObjectEffect TestPistol 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(0));
+    assert_eq!(g.object_effect_override(FormId(PISTOL)), Some(None));
+    q(&mut g, "SetObjectEffect TestPistol EnchBurn");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(ENCH_BURN));
+    q(&mut g, "SetObjectEffect TestPistol");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(0));
+    assert_eq!(g.object_effect_override(FormId(PISTOL)), Some(None));
+
+    // Set on EXPL (Weapon enchantment type 2).
+    q(&mut g, "SetObjectEffect TestBlast EnchBurn");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestBlast)"), XVal::Ref(ENCH_BURN));
+    assert_eq!(g.object_effect(FormId(BLAST)), Some(FormId(ENCH_BURN)));
+
+    // Equipped WEAP with Weapon enchantment must not leak into worn_enchantments or item_effect_text.
+    q(&mut g, "SetObjectEffect PlainRifle EnchBurn");
+    g.world.add_item(P, FormId(PLAIN_RIFLE), 1).unwrap();
+    call(&mut g, P, EQUIP, &[form(PLAIN_RIFLE)]);
+    assert!(g.worn_enchantments(P).is_empty());
+    assert_eq!(g.item_effect_text(P, FormId(PLAIN_RIFLE)), "");
+
+    // Mismatched enchantment kinds, non-form 2nd args, and non-ARMO/WEAP/EXPL forms are refused without mutation.
+    q(&mut g, "SetObjectEffect PlainRifle EnchHat");
+    assert_eq!(g.object_effect(FormId(PLAIN_RIFLE)), Some(FormId(ENCH_BURN)));
+    q(&mut g, "SetObjectEffect Hat EnchBurn");
+    assert_eq!(g.object_effect(FormId(HAT)), Some(FormId(ENCH_HAT)));
+    q(&mut g, "SetObjectEffect Hat TinCan");
+    assert_eq!(g.object_effect(FormId(HAT)), Some(FormId(ENCH_HAT)));
+    q(&mut g, "SetObjectEffect Hat -1");
+    assert_eq!(g.object_effect(FormId(HAT)), Some(FormId(ENCH_HAT)));
+    q(&mut g, "SetObjectEffect TinCan EnchHat");
+    q(&mut g, "SetObjectEffect TinCan EnchBurn");
+    assert_eq!(g.object_effect(FormId(TIN_CAN)), None);
+    assert_eq!(g.object_effect_override(FormId(TIN_CAN)), None);
+}
+
+/// TempCloneForm clones snapshot effective SetObjectEffect overrides at clone time, isolate
+/// post-clone edits in both directions (including clone-of-clone chains), and loaded
+/// base-form overrides carry across take_session / put_session (excluding transient clones).
+#[test]
+fn set_object_effect_isolates_temp_clones_and_persists_base_overrides_in_session() {
+    use fnv_script::vm::XVal;
+    const PLAIN_HOOD: u32 = 0x893;
+    const ENCH_SHOCK: u32 = 0x884;
+    const PISTOL: u32 = 0x894;
+
+    let f = object_effect_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game<'_>, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("query runs")
+    };
+
+    // Clone of an unmodified form snapshots its authored EITM and stays isolated from later base edits.
+    let XVal::Ref(unmod_clone_id) = q(
+        &mut g,
+        "ref rUnmod\nlet rUnmod := TempCloneForm Hat\nSetFunctionValue rUnmod",
+    ) else {
+        panic!("TempCloneForm must return a ref");
+    };
+    let unmod_clone = FormId(unmod_clone_id);
+    assert_eq!(g.object_effect(unmod_clone), Some(FormId(ENCH_HAT)));
+
+    // Pre-clone override on PlainHood carries over to its clone and clone-of-clone.
+    q(&mut g, "SetObjectEffect PlainHood EnchMetal");
+    let XVal::Ref(clone_id) = q(
+        &mut g,
+        "ref rClone\nlet rClone := TempCloneForm PlainHood\nPlayer.AuxVarSetRef \"*clone\" rClone\nSetFunctionValue rClone",
+    ) else {
+        panic!("TempCloneForm must return a ref");
+    };
+    let clone = FormId(clone_id);
+    assert_eq!(g.object_effect(clone), Some(FormId(ENCH_METAL)));
+
+    let XVal::Ref(chain_id) = q(
+        &mut g,
+        "ref rClone\nref rChain\nlet rClone := Player.AuxVarGetRef \"*clone\"\nlet rChain := TempCloneForm rClone\nSetFunctionValue rChain",
+    ) else {
+        panic!("TempCloneForm must return a ref");
+    };
+    let chain = FormId(chain_id);
+    assert_eq!(g.object_effect(chain), Some(FormId(ENCH_METAL)));
+
+    // Override clone independently without mutating base PlainHood or clone-of-clone.
+    q(&mut g, "ref rClone\nlet rClone := Player.AuxVarGetRef \"*clone\"\nSetObjectEffect rClone EnchHat");
+    assert_eq!(g.object_effect(clone), Some(FormId(ENCH_HAT)));
+    assert_eq!(g.object_effect(FormId(PLAIN_HOOD)), Some(FormId(ENCH_METAL)));
+    assert_eq!(g.object_effect(chain), Some(FormId(ENCH_METAL)));
+
+    // Explicit clear on clone stops at clone and does not fall through to base PlainHood.
+    q(&mut g, "ref rClone\nlet rClone := Player.AuxVarGetRef \"*clone\"\nSetObjectEffect rClone");
+    assert_eq!(g.object_effect(clone), None);
+    assert_eq!(g.object_effect(FormId(PLAIN_HOOD)), Some(FormId(ENCH_METAL)));
+    assert_eq!(g.object_effect(chain), Some(FormId(ENCH_METAL)));
+
+    // Post-clone edits on base Hat and PlainHood do not leak into earlier clones.
+    q(&mut g, "SetObjectEffect Hat");
+    q(&mut g, "SetObjectEffect PlainHood EnchHat");
+    q(&mut g, "SetObjectEffect TestPistol EnchShock");
+    assert_eq!(g.object_effect(unmod_clone), Some(FormId(ENCH_HAT)));
+    assert_eq!(g.object_effect(clone), None);
+    assert_eq!(g.object_effect(chain), Some(FormId(ENCH_METAL)));
+
+    // Session handoff carries loaded base-form overrides and excludes transient clones.
+    let session = g.take_session();
+
+    let mut g2 = game(&f);
+    g2.put_session(session);
+    assert_eq!(g2.object_effect(FormId(HAT)), None);
+    assert_eq!(g2.object_effect_override(FormId(HAT)), Some(None));
+    assert_eq!(g2.object_effect(FormId(PLAIN_HOOD)), Some(FormId(ENCH_HAT)));
+    assert_eq!(g2.object_effect(FormId(PISTOL)), Some(FormId(ENCH_SHOCK)));
+    assert_eq!(g2.object_effect_override(clone), None);
+    assert_eq!(g2.object_effect_override(unmod_clone), None);
+    assert_eq!(g2.object_effect_override(chain), None);
+
+    g2.world.add_item(P, FormId(HAT), 1).unwrap();
+    call(&mut g2, P, EQUIP, &[form(HAT)]);
+    assert_eq!(av(&mut g2, P, PERCEPTION), 5.0);
+    assert_eq!(g2.item_effect_text(P, FormId(HAT)), "");
+
+    g2.world.add_item(P, FormId(PLAIN_HOOD), 1).unwrap();
+    call(&mut g2, P, EQUIP, &[form(PLAIN_HOOD)]);
+    assert_eq!(av(&mut g2, P, PERCEPTION), 6.0);
+    assert_eq!(g2.item_effect_text(P, FormId(PLAIN_HOOD)), "Perception +1");
+}
+
 mod add_spell_reentrancy;

@@ -144,3 +144,55 @@ fn lighting_token_tracks_only_lighting_edits_and_distinguishes_restored_games() 
     assert_ne!(loaded.lighting_token().0, g.lighting_token().0);
     assert_eq!(loaded.lighting_token().1, 0);
 }
+
+#[test]
+fn xcll_less_interior_receives_set_interior_lighting_traits_and_idempotent_writes_do_not_churn() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Cold EMPTY_CELL (no authored XCLL or LTMP) remains None.
+    assert_eq!(g.session_cell_lighting(f.lo, f.schema, EMPTY_CELL), None);
+
+    // Writing SetInteriorLightingTraitNumeric on an XCLL-less interior synthesizes default XCLL.
+    set(
+        &mut g,
+        "SetInteriorLightingTraitNumeric OwnedEmptyCell 0 80\n\
+         SetInteriorLightingTraitNumeric OwnedEmptyCell 12 200\n\
+         SetInteriorLightingTraitNumeric OwnedEmptyCell 13 4000\n\
+         SetInteriorLightingTraitNumeric OwnedEmptyCell 15 9000",
+    );
+    let synth = g.session_cell_lighting(f.lo, f.schema, EMPTY_CELL).expect("synthesized XCLL");
+    assert_eq!(synth.ambient, [80, 0, 0]);
+    assert_eq!((synth.fog_near, synth.fog_far, synth.fog_clip_dist), (200.0, 4000.0, 9000.0));
+    assert_eq!((synth.directional_fade, synth.fog_power), (1.0, 1.0));
+
+    // Idempotent repeats across all four lighting setters do not churn lighting_revision.
+    set(
+        &mut g,
+        "SetCellLightingTemplate OwnedLightCell OwnedLightB\n\
+         SetCellFlag OwnedLightCell 8 1\n\
+         SetLightingTemplateTraitNumeric OwnedLightB 15 24000",
+    );
+    let rev = g.lighting_token().1;
+    set(
+        &mut g,
+        "SetCellLightingTemplate OwnedLightCell OwnedLightB\n\
+         SetCellFlag OwnedLightCell 8 1\n\
+         SetLightingTemplateTraitNumeric OwnedLightB 15 24000\n\
+         SetInteriorLightingTraitNumeric OwnedEmptyCell 15 9000",
+    );
+    assert_eq!(g.lighting_token().1, rev, "identical lighting writes must not bump revision");
+
+    // Non-finite f32 overflow (1e300) must not poison float lighting fields.
+    set(
+        &mut g,
+        "let float e10 := 10000000000.0\n\
+         let float e50 := e10 * e10 * e10 * e10 * e10\n\
+         let float e150 := e50 * e50 * e50\n\
+         let float e300 := e150 * e150\n\
+         SetInteriorLightingTraitNumeric OwnedEmptyCell 15 e300\n\
+         SetLightingTemplateTraitNumeric OwnedLightB 15 e300",
+    );
+    assert_eq!(g.session_cell_lighting(f.lo, f.schema, EMPTY_CELL).unwrap().fog_clip_dist, 0.0);
+    assert_eq!(g.session_cell_lighting(f.lo, f.schema, CELL).unwrap().fog_clip_dist, 20000.0);
+}

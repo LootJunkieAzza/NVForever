@@ -1,6 +1,6 @@
 {
   "format": "fnv.script.encodings/1",
-  "note": "Bytecode parameter encodings that are not the default tagged value, and the spellings of enumerated codes. Observed in the ten shipped masters by lining up compiled calls with their source (docs/spec-notes/scripts.md section 2.4); names are the ones shipped source uses (alignment: no master calls GetIsAlignment in a script; its codes are the ones mods compiled with the GECK ship, Karmic Balance.esp and Vegas Elysium.esp naming all five, #2275). Functions not listed here: every parameter is a tagged value (observed for every other function shipped scripts call). xedit_types: the rule used for functions shipped scripts never call [hypothesis: same encoding as the observed functions with that xEdit parameter type].",
+  "note": "Bytecode parameter encodings that are not the default tagged value, and the spellings of enumerated codes. Observed in the ten shipped masters by lining up compiled calls with their source (docs/spec-notes/scripts.md section 2.4); names are the ones shipped source uses (alignment: no master calls GetIsAlignment in a script; its codes are the ones mods compiled with the GECK ship, Karmic Balance.esp and Vegas Elysium.esp naming all five, #2275; anim_group aiming entries 18-22 AimUp/AimDown/AimIS/AimISUp/AimISDown: [documented: https://geckwiki.com/index.php?title=AnimGroups]). Functions not listed here: every parameter is a tagged value (observed for every other function shipped scripts call). xedit_types: the rule used for functions shipped scripts never call [hypothesis: same encoding as the observed functions with that xEdit parameter type].",
   "functions": {
     "0x1004": {"name": "Rotate", "params": ["axis", "value"]},
     "0x1006": {"name": "GetPos", "params": ["axis"]},
@@ -76,7 +76,8 @@
     "anim_group": {
       "0": "Idle", "2": "SpecialIdle", "3": "Forward", "4": "Backward", "5": "Left", "6": "Right",
       "7": "FastForward", "8": "FastBackward", "9": "FastLeft", "10": "FastRight", "15": "TurnLeft",
-      "17": "Aim", "24": "Equip", "25": "Unequip", "44": "Attack4", "47": "Attack4IS", "50": "Attack5",
+      "17": "Aim", "18": "AimUp", "19": "AimDown", "20": "AimIS", "21": "AimISUp", "22": "AimISDown",
+      "24": "Equip", "25": "Unequip", "44": "Attack4", "47": "Attack4IS", "50": "Attack5",
       "62": "Attack7", "201": "JamB", "223": "Stagger", "227": "JumpStart", "228": "JumpLoop"
     },
     "sex": {"0": "Male", "1": "Female"},

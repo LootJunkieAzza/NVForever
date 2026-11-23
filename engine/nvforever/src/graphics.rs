@@ -37,6 +37,10 @@
 //! - **Terrain anti-tiling** (`terrain-anti-tiling`, off in both presets, likewise): the
 //!   landscape textures are read at a few offset places hashed from the world and blended,
 //!   so their repeat no longer shows as a grid (terrain.rs "Anti-tiling", #2551).
+//! - **Terrain parallax** (`terrain-parallax`, off in both presets, likewise until its cost
+//!   is measured; it needs Authored materials): the landscape's texture layers whose
+//!   texture pack gives a height map (`_p`) show relief near the camera (terrain.rs
+//!   "Parallax", #3322).
 //! - **Cloud shadows** (`cloud-shadows`, off in both presets: #2670 asked for it "in
 //!   `enhanced`", a row the menu overhaul removed, and its strength is not calibrated yet):
 //!   the weather's cloud layers darken the sun's direct light where their shadow falls
@@ -210,6 +214,9 @@ pub struct Graphics {
     /// Anti-tiling of the landscape textures (terrain.rs "Anti-tiling"; off in both
     /// presets) [design, #2551].
     pub terrain_anti_tiling: bool,
+    /// Parallax from authored height maps on the landscape's folded texture layers
+    /// (terrain.rs "Parallax"; off in both presets) [design, #3322].
+    pub terrain_parallax: bool,
     /// The weather's clouds shade the sun (cloud_shadows.rs; off in both presets)
     /// [design, #2670].
     pub cloud_shadows: bool,
@@ -280,7 +287,7 @@ pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
 /// shadow-filter, full-detail and distant-object choices that are not vanilla's, in the
 /// order of [`Graphics::describe`].
-pub const KEYS: [&str; 31] = [
+pub const KEYS: [&str; 32] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -297,6 +304,7 @@ pub const KEYS: [&str; 31] = [
     "shadow-filter-temporal",
     "terrain-height-blend",
     "terrain-anti-tiling",
+    "terrain-parallax",
     "cloud-shadows",
     "terrain-shadows",
     "heat-haze",
@@ -359,6 +367,9 @@ impl Graphics {
             terrain_height_blend: false,
             // The same for anti-tiling [design, #2551].
             terrain_anti_tiling: false,
+            // The same for terrain parallax, whose cost is still to measure [design, #3322;
+            // the maintainer's call].
+            terrain_parallax: false,
             // The same for cloud shadows, whose strength is still to calibrate [design,
             // #2670; the issue's "in enhanced" names a row the overhaul removed].
             cloud_shadows: false,
@@ -414,6 +425,7 @@ impl Graphics {
             "mesh-terrain-blend" => &mut self.mesh_terrain_blend,
             "terrain-height-blend" => &mut self.terrain_height_blend,
             "terrain-anti-tiling" => &mut self.terrain_anti_tiling,
+            "terrain-parallax" => &mut self.terrain_parallax,
             "cloud-shadows" => &mut self.cloud_shadows,
             "terrain-shadows" => &mut self.terrain_shadows,
             GRASS_SHADOWS_KEY => &mut self.grass_shadows,
@@ -485,6 +497,7 @@ impl Graphics {
             (self.shadow_filter == ShadowFilteringMethod::Temporal, "temporal shadow filtering"),
             (self.terrain_height_blend, "terrain height blending"),
             (self.terrain_anti_tiling, "terrain anti-tiling"),
+            (self.terrain_parallax, "terrain parallax"),
             (self.cloud_shadows, "cloud shadows"),
             (self.terrain_shadows, "terrain shadows"),
             (self.grass_shadows, "grass shadows"),
@@ -1728,6 +1741,17 @@ mod tests {
         assert_eq!(both.describe(), "light glow, terrain height blending, terrain anti-tiling");
         let mut g = Graphics::preset(Preset::Vanilla);
         *g.switch("terrain-anti-tiling").expect("settings key") = true;
+        assert_eq!(g, on);
+    }
+
+    #[test]
+    fn terrain_parallax_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).terrain_parallax && !Graphics::preset(Preset::Enhanced).terrain_parallax);
+        let on = Graphics::only(&["terrain-parallax".into()]).expect("terrain-parallax");
+        assert!(on.terrain_parallax && !on.terrain_anti_tiling && !on.terrain_height_blend);
+        assert_eq!(on.describe(), "light glow, terrain parallax");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("terrain-parallax").expect("settings key") = true;
         assert_eq!(g, on);
     }
 

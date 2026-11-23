@@ -714,8 +714,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let (sub, b) = if k < 8.0 { ("DATA", k as u32) } else { ("LNAM", k as u32 - 8) };
             let flags = g.num_field8(c, sub, "") as u64;
             let new = if num(args, 2, 0.0) != 0.0 { flags | 1 << b } else { flags & !(1 << b) };
-            g.set_field8(c, sub, "", XVal::Num(new as f64));
-            if k >= 8.0 {
+            let prev = if k >= 8.0 { g.field_overrides.get(&(c, "LNAM/".into())).cloned() } else { None };
+            let next = XVal::Num(new as f64);
+            g.set_field8(c, sub, "", next);
+            if k >= 8.0 && !matches!(prev, Some(XVal::Num(p)) if p.to_bits() == (new as f64).to_bits()) {
                 g.bump_lighting_revision();
             }
             zero

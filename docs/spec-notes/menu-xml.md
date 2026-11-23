@@ -53,6 +53,17 @@ own rules are not known]:
   opened inside it; when none of that name is open it closes the innermost open element
   whatever its name; with nothing open it is dropped. Both MCM spots need this pair of
   rules to come out as MCM evidently works in the original (one needs each rule);
+- [hypothesis] an attributeless non-empty start tag `<T>` that is neither a tile/template
+  container, `include`, nor an operator closes an open trait of the same name `<T>` when
+  that trait already holds non-blank content and only operators (if any) are open inside
+  it (mending a forgotten `/` on closing tags such as `<height><copy .../><height>`, with
+  a warning);
+- [hypothesis] when an enclosing container end tag (a tile or `<template>`) or end-of-file
+  implicitly closes an unclosed trait or operator element that has non-blank content
+  before one or more contiguous trailing non-operator elements (sibling traits, tiles,
+  `include` or `template`), those trailing elements are hoisted onto the enclosing parent
+  so they are not dropped as unknown operators (explicitly closed traits keep unknown
+  inner tags inside the trait and still warn);
 - what is still open at the end of a file is closed there (each included file is read
   on its own, so this stays inside the include);
 - a start tag cut short by `<` ends there, open (its own end tag follows);
@@ -905,13 +916,19 @@ this change.
    ```
 
    [observed: those lists] Both `:` and `::` separate include, target and optional
-   tile name. Targets are menu names in mixed case or `@Prefabs\...` paths. `;`
+   tile name. Targets are menu names in mixed case or `@...` paths relative to `menus\`
+   (`@Prefabs\...`, `@globals.xml`, etc.) [documented: UIO Nexus mod-author guide,
+   "Adding support for your mod"; no plugin DLL or source read]. `;`
    lines and blank lines separate groups. Conditions contain `true`, `?plugin`,
    `#path`, `!`, `&&`, and also `||` (the MCM alternative in supported.txt).
    [observed: Just Assorted Mods/Menus/Prefabs/JHM/JHM.xml;
    MCM Extender/Menus/Prefabs/MCMExtender/ListRect/text.xml;
    UI Improvements/menus/prefabs/UII/CharGenBox.xml] Include names resolve below
-   `menus\prefabs`. [observed: UI Improvements/menus/prefabs/UII/PerkBrowser.xml;
+   `menus\prefabs` with `.` and `..` segments collapsed so sibling paths under `menus\`
+   resolve identically in `<include>` and UIO lists [design]. `@` targets that are empty
+   or escape `menus\` via `..` are rejected as malformed (`unknown prefab target`), and
+   untargeted `@` patches on a menu file append inside its `<menu>` root while prefab
+   fragments and `globals.xml` append to top-level nodes [design]. [observed: UI Improvements/menus/prefabs/UII/PerkBrowser.xml;
    Pip-Boy UI Tweaks/UIO/Public/PipBoyUITweaks.txt] The `#UII\PerkBrowser.xml`
    operand names an existing file there. The advrecon/primaryneedshud/filmgrain
    operands of supported.txt have no matching files in the inspected mod folders.
@@ -1115,7 +1132,10 @@ Implemented consumers and remaining exclusions:
   scrolled how) are not known [hypothesis]. Textures are decoded
   only up to `repeat::MAX_TEXELS`, read from the file's header first, by these bakes and
   by `crate::repeat`'s (the tiled pictures, the compass strip), whose oversized textures
-  keep Bevy's drawing. An offset that changes alone re-bakes the kept image, or moves the
+  keep Bevy's drawing; when a source texture exceeds `repeat::MAX_TEXELS` (such as a
+  4096 x 4096 modded UI atlas), `crate::repeat` and `compass_strip` decode only the
+  requested sub-rectangle directly from level 0 when that region fits within
+  `repeat::MAX_TEXELS` [design]. An offset that changes alone re-bakes the kept image, or moves the
   compass strip on, in place (same nodes and handle), only when it is another texel
   shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues up to three
   largest images, the most one bake costs: its output and both textures decoded again, or

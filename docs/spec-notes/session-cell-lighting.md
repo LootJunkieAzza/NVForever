@@ -39,7 +39,15 @@ by `CELL DATA` flags 0–7 or unrelated setters). `world::cell_lighting` keys it
 cached frame state on `(streamer.interior, game.map(Game::lighting_token))`
 plus `Travel` messages:
 - Unchanged frames compare the cached key in O(1) with zero record resolution or
-  allocation.
+  allocation. Idempotent writes of the same lighting value by
+  `SetCellLightingTemplate`, `SetCellFlag` (8–16), `SetLightingTemplateTraitNumeric`,
+  or `SetInteriorLightingTraitNumeric` leave the revision unchanged.
+- Interior cells without an authored `XCLL` subrecord synthesize `default_xcll()`
+  (`directional_fade = 1.0`, `fog_power = 1.0`) when a session
+  `SetInteriorLightingTraitNumeric` override is present (`cell_lighting_with_session`),
+  while unedited `XCLL`-less cells without a template continue to return `None`
+  [design]. Non-finite `f32` overflows on float traits are ignored so `DistanceFog` and
+  `Projection` cannot be poisoned [design].
 - When a script edits the currently displayed interior cell's template,
   inheritance flags, template traits (including periodic ambient-color cycles),
   or own `XCLL` traits, `world::cell_lighting` recomputes

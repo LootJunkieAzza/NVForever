@@ -4,14 +4,15 @@
 use super::*;
 use crate::authored_test_records::{group, record, sub, tes4, top, u32s, z};
 use crate::imagespace::{update_grade, ImageSpaceGrade, ScreenModifiers};
-use crate::world::{cell_image_space, Streamer, WorldData};
+use crate::world::{cell_image_space, cell_lighting, Streamer, WorldData};
 use fnv_game::game::RunCtx;
 use fnv_script::vm::XVal;
-use fnv_sim::{FormStore, RefTable, SimConfig, World};
+use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use fnv_world::imagespace::{
     HDR_BLOOM_ALPHA_EXTERIOR, HDR_BLOOM_ALPHA_INTERIOR, HDR_BLOOM_BLUR_RADIUS,
     HDR_EMISSIVE_MULT, HDR_EYE_ADAPT_SPEED, HDR_SKIN_DIMMER, HDR_SUNLIGHT_DIMMER,
 };
+use fnv_world::index::parent_use;
 use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
 use nvf_play::{PlayData, PlayState, PlayWorld};
@@ -23,6 +24,16 @@ const WRLD_EXT: u32 = 0xE03;
 const WTHR_A: u32 = 0xE04;
 const WTHR_B: u32 = 0xE05;
 const WRLD_EXT_B: u32 = 0xE06;
+const IMGS_C: u32 = 0xE07;
+const IMAD_A: u32 = 0xE08;
+const WRLD_CHILD: u32 = 0xE09;
+const PCELL_EXT: u32 = 0xE0A;
+const EXT_CELL_A: u32 = 0xE0B;
+const EXT_CELL_B: u32 = 0xE0C;
+const LGTM_A: u32 = 0xE0D;
+const LGTM_B: u32 = 0xE0E;
+const CELL_INT_LIGHT: u32 = 0xE0F;
+const CELL_INT_NO_XCLL: u32 = 0xE10;
 
 fn imgs_dnam(saturation: f32, brightness: f32, tint: [f32; 3], tint_amount: f32) -> Vec<u8> {
     let mut vals = [0.0f32; 38];
@@ -51,6 +62,39 @@ fn wthr_fnam(fog: [f32; 6]) -> Vec<u8> {
     fog.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
 
+fn wthr_nam0(rgb: [u8; 3]) -> Vec<u8> {
+    // 10 colour types x 6 times x 4 bytes (RGBA) = 240 bytes.
+    let mut out = Vec::with_capacity(10 * 6 * 4);
+    for _ in 0..(10 * 6) {
+        out.extend([rgb[0], rgb[1], rgb[2], 0]);
+    }
+    out
+}
+
+fn wthr_pnam(rgb: [u8; 3]) -> Vec<u8> {
+    // 4 cloud layers x 6 times x 4 bytes (RGBA) = 96 bytes.
+    let mut out = Vec::with_capacity(4 * 6 * 4);
+    for _ in 0..(4 * 6) {
+        out.extend([rgb[0], rgb[1], rgb[2], 0]);
+    }
+    out
+}
+
+fn xcll_bytes(ambient: [u8; 3], fog: [u8; 3], fog_near: f32, fog_far: f32, clip: f32) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(40);
+    for c in [ambient, [20, 30, 40], fog] {
+        bytes.extend([c[0], c[1], c[2], 0]);
+    }
+    bytes.extend(fog_near.to_le_bytes());
+    bytes.extend(fog_far.to_le_bytes());
+    bytes.extend(0i32.to_le_bytes());
+    bytes.extend(270i32.to_le_bytes());
+    bytes.extend(0.5f32.to_le_bytes());
+    bytes.extend(clip.to_le_bytes());
+    bytes.extend(1.0f32.to_le_bytes());
+    bytes
+}
+
 fn fixture(world_id: u32, interior: Option<u32>) -> (WorldData, PlayData, &'static FormStore, &'static RefTable) {
     let imgs = [
         record(
@@ -65,8 +109,35 @@ fn fixture(world_id: u32, interior: Option<u32>) -> (WorldData, PlayData, &'stat
             IMGS_B,
             &[sub(b"EDID", z("OwnedImgB")), sub(b"DNAM", imgs_dnam(0.6, 1.25, [0.8, 0.2, 0.1], 0.3))],
         ),
+        record(
+            b"IMGS",
+            0,
+            IMGS_C,
+            &[sub(b"EDID", z("OwnedImgC")), sub(b"DNAM", imgs_dnam(0.3, 1.4, [0.1, 0.7, 0.9], 0.5))],
+        ),
     ]
     .concat();
+    let imad_a = {
+        let mut header = vec![0u8; 244];
+        // Key counts for 0x0B (HDR_SUNLIGHT_DIMMER mult), 0x13 (contrast mult), TNAM tint.
+        header[8 + 0x0B * 8..8 + 0x0B * 8 + 4].copy_from_slice(&1u32.to_le_bytes());
+        header[8 + 0x13 * 8..8 + 0x13 * 8 + 4].copy_from_slice(&1u32.to_le_bytes());
+        header[176..180].copy_from_slice(&1u32.to_le_bytes());
+        let key = |v: f32| [0.0f32, v].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<_>>();
+        let tnam: Vec<u8> = [0.0f32, 0.9, 0.3, 0.1, 0.6].into_iter().flat_map(f32::to_le_bytes).collect();
+        record(
+            b"IMAD",
+            0,
+            IMAD_A,
+            &[
+                sub(b"EDID", z("OwnedAdptA")),
+                sub(b"DNAM", header),
+                sub(b"\x0bIAD", key(2.0)),
+                sub(b"\x13IAD", key(1.5)),
+                sub(b"TNAM", tnam),
+            ],
+        )
+    };
     let wthrs = [
         record(
             b"WTHR",
@@ -74,8 +145,10 @@ fn fixture(world_id: u32, interior: Option<u32>) -> (WorldData, PlayData, &'stat
             WTHR_A,
             &[
                 sub(b"EDID", z("OwnedWeatherA")),
+                sub(b"NAM0", wthr_nam0([30, 40, 50])),
+                sub(b"PNAM", wthr_pnam([60, 70, 80])),
                 sub(b"FNAM", wthr_fnam([1000.0, 100_000.0, 500.0, 50_000.0, 1.0, 1.0])),
-                sub(b"DATA", vec![0; 15]),
+                sub(b"DATA", vec![0, 0, 0, 255, 54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             ],
         ),
         record(
@@ -84,21 +157,75 @@ fn fixture(world_id: u32, interior: Option<u32>) -> (WorldData, PlayData, &'stat
             WTHR_B,
             &[
                 sub(b"EDID", z("OwnedWeatherB")),
+                sub(b"NAM0", wthr_nam0([80, 90, 100])),
+                sub(b"PNAM", wthr_pnam([10, 20, 30])),
                 sub(b"FNAM", wthr_fnam([2000.0, 60_000.0, 800.0, 30_000.0, 1.0, 1.0])),
-                sub(b"DATA", vec![0; 15]),
+                sub(b"DATA", vec![0, 0, 0, 255, 54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             ],
         ),
     ]
     .concat();
-    let cell = record(
-        b"CELL",
-        0,
-        CELL_INT,
-        &[
-            sub(b"EDID", z("OwnedIntCell")),
-            sub(b"DATA", vec![1]),
-            sub(b"XCIM", u32s(&[IMGS_A])),
-        ],
+    let lgtms = [
+        record(
+            b"LGTM",
+            0,
+            LGTM_A,
+            &[sub(b"EDID", z("OwnedCartoLgtmA")), sub(b"DATA", xcll_bytes([10, 15, 20], [5, 10, 15], 100.0, 4000.0, 8000.0))],
+        ),
+        record(
+            b"LGTM",
+            0,
+            LGTM_B,
+            &[sub(b"EDID", z("OwnedCartoLgtmB")), sub(b"DATA", xcll_bytes([90, 100, 110], [40, 50, 60], 300.0, 9000.0, 22000.0))],
+        ),
+    ]
+    .concat();
+    let cells = [
+        record(
+            b"CELL",
+            0,
+            CELL_INT,
+            &[
+                sub(b"EDID", z("OwnedIntCell")),
+                sub(b"DATA", vec![1]),
+                sub(b"XCIM", u32s(&[IMGS_A])),
+            ],
+        ),
+        record(
+            b"CELL",
+            0,
+            CELL_INT_LIGHT,
+            &[
+                sub(b"EDID", z("OwnedIntCellLight")),
+                sub(b"DATA", vec![1]),
+                sub(b"XCLL", xcll_bytes([1, 2, 3], [4, 5, 6], 50.0, 2000.0, 5000.0)),
+                sub(b"LTMP", u32s(&[LGTM_A])),
+                sub(b"LNAM", u32s(&[0x1FF])),
+                sub(b"XCIM", u32s(&[IMGS_A])),
+            ],
+        ),
+        record(
+            b"CELL",
+            0,
+            CELL_INT_NO_XCLL,
+            &[
+                sub(b"EDID", z("OwnedIntCellNoXcll")),
+                sub(b"DATA", vec![1]),
+                sub(b"XCIM", u32s(&[IMGS_A])),
+            ],
+        ),
+    ]
+    .concat();
+    let pcell_ext = record(b"CELL", 0, PCELL_EXT, &[sub(b"DATA", vec![0])]);
+    let ext_cells = [
+        record(b"CELL", 0, EXT_CELL_A, &[sub(b"EDID", z("OwnedExtCellA")), sub(b"DATA", vec![0]), sub(b"XCLC", u32s(&[0, 0]))]),
+        record(b"CELL", 0, EXT_CELL_B, &[sub(b"EDID", z("OwnedExtCellB")), sub(b"DATA", vec![0]), sub(b"XCLC", u32s(&[1, 0]))]),
+    ]
+    .concat();
+    let wrld_ext_children = group(
+        WRLD_EXT.to_le_bytes(),
+        1,
+        &[pcell_ext, group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &ext_cells))].concat(),
     );
     let wrlds = [
         record(
@@ -107,19 +234,33 @@ fn fixture(world_id: u32, interior: Option<u32>) -> (WorldData, PlayData, &'stat
             WRLD_EXT,
             &[sub(b"EDID", z("OwnedExtWorld")), sub(b"INAM", u32s(&[IMGS_A]))],
         ),
+        wrld_ext_children,
         record(
             b"WRLD",
             0,
             WRLD_EXT_B,
             &[sub(b"EDID", z("OwnedExtWorldB")), sub(b"INAM", u32s(&[IMGS_B]))],
         ),
+        record(
+            b"WRLD",
+            0,
+            WRLD_CHILD,
+            &[
+                sub(b"EDID", z("OwnedChildWorld")),
+                sub(b"WNAM", u32s(&[WRLD_EXT])),
+                sub(b"PNAM", parent_use::IMAGE_SPACE.to_le_bytes().to_vec()),
+                sub(b"INAM", u32s(&[IMGS_C])),
+            ],
+        ),
     ]
     .concat();
     let bytes = [
         tes4(),
         top(b"IMGS", &imgs),
+        top(b"IMAD", &imad_a),
+        top(b"LGTM", &lgtms),
         top(b"WTHR", &wthrs),
-        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cells))),
         top(b"WRLD", &wrlds),
     ]
     .concat();
@@ -637,4 +778,317 @@ fn cell_image_space_resolves_new_worldspace_inam_when_sky_is_reused() {
         assert!(approx(grade.saturation, 0.6), "expected IMGS_B saturation 0.6, got {}", grade.saturation);
         assert!(approx(grade.brightness, 1.25), "expected IMGS_B brightness 1.25, got {}", grade.brightness);
     }
+}
+
+#[test]
+fn live_set_worldspace_imagespace_and_exterior_cell_imagespace_precedence() {
+    let (world, play, forms, refs) = fixture(WRLD_EXT, None);
+    let (script, sim) = runtime(play, forms, refs);
+    let mut streamer = test_streamer(None);
+    streamer.centre = Some((0, 0));
+
+    let mut a = App::new();
+    a.insert_resource(Time::<()>::default())
+        .insert_resource(world)
+        .insert_resource(streamer)
+        .insert_resource(authored_session_sky())
+        .insert_resource(script)
+        .insert_resource(sim)
+        .init_resource::<ScreenModifiers>()
+        .add_message::<nvf_play::Travel>()
+        .add_systems(Update, (cell_image_space, update_grade).chain());
+    let cam = a.world_mut().spawn(ImageSpaceGrade::default()).id();
+
+    // Cold exterior starts with authored WRLD_EXT INAM (OwnedImgA).
+    a.update();
+    assert_eq!(a.world().resource::<SkyState>().world_image_space_id, Some(IMGS_A));
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().saturation, 1.0));
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().brightness, 1.0));
+
+    // Unchanged frame does zero work.
+    a.world_mut().resource_mut::<SkyState>().changed = false;
+    a.update();
+    assert!(!a.world().resource::<SkyState>().changed);
+
+    // Live SetWorldspaceImagespace switches active exterior IMGS immediately without travel.
+    source(&mut a, "SetWorldspaceImagespace OwnedExtWorld OwnedImgB");
+    a.update();
+    assert_eq!(a.world().resource::<SkyState>().world_image_space_id, Some(IMGS_B));
+    assert!(a.world().resource::<SkyState>().changed);
+    let g = *a.world().get::<ImageSpaceGrade>(cam).unwrap();
+    assert!(approx(g.saturation, 0.6), "SetWorldspaceImagespace saturation: {}", g.saturation);
+    assert!(approx(g.brightness, 1.25), "SetWorldspaceImagespace brightness: {}", g.brightness);
+
+    // Live SetImageSpaceTrait on top of the SetWorldspaceImagespace override refreshes immediately.
+    source(&mut a, "SetImageSpaceTrait OwnedImgB 25 0.44");
+    a.update();
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().saturation, 0.44));
+
+    // Child worldspace with PNAM Use Image Space Data inherits parent's SetWorldspaceImagespace override.
+    a.world_mut().resource_mut::<WorldData>().set_world(WRLD_CHILD);
+    a.world_mut().resource_mut::<Streamer>().centre = None;
+    a.update();
+    assert_eq!(a.world().resource::<SkyState>().world_image_space_id, Some(IMGS_B));
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().saturation, 0.44));
+
+    // Return to WRLD_EXT cell (0, 0) (OwnedExtCellA).
+    a.world_mut().resource_mut::<WorldData>().set_world(WRLD_EXT);
+    a.world_mut().resource_mut::<Streamer>().centre = Some((0, 0));
+    a.update();
+    assert_eq!(a.world().resource::<SkyState>().world_image_space_id, Some(IMGS_B));
+
+    // SetCellImageSpace on the currently occupied exterior cell waits until next cell load.
+    source(&mut a, "SetCellImageSpace OwnedExtCellA OwnedImgC");
+    a.world_mut().resource_mut::<SkyState>().changed = false;
+    a.update();
+    assert_eq!(a.world().resource::<SkyState>().world_image_space_id, Some(IMGS_B));
+    assert!(!a.world().resource::<SkyState>().changed);
+
+    // Moving to OwnedExtCellB (1, 0) keeps worldspace override (IMGS_B), then re-entering
+    // OwnedExtCellA (0, 0) binds OwnedImgC ahead of SetWorldspaceImagespace.
+    a.world_mut().resource_mut::<Streamer>().centre = Some((1, 0));
+    a.update();
+    assert_eq!(a.world().resource::<SkyState>().world_image_space_id, Some(IMGS_B));
+    a.world_mut().resource_mut::<Streamer>().centre = Some((0, 0));
+    a.update();
+    assert_eq!(a.world().resource::<SkyState>().world_image_space_id, Some(IMGS_C));
+    let g = *a.world().get::<ImageSpaceGrade>(cam).unwrap();
+    assert!(approx(g.saturation, 0.3), "exterior SetCellImageSpace saturation: {}", g.saturation);
+    assert!(approx(g.brightness, 1.4), "exterior SetCellImageSpace brightness: {}", g.brightness);
+
+    // Fresh Game instance clears session SetWorldspaceImagespace and exterior SetCellImageSpace.
+    let (fresh_script, fresh_sim) = runtime(play, forms, refs);
+    a.insert_resource(fresh_script);
+    a.insert_resource(fresh_sim);
+    a.update();
+    assert_eq!(a.world().resource::<SkyState>().world_image_space_id, Some(IMGS_A));
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().saturation, 1.0));
+}
+
+#[test]
+fn live_weather_rgb_colors_adapters_and_transition_override_reach_sky_and_grade() {
+    let (world, play, forms, refs) = fixture(WRLD_EXT, None);
+    let (script, sim) = runtime(play, forms, refs);
+    let wthr_a = fnv_world::sky::weather(world.lo, world.schema, WTHR_A).unwrap();
+    let wthr_b = fnv_world::sky::weather(world.lo, world.schema, WTHR_B).unwrap();
+
+    let mut sky = authored_session_sky();
+    sky.climate.sunrise = (6.0, 7.0);
+    sky.climate.sunset = (18.0, 19.0);
+    sky.weather = wthr_a;
+    sky.hour = 7.0; // sunrise.1 = exact 100% Day key on 6-time NAM0/PNAM weather
+    sky.changed = true;
+
+    let mut a = App::new();
+    a.insert_resource(Time::<()>::default())
+        .insert_resource(world)
+        .insert_resource(test_streamer(None))
+        .insert_resource(sky)
+        .insert_resource(script)
+        .insert_resource(sim)
+        .init_resource::<ScreenModifiers>()
+        .init_resource::<Assets<Mesh>>()
+        .init_resource::<Assets<SkyMaterial>>()
+        .init_resource::<ClearColor>()
+        .init_resource::<GlobalAmbientLight>()
+        .add_message::<nvf_play::Travel>()
+        .add_systems(
+            Update,
+            (cell_image_space, sync_weather_fog, sync_weather_visuals, update_sky, update_grade, tell_sky_colors).chain(),
+        );
+    let cam = a
+        .world_mut()
+        .spawn((
+            Transform::default(),
+            DistanceFog::default(),
+            ImageSpaceGrade::default(),
+            FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 },
+        ))
+        .id();
+    let sun = a.world_mut().spawn((DirectionalLight::default(), Transform::default(), Sun)).id();
+
+    // Initial authored exterior frame.
+    a.update();
+    let initial_fog_color = a.world().get::<DistanceFog>(cam).unwrap().color;
+    let initial_ambient = a.world().resource::<GlobalAmbientLight>().color;
+    let initial_sun = a.world().get::<DirectionalLight>(sun).unwrap().color;
+    let initial_sun_scale = a.world().resource::<SkyState>().sun_scale();
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().contrast, 1.0));
+
+    // Unchanged frame does zero churn.
+    a.update();
+    assert!(!a.world().resource::<SkyState>().changed);
+
+    // Live SetWeatherRGBColor across Fog (1), Ambient (3), Sunlight (4), and PNAM cloud layer 0 (2).
+    source(
+        &mut a,
+        "SetWeatherRGBColor OwnedWeatherA 1 1 200100050\n\
+         SetWeatherRGBColor OwnedWeatherA 3 1 040080120\n\
+         SetWeatherRGBColor OwnedWeatherA 4 1 255180090\n\
+         SetWeatherRGBColor OwnedWeatherA 2 1 120140160 0",
+    );
+    a.update();
+    {
+        let sky = a.world().resource::<SkyState>();
+        assert_eq!(sky.color_bytes(ColorType::Fog), [200.0, 100.0, 50.0]);
+        assert_eq!(sky.color_bytes(ColorType::Ambient), [40.0, 80.0, 120.0]);
+        assert_eq!(sky.color_bytes(ColorType::Sunlight), [255.0, 180.0, 90.0]);
+        let cloud = sky.cloud_color_for(&sky.weather, 0);
+        assert!(approx(cloud[0], fnv_world::sky::srgb_to_linear(120)));
+        assert!(approx(cloud[1], fnv_world::sky::srgb_to_linear(140)));
+        assert!(approx(cloud[2], fnv_world::sky::srgb_to_linear(160)));
+    }
+    assert_ne!(a.world().get::<DistanceFog>(cam).unwrap().color, initial_fog_color);
+    assert_ne!(a.world().resource::<GlobalAmbientLight>().color, initial_ambient);
+    assert_ne!(a.world().get::<DirectionalLight>(sun).unwrap().color, initial_sun);
+
+    // Live SetWeatherImageSpaceMod attaches OwnedAdptA to Day (slot 1): contrast *1.5, sun dimmer *2.0, tint alpha 0.6.
+    source(&mut a, "SetWeatherImageSpaceMod OwnedWeatherA 1 OwnedAdptA");
+    a.update();
+    let g = *a.world().get::<ImageSpaceGrade>(cam).unwrap();
+    assert!(approx(g.contrast, 1.5), "weather adapter contrast: {}", g.contrast);
+    assert!(approx(g.tint.w, 0.6), "weather adapter tint alpha: {}", g.tint.w);
+    assert!(
+        approx(a.world().resource::<SkyState>().sun_scale(), initial_sun_scale * 2.0),
+        "weather adapter sunlight dimmer must double sun_scale"
+    );
+
+    // Explicit clear (SetWeatherImageSpaceMod OwnedWeatherA 1 0) removes the adapter immediately.
+    source(&mut a, "SetWeatherImageSpaceMod OwnedWeatherA 1 0");
+    a.update();
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().contrast, 1.0));
+    assert!(approx(a.world().resource::<SkyState>().sun_scale(), initial_sun_scale));
+
+    // SetWeatherTransitionTimeOverride (10s) accelerates weather fade and blends overridden colors across prev/weather.
+    {
+        let mut sky = a.world_mut().resource_mut::<SkyState>();
+        sky.prev = Some(wthr_b);
+        sky.fade = 0.0;
+    }
+    source(
+        &mut a,
+        "SetWeatherTransitionTimeOverride 10\n\
+         SetWeatherRGBColor OwnedWeatherB 1 1 000200150",
+    );
+    a.update();
+    {
+        let mut sky = a.world_mut().resource_mut::<SkyState>();
+        // Advance 5 real seconds -> 5 / 10 = 0.5 fade (without override, 255 trans_delta = 30s -> 0.1667).
+        sky.advance_fade(5.0 * (30.0 / 3600.0));
+        assert!(approx(sky.fade, 0.5), "expected 0.5 fade under 10s override, got {}", sky.fade);
+        assert_eq!(sky.color_bytes(ColorType::Fog), [100.0, 150.0, 100.0]);
+    }
+
+    // Fresh Game instance clears all weather visual overrides and restores authored colors/transition.
+    {
+        let mut sky = a.world_mut().resource_mut::<SkyState>();
+        sky.prev = None;
+        sky.fade = 1.0;
+    }
+    let (fresh_script, fresh_sim) = runtime(play, forms, refs);
+    a.insert_resource(fresh_script);
+    a.insert_resource(fresh_sim);
+    a.update();
+    let sky = a.world().resource::<SkyState>();
+    assert_eq!(sky.weather_visual_overrides, WeatherVisualOverrides::default());
+    assert_eq!(sky.color_bytes(ColorType::Fog), [30.0, 40.0, 50.0]);
+}
+
+#[test]
+fn on_cell_enter_script_updates_cell_lighting_fog_and_imagespace_live() {
+    let (world, play, forms, refs) = fixture(0, Some(CELL_INT_LIGHT));
+    let (script, sim) = runtime(play, forms, refs);
+    let mut sky = authored_session_sky();
+    sky.set_interior(crate::world::effective_cell_lighting(&world, None, CELL_INT_LIGHT));
+
+    let mut a = App::new();
+    a.insert_resource(Time::<()>::default())
+        .insert_resource(world)
+        .insert_resource(test_streamer(Some(CELL_INT_LIGHT)))
+        .insert_resource(sky)
+        .insert_resource(script)
+        .insert_resource(sim)
+        .init_resource::<ScreenModifiers>()
+        .init_resource::<Assets<Mesh>>()
+        .init_resource::<Assets<SkyMaterial>>()
+        .init_resource::<ClearColor>()
+        .init_resource::<GlobalAmbientLight>()
+        .add_message::<nvf_play::Travel>()
+        .add_systems(
+            Update,
+            (cell_lighting, cell_image_space, update_sky, interior_clip, update_grade).chain(),
+        );
+    let cam = a
+        .world_mut()
+        .spawn((
+            Transform::default(),
+            DistanceFog::default(),
+            Projection::Perspective(PerspectiveProjection::default()),
+            ImageSpaceGrade::default(),
+            FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 },
+        ))
+        .id();
+    let _sun = a.world_mut().spawn((DirectionalLight::default(), Transform::default(), Sun)).id();
+
+    // Baseline frame in CELL_INT_LIGHT (template LGTM_A: ambient [10,15,20], clip 8000, fog 100..4000).
+    a.update();
+    let far = |a: &App| match a.world().get::<Projection>(cam).unwrap() {
+        Projection::Perspective(p) => p.far,
+        _ => panic!("expected perspective camera"),
+    };
+    assert_eq!(far(&a), 8000.0);
+    assert_eq!(fog_range(&a.world().get::<DistanceFog>(cam).unwrap().falloff), (100.0, 4000.0));
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().saturation, 1.0));
+
+    // Register a real OnCellEnter UDF that applies template, fog, XCLL, and IMGS overrides on entry.
+    source(
+        &mut a,
+        "SetEventHandler \"OnCellEnter\" (Begin Function {ref rCell}\n\
+         if rCell == OwnedIntCellLight\n\
+             SetCellLightingTemplate rCell OwnedCartoLgtmB\n\
+             SetLightingTemplateTraitNumeric OwnedCartoLgtmB 10 450\n\
+             SetLightingTemplateTraitNumeric OwnedCartoLgtmB 11 11500\n\
+             SetLightingTemplateTraitNumeric OwnedCartoLgtmB 15 26000\n\
+             SetImageSpaceTrait OwnedImgA 25 0.55\n\
+         elseif rCell == OwnedIntCellNoXcll\n\
+             SetInteriorLightingTraitNumeric rCell 0 65\n\
+             SetInteriorLightingTraitNumeric rCell 12 180\n\
+             SetInteriorLightingTraitNumeric rCell 13 3600\n\
+             SetInteriorLightingTraitNumeric rCell 15 14000\n\
+         endif\n\
+         End)",
+    );
+
+    // Prime last_cell in another cell, then enter OwnedIntCellLight -> OnCellEnter fires!
+    a.world_mut().resource_scope(|world, mut script: Mut<ScriptState>| {
+        let mut sim = world.resource_mut::<SimState>();
+        with_world(script.rt.as_mut().unwrap(), &mut sim, |rt| {
+            rt.game.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(CELL_INT));
+            rt.game.tick();
+            rt.game.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(CELL_INT_LIGHT));
+            rt.game.tick();
+        });
+    });
+
+    a.update();
+    assert_eq!(a.world().resource::<SkyState>().interior.unwrap().ambient, [90, 100, 110]);
+    assert_eq!(fog_range(&a.world().get::<DistanceFog>(cam).unwrap().falloff), (450.0, 11500.0));
+    assert_eq!(far(&a), 26000.0);
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().saturation, 0.55));
+
+    // Now enter the XCLL-less interior cell OwnedIntCellNoXcll -> OnCellEnter writes XCLL traits live!
+    a.world_mut().resource_mut::<Streamer>().interior = Some(CELL_INT_NO_XCLL);
+    a.world_mut().resource_scope(|world, mut script: Mut<ScriptState>| {
+        let mut sim = world.resource_mut::<SimState>();
+        with_world(script.rt.as_mut().unwrap(), &mut sim, |rt| {
+            rt.game.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(CELL_INT_NO_XCLL));
+            rt.game.tick();
+        });
+    });
+
+    a.update();
+    let synth = a.world().resource::<SkyState>().interior.expect("synthesized XCLL interior lighting");
+    assert_eq!(synth.ambient, [65, 0, 0]);
+    assert_eq!(fog_range(&a.world().get::<DistanceFog>(cam).unwrap().falloff), (180.0, 3600.0));
+    assert_eq!(far(&a), 14000.0);
 }

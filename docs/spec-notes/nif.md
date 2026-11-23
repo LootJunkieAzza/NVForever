@@ -1150,6 +1150,45 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   corr(G, dH/dy) from −0.24 to −0.93, the sign of a downward green axis. Bevy assumes
   upward green (glTF), so the renderers set `flip_normal_map_y`. Unflipped, bumps were
   lit from below: rock faces looked inside-out and glistened at the wrong edges.
+- **Parallax height maps** (#2979).
+  *The format.* Texture-set slot 3 holds the height map [documented: nif.xml
+  BSShaderTextureSet; GECK wiki "Texture Set", "NIF Shader Properties": "Height Map
+  (Parallax) (Needs 'Parallax Shader Index 15' shader flag set)"]. nif.xml names
+  BSShaderFlags bit 11 "Parallax_Shader_Index_15" and bit 28 "Parallax_Occlusion", and
+  gives BSShaderPPLightingProperty `parallax_max_passes` and `parallax_scale` after the
+  refraction fields (bs_version > 24) [documented]. The maps are heights, brighter =
+  higher (above, "Normal maps").
+  *The shipped data* (asset-survey results, not game runs) [observed: a per-shape survey
+  of the base game and DLC meshes, 66,539 triangle shapes, run for upstream issue #2979
+  (its text gives the counts; the tables stay private)]: 510 shapes in 281 models have a
+  slot-3 texture, all 510 set bit 11, no shape sets bit 11 without one, and none sets bit
+  28; they use 20 distinct height textures, 397 of the shapes under `meshes\dungeons` and
+  64 under `meshes\architecture`. One texture replacer sets slot 3 on 2,037 of its 4,970
+  shapes [observed: the same survey run over that replacer].
+  *How the original renders them: not known.* The GECK wiki describes bit 11's effect as
+  "pretty weak" unless combined with bit 28 (parallax occlusion), the passes as "the total
+  number of parallax passes ... decent around 60" and the scale as "a multiplier for the
+  strength" [documented: GECK wiki "NIF Shader Properties"; a community description, not
+  checked]. Not known: how deep the original's relief is, whether it is one offset or
+  stepped, whether it fades with distance, how the two fields enter, whether the DXT1
+  maps are read as one channel or as luminance, and which shapes it leaves flat (observer
+  check #265).
+  *What NVForever implements* [design; the depth and method are **provisional**
+  [hypothesis] until observer check #265 and a frame-cost measurement]: a
+  BSShaderPPLightingProperty with bit 11 and a non-empty slot 3 draws that texture as its
+  height map (`nif_spawn::game_height_slot`; bit 28 is not asked), whatever the Authored
+  materials setting, read from the red channel by the march authored `_p` maps use, **on
+  by default** at a depth of 0.015 UV units (`authored::GAME_PARALLAX_DEPTH`; switch
+  `NVF_GAME_PARALLAX_DEPTH=<0..0.08>`, 0 off), with the authored height maps' method and
+  layers (`relief:4`, 8 layers; their switches). The shapes: by default **opaque only**,
+  single-sided, not a decal, lit, not refracting, no effect shader's holes, and with
+  tangents on the drawn mesh (an actor's texture-swap copy takes it only when the mesh it
+  draws already has them: armour whose drawn mesh starts without tangents and gains a
+  slot-3 map only through a record's texture set (TXST TX04) stays flat, a known limit);
+  alpha-tested shapes draw it too under the development switch
+  `NVF_PBR_PARALLAX_MASK=1` (docs/spec-notes/pbr-materials.md "Height maps").
+  `parallax_scale` and `parallax_max_passes` are decoded and not used. An authored `_p`
+  for the same diffuse replaces the game's map.
 - **Stored tangents** (2026-11-19). A shape-data block with bit 12 of its flags set stores
   "Tangents" then "Bitangents", one vector per vertex each, after its normals
   [documented: nif.xml NiGeometryData, condition `Has Normals` and `(Data Flags | BS Data

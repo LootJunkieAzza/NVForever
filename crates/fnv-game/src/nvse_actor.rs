@@ -182,10 +182,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             num(field(g, item(g, 0), "BMDT", path))
         }
         // [documented: GetObjectEffect] the item's object effect (EITM).
-        "getobjecteffect" => match field(g, item(g, 0), "EITM", "") {
-            Some(XVal::Ref(r)) => XVal::Ref(r),
-            _ => XVal::Ref(0),
-        },
+        "getobjecteffect" => XVal::Ref(g.object_effect(item(g, 0)).map_or(0, |e| e.0)),
         // [documented: GetNameOfClass] the actor's class's name.
         "getnameofclass" => {
             let class = form(args, 0).or(subject).and_then(|f| g.traits_class(f));

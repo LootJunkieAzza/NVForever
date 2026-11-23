@@ -75,13 +75,31 @@ and calls after: at most three moves can happen meanwhile).
 2. **Tags** (after the post passes, before the UI): on a frame that may be generated (play
    state Playing, the upscaler's output real, constants set, drawn to the window rather than a
    screenshot, large enough, DLSS-G loaded and no failed status) the frame without the HUD is
-   copied into a display-sized texture of its own, and the upscaler's depth (render size), the
+   written, sRGB-encoded, into a display-sized `Rgba8Unorm` texture of its own, and the upscaler's depth (render size), the
    prepass motion (its render rectangle) and that copy are moved to `RESOURCE` and tagged
    `eValidUntilPresent`, each with the layout wgpu-hal gives `RESOURCE`. Other frames tag them
    null. A camera cut is not a reason to stop: the constants' reset says it.
-3. **UI alpha** (after the UI, before Bevy's upscaling blit): `R16Float` (Streamline's Vulkan format
+3. **UI colour and alpha** (after the UI, before Bevy's upscaling blit; 2026-11-23): the UI drawn a
+   second time, alone, over transparent black (`fg_ui_layer.rs`), in the main texture's format
+   (`Rgba16Float`); every Bevy UI pipeline blends with `ALPHA_BLENDING`, so its alpha is the UI's
+   coverage. A full-screen pass makes the UI colour and alpha from it, the frame and the HUD-less
+   copy, in `Rgba8Unorm` holding sRGB-encoded values: the alpha is the layer's, the colour
+   (premultiplied) is `encode(Final) - (1 - UI.A) * Hudless`, so DLSS-G's blend (`Final = UI.RGB
+   + (1 - UI.A) * Hudless`, §5.1) gives back the real frame exactly over its own background and
+   closely over a generated frame's. Tagged `kBufferTypeUIColorAndAlpha`; user interface
+   recomposition is asked for (Hudless + UI buffer, §6.6). See-through HUD pixels keep their own
+   alpha.
+   **Colour space.** DLSS-G blends in the back buffer's values and wants the HUD-less in "the same
+   color space ... as the color back buffer", and takes no FP16 (§5.1 table, §11.0). The
+   window's image is a UNORM image drawn through an sRGB view (Streamline refuses sRGB back
+   buffers), so it holds encoded values, while the main texture is linear `Rgba16Float`. The
+   first build of the layer (and before it the HUD-less copy) gave DLSS-G linear values: the
+   generated frames' HUD sat on a background unlike the real frames', and the crosshair's
+   faint glow flickered [observed: #3595]. Both buffers are now encoded, 8 bits
+   (`VK_FORMAT_R8G8B8A8_UNORM` is in Streamline's format table).
+   With `NVF_FG_UI_LAYER=0`, as before, the **UI alpha**: `R16Float` (Streamline's Vulkan format
    table has no `R8_UNORM` [documented: `sl.chi/vulkan.cpp` `getFormat`]), 1 where the frame
-   differs from its HUD-less copy, 0 elsewhere, tagged `kBufferTypeUIAlpha`; user interface
+   (encoded) differs from its HUD-less copy by more than the copy's 8-bit rounding, 0 elsewhere, tagged `kBufferTypeUIAlpha`; user interface
    recomposition is asked for (Hudless + UI alpha). A see-through HUD pixel counts as opaque UI.
 4. **Options** (an exclusive system at the end of the render graph, on the render thread just
    before Bevy's present): `slDLSSGSetOptions` only on a change: on with the frames to generate
@@ -211,7 +229,7 @@ play, the live switch and exit as designed.
 
 - Windows, Vulkan, NVIDIA RTX 40 series or newer; vsync off on Vulkan.
 - Only while the game's window is in front.
-- The UI alpha treats translucent HUD pixels as opaque.
+- With `NVF_FG_UI_LAYER=0`, the UI alpha treats translucent HUD pixels as opaque.
 - The picture has been judged by eye only in passing (the HUD smear without the UI buffer before
   stage 4; screenshots show the real frame, never a generated one).
 - Not tested on more than one GPU.

@@ -38,7 +38,10 @@
 //! simulation and the status line says so [documented: GECK wiki Category:Items, the
 //! player cannot drop one]. Storing one in a container is allowed [hypothesis: the page
 //! does not mention containers]. They cannot be sold [documented: the same page], so the
-//! barter menu does not list them [hypothesis: hidden rather than refused].
+//! barter menu does not list them [hypothesis: hidden rather than refused]. Keys
+//! (`ItemKind::Key`, `KEYM`) are also excluded from both sides of the barter menu (#3432)
+//! [hypothesis: issue #3432 reports that keys do not appear in barter in the original
+//! engine], while remaining listed in the inventory (`Keyring` folder) and in containers.
 //!
 //! Barter ([`Mode::Barter`], [`Trade`]): items are put up from either side and listed on
 //! the other side, first, marked, until the trade is accepted [observed: the owner's
@@ -870,6 +873,9 @@ pub struct MenuModel {
     /// Show Equipped Ammo tweak (`ammo_mark_in_containers`).
     pub current_ammo: Option<FormId>,
     pub ammo_mark_in_containers: bool,
+    /// What the log last said of the Ammo tab's rows ([`MenuModel::refresh`]): said again
+    /// only when it changes.
+    ammo_told: String,
     pub title_case_categories: bool,
     /// The price of things worth nothing in a barter (the tweak; 0: as they are).
     pub free_item_price: f32,
@@ -1115,6 +1121,7 @@ impl MenuModel {
             usable_ammo: Vec::new(),
             current_ammo: None,
             ammo_mark_in_containers: false,
+            ammo_told: String::new(),
             title_case_categories: false,
             free_item_price: 0.0,
             barter_kind_mults: None,
@@ -1209,6 +1216,20 @@ impl MenuModel {
                         r.loaded = true;
                     }
                 }
+                // The Ammo tab's rows in the log, so a report about its marks can be read
+                // (#3442): how many, and which carries the loaded mark.
+                if self.mode == Mode::Inventory && self.category[side as usize] == Category::Ammo {
+                    let marked = match (l.rows.iter().find(|r| r.loaded), self.current_ammo) {
+                        (Some(r), _) => format!("{:?} ({}) carries the loaded mark", r.name, r.item),
+                        (None, Some(a)) => format!("none carries the loaded mark: the weapon loads {a}, which is not in the list"),
+                        (None, None) => "none carries the loaded mark: the weapon loads no ammo".to_string(),
+                    };
+                    let told = format!("menu: Ammo tab: {} rows, {marked}", l.rows.len());
+                    if told != self.ammo_told {
+                        bevy::log::info!("{told}");
+                        self.ammo_told = told;
+                    }
+                }
                 // The player's tweak: the list by value or weight, the most first, name
                 // order kept between equals [design: docs/design/tweaks.md].
                 if self.mode == Mode::Inventory {
@@ -1262,9 +1283,19 @@ impl MenuModel {
             own[i] = l
                 .rows
                 .into_iter()
-                // A live explosive (`Row::live`) is not for trade (#1640); items hidden by
+                // Caps, quest items, keys (`ItemKind::Key`, #3432), and live explosives
+                // (`Row::live`, #1640) are not for trade; items hidden by
                 // `HideItemBarterEx` (`t.is_hidden`) stay off the requested side(s).
-                .filter(|r| r.item != t.caps && !r.quest && !r.live && !t.is_hidden(r.item, side) && !(side == Side::Player && hide_equipped && r.equipped) && !(side == Side::Player && hotkeyed.contains(&r.item)))
+                .filter(|r| {
+                    r.item != t.caps
+                        && !r.quest
+                        && !r.live
+                        && r.kind != Some(ItemKind::Key)
+                        && world.resolve_item(r.item).is_none_or(|i| i.kind != ItemKind::Key)
+                        && !t.is_hidden(r.item, side)
+                        && !(side == Side::Player && hide_equipped && r.equipped)
+                        && !(side == Side::Player && hotkeyed.contains(&r.item))
+                })
                 .filter(|r| {
                     // The player's tweak holds the player's side to the merchant's list too [design: docs/design/tweaks.md].
                     let why = (side == Side::Container || both_sides).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();

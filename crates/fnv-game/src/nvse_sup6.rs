@@ -267,9 +267,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `x y`: moves the camera or the cursor as the mouse would, by pixels
         // [documented: FakeMouseMovement]; the engine adds it to the next frame's
-        // movement.
+        // movement. Non-finite deltas are ignored [design].
         "fakemousemovement" => {
-            g.sup.fake_moves.push((num(args, 0, 0.0) as f32, num(args, 1, 0.0) as f32));
+            let (x, y) = (num(args, 0, 0.0), num(args, 1, 0.0));
+            if x.is_finite() && y.is_finite() {
+                g.sup.fake_moves.push((x as f32, y as f32));
+            }
             zero
         }
         // ---- the cursor's look ----

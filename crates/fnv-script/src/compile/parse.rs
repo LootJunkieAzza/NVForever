@@ -224,10 +224,33 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
                     // compiled bytes adding Rand's value to the one variable, #2275; read
                     // as a plain declaration it declared `rand` and the bounds as floats].
                     match x.get(2) {
-                        Some(eq) if eq.kind == XKind::Op && (MACRO_OPS.contains(&eq.text.as_str()) || ["^=", "|=", "&=", "%="].contains(&eq.text.as_str())) => {
+                        Some(eq)
+                            if x.get(1).is_some_and(|t| t.kind == XKind::Word)
+                                && eq.kind == XKind::Op
+                                && (MACRO_OPS.contains(&eq.text.as_str()) || ["^=", "|=", "&=", "%="].contains(&eq.text.as_str())) =>
+                        {
                             Kw::Decl { ty, names: vec![x[1].text.clone()], init: Some(x[1..].to_vec()) }
                         }
-                        _ => Kw::Decl { ty, names: rest.iter().filter(|t| t.kind == Kind::Word).map(|t| t.text.clone()).collect(), init: None },
+                        _ => {
+                            // A plain declaration names one variable (or comma-separated names);
+                            // unseparated trailing words (e.g. a missing `=` before a call) are
+                            // not additional variable declarations [design: avoids declaring a
+                            // function name as a local variable that shadows later calls].
+                            let mut names = Vec::new();
+                            if let Some(first) = x.get(1).filter(|t| t.kind == XKind::Word) {
+                                names.push(first.text.clone());
+                                let mut i = 2;
+                                while x.get(i).is_some_and(|t| t.kind == XKind::Comma) {
+                                    if let Some(next) = x.get(i + 1).filter(|t| t.kind == XKind::Word) {
+                                        names.push(next.text.clone());
+                                        i += 2;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+                            Kw::Decl { ty, names, init: None }
+                        }
                     }
                 }
                 None => Kw::Call(toks.clone()),
@@ -239,10 +262,23 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
     // So may a declaration's value (`int n = Ar_Size (array_var a = GetFiles …)`): the
     // inline one is declared with the line's, so that a lambda's later lines find it
     // [observed: B42 Interact's ln_B42Interact.txt runs in the original with such a line
-    // in an event handler's lambda and `xkR = ar_null` after it].
-    let decls = match &kw {
+    // in an event handler's lambda and `xkR = ar_null` after it], and an `if` / `elseif` /
+    // `set` line that uses extender syntax (`if TestExpr ref r = …`) [documented: Inline
+    // variable declaration].
+    let mut kw = kw;
+    let decls = match &mut kw {
         Kw::Call(_) if toks.iter().any(|t| t.kind == Kind::Open) => inline_decls(&mut xtokens(&l.text)),
-        Kw::Decl { init: Some(x), .. } => inline_decls(&mut x[1..].to_vec()),
+        Kw::Decl { init: Some(x), .. } => {
+            if x.len() > 2 {
+                let mut rhs = x.split_off(2);
+                let decls = inline_decls(&mut rhs);
+                x.extend(rhs);
+                decls
+            } else {
+                Vec::new()
+            }
+        }
+        Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. } => inline_decls(&mut xtokens(&l.text)),
         _ => Vec::new(),
     };
     Ok(Statement { line: l.no, kw, text: l.text.clone(), decls })

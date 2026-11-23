@@ -30,8 +30,6 @@ pub struct Jg5State {
     /// A model's alternate textures a script changed, a whole copy of the record's, by
     /// form and subrecord (read through [`alt_textures`]).
     pub alt_textures: HashMap<(FormId, [u8; 4]), Vec<AltTexture>>,
-    /// SetWorldspaceEncounterZone's zones (None: removed), read through [`cell_zone`].
-    pub world_zones: HashMap<FormId, Option<FormId>>,
     /// SetRegionMapName's map blocks: the name and the header's priority (read through
     /// [`region_map`]).
     pub region_maps: HashMap<FormId, (String, u8)>,
@@ -155,26 +153,14 @@ fn alt_mut<'a>(g: &'a mut Game, f: FormId, sub: [u8; 4]) -> &'a mut Vec<AltTextu
 
 /// The encounter zone of a cell as it stands now: SetCellEncounterZone's (`nvse_jg2`),
 /// else the cell's own (CELL XEZN), else SetWorldspaceEncounterZone's for its
-/// worldspace, else the worldspace's (WRLD XEZN) [hypothesis: as
-/// `fnv_sim::RefTable::cell_zone`, a script's change in place of the record's].
+/// worldspace, else the worldspace's (WRLD XEZN) (`fnv_sim::World::cell_zone_of`).
 pub fn cell_zone(g: &Game, cell: FormId) -> Option<FormId> {
-    if let Some(z) = g.other.cell_zones.get(&cell) {
-        return *z;
-    }
-    let placed = g.world.placed;
-    if let Some(z) = placed.cell_zones.get(&cell) {
-        return Some(*z);
-    }
-    let w = placed.world_of(cell)?;
-    world_zone(g, w)
+    g.world.cell_zone_of(cell)
 }
 
 /// A worldspace's encounter zone: SetWorldspaceEncounterZone's, else WRLD XEZN.
 fn world_zone(g: &Game, w: FormId) -> Option<FormId> {
-    match g.other.jg5.world_zones.get(&w) {
-        Some(z) => *z,
-        None => g.world.placed.world_zones.get(&w).copied(),
-    }
+    g.world.world_zone_of(w)
 }
 
 /// A region's map block (its name and priority): SetRegionMapName's, else the record's
@@ -402,7 +388,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if form(args, 1).is_some() && z.is_none() {
                 return Some(Ok(zero));
             }
-            g.other.jg5.world_zones.insert(w, z);
+            g.world.set_world_zone(w, z);
             XVal::Num(1.0)
         }
         // ---- regions ----

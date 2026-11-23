@@ -162,6 +162,7 @@ fn script_input(
         }
     }
     script_held.extend(input.script_held.iter().copied());
+    sync_pad_state(&mut rt.game, &pads);
 }
 
 /// The rounds in the player's magazine for GetPlayerCurrentAmmoRounds.
@@ -319,8 +320,55 @@ fn sync_motion_in_air(game: &mut fnv_game::game::Game, phys: Option<&crate::phys
     }
 }
 
+/// Read one trigger's live analog value (`0.0..=1.0`) from an action-filtered pad,
+/// falling back to `1.0` when a digital-only controller reports `pressed` with a zero/absent
+/// analog reading [design: preserves `#2200` switching suppression because `ActionPad::get`
+/// returns `Some(0.0)` and `ActionPad::pressed` returns `false` on consumed switching presses].
+fn pad_trigger_value(pad: &crate::pad::device::ActionPad<'_>, button: GamepadButton) -> f32 {
+    let analog = pad.get(button).filter(|v| v.is_finite()).map_or(0.0, |v| v.clamp(0.0, 1.0));
+    if analog == 0.0 && pad.pressed(button) {
+        1.0
+    } else {
+        analog
+    }
+}
+
+/// Publish live gamepad state across all connected action-filtered pads so controller
+/// queries, `OnButtonDown`/`OnButtonUp`, and `SetOnTriggerDownEventHandler`/
+/// `SetOnTriggerUpEventHandler` (via `Game::jip_keys` in `Game::tick` / `Game::page_tick`)
+/// see current-frame input regardless of controller enumeration order [design].
+fn sync_pad_state(game: &mut fnv_game::game::Game, pads: &crate::pad::ActionPads) {
+    let mut connected = false;
+    let mut buttons = 0u32;
+    let mut triggers = [0.0f32; 2];
+    let mut left_stick = Vec2::ZERO;
+    let mut right_stick = Vec2::ZERO;
+    for g in pads.iter() {
+        connected = true;
+        for &(b, mask) in &PAD_BITS {
+            if g.pressed(b) {
+                buttons |= mask;
+            }
+        }
+        triggers[0] = triggers[0].max(pad_trigger_value(&g, GamepadButton::LeftTrigger2));
+        triggers[1] = triggers[1].max(pad_trigger_value(&g, GamepadButton::RightTrigger2));
+        let (l, r) = (g.left_stick(), g.right_stick());
+        if l.length_squared() > left_stick.length_squared() {
+            left_stick = l;
+        }
+        if r.length_squared() > right_stick.length_squared() {
+            right_stick = r;
+        }
+    }
+    let pad = &mut game.jip2.told.pad;
+    pad.connected = connected;
+    pad.buttons = buttons;
+    pad.sticks = [left_stick.x, left_stick.y, right_stick.x, right_stick.y];
+    game.publish_pad_triggers(triggers[0], triggers[1]);
+}
+
 /// Tell the scripts the player's auto-move, aiming, kill-camera, actors' airborne state
-/// (player and physics NPCs), and the first connected pad (GetAutoMove,
+/// (player and physics NPCs), and connected pads (GetAutoMove,
 /// GetPCUsingScope/IronSights, IsInKillCam, IsInAir, the controller functions), and
 /// whether the sights are up (`Combat::player_sights_up`: not while blocking with a melee
 /// weapon or while a reload holds them down), for SUP's HUD bars' aiming condition.
@@ -345,22 +393,7 @@ fn tell_player_state(
         };
     }
     told.kill_cam = kill_cam.is_some_and(|k| k.kill_playing());
-    let pad = &mut told.pad;
-    match pads.iter().next() {
-        Some(g) => {
-            pad.connected = true;
-            pad.buttons = PAD_BITS.iter().filter(|(b, _)| g.pressed(*b)).map(|(_, m)| m).sum();
-            pad.triggers = [g.get(GamepadButton::LeftTrigger2).unwrap_or(0.0), g.get(GamepadButton::RightTrigger2).unwrap_or(0.0)];
-            let (l, r) = (g.left_stick(), g.right_stick());
-            pad.sticks = [l.x, l.y, r.x, r.y];
-        }
-        None => {
-            pad.connected = false;
-            pad.buttons = 0;
-            pad.triggers = [0.0; 2];
-            pad.sticks = [0.0; 4];
-        }
-    }
+    sync_pad_state(&mut rt.game, &pads);
 }
 
 /// Once the game's Data is open: mods' files are read from NVForever's mods layer, then
@@ -531,5 +564,195 @@ mod kill_cam_state_tests {
         app.world_mut().remove_resource::<crate::phys::PhysState>();
         app.update();
         assert_eq!(is_in_air(&mut app, None), XVal::Num(0.0));
+    }
+}
+
+#[cfg(test)]
+mod pad_trigger_event_tests {
+    use super::*;
+    use crate::bindings::{Bindings, InputDevice};
+    use crate::script::ScriptState;
+    use crate::tiles::mods::{self, ModsPage};
+    use fnv_game::game::{menus, RunCtx};
+    use fnv_script::vm::XVal;
+
+    fn tick_game(mut state: ResMut<ScriptState>) {
+        state.rt.as_mut().unwrap().game.tick();
+    }
+
+    fn setup_app(with_switching: bool) -> App {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Bindings>()
+            .init_resource::<ScriptBlocked>()
+            .init_resource::<crate::pad::StickButtons>()
+            .add_message::<MouseWheel>()
+            .insert_resource(ScriptState::over_no_plugins());
+        if with_switching {
+            app.init_resource::<crate::pad::SwitchingInput>()
+                .add_systems(PreUpdate, (crate::pad::device::automatic, script_input).chain());
+        } else {
+            app.add_systems(PreUpdate, script_input);
+        }
+        app.add_systems(Update, (tell_player_state, tick_game).chain());
+        {
+            let mut state = app.world_mut().resource_mut::<ScriptState>();
+            let game = &mut state.rt.as_mut().unwrap().game;
+            let files = fnv_ui::MemSource::default().with(
+                "triggers.xml",
+                r#"<menu name="HUDMainMenu"><rect name="Trig"><_ltDown>0</_ltDown><_rtDown>0</_rtDown><_ltUp>0</_ltUp><_rtUp>0</_rtUp><_pageRt>0</_pageRt></rect></menu>"#,
+            );
+            game.ui_tree.load_menu(&files, "triggers.xml").unwrap();
+            game.ui_tree.update();
+            let setup = "Begin Function {}\n\
+                SetOnTriggerDownEventHandler (Begin Function {int iTrig}\n\
+                  SetUIFloat \"HUDMainMenu/Trig/_ltDown\" ((GetUIFloat \"HUDMainMenu/Trig/_ltDown\") + 1)\n\
+                End) 1 0\n\
+                SetOnTriggerDownEventHandler (Begin Function {int iTrig}\n\
+                  SetUIFloat \"HUDMainMenu/Trig/_rtDown\" ((GetUIFloat \"HUDMainMenu/Trig/_rtDown\") + 1)\n\
+                  if MenuMode 1013\n\
+                    SetUIFloat \"HUDMainMenu/Trig/_pageRt\" ((GetUIFloat \"HUDMainMenu/Trig/_pageRt\") + 1)\n\
+                  endif\n\
+                End) 1 1\n\
+                SetOnTriggerUpEventHandler (Begin Function {int iTrig}\n\
+                  SetUIFloat \"HUDMainMenu/Trig/_ltUp\" ((GetUIFloat \"HUDMainMenu/Trig/_ltUp\") + 1)\n\
+                End) 1 0\n\
+                SetOnTriggerUpEventHandler (Begin Function {int iTrig}\n\
+                  SetUIFloat \"HUDMainMenu/Trig/_rtUp\" ((GetUIFloat \"HUDMainMenu/Trig/_rtUp\") + 1)\n\
+                End) 1 1\n\
+                End\n";
+            game.run_query(setup, RunCtx::default()).unwrap();
+        }
+        app
+    }
+
+    fn count(app: &App, name: &str) -> f64 {
+        app.world()
+            .resource::<ScriptState>()
+            .rt
+            .as_ref()
+            .unwrap()
+            .game
+            .ui_tree
+            .get_float(&format!("HUDMainMenu/Trig/{name}"))
+            .unwrap()
+    }
+
+    fn trigger_getter(app: &mut App, name: &str) -> f64 {
+        let mut state = app.world_mut().resource_mut::<ScriptState>();
+        let game = &mut state.rt.as_mut().unwrap().game;
+        match fnv_game::nvse::call(game, &RunCtx::default(), name, None, &[]).unwrap().unwrap() {
+            XVal::Num(n) => n,
+            v => panic!("{name}: {v:?}"),
+        }
+    }
+
+    #[test]
+    fn gamepad_triggers_fire_jip_handlers_across_analog_digital_multipad_and_disconnect() {
+        let mut app = setup_app(false);
+        let pad_idle = app.world_mut().spawn(Gamepad::default()).id();
+        let pad_active = app.world_mut().spawn(Gamepad::default()).id();
+
+        // Analog noise below 30/255 does not fire.
+        app.world_mut().get_mut::<Gamepad>(pad_active).unwrap().analog_mut().set(GamepadButton::LeftTrigger2, 0.05);
+        app.update();
+        assert_eq!((count(&app, "_ltDown"), count(&app, "_rtDown")), (0.0, 0.0));
+
+        // Analog LT above 30/255 (even below Bevy's 0.75 digital threshold) on second pad fires LT down once.
+        app.world_mut().get_mut::<Gamepad>(pad_active).unwrap().analog_mut().set(GamepadButton::LeftTrigger2, 0.25);
+        app.update();
+        app.update();
+        assert_eq!((count(&app, "_ltDown"), count(&app, "_rtDown")), (1.0, 0.0));
+        assert!((trigger_getter(&mut app, "getlefttrigger") - 0.25).abs() < 1e-4);
+
+        // Non-finite analog value on first pad is sanitized and does not poison active pad or fire RT.
+        app.world_mut().get_mut::<Gamepad>(pad_idle).unwrap().analog_mut().set(GamepadButton::RightTrigger2, f32::NAN);
+        app.update();
+        assert_eq!((count(&app, "_ltDown"), count(&app, "_rtDown"), count(&app, "_ltUp")), (1.0, 0.0, 0.0));
+        assert_eq!(trigger_getter(&mut app, "getrighttrigger"), 0.0);
+
+        // Release LT -> fires LT up once.
+        app.world_mut().get_mut::<Gamepad>(pad_active).unwrap().analog_mut().set(GamepadButton::LeftTrigger2, 0.0);
+        app.update();
+        assert_eq!((count(&app, "_ltUp"), count(&app, "_rtUp")), (1.0, 0.0));
+
+        // Digital-only press on a pad with no analog reading fires LT down, then release fires LT up.
+        let pad_digital = app.world_mut().spawn(Gamepad::default()).id();
+        app.world_mut().get_mut::<Gamepad>(pad_digital).unwrap().digital_mut().press(GamepadButton::LeftTrigger2);
+        app.update();
+        assert_eq!(count(&app, "_ltDown"), 2.0);
+        assert_eq!(trigger_getter(&mut app, "getlefttrigger"), 1.0);
+        app.world_mut().get_mut::<Gamepad>(pad_digital).unwrap().digital_mut().release(GamepadButton::LeftTrigger2);
+        app.update();
+        assert_eq!(count(&app, "_ltUp"), 2.0);
+
+        // Press RT on active pad, then despawn (disconnect) all pads -> fires RT down then RT up cleanly.
+        app.world_mut().get_mut::<Gamepad>(pad_active).unwrap().analog_mut().set(GamepadButton::RightTrigger2, 0.9);
+        app.update();
+        assert_eq!((count(&app, "_rtDown"), count(&app, "_rtUp")), (1.0, 0.0));
+        app.world_mut().despawn(pad_idle);
+        app.world_mut().despawn(pad_active);
+        app.world_mut().despawn(pad_digital);
+        app.update();
+        assert_eq!((count(&app, "_rtDown"), count(&app, "_rtUp")), (1.0, 1.0));
+    }
+
+    #[test]
+    fn switching_frame_suppresses_trigger_edge_until_next_frame_and_mods_page_receives_triggers() {
+        let mut app = setup_app(true);
+        app.world_mut().resource_mut::<Bindings>().device = InputDevice::KeyboardMouse;
+        app.world_mut().resource_mut::<Bindings>().automatic_input_switching = true;
+        let pad = app.world_mut().spawn(Gamepad::default()).id();
+        app.update();
+
+        // Pull LT past switching threshold: device switches to Controller, switching frame is suppressed, next frame fires LT down.
+        app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadButton::LeftTrigger2, 0.8);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+        assert_eq!(count(&app, "_ltDown"), 0.0, "consumed switching press must not fire on switching frame");
+        app.update();
+        assert_eq!(count(&app, "_ltDown"), 1.0, "held trigger fires once controller is active");
+
+        // Under ModsPage (`page_tick(menus::START)`), pulling RT fires inside MenuMode 1013 and does not replay on tick().
+        let mut page_app = App::new();
+        page_app
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<ScriptBlocked>()
+            .init_resource::<ModsPage>()
+            .add_message::<MouseWheel>()
+            .insert_resource(ScriptState::over_no_plugins())
+            .add_systems(PreUpdate, script_input)
+            .add_systems(Update, (tell_player_state, |mut s: ResMut<ScriptState>, mut p: ResMut<ModsPage>| mods::tick(&mut s.rt.as_mut().unwrap().game, &mut p)).chain());
+        {
+            let mut state = page_app.world_mut().resource_mut::<ScriptState>();
+            let game = &mut state.rt.as_mut().unwrap().game;
+            let files = fnv_ui::MemSource::default().with(
+                "triggers.xml",
+                r#"<menu name="HUDMainMenu"><rect name="Trig"><_ltDown>0</_ltDown><_rtDown>0</_rtDown><_ltUp>0</_ltUp><_rtUp>0</_rtUp><_pageRt>0</_pageRt></rect></menu>"#,
+            );
+            game.ui_tree.load_menu(&files, "triggers.xml").unwrap();
+            game.run_query(
+                "Begin Function {}\n\
+                 SetOnTriggerDownEventHandler (Begin Function {int iTrig}\n\
+                   SetUIFloat \"HUDMainMenu/Trig/_rtDown\" ((GetUIFloat \"HUDMainMenu/Trig/_rtDown\") + 1)\n\
+                   if MenuMode 1013\n\
+                     SetUIFloat \"HUDMainMenu/Trig/_pageRt\" ((GetUIFloat \"HUDMainMenu/Trig/_pageRt\") + 1)\n\
+                   endif\n\
+                 End) 1 1\n\
+                 End\n",
+                RunCtx::default(),
+            )
+            .unwrap();
+        }
+        let page_pad = page_app.world_mut().spawn(Gamepad::default()).id();
+        page_app.world_mut().get_mut::<Gamepad>(page_pad).unwrap().analog_mut().set(GamepadButton::RightTrigger2, 0.85);
+        page_app.update();
+        assert_eq!((count(&page_app, "_rtDown"), count(&page_app, "_pageRt")), (1.0, 1.0));
+        // Subsequent regular tick must not replay the already-consumed RT press.
+        page_app.world_mut().resource_mut::<ScriptState>().rt.as_mut().unwrap().game.tick();
+        assert_eq!((count(&page_app, "_rtDown"), count(&page_app, "_pageRt")), (1.0, 1.0));
+        assert!(!page_app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.menu_open(menus::START));
     }
 }

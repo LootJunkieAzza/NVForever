@@ -46,6 +46,7 @@ mod pbr_check;
 mod pbr_cmd;
 mod phys_cmd;
 mod quest_sweep;
+mod save_cmd;
 mod script_cmd;
 mod sim_cmd;
 mod source;
@@ -152,6 +153,9 @@ enum Cmd {
     /// menu's tiles and trait values.
     #[command(subcommand)]
     Ui(ui_cmd::UiCmd),
+    /// Offline `.fos` save inspection and conversion to NVForever `.nvfsave` files.
+    #[command(subcommand)]
+    Save(save_cmd::SaveCmd),
 }
 
 #[derive(Subcommand)]
@@ -1255,6 +1259,7 @@ fn main() -> ExitCode {
         Cmd::Voice(c) => voice_cmd::run(c),
         Cmd::Ext(c) => ext_cmd::run(c),
         Cmd::Ui(c) => ui_cmd::run(c),
+        Cmd::Save(c) => save_cmd::run(c),
     };
     match res {
         Ok(v) => {

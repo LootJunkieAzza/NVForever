@@ -162,6 +162,11 @@ screen's height):
   caps it holds, and the figure shows that amount [observed 2026-11-06: section 9].
 - **Quest items** cannot be sold [documented: GECK wiki Category:Items]; they are not
   listed [hypothesis].
+- **Keys (`KEYM`)** are not listed on either side of the barter menu (#3432)
+  [hypothesis: issue #3432 reports that keys do not appear in barter in the original
+  engine; not yet captured with a parity probe. Excluded from both player and merchant
+  lists regardless of item value or Quest Item flag; keys remain listed in the Pip-Boy
+  inventory (`Keyring` folder) and in container/pickpocket menus].
 - **Restocking** on two days of the week [documented: "Merchant Restocking"] is the
   simulation's (`fnv-sim` merchant restock days), not the menu's.
 - **The menu's code** for `MenuMode` is 1053 [hypothesis: the GECK wiki's list as

@@ -359,13 +359,14 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
             let tile = fnv_ui::input::find(&g.ui_tree, &path).filter(|&t| fnv_ui::input::targets(&g.ui_tree, t) && g.ui_tree.tile(t).get("id").is_some());
             yes(click(g, tile, times))
         }
-        // Any tile that takes input (`target` true) [documented: ClickMenuTile, "should work
-        // with any interactable UI tile"], hidden or not [documented: Tutorial:
-        // Understanding XML, a hidden element "can still be activated through script"];
-        // `Menu#<id>` too [design]. The page gives no return; 1 when it clicked
-        // [hypothesis].
+        // Any tile that takes input (`target` true, or inside a target `<hotrect>`)
+        // [documented: ClickMenuTile, "should work with any interactable UI tile";
+        // Hotrect, target hotrects enforce targeting onto their children], hidden or not
+        // [documented: Tutorial: Understanding XML, a hidden element "can still be
+        // activated through script"]; `Menu#<id>` too [design]. The page gives no return;
+        // 1 when it clicked [hypothesis].
         "clickmenutile" => {
-            let tile = fnv_ui::input::find(&g.ui_tree, &path).filter(|&t| fnv_ui::input::targets(&g.ui_tree, t));
+            let tile = fnv_ui::input::find(&g.ui_tree, &path).and_then(|t| fnv_ui::input::clickable_target(&g.ui_tree, t));
             yes(click(g, tile, 1))
         }
         _ => return None,

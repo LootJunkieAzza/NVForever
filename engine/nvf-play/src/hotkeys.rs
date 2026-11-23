@@ -100,6 +100,27 @@ pub fn index_of(c: Control) -> Option<usize> {
     CONTROLS.iter().position(|&k| k == c)
 }
 
+/// Normalise a `SetItemHotkeyIconPath` override to a path relative to `textures\` (lower
+/// case, backslashes, collapsed separators, no leading separator or redundant
+/// `data\textures\` / `textures\` prefix), returning `None` when empty [design:
+/// `crate::interface::Pictures` prepends `textures\` when opening a picture's own file].
+pub fn normalize_icon_path(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let norm = fnv_vfs::normalize(trimmed);
+    let rel = norm.strip_prefix("data\\textures\\").or_else(|| norm.strip_prefix("textures\\")).unwrap_or(&norm);
+    let rel = rel.trim_start_matches('\\');
+    (!rel.is_empty()).then(|| rel.to_string())
+}
+
+/// The normalised `SetItemHotkeyIconPath` override for `item`, if the script runtime has
+/// a non-empty one [documented: SetItemHotkeyIconPath; design: `normalize_icon_path`].
+pub fn icon_override(item: FormId, script: Option<&crate::script::ScriptState>) -> Option<String> {
+    script?.rt.as_ref()?.game.item_hotkey_icon_path(item).and_then(normalize_icon_path)
+}
+
 /// What using a slot did.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Used {
@@ -279,5 +300,51 @@ mod tests {
         let mut empty = bevy::ecs::world::World::new();
         empty.insert_resource(Hotkeys::default());
         assert!((SAVE_HOOK.save)(&empty).is_none());
+    }
+
+    #[test]
+    fn hotkey_icon_path_normalization_strips_textures_prefix_and_normalizes_slashes() {
+        assert_eq!(normalize_icon_path(""), None);
+        assert_eq!(normalize_icon_path("   "), None);
+        assert_eq!(normalize_icon_path("/"), None);
+        assert_eq!(normalize_icon_path("textures\\"), None);
+        assert_eq!(normalize_icon_path("data\\textures\\"), None);
+
+        let expected = "interface\\icons\\custom_hotkey.dds";
+        for raw in [
+            "interface\\icons\\custom_hotkey.dds",
+            "Interface/Icons/Custom_Hotkey.dds",
+            "\\Interface\\Icons\\Custom_Hotkey.dds",
+            "/Interface/Icons/Custom_Hotkey.dds",
+            "textures\\interface\\icons\\custom_hotkey.dds",
+            "Textures/Interface/Icons/Custom_Hotkey.dds",
+            "/textures/interface/icons/custom_hotkey.dds",
+            "textures\\\\interface\\\\icons//custom_hotkey.dds",
+            "data\\textures\\interface\\icons\\custom_hotkey.dds",
+            "  Textures\\Interface\\Icons\\Custom_Hotkey.dds  ",
+        ] {
+            let norm = normalize_icon_path(raw).unwrap_or_else(|| panic!("expected path for {raw:?}"));
+            assert_eq!(norm, expected, "raw={raw:?}");
+            let located = crate::interface::Pictures::default().locate(&norm, None, &|_| None);
+            assert_eq!(located.texture, "textures\\interface\\icons\\custom_hotkey.dds", "no double textures\\ prefix for {raw:?}");
+        }
+    }
+
+    #[test]
+    fn icon_override_reads_updates_and_clears_from_script_runtime() {
+        let mut script = crate::script::ScriptState::over_no_plugins();
+        let item = FormId(0x0000_434F);
+        assert_eq!(icon_override(item, None), None);
+        assert_eq!(icon_override(item, Some(&script)), None);
+
+        let rt = script.rt.as_mut().unwrap();
+        rt.game.showoff.hotkey_icons.insert(item, "Textures/Interface/Icons/First.dds".into());
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\first.dds"));
+
+        script.rt.as_mut().unwrap().game.showoff.hotkey_icons.insert(item, "interface\\icons\\second.dds".into());
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\second.dds"));
+
+        script.rt.as_mut().unwrap().game.showoff.hotkey_icons.remove(&item);
+        assert_eq!(icon_override(item, Some(&script)), None);
     }
 }

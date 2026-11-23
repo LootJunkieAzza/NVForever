@@ -1442,7 +1442,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "setweathertransitiontimeoverride" => {
             // NaN or infinity changes nothing.
             if let Some(s) = field_number(num(args, 0, 0.0), 0.0, F32.1) {
-                g.other.jip7.weather_transition = (s > 0.0).then_some(s);
+                let next = (s > 0.0).then_some(s);
+                if g.other.jip7.weather_transition != next {
+                    g.other.jip7.weather_transition = next;
+                    g.traits.note_weather_visual_change();
+                }
             }
             zero
         }

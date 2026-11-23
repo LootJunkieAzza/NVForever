@@ -242,13 +242,16 @@ fn setting_f32(sim: &SimState, name: &str) -> Option<f32> {
 /// Whether the player may travel to `m` by the scripts' and the markers' word: found,
 /// flagged Can Travel To, or made a target by ShowMap or ShowAllMapMarkers.
 fn travel_target(st: &DataState, script: Option<&ScriptState>, m: &read::Marker) -> bool {
-    let by_script = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| {
-        let p = &rt.game.player;
-        p.travel_markers.contains(&FormId(m.form)) || p.all_markers.is_some_and(|a| a.shown && a.travel)
-    });
-    // LU's SetMapMarkerTravel over the record's flag (`fnv_game::nvse_lu2`).
-    let flags = script.and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.marker_flags(FormId(m.form))).unwrap_or(m.flags);
-    st.discovered.contains(&m.form) || flags & 2 != 0 || by_script
+    if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
+        let id = FormId(m.form);
+        if rt.game.marker_flags(id).is_some() {
+            if rt.game.marker_flag_override(id, fnv_game::nvse_lu2::MARKER_TRAVEL) == Some(false) {
+                return false;
+            }
+            return st.discovered.contains(&m.form) || rt.game.marker_travel(id);
+        }
+    }
+    st.discovered.contains(&m.form) || (m.flags & 3 == 3)
 }
 
 /// What the refusals look at: the player's body, where they are, the actors near, the

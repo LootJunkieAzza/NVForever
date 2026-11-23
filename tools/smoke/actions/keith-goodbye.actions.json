@@ -1,0 +1,11 @@
+{
+  "format": "fnv.dialogue.actions/1",
+  "title": "Keith's GOODBYE (INFO 0x0014E019, no Goodbye flag) from the new-game state: the conversation ends when the line is over (#3477)",
+  "new_game": true,
+  "actions": [
+    {"op": "talk", "actor": "0x000F83A5"},
+    {"op": "wait_talk"},
+    {"op": "choose", "topic": "GOODBYE"},
+    {"op": "wait_talk"}
+  ]
+}

@@ -2,6 +2,7 @@
   "format": "fnv.script.actions/1",
   "title": "Headless I Could Make You Care (VMS49), Veronica stays: hired at the 188, the Elder's two refusals, Elijah's notes, the pulse gun, the paladins outside Hidden Valley, Bonds of Steel",
   "given": [
+    {"kind": "ref", "ref": "NellisMainGateREF", "locked": false}, {"kind": "quest", "quest": "VFreeformNellis", "vars": {"iNellisFrontGateStart": 2}},
     {"kind": "actor_value", "of": "player", "av": "Speech", "value": 80}
   ],
   "actions": [

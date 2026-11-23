@@ -1,7 +1,7 @@
 {
  "format": "fnv.script.actions/1",
  "title": "Headless Ant Misbehavin' (VNellisInfestation): Raquel's generator room, Loyal's sonic emitter on the ant nest, the arrays' power back on (stage 20)",
- "given": [],
+ "given": [{"kind": "ref", "ref": "NellisMainGateREF", "locked": false}, {"kind": "quest", "quest": "VFreeformNellis", "vars": {"iNellisFrontGateStart": 2}}],
  "actions": [
   {"op": "note", "text": "Path (sonic emitter): Mother Pearl lets the player into Nellis (VMS15 20, copied from volare.actions.json); Raquel tells of the ants in the generator room (the quest starts with its objectives 15 and 20; she hands over the generator key); Loyal is told the frequency (Science 50, given) and hands over his sonic emitter; it is placed on the ant mound and switched on, and its script kills the nest (objective 20); the two side switches and the main breaker bring the arrays' power back (objective 15); Raquel hears it (stage 20, Complete Quest). Stage 10 is set by nothing in FalloutNV.esm; 22 is the other ending (the player claims the job done, Speech 55, before the ants are dead)."},
   {"op": "note", "text": "Stand-in for the run through the Boomers' artillery to the front gate: the gate's trigger brings out the gate guard, whose greeting enables Raquel; he sends for her."},

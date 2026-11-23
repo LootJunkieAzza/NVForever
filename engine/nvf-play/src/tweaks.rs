@@ -1142,7 +1142,7 @@ impl Plugin for TweaksPlugin {
             .add_systems(Update, remember_item_places.after(crate::menu::MenuSystems))
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
             .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key, skip_radio_song, toggle_device).in_set(crate::PlaySet::Input))
-            .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
+            .add_systems(Update, (objectives_on_arrival, revive_companions_on_arrival).in_set(crate::PlaySet::Ui))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         sound_list!(app, "discovered-sound", "Location Discovered Sound", "The sound a newly discovered place plays: the game's own, or another of its interface sounds. (Stewie's Tweaks bCustomLocationDiscoveredSound)", discovered_sound);
@@ -1263,6 +1263,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "loot-unconscious", "Search the Unconscious", "An unconscious actor can be searched like a dead one. (Stewie's Tweaks bLootUnconsciousVictims)", game.loot_unconscious);
         switch!(app, "revive-companions", "Revive Unconscious Companions", "Activating a knocked-out companion uses a Stimpak and gets them up at once. (Stewie's Tweaks bReviveUnconsciousCompanions)", game.revive_companions);
         amount!(app, "revive-down-seconds", "Revive: Companions Stay Down", "Least seconds a revivable companion stays down (and in a fight); 0 keeps 10. (Stewie's Tweaks bReviveUnconsciousCompanions, fUnconsciousTime)", 600.0, f32, game.revive_down_seconds);
+        switch!(app, "revive-on-cell-change", "Revive: On Changing Cells", "Knocked-out companions get up automatically on a worldspace or interior change. (Stewie's Tweaks bReviveUnconsciousCompanions, bReviveWhenChangingCells)", game.revive_on_cell_change);
         switch!(app, "pickpocket-worn", "Pickpocket Worn Items", "What an actor wears can be pickpocketed (never a child's). (Stewie's Tweaks bPickpocketWornItems)", game.pickpocket_worn_items);
         switch!(app, "no-sneak-criticals", "No Sneak Criticals", "The player's sneak attacks are not criticals. (Stewie's Tweaks bNoSneakAttacksCriticals)", game.no_sneak_criticals);
         switch!(app, "reload-when-empty", "Reload Only When Empty", "The player cannot reload a magazine that still has rounds. (Stewie's Tweaks bDisableReloadingNonEmptyClip)", game.reload_only_when_empty);
@@ -1451,6 +1452,7 @@ impl Plugin for TweaksPlugin {
         // ---- batch 13 ----
         switch!(app, "aid-at-full-health", "Aid at Full Health", "The STATS page's Stimpak and Doctor's Bag can be used with nothing hurt. (Stewie's Tweaks bAllowAidAtMaxHealth)", game.aid_at_full_health);
         switch!(app, "grabbing-is-theft", "Grabbing Is Stealing", "Grabbing someone else's thing counts as stealing it. (Stewie's Tweaks bGrabbingItemsIsCrime)", game.grabbing_is_theft);
+        amount!(app, "grabbing-is-theft-min-value", "Grabbing Is Stealing: Min Value", "Lowest item value (caps) that makes grabbing an owned item a crime; 0 counts any item. (Stewie's Tweaks bGrabbingItemsIsCrime, fMinValue)", 500.0, f32, game.grabbing_is_theft_min_value);
         switch!(app, "vendor-lists", "Merchants Keep to Their Lists", "A merchant buys from the player only what its list says it deals in. (Stewie's Tweaks bBarterCheckActorBuySellFlags)", vendor_lists_both);
         switch!(app, "key-name", "Name the Key", "A lock that needs a key names it. (Stewie's Tweaks bLockNeedsKeyShowName)", game.lock_needs_key_name);
         switch!(app, "no-skill-tags", "No Skill Tags", "Dialogue topics show no skill or perk tag. (Stewie's Tweaks bNoSkillTags)", game.no_skill_tags);
@@ -1512,6 +1514,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-companion-kill-xp", "No XP for Companion Kills", "A teammate's kills give the player no experience. (Stewie's Tweaks bNoCompanionKillXP)", game.no_companion_kill_xp);
         switch!(app, "no-disarm-companions", "Companions Keep Their Weapons", "A crippled arm does not make a teammate drop its weapon. (Stewie's Tweaks bNoDisarmCompanions)", game.no_disarm_companions);
         switch!(app, "no-self-explosion-damage", "Own Blasts Spare the Player", "The player's own explosions do not hurt the player. (Stewie's Tweaks bNoSelfExplosionDamage)", game.no_self_explosion_damage);
+        switch!(app, "no-self-explosion-non-hostiles", "Own Blasts Spare Non-Hostiles", "With Own Blasts Spare the Player on, your explosions also spare friendly and neutral actors. (Stewie's Tweaks bNoSelfExplosionDamage)", game.no_self_explosion_non_hostiles);
         switch!(app, "sneak-criticals-melee", "Sneak Criticals Melee Only", "Only melee and unarmed sneak attacks are criticals. (Stewie's Tweaks bSneakCriticalsOnlyMeleeWeapons)", game.sneak_criticals_melee_only);
         switch!(app, "teammates-meltdown", "Meltdown for Companions", "Teammates' energy weapon kills use the player's Meltdown perk. (Stewie's Tweaks bAllowTeammatesUseMeltdown)", game.teammates_meltdown);
         switch!(app, "speed-scales-jump", "Speed Scales the Jump", "The player's Speed Mult (and armour's pace) scales the jump's height. (Stewie's Tweaks bSpeedMultScalesJumpHeight)", game.speed_scales_jump);
@@ -1781,6 +1784,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "contact-mines-player", "Contact Mines (Player)", "A mine the player stands on goes off at once, with no fuse. (Stewie's Tweaks bContactMines, bPlayer)", game.contact_mines_player);
         switch!(app, "contact-mines-npcs", "Contact Mines (Others)", "A mine anyone else stands on goes off at once, with no fuse. (Stewie's Tweaks bContactMines, bNPCs)", game.contact_mines_npcs);
         amount!(app, "sleep-heal-min-hours", "Sleep Healing Min Duration", "Hours a sleep must last before it restores Health and heals limbs; 0 heals from the first hour. (Stewie's Tweaks bSleepHealingMinDuration)", 12.0, u32, game.sleep_heal_min_hours);
+        switch!(app, "sleep-misc-stat-requires-duration", "Sleep Healing: Stat Needs Full Duration", "Times Slept counts a sleep only when it meets Sleep Healing Min Duration. (Stewie's Tweaks bSleepHealingMinDuration, bMiscStatRequiresSleepDuration)", game.sleep_misc_stat_requires_duration);
         amount!(app, "barter-repair-discount", "Barter Lowers Repair Costs", "Percent of a vendor's repair price the player's Barter takes off at 100 (in proportion below); 0 changes nothing. (Stewie's Tweaks bBarterAffectsRepairCosts)", 60.0, f32, game.barter_repair_discount);
         add_setting(
             app,
@@ -2342,6 +2346,30 @@ fn objectives_on_arrival(
         last.1 = now;
         info!("tweaks: {} objective(s) of the active quest shown on arrival", list.len());
         quests.push(crate::script_events::QuestNotice::Objectives(list));
+    }
+}
+
+/// Revive Unconscious Companions on Cell Change (`bReviveWhenChangingCells`): moving to a
+/// new interior cell or worldspace revives every knocked-out companion without consuming a
+/// Stimpak [design: docs/design/tweaks.md].
+fn revive_companions_on_arrival(
+    tweaks: Res<TweakSettings>,
+    state: Res<State<crate::PlayState>>,
+    location: Option<Res<crate::Location>>,
+    mut script: Option<ResMut<ScriptState>>,
+    sim: Option<ResMut<crate::sim::SimState>>,
+    mut last: Local<Option<(u32, Option<u32>)>>,
+) {
+    let Some(loc) = location else { return };
+    let here = (loc.world, loc.interior);
+    let was = last.replace(here);
+    if !tweaks.game.revive_companions || !tweaks.game.revive_on_cell_change || *state.get() != crate::PlayState::Playing || was.is_none_or(|w| w == here) {
+        return;
+    }
+    let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
+    let revived = crate::script::with_world(rt, &mut sim, |rt| rt.game.revive_companions_on_cell_change());
+    if !revived.is_empty() {
+        info!("tweaks: {} knocked-out companion(s) revived on cell change", revived.len());
     }
 }
 

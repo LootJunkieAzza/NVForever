@@ -917,6 +917,10 @@ pub struct CombatStats {
     pub world_hits: u32,
     /// Shots on objects whose OnHit / OnHitWith blocks ran, and objects knocked away.
     pub object_scripts: u32,
+    /// The player's shots on objects whose OnHit / OnHitWith blocks ran, by object
+    /// reference: the quest pilot's sign that a shot landed (the laser detonator on Lonesome
+    /// Road's warheads).
+    pub player_object_hits: std::collections::BTreeMap<u32, u32>,
     pub objects_pushed: u32,
     pub explosions: u32,
     pub damage: f32,
@@ -4542,21 +4546,18 @@ fn hit_actor(
             info!("combat: critical effect {spell_name} ({spell}) on {name} {target}{}: {} effect(s)", if on_death { " (on death)" } else { "" }, ids.len());
         }
     }
-    // A critical by the player says so in the corner with the masters' critical icon
-    // [observed: FalloutNV.esm `sCriticalStrikeIcon`, the Critical Chance picture; design:
-    // the words are ours, the original's are not in the data]; the player's Critical Hit
-    // Messages Name the Limb tweak adds the part struck [design: docs/design/tweaks.md].
+    // A critical by the player says so in the corner with the default Vault Boy corner
+    // icon (`corner_messages::DEFAULT_ICON`, `glow_message_vaultboy_neutral.dds`).
+    // `FalloutNV.esm`'s `sCriticalStrikeIcon` (`glow_Critical_Chance.dds`, a 256x256
+    // Pip-Boy stat icon not in `InterfaceShared.tai`) is documented unused [documented:
+    // GECK wiki Unused Game Settings]; whether the original shows the neutral face or
+    // another `glow_message_vaultboy_*` face on criticals / sneak criticals is not yet
+    // observed [hypothesis]. The words are ours (the original's are not in the master
+    // data [design]); the player's Critical Hit Messages Name the Limb tweak adds the
+    // part struck [design: docs/design/tweaks.md].
     if mine && info.critical && !r.immune {
         let limb = r.limb.map(|(code, _)| limb_name(code)).filter(|_| rt.game.tweaks.crit_message_limb);
-        let text = match limb {
-            Some(l) => format!("Critical hit on {name}'s {l}"),
-            None => format!("Critical hit on {name}"),
-        };
-        let icon = match sim.world.setting_value("sCriticalStrikeIcon") {
-            Some(fnv_sim::settings::Setting::Str(s)) if !s.is_empty() => Some(s.clone()),
-            _ => None,
-        };
-        rt.game.emit(fnv_game::trace::EventKind::NoteShown { text, icon, seconds: CRIT_NOTE_SECONDS });
+        rt.game.emit(critical_hit_note(&name, limb));
     }
     if mine {
         stats.damage += r.dealt as f32;
@@ -4623,6 +4624,18 @@ pub(crate) static PLAYER_KILLS: std::sync::Mutex<Vec<(FormId, FormId, Option<u16
 
 /// How long the critical-hit corner message shows, seconds [design].
 const CRIT_NOTE_SECONDS: f32 = 2.0;
+
+/// Build the corner notification event for a player critical hit: uses the default
+/// corner-message icon (`icon: None` -> `corner_messages::DEFAULT_ICON`) rather than the
+/// documented-unused `sCriticalStrikeIcon` GMST [documented: GECK wiki Unused Game
+/// Settings; hypothesis: neutral face pending an unmodded original-game capture].
+fn critical_hit_note(name: &str, limb: Option<&str>) -> fnv_game::trace::EventKind {
+    let text = match limb {
+        Some(l) => format!("Critical hit on {name}'s {l}"),
+        None => format!("Critical hit on {name}"),
+    };
+    fnv_game::trace::EventKind::NoteShown { text, icon: None, seconds: CRIT_NOTE_SECONDS }
+}
 
 fn limb_name(code: u16) -> &'static str {
     code.checked_sub(25).and_then(|i| LIMB_NAMES.get(i as usize)).copied().unwrap_or("limb")
@@ -5969,11 +5982,11 @@ fn fly(
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
         let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
-        let own_blast_spares = cause.is_some_and(|c| c.actor == FormId::PLAYER_REF) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_self_explosion_damage);
+        let player_blast = cause.is_some_and(|c| c.actor == FormId::PLAYER_REF);
         for b in hits {
             let target = if b.actor == PLAYER { FormId::PLAYER_REF } else { FormId(b.actor as u32) };
-            // The player's tweak: the player's own blast spares the player [design: docs/design/tweaks.md].
-            if own_blast_spares && target == FormId::PLAYER_REF {
+            // The player's tweak: the player's own blast spares the player (and optionally non-hostiles) [design: docs/design/tweaks.md].
+            if player_blast && script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.own_explosion_spares(target))) {
                 continue;
             }
             // The player's tweak: a Meltdown blast spares the player and the companions [design: docs/design/tweaks.md].
@@ -6284,6 +6297,9 @@ fn fly(
                 let impulse = vec::scale(p.dir, p.force * OBJECT_PUSH * phys.world.params.units_per_metre);
                 let pushed = phys.world.push_ref(obj as u32, p.point, impulse, OBJECT_PUSH_MAX_SPEED);
                 stats.object_scripts += ran as u32;
+                if ran && shooter == FormId::PLAYER_REF {
+                    *stats.player_object_hits.entry(r.0).or_default() += 1;
+                }
                 stats.objects_pushed += pushed.is_some() as u32;
                 if ran || pushed.is_some() {
                     info!(
@@ -7886,6 +7902,29 @@ mod tests {
             sim.world.equip(FormId::PLAYER_REF, PISTOL).unwrap();
             equip_sync_step(&mut combat, &mut sim, &mut anim, false);
             assert_eq!(combat.player_ammo(), Some(AMMO_PLAIN));
+        }
+
+        /// #3433: critical-hit corner notifications must use the default corner-message
+        /// icon (`icon: None` -> `corner_messages::DEFAULT_ICON`) instead of the unused
+        /// `sCriticalStrikeIcon` GMST (`glow_Critical_Chance.dds`).
+        #[test]
+        fn critical_hit_note_uses_default_corner_icon() {
+            assert_eq!(
+                critical_hit_note("Giant Soldier Ant", None),
+                fnv_game::trace::EventKind::NoteShown {
+                    text: "Critical hit on Giant Soldier Ant".into(),
+                    icon: None,
+                    seconds: CRIT_NOTE_SECONDS,
+                }
+            );
+            assert_eq!(
+                critical_hit_note("Easy Pete", Some("torso")),
+                fnv_game::trace::EventKind::NoteShown {
+                    text: "Critical hit on Easy Pete's torso".into(),
+                    icon: None,
+                    seconds: CRIT_NOTE_SECONDS,
+                }
+            );
         }
     }
 }

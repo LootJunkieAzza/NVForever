@@ -34,7 +34,7 @@ for the process.
 | QueueObjectiveText `text [completed] [multiple]` | queued [documented: QueueObjectiveText]; the HUD does not show it yet |
 | TogglePipBoy `[tab]` | closes the Pip-Boy when it is open, else opens it on 1002 Inventory, 1003 Stats, 1023 Data [documented]; without a tab on the inventory [hypothesis: the page's "tab it closed on" is not kept by NVForever] |
 | ExitGameAlt, RollCredits, StopVATSCam, SetCameraShake `multiplier seconds`, SetHUDShudderPower `power` | requests for the engine (`Game::take_jg7_requests`) [documented: each page's summary]; no engine system takes them yet (follow-up) |
-| SetCustomMapMarkerIcon `marker|list path`, GetCustomMapMarkerIcon | the path for the marker reference, or for each member of a form list [documented]; the getter reads it on the calling marker. Without one, the marker type's icon file, `Interface\Icons\World Map\icon_map_<name>.dds` with the names of the world map's table (`MAP_MARKER_ICONS`, shared with the engine) [documented: "the default texture path"; observed 2026-11-08: the Goodsprings marker (type 3) read icon_map_encampment.dds in that spelling]; "" for a reference that is no map marker [hypothesis]. The map does not read the paths yet |
+| SetCustomMapMarkerIcon `marker|list path`, GetCustomMapMarkerIcon | the path for the marker reference, or for each member of a form list [documented]; an empty path clears the override back to the marker's type icon [hypothesis]; the getter reads it on the calling marker. Without one, the marker type's icon file (respecting `SetMapMarkerType`), `Interface\Icons\World Map\icon_map_<name>.dds` with the names of the world map's table (`MAP_MARKER_ICONS`, shared with the engine) [documented: "the default texture path"; observed 2026-11-08: the Goodsprings marker (type 3) read icon_map_encampment.dds in that spelling]; "" for a reference that is no map marker [hypothesis]. The Pip-Boy World Map and Local Map (`pipboy::data`, `tiles::map_menu`) now read `Game::custom_map_marker_icon` for discovered markers, falling back to the type icon when missing, while undiscovered markers keep `icon_map_undiscovered.dds`; drawing an undiscovered `FNAM=3` marker as discovered with its own icon (matching its observed `Vis=2, Trv=1` script values) is likewise [hypothesis] because the probes measured script values only and did not capture Pip-Boy icon drawing. For map-marker visibility script queries, authored `FNAM` flags read `0` (`FNAM=0`), `1` (`FNAM=1`), `2` with `GetMapMarkerTravel=1` (`FNAM=3`), and `0` with `GetMapMarkerTravel=0` (`FNAM=2`) before discovery (see `ext-lutana.md` §9) [observed: observer check 252 (#3468, `o31_mapmarker_visible`) and 2026-11-22 live map-marker probe on Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.3, JohnnyGuitar 5.28, fresh sandboxed world `coc GSProspectorSaloonInterior` via `nvf_capture` NVSE UDF script steps comparing Honest Hearts' `SouthernPassage` `0x01008885` (`FNAM=3`) and `FalloutNV.esm` `FNAM=0` markers] |
 | HSVtoRGB `h s v rOut gOut bOut`, RGBtoHSV `r g b hOut sOut vOut` | hue 0-360 degrees, saturation and value 0-1, channels 0-255, through script variables [documented]; the standard hexcone conversion, HSVtoRGB rounded to whole channels [hypothesis: probed as jg7.hsv.*, jg7.rgb.*]. The three outputs go to their variables through the VM's out-parameter table (`fnv_script::vm::out_params`) |
 | GetJohnnyPatch `id` | 1 for id 1 (bLoadEditorIDs, "no longer optional") [documented]; ids 3-8 read bFixFleeing, bFixItemStackCount, bFixNPCShootingAngle, bNoMuzzleFlashCooldown, bReset3rdPersonCamera and bJIPFixes from `Data\NVSE\Plugins\JohnnyGuitar.ini`, section MAIN [documented: the names; hypothesis: the file's place and section]; 0 without the file or for another id |
 | GetDefaultHeapSize | DefaultHeapInitialAllocMB from `Data\NVSE\nvse_config.ini`, any section [documented]; 0 without it [hypothesis]. Read only, through `mod_files::data_dir` |
@@ -51,13 +51,13 @@ AsmBreak and RefAddr, for the reasons above.
 
 Read by the engine in this batch: ToggleCombatMusic (music), ToggleDisableSaves (saves),
 TogglePipBoy (the menus), ToggleLevelUpMenu (`experience::level_up_due` / `xp_meter`),
-SetUIUpdateSound (`quest_messages`), PushUIQuestToTop (`pipboy::data` quest list), and
-HideItemBarterEx (`menu` / `menu::model::Trade`). Still to read, each a change of its own
-system: the menu arrow keys, the yield timer (no yielding yet), the viewmodel clip
-distance, the NiLOD override, the reputation and map marker icons,
-the HUD visibility flags under DisablePlayerControls, the Pip-Boy button lights,
-the queued cinematic and objective texts, and the requests (exit to the main menu, credits,
-the VATS camera, the camera shake, the HUD shudder).
+SetUIUpdateSound (`quest_messages`), PushUIQuestToTop (`pipboy::data` quest list),
+HideItemBarterEx (`menu` / `menu::model::Trade`), and SetCustomMapMarkerIcon (Pip-Boy World
+Map and Local Map). Still to read, each a change of its own system: the menu arrow keys, the
+yield timer (no yielding yet), the viewmodel clip distance, the NiLOD override, the
+reputation change icons, the HUD visibility flags under DisablePlayerControls, the Pip-Boy
+button lights, the queued cinematic and objective texts, and the requests (exit to the main
+menu, credits, the VATS camera, the camera shake, the HUD shudder).
 
 ## Observed 2026-11-08
 
