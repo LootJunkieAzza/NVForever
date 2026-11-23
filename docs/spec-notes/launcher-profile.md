@@ -22,7 +22,7 @@ These are the launcher's own choices, written up before the code in
 The launcher's own text files, not a format read out of the original game:
 
 - `modlist.txt`: one mod folder per line, in Mod Organizer 2's form so MO2 can
-  read it [design: owner 2026-11-22]. `+` is on, `-` is off, and a separator is
+  read it [design]. `+` is on, `-` is off, and a separator is
   `-<name>_separator`. Lines that are empty or start with `#` are skipped, and so
   are MO2's `*` lines (its foreign mods) when an MO2 profile is read. The winning
   folder is the first line. The page stores that folder last, and reverses the

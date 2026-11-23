@@ -35,8 +35,8 @@ keeps two text files in the home:
   line on. The format is NVForever's own
   [documented: `crates/fnv-install/src/plugins.rs`].
 - `mod-order.txt`: which mod folders are on, and their order, in Mod Organizer
-  2's `modlist.txt` form, so MO2 can read it [design: owner 2026-11-22, every
-  list file stays readable by MO2]. One line a row, the **highest priority
+  2's `modlist.txt` form, so MO2 can read it [design: every list
+  file stays readable by MO2]. One line a row, the **highest priority
   first**: `+name` on, `-name` off, a separator as `-<name>_separator`, CRLF
   line ends, no header [documented: docs/spec-notes/mod-organizer-profile.md,
   `modlist.txt`; `fnv_install::mod_order`]. The first on-line wins a loose-file
@@ -102,7 +102,11 @@ still exist on their own.
 - The game `Data` folder is not written. Neither is
   `Documents\My Games\FalloutNV`, except the one case already documented for
   an external instance ([documented: `crates/fnv-install` module notes]).
-- An output folder, `overwrite`, is not created. The same relative path there
-  would win over a mod folder. That folder is not built yet
+- An `overwrite` folder is not a layer: the game is not given it, so a file
+  there does not win over a mod folder [documented: `launch::spawn`,
+  `plugins::mod_content_layers`]. The launcher uses `<home>/overwrite` only for
+  **Make mod below**, which moves that folder's loose files into a new mod and
+  then makes the folder again, empty [documented: `App::make_mod_below`]. Nothing
+  else creates it. As the highest layer it is planned, not built
   [design: docs/design/launcher-mods.md].
 - Nexus and ModPub downloads are not part of the running launcher.

@@ -51,9 +51,11 @@ ask the original executable to look in a second folder.
   A start that was not given those arguments layers every mod folder in name
   order. On/off is not applied on that path, because the game does not read
   `mod-order.txt` [documented: `plugins::mod_folder_layers`].
-- [documented: `Layout::mod_roots` and `Vfs::open_for_plugins_layered`] A start
-  with `--mo2` is unchanged: each enabled mod folder of that instance, then its
-  overwrite folder. That start only reads.
+- [documented: `Layout::mod_roots`, `Vfs::open_for_plugins_layered` and
+  `plugins::plugin_path_in`] A start with `--mo2` is as on main: each enabled
+  mod folder of that instance, then its overwrite folder. A plugin is taken from
+  the top of those folders, highest first, then Data. Nothing is linked, copied
+  or written into the instance.
 
 ## Links
 
