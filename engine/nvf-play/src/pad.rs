@@ -970,6 +970,13 @@ pub struct MenuKeys {
     held: Vec<KeyCode>,
 }
 
+impl MenuKeys {
+    /// Whether a controller's button or stick holds `k` down now.
+    pub fn holds(&self, k: KeyCode) -> bool {
+        self.held.contains(&k)
+    }
+}
+
 /// Start: Esc, always.
 const ALWAYS: [(GamepadButton, KeyCode); 1] = [(GamepadButton::Start, KeyCode::Escape)];
 /// In a menu.

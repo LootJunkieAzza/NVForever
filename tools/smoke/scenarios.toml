@@ -35427,6 +35427,31 @@ forbid = [
 ]
 
 [[scenario]]
+name = "pad-bindings-play"
+source = "owner 2026-11-22: controller holds, double taps and combos act in the game, not only on the Controls page (docs/design/controller.md §2a); and B backs out of Settings a step at a time"
+note = "the synthetic controller (NVF_PLAY_TEST_KEYS pad-…) through the bindings' resolver (pad/resolver.rs). While paused at 1 s: Controller picked, Toggle Light on Hold Back (Wait keeps Back's tap), Holster Weapon on Double X (Ready / Reload keeps X's tap). A 10mm pistol equipped at 4.5 s; X tapped once at 6 s draws it, X twice at 8 s holsters it, Back held a second at 10 s lights the light. Start at 13 s, the D-pad and A open Settings, B three times: the rail, the column, the game. Frames in target/smoke (pad_play_*.png)"
+areas = ["main-menu", "controller"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/control.rs", "engine/nvf-play/src/flashlight.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/key_repeat.rs"]
+env = { NVFOREVER_HOME = "pad-bindings-play-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:3", NVF_PLAY_TEST_SETTINGS = "2:device:Controller,2.5:padbind:Toggle Light=Hold Back,3:padbind:Holster Weapon=Double X", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:Weap10mmPistol:1,4.5:call:player:EquipItem:Weap10mmPistol", NVF_PLAY_TEST_KEYS = "6:pad-X,8:pad-X,8.15:pad-X,10:pad-Back:1.0,13:pad-Start,14:pad-D-Pad Down,14.4:pad-D-Pad Down,14.8:pad-D-Pad Down,15.3:pad-A,16.5:pad-B,17.5:pad-B,18.5:pad-B", NVF_PLAY_TEST_SHOTS = "7:pad_play_drawn.png,9.2:pad_play_holstered.png,11.5:pad_play_light.png,16:pad_play_settings.png,17:pad_play_rail.png,18:pad_play_column.png,19.5:pad_play_resumed.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 22
+expect = [
+  { text = "controls: input device Controller", label = "the controller is the input device" },
+  { re = 'controls: Toggle Light bound to controller Hold Back', label = "a hold binds the light" },
+  { re = 'controls: Holster Weapon bound to controller Double X', label = "a double tap binds Holster Weapon" },
+  { text = "Ready Item pressed: the weapon drawn", count = 1, label = "one tap of X draws the weapon, the double tap does not" },
+  { text = "pad: Holster Weapon by Double X", label = "two taps of X are the double tap" },
+  { text = "Holster Weapon pressed: the weapon holstered", label = "the double tap holsters the weapon" },
+  { text = "pad: Toggle Light by Hold Back", label = "Back held is the hold" },
+  { text = "flashlight: on", label = "the hold lights the light" },
+  { text = "pause menu: settings open on Controls", label = "Start, the D-pad and A open Settings in play" },
+  { text = "pause menu: back to the rail (Controls)", label = "B on the rows goes back to the rail" },
+  { text = "pause menu: settings left, back to the column", label = "after the bindings were used, B on the rail leaves Settings" },
+  { text = "pause menu: resume", label = "and B on the column returns to play" },
+]
+order = [["Ready Item pressed: the weapon drawn", "Holster Weapon pressed: the weapon holstered", "flashlight: on", "pause menu: settings open on Controls", "pause menu: back to the rail (Controls)", "pause menu: settings left, back to the column", "pause menu: resume"]]
+
+[[scenario]]
 name = "pause-menu-pad-back"
 source = "owner 2026-11-22: the controller must work the whole pause menu; B backing out of a sub menu in Settings went too far. With a controller B now goes back a step at a time: the rows to the rail, the rail to the column, the column back to the game"
 note = "only the synthetic controller's buttons (NVF_PLAY_TEST_KEYS pad-…), through crate::pad::menu_keys: Start opens the menu, the D-pad and A pick, RT steps the settings tab, B goes back. Settings opens on its kept tab (Controls in a fresh home)"

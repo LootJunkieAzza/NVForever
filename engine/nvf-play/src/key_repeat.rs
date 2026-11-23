@@ -1,8 +1,10 @@
 //! Held keys repeat in menus [design]: an arrow key, W/A/S/D or Page Up/Down held down
 //! in a menu (any state but play, or the pause menu) presses again after
 //! [`FIRST_DELAY`] and then every [`INTERVAL`], so a long list scrolls by holding. The
-//! controller's D-pad and stick come through as these keys (`crate::pad::menu_keys`) and
-//! repeat too. A repeat is a release and press in one frame, after the input systems,
+//! controller's D-pad and stick come through as these keys (`crate::pad::menu_keys`); their
+//! Up and Down repeat too, their Left and Right do not: a held push sideways is one step of
+//! a value (issues #1910 and #2313, `crate::pad::sideways`, the `stick-vigor-pad` smoke
+//! test). A repeat is a release and press in one frame, after the input systems,
 //! so every menu's own `just_pressed` reads it as a press.
 //!
 //! The player's Key Repeat Acceleration tweak (`crate::tweaks`, Stewie's Tweaks
@@ -97,6 +99,7 @@ fn repeat(
     acc: Res<Acceleration>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut repeats: ResMut<Repeats>,
+    pad: Option<Res<crate::pad::MenuKeys>>,
 ) {
     let in_menu = state.is_some_and(|s| !matches!(s.get(), crate::PlayState::Playing | crate::PlayState::Loading)) || paused.is_some_and(|p| p.0);
     if !in_menu {
@@ -106,7 +109,7 @@ fn repeat(
     let dt = time.delta_secs();
     repeats.0.retain(|(k, _)| keys.pressed(*k));
     for k in KEYS {
-        if keys.just_pressed(k) {
+        if keys.just_pressed(k) && !pad_sideways(pad.as_deref(), k) {
             repeats.0.retain(|(o, _)| *o != k);
             repeats.0.push((k, Held { held: 0.0, next: FIRST_DELAY }));
         }
@@ -120,6 +123,11 @@ fn repeat(
             keys.press(*k);
         }
     }
+}
+
+/// Whether `k` is a sideways arrow the controller holds ([module notes](self)): no repeat.
+fn pad_sideways(pad: Option<&crate::pad::MenuKeys>, k: KeyCode) -> bool {
+    matches!(k, KeyCode::ArrowLeft | KeyCode::ArrowRight) && pad.is_some_and(|p| p.holds(k))
 }
 
 pub struct KeyRepeatPlugin;
