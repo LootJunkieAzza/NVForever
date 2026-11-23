@@ -1,7 +1,10 @@
 //! Player voices in the game (docs/design/player-voices.md, `fnv_game::player_voice`).
 //!
 //! - **Sets.** Read once the data is mounted: every `nvforever\voices\*.json` of the data
-//!   (the MO2 mod folder `NVForever Player Voices`), then every `*.json` in the folder
+//!   (the MO2 mod folder `NVForever Player Voices`; the co-op package's own sets in
+//!   `coop-assets\nvforever\voices` beside the exe, laid over the data by nvforever's start:
+//!   the six base-game sets, references to the game's own lines, no audio and no Nexus
+//!   set [owner via parity 2026-11-23]), then every `*.json` in the folder
 //!   `NVF_VOICE_SETS` names (tests, a set being reviewed). A set with the id of one read
 //!   before is left out. Log: `player voices: <n> sets: <ids>`.
 //! - **The character's voice.** Each frame the voice the player chose
@@ -238,5 +241,40 @@ impl Plugin for PlayerVoicePlugin {
                 slider: None,
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(id: &str, name: &str) -> String {
+        format!(r#"{{"format": "nvforever.voice_set/1", "id": "{id}", "name": "{name}", "sex": "female", "lines": []}}"#)
+    }
+
+    /// The co-op package's sets (`coop-assets\nvforever\voices` beside the exe, laid over the
+    /// data as loose files, as nvforever's start does with `Vfs::add_loose_dir`) are read
+    /// with a mod's in the data's own `nvforever\voices`; an id read before is left out
+    /// [design: owner via parity 2026-11-23, the vanilla sets ship, no Nexus set does].
+    #[test]
+    fn the_packaged_sets_beside_the_exe_are_read_with_a_mods_sets() {
+        let root = std::env::temp_dir().join(format!("nvf-voice-sets-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (data, pack) = (root.join("Data"), root.join("coop-assets"));
+        std::fs::create_dir_all(data.join("nvforever").join("voices")).unwrap();
+        std::fs::create_dir_all(pack.join("nvforever").join("voices")).unwrap();
+        std::fs::write(data.join("nvforever").join("voices").join("mod.willow.json"), set("mod.willow", "Willow")).unwrap();
+        std::fs::write(data.join("nvforever").join("voices").join("mod.cass-again.json"), set("vanilla.cass", "Cass (a mod's copy)")).unwrap();
+        std::fs::write(pack.join("nvforever").join("voices").join("vanilla.cass.json"), set("vanilla.cass", "Cass")).unwrap();
+        std::fs::write(pack.join("nvforever").join("voices").join("vanilla.boone.json"), set("vanilla.boone", "Boone")).unwrap();
+        let mut vfs = fnv_vfs::Vfs::open(&data, &[]).unwrap();
+        assert_eq!(vfs.add_loose_dir(&pack), 2);
+        let sets = read_set_files(&vfs);
+        let ids: Vec<&str> = sets.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids.len(), 3, "{ids:?}");
+        for id in ["mod.willow", "vanilla.cass", "vanilla.boone"] {
+            assert!(ids.contains(&id), "{id} missing from {ids:?}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
