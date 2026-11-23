@@ -216,8 +216,11 @@ fn composed_production_blend_module_validates_with_key_on_and_off() {
         assert!(pos < at("alpha_discard(pbr_input.material.flags"), "{statement}: before alpha_discard");
         assert!(pos < at("{"), "{statement}: before the first block (no branch)");
     }
-    assert_eq!(material.matches("dpdx(in.world_position.xyz)").count(), 1, "the world-position derivatives are taken once");
-    assert_eq!(material.matches("dpdy(in.world_position.xyz)").count(), 1, "the world-position derivatives are taken once");
+    // Taken once in the blend variant; other variants (the eye's iris shift, NVF_EYE)
+    // may take their own, never compiled alongside it.
+    let blend_lines = || material.lines().filter(|l| l.contains("MESH_TERRAIN_BLEND"));
+    assert_eq!(blend_lines().map(|l| l.matches("dpdx(in.world_position.xyz)").count()).sum::<usize>(), 1, "the world-position derivatives are taken once in the blend variant");
+    assert_eq!(blend_lines().map(|l| l.matches("dpdy(in.world_position.xyz)").count()).sum::<usize>(), 1, "the world-position derivatives are taken once in the blend variant");
     assert!(at("mesh_terrain_face_up(terrain_wdx, terrain_wdy, pbr_input.world_normal)") > at("let terrain_inputs = MeshTerrainInputs("), "the face's steepness is one of the lookup's inputs");
     let inputs = at("let terrain_inputs = MeshTerrainInputs(distance(view.world_position, in.world_position.xyz), terrain_dx, terrain_dy, view.mip_bias,");
     assert!(inputs < at("let terrain = mesh_terrain_lookup("));
