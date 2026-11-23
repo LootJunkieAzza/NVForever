@@ -4330,7 +4330,7 @@ fn remote_hits(
     mut script: Option<ResMut<ScriptState>>,
     mut feedback: ResMut<HitFeedback>,
     mut messages: MessageWriter<ActorHit>,
-    mut combat: Option<ResMut<Combat>>,
+    (mut combat, mut phys): (Option<ResMut<Combat>>, Option<ResMut<PhysState>>),
 ) {
     for RemoteHit { by, hit } in remote.read().copied() {
         // A shot on a placed object (not an actor): its hit blocks run, as `by`'s, and it
@@ -4342,8 +4342,17 @@ fn remote_hits(
             if let Some(c) = combat.as_deref_mut() {
                 damage_destructible(c, &mut sim, script.as_deref_mut(), r, hit.dealt, None);
             }
+            // Knocked here too: the other players' copies of a loose object follow this
+            // world's (a guest's physics does not write back what the host moves), so a
+            // bottle the guest shot stayed on Sunny's fence on every screen (owner
+            // playtest 2026-11-22).
+            let pushed = match (phys.as_deref_mut(), combat.as_deref()) {
+                (Some(p), Some(c)) => remote_push(p, c, &sim, by, r, hit.weapon),
+                _ => false,
+            };
             stats.object_scripts += ran as u32;
-            info!("combat: {by}'s shot (another game's) hits {}{}", r, if ran { ", its hit blocks ran" } else { "" });
+            stats.objects_pushed += pushed as u32;
+            info!("combat: {by}'s shot (another game's) hits {}{}{}", r, if ran { ", its hit blocks ran" } else { "" }, if pushed { ", knocked away" } else { "" });
             continue;
         }
         let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: hit.location, critical: hit.critical, limb: hit.limb };
@@ -4361,6 +4370,27 @@ fn remote_hits(
         }
         apply_hit(script.as_deref_mut(), &mut sim, hit.target, dealt, info, &mut stats, &mut feedback, None, &mut messages, &[], false, None);
     }
+}
+
+/// The height above a shooter's feet a remote shot is taken to leave from, for its push
+/// ([`remote_push`]): about a standing actor's eyes [design].
+const REMOTE_SHOT_EYE: f32 = 110.0;
+
+/// A remote shot's push on a loose object (another game's hit, [`remote_hits`]): the
+/// weapon's projectile's impact force, from the shooter's eyes towards the object's
+/// centre, as this game's own shot on it pushes. The hit's own point and direction are
+/// not in the message, so they are taken from where the shooter stands here [design].
+/// Returns whether it moved.
+fn remote_push(phys: &mut PhysState, c: &Combat, sim: &SimState, by: FormId, r: FormId, weapon: Option<FormId>) -> bool {
+    let force = weapon.and_then(|w| c.forms.chain(w, None)).and_then(|ch| ch.projectile).and_then(|p| c.forms.projectiles.get(&p)).map_or(0.0, |p| p.impact_force);
+    if force <= 0.0 {
+        return false;
+    }
+    let Some(at) = phys.world.ref_center(r.0) else { return false };
+    let Some(feet) = phys.world.actor_volume(by.0).map(|v| v.feet).or_else(|| sim.world.peek(by).map(|s| s.pos)) else { return false };
+    let dir = vec::normalize(vec::sub(at, [feet[0], feet[1], feet[2] + REMOTE_SHOT_EYE]));
+    let impulse = vec::scale(dir, force * OBJECT_PUSH * phys.world.params.units_per_metre);
+    phys.world.push_ref(r.0, at, impulse, OBJECT_PUSH_MAX_SPEED).is_some()
 }
 
 /// Where a shot or a blow struck `target`, for the scripts (JohnnyGuitar's
