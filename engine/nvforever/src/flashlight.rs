@@ -34,7 +34,7 @@
 //! - Another co-op player's light (`coop.rs` `peer_lights`, [`peer_light`]) is that
 //!   player's own: their rows go with their state ([`FlashlightLook::wire`], the colour
 //!   already their Pip-Boy's when it says Pip-Boy) and their puppet gets the same light,
-//!   placed from its eye as this one is (owner 2026-11-21: "if host has a green point
+//!   placed from its eye as this one is (#3279: "if host has a green point
 //!   light and guest has a yellow spot light, they see eachother's lights properly"). The
 //!   puppet is drawn on the world's layer 0, so its head, arms and weapon would cast into
 //!   its own cone, as the player's own body did before it got `sky::BODY_LAYER`: a dark
@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn another_players_light_is_their_own_look() {
-        // The owner's example: a green point light (here with the Pip-Boy row on and a
+        // #3279's example: a green point light (here with the Pip-Boy row on and a
         // green Pip-Boy, resolved by the sender) and a yellow narrow spot.
         let host = FlashlightLook { kind: LightKind::Point, shadows: false, pipboy_colour: true, range: 1400.0, ..FlashlightLook::default() };
         let wire = host.wire([26, 255, 128]);

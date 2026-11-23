@@ -3576,7 +3576,7 @@ mod tests {
         }
     }
 
-    /// The owner's co-op example (2026-11-21): the host's green point light, the guest's
+    /// #3279's co-op example: the host's green point light, the guest's
     /// yellow spot.
     const GREEN_POINT: LightLook = LightLook { kind: light_kind::POINT, shadows: false, rgb: [0, 255, 0], range: 1400.0, brightness: 3.5, outer_deg: 30.0, softness: 0.5 };
     const YELLOW_SPOT: LightLook = LightLook { kind: light_kind::SPOT, shadows: true, rgb: [255, 255, 0], range: 2800.0, brightness: 2.0, outer_deg: 5.0, softness: 0.0 };

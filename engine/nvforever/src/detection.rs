@@ -75,7 +75,7 @@
 //!   co-op player's (`flashlight::PeerFlashlight`): on the host, where their puppets are
 //!   measured, each puppet whose player has the flashlight on gets the Pip-Boy light at
 //!   its own chest instead, counted for it alone (`coop::LitPuppets`), so their light
-//!   makes them, not this player, easier to see [design, 2026-11-21].
+//!   makes them, not this player, easier to see [design].
 //! - **Moving and running**: from how far an actor went since the last measurement
 //!   [engineering choice]; the player moves only while its movement controls are held (a
 //!   placement settling, a push or a slide makes no footsteps; #2286) and runs when

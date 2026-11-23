@@ -1685,7 +1685,7 @@ about 40 m of reach, a cone 60 degrees across that casts shadows.
 In co-op each player's rows are their own: the other players see that player's light as
 that player has set it (type, colour, with Pip-Boy their own Pip-Boy's colour, reach,
 brightness, beam and shadows), on their body, and see it change as they change the rows
-(`PlayerState::light`, engine/nvf-coop net.rs) [owner statement 2026-11-21].
+(#3279; `PlayerState::light`, engine/nvf-coop net.rs).
 
 ### `flashlight-shadows`: Shadows
 
