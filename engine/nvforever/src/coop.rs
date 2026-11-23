@@ -447,6 +447,7 @@ impl Plugin for CoopPlugin {
             // On the slide marker before the camera is placed, so the frame shows its view.
             .add_systems(Update, scene::slide_spot.in_set(nvf_play::PlaySet::Physics).before(nvf_play::control::place_camera))
             .init_resource::<HoldLeave>()
+            .init_resource::<LitPuppets>()
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends.after(crate::split::hold_screen_on_quit))
             .add_systems(Update, story::share_story.after(take_events).after(nvf_play::PlaySet::Physics))
@@ -1602,6 +1603,8 @@ struct Doing<'w> {
     sim: Option<Res<'w, nvf_play::sim::SimState>>,
     script: Option<Res<'w, nvf_play::script::ScriptState>>,
     flashlight: Option<Res<'w, nvf_play::flashlight::Flashlight>>,
+    /// The flashlight's rows (Tweaks › Flashlight): the others light it as this game does.
+    flashlight_look: Option<Res<'w, crate::flashlight::FlashlightLook>>,
     /// The Pip-Boy up in full or for a glance (`crate::pipboy_check`).
     pipboy: (Option<Res<'w, nvf_play::pipboy::PipBoy>>, Option<Res<'w, nvf_play::pipboy::glance::Glance>>),
     /// The furniture holding the player (`nvf_play::furniture`).
@@ -1727,6 +1730,7 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
         info!("co-op: sent: this player's body {}", if lying { "lies" } else { "gets up" });
     }
     s.flags = flags;
+    s.light = doing.flashlight_look.as_deref().copied().unwrap_or_default().wire(nvf_play::interface::pipboy_rgb());
     if doing.phys.as_ref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming) {
         s.more |= nvf_coop::net::more_flag::SWIMMING;
     }
@@ -3882,8 +3886,6 @@ fn lines_in(lines: &[net::LineView], ago: f32, me: Option<u8>) -> Vec<fnv_game::
         .collect()
 }
 
-/// Each other player's flashlight, on their puppet where its eyes are (`flashlight.rs`),
-/// while it is on and the player is in this place.
 /// The other players swimming in their own games: their bodies here swim too
 /// (`swimming.rs`, item 121).
 fn swimmers(coop: Res<Coop>, mut swim: ResMut<crate::swimming::Swimmers>, mut was: Local<HashMap<u8, bool>>) {
@@ -3902,35 +3904,59 @@ fn swimmers(coop: Res<Coop>, mut swim: ResMut<crate::swimming::Swimmers>, mut wa
     }
 }
 
-fn peer_lights(mut commands: Commands, time: Res<Time>, coop: Res<Coop>, loc: Option<Res<Location>>, mut lights: Query<&mut Transform>, mut lit: Local<HashMap<u8, Entity>>) {
+/// The puppets' references (`Peer::references`) whose players have their flashlight on
+/// here, for detection to light them as it lights the player (`detection.rs`).
+#[derive(Resource, Default, Debug, PartialEq)]
+pub struct LitPuppets(pub std::collections::HashSet<u32>);
+
+/// Each other player's flashlight, on their puppet where its eyes are (`flashlight.rs`),
+/// while it is on and the player is in this place, with their own look
+/// (`PlayerState::light`; made again when it changes).
+fn peer_lights(
+    mut commands: Commands,
+    time: Res<Time>,
+    coop: Res<Coop>,
+    loc: Option<Res<Location>>,
+    mut lights: Query<(&mut Transform, &crate::flashlight::PeerFlashlight)>,
+    mut lit: Local<HashMap<u8, Entity>>,
+    mut puppets: ResMut<LitPuppets>,
+) {
     let here = loc.as_deref().map(place_of);
     let now = time.elapsed_secs();
     let mut want = HashMap::new();
+    let mut refs = std::collections::HashSet::new();
     for (&id, p) in &coop.peers {
         let (Some((place, feet, yaw, _)), Some(&(_, s))) = (p.pose(now - DELAY), p.samples.back()) else { continue };
         if Some(place) != here || p.lost || !s.has(flag::LIGHT) || s.has(flag::DOWN) {
             continue;
         }
         let eye = [feet[0], feet[1], feet[2] + if s.has(flag::SNEAKING) { nvf_play::player::EYE_HEIGHT * 0.7 } else { nvf_play::player::EYE_HEIGHT }];
-        want.insert(id, crate::flashlight::placement(eye, yaw, s.pitch));
+        want.insert(id, (crate::flashlight::placement(eye, yaw, s.pitch), s.light));
+        refs.extend(p.references(id));
+    }
+    if puppets.0 != refs {
+        puppets.0 = refs;
     }
     lit.retain(|id, e| {
-        let keep = want.contains_key(id);
+        // Gone, off, or another look (their rows changed): made again below.
+        let keep = want.get(id).is_some_and(|(_, look)| lights.get(*e).is_ok_and(|(_, made)| made.1 == *look));
         if !keep {
+            if !want.contains_key(id) {
+                info!("co-op: player {}'s flashlight is off here", id + 1);
+            }
             commands.entity(*e).despawn();
         }
         keep
     });
-    for (id, place) in want {
+    for (id, (place, look)) in want {
         match lit.get(&id).copied() {
             Some(e) => {
-                if let Ok(mut t) = lights.get_mut(e) {
+                if let Ok((mut t, _)) = lights.get_mut(e) {
                     *t = place;
                 }
             }
             None => {
-                debug!("co-op: player {}'s flashlight is on", id + 1);
-                let e = commands.spawn((Name::new(format!("Flashlight of player {}", id + 1)), crate::flashlight::remote_spot(), place)).id();
+                let e = crate::flashlight::peer_light(&mut commands, id, look, place);
                 lit.insert(id, e);
             }
         }

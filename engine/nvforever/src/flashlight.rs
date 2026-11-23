@@ -26,27 +26,39 @@
 //!   surfaces, third-person body/weapon (`BODY_LAYER`) and non-shadow-casting world spot
 //!   lamps (`LIGH` `SPOT`) keep full strength.
 //! - Detection does not count it (`detection.rs`).
-//! - Another co-op player's light ([`remote_spot`], `coop.rs`) is the same light on their
-//!   puppet. The puppet is drawn on the world's layer 0, so its head, arms and weapon
-//!   would cast into its own cone, as the player's own body did before it got
-//!   `sky::BODY_LAYER`: a dark wedge swinging over the lit ground (owner's co-op video
-//!   2026-11-12, "synced flashlights have some weird shading"). Its shadow map starts at
-//!   [`REMOTE_NEAR`] instead, beyond what the puppet holds in front of it; walls farther
-//!   than that still stop it.
 //! - The Tweaks tab's Flashlight rows ([`FlashlightLook`], registered in `settings.rs`)
 //!   set its colour, its type (Bevy's `SpotLight` or `PointLight`), whether it casts
 //!   shadows, its reach, its brightness and a spot's beam; at their defaults it is the
 //!   light above [design: not in the original, whose Pip-Boy light is no such light; the
 //!   rows are those flashlight mods of other games commonly offer].
+//! - Another co-op player's light (`coop.rs` `peer_lights`, [`peer_light`]) is that
+//!   player's own: their rows go with their state ([`FlashlightLook::wire`], the colour
+//!   already their Pip-Boy's when it says Pip-Boy) and their puppet gets the same light,
+//!   placed from its eye as this one is (owner 2026-11-21: "if host has a green point
+//!   light and guest has a yellow spot light, they see eachother's lights properly"). The
+//!   puppet is drawn on the world's layer 0, so its head, arms and weapon would cast into
+//!   its own cone, as the player's own body did before it got `sky::BODY_LAYER`: a dark
+//!   wedge swinging over the lit ground (owner's co-op video 2026-11-12, "synced
+//!   flashlights have some weird shading"). Its shadow map starts at [`REMOTE_NEAR`]
+//!   instead, beyond what the puppet holds in front of it; walls farther than that still
+//!   stop it. A point light's shadow map starts there too: the puppet's legs, below that,
+//!   still shade the ground around its feet, as a lantern held at the head would [design].
+//!   Detection counts it for that player, not this one (`detection.rs`).
 
 use bevy::prelude::*;
 use nvf_play::flashlight::Flashlight;
 use nvf_play::player::Player;
 use crate::player_body::PlayerBody;
+use nvf_coop::net::{light_kind, LightLook};
 
 /// Marks the flashlight's light entity.
 #[derive(Component)]
 pub struct PlayerFlashlight;
+
+/// Marks another co-op player's flashlight (`coop.rs`), by their player id, and the look it
+/// was made with: a change makes it again.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct PeerFlashlight(pub u8, pub LightLook);
 
 /// The light a flashlight entity was made with: a change makes it again.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
@@ -142,7 +154,37 @@ struct Beam {
 }
 
 impl FlashlightLook {
-    /// The light as it is drawn.
+    /// The light as it goes to the other co-op players, `pipboy` the Pip-Boy's colour now:
+    /// the colour they see is the one this game draws.
+    pub(crate) fn wire(&self, pipboy: [u8; 3]) -> LightLook {
+        LightLook {
+            kind: match self.kind {
+                LightKind::Spot => light_kind::SPOT,
+                LightKind::Point => light_kind::POINT,
+            },
+            shadows: self.shadows,
+            rgb: if self.pipboy_colour { pipboy } else { self.rgb },
+            range: self.range,
+            brightness: self.brightness,
+            outer_deg: self.outer_deg,
+            softness: self.softness,
+        }
+    }
+
+    /// Another player's light, as it came ([`Self::wire`]).
+    fn from_wire(l: &LightLook) -> FlashlightLook {
+        FlashlightLook {
+            kind: if l.kind == light_kind::POINT { LightKind::Point } else { LightKind::Spot },
+            shadows: l.shadows,
+            rgb: l.rgb,
+            pipboy_colour: false,
+            range: l.range,
+            brightness: l.brightness,
+            outer_deg: l.outer_deg,
+            softness: l.softness,
+        }
+    }
+
     /// The light for these rows, `pipboy` the Pip-Boy's colour now.
     fn beam(&self, pipboy: [u8; 3]) -> Beam {
         let outer_deg = self.outer_deg.clamp(1.0, 89.0);
@@ -236,9 +278,35 @@ fn sync(
         beam.inner_deg,
         beam.outer_deg
     );
+    let mut e = commands.spawn((Name::new("Flashlight"), PlayerFlashlight, MadeWith(beam), place));
+    insert_light(&mut e, beam, NEAR);
+}
+
+/// Another co-op player's flashlight, player `id`'s, as their rows make it ([`LightLook`]),
+/// at `place` ([`placement`] from their puppet's eye). `coop.rs` makes it again when the
+/// look changes ([`PeerFlashlight`]).
+pub(crate) fn peer_light(commands: &mut Commands, id: u8, look: LightLook, place: Transform) -> Entity {
+    let beam = FlashlightLook::from_wire(&look).beam([0; 3]);
+    info!(
+        "co-op: player {}'s flashlight light: {}, shadows {}, colour {:?}, range {:.0}, brightness {:.2}, cone {:.1}/{:.1} degrees",
+        id + 1,
+        beam.kind.name(),
+        if beam.shadows { "on" } else { "off" },
+        beam.colour,
+        beam.range,
+        beam.brightness,
+        beam.inner_deg,
+        beam.outer_deg
+    );
+    let mut e = commands.spawn((Name::new(format!("Flashlight of player {}", id + 1)), PeerFlashlight(id, look), place));
+    insert_light(&mut e, beam, REMOTE_NEAR);
+    e.id()
+}
+
+/// The light itself, its shadow map from `near`.
+fn insert_light(e: &mut EntityCommands, beam: Beam, near: f32) {
     let color = crate::lights::display_color(beam.colour);
     let intensity = crate::lights::lumens(beam.brightness, crate::sky::light_unit());
-    let mut e = commands.spawn((Name::new("Flashlight"), PlayerFlashlight, MadeWith(beam), place));
     match beam.kind {
         LightKind::Spot => e.insert(SpotLight {
             color,
@@ -247,7 +315,7 @@ fn sync(
             outer_angle: beam.outer_deg.to_radians(),
             inner_angle: beam.inner_deg.to_radians(),
             shadow_maps_enabled: beam.shadows,
-            shadow_map_near_z: NEAR,
+            shadow_map_near_z: near,
             shadow_depth_bias: SPOT_DEPTH_BIAS,
             ..default()
         }),
@@ -256,33 +324,11 @@ fn sync(
             intensity,
             range: beam.range,
             shadow_maps_enabled: beam.shadows,
-            shadow_map_near_z: NEAR,
+            shadow_map_near_z: near,
             shadow_depth_bias: POINT_DEPTH_BIAS,
             ..default()
         }),
     };
-}
-
-/// The flashlight's spot light at the Tweaks rows' defaults (with the Pip-Boy's default
-/// colour), as another co-op player's light is drawn (`coop.rs`).
-pub(crate) fn spot() -> SpotLight {
-    let beam = FlashlightLook::default().beam(nvf_play::interface::AMBER_RGB);
-    SpotLight {
-        color: crate::lights::display_color(beam.colour),
-        intensity: crate::lights::lumens(beam.brightness, crate::sky::light_unit()),
-        range: beam.range,
-        outer_angle: beam.outer_deg.to_radians(),
-        inner_angle: beam.inner_deg.to_radians(),
-        shadow_maps_enabled: true,
-        shadow_map_near_z: NEAR,
-        shadow_depth_bias: SPOT_DEPTH_BIAS,
-        ..default()
-    }
-}
-
-/// Another co-op player's flashlight: [`spot`], with shadows that start past their puppet.
-pub(crate) fn remote_spot() -> SpotLight {
-    SpotLight { shadow_map_near_z: REMOTE_NEAR, ..spot() }
 }
 
 #[cfg(test)]
@@ -291,20 +337,6 @@ mod tests {
 
     /// The Pip-Boy's default colour (`nvf_play::interface::AMBER_RGB`).
     const AMBER: [u8; 3] = nvf_play::interface::AMBER_RGB;
-
-    #[test]
-    fn another_players_light_matches_the_own_but_casts_nothing_from_their_puppet() {
-        let (own, other) = (spot(), remote_spot());
-        // The same light: colour, brightness, reach, cone, shadows on.
-        assert_eq!(own.color, other.color);
-        assert_eq!((own.intensity, own.range, own.outer_angle, own.inner_angle), (other.intensity, other.range, other.outer_angle, other.inner_angle));
-        assert!(other.shadow_maps_enabled);
-        // Its shadows start past the puppet's face and what it holds out aiming: the
-        // light sits AHEAD of the eye, a rifle's muzzle about 60 units.
-        assert!(other.shadow_map_near_z > 60.0 - AHEAD, "{}", other.shadow_map_near_z);
-        assert!(other.shadow_map_near_z < 100.0, "walls a step away still stop it");
-        assert_eq!(own.shadow_map_near_z, NEAR, "the own light keeps its near plane");
-    }
 
     #[test]
     fn the_light_is_ahead_of_the_eye_and_looks_where_the_player_looks() {
@@ -450,6 +482,33 @@ mod tests {
     fn the_shadow_bias_is_bevys_default_in_game_units() {
         // 8 cm and 2 cm, as Bevy means them in metres.
         assert!((POINT_DEPTH_BIAS - 5.6).abs() < 1e-4 && (SPOT_DEPTH_BIAS - 1.4).abs() < 1e-4);
+    }
+
+    #[test]
+    fn another_players_light_is_their_own_look() {
+        // The owner's example: a green point light (here with the Pip-Boy row on and a
+        // green Pip-Boy, resolved by the sender) and a yellow narrow spot.
+        let host = FlashlightLook { kind: LightKind::Point, shadows: false, pipboy_colour: true, range: 1400.0, ..FlashlightLook::default() };
+        let wire = host.wire([26, 255, 128]);
+        assert_eq!((wire.kind, wire.shadows, wire.rgb), (light_kind::POINT, false, [26, 255, 128]));
+        let seen = FlashlightLook::from_wire(&wire).beam(AMBER);
+        assert_eq!(seen, host.beam([26, 255, 128]), "the others see what the sender draws");
+        let guest = FlashlightLook { rgb: [255, 255, 0], outer_deg: 5.0, softness: 0.0, ..FlashlightLook::default() };
+        let seen = FlashlightLook::from_wire(&guest.wire(AMBER)).beam([0, 255, 0]);
+        assert_eq!(seen, guest.beam(AMBER), "the receiver's own Pip-Boy colour plays no part");
+        // The default rows are the wire's default.
+        assert_eq!(FlashlightLook::default().wire(AMBER), LightLook::default());
+    }
+
+    #[test]
+    fn another_players_light_casts_nothing_from_their_puppet() {
+        // Its shadows start past the puppet's face and what it holds out aiming: the
+        // light sits AHEAD of the eye, a rifle's muzzle about 60 units.
+        const {
+            assert!(REMOTE_NEAR > 60.0 - AHEAD, "past the puppet's face and its weapon");
+            assert!(REMOTE_NEAR < 100.0, "walls a step away still stop it");
+            assert!(NEAR < REMOTE_NEAR, "the own light keeps its near plane");
+        }
     }
 
     #[test]
