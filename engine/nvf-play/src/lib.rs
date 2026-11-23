@@ -592,7 +592,8 @@ mod tests {
                 !l.starts_with("impl Plugin for") && !l.starts_with("pub struct") && !l.starts_with("struct") && !l.starts_with("//")
             })
         };
-        let missing: Vec<&String> = plugins.iter().filter(|p| !added(p)).collect();
+        // Ship 0.8.1 co-op: Photo Mode is its own PR; its plugins stay in the source, unadded.
+        let missing: Vec<&String> = plugins.iter().filter(|p| !added(p) && !["PhotoModePlugin", "PhotoLightsPlugin"].contains(&p.as_str())).collect();
         assert!(missing.is_empty(), "plugins never added: {missing:?}");
     }
 

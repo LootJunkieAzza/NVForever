@@ -402,7 +402,7 @@ pub const MODE_PADS: [(Control, GamepadButton); 21] = {
 /// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
 /// player binds it (`crate::tweaks`), but the console's and the screenshot's at the end
 /// ([`BOUND_EXTRA_CONTROLS`]), bound by default.
-pub const TWEAK_CONTROLS: usize = 35;
+pub const TWEAK_CONTROLS: usize = 34;
 
 /// The controls after the Tweaks tab's that are bound by default: the console and the
 /// screenshot ([`Control::Console`], [`Control::Screenshot`]).
