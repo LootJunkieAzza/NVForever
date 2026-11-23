@@ -76,13 +76,21 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   was seen in an archive].
 - **A set's files:** every `.kf` under its `_male` (third person) and `_1stPerson` (first
   person) folders, at any depth, except under `Mod1`–`Mod3` (left for a follow-up).
-- **Which hold:** four times a second, for the player and each actor the engine draws: the
-  entries for the actor's reference, its base or its equipped weapon, and those for every
-  actor, whose condition holds on the actor (EvaluateString's compiler; a condition that
-  fails to compile or run counts as false and is logged once). [decision: the original
-  checks a condition when the animation starts, or continually with `pollCondition`
-  (hypothesis); a quarter second covers both closely enough, so `pollCondition` is read
-  but changes nothing.]
+- **Which hold:** four times a second (`REFRESH_FRAMES = 15`), for the player and each
+  actor the engine draws: the entries for the actor's reference, its base or its equipped
+  weapon, and those for every actor, whose condition holds on the actor (EvaluateString's
+  compiler, including two-argument `HasKeyWord (this.GBO) "..."` [documented: GECK wiki
+  HasKeyword] and one-argument `this.HasKeyWord "..."` [hypothesis: one-argument reference
+  call form is not documented on the GECK wiki HasKeyword page]; a condition that fails to
+  compile or run counts as false and is logged once).
+  - Prior recorded [decision: the original checks a condition when the animation starts,
+    or continually with `pollCondition` (hypothesis); a quarter second covers both closely
+    enough, so `pollCondition` is read but changes nothing.]
+  - Proposed [design; **pending owner agreement to overturn the prior decision above**]:
+    entries with `"pollCondition": true` (and a non-empty `condition`) re-evaluate every
+    frame on intermediate ticks, while all non-polled entries remain strictly on the
+    15-frame (`REFRESH_FRAMES`) cadence and reuse their cached matches between full
+    refreshes.
 - **Which wins:** the holding entries in order of priority (none is 0), then of reading;
   their files are given in that order, and of two files of the same group the later wins
   (as the engine applies SetActorAnimationPath's paths) [hypothesis: the higher priority

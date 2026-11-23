@@ -489,6 +489,7 @@ fn refresh_anim_data_queues_one_shot_and_refreshes_folder_entries() {
         forms: vec![player],
         folder: "TestRefresh".into(),
         condition: Some("GetLevel >= 5".into()),
+        poll_condition: false,
         priority: 1,
         order: 0,
         third: vec!["AnimGroupOverride\\TestRefresh\\_male\\mtidle.kf".into()],

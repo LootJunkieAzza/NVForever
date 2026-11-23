@@ -299,10 +299,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getcurrentweather" => XVal::Ref(g.weather.request.map(|r| r.weather).or(g.weather.shown).map_or(0, |w| w.0)),
         // ---- N7: actors and the game ----
         // Keywords: any text, without regard to case, on the base form; a form list
-        // assigns to its members [observed: jip-n7].
+        // assigns to its members [documented: GECK wiki HasKeyword `HasKeyword form
+        // "keyword"`; observed: jip-n7].
+        // [hypothesis: one-argument reference syntax `ref.HasKeyword "keyword"` is not
+        // documented on the GECK wiki HasKeyword page; accepted here alongside the
+        // documented two-argument form so AnimGroupOverride conditions written with
+        // `this.HasKeyword "..."` evaluate against `subject`.]
         "assignkeyword" | "haskeyword" | "removekeyword" => {
-            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
-            let k = text(args, 1).to_ascii_lowercase();
+            let (f, k) = match (args.first(), args.get(1)) {
+                (Some(XVal::Str(k)), None) if name == "haskeyword" => {
+                    let Some(f) = subject else { return Some(Ok(zero)) };
+                    (f, k.to_ascii_lowercase())
+                }
+                _ => {
+                    let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
+                    (f, text(args, 1).to_ascii_lowercase())
+                }
+            };
             let targets: Vec<FormId> = if g.data.sig(f) == Some(*b"FLST") { crate::functions::list_members(g, f) } else { vec![base(g, f)] };
             match name {
                 "haskeyword" => return Some(Ok(yes(g.has_keyword(f, &k)))),
