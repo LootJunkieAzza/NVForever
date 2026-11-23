@@ -2,13 +2,14 @@
 //!
 //! With true iron sights the gun is locked onto the eye (`iron_sights.rs`) and the normal
 //! sway (`view_sway.rs`) turns it about that same point, so down the sights it hardly
-//! moves. This adds springs in the style of the Viewmodel Inertia mod, only while aimed:
+//! moves. This adds springs, only while aimed:
 //!
 //! - **Mouse inertia**: turning or looking up and down knocks the gun the other way
 //!   and a damped spring pulls it back to centre.
 //! - **Movement**: walking or strafing while aimed moves the gun a little and lets it
 //!   spring back when you stop.
-//! - **Stop settle**: a short wobble when you stop moving, played from the mod's curves.
+//! - **Stop settle**: a short wobble when you stop moving (our own damped springs,
+//!   `ads_sway_curves.rs`).
 //!
 //! Everything fades with the sights share, so the hip is not touched. The strengths
 //! are read from `ads_sway.ini` beside `nvforever.exe` (written with the defaults the
@@ -252,25 +253,18 @@ fn angle_diff(a: f32, b: f32) -> f32 {
     (a - b + PI).rem_euclid(TAU) - PI
 }
 
-/// Linear sample of a curve at `t` seconds (held at its ends).
-fn sample(curve: &[(f32, f32)], t: f32) -> f32 {
-    let Some(&(t0, v0)) = curve.first() else { return 0.0 };
-    if t <= t0 {
-        return v0;
+/// A settle channel at `t` seconds (0 outside the settle).
+fn sample(c: &Settle, t: f32) -> f32 {
+    if !(0.0..=STOP_LENGTH).contains(&t) {
+        return 0.0;
     }
-    for w in curve.windows(2) {
-        let ((ta, va), (tb, vb)) = (w[0], w[1]);
-        if t <= tb {
-            let u = if tb > ta { (t - ta) / (tb - ta) } else { 1.0 };
-            return va + (vb - va) * u;
-        }
-    }
-    curve.last().map_or(0.0, |&(_, v)| v)
+    let taper = 1.0 - (t / STOP_LENGTH).powi(2);
+    (std::f32::consts::TAU * c.freq * t).sin() * (-STOP_DECAY * t).exp() * taper * c.peak / c.raw_peak
 }
 
-/// The length of the stop curves, seconds.
+/// The length of the stop settle, seconds.
 fn stop_length() -> f32 {
-    STOP_FORWARD.last().map_or(0.0, |&(t, _)| t)
+    STOP_LENGTH
 }
 
 impl AdsSway {
@@ -295,7 +289,7 @@ impl AdsSway {
             *self = AdsSway { last: self.last, ..AdsSway::default() };
             return SwayPose::NONE;
         }
-        // The mod's impulse: velocity kicked by the turn (×30), against the turn when the
+        // The impulse: velocity kicked by the turn (×30), against the turn when the
         // strength is positive (turning right sends the gun left; looking up, down).
         self.look_vel.x = (self.look_vel.x - turn.x * s.yaw_strength * 30.0).clamp(-120.0, 120.0);
         self.look_vel.y = (self.look_vel.y - turn.y * s.pitch_strength * 30.0).clamp(-120.0, 120.0);
@@ -444,6 +438,15 @@ mod tests {
             h += 0.05;
             let p = a.update_with(AdsInput { share: 0.0, ..aimed(h, 0.0, Vec2::new(150.0, 0.0)) }, &s);
             assert_eq!(p, crate::view_sway::SwayPose::NONE);
+        }
+    }
+
+    #[test]
+    fn the_settle_reaches_its_peak_and_ends_still() {
+        for c in [&STOP_FORWARD, &STOP_UP, &STOP_ROLL_DEG, &STOP_PITCH_DEG] {
+            let most = (0..=1000).map(|i| sample(c, i as f32 / 1000.0 * STOP_LENGTH).abs()).fold(0.0, f32::max);
+            assert!((most - c.peak.abs()).abs() < 0.01 * c.peak.abs(), "{most} vs {}", c.peak);
+            assert!(sample(c, STOP_LENGTH).abs() < 1e-4 && sample(c, STOP_LENGTH + 0.1) == 0.0);
         }
     }
 
