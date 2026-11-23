@@ -14148,7 +14148,7 @@ order = [[
   "slots seat: the menu closed; the player stays on stool 0011E62E for the end view",
   { re = 'match end: left Slots \(-?\d+ to -?\d+\); won; the end view, seated', label = "the end view on the stool (item 166, owner 2026-11-11)" },
   { re = 'match end: this player plays \S+cheeringbotharmsup\.kf \(upper body, seated\)', label = "the cheer on the upper body, seated" },
-  "match end: black; back to the player's view",
+  "match end: the end view is over; back to the player's view (no fade at a slot machine)",
   "slots seat: the player gets up from stool 0011E62E after the end view",
   "furniture: the player got off 0011E62E",
   "slots seat: the player is up",
@@ -14251,8 +14251,8 @@ manual = "armwrestle_first_end_*.png: the end view frames the whole player with 
 order = [[
   { re = 'arm wrestle: won after', label = "the bout is won" },
   "arm wrestle: up; closed",
-  "match end: ArmWrestle at",
   "match end: the view counts as third person: true",
+  "match end: ArmWrestle at",
   { re = 'match end: this player plays \S+cheeringbotharmsup\.kf', label = "the cheer" },
   "match end: the view counts as third person: false",
 ]]
