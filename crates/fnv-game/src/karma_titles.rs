@@ -2,6 +2,108 @@
 //! stats page (`nvf-play` pipboy/stats) and GetPlayerKarmaTitle (`crate::nvse_jg9`).
 
 use crate::game::Game;
+use std::collections::BTreeMap;
+
+/// Custom per-level karma title overrides parsed from `Data\NVSE\Plugins\TTW.ini`
+/// `[Karma Titles]` (`sKarmicTitle<Good|Neutral|Evil><level>`, supporting levels
+/// `1..=50` and higher) [documented: Tale of Two Wastelands public documentation and
+/// shipped `TTW.ini` `[Karma Titles]` keys, DLL/source not consulted].
+///
+/// Empty when `TTW.ini` is absent or contains no `[Karma Titles]` entries, leaving
+/// vanilla karma titles completely unchanged.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TtwKarmaTitles {
+    /// Overrides by [`karma_column`] (`0` Good, `1` Neutral, `2` Evil) and 1-based level.
+    columns: [BTreeMap<u32, String>; 3],
+}
+
+impl TtwKarmaTitles {
+    /// Parse `[Karma Titles]` entries from `TTW.ini` text.
+    ///
+    /// [documented: `TTW.ini` `[Karma Titles]` section with `sKarmicTitleGood<N>`,
+    /// `sKarmicTitleNeutral<N>`, and `sKarmicTitleEvil<N>` keys; DLL/source not
+    /// consulted]
+    /// [hypothesis: ASCII case-insensitive section/key matching, optional leading-zero
+    /// level digits, `;`/`#` comment lines, inline `;` comments, and optional surrounding
+    /// quotes stripped; blank values ignored].
+    pub fn parse(text: &str) -> TtwKarmaTitles {
+        let mut out = TtwKarmaTitles::default();
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+        let mut in_section = false;
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with(';') || trimmed.starts_with('#') {
+                continue;
+            }
+            if let Some(rest) = trimmed.strip_prefix('[') {
+                let sec = rest.split(']').next().unwrap_or("").trim();
+                in_section = sec.eq_ignore_ascii_case("karma titles");
+                continue;
+            }
+            if !in_section {
+                continue;
+            }
+            let Some((raw_key, raw_val)) = trimmed.split_once('=') else { continue };
+            let Some((col, level)) = parse_ttw_karma_key(raw_key.trim()) else { continue };
+            let val = raw_val.split(';').next().unwrap_or("").trim();
+            let val = val.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(val).trim();
+            if !val.is_empty() {
+                out.columns[col].insert(level, val.to_string());
+            }
+        }
+        out
+    }
+
+    /// True when no `[Karma Titles]` overrides are loaded.
+    pub fn is_empty(&self) -> bool {
+        self.columns.iter().all(BTreeMap::is_empty)
+    }
+
+    /// Resolve an override title for `level` and `alignment` (`"Good"`, `"Very Good"`,
+    /// `"Neutral"`, `"Evil"`, `"Very Evil"`).
+    ///
+    /// Returns `None` when no override applies (so callers fall back cleanly to vanilla
+    /// GMSTs and [`KARMA_TITLES`]).
+    ///
+    /// [design: levels below `1` clamp to `1`; levels above `30` with no exact key clamp
+    /// to the highest defined `TTW.ini` level for that alignment when that maximum is at
+    /// least `30`, preserving vanilla fallback for sparse overrides below `30`].
+    pub fn resolve(&self, level: i64, alignment: &str) -> Option<&str> {
+        let map = &self.columns[karma_column(alignment)];
+        if map.is_empty() {
+            return None;
+        }
+        let lvl = u32::try_from(level.max(1)).unwrap_or(u32::MAX);
+        if let Some(title) = map.get(&lvl) {
+            return Some(title.as_str());
+        }
+        if lvl > 30 {
+            if let Some((&max_lvl, title)) = map.iter().next_back() {
+                if max_lvl >= 30 && lvl > max_lvl {
+                    return Some(title.as_str());
+                }
+            }
+        }
+        None
+    }
+}
+
+fn parse_ttw_karma_key(key: &str) -> Option<(usize, u32)> {
+    let lower = key.to_ascii_lowercase();
+    let rest = lower.strip_prefix("skarmictitle")?;
+    let (col, num_str) = if let Some(n) = rest.strip_prefix("good") {
+        (0, n)
+    } else if let Some(n) = rest.strip_prefix("neutral") {
+        (1, n)
+    } else {
+        (2, rest.strip_prefix("evil")?)
+    };
+    if num_str.is_empty() || !num_str.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let level: u32 = num_str.parse().ok()?;
+    (level >= 1).then_some((col, level))
+}
 
 /// The karma's alignment and its picture from the four `Karma*` globals (very evil, evil,
 /// good, very good) [documented: the globals `KarmaVeryEvil`, `KarmaEvil`, `KarmaGood`,
@@ -81,20 +183,84 @@ pub fn karma_title(level: i64, alignment: &str, setting: impl Fn(&str) -> Option
     setting(&name).filter(|s| !s.is_empty()).unwrap_or_else(|| KARMA_TITLES[level - 1][column].to_string())
 }
 
+/// [`karma_title`] with optional `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides
+/// checked first. When `ttw` is empty, behaves identically to [`karma_title`].
+pub fn karma_title_with_ttw(level: i64, alignment: &str, ttw: &TtwKarmaTitles, setting: impl Fn(&str) -> Option<String>) -> String {
+    if let Some(title) = ttw.resolve(level, alignment) {
+        return title.to_string();
+    }
+    karma_title(level, alignment, setting)
+}
+
 impl Game<'_> {
+    /// Loaded `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides (empty when absent).
+    pub fn ttw_karma_titles(&self) -> &TtwKarmaTitles {
+        self.mod_files.ttw_karma_titles()
+    }
+
     /// The player's karma alignment word ([`karma_alignment`]) and karma title
-    /// ([`karma_title`]) now, from the player's Karma, level and the four `Karma*`
-    /// globals; `None` without those globals.
+    /// ([`karma_title_with_ttw`]) now, from the player's Karma, level and the four
+    /// `Karma*` globals; `None` without those globals.
     pub fn player_karma(&mut self) -> Option<(&'static str, String)> {
         let limits = ["KarmaVeryEvil", "KarmaEvil", "KarmaGood", "KarmaVeryGood"].map(|n| self.world.forms.global_by_edid(n).map(|v| f64::from(v.1)));
         let [Some(ve), Some(e), Some(go), Some(vg)] = limits else { return None };
         let karma = crate::functions::actor::actor_value(self, fnv_sim::FormId::PLAYER_REF, crate::actor_values::KARMA).ok()?;
         let (word, _) = karma_alignment(karma, ve, e, go, vg);
         let level = self.player_level();
-        let title = karma_title(level as i64, word, |n| match self.world.setting_value(n)? {
+        let title = karma_title_with_ttw(level as i64, word, self.mod_files.ttw_karma_titles(), |n| match self.world.setting_value(n)? {
             fnv_sim::settings::Setting::Str(s) => Some(s.clone()),
             _ => None,
         });
         Some((word, title))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_ttw_ini_preserves_vanilla_karma_titles() {
+        let empty = TtwKarmaTitles::default();
+        assert!(empty.is_empty());
+        assert_eq!(karma_title_with_ttw(1, "Good", &empty, |_| None), "Samaritan");
+        assert_eq!(karma_title_with_ttw(1, "Neutral", &empty, |_| None), "Drifter");
+        assert_eq!(karma_title_with_ttw(1, "Evil", &empty, |_| None), "Grifter");
+        assert_eq!(karma_title_with_ttw(45, "Very Evil", &empty, |_| None), "Devil");
+        assert_eq!(karma_title_with_ttw(50, "Very Good", &empty, |_| None), "Messiah");
+    }
+
+    #[test]
+    fn ttw_ini_parses_levels_1_through_50_across_all_alignments() {
+        let mut ini = String::from("\u{feff}; Synthetic test INI\n[Other]\nsKarmicTitleGood1=Ignored\n\n[Karma Titles]\n");
+        for lvl in 1..=50 {
+            ini.push_str(&format!("sKarmicTitleGood{lvl} = GoodTier{lvl}\n"));
+            ini.push_str(&format!("sKarmicTitleNeutral{lvl} = NeutralTier{lvl}\n"));
+            ini.push_str(&format!("sKarmicTitleEvil{lvl} = EvilTier{lvl} ; inline comment\n"));
+        }
+        let ttw = TtwKarmaTitles::parse(&ini);
+        assert!(!ttw.is_empty());
+        assert_eq!(karma_title_with_ttw(0, "Good", &ttw, |_| None), "GoodTier1");
+        assert_eq!(karma_title_with_ttw(1, "Good", &ttw, |_| None), "GoodTier1");
+        assert_eq!(karma_title_with_ttw(1, "Very Good", &ttw, |_| None), "GoodTier1");
+        assert_eq!(karma_title_with_ttw(25, "Neutral", &ttw, |_| None), "NeutralTier25");
+        assert_eq!(karma_title_with_ttw(31, "Evil", &ttw, |_| None), "EvilTier31");
+        assert_eq!(karma_title_with_ttw(50, "Very Evil", &ttw, |_| None), "EvilTier50");
+        assert_eq!(karma_title_with_ttw(50, "Good", &ttw, |_| None), "GoodTier50");
+        // Above the highest defined tier (>= 30), clamps to the top defined tier.
+        assert_eq!(karma_title_with_ttw(65, "Neutral", &ttw, |_| None), "NeutralTier50");
+    }
+
+    #[test]
+    fn sparse_ttw_overrides_fall_back_to_gmst_and_vanilla() {
+        let ini = "[karma titles]\nsKarmicTitleGood01=\"Custom First\"\nsKarmicTitleEvil42=CustomFortyTwo\nsKarmicTitleNeutral2=\n";
+        let ttw = TtwKarmaTitles::parse(ini);
+        let esm = |n: &str| (n == "sKarmicTitleNeutral2").then(|| "PluginRankTwo".to_string());
+        assert_eq!(karma_title_with_ttw(1, "Good", &ttw, esm), "Custom First");
+        assert_eq!(karma_title_with_ttw(2, "Neutral", &ttw, esm), "PluginRankTwo");
+        assert_eq!(karma_title_with_ttw(10, "Good", &ttw, esm), "Exemplar");
+        assert_eq!(karma_title_with_ttw(42, "Evil", &ttw, esm), "CustomFortyTwo");
+        assert_eq!(karma_title_with_ttw(50, "Evil", &ttw, esm), "CustomFortyTwo");
+        assert_eq!(karma_title_with_ttw(45, "Good", &ttw, esm), "Messiah");
     }
 }

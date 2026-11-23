@@ -893,3 +893,145 @@ fn stewie_worn_armor_weightless_queries_follow_handoff_and_keep_item_mask_fallba
     assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bWeightlessWornArmor:Tweaks\")"), n(0.0));
     assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bWeightlessWornPowerArmor:Tweaks\")"), n(1.0));
 }
+
+#[test]
+fn hnvse_merge_region_lists_unions_overridden_cell_regions_when_enabled() {
+    files();
+    fn tes4_with_masters(masters: &[&str]) -> Vec<u8> {
+        let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+        let mut subs = vec![sub(b"HEDR", hedr)];
+        for m in masters {
+            subs.push(sub(b"MAST", z(m)));
+            subs.push(sub(b"DATA", 0u64.to_le_bytes().to_vec()));
+        }
+        record(b"TES4", 0, 0, &subs)
+    }
+    fn u32s(v: &[u32]) -> Vec<u8> {
+        v.iter().flat_map(|x| x.to_le_bytes()).collect()
+    }
+    fn map_regn(id: u32, edid: &str, map_name: &str) -> Vec<u8> {
+        // RDAT: type 4 (Map), flags 0, priority 50, pad.
+        let rdat = [4u32.to_le_bytes().as_slice(), &[0, 50, 0, 0]].concat();
+        record(b"REGN", 0, id, &[sub(b"EDID", z(edid)), sub(b"RDAT", rdat), sub(b"RDMP", z(map_name))])
+    }
+
+    const EXT_WORLD: u32 = 0x0000_0810;
+    const EXT_CELL: u32 = 0x0000_0820;
+    const INT_CELL: u32 = 0x0000_0821;
+    const REG_MASTER_MAP: u32 = 0x0000_0830;
+    const REG_MASTER_AUDIO: u32 = 0x0000_0831;
+    const REG_P1_LOCAL: u32 = 0x0100_0840; // global 0x0100_0840
+    const REG_P2_LOCAL: u32 = 0x0100_0850; // global 0x0200_0850 (1 master: Master.esm)
+    const PLAYER_X: [u8; 24] = [0; 24];
+
+    let player_ref = record(
+        b"ACHR",
+        0,
+        FormId::PLAYER_REF.0,
+        &[sub(b"NAME", FormId::PLAYER_BASE.0.to_le_bytes().to_vec()), sub(b"DATA", PLAYER_X.to_vec())],
+    );
+    let cell_p0 = record(
+        b"CELL",
+        0,
+        EXT_CELL,
+        &[sub(b"EDID", z("ExtCell")), sub(b"DATA", vec![0]), sub(b"XCLC", u32s(&[0, 0])), sub(b"XCLR", u32s(&[REG_MASTER_MAP, REG_MASTER_AUDIO]))],
+    );
+    let cell_int = record(
+        b"CELL",
+        0,
+        INT_CELL,
+        &[sub(b"EDID", z("IntCell")), sub(b"DATA", vec![1]), sub(b"XCLR", u32s(&[REG_MASTER_MAP]))],
+    );
+    let cell_children = group(EXT_CELL.to_le_bytes(), 6, &group(EXT_CELL.to_le_bytes(), 9, &player_ref));
+    let wrld_p0 = [
+        record(b"WRLD", 0, EXT_WORLD, &[sub(b"EDID", z("MergeWorld")), sub(b"FULL", z("Merge World"))]),
+        group(EXT_WORLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &[cell_p0, cell_children].concat()))),
+    ]
+    .concat();
+    let p0 = [
+        tes4_with_masters(&[]),
+        top(b"REGN", &[map_regn(REG_MASTER_MAP, "RegMasterMap", "Master Valley"), record(b"REGN", 0, REG_MASTER_AUDIO, &[sub(b"EDID", z("RegMasterAudio"))])].concat()),
+        top(b"NPC_", &record(b"NPC_", 0, FormId::PLAYER_BASE.0, &[sub(b"EDID", z("Player"))])),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell_int))),
+        top(b"WRLD", &wrld_p0),
+    ]
+    .concat();
+
+    // Plugin 1 overrides EXT_CELL, adding its own region and duplicating REG_MASTER_AUDIO.
+    let cell_p1 = record(
+        b"CELL",
+        0,
+        EXT_CELL,
+        &[sub(b"EDID", z("ExtCell")), sub(b"DATA", vec![0]), sub(b"XCLC", u32s(&[0, 0])), sub(b"XCLR", u32s(&[REG_P1_LOCAL, REG_MASTER_AUDIO]))],
+    );
+    let p1 = [
+        tes4_with_masters(&["Master.esm"]),
+        top(b"REGN", &record(b"REGN", 0, REG_P1_LOCAL, &[sub(b"EDID", z("RegWeather"))])),
+        top(b"WRLD", &group(EXT_WORLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cell_p1)))),
+    ]
+    .concat();
+
+    // Plugin 2 overrides EXT_CELL with only its own non-map region (wiping master regions in vanilla).
+    let cell_p2 = record(
+        b"CELL",
+        0,
+        EXT_CELL,
+        &[sub(b"EDID", z("ExtCell")), sub(b"DATA", vec![0]), sub(b"XCLC", u32s(&[0, 0])), sub(b"XCLR", u32s(&[REG_P2_LOCAL]))],
+    );
+    let p2 = [
+        tes4_with_masters(&["Master.esm"]),
+        top(b"REGN", &record(b"REGN", 0, REG_P2_LOCAL, &[sub(b"EDID", z("RegLighting"))])),
+        top(b"WRLD", &group(EXT_WORLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cell_p2)))),
+    ]
+    .concat();
+
+    let plugins = vec![
+        Plugin::parse(&p0, "Master.esm".into()).unwrap(),
+        Plugin::parse(&p1, "Weather.esp".into()).unwrap(),
+        Plugin::parse(&p2, "Lighting.esp".into()).unwrap(),
+    ];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let mut g = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig { strict: true, ..GameConfig::default() });
+    g.new_game();
+
+    let regions_of = |g: &mut Game, edid: &str| -> Vec<u32> {
+        let len = match q(g, &format!("array_var a\nlet a := GetCellRegions {edid}\nSetFunctionValue (ar_Size a)")) {
+            XVal::Num(n) => n as usize,
+            other => panic!("expected number, got {other:?}"),
+        };
+        (0..len)
+            .map(|i| match q(g, &format!("array_var a\nlet a := GetCellRegions {edid}\nSetFunctionValue a[{i}]")) {
+                XVal::Ref(r) => r,
+                other => panic!("expected ref at {i}, got {other:?}"),
+            })
+            .collect()
+    };
+
+    // Absent hNVSE.ini: vanilla last-writer-wins (Lighting.esp only; no master map region).
+    assert_eq!(regions_of(&mut g, "ExtCell").len(), 1);
+    assert_eq!(fnv_game::nvse_jg5::player_region_name(&g), None);
+    assert_eq!(q(&mut g, "SetFunctionValue (player.GetLocationName)"), XVal::Str("Merge World".into()));
+
+    // Explicit bMergeRegionLists=0: vanilla behavior unchanged.
+    assert!(g.mod_files.write_bytes("NVSE/Plugins/hNVSE.ini", b"[Main]\nbMergeRegionLists=0\n"));
+    assert_eq!(regions_of(&mut g, "ExtCell").len(), 1);
+    assert_eq!(fnv_game::nvse_jg5::player_region_name(&g), None);
+
+    // bMergeRegionLists=1: deduplicated load-order union across all three plugins.
+    assert!(g.mod_files.write_bytes("NVSE/Plugins/hNVSE.ini", b"[Main]\nbMergeRegionLists = 1\n"));
+    assert_eq!(
+        regions_of(&mut g, "ExtCell"),
+        vec![REG_MASTER_MAP, REG_MASTER_AUDIO, 0x0100_0840, 0x0200_0850]
+    );
+    assert_eq!(fnv_game::nvse_jg5::player_region_name(&g).as_deref(), Some("Master Valley"));
+    assert_eq!(q(&mut g, "SetFunctionValue (player.GetLocationName)"), XVal::Str("Master Valley".into()));
+    // Interior cells still return empty.
+    assert!(regions_of(&mut g, "IntCell").is_empty());
+}

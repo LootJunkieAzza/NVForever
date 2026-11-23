@@ -870,7 +870,10 @@ impl Music {
 fn region_of(d: &PlayWorld, places: &AudioPlaces, cell: u32) -> Option<u32> {
     let with_music = |r: &u32| places.forms.regions.contains_key(r);
     let a = audio::cell_audio(d.lo, d.schema, cell);
-    a.acoustic_space.and_then(|s| places.forms.spaces.get(&s)?.region).filter(with_music).or_else(|| audio::cell_regions(d.lo, d.schema, cell).into_iter().find(with_music))
+    a.acoustic_space
+        .and_then(|s| places.forms.spaces.get(&s)?.region)
+        .filter(with_music)
+        .or_else(|| audio::cell_regions_merged(d.lo, d.schema, cell, d.index.merge_region_lists).into_iter().find(with_music))
 }
 
 /// Play a SOUN of a media set (an intro, an outro, an incidental phrase) at the listener.

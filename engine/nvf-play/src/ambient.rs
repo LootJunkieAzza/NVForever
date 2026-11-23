@@ -524,7 +524,7 @@ fn region_sounds(
             // The region the cell's acoustic space names (the `Audio…` regions hold the
             // sounds), then the cell's own regions (audio.md §6).
             let space = audio::cell_audio(d.lo, d.schema, cell).acoustic_space.and_then(|s| places.forms.spaces.get(&s)?.region);
-            let all: Vec<u32> = space.into_iter().chain(audio::cell_regions(d.lo, d.schema, cell)).collect();
+            let all: Vec<u32> = space.into_iter().chain(audio::cell_regions_merged(d.lo, d.schema, cell, d.index.merge_region_lists)).collect();
             let mut with: Vec<u32> = all.iter().copied().filter(|r| places.forms.region_sounds.contains_key(r)).collect();
             with.dedup();
             debug!("ambient: cell {cell:08X}: regions {:08X?}, with sounds {:08X?}", all, with);

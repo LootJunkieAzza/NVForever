@@ -241,8 +241,7 @@ pub fn player_region_name(g: &Game) -> Option<String> {
     if interior(g, cell) {
         return None;
     }
-    let regions = g.data.record_fields.get(&cell).into_iter().flatten().filter(|(s, _)| s == b"XCLR").flat_map(|(_, v)| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()])).filter_map(|v| hex_form(Some(&v)));
-    regions.into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.trim().is_empty()))
+    g.cell_regions(cell).into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.trim().is_empty()))
 }
 
 pub(crate) fn location_name(g: &Game, r: FormId) -> String {
@@ -263,8 +262,7 @@ pub(crate) fn location_name(g: &Game, r: FormId) -> String {
 /// The first map name among the regions an exterior cell is in, in CELL XCLR order
 /// ([`location_name`]).
 pub(crate) fn region_map_name(g: &Game, cell: FormId) -> Option<String> {
-    let regions: Vec<FormId> = g.data.record_fields.get(&cell).into_iter().flatten().filter(|(s, _)| s == b"XCLR").flat_map(|(_, v)| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()])).filter_map(|v| hex_form(Some(&v))).collect();
-    regions.into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.is_empty()))
+    g.cell_regions(cell).into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.is_empty()))
 }
 
 /// The functions of this file; `None` for any other name.

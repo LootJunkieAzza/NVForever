@@ -14,7 +14,7 @@ use crate::game::Game;
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// The host's answer for a path in the archives too: 0 none, 1 a loose file, 2 inside an
 /// archive.
@@ -179,6 +179,12 @@ pub struct ModFiles {
     folders: std::collections::HashSet<String>,
     /// SUP's JSONGetValue files read with iCached, by lower-case path (`crate::nvse_sup5`).
     pub(crate) json: HashMap<String, serde_json::Value>,
+    /// Cached `Data\NVSE\Plugins\hNVSE.ini` `bMergeRegionLists` switch (`OnceLock` so
+    /// `&Game` readers stay allocation-free and `Send + Sync`; cleared on session writes).
+    hnvse_merge_region_lists: OnceLock<bool>,
+    /// Cached `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides (cleared on session
+    /// writes).
+    ttw_karma_titles: OnceLock<crate::karma_titles::TtwKarmaTitles>,
 }
 
 /// The folder of NVForever's layer standing for the game's own folder.
@@ -446,8 +452,51 @@ impl ModFiles {
                 return false;
             }
         }
+        self.invalidate_plugin_ini_cache(&key);
         self.written.insert(key, text);
         true
+    }
+
+    fn invalidate_plugin_ini_cache(&mut self, norm_key: &str) {
+        if norm_key == "nvse\\plugins\\hnvse.ini" {
+            let _ = self.hnvse_merge_region_lists.take();
+        } else if norm_key == "nvse\\plugins\\ttw.ini" {
+            let _ = self.ttw_karma_titles.take();
+        }
+    }
+
+    /// Read a plugin INI under `Data` (case-insensitive across read roots and VFS
+    /// archives), preferring session writes first.
+    fn read_plugin_ini(&self, rel: &str) -> Option<String> {
+        if let Some(t) = self.written.get(&norm(rel)) {
+            return Some(t.clone());
+        }
+        let bytes = read_data_file(rel)?;
+        Some(String::from_utf8(bytes).unwrap_or_else(|e| latin1(e.as_bytes())))
+    }
+
+    /// Whether `Data\NVSE\Plugins\hNVSE.ini` enables `bMergeRegionLists=1`.
+    pub fn hnvse_merge_region_lists(&self) -> bool {
+        *self.hnvse_merge_region_lists.get_or_init(|| {
+            self.read_plugin_ini("NVSE\\Plugins\\hNVSE.ini")
+                .is_some_and(|text| fnv_world::audio::parse_hnvse_merge_region_lists(&text))
+        })
+    }
+
+    /// Explicitly seed the `hNVSE.ini` `bMergeRegionLists` switch (e.g. from the host's
+    /// already-opened `WorldIndex`).
+    pub fn set_hnvse_merge_region_lists(&mut self, enabled: bool) {
+        let _ = self.hnvse_merge_region_lists.take();
+        let _ = self.hnvse_merge_region_lists.set(enabled);
+    }
+
+    /// Loaded `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides (empty when absent).
+    pub fn ttw_karma_titles(&self) -> &crate::karma_titles::TtwKarmaTitles {
+        self.ttw_karma_titles.get_or_init(|| {
+            self.read_plugin_ini("NVSE\\Plugins\\TTW.ini")
+                .map(|text| crate::karma_titles::TtwKarmaTitles::parse(&text))
+                .unwrap_or_default()
+        })
     }
 
     /// [`ModFiles::read_root`] for the other files of the crate.
@@ -483,7 +532,9 @@ impl ModFiles {
         if on_disk(Path::new(""), rel).is_none() {
             return false;
         }
-        let mut gone = self.written.remove(&norm(rel)).is_some();
+        let key = norm(rel);
+        self.invalidate_plugin_ini_cache(&key);
+        let mut gone = self.written.remove(&key).is_some();
         if let Some(p) = roots().write.and_then(|w| find_file(&w, rel)) {
             if may_write(&p) && std::fs::remove_file(&p).is_ok() {
                 gone = true;

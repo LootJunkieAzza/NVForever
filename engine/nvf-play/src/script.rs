@@ -2145,6 +2145,9 @@ pub(crate) fn run_scripts(
                 st.loader = None;
                 let tweaks = tweak_settings.as_deref().map(|settings| &settings.game);
                 let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages, tweaks);
+                if play.0.index.merge_region_lists {
+                    rt.game.mod_files.set_hnvse_merge_region_lists(true);
+                }
                 // A save loaded later keeps the game's configuration (`Runtime::restore_save`).
                 rt.game.cfg.answer_ok_boxes = st.no_messages;
                 rt.start = st.start.clone();

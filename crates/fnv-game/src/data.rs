@@ -1127,6 +1127,13 @@ pub struct GameData {
     /// Cells with an owner, the Public place flag or the Off Limits form flag
     /// (`crate::crime::CellDef`).
     pub cells: HashMap<FormId, crate::crime::CellDef>,
+    /// Union of `CELL` `XCLR` region FormIDs across load-order overrides for
+    /// overridden exterior cells, in load order with duplicates removed, read
+    /// only when `Data\NVSE\Plugins\hNVSE.ini` enables `bMergeRegionLists=1`
+    /// [documented: hNVSE Nexus description and shipped `hNVSE.ini`, DLL/source
+    /// not consulted; hypothesis/design: load-order union keeping first
+    /// occurrence].
+    pub merged_cell_regions: HashMap<FormId, Vec<FormId>>,
     /// XRNK of placed references: the faction rank that owns them (with an XOWN faction).
     pub owner_ranks: HashMap<FormId, i32>,
     pub destructibles: HashMap<FormId, DestructionDef>,
@@ -1956,6 +1963,22 @@ impl GameData {
         clock.lap("object bounds");
         let form_flags: HashMap<FormId, u32> = winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect();
         let record_fields = RecordFields::new(schema, winners.iter().filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig)).map(|&(g, _, r)| (FormId(g), r.clone())));
+        let merged_cell_regions: HashMap<FormId, Vec<FormId>> = lo
+            .index
+            .iter()
+            .filter_map(|(&g, defs)| {
+                if defs.len() <= 1 {
+                    return None;
+                }
+                let last = defs.last()?;
+                let win = lo.records[last.plugin as usize][last.ordinal as usize];
+                if &win.header.sig != b"CELL" {
+                    return None;
+                }
+                let regions = fnv_world::audio::cell_regions_merged(lo, schema, g, true);
+                Some((FormId(g), regions.into_iter().map(FormId).collect()))
+            })
+            .collect();
         let station_flags: HashMap<FormId, u32> = winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect();
         let talking_voices: HashMap<FormId, FormId> = winners
             .iter()
@@ -2043,6 +2066,7 @@ impl GameData {
             faction_flags: HashMap::new(),
             faction_reputations: HashMap::new(),
             cells: HashMap::new(),
+            merged_cell_regions,
             owner_ranks: HashMap::new(),
             destructibles: HashMap::new(),
             weapon_skills: HashMap::new(),

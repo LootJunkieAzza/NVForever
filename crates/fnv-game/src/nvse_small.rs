@@ -603,20 +603,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // ---- hNVSE ----
         // `cell`: an exterior cell's regions (CELL XCLR), in record order; an interior's
-        // none [documented: GetCellRegions].
+        // none [documented: GetCellRegions]. When `hNVSE.ini` sets `bMergeRegionLists=1`,
+        // overridden exterior cells return the deduplicated load-order union across
+        // plugins (`Game::cell_regions`).
         "getcellregions" => {
-            let mut out = Vec::new();
-            if let Some(fields) = form(args, 0).and_then(|c| g.data.record_fields.get(&c)) {
-                let interior = fields.iter().find(|(s, _)| s == b"DATA").and_then(|(_, v)| v.as_u64().or_else(|| v.get("value").and_then(|f| f.as_u64()))).is_some_and(|f| f & 1 != 0);
-                if !interior {
-                    for (s, v) in fields {
-                        if s == b"XCLR" {
-                            let ids = v.as_array().cloned().unwrap_or_else(|| vec![v.clone()]);
-                            out.extend(ids.iter().filter_map(json_form).map(|f| XVal::Ref(f.0)));
-                        }
-                    }
-                }
-            }
+            let out = match form(args, 0) {
+                Some(c) if !crate::nvse_jg5::interior(g, c) => g.cell_regions(c).into_iter().map(|f| XVal::Ref(f.0)).collect(),
+                _ => Vec::new(),
+            };
             list(g, out)
         }
         // `world nwX nwY seX seY`: the worldspace's map cells (WRLD MNAM), read by every
@@ -704,6 +698,29 @@ fn json_form(v: &serde_json::Value) -> Option<FormId> {
         serde_json::Value::Number(n) => n.as_u64().and_then(|x| u32::try_from(x).ok()).filter(|&x| x != 0).map(FormId),
         serde_json::Value::String(s) => s.strip_prefix("0x").and_then(|h| u32::from_str_radix(h, 16).ok()).filter(|&x| x != 0).map(FormId),
         _ => None,
+    }
+}
+
+impl Game<'_> {
+    /// An exterior cell's `XCLR` region FormIDs: the winning plugin's list by default
+    /// (vanilla behavior), or the deduplicated load-order union across overriding plugins
+    /// when `Data\NVSE\Plugins\hNVSE.ini` enables `bMergeRegionLists=1`.
+    pub(crate) fn cell_regions(&self, cell: FormId) -> Vec<FormId> {
+        if self.mod_files.hnvse_merge_region_lists() {
+            if let Some(merged) = self.data.merged_cell_regions.get(&cell) {
+                return merged.clone();
+            }
+        }
+        let mut out = Vec::new();
+        if let Some(fields) = self.data.record_fields.get(&cell) {
+            for (s, v) in fields {
+                if s == b"XCLR" {
+                    let ids = v.as_array().cloned().unwrap_or_else(|| vec![v.clone()]);
+                    out.extend(ids.iter().filter_map(json_form));
+                }
+            }
+        }
+        out
     }
 }
 

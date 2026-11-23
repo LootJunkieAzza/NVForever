@@ -1409,8 +1409,13 @@ fn main() -> AppExit {
             Some((p, String::from_utf8_lossy(&bytes).into_owned()))
         })
         .collect();
+    let hnvse_merge_region_lists = game
+        .vfs
+        .read("nvse\\plugins\\hnvse.ini")
+        .and_then(Result::ok)
+        .is_some_and(|bytes| fnv_world::audio::parse_hnvse_merge_region_lists(&String::from_utf8_lossy(&bytes)));
     let t0 = std::time::Instant::now();
-    let mut world = match WorldData::open(&args.esm_schema, opened, &args.world, bos_sources) {
+    let mut world = match WorldData::open(&args.esm_schema, opened, &args.world, bos_sources, hnvse_merge_region_lists) {
         Ok(w) => w,
         Err(e) => return fail(e),
     };

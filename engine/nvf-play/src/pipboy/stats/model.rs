@@ -83,7 +83,7 @@ pub use fnv_game::item_text::{avif_form, changes_text, whole, Change};
 
 // The karma's alignment, the titles and their columns live with the rules
 // (`fnv_game::karma_titles`), which GetPlayerKarmaTitle reads too.
-pub use fnv_game::karma_titles::{karma_alignment, karma_column, karma_title, KARMA_TITLES};
+pub use fnv_game::karma_titles::{karma_alignment, karma_column, karma_title, karma_title_with_ttw, TtwKarmaTitles, KARMA_TITLES};
 
 /// The setting alone, without the table, for a view drawn from the menu's file. Unlike [`karma_title`] it also finds the two-digit names.
 pub fn karma_title_setting(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> Option<String> {
@@ -91,6 +91,17 @@ pub fn karma_title_setting(level: i64, alignment: &str, setting: impl Fn(&str) -
     // FalloutNV.esm spells levels below 10 with two digits (`sKarmicTitleNeutral01`) [documented: `fnvtool esm inventory`].
     let column = ["Good", "Neutral", "Evil"][karma_column(alignment)];
     [format!("sKarmicTitle{column}{level:02}"), format!("sKarmicTitle{column}{level}")].iter().find_map(|name| setting(name).filter(|s| !s.is_empty()))
+}
+
+/// [`karma_title_setting`] with optional `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]`
+/// overrides checked first (the INI file belongs to the player's installed data, not a
+/// repo fallback table). When `ttw` is empty, behaves identically to
+/// [`karma_title_setting`].
+pub fn karma_title_setting_with_ttw(level: i64, alignment: &str, ttw: &TtwKarmaTitles, setting: impl Fn(&str) -> Option<String>) -> Option<String> {
+    if let Some(title) = ttw.resolve(level, alignment) {
+        return Some(title.to_string());
+    }
+    karma_title_setting(level, alignment, setting)
 }
 
 /// The title of a reputation from the levels (0–3) of fame and infamy
