@@ -380,14 +380,6 @@ fn noise(x: f32) -> f32 {
     hash(i) + (hash(i + 1.0) - hash(i)) * f
 }
 
-/// On a light spawned with a cell: its full intensity and the exterior cell it stands in,
-/// whose draw level it is faded by (`distant_lights::fade_cell_lights`).
-#[derive(Component, Debug, Clone, Copy)]
-pub struct CellLight {
-    pub full: f32,
-    pub cell: Option<(i32, i32)>,
-}
-
 /// Leaves out a reference's light sources: they carry its [`RefVisual`] to follow its
 /// enabled state ([`spawn_light`]), but are no part of its model, neither its root nor a
 /// shape to swap for another model's.
@@ -749,7 +741,6 @@ pub fn spawn_light(
     let intensity = values.intensity;
     let radius = values.radius;
     let t = Transform::from_translation(at);
-    let cell_light = CellLight { full: intensity, cell: Some(fnv_world::cell_of(placed.position[0], placed.position[1])) };
     // Lights out of step with each other: a phase from the reference.
     let moving = values.moving;
     if !values.emitting {
@@ -768,7 +759,6 @@ pub fn spawn_light(
             t.looking_to(-Vec3::Z, Vec3::Y),
             RefVisual(placed.form_id),
             ChildOf(cell_e),
-            cell_light,
             instance,
         ));
         if let Some(d) = driven {
@@ -781,7 +771,7 @@ pub fn spawn_light(
             e.insert(m);
         }
     } else {
-        let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, RefVisual(placed.form_id), ChildOf(cell_e), cell_light, instance));
+        let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, RefVisual(placed.form_id), ChildOf(cell_e), instance));
         if let Some(d) = driven {
             e.insert(d);
         }

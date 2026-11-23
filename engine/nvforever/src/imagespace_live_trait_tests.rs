@@ -149,6 +149,8 @@ fn runtime(
         .init_resource::<nvf_play::pause::Page>()
         .init_resource::<nvf_play::loading::Loading>()
         .init_resource::<nvf_play::tiles::mods::ModsPage>()
+        // The fork's hardcore consume animations, which `run_scripts` reads.
+        .init_resource::<nvf_play::ConsumeAnims>()
         .init_resource::<nvf_play::tutorial_menu::TutorialView>()
         .init_resource::<nvf_play::control::ControlLocks>()
         .init_resource::<nvf_play::control::LockStats>()

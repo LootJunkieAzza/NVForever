@@ -1227,9 +1227,10 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
   priority 10 turned 90° about z [observed: `fnvtool nif decode`]; all 86 of the mod's
   `mtturn*.kf` (43 folders, `_F` and `_M`) hold that same `Bip01` rotation
   [observed, Idle Variety 1.40e]. Shown as is, that
-  rotation takes the body's up axis to its side. **Engine rule**: a static rotation on a
-  driven accumulation root is dropped (the root is held at the identity, as for a clip
-  that does not drive it); keyed root rotations play [design; hypothesis that the game
+  rotation takes the body's up axis to its side. **Engine rule**: a turn move
+  (TurnLeft, TurnRight) is played in place, its accumulation root's start rotation taken
+  out (animation.md §9.13, `BoundClip::turn_in_place`); other clips keep their authored
+  root orientation [design; hypothesis that the game
   does the same, as the mod's NPCs turn upright in it; the owner saw ours lie sideways
   as an NPC turned to face the player at a conversation's start and end, 2026-11-13].
 - **Playback**: the engine extracts the root motion and moves the actor itself. While a

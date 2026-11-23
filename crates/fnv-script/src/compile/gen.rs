@@ -161,6 +161,12 @@ pub(super) struct Gen<'a> {
     /// Compiling a line that is a call on its own (not `let`, `if eval` or any other
     /// expression).
     call_line: bool,
+    /// Compiling a block lambda's body ([`Gen::lambda`]): its lines are statements, but
+    /// a string variable there given to a plain string parameter stays its value, as it
+    /// did while the body was read with the argument flags of the call it is given to
+    /// [hypothesis: the nvse-sixth observation of the name as text is of a script's own
+    /// line; upstream's `click_menu_tile_advances_tiled_menu_and_fires_menu_click_event_handler`].
+    in_lambda: bool,
     /// Compiling a vanilla `set` line read with the extender's grammar.
     set_line: bool,
     /// A variable declared with another type than its seeded slot's takes the declared
@@ -258,6 +264,7 @@ impl<'a> Gen<'a> {
             in_arg_any: false,
             in_paren: false,
             call_line: false,
+            in_lambda: false,
             set_line: false,
             declared_types_win: false,
             lambdas: Vec::new(),
@@ -380,6 +387,7 @@ impl<'a> Gen<'a> {
         // `GetCameraMovement (float xmE) (float xmD)` inside a handler read as the text
         // "GetCameraMovement" followed by a syntax error).
         let flags = (std::mem::take(&mut self.in_args), std::mem::take(&mut self.in_arg_any), std::mem::take(&mut self.in_paren), std::mem::take(&mut self.call_line));
+        let was_lambda = std::mem::replace(&mut self.in_lambda, true);
         self.stmts = 0;
         self.loops = 0;
         let mut stmts = Vec::new();
@@ -405,6 +413,7 @@ impl<'a> Gen<'a> {
         self.line = saved.5;
         self.text = saved.6;
         (self.in_args, self.in_arg_any, self.in_paren, self.call_line) = flags;
+        self.in_lambda = was_lambda;
         let body = crate::decode::decode(&bytes, self.table).program.top;
         let index = self.next_lambda();
         Some(crate::ir::XExpr::Lambda { params, body, value: None, index })
