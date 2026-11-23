@@ -367,6 +367,20 @@ fn collect_outside(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>) {
     }
 }
 
+/// A link target the mods folder must never be: inside the game folder (`data`'s parent,
+/// Data itself included) or where [`crate::guard_write`] refuses to write (the remembered
+/// game install, `Documents\My Games\FalloutNV`).
+fn link_refused(mods: &Path, data: &Path, dest: &Path) -> bool {
+    let game = data.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(data);
+    [mods, dest].iter().any(|p| p.starts_with(data) || p.starts_with(game)) || crate::guard_write(mods, None).is_err() || crate::guard_write(dest, None).is_err()
+}
+
+/// The folders `NVFOREVER_PLUGIN_SEARCH` names, split as the system splits `PATH` (`;` on
+/// Windows, so `C:\Mods` stays whole; `:` elsewhere).
+fn search_roots(value: &std::ffi::OsStr) -> Vec<PathBuf> {
+    std::env::split_paths(value).filter(|p| !p.as_os_str().is_empty()).collect()
+}
+
 fn outside_plugins() -> &'static [(String, PathBuf)] {
     static FOUND: std::sync::OnceLock<Vec<(String, PathBuf)>> = std::sync::OnceLock::new();
     FOUND.get_or_init(|| {
@@ -375,12 +389,7 @@ fn outside_plugins() -> &'static [(String, PathBuf)] {
         }
         let mut roots = Vec::new();
         if let Some(extra) = std::env::var_os("NVFOREVER_PLUGIN_SEARCH") {
-            for part in extra.to_string_lossy().split(':') {
-                let path = PathBuf::from(part);
-                if path.is_dir() {
-                    roots.push(path);
-                }
-            }
+            roots.extend(search_roots(&extra).into_iter().filter(|p| p.is_dir()));
         }
         if roots.is_empty() {
             return Vec::new();
@@ -414,8 +423,8 @@ fn symlink_file(src: &Path, dest: &Path) -> std::io::Result<()> {
 
 fn link_into_mods(mods: &Path, data: &Path, src: &Path, name: &str) -> Option<PathBuf> {
     let dest = mods.join(name);
-    if dest.starts_with(data) || mods.starts_with(data) {
-        eprintln!("warning: plugin {name} was found at {}. Refusing to link or copy it into the game Data folder. That would change the game install.", src.display());
+    if link_refused(mods, data, &dest) {
+        eprintln!("warning: plugin {name} was found at {}. Refusing to link or copy it into {}: that is inside the game folder or the original game's user folder.", src.display(), mods.display());
         return Some(src.to_path_buf());
     }
     if dest.is_file() {
@@ -828,6 +837,30 @@ mod master_name_tests {
         std::fs::write(&path, file).unwrap();
         assert_eq!(master_names(&path), vec!["FalloutNV.esm".to_string()]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::{link_refused, search_roots};
+    use std::path::Path;
+
+    #[test]
+    fn never_links_into_the_game_folder() {
+        let data = Path::new("/games/FNV/Data");
+        assert!(link_refused(Path::new("/games/FNV/Data/mods"), data, Path::new("/games/FNV/Data/mods/A.esp")));
+        // The game root beside Data, not only Data.
+        assert!(link_refused(Path::new("/games/FNV/mods"), data, Path::new("/games/FNV/mods/A.esp")));
+        assert!(!link_refused(Path::new("/home/me/nvforever/mods"), data, Path::new("/home/me/nvforever/mods/A.esp")));
+    }
+
+    #[test]
+    fn search_roots_split_as_the_system_splits_paths() {
+        let joined = std::env::join_paths(["/one", "/two"]).unwrap();
+        let roots = search_roots(&joined);
+        assert_eq!(roots, [Path::new("/one"), Path::new("/two")]);
+        #[cfg(windows)]
+        assert_eq!(search_roots(std::ffi::OsStr::new(r"C:\Mods;D:\More")), [Path::new(r"C:\Mods"), Path::new(r"D:\More")]);
     }
 }
 

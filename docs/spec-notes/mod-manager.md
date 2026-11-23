@@ -60,6 +60,22 @@ Writing either file does not make a backup. A dated copy is made only when
 Lowering the number of backups kept asks before the oldest copies are deleted.
 The mods themselves are not deleted.
 
+## Where an install may write
+
+An install writes only inside the new mod's folder [design]. Every path an archive
+entry or a FOMOD installer names is taken as plain names under that folder
+(`fomod::rel_path`). A path is refused when it holds `..`, starts with `/` or `\`
+(a root), or holds `:` (a drive such as `C:`, or a Windows stream name). Then each
+file's folder is made and checked to be inside the mod folder once it exists, so a
+link already there cannot lead out (`fomod::place_in`). Zip, tar and FOMOD copies
+all go through these two checks.
+
+The one plugin link outside an install (`NVFOREVER_PLUGIN_SEARCH`, see
+`plugins::link_into_mods`) is refused into the game folder (Data's parent, Data
+included) and anywhere `guard_write` refuses: the remembered game install and
+`Documents\My Games\FalloutNV`. The variable's folders are split as the system
+splits `PATH` (`;` on Windows), so `C:\Mods` stays whole [design].
+
 ## What the game is given
 
 The game process does not read `mod-order.txt`. When the launcher starts the

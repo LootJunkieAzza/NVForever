@@ -1000,18 +1000,22 @@ fn copy_items(root: &Path, dest: &Path, items: &[Item]) -> Result<(), String> {
         }
         bounded(root, &src)?;
         if item.folder {
-            let into = if item.destination.trim().is_empty() { dest.to_path_buf() } else { dest.join(rel_path(&item.destination)?) };
+            let into = if item.destination.trim().is_empty() {
+                dest.to_path_buf()
+            } else {
+                let into = place_in(dest, &rel_path(&item.destination)?)?;
+                std::fs::create_dir_all(&into).map_err(|e| format!("{}: {e}", into.display()))?;
+                into
+            };
             copy_children(&src, &into)?;
         } else {
             let named = src.file_name().unwrap_or_default();
-            let to = if item.destination.trim().is_empty() || item.destination.ends_with('/') || item.destination.ends_with('\\') {
-                dest.join(rel_path(&item.destination)?).join(named)
+            let rel = if item.destination.trim().is_empty() || item.destination.ends_with('/') || item.destination.ends_with('\\') {
+                rel_path(&item.destination)?.join(named)
             } else {
-                dest.join(rel_path(&item.destination)?)
+                rel_path(&item.destination)?
             };
-            if let Some(parent) = to.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-            }
+            let to = place_in(dest, &rel)?;
             std::fs::copy(&src, &to).map_err(|e| format!("{}: {e}", src.display()))?;
         }
     }
@@ -1229,18 +1233,46 @@ fn resolve_rel(root: &Path, raw: &str) -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+/// A path from an archive or an installer, as plain names under the folder it is joined to.
+/// Refused: `..`, a leading `/` or `\` (a root), and any `:` (a drive such as `C:`, or a
+/// Windows stream name), so joining it can never leave that folder on any system.
 fn rel_path(raw: &str) -> Result<PathBuf, String> {
+    const LEAVES: &str = "The installer path would leave the archive.";
+    if raw.starts_with(['/', '\\']) || raw.contains(':') {
+        return Err(LEAVES.into());
+    }
     let mut path = PathBuf::new();
     for part in raw.split(['/', '\\']) {
         if part.is_empty() || part == "." {
             continue;
         }
         if part == ".." {
-            return Err("The installer path would leave the archive.".into());
+            return Err(LEAVES.into());
         }
         path.push(part);
     }
+    if !path.components().all(|c| matches!(c, std::path::Component::Normal(_))) {
+        return Err(LEAVES.into());
+    }
     Ok(path)
+}
+
+/// `dest` joined with `rel` (from [`rel_path`]), its folders made, and checked to be inside
+/// `dest` once the folders exist (a link already in `dest` cannot lead it out).
+fn place_in(dest: &Path, rel: &Path) -> Result<PathBuf, String> {
+    const LEAVES: &str = "The installer path would leave the mod folder.";
+    if !rel.components().all(|c| matches!(c, std::path::Component::Normal(_))) {
+        return Err(LEAVES.into());
+    }
+    let to = dest.join(rel);
+    let parent = to.parent().unwrap_or(dest);
+    std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    let dest_c = dest.canonicalize().map_err(|e| format!("{}: {e}", dest.display()))?;
+    let parent_c = parent.canonicalize().map_err(|e| format!("{}: {e}", parent.display()))?;
+    if !parent_c.starts_with(&dest_c) {
+        return Err(LEAVES.into());
+    }
+    Ok(to)
 }
 
 fn bounded(root: &Path, path: &Path) -> Result<(), String> {
@@ -1346,13 +1378,10 @@ fn extract_zip(archive: &Path, dest: &Path) -> Result<(), String> {
         if entry.is_symlink() {
             return Err(bad(&format!("entry {name} is a link")));
         }
-        let to = dest.join(rel);
+        let to = place_in(dest, &rel).map_err(|e| bad(&format!("entry {name}: {e}")))?;
         if entry.is_dir() {
             std::fs::create_dir_all(&to).map_err(|e| format!("{}: {e}", to.display()))?;
             continue;
-        }
-        if let Some(parent) = to.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
         let mut out = std::fs::File::create(&to).map_err(|e| format!("{}: {e}", to.display()))?;
         std::io::copy(&mut entry, &mut out).map_err(|e| bad(&e))?;
@@ -1380,10 +1409,7 @@ fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, bad: &impl Fn(&dyn std::
         if !(kind.is_file() || kind.is_dir()) {
             return Err(bad(&format!("entry {} is not a file or folder", path.display())));
         }
-        let to = dest.join(&rel);
-        if let Some(parent) = to.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        }
+        let to = place_in(dest, &rel).map_err(|e| bad(&e))?;
         entry.unpack(&to).map_err(|e| format!("{}: {e}", to.display()))?;
     }
     Ok(())
@@ -1759,7 +1785,7 @@ fn copy_checked_into(dir: &Path, node: &ManFile, dest: &Path) -> Result<(), Stri
         if !child.checked {
             continue;
         }
-        if child.name.is_empty() || child.name.contains(['/', '\\']) || child.name == "." || child.name == ".." {
+        if child.name.is_empty() || child.name.contains(['/', '\\', ':']) || child.name == "." || child.name == ".." {
             return Err("That file name cannot be used.".into());
         }
         let from = dir.join(&child.name);
@@ -1815,6 +1841,56 @@ pub fn open_manual(src: &Path) -> Result<(Option<PathBuf>, PathBuf, ManFile), St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn installer_paths_never_leave_the_folder() {
+        use super::rel_path;
+        for bad in [r"C:\Windows\x", "C:/Windows/x", r"\Windows\x", "/etc/x", "a/../../x", "..", "file.esp:stream", r"\\?\C:\x"] {
+            assert!(rel_path(bad).is_err(), "{bad} should be refused");
+        }
+        assert_eq!(rel_path(r"textures\armor\a.dds").unwrap(), std::path::Path::new("textures").join("armor").join("a.dds"));
+        assert_eq!(rel_path("./Data//b.esp").unwrap(), std::path::Path::new("Data").join("b.esp"));
+        assert_eq!(rel_path("").unwrap(), std::path::PathBuf::new());
+    }
+
+    #[test]
+    fn a_tar_entry_with_a_drive_is_refused() {
+        let dir = std::env::temp_dir().join(format!("nvf-fomod-tar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dest = dir.join("out");
+        std::fs::create_dir_all(&dest).unwrap();
+        let mut bytes = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut bytes);
+            let mut h = tar::Header::new_gnu();
+            h.set_size(1);
+            h.set_mode(0o644);
+            h.set_entry_type(tar::EntryType::Regular);
+            b.append_data(&mut h, r"C:\Windows\x", &b"x"[..]).unwrap();
+            b.finish().unwrap();
+        }
+        let bad = |e: &dyn std::fmt::Display| e.to_string();
+        assert!(super::unpack_tar(&bytes[..], &dest, &bad).is_err());
+        assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_inside_the_folder_cannot_lead_out() {
+        let dir = std::env::temp_dir().join(format!("nvf-fomod-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dest = dir.join("mod");
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, dest.join("link")).unwrap();
+        assert!(super::place_in(&dest, std::path::Path::new("link/x.esp")).is_err());
+        let ok = super::place_in(&dest, std::path::Path::new("textures/a.dds")).unwrap();
+        assert_eq!(ok, dest.join("textures/a.dds"));
+        assert!(dest.join("textures").is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
     use std::io::Write;
 
