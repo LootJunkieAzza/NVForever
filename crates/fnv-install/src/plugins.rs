@@ -878,6 +878,16 @@ mod master_name_tests {
     }
 }
 
+/// For tests: `got` is the file `want` names, in the same folder, whatever the case its name is
+/// spelled in. A lookup that is asked in another case than the file has ([`child_ci`]) gets the
+/// file's own case back on Linux, and the asked case on Windows, where the file system ignores
+/// case and the asked path already opens the file. On Linux a path in the wrong case is no
+/// file, so this stays as strict as comparing the paths.
+#[cfg(test)]
+fn same_file_any_case(got: &Path, want: &Path) -> bool {
+    got.is_file() && got.parent() == want.parent() && got.file_name().zip(want.file_name()).is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
+}
+
 #[cfg(test)]
 mod layered_plugin_tests {
     use super::{layered_plugin_files, plugin_path_layered};
@@ -909,8 +919,9 @@ mod layered_plugin_tests {
         assert_eq!(path("Deep.esp"), mods.join("High/sub/Deep.esp"));
         // A turned-off folder's plugin is not opened from it.
         assert_eq!(path("OnlyOff.esp"), data.join("OnlyOff.esp"));
-        // Data still serves what no layer has.
-        assert_eq!(path("falloutnv.esm"), data.join("FalloutNV.esm"));
+        // Data still serves what no layer has, whatever the case it is asked in.
+        let got = path("falloutnv.esm");
+        assert!(super::same_file_any_case(&got, &data.join("FalloutNV.esm")), "{}", got.display());
         // A mod with a Data folder: its content root is the layer, and a plugin beside that
         // Data folder is found as the launcher's list finds it.
         std::fs::create_dir_all(mods.join("Packed/Data")).unwrap();
@@ -941,7 +952,9 @@ mod mo2_plugin_tests {
         std::fs::write(high.join("Top.esp"), "x").unwrap();
         std::fs::write(high.join("sub/Deep.esp"), "x").unwrap();
         let roots = vec![overwrite.clone(), high.clone()];
-        assert_eq!(plugin_path_in(&data, &roots, "top.esp"), high.join("Top.esp"));
+        // Found whatever the case it is asked in.
+        let got = plugin_path_in(&data, &roots, "top.esp");
+        assert!(super::same_file_any_case(&got, &high.join("Top.esp")), "{}", got.display());
         // Not searched below a root's top, and not linked anywhere: Data's path, unwritten.
         assert_eq!(plugin_path_in(&data, &roots, "Deep.esp"), data.join("Deep.esp"));
         assert_eq!(std::fs::read_dir(&overwrite).unwrap().count(), 0);
