@@ -24,7 +24,7 @@ They are not copied, hard-linked, or symlinked into the game `Data` folder.
 
 A plugin, archive, or loose file that is already in `Data` is still read. The
 mods folder does not hide the base game or a mod that was installed there by
-hand [documented: `plugin_path`, `Vfs::open_launcher_mods`].
+hand [documented: `plugin_path_layered`, `Vfs::open_launcher_mods`].
 
 ## The two home lists
 

@@ -24,12 +24,16 @@ enabled folder as `--mod-layer`, lowest priority first (the last one wins)
 The launcher starts NVForever. NVForever indexes files itself. It does not
 ask the original executable to look in a second folder.
 
-[documented: `plugin_path` in `crates/fnv-install/src/plugins.rs`, and
-`engine/nvforever/src/main.rs` when `--mo2` is not set]
+[documented: `layered_plugin_files` and `plugin_path_layered` in
+`crates/fnv-install/src/plugins.rs`, and `engine/nvforever/src/main.rs` when
+`--mo2` is not set]
 
-- A plugin is opened from the mods folder when that folder has it, including a
-  file nested in a subfolder. The same name in `Data` is used when the mods
-  folder does not have it. A mod installed in `Data` by hand is still read.
+- A plugin is opened from the enabled mod layers, the **highest priority**
+  layer that has it first, including a file nested in a subfolder of that mod.
+  A turned-off folder is not a layer, so its plugins are not opened from it,
+  and when two folders have the same plugin the list order picks, not the
+  directory order. The same name in `Data` is used when no layer has it. A mod
+  installed in `Data` by hand is still read.
 - Loose files and archives in `Data` are still read. Each enabled mod folder
   is a layer over that. The same relative path in a later layer wins
   [documented: `Vfs::open_launcher_mods`]. A mod's meshes and textures are

@@ -519,6 +519,44 @@ pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
     data.join(name)
 }
 
+/// The plugin files of the enabled mod layers, by lowercase name, for a start through the
+/// launcher. `layers` come lowest priority first, as `--mod-layer` gives them. A name is
+/// taken from the **highest** layer that has it. Inside one layer, a plugin is found as the
+/// launcher's list finds it ([`plugins_in_tree`]), the shallowest copy first. A turned-off
+/// folder is not a layer, so its plugins are not here. Each layer is walked once.
+pub fn layered_plugin_files(layers: &[PathBuf]) -> std::collections::HashMap<String, PathBuf> {
+    let mut found = std::collections::HashMap::new();
+    for layer in layers.iter().rev() {
+        let mut listed = plugins_in_tree(layer);
+        listed.sort_by_key(|(_, path)| path.components().count());
+        for (name, path) in listed {
+            found.entry(name.to_ascii_lowercase()).or_insert(path);
+        }
+    }
+    found
+}
+
+/// The file of plugin `name` for a start through the launcher: from the enabled layers
+/// ([`layered_plugin_files`]), else Data. If neither has it and `NVFOREVER_PLUGIN_SEARCH`
+/// found it outside, it may be linked into `mods`, the launcher's mods folder (never a mod's
+/// own folder, never Data). Otherwise `data/name`.
+pub fn plugin_path_layered(data: &Path, layered: &std::collections::HashMap<String, PathBuf>, mods: Option<&Path>, name: &str) -> PathBuf {
+    if let Some(path) = layered.get(&name.to_ascii_lowercase()) {
+        return path.clone();
+    }
+    if let Some(path) = child_ci(data, name).filter(|p| p.is_file()) {
+        return path;
+    }
+    if let Some(mods) = mods {
+        if let Some((_, src)) = outside_plugins().iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            if let Some(path) = link_into_mods(mods, data, src, name) {
+                return path;
+            }
+        }
+    }
+    data.join(name)
+}
+
 impl PluginList {
     pub fn parse(text: &str) -> PluginList {
         let mut entries: Vec<PluginEntry> = Vec::new();
@@ -837,6 +875,41 @@ mod master_name_tests {
         std::fs::write(&path, file).unwrap();
         assert_eq!(master_names(&path), vec!["FalloutNV.esm".to_string()]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod layered_plugin_tests {
+    use super::{layered_plugin_files, plugin_path_layered};
+
+    #[test]
+    fn plugins_follow_folder_on_off_and_priority() {
+        let t = std::env::temp_dir().join(format!("nvf-layered-plugins-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let (mods, data) = (t.join("mods"), t.join("Data"));
+        for (dir, file) in [("Low", "Shared.esp"), ("High", "Shared.esp"), ("Off", "OnlyOff.esp"), ("High/sub", "Deep.esp"), ("Low", "Deep.esp")] {
+            std::fs::create_dir_all(mods.join(dir)).unwrap();
+            std::fs::write(mods.join(dir).join(file), dir).unwrap();
+        }
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("FalloutNV.esm"), "base").unwrap();
+        // "Off" is turned off, so it is not a layer. Low is below High.
+        let layers = vec![mods.join("Low"), mods.join("High")];
+        let found = layered_plugin_files(&layers);
+        let path = |n: &str| plugin_path_layered(&data, &found, None, n);
+        // The list order picks, not the directory order.
+        assert_eq!(path("Shared.esp"), mods.join("High/Shared.esp"));
+        assert_eq!(found.len(), 2);
+        // A higher layer wins even when its copy is deeper.
+        assert_eq!(path("Deep.esp"), mods.join("High/sub/Deep.esp"));
+        // A turned-off folder's plugin is not opened from it.
+        assert_eq!(path("OnlyOff.esp"), data.join("OnlyOff.esp"));
+        // Data still serves what no layer has.
+        assert_eq!(path("falloutnv.esm"), data.join("FalloutNV.esm"));
+        // Swap the order: the other copy wins.
+        let found = layered_plugin_files(&[mods.join("High"), mods.join("Low")]);
+        assert_eq!(plugin_path_layered(&data, &found, None, "Shared.esp"), mods.join("Low/Shared.esp"));
+        let _ = std::fs::remove_dir_all(&t);
     }
 }
 

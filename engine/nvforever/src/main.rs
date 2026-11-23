@@ -1295,7 +1295,28 @@ fn main() -> AppExit {
     } else {
         None
     };
-    let opened = world::open_plugins(args.data(), &mods, &args.plugins);
+    // Without --mo2, the enabled mod folders are layers over Data, lowest priority first: the
+    // launcher passes them as --mod-layer (it reads mod-order.txt; the game does not). With
+    // none, every mod folder is a layer in name order. Plugins come from the same layers,
+    // highest first, then Data, so a turned-off folder's plugin is not opened and the list
+    // order picks between two copies.
+    let mods_dir = mods.first().cloned().unwrap_or_default();
+    let launcher_layers: Vec<PathBuf> = if mo2.is_some() {
+        Vec::new()
+    } else if !args.mod_layers.is_empty() {
+        args.mod_layers.clone()
+    } else if mods_dir.is_dir() {
+        fnv_install::plugins::mod_folder_layers(&mods_dir)
+    } else {
+        Vec::new()
+    };
+    let opened = if mo2.is_some() {
+        world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_in(args.data(), &mods, n))
+    } else {
+        let layered = fnv_install::plugins::layered_plugin_files(&launcher_layers);
+        let link_into = mods_dir.is_dir().then_some(mods_dir.as_path());
+        world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_layered(args.data(), &layered, link_into, n))
+    };
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // No setting names the code page: the plugins' own text says it (#1443).
     if !code_page_named {
@@ -1385,14 +1406,7 @@ fn main() -> AppExit {
             GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
         }
         None => {
-            let mods_dir = mods.first().cloned().unwrap_or_default();
-            let mut layers = if !args.mod_layers.is_empty() {
-                args.mod_layers.clone()
-            } else if mods_dir.is_dir() {
-                fnv_install::plugins::mod_folder_layers(&mods_dir)
-            } else {
-                Vec::new()
-            };
+            let mut layers = launcher_layers.clone();
             layers.extend(mount_pack.iter().cloned());
             GameData::open_launcher_mods(args.data(), &mods_dir, &layers, &args.plugins, &args.nif_schema)
         }
