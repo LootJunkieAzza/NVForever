@@ -32,8 +32,10 @@ ask the original executable to look in a second folder.
   layer that has it first, including a file nested in a subfolder of that mod.
   A turned-off folder is not a layer, so its plugins are not opened from it,
   and when two folders have the same plugin the list order picks, not the
-  directory order. The same name in `Data` is used when no layer has it. A mod
-  installed in `Data` by hand is still read.
+  directory order. A plugin left loose at the top of the mods folder (editor
+  mode saves one there) comes next, below every mod folder. The same name in
+  `Data` is used when none of those has it. A mod installed in `Data` by hand
+  is still read.
 - Loose files and archives in `Data` are still read. Each enabled mod folder
   is a layer over that. The same relative path in a later layer wins
   [documented: `Vfs::open_launcher_mods`]. A mod's meshes and textures are

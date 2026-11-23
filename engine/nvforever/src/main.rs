@@ -1313,7 +1313,7 @@ fn main() -> AppExit {
     let opened = if mo2.is_some() {
         world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_in(args.data(), &mods, n))
     } else {
-        let layered = fnv_install::plugins::layered_plugin_files(&launcher_layers);
+        let layered = fnv_install::plugins::layered_plugin_files(&launcher_layers, mods_dir.is_dir().then_some(mods_dir.as_path()));
         let link_into = mods_dir.is_dir().then_some(mods_dir.as_path());
         world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_layered(args.data(), &layered, link_into, n))
     };
