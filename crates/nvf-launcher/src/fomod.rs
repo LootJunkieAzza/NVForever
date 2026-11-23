@@ -582,10 +582,10 @@ impl Wizard {
                             }
                         } else if group.kind == GroupKind::ExactlyOne && picked > 1 {
                             let keep = usable.into_iter().find(|p| self.chosen[s][g][*p]);
-                            for p in 0..group.plugins.len() {
+                            for (p, slot) in self.chosen[s][g].iter_mut().enumerate().take(group.plugins.len()) {
                                 let on = Some(p) == keep;
-                                if self.chosen[s][g][p] != on {
-                                    self.chosen[s][g][p] = on;
+                                if *slot != on {
+                                    *slot = on;
                                     changed = true;
                                 }
                             }
@@ -2032,6 +2032,29 @@ mod tests {
         assert!(mods.join(&name).join("A.esp").is_file());
         assert!(!mods.join(&name).join("B.esp").exists());
         assert!(mods.join(&name).join("readme.txt").is_file());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn an_exactly_one_group_with_two_picks_keeps_the_first() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-one-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        for o in ["a", "b", "c"] {
+            std::fs::create_dir_all(t.join(o)).unwrap();
+            std::fs::write(t.join(o).join(format!("{o}.esp")), b"TES4").unwrap();
+        }
+        let option = |o: &str| format!(r#"<plugin name="{o}"><files><folder source="{o}"/></files><typeDescriptor><type name="Optional"/></typeDescriptor></plugin>"#);
+        let xml = format!(
+            r#"<config><moduleName>One</moduleName><installSteps order="Explicit"><installStep name="Step"><optionalFileGroups><group name="Pick" type="SelectExactlyOne"><plugins>{}{}{}</plugins></group></optionalFileGroups></installStep></installSteps></config>"#,
+            option("a"),
+            option("b"),
+            option("c")
+        );
+        let facts = Facts { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let mut w = parse_wizard(&xml, &t, None, "One", facts).unwrap();
+        w.chosen[0][0] = vec![false, true, true];
+        w.normalize();
+        assert_eq!(w.chosen[0][0], vec![false, true, false]);
         let _ = std::fs::remove_dir_all(&t);
     }
 
