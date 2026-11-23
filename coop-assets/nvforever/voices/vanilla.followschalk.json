@@ -1,0 +1,849 @@
+{
+  "format": "nvforever.voice_set/1",
+  "id": "vanilla.followschalk",
+  "name": "Follows-Chalk",
+  "sex": "male",
+  "race": "human",
+  "blurb": "Calm, earnest Dead Horse scout; plays a little deeper and slower.",
+  "speaker": "HonestHearts.esm|0094D0",
+  "rate": 0.9,
+  "companion": "HonestHearts.esm|0094D0",
+  "lines": [
+    {
+      "info": "HonestHearts.esm|00965B",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestVariable"
+    },
+    {
+      "info": "HonestHearts.esm|009DD8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DD9",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "HonestHearts.esm|009DDC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DDD",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DDE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DE4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DE5",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DE6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DE7",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "HonestHearts.esm|009DE8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DEB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DED",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|009DEE",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetScriptVariable"
+    },
+    {
+      "info": "HonestHearts.esm|009FDF",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00AA73",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00AA74",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetStage"
+    },
+    {
+      "info": "HonestHearts.esm|00AA76",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetStage"
+    },
+    {
+      "info": "HonestHearts.esm|00AA78",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStage"
+    },
+    {
+      "info": "HonestHearts.esm|00B8C6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00BD48",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestVariable, GetTalkedToPC"
+    },
+    {
+      "info": "HonestHearts.esm|00BD4C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00D924",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00DDCA",
+      "event": "OnFire",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDCB",
+      "event": "DeathResponse",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDCC",
+      "event": "DeathResponse",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDD7",
+      "event": "Regenerating",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDD9",
+      "event": "Regenerating",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDDD",
+      "event": "FireExplosive",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDDE",
+      "event": "FireExplosive",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDF1",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDF2",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDF3",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDF4",
+      "event": "CombatToLost",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDF5",
+      "event": "CombatToLost",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDF8",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDF9",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDFA",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DDFB",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE00",
+      "event": "HealthHalf",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE01",
+      "event": "HealthHalf",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE02",
+      "event": "HealthHalf",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE06",
+      "event": "NormalToCombat",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE07",
+      "event": "NormalToCombat",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE0A",
+      "event": "LostToCombat",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE0B",
+      "event": "LostToCombat",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE0F",
+      "event": "NoAmmo",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE10",
+      "event": "NoAmmo",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE14",
+      "event": "PowerAttack",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE15",
+      "event": "PowerAttack",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE16",
+      "event": "PowerAttack",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE17",
+      "event": "HealthQuarter",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE18",
+      "event": "HealthQuarter",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE19",
+      "event": "HealthQuarter",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE1D",
+      "event": "WeaponIneffective",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE1E",
+      "event": "WeaponIneffective",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE23",
+      "event": "Flee",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE25",
+      "event": "Flee",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE2A",
+      "event": "Poisoned",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE2B",
+      "event": "Poisoned",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE2F",
+      "event": "ArmorIneffective",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE30",
+      "event": "ArmorIneffective",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE33",
+      "event": "Crippled",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE34",
+      "event": "Crippled",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE37",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE38",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE39",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE41",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE42",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE45",
+      "event": "CombatToNormal",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE46",
+      "event": "CombatToNormal",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE5B",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE5C",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE5D",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE63",
+      "event": "AvoidThreat",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00DE64",
+      "event": "AvoidThreat",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00E8FA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00EF06",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00EF07",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00EF08",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F190",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F192",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F196",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F197",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F199",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F19A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F3F1",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F6D7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F6D8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F6DA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F6DE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F6EC",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStage"
+    },
+    {
+      "info": "HonestHearts.esm|00F73C",
+      "event": "OnFire",
+      "first_person": true
+    },
+    {
+      "info": "HonestHearts.esm|00F85A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F85B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F8E8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F931",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F93C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|00F943",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStage"
+    },
+    {
+      "info": "HonestHearts.esm|010110",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetDeadCount"
+    },
+    {
+      "info": "HonestHearts.esm|010111",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStageDone"
+    },
+    {
+      "info": "HonestHearts.esm|010112",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStageDone"
+    },
+    {
+      "info": "HonestHearts.esm|01011B",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetDeadCount, GetQuestVariable"
+    },
+    {
+      "info": "HonestHearts.esm|01011C",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetDeadCount, GetQuestVariable"
+    },
+    {
+      "info": "HonestHearts.esm|0101BD",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStage"
+    },
+    {
+      "info": "HonestHearts.esm|010B21",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B23",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B24",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B26",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B29",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B2D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B2F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B32",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B36",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B46",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B47",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B48",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B49",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B4A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B4B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B4C",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStage"
+    },
+    {
+      "info": "HonestHearts.esm|010B4D",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStage"
+    },
+    {
+      "info": "HonestHearts.esm|010B4E",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStage"
+    },
+    {
+      "info": "HonestHearts.esm|010B4F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010B50",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetItemCount"
+    },
+    {
+      "info": "HonestHearts.esm|010BC4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C43",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C44",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C45",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C46",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C47",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C48",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C49",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C4A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C4B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C4C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C4D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C4E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010C4F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010D6B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010EF0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010EF2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|010EF3",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|01115D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "HonestHearts.esm|01115E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    }
+  ]
+}

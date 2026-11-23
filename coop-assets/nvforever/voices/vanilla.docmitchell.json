@@ -1,0 +1,766 @@
+{
+  "format": "nvforever.voice_set/1",
+  "id": "vanilla.docmitchell",
+  "name": "Doc Mitchell",
+  "sex": "male",
+  "race": "human",
+  "blurb": "Kindly old country doctor with a stubborn streak.",
+  "speaker": "FalloutNV.esm|104C0C",
+  "rate": 1.0,
+  "lines": [
+    {
+      "info": "FalloutNV.esm|104BDE",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BDF",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE0",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE1",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE2",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE3",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE4",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE5",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE6",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE7",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE8",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BE9",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BEA",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BEB",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BEC",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BED",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|104BEE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BEF",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BF0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BF1",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BF2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BF3",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BF6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BF7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BF8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BF9",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BFA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BFB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|104BFC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|105570",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|10557C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|10558A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|105598",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1055AC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1055AD",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1055AE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1055B0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1055B1",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1057E4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1057E7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1057E8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1057EE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1057EF",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|10586A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|10586B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|10586C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|10721E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|10721F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|107220",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|107221",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetScriptVariable"
+    },
+    {
+      "info": "FalloutNV.esm|107222",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveDisplayed, GetQuestVariable, GetStage"
+    },
+    {
+      "info": "FalloutNV.esm|107223",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestVariable"
+    },
+    {
+      "info": "FalloutNV.esm|107492",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|107499",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|10749C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1074A2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|10B965",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted"
+    },
+    {
+      "info": "FalloutNV.esm|126D9F",
+      "event": "AvoidThreat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126DA0",
+      "event": "AvoidThreat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126DA9",
+      "event": "react.inironsites",
+      "first_person": false
+    },
+    {
+      "info": "FalloutNV.esm|126DAA",
+      "event": "react.inironsites",
+      "first_person": false
+    },
+    {
+      "info": "FalloutNV.esm|126DB3",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|126DB4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|126DCC",
+      "event": "react.throwgrenade",
+      "first_person": false
+    },
+    {
+      "info": "FalloutNV.esm|126DCD",
+      "event": "react.throwgrenade",
+      "first_person": false
+    },
+    {
+      "info": "FalloutNV.esm|126DE5",
+      "event": "CombatToLost",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126DE6",
+      "event": "CombatToLost",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126DE7",
+      "event": "CombatToLost",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126DF4",
+      "event": "DeathResponse",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126DF5",
+      "event": "DeathResponse",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126DFE",
+      "event": "PowerAttack",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126DFF",
+      "event": "PowerAttack",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E00",
+      "event": "PowerAttack",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E01",
+      "event": "PowerAttack",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E12",
+      "event": "react.laymine",
+      "first_person": false
+    },
+    {
+      "info": "FalloutNV.esm|126E13",
+      "event": "react.laymine",
+      "first_person": false,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "FalloutNV.esm|126E1C",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E1D",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E1E",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E2B",
+      "event": "FireExplosive",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E2C",
+      "event": "FireExplosive",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E35",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E36",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E37",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E71",
+      "event": "NormalToCombat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E72",
+      "event": "NormalToCombat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E73",
+      "event": "NormalToCombat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E8F",
+      "event": "LostToCombat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E90",
+      "event": "LostToCombat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126E91",
+      "event": "LostToCombat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EBC",
+      "event": "react.fireweapon",
+      "first_person": false
+    },
+    {
+      "info": "FalloutNV.esm|126EBD",
+      "event": "react.fireweapon",
+      "first_person": false
+    },
+    {
+      "info": "FalloutNV.esm|126ED5",
+      "event": "CombatToNormal",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "FalloutNV.esm|126ED6",
+      "event": "CombatToNormal",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126ED7",
+      "event": "CombatToNormal",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EE4",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EE5",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EE6",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EED",
+      "event": "Flee",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EEE",
+      "event": "Flee",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EEF",
+      "event": "Flee",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EFC",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EFD",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126EFE",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126F1A",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126F1B",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126F1C",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126F1D",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126F1E",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|126F1F",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "FalloutNV.esm|15E139",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|15E13A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|15E13C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|15E13D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|15ED4E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|161F12",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|161F14",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|161F15",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|161FF1",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetDeadCount"
+    },
+    {
+      "info": "FalloutNV.esm|161FF2",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetGlobalValue"
+    },
+    {
+      "info": "FalloutNV.esm|161FF3",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetGlobalValue"
+    },
+    {
+      "info": "FalloutNV.esm|161FF4",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetGlobalValue"
+    },
+    {
+      "info": "FalloutNV.esm|161FF5",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetGlobalValue"
+    },
+    {
+      "info": "FalloutNV.esm|1674AA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1674AC",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetItemCount"
+    },
+    {
+      "info": "FalloutNV.esm|1674B2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1674B3",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetActorValue, GetHealthPercentage"
+    },
+    {
+      "info": "FalloutNV.esm|1674B7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "FalloutNV.esm|1674B8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    }
+  ]
+}

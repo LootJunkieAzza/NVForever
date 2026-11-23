@@ -1,0 +1,2233 @@
+{
+  "format": "nvforever.voice_set/1",
+  "id": "vanilla.dean",
+  "name": "Dean Domino",
+  "sex": "male",
+  "race": "ghoul",
+  "blurb": "Sardonic lounge singer: showbiz quips through gritted teeth.",
+  "speaker": "DeadMoney.esm|0012FE",
+  "rate": 1.0,
+  "lines": [
+    {
+      "info": "DeadMoney.esm|0012D6",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetStageDone"
+    },
+    {
+      "info": "DeadMoney.esm|0012D7",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|0012D8",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|0012D9",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|00353A",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|00531D",
+      "event": "FireExplosive",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005329",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|005339",
+      "event": "HealthHalf",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00533D",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|005341",
+      "event": "Death",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "DeadMoney.esm|005345",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005349",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00534D",
+      "event": "NoAmmo",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005355",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|005359",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|005361",
+      "event": "Regenerating",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005369",
+      "event": "KnockedBack",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00536D",
+      "event": "Poisoned",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "DeadMoney.esm|005379",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005389",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|00538E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|005392",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00539A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00539E",
+      "event": "ArmorIneffective",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053A0",
+      "event": "Flee",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053AC",
+      "event": "WeaponIneffective",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053B0",
+      "event": "OnFire",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053B4",
+      "event": "react.throwgrenade",
+      "first_person": false
+    },
+    {
+      "info": "DeadMoney.esm|0053C8",
+      "event": "react.inironsites",
+      "first_person": false
+    },
+    {
+      "info": "DeadMoney.esm|0053CC",
+      "event": "Crippled",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053D8",
+      "event": "CombatToNormal",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053D9",
+      "event": "CombatToNormal",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053E0",
+      "event": "react.laymine",
+      "first_person": false
+    },
+    {
+      "info": "DeadMoney.esm|0053E4",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053E5",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053F0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0053F4",
+      "event": "LostToCombat",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|0053F5",
+      "event": "LostToCombat",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005404",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|005408",
+      "event": "AvoidThreat",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00540C",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00540D",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005418",
+      "event": "CombatToLost",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005419",
+      "event": "CombatToLost",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005424",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|005438",
+      "event": "NormalToCombat",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005439",
+      "event": "NormalToCombat",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005440",
+      "event": "HealthQuarter",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|005444",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|005454",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00ADA5",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|00C4DA",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable, GetStageDone"
+    },
+    {
+      "info": "DeadMoney.esm|00ED91",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00ED98",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetActorValue"
+    },
+    {
+      "info": "DeadMoney.esm|00ED9A",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetActorValue"
+    },
+    {
+      "info": "DeadMoney.esm|00EDA0",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|00EDA1",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|00EDA2",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: IsInCombat"
+    },
+    {
+      "info": "DeadMoney.esm|00EDA6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00EDAA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00EDAF",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00EDB0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00EDB2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00EDC8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00EDCC",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStageDone"
+    },
+    {
+      "info": "DeadMoney.esm|00EE53",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00F21A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00F21B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00F21C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00F21D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00F21E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|00F21F",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|00FCA9",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00FCAA",
+      "event": "Death",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "DeadMoney.esm|00FCAB",
+      "event": "Death",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "DeadMoney.esm|00FCAC",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00FCAD",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00FCAE",
+      "event": "Attack",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "DeadMoney.esm|00FCAF",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00FCB0",
+      "event": "Regenerating",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00FCB2",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00FCB3",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|00FE53",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|01008E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010090",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010092",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010094",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010095",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010097",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010099",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0100AB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0100AD",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0100AE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0100B0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0100B2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0100B3",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0100B5",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0100B7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0101EB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0101ED",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0101EF",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0101F0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0101F2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0101F4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|01062B",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetObjectiveDisplayed, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010630",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|01097E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|01097F",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|010980",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|010981",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|010982",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010983",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010984",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010985",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010986",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010987",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010AE7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010AE8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010AE9",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010AEA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010AEB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010AEC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010B94",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetObjectiveDisplayed, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010B97",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010B9C",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010BA3",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BA4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BA5",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BA6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BA7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BA8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BEA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BEC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BED",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010BF2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BF7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BF8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010BFB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010C10",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C11",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C12",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C13",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C14",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C15",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C16",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C17",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C18",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C19",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C1A",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C1B",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C1D",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C1E",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C1F",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C20",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C21",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C22",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C23",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C24",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C25",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C26",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C27",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C28",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C29",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C57",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C58",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C59",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C5A",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C5B",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C5C",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C5D",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C5E",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C5F",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C60",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C61",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C62",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010C9D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CE4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CE5",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CE6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CE7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CE8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CE9",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CEA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CEB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CEC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CED",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CEE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CEF",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CF0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CF1",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CF2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CF3",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CF4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CF5",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010CF6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010D05",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010D06",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010D07",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010D08",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010D09",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010D0A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010D0B",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D0C",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D0D",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D0E",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D0F",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D10",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D11",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D12",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D13",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D14",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D15",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D16",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D17",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D18",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D19",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D1A",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetObjectiveDisplayed, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D1B",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D1C",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetObjectiveDisplayed, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D1D",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D1E",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D1F",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D20",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D21",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D22",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D23",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D24",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D25",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D26",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D27",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D28",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D29",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetQuestCompleted, GetQuestRunning, GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|010D9C",
+      "event": "Poisoned",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "DeadMoney.esm|010ED7",
+      "event": "HealthHalf",
+      "first_person": true
+    },
+    {
+      "info": "DeadMoney.esm|010EDA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|010EDC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011339",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|01133A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|01133F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011342",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011349",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0118EF",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0118F0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0118F1",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011B79",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011B81",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011B88",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011B89",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011BB6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011BB7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011BBA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011BBB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011CA2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011CA3",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011CA4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011CA5",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|011DEA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012B8B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012B8F",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|012B94",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012B96",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012B98",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetActorValue"
+    },
+    {
+      "info": "DeadMoney.esm|012B9B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012B9D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012BF1",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012E51",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012E52",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012E53",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|012E54",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|013265",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|013266",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|013267",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|01326A",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|01326B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|01329E",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|01329F",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|0132A4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132A6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132A7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132A9",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132AA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132AF",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132B0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132B2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132B3",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|0132B7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132B8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132BA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132BC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132BE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132C0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132C2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132C3",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132C4",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132C5",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132C6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132C7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132DF",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132F8",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132F9",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132FA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132FB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132FC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0132FF",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|013300",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|013302",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: HasPerk"
+    },
+    {
+      "info": "DeadMoney.esm|01330C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|01330F",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetObjectiveCompleted, GetObjectiveDisplayed, GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|013312",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetScriptVariable"
+    },
+    {
+      "info": "DeadMoney.esm|01331B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|01338E",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|013391",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|013392",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|013393",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|013394",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|013396",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|013397",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|01339F",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|0133A0",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0133A3",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: HasPerk"
+    },
+    {
+      "info": "DeadMoney.esm|0133A7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|0133AA",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|0133AC",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetStageDone"
+    },
+    {
+      "info": "DeadMoney.esm|0133B2",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|0133B3",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|0133B4",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "DeadMoney.esm|0137D9",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "DeadMoney.esm|013821",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: HasPerk"
+    },
+    {
+      "info": "DeadMoney.esm|013827",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|013828",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|013829",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|01382A",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|01382B",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|01382C",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|01382D",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|01382E",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|01382F",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|013830",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|013831",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|013832",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|013833",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|013834",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|013835",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|013836",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|013837",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|013838",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|013839",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|01383A",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInWorldspace"
+    },
+    {
+      "info": "DeadMoney.esm|01383B",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|01383C",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|01383D",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell"
+    },
+    {
+      "info": "DeadMoney.esm|0138D5",
+      "event": "quest",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetStageDone"
+    }
+  ]
+}
