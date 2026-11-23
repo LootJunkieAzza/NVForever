@@ -206,6 +206,8 @@ fn app() -> (App, Entity, Entity) {
     let (script, sim) = runtime(play, forms, refs);
     let mut a = App::new();
     a.insert_resource(Time::<()>::default())
+        // The co-op duel sweep in `update_grade` reads the real clock.
+        .insert_resource(Time::<bevy::time::Real>::default())
         .insert_resource(world)
         .insert_resource(crate::sky::authored_session_sky())
         .insert_resource(script)
