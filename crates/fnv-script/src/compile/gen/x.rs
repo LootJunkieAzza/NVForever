@@ -744,7 +744,7 @@ impl Gen<'_> {
             // `SetStringIniSetting "sLanguage:General" sText` set the text "sText";
             // documented: SetNameEx, "does not accept string variables directly … must be
             // converted", `$sv`; hypothesis: JIP's and the other plugins' functions differ].
-            if self.call_line && !self.in_args && !f.aware && !self.in_paren && self.plain_string_param(f, args.len()) {
+            if self.call_line && !self.in_args && !self.in_lambda && !f.aware && !self.in_paren && self.plain_string_param(f, args.len()) {
                 if let Some(t) = p.peek().filter(|t| t.kind == XKind::Word && !t.text.contains('.')).cloned() {
                     let string_var = self.var(&t.text).is_some_and(|v| matches!(&v.ty, crate::unit::VarType::Other(s) if s == "string_var"));
                     let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));

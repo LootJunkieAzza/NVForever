@@ -314,6 +314,8 @@ fn inventory_menu_apply_input_dispatches_and_cancels_preactivate_inventory_item(
         .insert_resource(scripts)
         .insert_resource(ActiveMenu(Some(model)))
         .insert_resource(PromptKeys::default())
+        // The fork's live menus (co-op's no-pause menus), which `apply_input` reads.
+        .init_resource::<super::LiveMenu>()
         .insert_resource(State::new(PlayState::Menu))
         .insert_resource(NextState::<PlayState>::Unchanged)
         .add_message::<MenuInput>()

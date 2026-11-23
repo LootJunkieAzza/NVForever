@@ -1239,7 +1239,8 @@ fn barter_lists_every_stack_of_the_stock_and_scrolls_to_the_last() {
     // scrolls to its last row.
     let f = fixture();
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
-    for (item, n) in [(AID, 3), (BULLETS, 20), (PISTOL, 1), (SCOPE, 1), (SKILL_BOOK, 1), (KEY_A, 1)] {
+    for (item, n) in [(AID, 3), (BULLETS, 20), (PISTOL, 1), (SCOPE, 1), (SKILL_BOOK, 1), (PLAIN_BOOK, 1)] {
+        // A book, not a key: keys are no barter rows (#3432).
         w.add_item(FormId(BOX_REF), FormId(item), n).unwrap();
     }
     let mut m = barter(&mut w);

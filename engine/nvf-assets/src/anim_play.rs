@@ -1155,21 +1155,13 @@ impl BlendPlayer {
                         t.z -= start_z;
                     }
                 }
-                // A static rotation on the accumulation root is the actor's heading, not
-                // the pose's: the root is held at the identity, as for a clip that does
-                // not drive it. Vanilla's driven roots are all a static identity (actors.md
-                // §8.2), so they are unchanged; Idle Variety's `IV_Cool_F` turn clips hold
-                // `Bip01` at a static (0.27, 0.65, 0.27, 0.65), which laid the body on its
-                // side while an NPC turned to face the player at a conversation's start
-                // and back at its end (owner's report, 2026-11-13). Keyed root rotations
-                // still play, less their start rotation where `root_turn_out` takes it.
-                let static_root_turn = turn_out.is_some() && matches!(track.rotation, fnv_nif::anim::Channel::Static(_));
-                let r = if static_root_turn {
-                    Quat::IDENTITY
-                } else {
-                    let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
-                    turn_out.map_or(r, |q| (q.inverse() * r).normalize())
-                };
+                let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                // A turn played in place takes its start rotation out here too
+                // (`BoundClip::turn_in_place`): Idle Variety's `IV_Cool_F` turn clips
+                // hold `Bip01` at a static (0.27, 0.65, 0.27, 0.65), which laid the body
+                // on its side as an NPC turned to face the player (owner's report,
+                // 2026-11-13). Other clips keep their authored root orientation.
+                let r = turn_out.map_or(r, |q| (q.inverse() * r).normalize());
                 // The accumulation root keeps its bind scale (AG_ChinFlick.kf: Bip01 at 10).
                 let s = if turn_out.is_some() { b.scale.x } else { track.scale.sample(time).map_or(b.scale.x, |[s]| s) };
                 self.add(*i, Contrib { t, r, s, w, p: *p, k: k as u8 });
@@ -2334,7 +2326,8 @@ mod tests {
         let turn = Arc::new(BoundClip::bind(
             prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), Channel::Static(Some(tilt))), 26), ("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(nonaccum))), 10)]),
             &ix,
-        ));
+        )
+        .turn_in_place());
         let idle = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(nonaccum))), 10)]), &ix));
         let mut out = Vec::new();
         for w in [0.0, 0.1, 0.5, 0.9, 1.0] {
@@ -2344,8 +2337,8 @@ mod tests {
             assert!(root.rotation.angle_between(Quat::IDENTITY) < 1e-4, "turn weight {w}: root turned {:?}", root.rotation);
             assert_eq!(root.translation, Vec3::ZERO);
         }
-        // A keyed root rotation still plays (in a clip with a pelvis track: one without
-        // has its start rotation taken out, `root_turn_out`).
+        // A root rotation in a clip not played as a turn still plays (in a clip with a
+        // pelvis track: one without has its start rotation taken out, `root_turn_out`).
         let keyed = Channel::Keys(Keys { kind: KeyKind::Linear, keys: [0.0, 1.0].map(|time| Key { time, value: tilt, forward: [0.0; 4], backward: [0.0; 4], tbc: [0.0; 3] }).to_vec() });
         let roll = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), keyed), 26), ("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(nonaccum))), 10)]), &ix));
         p.layers = [Some(Layer { clip: roll, phase: 0.5, weight: 1.0 }), None, None, None, None, None, None, None];
@@ -2369,7 +2362,7 @@ mod tests {
         let idle = Arc::new(BoundClip::bind(prio_clip(4.0, vec![("Bip01 NonAccum", nonaccum.clone(), 10)]), ix));
         // Clips whose `Bip01` holds a static 90° about z, and Idle Variety's tilt.
         let tilted = [z90, Quat::from_xyzw(0.6533, 0.2706, 0.6533, 0.2706).normalize()].map(|r| {
-            Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), Channel::Static(Some(q(r)))), 26), ("Bip01 NonAccum", nonaccum.clone(), 10)]), ix))
+            Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), Channel::Static(Some(q(r)))), 26), ("Bip01 NonAccum", nonaccum.clone(), 10)]), ix).turn_in_place())
         });
         let body = |out: &Vec<(usize, Transform)>, p: &BlendPlayer| {
             let get = |i: usize| out.iter().find(|(j, _)| *j == i).map_or(p.bind[i], |(_, t)| *t);
@@ -2427,12 +2420,9 @@ mod tests {
     #[test]
     fn a_clip_with_a_pelvis_track_keeps_its_root_turn() {
         // A clip that drives `Bip01 NonAccum` as well keeps whatever its root track turns.
-        // Keyed: a static root rotation is held at the identity in any clip (the fork's
-        // IV_Cool_F fix, `a_static_root_rotation_does_not_turn_the_body`).
         let (mut p, ix) = player();
         let (s, c) = (FRAC_PI_4.sin(), FRAC_PI_4.cos());
-        let keyed = Channel::Keys(Keys { kind: KeyKind::Linear, keys: [0.0, 1.0].map(|time| Key { time, value: [c, 0.0, 0.0, s], forward: [0.0; 4], backward: [0.0; 4], tbc: [0.0; 3] }).to_vec() });
-        let turned = track(Channel::Static(Some([0.0; 3])), keyed);
+        let turned = track(Channel::Static(Some([0.0; 3])), Channel::Static(Some([c, 0.0, 0.0, s])));
         let both = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", turned, 30), ("Bip01 NonAccum", pose([0.0, 0.0, 61.0]), 30)]), &ix));
         assert_eq!(both.root_track.map(|r| r.3), Some(Quat::IDENTITY));
         p.layers = [Some(Layer { clip: both, phase: 0.5, weight: 1.0 }), None, None, None, None, None, None, None];

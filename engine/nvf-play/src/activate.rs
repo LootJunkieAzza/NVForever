@@ -282,6 +282,9 @@ fn destination_name(sim: &SimState, index: &fnv_world::WorldIndex, door: FormId,
 /// (`see_through`, #3233). In first person it is the eye's
 /// view ray; in third person the camera's, through the crosshair over the shoulder
 /// (`control::Crosshair`; playtest list 4, item 11).
+/// What the last target log line said: the target, its action, two flags and a talker.
+type TargetLogged = (u32, Action, bool, bool, Option<u32>);
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn find_target(
     player: Option<Res<Player>>,
@@ -293,7 +296,7 @@ pub(crate) fn find_target(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
-    mut logged: Local<Option<(u32, Action, bool, bool, Option<u32>)>>,
+    mut logged: Local<Option<TargetLogged>>,
     talk: Option<Res<crate::coop_talk::TalkGuard>>,
     parts: Option<Res<crate::hitvol::ActorParts>>,
 ) {
