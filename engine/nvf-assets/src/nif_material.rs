@@ -662,6 +662,9 @@ pub struct NifSurface {
     /// The shape is placed NIF foliage (`nif_spawn::is_foliage_shape`). CPU only;
     /// enables `NVF_FOLIAGE_SSS` when `NVF_SSS=1` and foliage shadow thickening.
     pub foliage: bool,
+    /// The shape is an eye (`nif_spawn::is_eye_shape`). CPU only; enables `NVF_EYE` (iris
+    /// depth and limbal ring, nif_material.wesl) when `NVF_SSS=1`.
+    pub eye: bool,
 }
 
 /// The values of a [`NifSurface`] the shaders read (`nif_surface_bindings.wesl`, shared
@@ -779,6 +782,7 @@ impl Default for NifSurface {
             env_mask: None,
             skin: false,
             foliage: false,
+            eye: false,
         }
     }
 }
@@ -806,6 +810,8 @@ pub struct NifSurfaceKey {
     pub skin: bool,
     /// Foliage surface (`NifSurface::foliage`).
     pub foliage: bool,
+    /// Eye surface (`NifSurface::eye`).
+    pub eye: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
@@ -824,6 +830,7 @@ impl From<&NifSurface> for NifSurfaceKey {
             terrain_layer: crate::terrain_sampling::repeat_valid(surface.terrain_repeat),
             skin: surface.skin || surface.facegen_offset.is_some(),
             foliage: surface.foliage,
+            eye: surface.eye,
         }
     }
 }
@@ -914,8 +921,11 @@ impl MaterialExtension for NifSurface {
         let mask_def: &[&str] = if crate::authored::parallax_mask() { &[PARALLAX_MASK_DEF] } else { &[] };
         let reflect_def: &[&str] = if reflect { &[crate::reflection_cube::REFLECT_DEF] } else { &[] };
         let physical_def: &[&str] = if crate::authored::physical_pbr() { &["NVF_PHYSICAL_PBR"] } else { &[] };
+        // An eye before skin: an eye may carry a FaceGen offset, which keys it as skin.
         let sss_def: &[&str] = if crate::authored::sss_enabled() {
-            if key.bind_group_data.skin {
+            if key.bind_group_data.eye {
+                &["NVF_EYE"]
+            } else if key.bind_group_data.skin {
                 &["NVF_SKIN_SSS"]
             } else if key.bind_group_data.foliage {
                 &["NVF_FOLIAGE_SSS"]
@@ -1736,7 +1746,7 @@ mod tests {
         // Only the switches in `NifSurfaceKey` select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false });
         assert_eq!(surface.alpha_cut, 0.0);
         assert_eq!(surface.emissive_rule, Vec4::ZERO);
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, Vec4::ZERO);
@@ -1746,21 +1756,22 @@ mod tests {
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, surface.emissive_rule);
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false });
         // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
         surface.refraction = 0.1;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false });
         surface.refract = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false });
         // A FaceGen offset selects the tinting shader and also enables the skin key bit.
         surface.facegen_offset = Some(Handle::default());
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: true, foliage: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: true, foliage: false, eye: false });
         assert!(NifSurfaceKey::from(&NifSurface { skin: true, ..default() }).skin);
         assert!(NifSurfaceKey::from(&NifSurface { foliage: true, ..default() }).foliage);
+        assert!(NifSurfaceKey::from(&NifSurface { eye: true, ..default() }).eye);
         assert_eq!(NifSurfaceUniform::min_size().get(), 176);
     }
 

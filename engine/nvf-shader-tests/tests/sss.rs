@@ -36,6 +36,13 @@ fn skin_and_foliage_sss_compile_across_both_lighting_modes() {
                 "nvf_assets/nif_material.wesl",
                 &["NVF_SKIN_SSS", "FIRST_PERSON_DEPTH", "SHADE_LIGHT"][..],
             ),
+            // Curvature baked per vertex (nvf-assets skin_curvature.rs, UV_1).
+            ("nvf_assets/nif_material.wesl", &["NVF_SKIN_SSS", "VERTEX_UVS_B"][..]),
+            ("nvf_assets/nif_material.wesl", &["NVF_SKIN_SSS", "VERTEX_UVS_B", "FACEGEN_TINT"][..]),
+            (
+                "nvf_assets/nif_material.wesl",
+                &["NVF_SKIN_SSS", "VERTEX_UVS_B", "FIRST_PERSON_DEPTH", "SHADE_LIGHT"][..],
+            ),
         ] {
             for env_map in [false, true] {
                 for ao in [false, true] {
@@ -106,6 +113,37 @@ fn skin_and_foliage_sss_compile_across_both_lighting_modes() {
                 }
             }
         }
+    }
+}
+
+/// An eye under SSS (`NVF_EYE`): the iris shift and limbal ring, with the clear coat
+/// Bevy compiles for the cornea, tinted or not, in both lighting modes.
+#[test]
+fn eye_shader_compiles_with_iris_depth_and_clear_coat() {
+    for physical_pbr in [false, true] {
+        let mut compiler = Compiler::with_sss(physical_pbr);
+        for tint in [false, true] {
+            for env_map in [false, true] {
+                let mut defs = vec!["NVF_EYE", "STANDARD_MATERIAL_CLEARCOAT"];
+                if physical_pbr {
+                    defs.push("NVF_PHYSICAL_PBR");
+                }
+                if tint {
+                    defs.push("FACEGEN_TINT");
+                }
+                if env_map {
+                    defs.push("ENVIRONMENT_MAP");
+                }
+                let compiled = compiler.compile("nvf_assets/nif_material.wesl", &defs);
+                assert!(has_fn(&compiled, "eye_iris_shift"), "{defs:?}: iris shift present");
+                assert!(has_fn(&compiled, "eye_limbus"), "{defs:?}: limbal ring present");
+                assert!(has_fn(&compiled, "eye_sky_share"), "{defs:?}: socket sky occlusion present");
+                assert!(has_fn(&compiled, "eye_socket_occlusion"), "{defs:?}: lid and socket shading present");
+                assert!(!has_fn(&compiled, "nvf_preintegrated_skin"), "{defs:?}: no skin SSS on an eye");
+            }
+        }
+        let plain = compiler.compile("nvf_assets/nif_material.wesl", &[]);
+        assert!(!has_fn(&plain, "eye_iris_shift"), "no iris shift without NVF_EYE");
     }
 }
 

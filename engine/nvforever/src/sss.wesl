@@ -1,8 +1,9 @@
 // Subsurface scattering helpers (nvforever sss.rs; NVF_SSS=1):
 // - NVF_SKIN_SSS: analytic 2-lobe sphere-damped Gaussian-ReLU fit to Penner & Borshukov
 //   (2011) / d'Eon & Irving (2007) 6-Gaussian human skin diffusion integral, RGB normal
-//   blurring, warm shadow-penumbra bleed, dual-lobe sebum GGX specular, reciprocal
-//   dielectric coupling, and shadow-map depth-thickness Beer-Lambert transmittance.
+//   blurring, warm shadow-penumbra bleed (not on SHADE_LIGHT shapes), dual-lobe sebum GGX
+//   specular, reciprocal dielectric coupling, and shadow-map depth-thickness Beer-Lambert
+//   transmittance.
 // - NVF_FOLIAGE_SSS: energy-conserving two-sided leaf BSDF with cuticle Fresnel entry/exit,
 //   Beer-Lambert chlorophyll spectral absorption, and normalized Henyey-Greenstein phase.
 
@@ -68,8 +69,44 @@ fn nvf_preintegrated_skin(ndotl_rgb: vec3<f32>, curvature_mm: f32) -> vec3<f32> 
     return clamp(w1 * nvf_skin_lobe(ndotl_rgb, s1) + w2 * nvf_skin_lobe(ndotl_rgb, s2), vec3(0.0), vec3(1.0));
 }
 
-fn nvf_skin_shadow(shadow: f32, curvature_mm: f32) -> vec3<f32> {
+// E[max(u + n, 0)] for n ~ N(0, sigma²): a ramp's start blurred by a Gaussian.
+fn nvf_skin_soft_start(u: vec3<f32>, sigma: vec3<f32>) -> vec3<f32> {
+    let s = max(sigma, vec3(1e-4));
+    let z = clamp(u / s, vec3(-20.0), vec3(20.0));
+    let phi_cdf = vec3(1.0) / (vec3(1.0) + exp(-1.702 * z));
+    let phi_pdf = 0.39894228 * exp(-0.5 * z * z);
+    return max(vec3(0.0), u * phi_cdf + s * phi_pdf);
+}
+
+// The ramp clamp(x, 0, 1) blurred by a Gaussian of width sigma, per channel.
+fn nvf_skin_soft_ramp(x: vec3<f32>, sigma: vec3<f32>) -> vec3<f32> {
+    return nvf_skin_soft_start(x, sigma) - nvf_skin_soft_start(x - vec3(1.0), sigma);
+}
+
+// Width of each channel's scattering across a shadow's penumbra, in penumbra widths: red
+// light travels farthest in skin, blue least (d'Eon & Irving 2007 profile, sss.rs tests).
+const NVF_SKIN_PENUMBRA_SIGMA: vec3<f32> = vec3(0.20, 0.10, 0.06);
+
+// SHADE_LIGHT (the player's first-person arms): the shadow as it is. with_shade_light
+// (nif_material.wesl) takes the shadowed light apart and puts it back together, which
+// needs the light to be linear in the shadow.
+@if(SHADE_LIGHT) fn nvf_skin_shadow(shadow: f32, curvature_mm: f32) -> vec3<f32> {
     return vec3(saturate(shadow));
+}
+
+// Penumbra scattering (Penner & Borshukov 2011, "Pre-Integrated Skin Shading", shadow
+// penumbra): light scatters under the skin from the lit side of a shadow's edge into the
+// dark side, red farthest, so a shadow's edge on skin runs warm. The filtered shadow value
+// is read as the position across the penumbra, sharpened by 2 (the step takes the middle
+// half of the filter's ramp, as the paper sharpens it before the blur), and each channel
+// is then blurred by its scattering width. Held so that 0 stays 0 and 1 stays 1; the blur
+// is symmetric, so what the dark side gains the lit side's edge loses.
+@if(!SHADE_LIGHT) fn nvf_skin_shadow(shadow: f32, curvature_mm: f32) -> vec3<f32> {
+    let x = (saturate(shadow) - 0.5) * 2.0 + 0.5;
+    let g = nvf_skin_soft_ramp(vec3(x), NVF_SKIN_PENUMBRA_SIGMA);
+    let g0 = nvf_skin_soft_ramp(vec3(-0.5), NVF_SKIN_PENUMBRA_SIGMA);
+    let g1 = nvf_skin_soft_ramp(vec3(1.5), NVF_SKIN_PENUMBRA_SIGMA);
+    return saturate((g - g0) / max(g1 - g0, vec3(1e-4)));
 }
 
 fn nvf_sss_dielectric_E(F0: vec3<f32>, perceptual_roughness: f32, mu: f32) -> vec3<f32> {

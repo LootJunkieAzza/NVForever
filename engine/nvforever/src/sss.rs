@@ -114,6 +114,64 @@ mod tests {
         }
     }
 
+    fn cpu_soft_start(u: f32, sigma: f32) -> f32 {
+        let s = sigma.max(1e-4);
+        let z = (u / s).clamp(-20.0, 20.0);
+        let phi_cdf = 1.0 / (1.0 + (-1.702 * z).exp());
+        let phi_pdf = 0.398_942_3 * (-0.5 * z * z).exp();
+        (u * phi_cdf + s * phi_pdf).max(0.0)
+    }
+
+    fn cpu_skin_penumbra(shadow: f32) -> [f32; 3] {
+        let sigma = [0.20f32, 0.10, 0.06];
+        let ramp = |x: f32, s: f32| cpu_soft_start(x, s) - cpu_soft_start(x - 1.0, s);
+        let x = (shadow.clamp(0.0, 1.0) - 0.5) * 2.0 + 0.5;
+        [0, 1, 2].map(|ch| {
+            let (g0, g1) = (ramp(-0.5, sigma[ch]), ramp(1.5, sigma[ch]));
+            ((ramp(x, sigma[ch]) - g0) / (g1 - g0).max(1e-4)).clamp(0.0, 1.0)
+        })
+    }
+
+    #[test]
+    fn skin_penumbra_keeps_its_ends_runs_warm_into_the_shadow_and_moves_no_light() {
+        let wesl = unix_lines(include_str!("sss.wesl"));
+        for snippet in [
+            "const NVF_SKIN_PENUMBRA_SIGMA: vec3<f32> = vec3(0.20, 0.10, 0.06);",
+            "@if(SHADE_LIGHT) fn nvf_skin_shadow(shadow: f32, curvature_mm: f32) -> vec3<f32> {",
+            "@if(!SHADE_LIGHT) fn nvf_skin_shadow(shadow: f32, curvature_mm: f32) -> vec3<f32> {",
+            "let x = (saturate(shadow) - 0.5) * 2.0 + 0.5;",
+        ] {
+            assert!(wesl.contains(snippet), "sss.wesl contains {snippet}");
+        }
+        // Fully shadowed and fully lit skin are untouched.
+        for ch in 0..3 {
+            assert!(cpu_skin_penumbra(0.0)[ch].abs() < 1e-5);
+            assert!((cpu_skin_penumbra(1.0)[ch] - 1.0).abs() < 1e-5);
+        }
+        // Monotone in the shadow, per channel.
+        let mut last = [0.0f32; 3];
+        for i in 0..=100 {
+            let v = cpu_skin_penumbra(i as f32 / 100.0);
+            for ch in 0..3 {
+                assert!(v[ch] + 1e-5 >= last[ch], "monotone ch={ch} at {i}");
+            }
+            last = v;
+        }
+        // The dark side of the edge runs warm: red over green, green at least blue (deep in
+        // it only red reaches, the narrower green and blue both 0). Toward the edge's middle
+        // the channels meet (all 0.5 there), so only the dark side is checked.
+        for s in [0.10f32, 0.20, 0.30] {
+            let v = cpu_skin_penumbra(s);
+            assert!(v[0] > v[1] && v[1] >= v[2], "warm at shadow {s}: {v:?}");
+        }
+        assert!(cpu_skin_penumbra(0.25)[0] > 0.05, "red reaches into the shadow: {:?}", cpu_skin_penumbra(0.25));
+        // Symmetric blur: across the penumbra each channel keeps the light it had.
+        for ch in 0..3 {
+            let mean = (0..1000).map(|i| cpu_skin_penumbra((i as f32 + 0.5) / 1000.0)[ch]).sum::<f32>() / 1000.0;
+            assert!((mean - 0.5).abs() < 0.01, "ch={ch} mean {mean}");
+        }
+    }
+
     fn cpu_skin_transmittance(d_mm: f32) -> [f32; 3] {
         let s2 = d_mm * d_mm;
         let mut out = [0.0f32; 3];
@@ -295,6 +353,8 @@ mod tests {
             })
         }
 
+        // The path of SHADE_LIGHT shapes (the first-person arms), whose penumbra is the
+        // plain shadow (`nvf_skin_shadow`): with_shade_light needs:
         // 1. Strict homogeneity f(shadow) == shadow * f(1.0).
         // 2. First-person `with_shade_light` subtraction+amplification at share = 1 / 1024.0
         //    reconstructs `wanted * f(1.0)` cleanly with zero negative or > 1 blowups.

@@ -784,6 +784,10 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (
     }
 }
 
+/// The perceptual roughness of an eye's cornea under SSS (`shape_material_inner`): a tear
+/// film is close to a mirror; Bevy raises anything under 0.089 to that for its highlight.
+pub(crate) const EYE_CORNEA_ROUGHNESS: f32 = 0.06;
+
 /// The reflectance of a shape whose normal map has no alpha channel: the median mask of
 /// the normal maps that have one, 35 of 255, as the masked path reads it (reflectance
 /// 2.0 × 0.5 × mask) [observed: `crates/fnv-nif/examples/normal_mask_survey.rs` over
@@ -1551,7 +1555,8 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     // drawing the original mesh, so tangents made on the copy never reach the draw. A height
     // map (a set's or the game's own) is put on such a material only when the mesh already
     // has them: Bevy marches no parallax on a mesh without tangents (#2979 review).
-    let height_mesh_ok = !matches!(tangents, Tangents::Keep) || had_tangents;
+    let drawn_mesh = !matches!(tangents, Tangents::Keep);
+    let height_mesh_ok = drawn_mesh || had_tangents;
     let normal = normal.filter(|_| has_uv && tangents.add_to(mesh));
     let (normal, unmasked) = normal.map_or((None, false), |(h, unmasked)| (Some(h), unmasked));
     let cut = blend_cut(props, mesh);
@@ -1647,6 +1652,11 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     if canopy_cards {
         apply_canopy_normals(mesh);
     }
+    // Skin under SSS: the per-vertex curvature the pre-integrated scattering reads
+    // (skin_curvature.rs). A kept copy (`Tangents::Keep`) is not drawn, as above.
+    if sss && props.skin && drawn_mesh {
+        crate::skin_curvature::bake(mesh);
+    }
     let perceptual_roughness = if props.eye && (physical || sss) {
         gloss_roughness(gloss).clamp(0.28, 0.45)
     } else if (physical || sss) && props.skin {
@@ -1698,6 +1708,15 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     material.extension.decal = props.decal;
     material.extension.skin = props.skin;
     material.extension.foliage = foliage;
+    material.extension.eye = props.eye;
+    // An eye under SSS: a wet cornea over the iris and white, a clear coat as smooth as
+    // a tear film (Bevy's Filament clear coat; its F0 is 0.04, a cornea's about 0.025
+    // [hypothesis: IOR 1.376]), which gives the eye its sharp highlight of the sun and
+    // lamps [engineering choice].
+    if sss && props.eye {
+        material.base.clearcoat = 1.0;
+        material.base.clearcoat_perceptual_roughness = EYE_CORNEA_ROUGHNESS;
+    }
     if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
     }

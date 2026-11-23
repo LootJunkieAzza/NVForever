@@ -558,6 +558,7 @@ impl From<&NifSurfaceBlendColour> for NifSurfaceBlendKey {
             terrain_layer: false,
             skin: s.skin,
             foliage: s.foliage,
+            eye: false,
         }, s.mesh_terrain_layout)
     }
 }
