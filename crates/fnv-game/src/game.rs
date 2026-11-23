@@ -5816,10 +5816,12 @@ impl<'a> Game<'a> {
         mask
     }
 
-    /// JIP LN `uNPCPerks=2`: when enabled, automatically give a human NPC 1 random
-    /// playable Trait and 1 random playable Perk per 3 levels (up to 10 perks max), and
-    /// sync their perk abilities [documented: JIP LN `jip_nvse.ini` `uNPCPerks`].
-    /// Returns the number of perks/traits newly assigned.
+    /// JIP LN `uNPCPerks=2`: when enabled, automatically give a human NPC 1 random starting
+    /// Trait and 1 random Perk per 3 levels (up to 10 perks max), and sync their perk
+    /// abilities [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini` `uNPCPerks`]. Filtering
+    /// to playable non-hidden traits/perks (`min_level <= level`) and using integer floor
+    /// division `(level / 3).min(10)` are [hypothesis]; deterministic FormID seeding is
+    /// [design]. Returns the number of perks/traits newly assigned.
     pub fn apply_npc_jip_perks(&mut self, actor: FormId) -> usize {
         if self.jip_ini.npc_perks < 2 || actor == FormId::PLAYER_REF {
             return 0;

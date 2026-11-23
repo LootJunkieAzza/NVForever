@@ -1,10 +1,12 @@
 //! Clean-room loader and rules for `Data\NVSE\Plugins\jip_nvse.ini` `[GamePatches]`.
 //!
-//! Only the public `jip_nvse.ini` schema/comments and public GECK Wiki documentation were
-//! consulted; no JIP LN DLL, binary, PDB, or plugin source code was inspected.
+//! Only the public `jip_nvse.ini` schema/comments shipped in JIP LN Settings INI v56.24
+//! (for JIP LN NVSE Plugin 57.30) and public GECK Wiki documentation were consulted; no
+//! JIP LN DLL, binary, PDB, or plugin source code was inspected.
 //!
 //! When `jip_nvse.ini` is absent (or a patch key is `0`/omitted), every patch defaults to
-//! off so unmodded vanilla behavior remains unchanged.
+//! off so unmodded vanilla behavior remains unchanged. See `docs/spec-notes/jip-math-utility.md`
+//! §6 for JIP LN's shipped INI defaults and `[hypothesis]`/`[design]` boundary notes.
 
 use crate::mod_files::ModFiles;
 
@@ -21,45 +23,57 @@ pub const JIP_INI_REL_PATH: &str = "NVSE\\Plugins\\jip_nvse.ini";
 /// see `docs/spec-notes/jip-math-utility.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JipGamePatches {
-    /// `bIgnoreDTDRFix`: prerequisite gate for `bLocalizedDTDR` [documented: JIP LN
-    /// `jip_nvse.ini` comments, "(Note: Requires bIgnoreDTDRFix to be enabled)"].
-    /// NVForever's `fnv_combat::damage::hit` already subtracts DT before DR and honors
-    /// `WEAP` `Ignores Normal Weapon Resistance` (`docs/spec-notes/weapon-data-fields.md` §6).
+    /// `bIgnoreDTDRFix` (JIP shipped default `1`): prerequisite gate for `bLocalizedDTDR`
+    /// [documented: JIP LN 57.30 / JIP LN Settings INI v56.24 `jip_nvse.ini`, "(Note: Requires
+    /// bIgnoreDTDRFix to be enabled)"]. NVForever's `fnv_combat::damage::hit` already subtracts
+    /// DT before DR and honors `WEAP` `Ignores Normal Weapon Resistance`
+    /// (`docs/spec-notes/weapon-data-fields.md` §6).
     pub ignore_dt_dr_fix: bool,
-    /// `bLocalizedDTDR`: head hits use worn head-armor DT/DR only; body hits use worn
-    /// body-armor DT/DR only (requires `ignore_dt_dr_fix`) [documented: JIP LN
-    /// `jip_nvse.ini` comments].
+    /// `bLocalizedDTDR` (JIP shipped default `0`): head hits use worn head-armor DT/DR only;
+    /// body hits use worn body-armor DT/DR only (requires `ignore_dt_dr_fix`) [documented:
+    /// JIP LN 57.30 / INI v56.24 `jip_nvse.ini`]. Full worn armor on explosions and actor
+    /// innate DT/DR (AV 76/18) applying everywhere are `[hypothesis]`.
     pub localized_dt_dr: bool,
-    /// `bQttSelectShortKeys`: Shift transfers/drops full stack and Ctrl transfers/drops
-    /// 1 item in Inventory, Container, and Barter menus, skipping `QuantityMenu`
-    /// [documented: JIP LN `jip_nvse.ini` comments].
+    /// `bQttSelectShortKeys` (JIP shipped default `1`): Shift transfers/drops the entire stack
+    /// and Ctrl transfers/drops 1 item in Inventory, Container, and Barter menus, skipping
+    /// `QuantityMenu` [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`]. Shift-over-Ctrl
+    /// precedence and Q/right-click shortcut routing are `[design]`; retaining NVForever's
+    /// `ASK_QUANTITY_ABOVE` threshold for weightless stacks is `[hypothesis]`.
     pub qtt_select_short_keys: bool,
-    /// `bNPCWeaponMods`: human NPCs have a level-scaled chance for their main weapon to
-    /// spawn with attached weapon mods [documented: JIP LN `jip_nvse.ini` comments].
+    /// `bNPCWeaponMods` (JIP shipped default `0`): NPCs have a level-scaled chance for their
+    /// main weapon to include weapon mods [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`].
+    /// Restricting to human NPCs (`NPC_` / `LVLN` -> `NPC_`) is `[hypothesis]`.
     pub npc_weapon_mods: bool,
-    /// `uWMChancePerLevel`: percent chance increase per NPC level (default `2`)
-    /// [documented: JIP LN `jip_nvse.ini` comments].
+    /// `uWMChancePerLevel` (JIP shipped default `2`): percent chance increase per NPC level
+    /// [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`]; clamped to `0..=100` `[design]`.
     pub wm_chance_per_level: u8,
-    /// `uWMChanceMin`: minimum percent chance (default `10`)
-    /// [documented: JIP LN `jip_nvse.ini` comments].
+    /// `uWMChanceMin` (JIP shipped default `10`): minimum percent chance [documented: JIP LN
+    /// 57.30 / INI v56.24 `jip_nvse.ini`]; clamped to `0..=100` `[design]`.
     pub wm_chance_min: u8,
-    /// `uWMChanceMax`: maximum percent chance (default `60`)
-    /// [documented: JIP LN `jip_nvse.ini` comments].
+    /// `uWMChanceMax` (JIP shipped default `60`): maximum percent chance [documented: JIP LN
+    /// 57.30 / INI v56.24 `jip_nvse.ini`]; clamped to `0..=100` `[design]`.
     pub wm_chance_max: u8,
-    /// `bSneakBoundingBoxFix`: shrinks the crouch collision height for the player and
-    /// human companions so crouching passes through low openings
-    /// [documented: JIP LN `jip_nvse.ini` comments].
+    /// `bSneakBoundingBoxFix` (JIP shipped default `1`): shrinks crouch collision height for
+    /// the player and human companions so crouching passes through low openings [documented:
+    /// JIP LN 57.30 / INI v56.24 `jip_nvse.ini`]. Tracking crouching human companions via
+    /// `is_human_npc` + teammate sneak state is `[hypothesis]`; `CROUCH_HEIGHT_SCALE = 0.62`
+    /// and overhead headroom hold are `[design]`.
     pub sneak_bounding_box_fix: bool,
-    /// `bLoadScreenFix`: always prefer location-specific loading screens when any match
-    /// the destination [documented: JIP LN `jip_nvse.ini` comments].
+    /// `bLoadScreenFix` (JIP shipped default `0`): gives priority to location-specific load
+    /// screens when any match current location [documented: JIP LN 57.30 / INI v56.24
+    /// `jip_nvse.ini`]; falling back to generic screens when none match is `[hypothesis]`.
     pub load_screen_fix: bool,
-    /// `uNPCPerks`: `0` (absent/off: preserves existing NVForever script perk behavior,
-    /// no auto-distribution), `1` (script perk commands on any NPC), `2` (also auto-assigns
-    /// 1 random playable trait + 1 random playable perk per 3 levels up to 10 max to human
-    /// NPCs) [documented: JIP LN `jip_nvse.ini` comments].
+    /// `uNPCPerks` (JIP shipped default `0`): `1` unlocks script perk commands on any NPC and
+    /// `2` also auto-assigns 1 random starting Trait and 1 random Perk per 3 levels up to 10
+    /// max to human NPCs [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`]. Keeping
+    /// `uNPCPerks=0` identical to `1` for script perk commands is `[design]` (preserving
+    /// `nvse_jip10.rs` `[hypothesis: NVForever gives them]`); floor division `(level / 3).min(10)`
+    /// and playable/non-hidden/`min_level` filters are `[hypothesis]`.
     pub npc_perks: u8,
-    /// `bVoiceModulationFix`: applies voice modulation filtering to talking activators
-    /// and voice holotapes [documented: JIP LN `jip_nvse.ini` comments].
+    /// `bVoiceModulationFix` (JIP shipped default `1`): adds voice modulation for talking
+    /// activators and holotapes [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`].
+    /// Scoping holotapes to queued voice holotapes and yielding to Stewie's `no_voice_filter`
+    /// are `[hypothesis]`; reusing NVForever's `VoiceFilter` DSP is `[design]`.
     pub voice_modulation_fix: bool,
 }
 
@@ -156,14 +170,16 @@ impl JipGamePatches {
     }
 
     /// Whether localized head/body armor DT/DR separation is active: requires both
-    /// `bLocalizedDTDR=1` and `bIgnoreDTDRFix=1` [documented: JIP LN `jip_nvse.ini`].
+    /// `bLocalizedDTDR=1` and `bIgnoreDTDRFix=1` [documented: JIP LN 57.30 / INI v56.24
+    /// `jip_nvse.ini`].
     pub fn localized_dt_dr_active(&self) -> bool {
         self.ignore_dt_dr_fix && self.localized_dt_dr
     }
 
     /// NPC weapon-mod attachment chance in percent (`0..=100`):
     /// `Min(uWMChanceMax, Max(uWMChanceMin, Level * uWMChancePerLevel))`
-    /// [documented: JIP LN `jip_nvse.ini` comments]. Returns `0` when `bNPCWeaponMods=0`.
+    /// [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`]. Returns `0` when
+    /// `bNPCWeaponMods=0`.
     pub fn npc_weapon_mod_chance(&self, level: u16) -> u8 {
         if !self.npc_weapon_mods {
             return 0;
@@ -213,7 +229,8 @@ impl JipGamePatches {
     }
 
     /// Number of random non-trait perks auto-assigned to a human NPC of `level` under
-    /// `uNPCPerks=2`: 1 per 3 levels, capped at 10 [documented: JIP LN `jip_nvse.ini`].
+    /// `uNPCPerks=2`: 1 per 3 levels, capped at 10 [documented: JIP LN 57.30 / INI v56.24
+    /// `jip_nvse.ini`; floor division `(level / 3).min(10)` is `[hypothesis]`].
     /// Returns `0` when `uNPCPerks < 2`.
     pub fn npc_auto_perk_count(&self, level: u16) -> usize {
         if self.npc_perks < 2 {

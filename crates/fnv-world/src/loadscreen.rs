@@ -182,8 +182,9 @@ pub fn choose<'a>(screens: &'a [LoadScreen], to: &Destination, roll: u64) -> Opt
 
 /// [`choose`] with optional location-specific preference (`prefer_location`, JIP LN
 /// `bLoadScreenFix`): when `true` and the destination has matching location-specific
-/// screens, always pick from them instead of alternating with generic screens
-/// [documented: JIP LN `jip_nvse.ini` `bLoadScreenFix`].
+/// screens, always pick from them instead of alternating with generic screens [documented:
+/// JIP LN 57.30 / INI v56.24 `jip_nvse.ini` `bLoadScreenFix`; falling back to generic screens
+/// when none match is [hypothesis]].
 pub fn choose_with<'a>(screens: &'a [LoadScreen], to: &Destination, roll: u64, prefer_location: bool) -> Option<&'a LoadScreen> {
     let own: Vec<&LoadScreen> = screens.iter().filter(|s| s.belongs_to(to)).collect();
     let anywhere: Vec<&LoadScreen> = screens.iter().filter(|s| s.locations.is_empty()).collect();

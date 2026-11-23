@@ -165,9 +165,10 @@ impl CombatForms {
     }
 
     /// DT and DR (percent) of worn armour covering `zone`, for JIP LN's `bLocalizedDTDR`:
-    /// head hits benefit only from worn head-armour (`covers_head`), body hits only from
-    /// worn body-armour (`covers_body`), and `Zone::All` sums all worn armour
-    /// [documented: JIP LN `jip_nvse.ini` `bLocalizedDTDR`].
+    /// head hits benefit only from worn head-armour (`covers_head`) and body hits only from
+    /// worn body-armour (`covers_body`) [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`
+    /// `bLocalizedDTDR`]; `Zone::All` sums all worn armour for explosions [hypothesis: blast
+    /// hits have no single hit zone].
     pub fn armor_values_worn_in_zone_with(&self, worn: &[(FormId, f32)], penalty: f32, zone: Zone) -> (f32, f32) {
         self.armor_values_worn_in_zone_with_lookup(worn, penalty, zone, |id| self.armor.get(&id).cloned())
     }

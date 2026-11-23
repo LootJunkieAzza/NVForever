@@ -4138,11 +4138,12 @@ pub(crate) fn target_armor(c: &Combat, script: Option<&mut ScriptState>, sim: &m
 }
 
 /// [`target_armor`] for a specific body hit `zone` when JIP LN's `bLocalizedDTDR` (and its
-/// prerequisite `bIgnoreDTDRFix`) are active: head hits use worn head-armour DT/DR only,
-/// body hits use worn body-armour DT/DR only, and innate actor DT/DR (AV 76 / 18) still
-/// applies everywhere [documented: JIP LN `jip_nvse.ini` `bLocalizedDTDR`]. When
-/// `bLocalizedDTDR` is inactive or `zone` is `None`, sums all worn armour identically to
-/// vanilla.
+/// prerequisite `bIgnoreDTDRFix`) are active: head hits use worn head-armour DT/DR only and
+/// body hits use worn body-armour DT/DR only [documented: JIP LN 57.30 / INI v56.24
+/// `jip_nvse.ini` `bLocalizedDTDR`]; explosions apply full worn armour (`Zone::All`) and
+/// innate actor DT/DR (AV 76 / 18) still applies everywhere [hypothesis: INI specifies worn
+/// head-armour and worn body-armour only]. When `bLocalizedDTDR` is inactive or `zone` is
+/// `None`, sums all worn armour identically to vanilla.
 pub(crate) fn target_armor_for_zone(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId, zone: Option<Zone>) -> (f32, f32) {
     // The player's tweak: how fast worn-down armour loses its DT and DR [design: docs/design/tweaks.md].
     let penalty = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.tweaks.armor_condition_penalty as f32);

@@ -142,7 +142,8 @@ pub struct Loading {
     /// black alone, no picture or tip [design: docs/design/tweaks.md].
     pub plain_going_out: bool,
     /// JIP LN `bLoadScreenFix`: always prefer location-specific load screens when any
-    /// match the destination [documented: JIP LN `jip_nvse.ini` `bLoadScreenFix`].
+    /// match the destination [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`
+    /// `bLoadScreenFix`; falling back to generic screens when none match is [hypothesis]].
     pub prefer_location: bool,
     /// The next screen is the plain one (set for one [`spawn_screen`]).
     plain_once: bool,

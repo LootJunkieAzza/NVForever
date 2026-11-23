@@ -294,9 +294,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // ---- perks: `[forTeammates] [includeHidden]` [documented]. NVForever's other
-        // actors hold their script-added perks (preserving companion scripts when
-        // `jip_nvse.ini` is absent or sets `uNPCPerks=1`) plus auto-assigned perks when
-        // `g.jip_ini.npc_perks >= 2` (`crate::jip_ini`).
+        // actors hold perks as with uNPCPerks on [hypothesis: NVForever gives them].
         "getallperks" => {
             let Some(r) = subject else { return Some(Ok(XVal::Array(0))) };
             let mates = num(args, 0).is_some_and(|x| x != 0.0);

@@ -856,8 +856,10 @@ pub struct MenuModel {
     /// The player's Store All tweak: Shift with Take All stores instead.
     pub store_all: bool,
     /// JIP LN `bQttSelectShortKeys`: Shift transfers/drops the full stack and Ctrl
-    /// transfers/drops 1 item without opening `QuantityMenu` [documented: JIP LN
-    /// `jip_nvse.ini` `bQttSelectShortKeys`].
+    /// transfers/drops 1 item without opening `QuantityMenu` [documented: JIP LN 57.30 /
+    /// INI v56.24 `jip_nvse.ini` `bQttSelectShortKeys`; Shift-over-Ctrl precedence and
+    /// Q/right-click shortcut routing are [design]; keeping `ASK_QUANTITY_ABOVE` for
+    /// weightless stacks is [hypothesis]].
     pub qtt_select_short_keys: bool,
     /// The player's tweak: the barter figure shows the whole total, past what the
     /// merchant can pay [design: docs/design/tweaks.md].

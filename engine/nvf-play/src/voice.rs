@@ -400,8 +400,11 @@ fn said_now(g: &Game, sim: &SimState) -> Vec<Said> {
 }
 
 /// Whether `activator` resolves to a `TACT` whose `NO_VOICE_FILTER` flag is clear
-/// (`fnv_sim::forms::BaseForm::voice_filter`) [documented: JIP LN `jip_nvse.ini`
-/// `bVoiceModulationFix`].
+/// (`fnv_sim::forms::BaseForm::voice_filter`), used to route talking-activator lines through
+/// NVForever's `VoiceFilter` DSP when `bVoiceModulationFix` is enabled [documented: JIP LN
+/// 57.30 / INI v56.24 `jip_nvse.ini` `bVoiceModulationFix` adds voice modulation for talking
+/// activators and holotapes; reusing `VoiceFilter` DSP for `TACT` lines lacking
+/// `NO_VOICE_FILTER` is [design], and Stewie `no_voice_filter` precedence is [hypothesis]].
 pub(crate) fn activator_filtered(sim: &SimState, activator: Option<FormId>) -> bool {
     activator
         .and_then(|r| sim.base_of(r.0))
