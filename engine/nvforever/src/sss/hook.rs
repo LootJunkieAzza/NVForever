@@ -13,6 +13,7 @@ const IMPORT_ANCHOR: &str = "import bevy_render::maths::{E, powsafe};\n";
 const IMPORT_TEXT: &str = "// NVForever subsurface scattering (nvforever sss.rs).
 @if(NVF_SKIN_SSS) import nvforever::sss::{nvf_sss_point_skin, nvf_sss_spot_skin, nvf_sss_directional_skin};
 @if(NVF_FOLIAGE_SSS) import nvforever::sss::{nvf_sss_point_foliage, nvf_sss_spot_foliage, nvf_sss_directional_foliage};
+@if(NVF_SKIN_SSS && NVF_SKIN_SPLIT) import nvforever::sss::nvf_skin_last_diffuse;
 ";
 
 const PHYSICAL_DIFFUSE_ANCHOR: &str = "    lighting_input.diffuse_color = diffuse_color;\n";
@@ -40,6 +41,41 @@ const FOLIAGE_WEIGHT_DISPLAY: &str = "    // NVForever subsurface scattering (nv
 const FOLIAGE_WEIGHT_PHYSICAL: &str = "    // NVForever subsurface scattering (nvforever sss.rs): direct_light *= nvf_w.y follows below.
     @if(NVF_FOLIAGE_SSS)
     let nvf_sss_weight = 1.0;
+    // NVF_SKIN_SPLIT (sss/screen.rs): the skin's diffuse light, direct and indirect, added
+    // up apart from the rest, which is its specular light.
+    @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT)
+    var nvf_skin_d_direct = vec3(0.0);
+    @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT)
+    var nvf_skin_d_indirect = vec3(0.0);
+";
+
+/// Physical PBR: the image-based light's diffuse share (`physical_patched`; the ambient
+/// occlusion hook keeps the line) is skin's diffuse light too.
+const ENV_DIFFUSE_ANCHOR: &str = "    indirect_light += environment_light.diffuse * nvf_ibl_diff_ao;\n";
+const ENV_DIFFUSE_SPLIT_TEXT: &str = "    @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT)
+    nvf_skin_d_indirect += environment_light.diffuse * nvf_ibl_diff_ao;
+";
+
+/// Physical PBR: before the display weights (`physical_patched`), the skin's specular light
+/// is what is not its diffuse light, scaled as the weights scale direct and indirect light.
+/// The fallback ambient that block adds is diffuse, so not in it.
+const DISPLAY_WEIGHTS_ANCHOR: &str = "    if nvf_display {\n        let nvf_w = pow(max(nvf_weights, vec2(0.0)), vec2(2.2));\n";
+const SKIN_SPEC_TEXT: &str = "    @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT)
+    let nvf_skin_w = select(vec2(1.0), pow(max(nvf_weights, vec2(0.0)), vec2(2.2)), nvf_display);
+    @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT)
+    let nvf_skin_spec = max(direct_light - nvf_skin_d_direct, vec3(0.0)) * nvf_skin_w.y + max(indirect_light - nvf_skin_d_indirect, vec3(0.0)) * nvf_skin_w.x;
+";
+
+/// Physical PBR: the skin's mark in the picture's alpha, which the screen-space scattering
+/// reads and puts back to 1 (sss/screen.rs `SKIN_MARK`): -1 less the specular light's
+/// luminance, as drawn (times the exposure).
+const TOTAL_ANCHOR: &str = "    output_color = vec4<f32>(
+        (view_bindings::view.exposure * (transmitted_light + direct_light + indirect_light)) + emissive_light,
+        output_color.a
+    );
+";
+const SKIN_MARK_TEXT: &str = "    @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT)
+    output_color.a = -1.0 - view_bindings::view.exposure * dot(nvf_skin_spec, vec3(0.2126, 0.7152, 0.0722));
 ";
 
 const POINT_ANCHOR: &str = "        let light_contrib = lighting::point_light(light_id, &lighting_input, enable_diffuse, true);\n";
@@ -56,6 +92,8 @@ fn clustered_sss_text(kind: &str, ao_var: &str, physical: bool) -> String {
         @if(NVF_SKIN_SSS)
         if enable_diffuse {{
             direct_light += nvf_sss_{kind}_skin(light_id, in.world_position.xyz, in.N, in.world_normal, in.V, diffuse_color, lighting_input.F0_dielectric, perceptual_roughness, thickness, shadow, nvf_display, {p}) * nvf_skin_{ao_var}_ao;
+            @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT)
+            nvf_skin_d_direct += nvf_skin_last_diffuse * nvf_skin_{ao_var}_ao;
         }}
         @if(NVF_FOLIAGE_SSS && NVF_AMBIENT_OCCLUSION)
         let nvf_foliage_{ao_var}_ao = select(nvf_ao_lamps, vec3(1.0), !nvf_display || ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));
@@ -81,6 +119,8 @@ fn directional_sss_text(physical: bool) -> String {
         @if(NVF_SKIN_SSS)
         if enable_diffuse {{
             direct_light += nvf_sss_directional_skin(i, in.world_position.xyz, in.N, in.world_normal, in.V, diffuse_color, lighting_input.F0_dielectric, perceptual_roughness, thickness, shadow, view_z, nvf_skin_has_shadow, nvf_skin_macro_vis, nvf_display, {p});
+            @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT)
+            nvf_skin_d_direct += nvf_skin_last_diffuse;
         }}
         @if(NVF_FOLIAGE_SSS)
         let nvf_fol_has_shadow = (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u && (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u;
@@ -113,7 +153,7 @@ pub fn hook_patched(source: &str, physical: bool) -> Option<String> {
     let spot_text = clustered_sss_text("spot", "sp", physical);
     let dir_text = directional_sss_text(physical);
 
-    let mut edits: Vec<(&str, &str, Place)> = Vec::with_capacity(7);
+    let mut edits: Vec<(&str, &str, Place)> = Vec::with_capacity(10);
     edits.push((IMPORT_ANCHOR, IMPORT_TEXT, Place::After));
     if physical {
         edits.push((PHYSICAL_DIFFUSE_ANCHOR, PHYSICAL_DIFFUSE_SSS_TEXT, Place::Replace));
@@ -128,6 +168,9 @@ pub fn hook_patched(source: &str, physical: bool) -> Option<String> {
     edits.push((DIR_ANCHOR, &dir_text, Place::After));
     if physical {
         edits.push((INDIRECT_RESTORE_ANCHOR, INDIRECT_RESTORE_TEXT, Place::Before));
+        edits.push((ENV_DIFFUSE_ANCHOR, ENV_DIFFUSE_SPLIT_TEXT, Place::After));
+        edits.push((DISPLAY_WEIGHTS_ANCHOR, SKIN_SPEC_TEXT, Place::Before));
+        edits.push((TOTAL_ANCHOR, SKIN_MARK_TEXT, Place::After));
     }
 
     let mut out = String::with_capacity(source.len() + 3072);

@@ -416,6 +416,28 @@ forbid = [
 ]
 
 [[scenario]]
+name = "screen-space-skin-scattering"
+source = "[design] engine/nvforever/src/sss/screen.rs (Jimenez et al. 2015 separable subsurface scattering, d'Eon & Irving 2007 profile): with subsurface scattering and physical PBR on and no multisampling, the skin hook goes in, the screen-space skin blur's pipelines compile and the pass runs after the opaque pass at Goodsprings noon, without a rendering or validation error. How the faces look is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/sss.rs", "engine/nvforever/src/sss.wesl", "engine/nvforever/src/sss/", "engine/nvforever/src/sss_screen.wesl", "engine/nvf-assets/src/nif_material.wesl"]
+env = { NVF_SSS = "1", NVF_PHYSICAL_PBR = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--msaa", "1"]
+run_seconds = 30
+expect = [
+  { text = "lights: subsurface scattering hook installed (NVF_SSS=1)", count = 1, label = "the skin hook goes into the lighting" },
+  { text = "authored materials: screen-space skin scattering on", count = 1, label = "the screen-space scattering is on" },
+  { text = "screen-space skin scattering: active", count = 1, label = "the blur runs after the opaque pass" },
+]
+forbid = [
+  { text = "screen-space skin scattering: blur_", label = "a pipeline of the skin blur that does not compile" },
+  { text = "subsurface scattering hook's anchors not found", label = "the skin hook's anchors missing" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the skin blur" },
+  { text = "Shader validation error", label = "a shader that does not validate with the skin blur" },
+  { text = "Validation Error", label = "a graphics API validation error with the skin blur" },
+  { text = "panicked", label = "a panic with the skin blur on" },
+]
+
+[[scenario]]
 name = "distant-objects-switch"
 source = "[design, #3014] docs/design/graphics-enhanced.md §3.21 (engine/nvforever/src/distant_objects.rs): the settings page's Distant objects row goes to 12 cells while the game runs at Goodsprings noon, the distant objects come on and stream in; then to 8 cells (the far ones fade out) and Off, without a rendering or validation error; the exit summary is logged as they were on"
 areas = ["renderer", "graphics", "settings"]

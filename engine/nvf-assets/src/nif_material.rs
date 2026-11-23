@@ -432,6 +432,33 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
     }
 }
 
+/// Whether a main-pass pipeline draws skin whose diffuse light the screen-space scattering
+/// blurs ([`crate::authored::SKIN_SPLIT_DEF`]; nvforever sss/screen.rs). The skin's mark goes
+/// in the picture's alpha, so only where nothing else reads that alpha in the draw: an
+/// opaque skin shape (no blending, no alpha to coverage) of a perspective view with a depth
+/// prepass, one sample and tone mapping after the main pass (the views that pass runs on;
+/// a multisampled view's samples cannot be read back, sss/screen.rs), not the first-person arms (their
+/// `SHADE_LIGHT` takes the light apart) nor an eye, and not under an input view
+/// (`NVF_PBR_VIEW`), whose colour is no light.
+fn skin_split_applies(enabled: bool, descriptor: &RenderPipelineDescriptor, mesh_key: MeshPipelineKey, key: &NifSurfaceKey, no_view_defs: bool) -> bool {
+    let main_pass = !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE"));
+    let opaque = descriptor.fragment.as_ref().is_some_and(|f| f.targets.first().is_some_and(|t| t.as_ref().is_some_and(|t| t.blend.is_none())));
+    enabled
+        && main_pass
+        && opaque
+        && no_view_defs
+        && key.skin
+        && !key.eye
+        && !key.shade_light
+        && !key.first_person
+        && !key.refract
+        && !descriptor.multisample.alpha_to_coverage_enabled
+        && descriptor.multisample.count <= 1
+        && mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS)
+        && !mesh_key.contains(MeshPipelineKey::TONEMAP_IN_SHADER)
+        && (mesh_key & MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS) == MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE
+}
+
 fn push_shader_def_once(defs: &mut Vec<ShaderDefVal>, def: &ShaderDefVal) {
     if !defs.contains(def) {
         defs.push(def.clone());
@@ -939,6 +966,11 @@ impl MaterialExtension for NifSurface {
         if !(view_defs.is_empty() && metallic_def.is_empty() && mask_def.is_empty() && reflect_def.is_empty() && physical_def.is_empty() && sss_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(fragment) = descriptor.fragment.as_mut() {
                 fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).chain(mask_def).chain(reflect_def).chain(physical_def).chain(sss_def).map(|d| ShaderDefVal::from(*d)));
+            }
+        }
+        if skin_split_applies(crate::authored::screen_sss_enabled(), descriptor, key.mesh_key, &key.bind_group_data, view_defs.is_empty()) {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                push_shader_def_once(&mut fragment.shader_defs, &ShaderDefVal::from(crate::authored::SKIN_SPLIT_DEF));
             }
         }
         if key.bind_group_data.foliage
@@ -1495,6 +1527,35 @@ mod tests {
 
     const UPSTREAM_DEPTH: (Option<bool>, Option<CompareFunction>) = (Some(true), Some(CompareFunction::GreaterEqual));
     const EQUAL_DEPTH: (Option<bool>, Option<CompareFunction>) = (Some(false), Some(CompareFunction::Equal));
+
+    #[test]
+    fn only_opaque_single_sampled_world_skin_takes_the_skin_split() {
+        use bevy::render::render_resource::BlendState;
+        let skin = NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: true, foliage: false, eye: false };
+        let view = MeshPipelineKey::DEPTH_PREPASS | MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE;
+        let main = main_pipeline(1, None);
+        assert!(skin_split_applies(true, &main, view, &skin, true), "a face in the world view");
+        assert!(!skin_split_applies(false, &main, view, &skin, true), "the switch off");
+        assert!(!skin_split_applies(true, &main_pipeline(4, None), view, &skin, true), "multisampled");
+        assert!(!skin_split_applies(true, &main_pipeline(1, Some(BlendState::ALPHA_BLENDING)), view, &skin, true), "blended");
+        let mut coverage = main_pipeline(1, None);
+        coverage.multisample.alpha_to_coverage_enabled = true;
+        assert!(!skin_split_applies(true, &coverage, view, &skin, true), "alpha to coverage");
+        assert!(!skin_split_applies(true, &prepass_pipeline(1), view, &skin, true), "a prepass");
+        assert!(!skin_split_applies(true, &main, MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE, &skin, true), "no depth prepass");
+        assert!(!skin_split_applies(true, &main, view | MeshPipelineKey::TONEMAP_IN_SHADER, &skin, true), "tone mapped in the shader");
+        assert!(!skin_split_applies(true, &main, MeshPipelineKey::DEPTH_PREPASS | MeshPipelineKey::VIEW_PROJECTION_ORTHOGRAPHIC, &skin, true), "orthographic");
+        assert!(!skin_split_applies(true, &main, view, &skin, false), "an input view");
+        for (what, key) in [
+            ("not skin", NifSurfaceKey { skin: false, facegen: false, ..skin }),
+            ("an eye", NifSurfaceKey { eye: true, ..skin }),
+            ("the arms", NifSurfaceKey { shade_light: true, ..skin }),
+            ("first person", NifSurfaceKey { first_person: true, ..skin }),
+            ("refracting", NifSurfaceKey { refract: true, ..skin }),
+        ] {
+            assert!(!skin_split_applies(true, &main, view, &key, true), "{what}");
+        }
+    }
 
     #[test]
     fn depth_equal_only_in_the_main_pass_of_a_view_with_a_prepass() {

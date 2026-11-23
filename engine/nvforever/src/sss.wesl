@@ -3,7 +3,9 @@
 //   (2011) / d'Eon & Irving (2007) 6-Gaussian human skin diffusion integral, RGB normal
 //   blurring, warm shadow-penumbra bleed (not on SHADE_LIGHT shapes), dual-lobe sebum GGX
 //   specular, reciprocal dielectric coupling, and shadow-map depth-thickness Beer-Lambert
-//   transmittance.
+//   transmittance. Under NVF_SKIN_SPLIT (the screen-space scattering, sss/screen.rs) the
+//   light is left unblurred here and the diffuse share of each light is kept apart
+//   (`nvf_skin_last_diffuse`) for the pass after the opaque draws, which blurs it.
 // - NVF_FOLIAGE_SSS: energy-conserving two-sided leaf BSDF with cuticle Fresnel entry/exit,
 //   Beer-Lambert chlorophyll spectral absorption, and normalized Henyey-Greenstein phase.
 
@@ -14,6 +16,10 @@ import bevy_pbr::render::{
     shadows::{get_cascade_index, world_to_directional_light_local},
 };
 import bevy_render::maths::PI;
+
+// NVF_SKIN_SPLIT: the diffuse light of the last nvf_skin_eval, the share the screen-space
+// scattering blurs (sss/screen.rs). The lighting hook (sss/hook.rs) adds it up per light.
+var<private> nvf_skin_last_diffuse: vec3<f32>;
 
 fn nvf_sss_srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     let x = max(c, vec3(0.0));
@@ -228,9 +234,14 @@ fn nvf_skin_eval(
     let n_g = nvf_sss_safe_normalize(mix(N, ng, 0.04), N);
     let n_b = N;
     let ndotl_rgb = vec3(dot(n_r, L), dot(n_g, L), dot(n_b, L));
-    let preint = nvf_preintegrated_skin(ndotl_rgb, curvature_mm);
     let s = saturate(shadow);
-    let shadow_rgb = nvf_skin_shadow(s, curvature_mm);
+    // NVF_SKIN_SPLIT: the screen-space pass blurs this light across the skin by the
+    // diffusion profile (sss/screen.rs), which does what the pre-integration, the blurred
+    // normals and the warm penumbra stand in for; done twice the skin would blur twice.
+    @if(!NVF_SKIN_SPLIT) let preint = nvf_preintegrated_skin(ndotl_rgb, curvature_mm);
+    @if(!NVF_SKIN_SPLIT) let shadow_rgb = nvf_skin_shadow(s, curvature_mm);
+    @if(NVF_SKIN_SPLIT) let preint = vec3(saturate(dot(N, L)));
+    @if(NVF_SKIN_SPLIT) let shadow_rgb = vec3(s);
 
     let phase_fwd = 0.35 + 0.65 * pow(saturate(dot(V, -L)), 3.0);
     let d_est = clamp(0.65 / max(curvature_mm, 0.04), 3.5, 18.0);
@@ -246,9 +257,12 @@ fn nvf_skin_eval(
     if physical {
         let t_base = nvf_sss_dielectric_T(F0_dielectric, saturate(perceptual_roughness), max(dot(N, V), 0.0001), max(dot(N, L), 0.0001));
         let t_oil = 1.0 - 0.06 * sebum.w;
-        return (diffuse_color * t_base * t_oil * skin_scatter + spec_oil) * light_rad;
+        let diffuse = diffuse_color * t_base * t_oil * skin_scatter * light_rad;
+        nvf_skin_last_diffuse = diffuse;
+        return diffuse + spec_oil * light_rad;
     }
     let base = vec3(saturate(dot(N, L)) * saturate(shadow));
+    nvf_skin_last_diffuse = vec3(0.0);
     return (diffuse_color * max(skin_scatter - base, vec3(0.0)) + spec_oil * 0.5) * light_rad;
 }
 

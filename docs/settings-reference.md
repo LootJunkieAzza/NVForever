@@ -1211,7 +1211,11 @@ below cover them all.
   and two-sided light transmission on foliage. Takes effect at the next start.
 - In full: Enables Penner pre-integrated skin diffusion, dual-lobe sebum specular, and
   shadow-map backlit transmittance on actor skin and FaceGen heads, plus energy-conserving
-  two-sided backlit translucency on grass, tree foliage, and plant meshes. Off in both
+  two-sided backlit translucency on grass, tree foliage, and plant meshes. With Physical
+  PBR on and no multisampling, skin's diffuse light from every source (sun, lamps, sky,
+  ambient) is instead blurred across the skin after the opaque pass by the skin diffusion
+  profile (screen-space scattering, `engine/nvforever/src/sss/screen.rs`; `NVF_SSSS=0`
+  keeps the pre-integrated shading). Off in both
   presets; can also be overridden per run via `NVF_SSS=1` / `0`. Read once at the start,
   so a change applies at the next start. Not in the original.
 - Command-line switches: `--graphics-only`

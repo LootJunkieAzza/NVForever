@@ -116,6 +116,51 @@ fn skin_and_foliage_sss_compile_across_both_lighting_modes() {
     }
 }
 
+/// The screen-space skin scattering's skin (`NVF_SKIN_SPLIT`, physical PBR only; nvforever
+/// sss/screen.rs): the diffuse light kept apart per light composes with the image-based
+/// light on and off and the ambient occlusion on and off, baked curvature or not.
+#[test]
+fn split_skin_composes_with_its_diffuse_share() {
+    let mut compiler = Compiler::with_sss(true);
+    for base in [&["NVF_SKIN_SSS", "NVF_SKIN_SPLIT"][..], &["NVF_SKIN_SSS", "NVF_SKIN_SPLIT", "VERTEX_UVS_B", "FACEGEN_TINT"][..]] {
+        for env_map in [false, true] {
+            for ao in [false, true] {
+                let mut defs = base.to_vec();
+                defs.push("NVF_PHYSICAL_PBR");
+                if env_map {
+                    defs.push("ENVIRONMENT_MAP");
+                }
+                if ao {
+                    defs.push("NVF_AMBIENT_OCCLUSION");
+                }
+                let compiled = compiler.compile("nvf_assets/nif_material.wesl", &defs);
+                assert!(
+                    compiled.module.global_variables.iter().any(|(_, g)| g.name.as_deref().is_some_and(|n| n.contains("nvf_skin_last_diffuse"))),
+                    "{defs:?}: the diffuse share is kept"
+                );
+                assert!(has_fn(&compiled, "nvf_skin_transmittance_profile"), "{defs:?}: transmittance kept");
+            }
+        }
+    }
+}
+
+/// The screen-space skin scattering's two passes (nvforever sss_screen.wesl).
+#[test]
+fn screen_space_skin_blur_compiles_both_directions() {
+    let mut compiler = Compiler::with_sss(true);
+    // bevy_core_pipeline is not vendored: its fullscreen vertex output, as Bevy declares it.
+    compiler.register(
+        "bevy_core_pipeline/fullscreen_vertex_shader.wesl",
+        "struct FullscreenVertexOutput {\n    @builtin(position) position: vec4<f32>,\n    @location(0) uv: vec2<f32>,\n};\n".into(),
+    );
+    for (defs, entry) in [(&[][..], "blur_h"), (&["VERTICAL"][..], "blur_v")] {
+        let compiled = compiler.compile("nvforever/sss_screen.wesl", defs);
+        let entries: Vec<_> = compiled.module.entry_points.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(entries, [entry], "{defs:?}");
+        assert!(binds(&compiled, 0) && binds(&compiled, 1) && binds(&compiled, 2), "{defs:?}: depth, uniform, source");
+    }
+}
+
 /// An eye under SSS (`NVF_EYE`): the iris shift and limbal ring, with the clear coat
 /// Bevy compiles for the cornea, tinted or not, in both lighting modes.
 #[test]

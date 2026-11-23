@@ -432,7 +432,7 @@ impl PreparedFsr {
     }
 }
 
-fn capture_opaque(view: ViewQuery<(&ViewTarget, &PreparedFsr)>, mut ctx: RenderContext) {
+pub(crate) fn capture_opaque(view: ViewQuery<(&ViewTarget, &PreparedFsr)>, mut ctx: RenderContext) {
     let (target, fsr) = view.into_inner();
     ctx.command_encoder().copy_texture_to_texture(
         target.main_texture().as_image_copy(), fsr.opaque.as_image_copy(),

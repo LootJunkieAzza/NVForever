@@ -10,6 +10,7 @@ use bevy::prelude::*;
 use bevy::shader::Shader;
 
 pub mod hook;
+pub mod screen;
 pub(crate) use hook::hook_patched;
 
 /// `sss.wesl`, imported by `pbr_functions` as `nvforever::sss` when `NVF_SSS=1`.
@@ -20,6 +21,12 @@ pub struct SssPlugin;
 impl Plugin for SssPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, SHADER, "sss.wesl", |s, _| Shader::from_wesl(s, "embedded://nvforever/sss.wesl"));
+        // The screen-space skin scattering (sss/screen.rs), loaded as
+        // `embedded://nvforever/sss_screen.wesl`.
+        if nvf_assets::authored::screen_sss_enabled() {
+            bevy::asset::embedded_asset!(app, "sss_screen.wesl");
+        }
+        app.add_plugins(screen::ScreenSssPlugin);
     }
 }
 
@@ -407,3 +414,4 @@ mod tests {
         }
     }
 }
+

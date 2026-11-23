@@ -823,6 +823,35 @@ pub fn sss_enabled() -> bool {
     })
 }
 
+/// The environment variable of the screen-space skin scattering switch ([`screen_sss_enabled`]).
+pub const SCREEN_SSS_ENV: &str = "NVF_SSSS";
+
+/// The shader def of a skin shape whose diffuse light the screen-space scattering blurs
+/// (nif_material.rs `specialize`; nvforever sss/screen.rs).
+pub const SKIN_SPLIT_DEF: &str = "NVF_SKIN_SPLIT";
+
+static SCREEN_SSS: OnceLock<bool> = OnceLock::new();
+
+/// Whether `NVF_SSSS` turns the screen-space scattering off: `0`, `off`, `false` or `no`.
+pub fn screen_sss_env_off(value: Option<&str>) -> bool {
+    value.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "no"))
+}
+
+/// Screen-space skin scattering (Jimenez et al. 2015, separable; nvforever sss/screen.rs):
+/// on with subsurface scattering ([`sss_enabled`]) under physical PBR ([`physical_pbr`]),
+/// unless `NVF_SSSS=0` (read once at the start), which keeps the pre-integrated skin of
+/// `NVF_SKIN_SSS` alone. Skin's diffuse light, from every light and the sky, is then blurred
+/// across the skin by the diffusion profile after the opaque pass.
+pub fn screen_sss_enabled() -> bool {
+    *SCREEN_SSS.get_or_init(|| {
+        let on = sss_enabled() && physical_pbr() && !screen_sss_env_off(std::env::var(SCREEN_SSS_ENV).ok().as_deref());
+        if on {
+            info!("authored materials: screen-space skin scattering on (subsurface scattering under physical PBR; {SCREEN_SSS_ENV}=0 turns it off)");
+        }
+        on
+    })
+}
+
 /// The environment variable of the metal gain override ([`metal_gain_override`]).
 pub const METAL_GAIN_ENV: &str = "NVF_PBR_METAL_GAIN";
 
