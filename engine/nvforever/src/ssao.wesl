@@ -435,6 +435,9 @@ fn gtao_visibility(half: vec2<i32>, c: vec2<f32>, p: vec3<f32>, n: vec3<f32>, on
 // [hypothesis: the course notes cited at `gtao_visibility` describe a heuristic of this
 // kind for thin occluders; this form and its value are our own].
 fn thin_horizon(h: f32, s: f32, lowest: f32) -> f32 {
+    if ao.up_view.w > 0.001 || ao.sun_view.w > 0.001 {
+        return select(mix(h, max(s, lowest), 0.45), mix(h, s, 0.36), s > h);
+    }
     return select(mix(h, max(s, lowest), THIN_DECAY), s, s > h);
 }
 
@@ -455,60 +458,97 @@ fn horizon_cosine(q: vec2<f32>, p: vec3<f32>, v: vec3<f32>, lowest: f32, size: v
     }
     // The position at the centre of the drawn texel `q` shows (without upscaling, the
     // pixel's centre), as `texel_pos` takes it.
-    let st = texel_centre(drawn_texel(q));
+    let dq = drawn_texel(q);
+    let st = texel_centre(dq);
     let qd = depth_at(vec2<i32>(floor(st)));
     if qd <= 0.0 {
         return lowest;
     }
-    let delta = view_pos(st, qd) - p;
+    var eff_d = qd;
+    var slab = 1.0;
+    if ao.up_view.w > 0.001 || ao.sun_view.w > 0.001 {
+        let d_p = texel_depth(dq + vec2(2.0, 2.0));
+        let d_n = texel_depth(dq - vec2(2.0, 2.0));
+        if d_p > 0.0 {
+            eff_d = min(eff_d, d_p);
+        }
+        if d_n > 0.0 {
+            eff_d = min(eff_d, d_n);
+        }
+    }
+    let delta = view_pos(st, eff_d) - p;
     let dd = dot(delta, delta);
     // The pixel's own drawn texel again (an upscaled depth, a step shorter than a texel):
     // no horizon from it.
     if dd < 1e-8 {
         return lowest;
     }
+    if ao.up_view.w > 0.001 || ao.sun_view.w > 0.001 {
+        let fwd = max(dot(delta, v), 0.0);
+        let lat = sqrt(max(dd - fwd * fwd, 0.0));
+        slab = 1.0 - smoothstep(lat * 0.9 + 6.0, lat * 1.8 + 22.0, fwd);
+    }
     let cosine = dot(delta, v) * inverseSqrt(max(dd, 1e-4)) - HORIZON_BIAS;
-    let weight = 1.0 - smoothstep(FALLOFF_START, 1.0, dd / (radius * radius));
+    let weight = (1.0 - smoothstep(FALLOFF_START, 1.0, dd / (radius * radius))) * slab;
     return mix(lowest, cosine, weight);
 }
 
-// Long-range architectural sky-visibility constants (game units; ~6.9 m world radius).
-const MACRO_RADIUS: f32 = 480.0;
+// Long-range architectural sky-visibility constants (game units; ~3.2 m world radius).
+const MACRO_RADIUS: f32 = 220.0;
 const MACRO_STEPS: i32 = 8;
 const MACRO_HORIZON_BIAS: f32 = 0.04;
 const MACRO_FALLOFF_START: f32 = 0.35;
 const MACRO_FADE_START: f32 = 3200.0;
 const MACRO_FADE_END: f32 = 6500.0;
+const MACRO_THIN_RISE: f32 = 0.22;
+const MACRO_THIN_DECAY: f32 = 0.55;
 
 // Horizon cosine sample for `macro_sky_visibility`: ignores sky and squeezed first-person arms.
 fn macro_horizon_cosine(q: vec2<f32>, p: vec3<f32>, v: vec3<f32>, lowest: f32, size: vec2<f32>, radius: f32) -> f32 {
     if any(q < vec2(0.0)) || any(q >= size) {
         return lowest;
     }
-    let st = texel_centre(drawn_texel(q));
+    let dq = drawn_texel(q);
+    let st = texel_centre(dq);
     let px_q = vec2<i32>(floor(st));
     let raw_d = raw_depth_at(px_q);
     if raw_d <= 0.0 || is_first_person(raw_d) {
         return lowest;
     }
-    let delta = view_pos(st, raw_d) - p;
+    // Erode isolated foreground twigs/blades via two symmetric neighbor taps.
+    let st_p = texel_centre(dq + vec2(3.0, 3.0));
+    let st_n = texel_centre(dq - vec2(3.0, 3.0));
+    let raw_p = raw_depth_at(vec2<i32>(floor(st_p)));
+    let raw_n = raw_depth_at(vec2<i32>(floor(st_n)));
+    var eff_d = raw_d;
+    if raw_p > 0.0 && !is_first_person(raw_p) {
+        eff_d = min(eff_d, raw_p);
+    }
+    if raw_n > 0.0 && !is_first_person(raw_n) {
+        eff_d = min(eff_d, raw_n);
+    }
+    let delta = view_pos(st, eff_d) - p;
     let dd = dot(delta, delta);
     if dd < 1e-8 {
         return lowest;
     }
+    // Foreground slab-thickness attenuation so mid-air foliage does not act like solid walls.
+    let fwd = max(dot(delta, v), 0.0);
+    let lat = sqrt(max(dd - fwd * fwd, 0.0));
+    let slab = 1.0 - smoothstep(lat * 0.85 + 8.0, lat * 1.7 + 26.0, fwd);
     let cosine = dot(delta, v) * inverseSqrt(max(dd, 1e-4)) - MACRO_HORIZON_BIAS;
-    let weight = 1.0 - smoothstep(MACRO_FALLOFF_START, 1.0, dd / (radius * radius));
+    let weight = (1.0 - smoothstep(MACRO_FALLOFF_START, 1.0, dd / (radius * radius))) * slab;
     return mix(lowest, cosine, weight);
 }
 
-// Upward-weighted architectural sky-visibility (`.b`): detects roofs/awnings/overhangs up to 6 m.
+// Upward-weighted architectural sky-visibility (`.b`): detects roofs/awnings/overhangs.
 fn macro_sky_visibility(half: vec2<i32>, c: vec2<f32>, p: vec3<f32>, n: vec3<f32>, dist: f32) -> f32 {
     let fade = 1.0 - smoothstep(MACRO_FADE_START, MACRO_FADE_END, dist);
     if fade <= 0.0 {
         return 1.0;
     }
     let size = vec2<f32>(dims());
-    let max_px = ao.proj.z * 3.5;
+    let max_px = ao.proj.z * 1.6;
     let on_screen = min(MACRO_RADIUS * ao.proj.y * 0.5 * size.y / dist, max_px);
     if on_screen < 4.0 {
         return 1.0;
@@ -538,14 +578,14 @@ fn macro_sky_visibility(half: vec2<i32>, c: vec2<f32>, p: vec3<f32>, n: vec3<f32
             let reach = 3.0 + f * f * (on_screen - 3.0);
             let s_pos = macro_horizon_cosine(c + dir * reach, p, v, -sin_g, size, MACRO_RADIUS);
             let s_neg = macro_horizon_cosine(c - dir * reach, p, v, sin_g, size, MACRO_RADIUS);
-            c_pos = max(c_pos, s_pos);
-            c_neg = max(c_neg, s_neg);
+            c_pos = select(mix(c_pos, max(s_pos, -sin_g), MACRO_THIN_DECAY), mix(c_pos, s_pos, MACRO_THIN_RISE), s_pos > c_pos);
+            c_neg = select(mix(c_neg, max(s_neg, sin_g), MACRO_THIN_DECAY), mix(c_neg, s_neg, MACRO_THIN_RISE), s_neg > c_neg);
         }
         let h_neg = max(-acos(clamp(c_neg, -1.0, 1.0)), gamma - HALF_PI);
         let h_pos = min(acos(clamp(c_pos, -1.0, 1.0)), gamma + HALF_PI);
         let up_t = dot(tangent, up_v);
-        let w_pos = 0.20 + 2.80 * max(up_t, 0.0);
-        let w_neg = 0.20 + 2.80 * max(-up_t, 0.0);
+        let w_pos = 0.55 + 0.95 * max(up_t, 0.0);
+        let w_neg = 0.55 + 0.95 * max(-up_t, 0.0);
         visible += np_len * (w_neg * visible_arc(h_neg, gamma, cos_g, sin_g) + w_pos * visible_arc(h_pos, gamma, cos_g, sin_g));
         unblocked += np_len * (w_neg * visible_arc(gamma - HALF_PI, gamma, cos_g, sin_g) + w_pos * visible_arc(gamma + HALF_PI, gamma, cos_g, sin_g));
     }
@@ -556,11 +596,11 @@ fn macro_sky_visibility(half: vec2<i32>, c: vec2<f32>, p: vec3<f32>, n: vec3<f32
     return mix(1.0, macro_vis, fade);
 }
 
-// Screen-space sun contact shadow constants (game units; ~1.2 m reach).
+// Screen-space sun contact shadow constants (game units; tight close-up contact seams).
 const CONTACT_STEPS: i32 = 12;
-const CONTACT_LENGTH: f32 = 85.0;
-const CONTACT_FADE_START: f32 = 1800.0;
-const CONTACT_FADE_END: f32 = 3200.0;
+const CONTACT_LENGTH: f32 = 24.0;
+const CONTACT_FADE_START: f32 = 160.0;
+const CONTACT_FADE_END: f32 = 380.0;
 
 // Tight screen-space directional raymarch for crisp ground/bush/wheel contact shadows (`.a`).
 fn sun_contact_shadow(half: vec2<i32>, p: vec3<f32>, n: vec3<f32>, dist: f32) -> f32 {
@@ -572,8 +612,8 @@ fn sun_contact_shadow(half: vec2<i32>, p: vec3<f32>, n: vec3<f32>, dist: f32) ->
     if ndotl <= 0.02 {
         return 1.0;
     }
-    let ray_len = clamp(CONTACT_LENGTH * (0.65 + 0.0006 * dist), 45.0, 135.0);
-    let p0 = p + n * (0.25 + 0.0012 * dist) + sun_dir * (0.30 + 0.0008 * dist);
+    let ray_len = clamp(CONTACT_LENGTH * (0.75 + 0.0003 * dist), 14.0, 32.0);
+    let p0 = p + n * (0.25 + 0.0010 * dist) + sun_dir * (0.30 + 0.0008 * dist);
     var t_max = 1.0;
     if sun_dir.z > 1e-4 {
         let max_dz = (-ao.params.z * 1.15) - p0.z;
@@ -583,7 +623,19 @@ fn sun_contact_shadow(half: vec2<i32>, p: vec3<f32>, n: vec3<f32>, dist: f32) ->
         t_max = min(1.0, max_dz / (sun_dir.z * ray_len));
     }
     let size = vec2<f32>(dims());
-    let jitter = pattern_2x2(half);
+    // Cap screen-space march span to 24 px so steps stay <= 2 px apart and never dot thin geometry.
+    let px0 = project_view(p0, size);
+    let px1 = project_view(p0 + sun_dir * (ray_len * t_max), size);
+    let delta_px = px1 - px0;
+    let screen_span = length(delta_px);
+    if screen_span > 24.0 {
+        t_max *= 24.0 / screen_span;
+    }
+    let step_screen_dir = select(vec2(1.0, 0.0), delta_px / max(screen_span, 1e-4), screen_span > 1e-3);
+    let perp = vec2(-step_screen_dir.y, step_screen_dir.x) * 3.0;
+    let jitter = pattern(half);
+    let min_bias = 0.30 + 0.0010 * dist;
+    let thickness = 3.2 + 0.004 * dist;
     var hit = 0.0;
     for (var i = 0; i < CONTACT_STEPS; i++) {
         let t = ((f32(i) + jitter) / f32(CONTACT_STEPS)) * t_max;
@@ -599,18 +651,25 @@ fn sun_contact_shadow(half: vec2<i32>, p: vec3<f32>, n: vec3<f32>, dist: f32) ->
         let scene_z = ao.params.z / raw_d;
         let ray_z = -qv.z;
         let dz = ray_z - scene_z;
-        let min_bias = 0.35 + 0.0012 * dist;
-        let thickness = 12.0 + 0.024 * dist;
         if dz > min_bias && dz < thickness {
-            let uv = qpx / size;
-            let edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-            let edge_fade = smoothstep(0.0, 0.06, edge);
-            let conf = (1.0 - smoothstep(0.75, 1.0, t)) * (1.0 - smoothstep(thickness * 0.70, thickness, dz)) * edge_fade;
-            hit = max(hit, conf);
+            let raw_d2 = raw_depth_at(vec2<i32>(floor(qpx + perp)));
+            let raw_d3 = raw_depth_at(vec2<i32>(floor(qpx - perp)));
+            if raw_d2 <= 0.0 || is_first_person(raw_d2) || raw_d3 <= 0.0 || is_first_person(raw_d3) {
+                continue;
+            }
+            let eff_d = min(raw_d, min(raw_d2, raw_d3));
+            let dz2 = ray_z - (ao.params.z / eff_d);
+            if dz2 > min_bias && dz2 < thickness {
+                let uv = qpx / size;
+                let edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+                let edge_fade = smoothstep(0.0, 0.06, edge);
+                let conf = (1.0 - smoothstep(0.75, 1.0, t)) * (1.0 - smoothstep(thickness * 0.70, thickness, dz2)) * edge_fade;
+                hit += conf * 0.34;
+            }
         }
     }
     let strength = ao.sun_view.w * (1.0 - smoothstep(CONTACT_FADE_START, CONTACT_FADE_END, dist)) * smoothstep(0.02, 0.14, ndotl);
-    return 1.0 - 0.92 * strength * hit;
+    return 1.0 - 0.28 * strength * clamp(hit, 0.0, 1.0);
 }
 
 @fragment
@@ -687,74 +746,151 @@ fn denoise(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // Never NaN nor outside 0..1 (comparisons with NaN are false).
     let safe = select(1.0, clamp(open, 0.0, 1.0), open >= 0.0);
     if ao.up_view.w > 0.001 || ao.sun_view.w > 0.001 {
-        let phys = denoise_physical_channels(px, d);
-        return vec4(safe, min(ao.params.z / d, SKY), phys.x, phys.y);
+        let phys = denoise_physical_channels(px, d, safe);
+        return vec4(phys.x, min(ao.params.z / d, SKY), phys.y, phys.z);
     }
     return texel(safe, ao.params.z / d);
 }
 
-// Denoises `.b` (macro sky-visibility) over the 4x4 plane-aware footprint and `.a`
-// (sun contact shadow) tightly over the 2x2 center footprint to keep edges razor-sharp.
-fn denoise_physical_channels(px: vec2<i32>, d: f32) -> vec2<f32> {
+// Stage 1 physical denoise: 4x4 core + stride-2 5x5 foliage/distance ring over `.r`, `.b`, `.a`.
+fn denoise_physical_channels(px: vec2<i32>, d: f32, ao_in: f32) -> vec3<f32> {
     let near = ao.params.z;
     let z = near / d;
     let grad = depth_gradient(px, d);
     let size = vec2<i32>(textureDimensions(openness));
-    let first = (px >> vec2(1u)) - 2 + (px & vec2(1));
-    let center_t = textureLoad(openness, clamp(px >> vec2(1u), vec2(0), size - 1), 0);
-    var sky_total = 0.0;
-    var sky_weight = 0.0;
-    var dist_total = 0.0;
-    var dist_weight = 0.0;
-    var soft_total = 0.0;
+    let half = px >> vec2(1u);
+    let first = half - 2 + (px & vec2(1));
+    let dist_blur = smoothstep(110.0, 420.0, z);
+    let soft_tol = (0.45 + 0.35 * dist_blur) * z + 85.0;
+    var plane_sum = vec3(0.0);
+    var plane_w = 0.0;
+    var dist_sum = vec3(0.0);
+    var dist_w = 0.0;
+    var soft_sum = vec3(0.0);
     var soft_count = 0.0;
-    var nearest_sky = 1.0;
+    var nearest = vec3(1.0);
     var nearest_gap = 3.4e38;
-    var contact_total = 0.0;
-    var contact_weight = 0.0;
+    var min_v = vec3(1.0);
+    var max_v = vec3(0.0);
+    var valid_minmax = false;
     for (var y = 0; y < 4; y++) {
         for (var x = 0; x < 4; x++) {
             let q = clamp(first + vec2(x, y), vec2(0), size - 1);
             let t = textureLoad(openness, q, 0);
+            let v = vec3(t.r, t.b, t.a);
             let expected = d + dot(grad, vec2<f32>(q * 2 - px));
             let plane = near / max(expected, 1e-7);
             let gap = select(3.4e38, abs(t.g - plane), expected > 0.0);
             let w = max(1.0 - gap / (DENOISE_TOLERANCE * plane + 1.0), 0.0);
-            sky_total += t.b * w;
-            sky_weight += w;
+            plane_sum += v * w;
+            plane_w += w;
             let own_gap = abs(t.g - z);
             let wd = max(1.0 - own_gap / (FALLBACK_TOLERANCE * z + 1.0), 0.0);
-            dist_total += t.b * wd;
-            dist_weight += wd;
+            dist_sum += v * wd;
+            dist_w += wd;
+            if wd > 0.0 {
+                min_v = min(min_v, v);
+                max_v = max(max_v, v);
+                valid_minmax = true;
+            }
             if own_gap < nearest_gap {
                 nearest_gap = own_gap;
-                nearest_sky = t.b;
+                nearest = v;
             }
-            if own_gap <= SOFT_TOLERANCE * z + 1.0 {
-                soft_total += t.b;
+            if t.g > 0.0 && t.g < SKY * 0.99 && own_gap <= soft_tol {
+                soft_sum += v;
                 soft_count += 1.0;
             }
-            if x >= 1 && x <= 2 && y >= 1 && y <= 2 {
-                let wc = max(1.0 - gap / (0.015 * plane + 0.5), 0.0);
-                contact_total += t.a * wc;
-                contact_weight += wc;
+        }
+    }
+    // Outer ring at stride 2 (+-4 half-res texels = 18x18 screen px) for soft grass/bush/distant blur.
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            if abs(dx) <= 1 && abs(dy) <= 1 {
+                continue;
+            }
+            let q = clamp(half + vec2(dx, dy) * 2, vec2(0), size - 1);
+            let t = textureLoad(openness, q, 0);
+            if t.g > 0.0 && t.g < SKY * 0.99 && abs(t.g - z) <= soft_tol {
+                soft_sum += vec3(t.r, t.b, t.a);
+                soft_count += 1.0;
             }
         }
     }
-    let planar = smoothstep(PLANE_WEIGHT_FEW, PLANE_WEIGHT_FEW + PLANE_WEIGHT_BLEND, sky_weight);
-    let sky_sum = mix(dist_total, sky_total, planar);
-    let sky_sum_w = mix(dist_weight, sky_weight, planar);
-    var sky_out = select(nearest_sky, sky_sum / sky_sum_w, sky_sum_w > 0.0);
-    if (u32(ao.variant.z) & VARIANT_SOFT) != 0u && soft_count > 0.0 {
-        let sparse = 1.0 - smoothstep(SPARSE_FULL, SPARSE_NONE, sky_weight);
-        if sparse > 0.0 {
-            sky_out = mix(sky_out, soft_total / soft_count, SOFT_PULL * sparse);
+    let planar = smoothstep(PLANE_WEIGHT_FEW, PLANE_WEIGHT_FEW + PLANE_WEIGHT_BLEND, plane_w);
+    let plane_mean = select(nearest, plane_sum / plane_w, plane_w > 0.0);
+    let dist_mean = select(nearest, dist_sum / dist_w, dist_w > 0.0);
+    let soft_mean = select(dist_mean, soft_sum / soft_count, soft_count > 0.0);
+    let spread = select(0.0, max(max_v.x - min_v.x, max(max_v.y - min_v.y, max_v.z - min_v.z)), valid_minmax);
+    let var_pull = smoothstep(0.08, 0.25, spread);
+    let foliage_rough = 1.0 - smoothstep(3.0, 11.0, plane_w);
+    let heavy_blur = max(dist_blur, max(foliage_rough, var_pull));
+
+    var out = mix(dist_mean, plane_mean, planar * (1.0 - 0.65 * var_pull));
+    out.x = mix(ao_in, out.x, max(heavy_blur, 1.0 - planar));
+
+    if soft_count > 0.0 {
+        let sparse = 1.0 - smoothstep(SPARSE_FULL, SPARSE_NONE, plane_w);
+        let pull = max(SOFT_PULL * sparse, clamp(0.45 + 0.50 * heavy_blur, 0.0, 0.95) * step(0.02, heavy_blur));
+        if pull > 0.0 {
+            out = mix(out, soft_mean, pull);
+        }
+        let isolated = 1.0 - smoothstep(1.5, 4.5, dist_w);
+        if isolated > 0.0 {
+            out = mix(out, max(soft_mean, vec3(0.84, 0.88, 0.96)), isolated * 0.70);
         }
     }
-    let contact_raw = select(center_t.a, contact_total / contact_weight, contact_weight > 0.0);
-    let sky_safe = select(1.0, clamp(sky_out, 0.0, 1.0), sky_out >= 0.0);
-    let contact_safe = select(1.0, clamp(contact_raw, 0.0, 1.0), contact_raw >= 0.0);
-    return vec2(sky_safe, contact_safe);
+    return select(vec3(1.0), clamp(out, vec3(0.0), vec3(1.0)), out >= vec3(0.0));
+}
+
+// Stage 2 physical denoise: 7x7 separable Gaussian a-trous filter (up to 50x50 px at distance
+// or on non-planar grass/bushes). Passes through unchanged when physical PBR channels are off.
+@fragment
+fn denoise_wide(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let half = vec2<i32>(floor(in.position.xy));
+    let size = vec2<i32>(textureDimensions(openness));
+    let c = textureLoad(openness, clamp(half, vec2(0), size - 1), 0);
+    if ao.up_view.w <= 0.001 && ao.sun_view.w <= 0.001 {
+        return c;
+    }
+    let z = c.g;
+    if z <= 0.0 || z >= SKY * 0.99 {
+        return c;
+    }
+    let zw = textureLoad(openness, clamp(half + vec2(-2, 0), vec2(0), size - 1), 0).g;
+    let ze = textureLoad(openness, clamp(half + vec2(2, 0), vec2(0), size - 1), 0).g;
+    let zn = textureLoad(openness, clamp(half + vec2(0, -2), vec2(0), size - 1), 0).g;
+    let zs = textureLoad(openness, clamp(half + vec2(0, 2), vec2(0), size - 1), 0).g;
+    let inv_z = 1.0 / max(z, 1.0);
+    let sky_edge = zw <= 0.0 || ze <= 0.0 || zn <= 0.0 || zs <= 0.0 || zw >= SKY * 0.99 || ze >= SKY * 0.99 || zn >= SKY * 0.99 || zs >= SKY * 0.99;
+    let err_x = abs(0.5 * (1.0 / max(zw, 1.0) + 1.0 / max(ze, 1.0)) - inv_z) * z;
+    let err_y = abs(0.5 * (1.0 / max(zn, 1.0) + 1.0 / max(zs, 1.0)) - inv_z) * z;
+    let foliage_rough = select(smoothstep(0.03, 0.20, max(err_x, err_y)), 1.0, sky_edge);
+    let dist_blur = smoothstep(110.0, 420.0, z);
+    let blur_amt = max(dist_blur, foliage_rough);
+    let stride = select(2, 3, dist_blur > 0.25 || foliage_rough > 0.35) + select(0, 1, dist_blur > 0.65);
+    let tol = (0.06 + 0.55 * blur_amt) * z + 2.0 + 95.0 * blur_amt;
+
+    var g_w = array<f32, 7>(1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0);
+    var sum = vec3(0.0);
+    var w_sum = 0.0;
+    for (var dy = -3; dy <= 3; dy++) {
+        let wy = g_w[dy + 3];
+        for (var dx = -3; dx <= 3; dx++) {
+            let q = clamp(half + vec2(dx, dy) * stride, vec2(0), size - 1);
+            let t = textureLoad(openness, q, 0);
+            if t.g <= 0.0 || t.g >= SKY * 0.99 {
+                continue;
+            }
+            let w_depth = max(1.0 - abs(t.g - z) / tol, 0.0);
+            let w = wy * g_w[dx + 3] * w_depth;
+            sum += vec3(t.r, t.b, t.a) * w;
+            w_sum += w;
+        }
+    }
+    let res = select(vec3(c.r, c.b, c.a), sum / w_sum, w_sum > 1e-4);
+    let safe_res = select(vec3(1.0), clamp(res, vec3(0.0), vec3(1.0)), res >= vec3(0.0));
+    return vec4(safe_res.x, min(z, SKY), safe_res.y, safe_res.z);
 }
 
 // How open pixel `px` (depth value `d`, not the sky) is, from the half-resolution texels.

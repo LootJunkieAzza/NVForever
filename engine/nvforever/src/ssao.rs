@@ -777,6 +777,8 @@ pub(crate) struct AoPipelines {
     denoise_layouts: [BindGroupLayoutDescriptor; 2],
     denoise_base: RenderPipelineDescriptor,
     denoise: HashMap<bool, CachedRenderPipelineId>,
+    denoise_wide_base: RenderPipelineDescriptor,
+    denoise_wide: HashMap<bool, CachedRenderPipelineId>,
     /// Under multisampling: the resolve of the depth to one sample ([`resolve_depth`]), its
     /// layout (the multisampled depth and the uniform) and pipeline (queued the first time a
     /// view needs it).
@@ -825,7 +827,10 @@ impl AoView {
 /// A view's part of the occlusion in the lighting ([`AoView::lighting`]).
 pub(crate) struct AoLighting {
     denoise: CachedRenderPipelineId,
-    /// Per half-resolution texel the denoised factor and the distance (ssao.wesl `denoise`).
+    denoise_wide: CachedRenderPipelineId,
+    /// Intermediate texture between Stage 1 (`denoise`) and Stage 2 (`denoise_wide`).
+    mid: CachedTexture,
+    /// Per half-resolution texel the denoised factor and the distance (ssao.wesl `denoise_wide`).
     denoised: CachedTexture,
 }
 
@@ -1071,6 +1076,8 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         denoise_layouts: [denoise_layout(false), denoise_layout(true)],
         denoise_base: base("ssao_denoise_pipeline", "denoise"),
         denoise: HashMap::default(),
+        denoise_wide_base: base("ssao_denoise_wide_pipeline", "denoise_wide"),
+        denoise_wide: HashMap::default(),
         resolve_layout,
         resolve_base,
         resolve: None,
@@ -1207,6 +1214,15 @@ fn prepare(
                     id
                 }
             };
+            let denoise_wide = match pipelines.denoise_wide.get(&reads_multi) {
+                Some(id) => *id,
+                None => {
+                    let id = cache.queue_render_pipeline(occlusion_format_pipeline(&pipelines.denoise_wide_base, &pipelines.denoise_layouts[reads_multi as usize], reads_multi));
+                    pipelines.denoise_wide.insert(reads_multi, id);
+                    id
+                }
+            };
+            let mid = textures.get(&device, half("ssao_mid"));
             let denoised = textures.get(&device, half("ssao_denoised"));
             if b.texture.id() != denoised.default_view.id() {
                 b.texture = denoised.default_view.clone();
@@ -1222,7 +1238,7 @@ fn prepare(
                 }
                 _ => {}
             }
-            AoLighting { denoise, denoised }
+            AoLighting { denoise, denoise_wide, mid, denoised }
         });
         // Said once per change: whether the passes read the depth resolved to one sample.
         if multi && *resolving != Some(resolve.is_some()) {
@@ -1460,13 +1476,20 @@ pub(crate) fn ao_lighting_pass(
     let diagnostics = diagnostics.as_deref();
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_ambient_occlusion");
     let ready = prepass.and_then(|p| {
-        Some((p, cache.get_render_pipeline(ao.occlusion)?, cache.get_render_pipeline(lighting.denoise)?, uniforms.uniforms().binding()?, index?.index()))
+        Some((
+            p,
+            cache.get_render_pipeline(ao.occlusion)?,
+            cache.get_render_pipeline(lighting.denoise)?,
+            cache.get_render_pipeline(lighting.denoise_wide)?,
+            uniforms.uniforms().binding()?,
+            index?.index(),
+        ))
     });
-    let ready = ready.and_then(|(p, occlusion, denoise, binding, index)| {
+    let ready = ready.and_then(|(p, occlusion, denoise, denoise_wide, binding, index)| {
         let depth = resolve_depth(&mut ctx, &device, &pipelines, &cache, ao, p, binding.clone(), index)?;
-        Some((depth, occlusion, denoise, binding, index))
+        Some((depth, occlusion, denoise, denoise_wide, binding, index))
     });
-    let Some((depth, occlusion, denoise, binding, index)) = ready else {
+    let Some((depth, occlusion, denoise, denoise_wide, binding, index)) = ready else {
         clear_open(&mut ctx, &lighting.denoised);
         span.end(ctx.command_encoder());
         return;
@@ -1474,10 +1497,10 @@ pub(crate) fn ao_lighting_pass(
     let layout = cache.get_bind_group_layout(&pipelines.occlusion_layouts[ao.reads_multi() as usize]);
     occlusion_pass(&mut ctx, &device, &layout, occlusion, depth, binding.clone(), index, ao);
     let layout = cache.get_bind_group_layout(&pipelines.denoise_layouts[ao.reads_multi() as usize]);
-    let bind_group = device.create_bind_group("ssao_denoise_bind_group", &layout, &BindGroupEntries::with_indices(((0, depth), (1, binding), (4, &ao.texture.default_view))));
+    let bind_group = device.create_bind_group("ssao_denoise_bind_group", &layout, &BindGroupEntries::with_indices(((0, depth), (1, binding.clone()), (4, &ao.texture.default_view))));
     let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
         label: Some("ssao_denoise_pass"),
-        color_attachments: &[Some(RenderPassColorAttachment { view: &lighting.denoised.default_view, depth_slice: None, resolve_target: None, ops: Operations::default() })],
+        color_attachments: &[Some(RenderPassColorAttachment { view: &lighting.mid.default_view, depth_slice: None, resolve_target: None, ops: Operations::default() })],
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
@@ -1487,6 +1510,20 @@ pub(crate) fn ao_lighting_pass(
     pass.set_bind_group(0, &bind_group, &[index]);
     pass.draw(0..3, 0..1);
     drop(pass);
+
+    let wide_group = device.create_bind_group("ssao_denoise_wide_bind_group", &layout, &BindGroupEntries::with_indices(((0, depth), (1, binding), (4, &lighting.mid.default_view))));
+    let mut wide_pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
+        label: Some("ssao_denoise_wide_pass"),
+        color_attachments: &[Some(RenderPassColorAttachment { view: &lighting.denoised.default_view, depth_slice: None, resolve_target: None, ops: Operations::default() })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    wide_pass.set_pipeline(denoise_wide);
+    wide_pass.set_bind_group(0, &wide_group, &[index]);
+    wide_pass.draw(0..3, 0..1);
+    drop(wide_pass);
     span.end(ctx.command_encoder());
 }
 
@@ -1550,7 +1587,7 @@ mod tests {
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::default())
                 .validate(&module)
                 .unwrap_or_else(|e| panic!("multisampled {multisampled}: {e:?}"));
-            for entry in ["occlusion", "apply", "multiply", "denoise", "resolve_depth"] {
+            for entry in ["occlusion", "apply", "multiply", "denoise", "denoise_wide", "resolve_depth"] {
                 assert!(module.entry_points.iter().any(|e| e.name == entry), "entry point {entry}");
             }
         }

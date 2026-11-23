@@ -187,9 +187,9 @@ pub const PHYSICAL_IBL_AO_HOOKED: &str = "    @if(!NVF_AMBIENT_OCCLUSION)
     let nvf_ibl_spec_ao = specular_occlusion; // nvf_physical_ibl_spec_ao
     // NVForever ambient occlusion (nvforever ssao_lighting.rs): local multi-bounce AO + architectural sky-visibility + Frostbite specular AO on IBL.
     @if(NVF_AMBIENT_OCCLUSION)
-    let nvf_ibl_sky_factor = mix(0.08, 1.0, pow(max(nvf_sky_vis, 0.0001), 1.35));
+    let nvf_ibl_sky_factor = mix(0.28, 1.0, clamp(nvf_sky_vis, 0.0, 1.0));
     @if(NVF_AMBIENT_OCCLUSION)
-    let nvf_ibl_diff_ao = diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient, diffuse_color) * nvf_ibl_sky_factor;
+    let nvf_ibl_diff_ao = diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient * nvf_ibl_sky_factor, diffuse_color);
     @if(NVF_AMBIENT_OCCLUSION)
     let nvf_ibl_spec_ao = specular_occlusion * nvf_specular_ao(NdotV, nvf_ao_ambient * nvf_ibl_sky_factor, roughness);
 ";
@@ -203,7 +203,7 @@ pub const PHYSICAL_AMBIENT_LINE_HOOKED: &str = "            // NVForever ambient
             @if(!NVF_AMBIENT_OCCLUSION)
             let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion; // nvf_physical_fallback_ambient
             @if(NVF_AMBIENT_OCCLUSION)
-            let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient, diffuse_color) * mix(0.08, 1.0, pow(max(nvf_sky_vis, 0.0001), 1.35));
+            let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient * mix(0.28, 1.0, clamp(nvf_sky_vis, 0.0, 1.0)), diffuse_color);
 ";
 
 /// The ambient occlusion hook in `apply_pbr_lighting` for the physical PBR patch
