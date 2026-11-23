@@ -598,6 +598,7 @@ name = "Italiano"
 "You lose {n} chips." = "Perdete {n} fiche."
 "You break even." = "Né vincete né perdete."
 "{win}: you win {back} chips." = "{win}: vincete {back} fiche."
+"You had no bets on this spin." = "Non avevate puntate su questo giro."
 # [design, #3146; crates/fnv-game/src/roulette.rs, slots.rs] The roulette bets and colours (the green of the zeros is the "Green" line above) and the slot wins. "1-18" and "19-36" read the same in every language.
 "Straight-Up" = "Pieno"
 "Street" = "Terzina"

@@ -139,11 +139,13 @@ fn world_to_screen_writes_the_screen_fractions() {
 }
 
 #[test]
-fn set_default_open_sets_the_open_flag() {
+fn set_default_open_sets_the_default_open_state() {
+    // Main's vanilla SetDefaultOpen answers first: it sets the default open state and
+    // leaves a materialized reference's live open flag to SetOpenState.
     let f = fixture();
     let mut g = game(&f);
     g.run_query("Begin Function { }\nPlayerRef.SetDefaultOpen 1\nEnd\n", ctx()).unwrap();
-    assert!(g.world.get(FormId::PLAYER_REF).unwrap().open);
+    assert!(g.world.default_open(FormId::PLAYER_REF));
     g.run_query("Begin Function { }\nPlayerRef.SetDefaultOpen 0\nEnd\n", ctx()).unwrap();
-    assert!(!g.world.get(FormId::PLAYER_REF).unwrap().open);
+    assert!(!g.world.default_open(FormId::PLAYER_REF));
 }

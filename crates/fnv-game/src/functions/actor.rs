@@ -722,7 +722,9 @@ pub fn get_is_voice_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
     let v = a.form(0)?;
     // The player speaks in its own voice type by sex and race (`Game::player_own_voice_type`).
     let own = if r == FormId::PLAYER_REF { g.player_own_voice_type() } else { None };
-    let Some(voice) = own.or_else(|| g.traits_def(r).and_then(|d| d.voice)) else { return yes(false) };
+    // Else `Game::voice_type_of`: the player's by sex, the traits' VTCK, a talking
+    // activator's VNAM (#3060).
+    let Some(voice) = own.or_else(|| g.voice_type_of(r)) else { return yes(false) };
     yes(voice == v || super::refs::list_members(g, v).contains(&voice))
 }
 
