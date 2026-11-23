@@ -354,6 +354,9 @@ pub(crate) struct MarkerShown {
     pub name: String,
     /// Its reputation line, the World Map's markers' with one.
     pub detail: Option<String>,
+    /// A co-op player's head (`data::MapMark::head`): drawn whole and at the head's size over the
+    /// location icons ([`with_heads`]), not as the template crops and sizes a location icon.
+    pub head: bool,
 }
 
 /// What a quest-marker row stands for: an active quest's target (its reference), or the player's
@@ -417,7 +420,7 @@ impl WorldShown {
             .as_deref()
             .unwrap_or(m.marks())
             .iter()
-            .filter_map(|mk| Some(MarkerShown { form: mk.form, uv: mk.uv?, icon: mk.picture(), selected: mk.highlighted, name: mk.name.clone(), detail: mk.detail.clone() }))
+            .filter_map(|mk| Some(MarkerShown { form: mk.form, uv: mk.uv?, icon: mk.picture(), selected: mk.highlighted, name: mk.name.clone(), detail: mk.detail.clone(), head: mk.head.is_some() }))
             .collect();
         let (cursor, label, detail) = m.highlight();
         Some(WorldShown {
@@ -823,6 +826,42 @@ fn with_map_picture(ui: &Ui, mut pieces: Vec<Piece>, picture: Option<Piece>) -> 
         let at = pieces.iter().position(|q| q.depth > p.depth || stats_menu::inside(ui, q.tile, p.tile)).unwrap_or(pieces.len());
         pieces.insert(at, p);
     }
+    pieces
+}
+
+/// `pieces` with each co-op head's row (`heads`, [`MarkerShown::head`]) drawn as a head: the
+/// file's `MapMarkerTemplate` sizes every row by `user0` (a location icon's [`data::MARKER`]) and
+/// crops its picture to an icon's piece of the marker atlas, so a Vault Boy face put through it
+/// came out a few-pixel scrap (owner, 2026-11-23: "those heads don't look like head at all").
+/// The row stays (the highlight box names the player from it); its piece becomes the head's
+/// whole picture, its own file stretched over a square [`data::HEAD`] / [`data::MARKER`] times
+/// the row's size (34 at a magnification of 1, as the hand-built page draws heads), centred
+/// where the row stands, and is moved after every location icon so no icon covers it.
+fn with_heads(ui: &Ui, mut pieces: Vec<Piece>, heads: &[TileId]) -> Vec<Piece> {
+    if heads.is_empty() {
+        return pieces;
+    }
+    let mut drawn = Vec::new();
+    let mut i = 0;
+    while i < pieces.len() {
+        if heads.contains(&pieces[i].tile) {
+            drawn.push(pieces.remove(i));
+        } else {
+            i += 1;
+        }
+    }
+    for p in &mut drawn {
+        let Look::Picture { name, .. } = &p.look else { continue };
+        let r = p.rect;
+        let side = r.width.max(r.height) * f64::from(data::HEAD / data::MARKER);
+        let (cx, cy) = (r.left + r.width / 2.0, r.top + r.height / 2.0);
+        p.look = Look::Picture { name: name.clone(), source: Source::Own, fit: Fit::Stretch };
+        p.rect = super::layout::Rect { left: cx - side / 2.0, top: cy - side / 2.0, width: side, height: side };
+        p.crop = None;
+        p.tex = None;
+    }
+    let after = pieces.iter().rposition(|q| keeps_file_brightness(ui, q.tile)).map_or(pieces.len(), |k| k + 1);
+    pieces.splice(after..after, drawn);
     pieces
 }
 
@@ -1710,6 +1749,11 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         let mut pieces = fonts.set_out(ui, menu);
         if let Some(paths) = s.world.as_ref().map(WorldShown::paths) {
             pieces = with_map_picture(ui, pieces, map_picture_piece(ui, paths.clip, paths.picture));
+        }
+        if let Some(world) = s.world.as_ref() {
+            let rows = w.map_rows(world.local);
+            let heads: Vec<TileId> = rows.markers.iter().zip(&world.markers).filter(|(_, m)| m.head).map(|(r, _)| r.tile).collect();
+            pieces = with_heads(ui, pieces, &heads);
         }
         let places = tab_places(ui, &w.tabs);
         if w.places_told.as_ref() != Some(&places) {
@@ -3217,7 +3261,7 @@ mod tests {
     const WORLD_W: Rect = Rect { min: Vec2::new(40.0, 90.0), max: Vec2::new(895.0, 590.0) };
 
     fn marker(form: u32, uv: [f32; 2], selected: bool) -> MarkerShown {
-        MarkerShown { form, uv, icon: format!("icon_{form}.dds"), selected, name: format!("Place {form}"), detail: (form == 21).then(|| "Town 21: Neutral".to_string()) }
+        MarkerShown { form, uv, icon: format!("icon_{form}.dds"), selected, name: format!("Place {form}"), detail: (form == 21).then(|| "Town 21: Neutral".to_string()), head: false }
     }
 
     /// The World Map at magnification `mag` centred on `centre` in the fixture's window (its
@@ -3465,7 +3509,7 @@ mod tests {
     fn local(outline: Option<Vec2>, mag: f32) -> Shown {
         let p = data::view::LocalProjection { centre: [1000.0, 2000.0], mag, scale: 28.0, origin: [-11000.0, 12000.0], extent: Vec2::new(24000.0, 20000.0) };
         let view = data::MapView::local(WORLD_W, p);
-        let door = |form, x: f32, y: f32, selected| MarkerShown { form, uv: view.local_uv(x, y), icon: "door.dds".into(), selected, name: format!("Door {form}"), detail: None };
+        let door = |form, x: f32, y: f32, selected| MarkerShown { form, uv: view.local_uv(x, y), icon: "door.dds".into(), selected, name: format!("Door {form}"), detail: None, head: false };
         Shown {
             tab: data::LOCAL,
             rows: Vec::new(),
@@ -3611,6 +3655,27 @@ mod tests {
         run(&mut ui, Some(world(1.0, [0.5, 0.5], Vec::new())), &mut t).unwrap();
         let parent = ui.find_tile(WORLD_PICTURE).unwrap();
         assert!(matches!(&t.pieces.iter().find(|p| p.tile == parent).unwrap().look, Look::Picture { source: Source::Own, .. }));
+    }
+
+    #[test]
+    fn a_co_op_head_is_drawn_whole_at_the_heads_size_over_the_location_icons() {
+        // The head's row listed first, so the file's order would draw the icon over it.
+        let head = MarkerShown { icon: crate::coop_heads::PLAIN.into(), head: true, ..marker(7, [0.5, 0.5], false) };
+        let (mut ui, mut t) = (tree_changed(with_world), MapTiles::default());
+        run(&mut ui, Some(world(1.0, [0.5, 0.5], vec![head, marker(8, [0.5, 0.5], false)])), &mut t).unwrap();
+        let tile = |form| t.written.world.markers.iter().find(|r| r.key == form).unwrap().tile;
+        let at = |form| t.pieces.iter().position(|p| p.tile == tile(form)).expect("the row's piece");
+        let (h, icon) = (&t.pieces[at(7)], &t.pieces[at(8)]);
+        assert!(at(7) > at(8), "drawn after the location icon: over it");
+        let want = icon.rect.width.max(icon.rect.height) * f64::from(data::HEAD / data::MARKER);
+        assert!((h.rect.width - want).abs() < 1e-6 && (h.rect.height - want).abs() < 1e-6, "{:?} want {want}", h.rect);
+        assert!((h.rect.width - f64::from(data::HEAD)).abs() < 1e-6, "34 at a magnification of 1");
+        let centre = |r: super::super::layout::Rect| (r.left + r.width / 2.0, r.top + r.height / 2.0);
+        let (hc, ic) = (centre(h.rect), centre(icon.rect));
+        assert!((hc.0 - ic.0).abs() < 1e-6 && (hc.1 - ic.1).abs() < 1e-6, "centred where the row stands");
+        assert!(h.crop.is_none(), "the whole face, not an icon's piece of the atlas");
+        assert!(matches!(&h.look, Look::Picture { name, source: Source::Own, fit: Fit::Stretch } if name == crate::coop_heads::PLAIN), "{:?}", h.look);
+        assert!((icon.rect.width - f64::from(data::MARKER)).abs() < 1e-6, "the icon keeps the file's size");
     }
 
     #[test]

@@ -204,7 +204,7 @@ fn done_colour(bright: Color) -> Color {
 pub(crate) const MARKER: f32 = 24.0;
 /// A co-op player's head on a map, and the gap between it and its name under it (queue
 /// item 134) [design].
-const HEAD: f32 = 34.0;
+pub(crate) const HEAD: f32 = 34.0;
 const HEAD_TAG_GAP: f32 = 2.0;
 /// The Map Icon box (`crate::coop_heads`): heads a row, rows shown, each head's square and
 /// the picture in it [design: the question box's look, `popup`].
