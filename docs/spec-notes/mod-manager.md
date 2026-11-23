@@ -55,6 +55,12 @@ Both files are written when the list changes, with no profile open and without
 pressing **Save**. Closing the launcher and opening it again restores that
 list. A profile is not required for this.
 
+When the page opens, a plugin found only in mod folders that are off is
+unticked; it stays in the load order. A plugin the game would still read on a
+start through the launcher keeps its tick: one that a folder that is on has,
+one loose at the top of the mods folder, or one in `Data` [design]
+[documented: `App::drop_inactive_mod_plugins`, `only_in_off_folders`].
+
 Writing either file does not make a backup. A dated copy is made only when
 **Save backup** is pressed [documented: `Launcher::save_dated_backup`].
 Lowering the number of backups kept asks before the oldest copies are deleted.

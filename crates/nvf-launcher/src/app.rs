@@ -322,6 +322,19 @@ struct ManualAsk {
     name: String,
 }
 
+/// The plugins only mod folders that are off have, so the game opens none of them on a start
+/// through the launcher (`plugins::layered_plugin_files`, then Data): `home` (the page's
+/// `plugin_home`) names a folder in `off`, no folder that is on has one (`on_folders`, the
+/// page's `plugin_folders`), and `elsewhere` (loose at the top of the mods folder, or in Data)
+/// is false. `plugin_home` names one folder a plugin, the highest; a lower folder that is on, or
+/// a loose copy, still serves it.
+fn only_in_off_folders(home: &HashMap<String, String>, off: &HashSet<String>, on_folders: &HashMap<String, Vec<String>>, elsewhere: impl Fn(&str) -> bool) -> HashSet<String> {
+    home.iter()
+        .filter(|(plugin, folder)| off.contains(*folder) && !on_folders.contains_key(*plugin) && !elsewhere(plugin))
+        .map(|(plugin, _)| plugin.clone())
+        .collect()
+}
+
 /// What a right-click on a plugin row asked for.
 enum PluginAct {
     /// The owning mod, so the row can open that folder.
@@ -2077,21 +2090,26 @@ impl App {
         self.load_chosen_profile();
     }
 
-    /// Plugins that belong only to a mod that is off stay in the load order, unticked.
+    /// Plugins that belong only to mods that are off stay in the load order, unticked
+    /// ([`only_in_off_folders`]). Runs right after `refresh_plugin_notes`, so `plugin_folders`
+    /// holds the folders that are on now.
     fn drop_inactive_mod_plugins(&mut self) {
         let off: HashSet<String> = self.mod_rows.iter().filter(|r| !r.on && !r.separator).map(|r| r.name.clone()).collect();
         if off.is_empty() {
             return;
         }
-        let owned: HashSet<String> = self.plugin_home.iter().filter(|(_, folder)| off.contains(*folder)).map(|(p, _)| p.clone()).collect();
-        let in_data: HashSet<String> = self.game().map(|g| owned.iter().filter(|name| g.data_file(name).is_some()).cloned().collect()).unwrap_or_default();
+        let mods = self.home.as_ref().map(|h| h.mods());
+        let game = self.game();
+        let elsewhere = |plugin: &str| {
+            mods.as_ref().and_then(|m| fnv_install::child_ci(m, plugin)).is_some_and(|p| p.is_file()) || game.as_ref().is_some_and(|g| g.data_file(plugin).is_some())
+        };
+        let owned = only_in_off_folders(&self.plugin_home, &off, &self.plugin_folders, elsewhere);
         let Some(list) = self.mods.as_mut() else { return };
         for entry in &mut list.entries {
             if entry.name.eq_ignore_ascii_case("FalloutNV.esm") {
                 continue;
             }
-            let key = entry.name.to_ascii_lowercase();
-            if owned.contains(&key) && !in_data.contains(&key) {
+            if owned.contains(&entry.name.to_ascii_lowercase()) {
                 entry.active = false;
             }
         }
@@ -6104,6 +6122,20 @@ mod tests {
         let wide_end = format!("{}—", "a".repeat(PREVIEW_CHARS - 1));
         assert_eq!(preview(&wide_end, false), (wide_end.as_str(), false));
         assert_eq!(preview(&long, true), (long.as_str(), true));
+    }
+
+    #[test]
+    fn a_plugin_the_game_still_reads_keeps_its_tick() {
+        let owned = |pairs: &[(&str, &str)]| pairs.iter().map(|(p, f)| (p.to_string(), f.to_string())).collect::<HashMap<String, String>>();
+        // The highest folder holding each plugin (`plugin_home`); "Old Weapons" is off.
+        let home = owned(&[("shared.esp", "Old Weapons"), ("oldonly.esp", "Old Weapons"), ("loose.esp", "Old Weapons"), ("indata.esp", "Old Weapons"), ("weapons.esp", "Weapons")]);
+        let off: HashSet<String> = HashSet::from(["Old Weapons".to_string()]);
+        // Weapons is on and has Shared.esp too, lower than Old Weapons.
+        let on: HashMap<String, Vec<String>> = [("shared.esp", "Weapons"), ("weapons.esp", "Weapons")].iter().map(|(p, f)| (p.to_string(), vec![f.to_string()])).collect();
+        let elsewhere = |plugin: &str| plugin == "loose.esp" || plugin == "indata.esp";
+        assert_eq!(only_in_off_folders(&home, &off, &on, elsewhere), HashSet::from(["oldonly.esp".to_string()]));
+        // With nothing else serving them, every plugin of a folder that is off is unticked.
+        assert_eq!(only_in_off_folders(&home, &off, &HashMap::new(), |_| false).len(), 4);
     }
 }
 
