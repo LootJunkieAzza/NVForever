@@ -571,11 +571,11 @@ impl App {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new(*name).strong());
-                        ui.label(RichText::new(*what).small().color(WEAK));
+                        ui.label(RichText::new(name).strong());
+                        ui.label(RichText::new(what).small().color(WEAK));
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.button("Nexus Mods page").on_hover_text(*url).clicked() {
+                        if ui.button("Nexus Mods page").on_hover_text(url).clicked() {
                             launch::open_url(url);
                         }
                     });
