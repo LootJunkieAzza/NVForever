@@ -2797,7 +2797,13 @@ fn sync(
     mut active: Option<ResMut<crate::menu::ActiveMenu>>,
     bindings: Option<ResMut<crate::bindings::Bindings>>,
     hotkeys: Option<Res<crate::hotkeys::Hotkeys>>,
-    (combat, sim, repeat, shake): (Option<Res<crate::combat::Combat>>, Option<Res<crate::sim::SimState>>, Option<ResMut<crate::key_repeat::Acceleration>>, Option<ResMut<crate::shake::ShakeScale>>),
+    (combat, sim, repeat, shake, mut phys): (
+        Option<Res<crate::combat::Combat>>,
+        Option<Res<crate::sim::SimState>>,
+        Option<ResMut<crate::key_repeat::Acceleration>>,
+        Option<ResMut<crate::shake::ShakeScale>>,
+        Option<ResMut<crate::phys::PhysState>>,
+    ),
 ) {
     if let Some(mut s) = shake {
         let want = if tweaks.scale_explosion_shake { tweaks.explosion_shake } else { 1.0 };
@@ -2833,6 +2839,7 @@ fn sync(
             b.allow_duplicates = tweaks.duplicate_binds;
         }
     }
+    let jip_ini = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.jip_ini).unwrap_or_default();
     if let Some(mut l) = loading {
         if l.hide_tips != tweaks.no_loading_tips {
             l.hide_tips = tweaks.no_loading_tips;
@@ -2842,6 +2849,23 @@ fn sync(
         }
         if l.plain_going_out != tweaks.plain_going_out {
             l.plain_going_out = tweaks.plain_going_out;
+        }
+        if l.prefer_location != jip_ini.load_screen_fix {
+            l.prefer_location = jip_ini.load_screen_fix;
+        }
+    }
+    if let Some(p) = phys.as_deref_mut() {
+        if p.sneak_bounding_box_fix != jip_ini.sneak_bounding_box_fix {
+            p.sneak_bounding_box_fix = jip_ini.sneak_bounding_box_fix;
+        }
+        if let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) {
+            for (&id, body) in &mut p.npcs {
+                let r = fnv_sim::FormId(id);
+                let is_human_companion = jip_ini.sneak_bounding_box_fix
+                    && rt.game.is_teammate(r)
+                    && rt.game.is_human_npc(r);
+                body.sneak_crouch = is_human_companion && rt.game.sneaks(r);
+            }
         }
     }
     let hidden = crate::quest_messages::Hidden { failed: tweaks.no_quest_failed_popup, discovered: tweaks.no_location_popup, objectives: tweaks.no_objective_popup };
@@ -2878,6 +2902,9 @@ fn sync(
         }
         if m.store_all != tweaks.store_all {
             m.store_all = tweaks.store_all;
+        }
+        if m.qtt_select_short_keys != jip_ini.qtt_select_short_keys {
+            m.qtt_select_short_keys = jip_ini.qtt_select_short_keys;
         }
         if m.full_barter_total != tweaks.full_barter_total {
             m.full_barter_total = tweaks.full_barter_total;

@@ -148,6 +148,9 @@ pub struct PhysState {
     /// landscape, and how far below them the body is drawn
     /// ([`PhysState::standing_drawn_feet`]).
     standing: HashMap<u32, ([f32; 3], bool, f32)>,
+    /// JIP LN `bSneakBoundingBoxFix`: shrink crouch collider height for the player and
+    /// crouching human companions (`crate::player::step`, synced by `crate::tweaks`).
+    pub sneak_bounding_box_fix: bool,
     /// Where each actor's character stood, and how far below it its body was drawn, when
     /// the character was taken away ([`PhysState::remove_npc`]): feet still there came
     /// from physics and are drawn as the character was, never lifted onto the landscape
@@ -241,6 +244,7 @@ impl Default for PhysState {
             actor_heights: HashMap::new(),
             actor_block_radii: HashMap::new(),
             standing: HashMap::new(),
+            sneak_bounding_box_fix: false,
             left: HashMap::new(),
             stats: PhysStats::default(),
             prev_feet: [0.0; 3],
@@ -362,6 +366,11 @@ pub struct NpcBody {
     pub sink: f32,
     /// Drawn above that after a step or a bump ([`step_lift::StepLift`]).
     pub lift: step_lift::StepLift,
+    /// Standing capsule height (for JIP LN `bSneakBoundingBoxFix` crouch resizing).
+    pub standing_height: f32,
+    /// Whether this actor is a crouching human companion whose capsule should shrink under
+    /// `bSneakBoundingBoxFix` (synced from `Game` by `crate::tweaks`).
+    pub sneak_crouch: bool,
 }
 
 /// Why [`PhysState::npc_spot`] found no place.
@@ -1760,7 +1769,8 @@ impl PhysState {
         ch.ignore_layers = fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes());
         // A stuck actor's move is not swept again every step (`fnv_phys` `Held`, issue #1797).
         ch.hold_when_stuck = true;
-        let mut b = NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0], jump: false, sink: 0.0, lift: Default::default() };
+        let standing_height = ch.params.height;
+        let mut b = NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false };
         b.sink = drawn_sink(&b.ch, self.drawn_ground(&b.ch));
         self.npcs.insert(id, b);
         true

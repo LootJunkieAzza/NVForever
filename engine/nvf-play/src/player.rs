@@ -1394,6 +1394,40 @@ fn interior_net(
 /// it is put back on the ground (logged as a warning).
 const FELL_THROUGH: f32 = 1000.0;
 
+/// JIP LN `bSneakBoundingBoxFix`: shrink crouch collider height for the player and
+/// crouching human companions once per frame before movement substeps. If standing up
+/// is refused because headroom is blocked, keep `intent.sneak` and `control.sneak`
+/// crouched so camera height, movement speed, and `IsSneaking` stay in sync with the
+/// collider.
+fn sync_sneak_heights(p: &mut PhysState, intent: &mut MoveIntent, control: Option<&mut PlayerControl>) {
+    if let Some(c) = p.player.as_mut() {
+        let want_height = if p.sneak_bounding_box_fix && intent.sneak && !c.swimming {
+            fnv_phys::character::HEIGHT * fnv_phys::character::CROUCH_HEIGHT_SCALE
+        } else {
+            fnv_phys::character::HEIGHT
+        };
+        if (c.params.height - want_height).abs() > 1e-3 {
+            let growing = want_height > c.params.height;
+            if !p.world.set_character_height(c, want_height) && growing {
+                intent.sneak = true;
+                if let Some(ctrl) = control {
+                    ctrl.sneak = true;
+                }
+            }
+        }
+    }
+    for n in p.npcs.values_mut() {
+        let npc_want = if p.sneak_bounding_box_fix && n.sneak_crouch {
+            n.standing_height * fnv_phys::character::CROUCH_HEIGHT_SCALE
+        } else {
+            n.standing_height
+        };
+        if (n.ch.params.height - npc_want).abs() > 1e-3 {
+            p.world.set_character_height(&mut n.ch, npc_want);
+        }
+    }
+}
+
 /// Fixed steps of the character for the frame's time; the camera's feet between the last
 /// two.
 #[allow(clippy::too_many_arguments)]
@@ -1412,7 +1446,7 @@ fn step(
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip, mut inertia): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>, ResMut<crate::inertia::MovementInertia>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
-    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (tweaks, mut control): (Option<Res<crate::tweaks::TweakSettings>>, Option<ResMut<PlayerControl>>),
 ) {
     if *state.get() != PlayState::Playing {
         // No time reaches the stepper while not playing, so nothing steps; its remainder is
@@ -1520,6 +1554,7 @@ fn step(
     let p = &mut *phys;
     let dt = p.world.params.dt;
     let n = p.stepper.advance(&p.world.params, time.delta_secs());
+    sync_sneak_heights(p, &mut intent, control.as_deref_mut());
     let c = p.player.as_mut().expect("placed");
     inertia.check_game_placed(player.placed);
     inertia.check_placed(c.feet);
@@ -2207,5 +2242,76 @@ mod tests {
         // Fallback eye height scales cleanly with SetScale.
         let p = Player { heading: 0.0, pitch: 0.0, eye_height: EYE_HEIGHT * 0.4, feet: [0.0, 0.0, 10.0], body_eye: None, body_view: None, placed: None };
         assert!((p.eye()[2] - (10.0 + EYE_HEIGHT * 0.4)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn sneak_bounding_box_fix_keeps_sneak_active_when_stand_up_is_blocked() {
+        use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+        use fnv_phys::{CharacterParams, RefPose};
+
+        let box_obj = |half_extents: [f32; 3]| CollisionObject {
+            node: None,
+            node_block: 0,
+            node_transform: Iso::IDENTITY,
+            body_transform: Iso::IDENTITY,
+            motion: Motion::Static,
+            layer: 1,
+            mass: 0.0,
+            friction: 0.5,
+            restitution: 0.0,
+            shape: Shape::Box { half_extents }.into(),
+            shell: 0.0,
+            material: None,
+            wind: false,
+        };
+        let pose = |id: u32, position: [f32; 3]| RefPose {
+            form_id: id,
+            position,
+            rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            scale: 1.0,
+        };
+
+        let mut phys = PhysState::default();
+        phys.sneak_bounding_box_fix = true;
+        // Floor top at z = 0; low lintel spanning x = 80..180 with bottom at z = 100.
+        phys.world.add_ref(&pose(1, [0.0, 0.0, -10.0]), &[box_obj([500.0, 500.0, 10.0])]);
+        phys.world.add_ref(&pose(2, [130.0, 0.0, 125.0]), &[box_obj([50.0, 200.0, 25.0])]);
+        phys.world.step();
+
+        let ch = phys.world.add_character(FormId::PLAYER_REF.0, CharacterParams::default(), [0.0, 0.0, 1.0]);
+        phys.player = Some(ch);
+
+        let mut intent = MoveIntent { sneak: true, ..default() };
+        let mut control = PlayerControl { sneak: true, ..default() };
+        let crouched = fnv_phys::character::HEIGHT * fnv_phys::character::CROUCH_HEIGHT_SCALE;
+
+        // Crouch in open space: shrinks collider to crouched height.
+        sync_sneak_heights(&mut phys, &mut intent, Some(&mut control));
+        assert!((phys.player.as_ref().unwrap().params.height - crouched).abs() < 1e-3);
+
+        // Move under the low lintel and attempt to un-crouch: headroom refuses stand-up,
+        // and both intent.sneak and control.sneak stay true so camera/speed/IsSneaking stay synced.
+        if let Some(c) = phys.player.as_mut() {
+            phys.world.place_character(c, [130.0, 0.0, 0.0]);
+        }
+        phys.world.step();
+        intent.sneak = false;
+        control.sneak = false;
+        sync_sneak_heights(&mut phys, &mut intent, Some(&mut control));
+        assert!((phys.player.as_ref().unwrap().params.height - crouched).abs() < 1e-3);
+        assert!(intent.sneak, "blocked stand-up must keep MoveIntent::sneak active");
+        assert!(control.sneak, "blocked stand-up must keep PlayerControl::sneak active");
+
+        // Move clear of the lintel and release sneak: stands up cleanly.
+        if let Some(c) = phys.player.as_mut() {
+            phys.world.place_character(c, [240.0, 0.0, 0.0]);
+        }
+        phys.world.step();
+        intent.sneak = false;
+        control.sneak = false;
+        sync_sneak_heights(&mut phys, &mut intent, Some(&mut control));
+        assert!((phys.player.as_ref().unwrap().params.height - fnv_phys::character::HEIGHT).abs() < 1e-3);
+        assert!(!intent.sneak, "clear headroom allows standing up");
+        assert!(!control.sneak, "clear headroom clears PlayerControl::sneak");
     }
 }

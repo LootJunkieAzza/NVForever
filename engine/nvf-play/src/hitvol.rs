@@ -1023,7 +1023,8 @@ mod tests {
                         phys.remove_npc(ids[i]);
                         if walking[i] {
                             let ch = phys.world.add_character(ids[i], fnv_phys::CharacterParams::default(), feet[i]);
-                            phys.npcs.insert(ids[i], NpcBody { ch, prev_feet: feet[i], velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+                            let standing_height = ch.params.height;
+                            phys.npcs.insert(ids[i], NpcBody { ch, prev_feet: feet[i], velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
                         }
                     }
                 }

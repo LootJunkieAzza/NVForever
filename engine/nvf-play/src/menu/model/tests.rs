@@ -1493,3 +1493,68 @@ fn hide_item_barter_ex_filters_vendor_player_and_both_sides() {
     assert!(has(&m, Side::Container, PISTOL) && has(&m, Side::Player, PISTOL));
     assert!(has(&m, Side::Container, RIFLE) && has(&m, Side::Player, RIFLE));
 }
+
+#[test]
+fn jip_qtt_select_short_keys_skips_quantity_menu_in_container_barter_and_inventory() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    // Ensure stacks > ASK_QUANTITY_ABOVE (5) for Container, Barter, and Inventory.
+    w.inventory_mut(FormId(BOX_REF)).unwrap().add(FormId(CAN), 20);
+    w.inventory_mut(FormId(0x14)).unwrap().add(FormId(CAN), 20);
+
+    // 1. Container: One opens QuantityMenu; OneSingle transfers exactly 1 without prompt; Stack transfers rest.
+    let mut c = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    c.qtt_select_short_keys = true;
+    c.focus = Side::Container;
+    let row = c.list(Side::Container).rows.iter().position(|r| r.item == FormId(CAN)).unwrap();
+    c.selected[Side::Container as usize] = row;
+    let before = count(&mut w, BOX_REF, CAN);
+    c.apply(&mut w, Command::One);
+    assert!(c.quantity.is_some(), "plain One opens QuantityMenu on stack > 5");
+    c.apply(&mut w, Command::AmountCancel);
+    assert!(c.quantity.is_none());
+
+    let a = c.apply(&mut w, Command::OneSingle);
+    assert!(a.changed && c.quantity.is_none(), "Ctrl shortcut transfers 1 without QuantityMenu");
+    assert_eq!(count(&mut w, BOX_REF, CAN), before - 1);
+
+    let a = c.apply(&mut w, Command::Stack);
+    assert!(a.changed && c.quantity.is_none(), "Shift shortcut transfers whole stack without QuantityMenu");
+    assert_eq!(count(&mut w, BOX_REF, CAN), 0);
+
+    // 2. Barter: OneSingle offers 1 without opening QuantityMenu.
+    let mut b = MenuModel::open_barter(&mut w, FormId(BOX_REF), FormId(BOX_REF), FormId(CAPS), 50.0, 0).unwrap();
+    b.qtt_select_short_keys = true;
+    b.focus = Side::Player;
+    let row = b.list(Side::Player).rows.iter().position(|r| r.item == FormId(CAN)).unwrap();
+    b.selected[Side::Player as usize] = row;
+    b.apply(&mut w, Command::One);
+    assert!(b.quantity.is_some(), "plain One opens QuantityMenu in barter");
+    b.apply(&mut w, Command::AmountCancel);
+    let a = b.apply(&mut w, Command::OneSingle);
+    assert!(a.changed && b.quantity.is_none(), "Ctrl shortcut offers 1 in barter without QuantityMenu");
+
+    // 3. Inventory: Drop opens QuantityMenu; DropSingle drops 1 without prompt; DropStack drops the rest.
+    let mut inv = MenuModel::open_inventory(&mut w).unwrap();
+    inv.qtt_select_short_keys = true;
+    inv.apply(&mut w, Command::SetCategory(Side::Player, Category::Misc));
+    let row = inv.list(Side::Player).rows.iter().position(|r| r.item == FormId(CAN)).unwrap();
+    inv.selected[Side::Player as usize] = row;
+    let inv_before = count(&mut w, 0x14, CAN);
+    inv.apply(&mut w, Command::Drop);
+    assert!(inv.quantity.is_some(), "plain Drop opens QuantityMenu on stack > 5");
+    inv.apply(&mut w, Command::AmountCancel);
+    let a = inv.apply(&mut w, Command::DropSingle);
+    assert!(a.changed && inv.quantity.is_none(), "Ctrl shortcut drops 1 without QuantityMenu");
+    assert_eq!(count(&mut w, 0x14, CAN), inv_before - 1);
+    let a = inv.apply(&mut w, Command::DropStack);
+    assert!(a.changed && inv.quantity.is_none(), "Shift shortcut drops whole stack without QuantityMenu");
+    assert_eq!(count(&mut w, 0x14, CAN), 0);
+
+    // 4. Tiled row_commands_with honors ctrl_single only when enabled.
+    use crate::tiles::container_menu::row_commands_with;
+    assert_eq!(row_commands_with(Side::Container, 2, true, false, false), vec![Command::Select(Side::Container, 2)]);
+    assert_eq!(row_commands_with(Side::Container, 2, true, false, true), vec![Command::OneSingle]);
+    assert_eq!(row_commands_with(Side::Container, 2, false, false, true), vec![Command::Hover(Side::Container, 2), Command::OneSingle]);
+    assert_eq!(row_commands_with(Side::Container, 2, true, true, true), vec![Command::Stack]);
+}

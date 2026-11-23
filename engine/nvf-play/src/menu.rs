@@ -464,6 +464,7 @@ pub(crate) fn open_menus(
                 _ => None,
             };
             let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+            m.qtt_select_short_keys = game.is_some_and(|g| g.jip_ini.qtt_select_short_keys);
             if let Some(name) = who.filter(|r| sim.refs.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"))).and_then(|r| sim.ref_name(game, r.0)) {
                 m.title = name.to_string();
             }
@@ -556,6 +557,7 @@ fn menu_keys(keys: crate::pad::ActionButtons<KeyCode>, active: Res<ActiveMenu>, 
     }
     let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory && m.quantity.is_none()) else { return };
     let shift = keys.any_pressed([ShiftLeft, ShiftRight]);
+    let ctrl_single = m.qtt_select_short_keys && keys.any_pressed([ControlLeft, ControlRight]);
     let mut send = |c| {
         out.write(MenuInput(c));
     };
@@ -585,7 +587,7 @@ fn menu_keys(keys: crate::pad::ActionButtons<KeyCode>, active: Res<ActiveMenu>, 
         }
     }
     if keys.any_just_pressed([Enter, NumpadEnter, Space]) {
-        send(if shift { Command::Stack } else { Command::One });
+        send(if shift { Command::Stack } else if ctrl_single { Command::OneSingle } else { Command::One });
     }
     match m.mode {
         Mode::Barter(_) if keys.just_pressed(KeyA) => send(Command::Accept),
@@ -666,6 +668,7 @@ fn menu_mouse(
     let tiled = tile_menu.is_some_and(|t| t.menu.is_some()) || barter_tiles.is_some_and(|t| t.menu().is_some());
     let hover = !tiled;
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let ctrl_single = m.qtt_select_short_keys && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     // Only a pointer that moves takes the selection: a redrawn row under a resting
     // pointer leaves the keys' choice alone.
     let pointer_moved = moved.read().count() > 0;
@@ -678,9 +681,12 @@ fn menu_mouse(
             PointerState::Pressed if hover && on_it && shift => {
                 out.write(MenuInput(Command::Stack));
             }
+            PointerState::Pressed if hover && on_it && ctrl_single => {
+                out.write(MenuInput(Command::OneSingle));
+            }
             PointerState::Pressed if hover && !on_it => {
                 out.write(MenuInput(Command::Hover(r.0, r.1)));
-                out.write(MenuInput(if shift { Command::Stack } else { Command::One }));
+                out.write(MenuInput(if shift { Command::Stack } else if ctrl_single { Command::OneSingle } else { Command::One }));
             }
             PointerState::Pressed if hover => {
                 out.write(MenuInput(Command::Select(r.0, r.1)));
@@ -1009,7 +1015,7 @@ fn apply_input(
         if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
             sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
         }
-        let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::StoreAll | Command::Drop | Command::DropStack | Command::Accept | Command::AmountOk);
+        let moves_items = matches!(cmd, Command::One | Command::OneSingle | Command::Stack | Command::TakeAll | Command::StoreAll | Command::Drop | Command::DropSingle | Command::DropStack | Command::Accept | Command::AmountOk);
         if moves_items || a.changed {
             if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {
                 info!("menu: {cmd:?}: {s}");

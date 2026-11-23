@@ -30,7 +30,8 @@ impl Plugin for ScriptInputPlugin {
             // the scripts run [design]. `tell_magazine` keeps its own place: it also
             // applies the scripts' pending ammo writes, which must reach combat first.
             .add_systems(Update, tell_player_state.after(crate::PlaySet::Activation).before(crate::PlaySet::Scripts))
-            .add_systems(Update, (tell_magazine, mod_file_roots))
+            .add_systems(Update, tell_magazine)
+            .add_systems(Update, mod_file_roots.before(crate::PlaySet::Scripts))
             .add_systems(Update, script_moves.after(crate::PlaySet::Input));
     }
 }
@@ -365,7 +366,11 @@ fn tell_player_state(
 
 /// Once the game's Data is open: mods' files are read from NVForever's mods layer, then
 /// the game's Data, and the archives answer FileExists (fnv_game::mod_files).
-fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>) {
+fn mod_file_roots(
+    data: Option<Res<nvf_assets::GameData>>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+    mut done: Local<bool>,
+) {
     let Some(d) = data.filter(|_| !*done) else { return };
     *done = true;
     let vfs = d.vfs.clone();
@@ -387,6 +392,9 @@ fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>
             }
         }));
     });
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        rt.game.reload_jip_ini();
+    }
 }
 
 #[cfg(test)]
@@ -485,6 +493,7 @@ mod kill_cam_state_tests {
         let mut npc_ch = phys.world.add_character(npc_id, fnv_phys::CharacterParams::default(), [64.0, 0.0, 0.0]);
         npc_ch.grounded = true;
         npc_ch.swimming = false;
+        let standing_height = npc_ch.params.height;
         phys.npcs.insert(
             npc_id,
             crate::phys::NpcBody {
@@ -494,6 +503,8 @@ mod kill_cam_state_tests {
                 jump: false,
                 sink: 0.0,
                 lift: crate::phys::step_lift::StepLift::default(),
+                standing_height,
+                sneak_crouch: false,
             },
         );
         app.insert_resource(phys);
@@ -531,5 +542,63 @@ mod kill_cam_state_tests {
         app.world_mut().remove_resource::<crate::phys::PhysState>();
         app.update();
         assert_eq!(is_in_air(&mut app, None), XVal::Num(0.0));
+    }
+
+    #[test]
+    fn mod_file_roots_loads_jip_nvse_ini_into_live_runtime() {
+        struct Guard {
+            dir: std::path::PathBuf,
+            prev: Option<fnv_game::mod_files::Roots>,
+        }
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                if let Some(prev) = self.prev.take() {
+                    fnv_game::mod_files::update_roots(|r| *r = prev);
+                }
+                let _ = std::fs::remove_dir_all(&self.dir);
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "nvf_jip_ini_roots_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        let plugins_dir = dir.join("NVSE").join("Plugins");
+        std::fs::create_dir_all(&plugins_dir).unwrap();
+        std::fs::write(
+            plugins_dir.join("jip_nvse.ini"),
+            "[GamePatches]\nbLoadScreenFix=1\nbVoiceModulationFix=1\nuNPCPerks=2\n",
+        )
+        .unwrap();
+
+        let mut prev = None;
+        fnv_game::mod_files::update_roots(|r| {
+            prev = Some(std::mem::take(r));
+        });
+        let _guard = Guard { dir: dir.clone(), prev };
+
+        let mut app = App::new();
+        app.insert_resource(ScriptState::over_no_plugins());
+        // Before mod_file_roots runs, jip_ini starts at vanilla defaults (all off).
+        {
+            let state = app.world().resource::<ScriptState>();
+            let ini = state.rt.as_ref().unwrap().game.jip_ini;
+            assert!(!ini.load_screen_fix && !ini.voice_modulation_fix && ini.npc_perks == 0);
+        }
+
+        let vfs = fnv_vfs::Vfs::open(&dir, &[]).unwrap();
+        let data = nvf_assets::GameData::new(std::sync::Arc::new(vfs), std::sync::Arc::new(fnv_nif::Schema::default()));
+        app.insert_resource(data);
+        app.add_systems(Update, mod_file_roots.before(crate::PlaySet::Scripts));
+        app.update();
+
+        let state = app.world().resource::<ScriptState>();
+        let ini = state.rt.as_ref().unwrap().game.jip_ini;
+        assert!(ini.load_screen_fix, "jip_nvse.ini bLoadScreenFix must load via mod_file_roots");
+        assert!(ini.voice_modulation_fix, "jip_nvse.ini bVoiceModulationFix must load via mod_file_roots");
+        assert_eq!(ini.npc_perks, 2, "jip_nvse.ini uNPCPerks must load via mod_file_roots");
     }
 }

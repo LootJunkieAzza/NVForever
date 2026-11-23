@@ -609,6 +609,9 @@ pub enum Command {
     /// from the container, store from the player). Barter: put one unit up, or take one
     /// back. Inventory: equip or unequip it (aid items are used).
     One,
+    /// Container and barter menus: move one unit without opening the quantity prompt
+    /// (JIP LN `bQttSelectShortKeys` Ctrl shortcut).
+    OneSingle,
     /// Container and barter menus: the same for the whole selected stack.
     Stack,
     /// Container menu: take everything from the container.
@@ -620,6 +623,9 @@ pub enum Command {
     Accept,
     /// Inventory: drop one unit of the selected stack into the world.
     Drop,
+    /// Inventory: drop one unit without opening the quantity prompt (JIP LN
+    /// `bQttSelectShortKeys` Ctrl shortcut).
+    DropSingle,
     /// Inventory: drop the whole selected stack.
     DropStack,
     /// Inventory: leave the open Misc folder ([`Folder`]).
@@ -846,6 +852,10 @@ pub struct MenuModel {
     confirming_take_all: bool,
     /// The player's Store All tweak: Shift with Take All stores instead.
     pub store_all: bool,
+    /// JIP LN `bQttSelectShortKeys`: Shift transfers/drops the full stack and Ctrl
+    /// transfers/drops 1 item without opening `QuantityMenu` [documented: JIP LN
+    /// `jip_nvse.ini` `bQttSelectShortKeys`].
+    pub qtt_select_short_keys: bool,
     /// The player's tweak: the barter figure shows the whole total, past what the
     /// merchant can pay [design: docs/design/tweaks.md].
     pub full_barter_total: bool,
@@ -1104,6 +1114,7 @@ impl MenuModel {
             take_all_confirm: None,
             confirming_take_all: false,
             store_all: false,
+            qtt_select_short_keys: false,
             full_barter_total: false,
             barter_caps_change: false,
             hide_equipped_barter: false,
@@ -1660,7 +1671,7 @@ impl MenuModel {
                 out.changed = n > 0;
                 Ok(if n == 0 { "Nothing to store".into() } else { format!("Stored everything ({n} items)") })
             }
-            (Mode::Container(c), Command::One | Command::Stack) => {
+            (Mode::Container(c), Command::One | Command::OneSingle | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 let (from, to) = match self.focus {
                     Side::Container => (c, PLAYER),
@@ -1684,7 +1695,7 @@ impl MenuModel {
                         });
                     }
                 }
-                let want = self.want(cmd == Command::One, &r);
+                let want = self.want(matches!(cmd, Command::One | Command::OneSingle), &r);
                 if let Some(st) = self.steal.as_mut() {
                     let chance = st.chance(&r, want);
                     if !st.unnoticed(chance) {
@@ -1707,13 +1718,13 @@ impl MenuModel {
                 let verb = if self.focus == Side::Container { "Took" } else { "Stored" };
                 Ok(format!("{verb} {} x{n}", name(&r)))
             }
-            (Mode::Barter(_), Command::One | Command::Stack) => {
+            (Mode::Barter(_), Command::One | Command::OneSingle | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 if r.live {
                     self.amount = None;
                     return Ok(live_refusal(&r.name));
                 }
-                let want = self.want(cmd == Command::One, &r);
+                let want = self.want(matches!(cmd, Command::One | Command::OneSingle), &r);
                 let Some(t) = self.trade.as_mut() else { return Ok(String::new()) };
                 out.changed = true;
                 if r.bartered {
@@ -1784,7 +1795,7 @@ impl MenuModel {
                     (false, false) => format!("Equipped {} (took off {})", name(&r), off.join(", ")),
                 })
             }
-            (Mode::Inventory, Command::Drop | Command::DropStack) => {
+            (Mode::Inventory, Command::Drop | Command::DropSingle | Command::DropStack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 // A folder row is no item; the cards AddCardToPlayer gave are not in the
                 // inventory [design: carried CCRD items are not dropped either].
@@ -1794,7 +1805,7 @@ impl MenuModel {
                 if r.kind == Some(ItemKind::CaravanCard) {
                     return Ok(format!("{} can't be dropped", name(&r)));
                 }
-                let want = self.want(cmd == Command::Drop, &r);
+                let want = self.want(matches!(cmd, Command::Drop | Command::DropSingle), &r);
                 let created = match world.player_drop_item_at(r.item, want, r.pick()) {
                     Err(SimError::QuestItem(_)) => return Ok(format!("{} is a quest item and can't be dropped", name(&r))),
                     other => other?,
@@ -1804,8 +1815,8 @@ impl MenuModel {
                 out.created = created;
                 Ok(format!("Dropped {} x{want}", name(&r)))
             }
-            (Mode::Container(_) | Mode::Barter(_), Command::Drop | Command::DropStack) => Ok("Drop from the inventory menu (Tab)".into()),
-            (Mode::Inventory, Command::Stack | Command::TakeAll | Command::StoreAll) => Ok("No container open".into()),
+            (Mode::Container(_) | Mode::Barter(_), Command::Drop | Command::DropSingle | Command::DropStack) => Ok("Drop from the inventory menu (Tab)".into()),
+            (Mode::Inventory, Command::OneSingle | Command::Stack | Command::TakeAll | Command::StoreAll) => Ok("No container open".into()),
             _ => Ok(String::new()),
         }
     }

@@ -367,6 +367,11 @@ fn norm(p: &str) -> String {
 }
 
 impl ModFiles {
+    /// Session-written Data file bytes (in-memory writes before disk/VFS), case-insensitive.
+    pub(crate) fn read_written_bytes(&self, rel: &str) -> Option<Vec<u8>> {
+        self.written.get(&norm(rel)).map(|t| t.as_bytes().to_vec())
+    }
+
     /// [`ModFiles::read`] for the other files of the crate: a Data file's text, this
     /// session's write first.
     pub(crate) fn read_text(&self, rel: &str) -> Option<String> {

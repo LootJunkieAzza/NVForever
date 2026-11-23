@@ -1441,6 +1441,12 @@ pub struct Game<'a> {
     pub showoff: crate::nvse_showoff::ShowOffState,
     /// Mods' INI and other files (`crate::mod_files`).
     pub mod_files: crate::mod_files::ModFiles,
+    /// Active `[GamePatches]` parsed from `Data\NVSE\Plugins\jip_nvse.ini` (`crate::jip_ini`).
+    pub jip_ini: crate::jip_ini::JipGamePatches,
+    /// NPC references already rolled for `bNPCWeaponMods` this session (not saved).
+    jip_npc_mods_applied: BTreeSet<FormId>,
+    /// Human NPC references already seeded for `uNPCPerks=2` this session (not saved).
+    jip_npc_perks_applied: BTreeSet<FormId>,
     pub(crate) ysi_filename: crate::ysi_filename::State,
     /// SUP batch 6's state: the mouse, the cursor, the debug texts, the lockpick menu …
     /// (`crate::nvse_sup6`; the engine fills and takes it).
@@ -2551,6 +2557,8 @@ impl<'a> Game<'a> {
         world.set_inventory_sources(sources);
         // JIP LN's write for JIP Companions Command & Control's MCM page (`crate::jip_ccc`).
         crate::jip_ccc::write_globals(&data.load_order, &mut world);
+        let mod_files = crate::mod_files::ModFiles::default();
+        let jip_ini = crate::jip_ini::JipGamePatches::load(&mod_files);
         Game {
             data,
             ext: Default::default(),
@@ -2611,7 +2619,10 @@ impl<'a> Game<'a> {
             gaps: Default::default(),
             hud: Default::default(),
             showoff: Default::default(),
-            mod_files: Default::default(),
+            mod_files,
+            jip_ini,
+            jip_npc_mods_applied: BTreeSet::new(),
+            jip_npc_perks_applied: BTreeSet::new(),
             ysi_filename: Default::default(),
             sup: Default::default(),
             lu3: Default::default(),
@@ -5720,12 +5731,132 @@ impl<'a> Game<'a> {
         self.jg8_loaded(&first_seen, levels_before);
     }
 
+    /// Reload `Data\NVSE\Plugins\jip_nvse.ini` `[GamePatches]` via `ModFiles` / VFS.
+    pub fn reload_jip_ini(&mut self) {
+        self.jip_ini = crate::jip_ini::JipGamePatches::load(&self.mod_files);
+    }
+
+    /// Whether `actor` resolves to an `NPC_` record (including placed `LVLN` leveled NPCs,
+    /// without following actor templates; same resolver as `nvse_nx::is_creature`).
+    pub fn is_human_npc(&self, actor: FormId) -> bool {
+        let Some(base) = crate::functions::base_of(self, actor) else { return false };
+        self.template_source(base, actor, |_| false).is_some_and(|(_, d)| &d.sig == b"NPC_")
+    }
+
+    /// JIP LN `bNPCWeaponMods`: when enabled, roll and attach weapon mod bitflags onto an
+    /// NPC's equipped main weapon using the level-scaled chance formula
+    /// (`JipGamePatches::npc_weapon_mod_chance`). Returns the attached mod mask (`0` when
+    /// disabled, non-NPC, already rolled, weapon already modded, or roll missed).
+    pub fn apply_npc_weapon_mods(&mut self, actor: FormId) -> u8 {
+        if !self.jip_ini.npc_weapon_mods || actor == FormId::PLAYER_REF {
+            return 0;
+        }
+        if !self.jip_npc_mods_applied.insert(actor) {
+            return 0;
+        }
+        if !self.is_human_npc(actor) {
+            return 0;
+        }
+        let Some((weapon, _)) = self.held_weapon(actor) else { return 0 };
+        let available = self
+            .world
+            .forms
+            .item(weapon)
+            .and_then(|it| it.weapon_traits)
+            .map(|t| t.mods.map(|m| m.is_some()))
+            .unwrap_or([false; 3]);
+        if !available.iter().any(|&b| b) {
+            return 0;
+        }
+        let existing = self
+            .world
+            .peek(actor)
+            .and_then(|s| s.inventory.as_ref())
+            .map_or(0, |inv| inv.equipped_mods(weapon));
+        if existing != 0 {
+            return 0;
+        }
+        let level = self.actor_level(actor).max(1.0) as u16;
+        let seed = (u64::from(actor.0) << 32) ^ u64::from(weapon.0);
+        let mask = self.jip_ini.roll_npc_weapon_mods(level, available, seed);
+        if mask != 0 {
+            if let Ok(inv) = self.world.inventory_mut(actor) {
+                inv.map_equipped(weapon, |e| fnv_sim::inventory::Extra { mods: mask, ..e });
+            }
+        }
+        mask
+    }
+
+    /// JIP LN `uNPCPerks=2`: when enabled, automatically give a human NPC 1 random
+    /// playable Trait and 1 random playable Perk per 3 levels (up to 10 perks max), and
+    /// sync their perk abilities [documented: JIP LN `jip_nvse.ini` `uNPCPerks`].
+    /// Returns the number of perks/traits newly assigned.
+    pub fn apply_npc_jip_perks(&mut self, actor: FormId) -> usize {
+        if self.jip_ini.npc_perks < 2 || actor == FormId::PLAYER_REF {
+            return 0;
+        }
+        if !self.jip_npc_perks_applied.insert(actor) {
+            return 0;
+        }
+        if !self.is_human_npc(actor) {
+            return 0;
+        }
+        let level = self.actor_level(actor).max(1.0) as u16;
+        let mut traits: Vec<FormId> = Vec::new();
+        let mut perks: Vec<FormId> = Vec::new();
+        for (&id, def) in &self.data.perks {
+            if !def.playable || def.hidden {
+                continue;
+            }
+            if def.is_trait {
+                traits.push(id);
+            } else if u16::from(def.min_level) <= level {
+                perks.push(id);
+            }
+        }
+        traits.sort();
+        perks.sort();
+        let mut state = crate::jip_ini::splitmix64(u64::from(actor.0) ^ 0x4A49_5050_4552_4B53);
+        let mut next = || -> u64 {
+            state = crate::jip_ini::splitmix64(state.wrapping_add(0x9E37_79B9_7F4A_7C15));
+            state
+        };
+        let mut added = 0usize;
+        if !traits.is_empty() {
+            let pick = traits[(next() as usize) % traits.len()];
+            let entry = self.extra.entry(actor).or_default().perks.entry(pick);
+            if let std::collections::btree_map::Entry::Vacant(v) = entry {
+                v.insert(1);
+                added += 1;
+            }
+        }
+        let target_perks = self.jip_ini.npc_auto_perk_count(level);
+        for _ in 0..target_perks {
+            if perks.is_empty() {
+                break;
+            }
+            let idx = (next() as usize) % perks.len();
+            let pick = perks.remove(idx);
+            let entry = self.extra.entry(actor).or_default().perks.entry(pick);
+            if let std::collections::btree_map::Entry::Vacant(v) = entry {
+                v.insert(1);
+                added += 1;
+            }
+        }
+        if added > 0 {
+            self.sync_perk_abilities_of(actor);
+        }
+        added
+    }
+
     /// Actors in loaded cells that never were loaded put on their outfit and take up
     /// their weapon (`fnv_sim::World::outfit`), dead ones too [hypothesis: a corpse
     /// placed dead wears its outfit as the living do].
     pub fn outfit_loaded_actors(&mut self) {
         for a in self.package_actors() {
             let _ = self.world.outfit(a);
+            self.apply_npc_weapon_mods(a);
+            self.apply_npc_jip_perks(a);
         }
     }
 

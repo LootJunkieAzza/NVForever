@@ -49,7 +49,7 @@ use crate::pipboy::items::Info;
 use fnv_ui::{Ui, Value};
 
 pub use super::item_menu::{MenuTiles as ContainerTiles, MenuTile as ContainerTile, TileWheelTitle,
-    RowShown, ListShown, Snapshot, rows_shown, takes_input, hover_selects, row_commands};
+    RowShown, ListShown, Snapshot, rows_shown, takes_input, hover_selects, row_commands, row_commands_with};
 
 /// The menu's name [documented: container_menu.xml].
 pub const CONTAINER_MENU: &str = "ContainerMenu";

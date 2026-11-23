@@ -177,8 +177,19 @@ pub fn main_menu_pictures(screens: &[LoadScreen]) -> Vec<String> {
 /// is taken every other time [design: the game's odds are not known]. `roll` is any
 /// number, e.g. random: the same roll gives the same screen.
 pub fn choose<'a>(screens: &'a [LoadScreen], to: &Destination, roll: u64) -> Option<&'a LoadScreen> {
+    choose_with(screens, to, roll, false)
+}
+
+/// [`choose`] with optional location-specific preference (`prefer_location`, JIP LN
+/// `bLoadScreenFix`): when `true` and the destination has matching location-specific
+/// screens, always pick from them instead of alternating with generic screens
+/// [documented: JIP LN `jip_nvse.ini` `bLoadScreenFix`].
+pub fn choose_with<'a>(screens: &'a [LoadScreen], to: &Destination, roll: u64, prefer_location: bool) -> Option<&'a LoadScreen> {
     let own: Vec<&LoadScreen> = screens.iter().filter(|s| s.belongs_to(to)).collect();
     let anywhere: Vec<&LoadScreen> = screens.iter().filter(|s| s.locations.is_empty()).collect();
+    if prefer_location && !own.is_empty() {
+        return Some(own[(roll % own.len() as u64) as usize]);
+    }
     let pool = match (own.is_empty(), anywhere.is_empty()) {
         (true, true) => return None,
         (false, true) => own,
@@ -245,6 +256,13 @@ mod tests {
         assert_eq!(choose(&[], &saloon, 0), None);
         // Only screens of other places: nothing fits.
         assert_eq!(choose(&screens[3..], &saloon, 0), None);
+        // JIP LN bLoadScreenFix: prefer_location always selects matching location screens
+        // when present, falling back to generic screens only when none match.
+        assert!((0..64).all(|r| choose_with(&screens, &saloon, r, true).unwrap().form_id == 2));
+        assert_eq!(
+            (0..64).filter_map(|r| choose_with(&screens, &outdoors(0, 0), r, true)).map(|s| s.form_id).collect::<BTreeSet<_>>(),
+            BTreeSet::from([1, 3])
+        );
     }
 
     #[test]

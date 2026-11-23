@@ -50,7 +50,7 @@ use crate::{Location, PlaySet, PlayState, PlayWorld, Travel};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
-use fnv_world::loadscreen::{choose, load_screens, Destination, LoadScreen, TipStyle};
+use fnv_world::loadscreen::{choose_with, load_screens, Destination, LoadScreen, TipStyle};
 use nvf_assets::{GameData, TextureCache};
 
 /// Frames the screen is up before the travel is applied [engineering choice: the frame
@@ -141,6 +141,9 @@ pub struct Loading {
     /// The player's No Exterior Load Screens tweak: a trip out of an interior shows the
     /// black alone, no picture or tip [design: docs/design/tweaks.md].
     pub plain_going_out: bool,
+    /// JIP LN `bLoadScreenFix`: always prefer location-specific load screens when any
+    /// match the destination [documented: JIP LN `jip_nvse.ini` `bLoadScreenFix`].
+    pub prefer_location: bool,
     /// The next screen is the plain one (set for one [`spawn_screen`]).
     plain_once: bool,
     waiting_click: bool,
@@ -430,6 +433,7 @@ struct Art<'w> {
     textures: Option<ResMut<'w, TextureCache>>,
     images: Option<ResMut<'w, Assets<Image>>>,
     formats: Option<Res<'w, CompressedImageFormatSupport>>,
+    script: Option<Res<'w, crate::script::ScriptState>>,
     look: ResMut<'w, Look>,
 }
 
@@ -555,7 +559,8 @@ fn spawn_screen(commands: &mut Commands, loading: &mut Loading, art: &mut Art, t
     let to = to.unwrap_or(&anywhere);
     loading.shown += 1;
     let plain = std::mem::take(&mut loading.plain_once);
-    let screen = art.screens.as_deref().filter(|_| !plain).and_then(|s| choose(&s.0, to, roll(loading.shown)));
+    let prefer_location = loading.prefer_location || art.script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.jip_ini.load_screen_fix);
+    let screen = art.screens.as_deref().filter(|_| !plain).and_then(|s| choose_with(&s.0, to, roll(loading.shown), prefer_location));
     if plain {
         info!("loading screen: out of an interior, no picture (tweak)");
     }

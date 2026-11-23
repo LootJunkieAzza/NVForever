@@ -355,6 +355,10 @@ struct Said {
     place: FormId,
     /// Said through a talking activator: no distance attenuation ([`line_gain`]).
     through: bool,
+    /// The talking activator reference carrying this line (speech `through`, dialogue
+    /// `through`, or a direct `TACT` speaker), for `BaseForm::voice_filter` under
+    /// `bVoiceModulationFix`.
+    activator: Option<FormId>,
     info: FormId,
     /// Index in record order.
     response: usize,
@@ -370,15 +374,39 @@ struct Said {
 
 /// Every response being said: the SayTo and Say lines, and the conversation's line.
 fn said_now(g: &Game, sim: &SimState) -> Vec<Said> {
-    let mut out: Vec<Said> =
-        g.speech.iter().map(|s| Said { speaker: s.speaker, place: s.place(), through: s.through.is_some(), info: s.info, response: speech_response(g, sim, s), remaining: s.remaining, conversation: false, two_d: s.two_d }).collect();
+    let mut out: Vec<Said> = g
+        .speech
+        .iter()
+        .map(|s| Said {
+            speaker: s.speaker,
+            place: s.place(),
+            through: s.through.is_some(),
+            activator: s.through.or_else(|| g.is_talking_activator(s.speaker).then_some(s.speaker)),
+            info: s.info,
+            response: speech_response(g, sim, s),
+            remaining: s.remaining,
+            conversation: false,
+            two_d: s.two_d,
+        })
+        .collect();
     if let Some((c, line)) = g.dialogue.as_ref().and_then(|c| Some((c, c.line.as_ref()?))) {
         let order = g.data.infos.get(&line.info).map(|d| d.response_order()).unwrap_or_default();
         if let Some(&r) = order.get(line.response) {
-            out.push(Said { speaker: c.actor, place: c.actor, through: false, info: line.info, response: r, remaining: line.remaining, conversation: true, two_d: false });
+            let activator = c.through.or_else(|| g.is_talking_activator(c.actor).then_some(c.actor));
+            out.push(Said { speaker: c.actor, place: c.actor, through: false, activator, info: line.info, response: r, remaining: line.remaining, conversation: true, two_d: false });
         }
     }
     out
+}
+
+/// Whether `activator` resolves to a `TACT` whose `NO_VOICE_FILTER` flag is clear
+/// (`fnv_sim::forms::BaseForm::voice_filter`) [documented: JIP LN `jip_nvse.ini`
+/// `bVoiceModulationFix`].
+pub(crate) fn activator_filtered(sim: &SimState, activator: Option<FormId>) -> bool {
+    activator
+        .and_then(|r| sim.base_of(r.0))
+        .and_then(|b| sim.forms.get(b))
+        .is_some_and(|f| f.voice_filter)
 }
 
 /// What to do about one speaker's sound this frame.
@@ -669,9 +697,16 @@ fn play(
                 }
                 // Played also out of hearing, silent: it is heard if the speaker comes
                 // near (or the player does) while it lasts.
-                // Said through a helmet or a speaker: the voice filter (crate::voice_filter).
-                // The player's tweak leaves voices unfiltered [design: docs/design/tweaks.md].
-                let filtered = !g.tweaks.no_voice_filter && crate::voice_filter::speaker_filtered(&sim, s.speaker);
+                // Said through a helmet (or a talking activator under JIP LN bVoiceModulationFix):
+                // the voice filter (crate::voice_filter). The player's tweak leaves voices unfiltered
+                // [design: docs/design/tweaks.md].
+                let talking_activator = activator_filtered(&sim, s.activator);
+                let filtered = line_filtered(
+                    g.tweaks.no_voice_filter,
+                    crate::voice_filter::speaker_filtered(&sim, s.speaker),
+                    g.jip_ini.voice_modulation_fix,
+                    talking_activator,
+                );
                 // Said at a place: into the listener's room, cut at the line's end.
                 let room = sfx.as_ref().and_then(|x| x.room_reverb);
                 let reverb_on = sfx_settings.as_ref().is_some_and(|x| x.reverb);
@@ -782,6 +817,13 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<VoiceState>) {
     }
 }
 
+/// Whether a dialogue line goes through [`crate::voice_filter::VoiceFilter`]:
+/// helmet modulation or (when JIP LN `bVoiceModulationFix` is enabled) talking-activator
+/// modulation, suppressed by Stewie's `no_voice_filter` tweak.
+pub(crate) fn line_filtered(no_voice_filter: bool, helmet: bool, voice_modulation_fix: bool, talking_activator: bool) -> bool {
+    !no_voice_filter && (helmet || (voice_modulation_fix && talking_activator))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -883,5 +925,148 @@ mod tests {
         assert_eq!(step(Some((line, 0, 3.0, (first, true))), line, 0, 3.0, (second, true)), Step::Start(0));
         assert_eq!(step(Some((line, 1, 1.0, (first, true))), line, 1, 1.0, (second, true)), Step::Start(1));
         assert_eq!(step(Some((line, 0, 3.0, (actor, false))), line, 0, 3.0, (actor, true)), Step::Start(0));
+    }
+
+    #[test]
+    fn voice_modulation_fix_filters_talking_activators_only_when_enabled() {
+        // Vanilla (bVoiceModulationFix off): talking activator stays unfiltered, helmet stays filtered.
+        assert!(!line_filtered(false, false, false, true));
+        assert!(line_filtered(false, true, false, false));
+        // bVoiceModulationFix on: talking activator is filtered, ordinary unhelmeted speaker is not.
+        assert!(line_filtered(false, false, true, true));
+        assert!(!line_filtered(false, false, true, false));
+        // Stewie's no_voice_filter tweak suppresses filtering everywhere.
+        assert!(!line_filtered(true, true, true, true));
+    }
+
+    #[test]
+    fn voice_modulation_fix_covers_conversation_through_tact_and_respects_no_voice_filter() {
+        use fnv_esm::{LoadOrder, Plugin, Schema};
+        use fnv_game::dialogue::{Conversation, Line};
+        use fnv_game::game::{Game, GameConfig};
+        use fnv_game::GameData;
+        use fnv_script::FunctionTable;
+        use fnv_sim::{FormStore, RefTable, SimConfig, World};
+
+        let sub = |sig: &[u8; 4], data: Vec<u8>| {
+            let mut out = Vec::with_capacity(6 + data.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(&data);
+            out
+        };
+        let rec = |sig: &[u8; 4], flags: u32, id: u32, subs: &[Vec<u8>]| {
+            let body: Vec<u8> = subs.iter().flat_map(|s| s.iter().copied()).collect();
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&flags.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&0u64.to_le_bytes());
+            out.extend_from_slice(&body);
+            out
+        };
+        let grp = |label: [u8; 4], gtype: i32, body: &[u8]| {
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(b"GRUP");
+            out.extend_from_slice(&((24 + body.len()) as u32).to_le_bytes());
+            out.extend_from_slice(&label);
+            out.extend_from_slice(&gtype.to_le_bytes());
+            out.extend_from_slice(&0u64.to_le_bytes());
+            out.extend_from_slice(body);
+            out
+        };
+        let top = |sig: &[u8; 4], body: &[u8]| grp(*sig, 0, body);
+        let z = |s: &str| {
+            let mut v = s.as_bytes().to_vec();
+            v.push(0);
+            v
+        };
+        let tes4 = rec(b"TES4", 0, 0, &[sub(b"HEDR", [1.34f32.to_le_bytes(), 0u32.to_le_bytes(), 0x800u32.to_le_bytes()].concat())]);
+
+        const CELL: FormId = FormId(0x200);
+        const NPC_REF: FormId = FormId(0x301);
+        const TACT_FILTERED_REF: FormId = FormId(0x302);
+        const TACT_UNFILTERED_REF: FormId = FormId(0x303);
+        const NPC_BASE: FormId = FormId(0x801);
+        const TACT_FILTERED: FormId = FormId(0x802);
+        const TACT_UNFILTERED: FormId = FormId(0x803);
+        const DIAL_ID: FormId = FormId(0x810);
+        const INFO_ID: FormId = FormId(0x811);
+
+        let refs_bin = [
+            rec(b"ACHR", 0, NPC_REF.0, &[sub(b"EDID", z("SpeakerRef")), sub(b"NAME", NPC_BASE.0.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]),
+            rec(b"REFR", 0, TACT_FILTERED_REF.0, &[sub(b"EDID", z("IntercomRef")), sub(b"NAME", TACT_FILTERED.0.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]),
+            rec(b"REFR", 0, TACT_UNFILTERED_REF.0, &[sub(b"EDID", z("RadioRef")), sub(b"NAME", TACT_UNFILTERED.0.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]),
+        ]
+        .concat();
+        let cell = [rec(b"CELL", 0, CELL.0, &[sub(b"DATA", vec![1])]), grp(CELL.0.to_le_bytes(), 6, &grp(CELL.0.to_le_bytes(), 8, &refs_bin))].concat();
+        let mut trdt = vec![0u8; 24];
+        trdt[12] = 1; // response_number = 1
+        let info_rec = rec(b"INFO", 0, INFO_ID.0, &[sub(b"TRDT", trdt), sub(b"NAM1", z("Hello through intercom."))]);
+        let dial_block = [rec(b"DIAL", 0, DIAL_ID.0, &[sub(b"EDID", z("TestTopic"))]), grp(DIAL_ID.0.to_le_bytes(), 7, &info_rec)].concat();
+
+        let bytes = [
+            tes4,
+            top(b"NPC_", &[rec(b"NPC_", 0, FormId::PLAYER_BASE.0, &[sub(b"EDID", z("Player"))]), rec(b"NPC_", 0, NPC_BASE.0, &[sub(b"EDID", z("Speaker"))])].concat()),
+            top(
+                b"TACT",
+                &[
+                    rec(b"TACT", 0, TACT_FILTERED.0, &[sub(b"EDID", z("IntercomTact"))]),
+                    rec(b"TACT", fnv_sim::forms::NO_VOICE_FILTER, TACT_UNFILTERED.0, &[sub(b"EDID", z("NoFilterTact"))]),
+                ]
+                .concat(),
+            ),
+            top(b"DIAL", &dial_block),
+            top(b"CELL", &grp(0i32.to_le_bytes(), 2, &grp(0i32.to_le_bytes(), 3, &cell))),
+        ]
+        .concat();
+
+        let plugins = vec![Plugin::parse(&bytes, "VoiceTactTest.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = Schema::load_dir(root.join("fnv")).unwrap();
+        let path = root.join("script/functions.json");
+        let catalogue = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let forms: &'static FormStore = Box::leak(Box::new(FormStore::build(&lo, &schema)));
+        let refs: &'static RefTable = Box::leak(Box::new(RefTable::build(&lo, &schema)));
+        let sim = SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) };
+        let data = GameData::build(&lo, &schema, FunctionTable::load(&path).unwrap(), &catalogue, refs);
+
+        assert!(activator_filtered(&sim, Some(TACT_FILTERED_REF)), "TACT without NO_VOICE_FILTER must be eligible");
+        assert!(!activator_filtered(&sim, Some(TACT_UNFILTERED_REF)), "TACT with NO_VOICE_FILTER must not be filtered");
+        assert!(!activator_filtered(&sim, Some(NPC_REF)), "non-TACT reference must not be treated as talking activator");
+        assert!(!activator_filtered(&sim, None));
+
+        // Active interactive conversation through a normal TACT:
+        let mut game = Game::new(&data, World::new(forms, refs, SimConfig::default()), GameConfig::default());
+        game.dialogue = Some(Conversation {
+            actor: NPC_REF,
+            through: Some(TACT_FILTERED_REF),
+            line: Some(Line {
+                info: INFO_ID,
+                topic: DIAL_ID,
+                response: 0,
+                remaining: 2.0,
+            }),
+            choices: Vec::new(),
+            topic_list: false,
+            lines: 1,
+            then: None,
+            ending: false,
+        });
+        let said = said_now(&game, &sim);
+        assert_eq!(said.len(), 1);
+        assert!(said[0].conversation);
+        assert_eq!(said[0].activator, Some(TACT_FILTERED_REF));
+        let tact_ok = activator_filtered(&sim, said[0].activator);
+        assert!(line_filtered(false, false, true, tact_ok), "conversation through TACT modulated when bVoiceModulationFix=1");
+        assert!(!line_filtered(false, false, false, tact_ok), "conversation through TACT unfiltered when bVoiceModulationFix=0");
+
+        // Same conversation through a TACT with NO_VOICE_FILTER set: stays unfiltered even with bVoiceModulationFix=1.
+        game.dialogue.as_mut().unwrap().through = Some(TACT_UNFILTERED_REF);
+        let said_unfiltered = said_now(&game, &sim);
+        assert_eq!(said_unfiltered[0].activator, Some(TACT_UNFILTERED_REF));
+        assert!(!line_filtered(false, false, true, activator_filtered(&sim, said_unfiltered[0].activator)));
     }
 }

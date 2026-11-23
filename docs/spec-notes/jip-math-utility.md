@@ -81,3 +81,28 @@ ClearJIPSavedData, SetOptionalPatch (GetOptionalPatch reads JIP's optional game 
 which are also set in `jip_nvse.ini` [documented: SetOptionalPatch; GetOptionalPatch]),
 SetGameDifficulty, ToggleImmortalMode, SetLocalGravityVector and the other setters in
 these families are documented here only when a later task needs them.
+
+## 6. `Data\NVSE\Plugins\jip_nvse.ini` `[GamePatches]`
+
+Clean-room loader (`crates/fnv-game/src/jip_ini.rs`, `JipGamePatches`) reading
+`Data\NVSE\Plugins\jip_nvse.ini` via `ModFiles` / VFS (case-insensitive, byte-safe on
+`&[u8]`, UTF-8 BOM safe, `;`/`#` comment safe, rejecting non-finite numbers). Only JIP LN
+NVSE's public `jip_nvse.ini` schema/comments and public GECK Wiki documentation were
+consulted; no `jip_nvse.dll`, binary, PDB, or third-party plugin source code was
+inspected.
+
+**Vanilla-unchanged default:** when `jip_nvse.ini` is absent (or a key is omitted / `0`),
+every `[GamePatches]` switch defaults to off so unmodded vanilla behavior is unchanged.
+
+| Key | Status | Behaviour and provenance |
+|---|---|---|
+| `bIgnoreDTDRFix` | Wired | Prerequisite gate for `bLocalizedDTDR` [documented: JIP LN `jip_nvse.ini`, "(Note: Requires bIgnoreDTDRFix to be enabled)"]. NVForever's `fnv_combat::damage::hit` already subtracts DT before DR and honors `WEAP` `Ignores Normal Weapon Resistance` (`docs/spec-notes/weapon-data-fields.md` §6). |
+| `bLocalizedDTDR` | Wired | When enabled together with `bIgnoreDTDRFix=1`, head hits apply worn head-armour DT/DR only (`ArmorStats::covers_head`), body hits apply worn body-armour DT/DR only (`ArmorStats::covers_body`), explosions apply all worn armour, and actor innate DT/DR (AV 76/18) applies everywhere (`fnv_combat::condition::CombatForms::armor_values_worn_in_zone_with`, `nvf_play::combat::target_armor_for_zone`) [documented: JIP LN `jip_nvse.ini`]. |
+| `bQttSelectShortKeys` | Wired | In Inventory, Container, and Barter menus, holding Shift transfers/drops the full stack and holding Ctrl transfers/drops 1 item without opening `QuantityMenu` (`MenuModel`, `menu.rs`, `pipboy/items.rs`, `tiles/{item_menu,input,inventory_menu}.rs`) [documented: JIP LN `jip_nvse.ini`]. NVForever's `asks_quantity` already opens `QuantityMenu` for stacks above `ASK_QUANTITY_ABOVE` including weightless items. |
+| `bNPCWeaponMods`, `uWMChancePerLevel`, `uWMChanceMin`, `uWMChanceMax` | Wired | On NPC outfit/load (`Game::apply_npc_weapon_mods`), non-player human NPCs (`NPC_` and placed `LVLN` resolving to `NPC_`) holding a moddable weapon roll mod attachment with `Chance(%) = Min(uWMChanceMax, Max(uWMChanceMin, Level * uWMChancePerLevel))` (defaults `2`, `10`, `60`) [documented: JIP LN `jip_nvse.ini`]. Multi-mod cascading rolls (`chance`, `chance/4`, `chance/8`) and deterministic FormID seeding are [design]. `nvf_play::combat::actor_weapon_stats` applies attached mods to NPC weapon stats; NPC ranged launch spread/fire-rate/silencer and weapon wear remain bounded follow-ups. |
+| `bSneakBoundingBoxFix` | Wired | Shrinks crouch collision height (`fnv_phys::character::CROUCH_HEIGHT_SCALE = 0.62` [design]) for the player and crouching human companions (`PhysWorld::set_character_height`, `nvf_play::player::sync_sneak_heights`), with an overhead headroom overlap check that keeps sneak active until standing headroom is clear [design] [documented: JIP LN `jip_nvse.ini`]. |
+| `bLoadScreenFix` | Wired | Always prefers matching location-specific `LSCR` records over generic screens (`fnv_world::loadscreen::choose_with`, `nvf_play::loading::Loading::prefer_location`), falling back to generic screens only when no location-specific screen matches [documented: JIP LN `jip_nvse.ini`]. |
+| `uNPCPerks` | Wired | `0` (absent/default) and `1` preserve NVForever's existing NPC script perk commands (`AddPerk`/`RemovePerk`/`HasPerk`/`GetAllPerks`) without auto-distribution; `2` additionally auto-assigns 1 random playable Trait and `(level / 3).min(10)` random playable Perks to human NPCs (`NPC_` and placed `LVLN` resolving to `NPC_`) on outfit/load (`Game::apply_npc_jip_perks`) and syncs their abilities [documented: JIP LN `jip_nvse.ini`]; deterministic FormID seeding and `min_level <= level` filter are [design]. |
+| `bVoiceModulationFix` | Wired | Routes talking activator ambient speech and interactive conversations (`Conversation::through`) whose `TACT` lacks `NO_VOICE_FILTER` (`BaseForm::voice_filter`), plus voice holotapes (`nvf_play::holotape`), through NVForever's existing `VoiceFilter` DSP when `bVoiceModulationFix=1` and Stewie's `no_voice_filter` is off [documented: JIP LN `jip_nvse.ini`]; vanilla (off) keeps them unfiltered (`voice_filter.rs`). |
+| `bProjImpactDmgFix`, `bGameDaysPassedFix`, `bHardcoreNeedsFix`, `bNoFailedScriptLocks`, `bDoublePrecision` | Already satisfied by engine | Not kept as dead config fields (`AGENTS.md` §7): NVForever already applies both direct-hit weapon damage and explosion damage on impact-exploding projectiles (`fnv_combat::projectile`, `nvf_play::combat`), advances `GameDaysPassed`/`GameHour` in real time, clamps hardcore needs, does not permanently disable failed scripts, and evaluates script arithmetic in `f64`. |
+| `bEnableFO3Repair`, `bEnableBigGunsSkill`, `bEnableNVACAlerts`, `bCreatureSpreadFix` | Not built | Default `0` in JIP LN's shipped `jip_nvse.ini`; deferred and not stored as dead fields. |

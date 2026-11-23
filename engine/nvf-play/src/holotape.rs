@@ -28,7 +28,7 @@
 
 use crate::audio_out::{stop_sound, Retiring, SoundCategory, StopReason};
 use crate::script::ScriptState;
-use crate::sfx::PlaySound;
+use crate::sfx::{Pan, Panned, PlaySound};
 use crate::voice::{VoiceSettings, VoiceState};
 use crate::PlaySet;
 use bevy::audio::Volume;
@@ -96,6 +96,7 @@ fn play(
     mut script: ResMut<ScriptState>,
     paused: Res<crate::pause::Paused>,
     mut sounds: Option<ResMut<Assets<AudioSource>>>,
+    mut panned: Option<ResMut<Assets<Panned<AudioSource>>>>,
     sinks: Query<&AudioSink, (With<HolotapeSound>, Without<Retiring>)>,
     mut effects: MessageWriter<PlaySound>,
 ) {
@@ -209,8 +210,15 @@ fn play(
     };
     let k = st.count - st.queue.len();
     let bytes = voice.bank.as_ref().and_then(|b| b.read(&path)).and_then(|b| crate::sfx::checked(&path, b));
-    st.entity = match (settings.play, sounds.as_mut(), bytes) {
-        (true, Some(assets), Some(bytes)) => {
+    let modulate = g.jip_ini.voice_modulation_fix && !g.tweaks.no_voice_filter;
+    st.entity = match (settings.play, modulate, panned.as_mut(), sounds.as_mut(), bytes) {
+        (true, true, Some(panned), _, Some(bytes)) => {
+            let source = AudioSource { bytes: bytes.into() };
+            let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.volume.max(0.0)));
+            let handle = panned.add(Panned { voice_filter: true, ..Panned::new(source, Pan::new([1.0, 1.0])) });
+            Some(commands.spawn((AudioPlayer::<Panned<AudioSource>>(handle), playback, HolotapeSound, SoundCategory::Voice)).id())
+        }
+        (true, _, _, Some(assets), Some(bytes)) => {
             let source = AudioSource { bytes: bytes.into() };
             let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.volume.max(0.0)));
             Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, HolotapeSound, SoundCategory::Voice)).id())

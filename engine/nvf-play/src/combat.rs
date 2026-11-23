@@ -4133,15 +4133,30 @@ pub(crate) fn fire(
 /// The target's DT and DR from the armour it wears (its carried ARMO by the wearing rule).
 /// The simulation creates an actor's inventory on first touch (`World::inventory_mut`).
 /// Each piece protects by its condition (§17).
-pub(crate) fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
+pub(crate) fn target_armor(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
+    target_armor_for_zone(c, script, sim, target, None)
+}
+
+/// [`target_armor`] for a specific body hit `zone` when JIP LN's `bLocalizedDTDR` (and its
+/// prerequisite `bIgnoreDTDRFix`) are active: head hits use worn head-armour DT/DR only,
+/// body hits use worn body-armour DT/DR only, and innate actor DT/DR (AV 76 / 18) still
+/// applies everywhere [documented: JIP LN `jip_nvse.ini` `bLocalizedDTDR`]. When
+/// `bLocalizedDTDR` is inactive or `zone` is `None`, sums all worn armour identically to
+/// vanilla.
+pub(crate) fn target_armor_for_zone(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId, zone: Option<Zone>) -> (f32, f32) {
     // The player's tweak: how fast worn-down armour loses its DT and DR [design: docs/design/tweaks.md].
     let penalty = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.tweaks.armor_condition_penalty as f32);
+    let localized = zone.filter(|_| script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.jip_ini.localized_dt_dr_active()));
     let worn = worn_armor(&c.forms, sim, target);
-    let (dt, dr) = c.forms.armor_values_worn_with(&worn, penalty);
+    let armor_for = |pen: f32| match localized {
+        Some(z) => c.forms.armor_values_worn_in_zone_with(&worn, pen, z),
+        None => c.forms.armor_values_worn_with(&worn, pen),
+    };
+    let (dt, dr) = armor_for(penalty);
     // The player's tweaks: an NPC's armour keeps its whole DR or DT however worn [design: docs/design/tweaks.md].
     let (whole_dr, whole_dt) = script.as_deref().and_then(|s| s.rt.as_ref()).map_or((false, false), |rt| (rt.game.tweaks.npc_dr_ignores_condition, rt.game.tweaks.npc_dt_ignores_condition));
     let (dt, dr) = if target != FormId::PLAYER_REF && (whole_dr || whole_dt) {
-        let (dt_whole, dr_whole) = c.forms.armor_values_worn_with(&worn, 0.0);
+        let (dt_whole, dr_whole) = armor_for(0.0);
         (if whole_dt { dt_whole } else { dt }, if whole_dr { dr_whole } else { dr })
     } else {
         (dt, dr)
@@ -4151,6 +4166,17 @@ pub(crate) fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim
     let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);
     let own_dr = actor_av(script, sim, target, 18).unwrap_or(0.0);
     (dt + own_dt, dr + own_dr)
+}
+
+/// Effective weapon stats for `actor` wielding `id`, applying attached weapon mods for
+/// both the player and NPCs (supporting JIP LN `bNPCWeaponMods`).
+fn actor_weapon_stats(c: &Combat, sim: &SimState, actor: FormId, id: FormId) -> Option<WeaponStats> {
+    if actor == FormId::PLAYER_REF {
+        return c.player_stats(id);
+    }
+    let w = c.forms.weapons.get(&id)?;
+    let mods = sim.world.peek(actor).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.equipped_mods(id));
+    Some(if mods != 0 { w.modded(mods) } else { w.clone() })
 }
 
 /// `target`'s value, in percent, of the resistance weapon `w`'s damage type names
@@ -4200,11 +4226,12 @@ pub fn vats_hit_estimate(c: &Combat, parts: &ActorParts, mut script: Option<&mut
     let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(sim, shooter, weapon), ammo_effects: &[], part: bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part), power };
     let t = FormId(target);
     let (ap, tp) = hit_perks(script.as_deref_mut(), sim, shooter, weapon, Some(t));
-    let (dt, dr) = target_armor(c, script.as_deref_mut(), sim, t);
+    let (hit_dt, hit_dr) = target_armor_for_zone(c, script.as_deref_mut(), sim, t, Some(Zone::of(bp.as_ref())));
     let resist = target_resist(script.as_deref_mut(), sim, t, &w);
     // A roll of 1 is never a critical.
-    let hit = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt, dr, resist, ..Target::default() }, &ap, &tp, 1.0).dealt;
+    let hit = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: hit_dt, dr: hit_dr, resist, ..Target::default() }, &ap, &tp, 1.0).dealt;
     let blast = c.forms.chain_with(weapon, &w, c.ammo).explosion.and_then(|e| c.forms.explosions.get(&e)).map_or(0.0, |x| {
+        let (dt, dr) = target_armor(c, script.as_deref_mut(), sim, t);
         let raw = damage::explosion_damage(&c.tuning, x.damage, x.radius, 0.0);
         let (ap, tp) = blast_perks(script, sim, Some(Cause { actor: shooter, weapon }), t);
         damage::blast_hit(&c.rules, &c.tuning, raw, dt, dr, &ap, &tp).dealt
@@ -4928,10 +4955,10 @@ fn melee(
         for (actor, hit) in hits {
             let target = FormId(actor as u32);
             stats.melee_hits += 1;
-            let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
             let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, vats_mark.is_some());
             a.sneaking = sneak_attack(script.as_deref(), FormId::PLAYER_REF, control.sneak, target);
             let bp = body_part(c, &parts, actor, hit.part);
+            let (dt_v, dr) = target_armor_for_zone(c, script.as_deref_mut(), &mut sim, target, Some(Zone::of(bp.as_ref())));
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
             // The player's tweak: sneak criticals on the head only [design: docs/design/tweaks.md].
             if !part.head && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.sneak_criticals_head_only) {
@@ -5296,7 +5323,7 @@ fn actor_attacks(
         // The weapon: its own, else the Fists; a creature's own attack damage in the Fists'
         // place [design: the Fists' other figures stand in for a creature's].
         let Some(id) = b.weapon.or(c.fists) else { continue };
-        let Some(mut w) = c.forms.weapons.get(&id).cloned() else { continue };
+        let Some(mut w) = actor_weapon_stats(c, &sim, b.attacker, id) else { continue };
         script_weapon_critical_damage(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), id, &mut w);
         if let Some(d) = b.creature_damage {
             w.base_damage = d.round() as i32;
@@ -5318,7 +5345,7 @@ fn actor_attacks(
         if power != 1.0 {
             info!("combat: {}'s power attack {} on {}: damage x{power:.1}", b.attacker, b.anim.unwrap_or("?"), b.target);
         }
-        let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, b.target);
+        let (dt_v, dr) = target_armor_for_zone(c, script.as_deref_mut(), &mut sim, b.target, Some(Zone::of(bp.as_ref())));
         let roll = c.rng.next_f32();
         let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, b.attacker, id, Some(b.target));
         let resist = target_resist(script.as_deref_mut(), &mut sim, b.target, &w);
@@ -6162,8 +6189,8 @@ fn fly(
             p.by.actor = s.source;
         }
         let id = p.by.weapon;
-        // The player's weapon hits with its mods' figures (weapon-mods.md §2).
-        let w = if p.by.actor == FormId::PLAYER_REF { c.player_stats(id) } else { c.forms.weapons.get(&id).cloned() };
+        // Player and NPC weapons hit with their mods' figures (weapon-mods.md §2; JIP LN bNPCWeaponMods).
+        let w = actor_weapon_stats(c, &sim, p.by.actor, id);
         let Some(mut w) = w else { continue };
         script_weapon_critical_damage(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), id, &mut w);
         if let Some(s) = &shot {
@@ -6189,7 +6216,7 @@ fn fly(
         // The player's tweak: a shot whose damage does not get through the actor's DT
         // leaves no blood on it [design: docs/design/tweaks.md].
         let wanted = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.armor_blocks_blood);
-        let stopped = wanted && struck.is_some_and(|r| blood_stopped(w.base_damage as f32, target_armor(c, script.as_deref_mut(), &mut sim, FormId(r)).0));
+        let stopped = wanted && struck.is_some_and(|r| blood_stopped(w.base_damage as f32, target_armor_for_zone(c, script.as_deref_mut(), &mut sim, FormId(r), Some(Zone::of(bp.as_ref()))).0));
         // The player's tweak: a shot on the weapon in an actor's hand strikes metal, sparks
         // and no blood [design: docs/design/tweaks.md].
         let on_weapon = p.part == Some(crate::hitvol::WEAPON_PART) && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.weapon_impacts);
@@ -6316,7 +6343,7 @@ fn fly(
         if p.part == Some(fnv_phys::gore::GORE_PART) {
             continue;
         }
-        let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
+        let (dt_v, dr) = target_armor_for_zone(c, script.as_deref_mut(), &mut sim, target, Some(Zone::of(bp.as_ref())));
         let resist = target_resist(script.as_deref_mut(), &mut sim, target, &w);
         let nerve = companion_nerve(script.as_deref_mut(), &mut sim, target);
         let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, nerve, ..Target::default() }, &ap, &tp, roll);
@@ -7018,7 +7045,8 @@ mod tests {
         let mut phys = PhysState::default();
         let id = 0x1234;
         let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), [0.0, 0.0, 0.0]);
-        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+        let standing_height = ch.params.height;
+        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
         phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [0.0, 0.0, 30.0], radius: 8.0, height: 30.0, dead: false });
         phys
     }
@@ -7046,7 +7074,8 @@ mod tests {
                 phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet, radius: 15.0, height: 30.0, dead: false });
                 if walking {
                     let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), feet);
-                    phys.npcs.insert(id, NpcBody { prev_feet: feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+                    let standing_height = ch.params.height;
+                    phys.npcs.insert(id, NpcBody { prev_feet: feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
                 }
                 for forward in [[1.0, 0.0, 0.0], vec::normalize([1.0, 0.0, -1.0])] {
                     let mut world = view(&mut phys, None, None).for_melee();
@@ -7893,6 +7922,228 @@ mod tests {
             sim.world.equip(FormId::PLAYER_REF, PISTOL).unwrap();
             equip_sync_step(&mut combat, &mut sim, &mut anim, false);
             assert_eq!(combat.player_ammo(), Some(AMMO_PLAIN));
+        }
+    }
+
+    mod jip_ini_combat_tests {
+        use super::*;
+        use fnv_combat::data::{ArmorStats, WeaponMod};
+        use fnv_sim::forms::{BaseData, BaseForm, Item, ItemKind};
+
+        fn make_combat(forms: CombatForms) -> Combat {
+            Combat {
+                forms,
+                rules: Rules::defaults(),
+                tuning: CombatTuning::default(),
+                blood_rng: SplitMix(6),
+                blood_chance_logged: false,
+                weapon: None,
+                equipped: None,
+                mods: 0,
+                silenced_logged: None,
+                fists: None,
+                ammo: None,
+                self_ammo: false,
+                melee: false,
+                swings: Melee::default(),
+                blows: 0,
+                boom: Vec::new(),
+                meltdowns: HashSet::new(),
+                debris: Vec::new(),
+                cycle: None,
+                kick: Kick::default(),
+                flying: Vec::new(),
+                dropped_live: Vec::new(),
+                settled: Vec::new(),
+                landed: Vec::new(),
+                fire_landed: Vec::new(),
+                splashes: Vec::new(),
+                ghosts: Vec::new(),
+                looping: None,
+                ejects_seen: 0,
+                vats_throw: None,
+                last_shot: 0.0,
+                next_visual: 0,
+                pending: Vec::new(),
+                script_shots: Vec::new(),
+                guarding: HashMap::new(),
+                blocked_blows: Vec::new(),
+                fresh_reload: false,
+                guard_down_until: 0.0,
+                marks: Vec::new(),
+                rng: SplitMix(1),
+                swing_rng: SplitMix(2),
+                time: 0.0,
+                no_spread: false,
+                tracer_hold: None,
+                load_magazine: None,
+                load_ammo: None,
+                chosen_ammo: std::collections::BTreeMap::new(),
+                crosshair_cone: None,
+                player_spread: None,
+                grenade_hold: 0.0,
+                grenade_held: false,
+                vats_cone: None,
+                vats_blast: VatsBlast::default(),
+                player_blocked_at: None,
+                special_swing: None,
+                throw_logged: None,
+                spread_perks_logged: None,
+                flinch_until: 0.0,
+                flinch_end: None,
+                flinch_rng: SplitMix(3),
+                kick_rng: SplitMix(5),
+                kick_just_settled: false,
+                kick_left: [0.0; 2],
+                kick_back_goal: [0.0; 2],
+                kick_back: [crate::ease::Spring::default(); 2],
+                spent_rng: SplitMix(4),
+            }
+        }
+
+        #[test]
+        fn localized_dt_dr_respects_prerequisite_and_separates_head_and_body_zones() {
+            const HELMET: FormId = FormId(0x9001);
+            const ARMOR: FormId = FormId(0x9002);
+            let make_armor = |id, slots, dt, dr| BaseForm {
+                id,
+                sig: *b"ARMO",
+                edid: None,
+                name: None,
+                script: None,
+                prompt: None,
+                voice_filter: false,
+                data: BaseData::Item(Item {
+                    kind: ItemKind::Armor,
+                    value: Some(50),
+                    money: None,
+                    weight: Some(5.0),
+                    slots: Some(slots),
+                    projectile: None,
+                    health: Some(100),
+                    non_playable: false,
+                    cant_drop: false,
+                    armor_class: Default::default(),
+                    power_armor: false,
+                    armor_dr: Some(dr),
+                    armor_dt: Some(dt),
+                    weapon_damage: None,
+                    weight_mods: [0.0; 3],
+                    drawable: false,
+                    not_for_npcs: false,
+                    thrown: false,
+                    quest_item: false,
+                    icon: None,
+                    placed_count: None,
+                    teaches: None,
+                    cant_be_taken: false,
+                    modulates_voice: false,
+                    weapon_traits: None,
+                }),
+            };
+            let mut sim = crate::sim::test_world::sim(
+                vec![
+                    make_armor(HELMET, ArmorStats::HEAD_SLOTS, 4.0, 5.0),
+                    make_armor(ARMOR, ArmorStats::UPPER_BODY, 14.0, 15.0),
+                ],
+                Vec::new(),
+            );
+            sim.world.add_item(FormId::PLAYER_REF, HELMET, 1).unwrap();
+            sim.world.add_item(FormId::PLAYER_REF, ARMOR, 1).unwrap();
+            sim.world.equip(FormId::PLAYER_REF, HELMET).unwrap();
+            sim.world.equip(FormId::PLAYER_REF, ARMOR).unwrap();
+
+            let mut cf = CombatForms::default();
+            cf.armor.insert(HELMET, ArmorStats { health: 100, dt: 4.0, dr_raw: 500, slots: ArmorStats::HEAD_SLOTS, ..Default::default() });
+            cf.armor.insert(ARMOR, ArmorStats { health: 100, dt: 14.0, dr_raw: 1500, slots: ArmorStats::UPPER_BODY, ..Default::default() });
+            let combat = make_combat(cf);
+            let mut script = crate::script::ScriptState::over_no_plugins();
+
+            // 1. Default (INI absent): both zones get summed DT=18, DR=20.
+            assert_eq!(target_armor_for_zone(&combat, Some(&mut script), &mut sim, FormId::PLAYER_REF, Some(Zone::Head)), (18.0, 20.0));
+            assert_eq!(target_armor_for_zone(&combat, Some(&mut script), &mut sim, FormId::PLAYER_REF, Some(Zone::Body)), (18.0, 20.0));
+
+            // 2. bLocalizedDTDR=1 without bIgnoreDTDRFix=1: stays vanilla summed.
+            script.rt.as_mut().unwrap().game.jip_ini.localized_dt_dr = true;
+            script.rt.as_mut().unwrap().game.jip_ini.ignore_dt_dr_fix = false;
+            assert_eq!(target_armor_for_zone(&combat, Some(&mut script), &mut sim, FormId::PLAYER_REF, Some(Zone::Head)), (18.0, 20.0));
+
+            // 3. Both bIgnoreDTDRFix=1 and bLocalizedDTDR=1: Head gets helmet only, Body gets armor only, All gets full sum.
+            script.rt.as_mut().unwrap().game.jip_ini.ignore_dt_dr_fix = true;
+            assert_eq!(target_armor_for_zone(&combat, Some(&mut script), &mut sim, FormId::PLAYER_REF, Some(Zone::Head)), (4.0, 5.0));
+            assert_eq!(target_armor_for_zone(&combat, Some(&mut script), &mut sim, FormId::PLAYER_REF, Some(Zone::Body)), (14.0, 15.0));
+            assert_eq!(target_armor_for_zone(&combat, Some(&mut script), &mut sim, FormId::PLAYER_REF, Some(Zone::All)), (18.0, 20.0));
+        }
+
+        #[test]
+        fn actor_weapon_stats_applies_npc_equipped_weapon_mods() {
+            const NPC_BASE: FormId = FormId(0x90FF);
+            const NPC: FormId = FormId(0x9100);
+            const GUN: FormId = FormId(0x9101);
+            let npc_form = BaseForm {
+                id: NPC_BASE,
+                sig: *b"NPC_",
+                edid: None,
+                name: None,
+                script: None,
+                prompt: None,
+                voice_filter: false,
+                data: BaseData::Actor(fnv_sim::forms::ActorBase {
+                    entries: Vec::new(),
+                    attributes: None,
+                }),
+            };
+            let gun_form = BaseForm {
+                id: GUN,
+                sig: *b"WEAP",
+                edid: None,
+                name: None,
+                script: None,
+                prompt: None,
+                voice_filter: false,
+                data: BaseData::Item(Item {
+                    kind: ItemKind::Weapon,
+                    value: Some(100),
+                    money: None,
+                    weight: Some(3.0),
+                    slots: None,
+                    projectile: None,
+                    health: Some(100),
+                    non_playable: false,
+                    cant_drop: false,
+                    armor_class: Default::default(),
+                    power_armor: false,
+                    armor_dr: None,
+                    armor_dt: None,
+                    weapon_damage: Some(20.0),
+                    weight_mods: [0.0; 3],
+                    drawable: true,
+                    not_for_npcs: false,
+                    thrown: false,
+                    quest_item: false,
+                    icon: None,
+                    placed_count: None,
+                    teaches: None,
+                    cant_be_taken: false,
+                    modulates_voice: false,
+                    weapon_traits: None,
+                }),
+            };
+            let mut npc_ref = crate::sim::placed_ref(NPC.0);
+            npc_ref.base = NPC_BASE;
+            npc_ref.sig = *b"ACHR";
+            let mut sim = crate::sim::test_world::sim(vec![npc_form, gun_form], vec![npc_ref]);
+            sim.world.inventory_mut(NPC).unwrap().add_extra(GUN, 1, fnv_sim::inventory::Extra { mods: 0b001, ..Default::default() });
+            sim.world.inventory_mut(NPC).unwrap().set_equipped(GUN);
+
+            let mut cf = CombatForms::default();
+            let mut ws = WeaponStats { base_damage: 20, ..Default::default() };
+            ws.mods = vec![WeaponMod { slot: 1, item: Some(FormId(0x9102)), effect: Some("Increase Weapon Damage".into()), value_a: 12.0, value_b: 0.0 }];
+            cf.weapons.insert(GUN, ws);
+            let combat = make_combat(cf);
+
+            let effective = actor_weapon_stats(&combat, &sim, NPC, GUN).expect("NPC weapon stats");
+            assert_eq!(effective.base_damage, 32, "NPC equipped slot-1 IncreaseDamage mod applies");
         }
     }
 }
