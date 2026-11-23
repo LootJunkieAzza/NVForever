@@ -39,6 +39,14 @@ ask the original executable to look in a second folder.
   [documented: `Vfs::open_launcher_mods`]. A mod's meshes and textures are
   read from `mods/<Name>/` (or from `mods/<Name>/Data/` when that folder exists),
   not as `<Name>/meshes/...`.
+- An archive is mounted by the base game's rule wherever it sits (Data, a mod
+  folder, or loose at the top of the mods folder, the layer just above Data):
+  the base archive list, `Update.bsa`, and each active plugin's own archives,
+  `<stem>.bsa`, `<stem> - *.bsa` and the numbered pieces, the longest plugin name
+  winning, in load order [documented: docs/design/mod-folders.md;
+  `Vfs::order_from_owned`, `plugin_archive_piece`, `archive_owner`]. So
+  `A.esp` mounts `A.bsa` and `A - Textures.bsa`, not `Armor.bsa`, and an
+  archive no active plugin owns is not mounted.
 - Folder on/off and the launcher's order are applied only through `--mod-layer`.
   A start that was not given those arguments layers every mod folder in name
   order. On/off is not applied on that path, because the game does not read
