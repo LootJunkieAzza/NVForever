@@ -196,6 +196,7 @@ mod ssao_lighting;
 mod taa;
 mod fg_presenter;
 mod ffx_api;
+mod fg_ui_layer;
 mod frame_gen;
 mod fsr;
 mod upscaler;
@@ -210,6 +211,7 @@ mod terrain;
 mod terrain_surface;
 mod mesh_terrain_blend;
 mod terrain_lod;
+mod terrain_parallax_ab;
 mod terrain_shadows;
 mod terrain_wireframe;
 mod texture_swap;
@@ -586,7 +588,7 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
     /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
@@ -1408,17 +1410,38 @@ fn main() -> AppExit {
             }
         }
     }
+    // Test aid (terrain parallax, #3322): a generated height-only set for every landscape
+    // texture the load order names, written into a fresh folder of this run under an explicit
+    // NVFOREVER_HOME, every file created new, then mounted over every other loose layer for
+    // this run only (nvf_assets pbr_field/ground.rs `seed_ground_pack`, terrain.rs
+    // `ground_pack_diffuses`). No mods folder is written.
+    let ground_pack: Option<PathBuf> = if nvf_assets::ground_pack_requested() {
+        match terrain::ground_pack_diffuses(&opened.plugins, &args.esm_schema).and_then(|d| nvf_assets::seed_ground_pack(&d)) {
+            Ok((dir, sets, files)) => {
+                eprintln!("pbr ground pack: {sets} height-only sets for the landscape textures ({files} generated files, depth {}) written under {} (this run's own folder, mounted over every other loose layer)", nvf_assets::GROUND_DEPTH, dir.display());
+                Some(dir)
+            }
+            Err(e) => {
+                eprintln!("pbr ground pack: FAIL {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    // The test aids' folders, the last highest.
+    let overs: Vec<PathBuf> = mount_pack.into_iter().chain(ground_pack).collect();
     // The archives beside a plugin in the mods folder are mounted with it. The VFS takes
     // the layers lowest precedence first (usvfs' merge order), unlike the plugin lookup
     // above, which wants the overwrite folder first.
     let game = match &mo2 {
         Some(l) => {
-            // The mount pack's folder (test aid) as the highest layer, for this run only.
+            // The test aids' folders as the highest layers, for this run only.
             let mut roots = l.mod_roots();
-            roots.extend(mount_pack.iter().cloned());
+            roots.extend(overs.iter().cloned());
             GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
         }
-        None => GameData::open_for_plugins_in_over(args.data(), mods.first().map(|p| p.as_path()), mount_pack.as_deref(), &args.plugins, &args.nif_schema),
+        None => GameData::open_for_plugins_in_over(args.data(), mods.first().map(|p| p.as_path()), &overs, &args.plugins, &args.nif_schema),
     };
     let game = match game {
         Ok(g) => g,
@@ -2146,6 +2169,8 @@ fn main() -> AppExit {
         app.add_plugins(roulette_view::RouletteViewPlugin);
         // The blackjack table (blackjack_view.rs).
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
+        // Test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: the terrain parallax's readback (#3322).
+        terrain_parallax_ab::install(&mut app);
         // The terminal's monitor (terminal_view.rs).
         app.add_plugins(terminal_view::TerminalViewPlugin);
         // A weapon's scope: its picture, night vision and sway (scope_view.rs).

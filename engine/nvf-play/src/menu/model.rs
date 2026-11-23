@@ -873,6 +873,9 @@ pub struct MenuModel {
     /// Show Equipped Ammo tweak (`ammo_mark_in_containers`).
     pub current_ammo: Option<FormId>,
     pub ammo_mark_in_containers: bool,
+    /// What the log last said of the Ammo tab's rows ([`MenuModel::refresh`]): said again
+    /// only when it changes.
+    ammo_told: String,
     pub title_case_categories: bool,
     /// The price of things worth nothing in a barter (the tweak; 0: as they are).
     pub free_item_price: f32,
@@ -1118,6 +1121,7 @@ impl MenuModel {
             usable_ammo: Vec::new(),
             current_ammo: None,
             ammo_mark_in_containers: false,
+            ammo_told: String::new(),
             title_case_categories: false,
             free_item_price: 0.0,
             barter_kind_mults: None,
@@ -1210,6 +1214,20 @@ impl MenuModel {
                 if let (true, Some(a)) = (mark_ammo, self.current_ammo) {
                     for r in l.rows.iter_mut().filter(|r| r.item == a) {
                         r.loaded = true;
+                    }
+                }
+                // The Ammo tab's rows in the log, so a report about its marks can be read
+                // (#3442): how many, and which carries the loaded mark.
+                if self.mode == Mode::Inventory && self.category[side as usize] == Category::Ammo {
+                    let marked = match (l.rows.iter().find(|r| r.loaded), self.current_ammo) {
+                        (Some(r), _) => format!("{:?} ({}) carries the loaded mark", r.name, r.item),
+                        (None, Some(a)) => format!("none carries the loaded mark: the weapon loads {a}, which is not in the list"),
+                        (None, None) => "none carries the loaded mark: the weapon loads no ammo".to_string(),
+                    };
+                    let told = format!("menu: Ammo tab: {} rows, {marked}", l.rows.len());
+                    if told != self.ammo_told {
+                        bevy::log::info!("{told}");
+                        self.ammo_told = told;
                     }
                 }
                 // The player's tweak: the list by value or weight, the most first, name

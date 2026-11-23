@@ -156,6 +156,15 @@ impl Game<'_> {
     }
 }
 
+/// Sanitize an animation sequence frequency override: non-finite values (`NaN`,
+/// `±inf`) are rejected (`None`), and negative values clamp to `0.0` (paused) [design].
+pub fn sanitize_anim_frequency(f: f32) -> Option<f32> {
+    if !f.is_finite() {
+        return None;
+    }
+    Some(if f <= 0.0 { 0.0 } else { f })
+}
+
 fn num(args: &[XVal], k: usize) -> Option<f64> {
     match args.get(k) {
         Some(XVal::Num(x)) if x.is_finite() => Some(*x),
@@ -335,8 +344,6 @@ impl<'a> Game<'a> {
         std::mem::take(&mut self.other.jip14.fuse_sets)
     }
 
-    /// SetAnimSequenceFrequency's frequency for a reference's sequence (a lower-case
-    /// name or kf path), else "*"'s; `None`: its own.
     /// The engine's word on a drawn object's sequences (`None`: no longer drawn).
     pub fn set_sequences(&mut self, r: FormId, names: Option<Vec<String>>) {
         match names {
@@ -349,9 +356,37 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// Whether any `SetAnimSequenceFrequency` overrides are active (zero-allocation
+    /// fast path for engine consumers).
+    pub fn has_anim_frequencies(&self) -> bool {
+        !self.other.jip14.anim_freq.is_empty()
+    }
+
+    /// `SetAnimSequenceFrequency`'s sanitized frequency for a reference's sequence
+    /// (case-insensitive sequence name or `.kf` path), falling back to `"*"` for the
+    /// same reference; `None` when unset or non-finite. Negative values clamp to `0.0`
+    /// [documented: GECK wiki SetAnimSequenceFrequency for `"*"`; hypothesis: exact
+    /// sequence takes precedence over `"*"`; design: non-finite rejection and `< 0`
+    /// clamp to `0.0`].
     pub fn anim_frequency(&self, r: FormId, sequence: &str) -> Option<f32> {
         let j = &self.other.jip14.anim_freq;
-        j.get(&(r, sequence.to_ascii_lowercase())).or_else(|| j.get(&(r, "*".to_string()))).copied()
+        if j.is_empty() {
+            return None;
+        }
+        let mut wildcard = None;
+        for ((id, key), &freq) in j.range((r, String::new())..) {
+            if *id != r {
+                break;
+            }
+            if key.eq_ignore_ascii_case(sequence) {
+                if let Some(clean) = sanitize_anim_frequency(freq) {
+                    return Some(clean);
+                }
+            } else if key == "*" {
+                wildcard = sanitize_anim_frequency(freq);
+            }
+        }
+        wildcard
     }
 }
 
@@ -578,7 +613,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- animation sequences ----
         // The frequency a script set; else 1 for a sequence of the drawn model [hypothesis:
         // a sequence's own is 1 unless its file says otherwise]; -1 for a sequence the
-        // model lacks [observed: jip14 seqfreq.doc]. Kept, not yet played at [decision].
+        // model lacks [observed: jip14 seqfreq.doc]. Drawn object sequences are played at
+        // this frequency by `nvforever::object_anims` (actor `.kf` paths remain stored
+        // only [design]).
         // [decision: only drawn objects' sequences are told by the engine; an actor's
         // animation files are not, so an actor's unset sequence is -1]
         "getanimsequencefrequency" | "getanimseqfreq" => {
@@ -591,10 +628,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 None => -1.0,
             })
         }
-        // "*" every sequence [documented].
+        // "*" every sequence [documented: GECK wiki SetAnimSequenceFrequency]; non-finite
+        // values are ignored and negative values clamp to 0.0 (paused) [design].
         "setanimsequencefrequency" | "setanimseqfreq" => {
             let (Some(r), Some(s), Some(f)) = (subject, text(args, 0), num(args, 1)) else { return Some(Ok(zero)) };
-            g.other.jip14.anim_freq.insert((r, s.to_ascii_lowercase()), f.max(0.0) as f32);
+            let Some(freq) = sanitize_anim_frequency(f.max(0.0) as f32) else { return Some(Ok(zero)) };
+            g.other.jip14.anim_freq.insert((r, s.to_ascii_lowercase()), freq);
             zero
         }
         // ---- extra cameras (AttachExtraCamera / ProjectExtraCamera) ----
