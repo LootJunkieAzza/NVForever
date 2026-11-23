@@ -434,8 +434,14 @@ pub(super) fn replicate(
     // follows their flags itself): the wreck of the Volare! B-29, disabled on the
     // host, stayed drawn on a guest whose world had it disabled (item 186, laptop run
     // q171-lm-volare-plane-2).
-    for form_id in std::mem::take(&mut coop.repl.refreshed) {
-        changed.write(nvf_play::RefChanged::new(form_id));
+    // Their enable children with them (Sunny's bottles follow VCG02BottleMarkerREF: the
+    // stream enabled the marker, the bottles were drawn with no collision body, and a
+    // guest's shots went through them; owner playtest 2026-11-22).
+    let refreshed = std::mem::take(&mut coop.repl.refreshed);
+    if !refreshed.is_empty() {
+        for r in super::with_enable_children(sim.refs, refreshed.into_iter().map(FormId).collect()) {
+            changed.write(nvf_play::RefChanged::new(r.0));
+        }
     }
     let ms = started.elapsed().as_secs_f32() * 1000.0;
     coop.repl.perf.add_spent(ms);

@@ -3020,7 +3020,7 @@ fn follow_npcs(
     mut actors: Query<(Entity, &RefVisual, Option<&mut WeaponHold>, Option<&mut Locomotion>, Has<Remote>, Has<Dying>, &Transform), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
     mut fighters: ResMut<Fighters>,
     actor_world: Option<Res<ActorWorld>>,
-    (mut attacks, mut hits, mut fired, combat): (MessageWriter<PlayAttack>, MessageWriter<ActorHit>, MessageWriter<nvf_play::combat::ShotFired>, Option<Res<nvf_play::combat::Combat>>),
+    (mut attacks, mut hits, mut fired, combat, mut changed): (MessageWriter<PlayAttack>, MessageWriter<ActorHit>, MessageWriter<nvf_play::combat::ShotFired>, Option<Res<nvf_play::combat::Combat>>, MessageWriter<nvf_play::RefChanged>),
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     mut told: Local<usize>,
     (sfx, listener, mut sounds, mut sim, loc, second): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<Location>>, Option<Res<SecondListener>>),
@@ -3119,14 +3119,24 @@ fn follow_npcs(
         let streamed = &coop.repl.enabled_heard;
         let skip = |r: FormId| npcs.contains_key(&r.0) || hidden.contains(&r) || streamed.contains_key(&r.0);
         let fresh = std::mem::take(&mut coop.presence.fresh);
-        let n = follow_presence(&mut sim.world, Flag::Enabled, &fresh, &skip, &mut coop.presence_was);
-        if n > 0 {
-            info!("co-op: {n} references enabled or disabled as in the host's world");
+        let mut flipped = follow_presence(&mut sim.world, Flag::Enabled, &fresh, &skip, &mut coop.presence_was);
+        if !flipped.is_empty() {
+            info!("co-op: {} references enabled or disabled as in the host's world", flipped.len());
         }
         if let Some(host) = coop.presence.whole.take() {
-            let n = undo_own_presence(&mut sim.world, Flag::Enabled, &host, &skip, &mut coop.presence_was);
-            if n > 0 {
-                info!("co-op: {n} references this game alone enabled or disabled take the plugins' flags again");
+            let own = undo_own_presence(&mut sim.world, Flag::Enabled, &host, &skip, &mut coop.presence_was);
+            if !own.is_empty() {
+                info!("co-op: {} references this game alone enabled or disabled take the plugins' flags again", own.len());
+            }
+            flipped.extend(own);
+        }
+        // Their collision and their enable children's follow, as a script's Enable and
+        // Disable here would have them (`nvf_play::RefChanged`): Sunny's bottles, enabled
+        // with their marker on the host, were drawn here with no collision body, so a
+        // guest's shots went through them to the fence (owner playtest 2026-11-22).
+        if !flipped.is_empty() {
+            for r in with_enable_children(sim.refs, flipped) {
+                changed.write(nvf_play::RefChanged::new(r.0));
             }
         }
     }
@@ -3502,10 +3512,48 @@ fn presence_of(world: &fnv_sim::World, flag: Flag) -> Vec<(u32, bool)> {
     world.changed().filter(|(r, st)| flag.authored(world, *r).is_some_and(|a| a != flag.of(st))).map(|(r, st)| (r.0, flag.of(st))).collect()
 }
 
+/// `refs` and every reference that follows one of them as its enable parent, or follows
+/// one of those in turn: what an Enable or Disable of `refs` changes.
+/// The parents' children are read once from the game's table (it is the same all run);
+/// a test's own table is read each time.
+fn with_enable_children(placed: &fnv_sim::refs::RefTable, refs: Vec<FormId>) -> Vec<FormId> {
+    fn children_of(placed: &fnv_sim::refs::RefTable) -> HashMap<FormId, Vec<FormId>> {
+        let mut children: HashMap<FormId, Vec<FormId>> = HashMap::new();
+        for (id, p) in &placed.refs {
+            if let Some(ep) = p.enable_parent {
+                children.entry(ep.reference).or_default().push(*id);
+            }
+        }
+        children
+    }
+    static GAME: std::sync::OnceLock<(usize, HashMap<FormId, Vec<FormId>>)> = std::sync::OnceLock::new();
+    let key = placed as *const _ as usize;
+    let mine;
+    let children = match GAME.get_or_init(|| (key, children_of(placed))) {
+        (k, c) if *k == key => c,
+        _ => {
+            mine = children_of(placed);
+            &mine
+        }
+    };
+    let mut seen: HashSet<FormId> = refs.iter().copied().collect();
+    let mut out = refs.clone();
+    let mut todo = refs;
+    while let Some(p) = todo.pop() {
+        for &c in children.get(&p).map_or(&[][..], |v| v.as_slice()) {
+            if seen.insert(c) {
+                out.push(c);
+                todo.push(c);
+            }
+        }
+    }
+    out
+}
+
 /// A guest takes the host's flags (`refs`), except for what `skip` holds; what it changes
-/// is kept in `was` as it was first. Returns how many it changed.
-fn follow_presence(world: &mut fnv_sim::World, flag: Flag, refs: &[(u32, bool)], skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> usize {
-    let mut n = 0;
+/// is kept in `was` as it was first. Returns what it changed.
+fn follow_presence(world: &mut fnv_sim::World, flag: Flag, refs: &[(u32, bool)], skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> Vec<FormId> {
+    let mut changed = Vec::new();
     for &(r, on) in refs {
         let r = FormId(r);
         if skip(r) || flag.authored(world, r).is_none() {
@@ -3516,16 +3564,16 @@ fn follow_presence(world: &mut fnv_sim::World, flag: Flag, refs: &[(u32, bool)],
         if now != on {
             was.entry(r).or_insert(now);
             flag.set(world, r, on);
-            n += 1;
+            changed.push(r);
         }
     }
-    n
+    changed
 }
 
 /// A guest with the host's whole list (`host`): what its own game alone changed (not on
 /// the list, not in `skip`) takes its plugin's flag again, kept in `was` as it was first.
-/// Returns how many it changed.
-fn undo_own_presence(world: &mut fnv_sim::World, flag: Flag, host: &HashSet<u32>, skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> usize {
+/// Returns what it changed.
+fn undo_own_presence(world: &mut fnv_sim::World, flag: Flag, host: &HashSet<u32>, skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> Vec<FormId> {
     let own: Vec<(FormId, bool)> = world
         .changed()
         .filter(|(r, _)| !host.contains(&r.0) && !skip(*r))
@@ -3535,7 +3583,7 @@ fn undo_own_presence(world: &mut fnv_sim::World, flag: Flag, host: &HashSet<u32>
         was.entry(r).or_insert(!authored);
         flag.set(world, r, authored);
     }
-    own.len()
+    own.into_iter().map(|(r, _)| r).collect()
 }
 
 /// A host makes its doors' list again this often (seconds); the doors loaded here go at
@@ -3599,9 +3647,9 @@ fn share_doors(
         let used = &coop.door_used;
         let skip = |r: FormId| used.contains_key(&r.0);
         let fresh = std::mem::take(&mut coop.doors_heard.fresh);
-        let mut n = follow_presence(&mut sim.world, Flag::Open, &fresh, &skip, &mut coop.doors_was);
+        let mut n = follow_presence(&mut sim.world, Flag::Open, &fresh, &skip, &mut coop.doors_was).len();
         if let Some(host) = coop.doors_heard.whole.take() {
-            n += undo_own_presence(&mut sim.world, Flag::Open, &host, &skip, &mut coop.doors_was);
+            n += undo_own_presence(&mut sim.world, Flag::Open, &host, &skip, &mut coop.doors_was).len();
         }
         if n > 0 {
             info!("co-op: {n} doors opened or closed as in the host's world");
@@ -4687,10 +4735,16 @@ mod tests {
         heard.hear(1, 0, 1, list);
         let skip = |r: FormId| r == FormId(GECKO);
         let mut was = HashMap::new();
-        assert_eq!(follow_presence(&mut guest, Flag::Enabled, &std::mem::take(&mut heard.fresh), &skip, &mut was), 2);
+        let flipped = follow_presence(&mut guest, Flag::Enabled, &std::mem::take(&mut heard.fresh), &skip, &mut was);
+        assert_eq!(flipped.len(), 2);
         assert!(guest.is_enabled(FormId(BOTTLE)).unwrap(), "the bottles come with their parent");
+        // Their collision is asked for too (owner playtest 2026-11-22: a guest's shots
+        // went through bottles drawn with no body).
+        let mut told = with_enable_children(&table, flipped);
+        told.sort();
+        assert_eq!(told, vec![FormId(CRATE), FormId(BOTTLE), FormId(PARENT)]);
         assert!(!guest.is_enabled(FormId(CRATE)).unwrap());
-        assert_eq!(undo_own_presence(&mut guest, Flag::Enabled, &heard.whole.take().unwrap(), &skip, &mut was), 1);
+        assert_eq!(undo_own_presence(&mut guest, Flag::Enabled, &heard.whole.take().unwrap(), &skip, &mut was).len(), 1);
         assert!(!guest.is_enabled(FormId(SIGN)).unwrap());
         assert!(guest.is_enabled(FormId(GECKO)).unwrap(), "skipped");
         // Leaving co-op: as it was.
@@ -4784,8 +4838,8 @@ mod tests {
         heard.hear(1, 0, 1, list);
         let skip = |r: FormId| r == FormId(USED);
         let mut was = HashMap::new();
-        assert_eq!(follow_presence(&mut guest, Flag::Open, &std::mem::take(&mut heard.fresh), &skip, &mut was), 1);
-        assert_eq!(undo_own_presence(&mut guest, Flag::Open, &heard.whole.take().unwrap(), &skip, &mut was), 1);
+        assert_eq!(follow_presence(&mut guest, Flag::Open, &std::mem::take(&mut heard.fresh), &skip, &mut was).len(), 1);
+        assert_eq!(undo_own_presence(&mut guest, Flag::Open, &heard.whole.take().unwrap(), &skip, &mut was).len(), 1);
         let open = |r: u32| door_open(&guest, FormId(r)).unwrap();
         assert!(open(OPENED) && !open(OWN) && open(USED));
         assert_eq!(door_open(&guest, FormId(LOAD)), None, "a load door");
