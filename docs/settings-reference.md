@@ -1535,7 +1535,10 @@ about 40 m of reach, a cone 60 degrees across that casts shadows.
   Blue; Custom is listed too while the sliders make none of the named colours. Taking a
   named colour sets the three sliders [design]. **Pip-Boy** makes the light the colour of
   Display › Colours › Pip-Boy colour, and follows it when that changes: the original's
-  Pip-Boy light takes the Pip-Boy's colour [owner statement 2026-11-21]. It leaves the
+  Pip-Boy light takes the Pip-Boy's colour [observed: original Fallout: New Vegas, owner,
+  2026-11-21 (#3279): changed the Pip-Boy colour in the original's display settings,
+  turned the Pip-Boy light on, and in third person saw the light's colour on the world
+  change to match]. It leaves the
   sliders as they were and greys them ("Not while Colour is Pip-Boy."); taking Custom
   or a named colour gives the sliders' colour back. The INI keeps it as
   `flashlight-colour=Pip-Boy`.

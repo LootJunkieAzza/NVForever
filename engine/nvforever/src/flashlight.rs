@@ -86,7 +86,10 @@ pub struct FlashlightLook {
     pub rgb: [u8; 3],
     /// Whether the light takes the Pip-Boy's colour (`nvf_play::interface::pipboy_rgb`),
     /// following it as it changes, in place of [`Self::rgb`]: the original's Pip-Boy light
-    /// is the Pip-Boy's colour [owner statement 2026-11-21]. Off by default [design].
+    /// is the Pip-Boy's colour [observed: original Fallout: New Vegas, owner, 2026-11-21
+    /// (#3279): changed the Pip-Boy colour in the original's display settings, turned the
+    /// Pip-Boy light on, and in third person saw the light's colour on the world change to
+    /// match]. Off by default [design].
     pub pipboy_colour: bool,
     /// Reach, game units.
     pub range: f32,
@@ -155,7 +158,7 @@ const UNITS_PER_METRE: f32 = 70.0;
 /// world, before it tests the shadow map; its defaults (0.08 for a point light, 0.02 for
 /// a spot) are metres, about a millimetre in game units, so a lit surface shadowed itself
 /// in fine stripes, and the point light's cube faces showed as lighter and darker blocks
-/// (owner report 2026-11-21) [design]. The normal bias is scaled to the map's texels by
+/// (#3279) [design]. The normal bias is scaled to the map's texels by
 /// Bevy and needs no change.
 const POINT_DEPTH_BIAS: f32 = PointLight::DEFAULT_SHADOW_DEPTH_BIAS * UNITS_PER_METRE;
 const SPOT_DEPTH_BIAS: f32 = SpotLight::DEFAULT_SHADOW_DEPTH_BIAS * UNITS_PER_METRE;

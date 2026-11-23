@@ -3445,7 +3445,7 @@ mod flashlight_tests {
         }
     }
 
-    /// Beam width reaches down to a 10-degree cone (owner request 2026-11-20: smaller spots)
+    /// Beam width reaches down to a 10-degree cone (#3279: smaller spots)
     /// and up to 160, in steps of 5; the built-in 60 is one of its steps.
     #[test]
     fn the_beam_width_runs_from_10_to_160_degrees() {
@@ -3459,7 +3459,7 @@ mod flashlight_tests {
         assert_eq!(app.world().resource::<FlashlightLook>().outer_deg, 5.0);
     }
 
-    /// Colour's Pip-Boy choice (owner request 2026-11-21): second in the list, it makes the
+    /// Colour's Pip-Boy choice (#3279): second in the list, it makes the
     /// light follow the Pip-Boy's colour and is kept by name; a named colour or Custom
     /// leaves it, and Pip-Boy leaves the sliders' own colour as it was.
     #[test]
