@@ -139,7 +139,7 @@ pub const CATALOG: &[Emote] = &[
     once("finger-lips", "Hush", Gesture, &[], &["FingerLips"]),
     once("chin-flick", "Chin Flick", Gesture, &[], &["ChinFlick"]),
     once("shout", "Shout", Gesture, &[], &["Shout"]),
-    once("hands-on-hips", "Hands on Hips", Gesture, &[], &["HandsOnHip"]),
+    once("hands-on-hips", "Hands on Hips", Gesture, &["handsonhip"], &["HandsOnHip"]),
     once("one-hand-up", "Hand Up", Gesture, &[], &["OneHandUp"]),
     once("talk", "Talk", Gesture, &[], &["Talk1", "Talk2", "Talk3"]),
     once("hand", "Hand Out", Gesture, &[], &["Hand1", "Hand2"]),
@@ -591,7 +591,11 @@ fn input(
                 info!("emotes: wheel: slot {} plays {}", s + 1, CATALOG[e].key);
                 asks.write(EmoteAsk::Play { emote: e, cancel_after: None, variant: None });
             }
-            Some((s, e)) => info!("emotes: wheel: slot {} ({}) is not installed", s + 1, CATALOG[e].key),
+            Some((s, e)) => {
+                // Still asked: emote_play refuses it with "That emote is not installed." on screen.
+                info!("emotes: wheel: slot {} ({}) is not installed", s + 1, CATALOG[e].key);
+                asks.write(EmoteAsk::Play { emote: e, cancel_after: None, variant: None });
+            }
             None => info!("emotes: wheel closed: nothing chosen"),
         }
     }
