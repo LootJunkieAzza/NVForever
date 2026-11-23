@@ -492,31 +492,12 @@ pub fn plugin_path(data: &Path, mods: Option<&Path>, name: &str) -> PathBuf {
     child_ci(data, name).filter(|p| p.is_file()).unwrap_or_else(|| data.join(name))
 }
 
-/// [`plugin_path`] over `roots`, first root wins. A name is also matched in a
-/// subdirectory of a root. If none of those and `data` have the file, and a search
-/// root was set, the file may be linked into the first root. The game Data folder
-/// is not written. Otherwise `data/name`.
+/// [`plugin_path`] over the mods folders `roots`, highest precedence first (issue #1526:
+/// an MO2 profile's overwrite folder, then its mods from the highest priority down). Only
+/// the top of each root is looked at, and nothing is linked or written: `--mo2` reads that
+/// instance as it is, as on main.
 pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
-    let key = name.to_ascii_lowercase();
-    for root in roots {
-        if let Some(path) = mod_plugin_map(root).get(&key) {
-            return path.clone();
-        }
-        if let Some(path) = child_ci(root, name).filter(|p| p.is_file()) {
-            return path;
-        }
-    }
-    if let Some(path) = child_ci(data, name).filter(|p| p.is_file()) {
-        return path;
-    }
-    if let Some(mods) = roots.first() {
-        if let Some((_, src)) = outside_plugins().iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
-            if let Some(path) = link_into_mods(mods, data, src, name) {
-                return path;
-            }
-        }
-    }
-    data.join(name)
+    roots.iter().find_map(|r| child_ci(r, name)).or_else(|| child_ci(data, name)).unwrap_or_else(|| data.join(name))
 }
 
 /// The plugin files of the enabled mod layers, by lowercase name, for a start through the
@@ -909,6 +890,29 @@ mod layered_plugin_tests {
         // Swap the order: the other copy wins.
         let found = layered_plugin_files(&[mods.join("High"), mods.join("Low")]);
         assert_eq!(plugin_path_layered(&data, &found, None, "Shared.esp"), mods.join("Low/Shared.esp"));
+        let _ = std::fs::remove_dir_all(&t);
+    }
+}
+
+#[cfg(test)]
+mod mo2_plugin_tests {
+    use super::plugin_path_in;
+
+    #[test]
+    fn mo2_roots_are_read_at_their_top_only() {
+        let t = std::env::temp_dir().join(format!("nvf-mo2-plugins-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let (overwrite, high, data) = (t.join("overwrite"), t.join("mods/High"), t.join("Data"));
+        std::fs::create_dir_all(high.join("sub")).unwrap();
+        std::fs::create_dir_all(&overwrite).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(high.join("Top.esp"), "x").unwrap();
+        std::fs::write(high.join("sub/Deep.esp"), "x").unwrap();
+        let roots = vec![overwrite.clone(), high.clone()];
+        assert_eq!(plugin_path_in(&data, &roots, "top.esp"), high.join("Top.esp"));
+        // Not searched below a root's top, and not linked anywhere: Data's path, unwritten.
+        assert_eq!(plugin_path_in(&data, &roots, "Deep.esp"), data.join("Deep.esp"));
+        assert_eq!(std::fs::read_dir(&overwrite).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(&t);
     }
 }
