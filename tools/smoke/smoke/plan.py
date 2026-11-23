@@ -8,10 +8,17 @@ runs with it too, which the plan lists as a note). Members whose run is shared k
 their own expectations, all checked against the shared log. Which scenarios share a
 launch is chosen by hand in the scenario file and was checked by running them both
 ways (docs in the file); `--no-merge` runs every scenario on its own.
+
+A run can start every game launch the same way on top of its scenarios' arguments
+(`run`/`plan --size WxH --extra-args ARGS`, `with_window`): the extra arguments are added
+after the launch's own, and the window size replaces a `--size` the launch has (either
+form) or is added. Applied once per launch, after the merge; fnvtool runs are untouched.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+import shlex
+from dataclasses import dataclass, field, replace
 
 from .expect import ScenarioError
 from .scenarios import GAME, Scenario, Suite, Timed
@@ -111,12 +118,58 @@ def validate_launches(suite: Suite) -> None:
         merge(key, members, suite.timed, suite.untimed)
 
 
-def plan(suite: Suite, chosen: list[Scenario], no_merge: bool = False) -> list[Launch]:
-    """Launches for the chosen scenarios, in the scenario file's order."""
+SIZE = re.compile(r"[1-9]\d*x[1-9]\d*")
+
+
+def window_size(text: str) -> str:
+    """A `--size` value as nvforever takes it, `WxH` (e.g. 3840x2160); ValueError otherwise."""
+    if not SIZE.fullmatch(text):
+        raise ValueError(f"expected WxH with two whole numbers above 0, such as 3840x2160; got {text!r}")
+    return text
+
+
+def split_args(text: str) -> list[str]:
+    """Arguments from one string, split like a shell: spaces separate, quotes group, and a
+    backslash stays (Windows paths)."""
+    lex = shlex.shlex(text, posix=True)
+    lex.whitespace_split = True
+    lex.escape = ""
+    lex.commenters = ""
+    return list(lex)
+
+
+def with_window(args: list[str], size: str | None = None, extra: list[str] = ()) -> list[str]:
+    """`args` with `extra` added, then `--size size` in place of every `--size X` /
+    `--size=X` they hold, or added when they hold none."""
+    out = list(args) + list(extra)
+    if size is None:
+        return out
+    found = False
+    i = 0
+    while i < len(out):
+        if out[i] == "--size" and i + 1 < len(out):
+            out[i + 1] = size
+            found = True
+            i += 2
+            continue
+        if out[i].startswith("--size="):
+            out[i] = f"--size={size}"
+            found = True
+        i += 1
+    return out if found else out + ["--size", size]
+
+
+def plan(suite: Suite, chosen: list[Scenario], no_merge: bool = False,
+         size: str | None = None, extra: list[str] = ()) -> list[Launch]:
+    """Launches for the chosen scenarios, in the scenario file's order; every game launch
+    with the run's window `size` and `extra` arguments (`with_window`)."""
     if no_merge:
-        return [merge(s.name, [s], suite.timed) for s in chosen]
-    out = []
-    for key, members in groups(chosen).items():
-        name = key if len(members) > 1 else members[0].name
-        out.append(merge(name, members, suite.timed, suite.untimed))
-    return out
+        out = [merge(s.name, [s], suite.timed) for s in chosen]
+    else:
+        out = []
+        for key, members in groups(chosen).items():
+            name = key if len(members) > 1 else members[0].name
+            out.append(merge(name, members, suite.timed, suite.untimed))
+    if size is None and not extra:
+        return out
+    return [replace(x, args=with_window(x.args, size, extra)) if x.kind == GAME else x for x in out]

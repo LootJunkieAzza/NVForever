@@ -919,7 +919,7 @@ struct Kit {
 /// What the drawing shows: the words, whether in the sharp font, the room to the HUD's right
 /// edge (whole units), the scale and the backing's darkness (percent), the view's height
 /// (physical pixels) and the words' language (`fnv_util::words::generation`).
-type Drawn = Option<(Spec, bool, i32, i32, i32, u32, u32)>;
+type Drawn = Option<(Spec, bool, i32, i32, i32, u32, u32, u32)>;
 
 fn colour(ink: Ink, crime: bool) -> Color {
     let row = |full: bool| {
@@ -1007,11 +1007,11 @@ fn draw(
     // height at the list's scale).
     let tall = window.single().map_or(0, |w| w.physical_height());
     let px_at = |size: f32| if tall > 0 { 960.0 / (tall as f32 * size.max(0.1)) } else { 0.0 };
-    let now = Some((spec, sharp, max_w.round() as i32, (size * 100.0).round() as i32, (backing() * 100.0).round() as i32, tall, fnv_util::words::generation()));
+    let now = Some((spec, sharp, max_w.round() as i32, (size * 100.0).round() as i32, (backing() * 100.0).round() as i32, tall, fnv_util::words::generation(), crate::cjk_font::revision()));
     if *drawn == now {
         return;
     }
-    let (spec, _, _, _, _, _, _) = now.clone().expect("set above");
+    let (spec, ..) = now.clone().expect("set above");
     let raster = kit.raster.as_ref().expect("loaded above");
     let faces = match (sharp, crate::vector_font::metrics(), menu_font.as_deref_mut(), fonts.as_deref_mut()) {
         (true, Some(m), Some(menu), Some(fonts)) => Fonts::sharp(raster, m, menu.handle(fonts)),
@@ -1033,7 +1033,7 @@ fn draw(
     drop(units);
     let _units = crate::interface::units_at(size);
     // Logged when the words or the font change, not as the selection moves.
-    let new_words = drawn.as_ref().is_none_or(|(d, f, _, z, _, _, _)| d.title != spec.title || d.columns != spec.columns || *f != sharp || d.rows.len() != spec.rows.len() || *z != (size * 100.0).round() as i32);
+    let new_words = drawn.as_ref().is_none_or(|(d, f, _, z, ..)| d.title != spec.title || d.columns != spec.columns || *f != sharp || d.rows.len() != spec.rows.len() || *z != (size * 100.0).round() as i32);
     if new_words {
         let bad = overlaps(&laid, &faces);
         let font = if sharp { "Sharp" } else { "Original" };
@@ -1228,7 +1228,7 @@ mod tests {
         let mut scripts = ScriptState::over_plugins(play.lo.plugins);
         let mut sim = SimState::new(play.lo, play.schema, play.index);
         let rt = scripts.rt.as_mut().unwrap();
-        let target = |form_id: u32| crate::activate::Targeted { form_id, name: "Guard".into(), action: Action::Steal, distance: 50.0, source: crate::activate::pick::Source::Collision, crime: true, empty: false };
+        let target = |form_id: u32| crate::activate::Targeted { form_id, name: "Guard".into(), action: Action::Steal, distance: 50.0, source: crate::activate::pick::Source::Collision, crime: true, empty: false, through: None };
         // Placed and judged with the world attached, as the frame does (`script::with_world`).
         let (guard, plain) = crate::script::with_world(rt, &mut sim, |rt| {
             let mut placed = |base: &str| {

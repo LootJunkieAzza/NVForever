@@ -1,11 +1,7 @@
-//! Bounded documented ySI configuration → filename (docs/spec-notes/ysi-filename.md).
+//! Bounded documented ySI configuration -> tag/icon/filename (docs/spec-notes/ysi-filename.md).
 //! The native string trait, defaults and file-order tie policy remain unsupported.
-use crate::{
-    functions::{base_of, items::form_type_code},
-    game::Game,
-    mod_files,
-};
-use fnv_script::vm::{Value, XVal};
+use crate::{functions::base_of, game::Game, mod_files};
+use fnv_script::vm::{form_type_code, Value, XVal};
 use fnv_sim::FormId;
 use serde_json::{Map, Value as Json};
 use std::collections::BTreeSet;
@@ -31,7 +27,7 @@ struct Book {
     tags: Vec<Rule>,
     icons: Vec<Rule>,
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Match {
     Yes,
     No,
@@ -96,6 +92,27 @@ pub(crate) fn call(
     Ok(XVal::Str(book.filename(g, base)?))
 }
 
+/// Resolves a form's certain JSON-configured ySI tag using the session's cached
+/// configuration snapshot (returns `None` when configuration is unavailable,
+/// unmatched, ambiguous, or blocked by an unsupported predicate).
+pub(crate) fn json_tag(g: &mut Game<'_>, form: FormId) -> Option<String> {
+    if g.ysi_filename.book.is_none() {
+        g.ysi_filename.book = Some(Book::load());
+    }
+    let book = g.ysi_filename.book.as_ref()?.as_ref().ok()?;
+    book.resolve_tag(g, form).ok()
+}
+
+/// Resolves the certain winning JSON icon `filename` for a ySI sorting tag using
+/// the session's cached configuration snapshot.
+pub(crate) fn json_icon_filename(g: &mut Game<'_>, tag: &str) -> Option<String> {
+    if g.ysi_filename.book.is_none() {
+        g.ysi_filename.book = Some(Book::load());
+    }
+    let book = g.ysi_filename.book.as_ref()?.as_ref().ok()?;
+    book.icon_filename(tag).ok()
+}
+
 impl Book {
     fn load() -> Result<Self, String> {
         let mut names: Vec<String> = mod_files::data_files("menus\\ySI")
@@ -125,7 +142,11 @@ impl Book {
                 return Err("ySI filename configuration exceeds the mapped byte bound".into());
             }
             let text = std::str::from_utf8(&bytes).map_err(|_| "ySI configuration is not UTF-8")?;
-            let value: Json = serde_json::from_str(&commented_json(text)?)
+            let cleaned = commented_json(text)?;
+            if cleaned.trim().is_empty() && !name.eq_ignore_ascii_case("ySI.json") {
+                continue;
+            }
+            let value: Json = serde_json::from_str(&cleaned)
                 .map_err(|_| "invalid ySI commented configuration")?;
             let object = value
                 .as_object()
@@ -166,11 +187,16 @@ impl Book {
     }
 
     fn filename(&self, g: &Game<'_>, item: FormId) -> Result<String, String> {
+        let tag = self.resolve_tag(g, item)?;
+        self.icon_filename(&tag)
+    }
+
+    fn resolve_tag(&self, g: &Game<'_>, form: FormId) -> Result<String, String> {
         let mut best = None;
         let mut tags = BTreeSet::new();
         let mut unknown = None;
         for rule in &self.tags {
-            match rule.matches(g, item) {
+            match rule.matches(g, form) {
                 Match::Yes => match best {
                     Some(priority) if priority > rule.priority => {}
                     Some(priority) if priority == rule.priority => {
@@ -203,7 +229,10 @@ impl Book {
                 "ambiguous ySI tag priority; native tie ordering remains unqualified".into(),
             );
         }
-        let tag = *tags.first().expect("one tag");
+        Ok((*tags.first().expect("one tag")).to_string())
+    }
+
+    fn icon_filename(&self, tag: &str) -> Result<String, String> {
         let priority = self
             .icons
             .iter()
@@ -236,10 +265,24 @@ impl Book {
 impl Rule {
     fn matches(&self, g: &Game<'_>, item: FormId) -> Match {
         let mut answer = Match::Yes;
+        let formlist_mode = match self.fields.get("formlist") {
+            None => Some(0i64),
+            Some(v) => match v.as_i64() {
+                Some(n @ (0 | 1)) => Some(n),
+                _ => None,
+            },
+        };
+        if formlist_mode.is_none() {
+            answer = Match::Unknown;
+        }
         for (name, value) in &self.fields {
             let part = match name.as_str() {
-                "tag" | "priority" | "mod" => continue,
-                "form" => self.explicit_form(g, item, value),
+                "tag" | "priority" | "mod" | "formlist" => continue,
+                "form" => match formlist_mode {
+                    Some(0) => self.explicit_form(g, item, value),
+                    Some(1) => self.formlist_member(g, item, value),
+                    _ => Match::Unknown,
+                },
                 "formType" => match g.data.sig(item).and_then(|s| form_type_code(&s)) {
                     Some(code) => number_set(value, i64::from(code)),
                     None => Match::Unknown,
@@ -263,8 +306,10 @@ impl Rule {
                 answer = Match::Unknown;
             }
         }
-        // A mod selector without its explicit form has no established meaning here.
-        if self.fields.contains_key("mod") && !self.fields.contains_key("form") {
+        // A mod or formlist selector without its explicit form has no established meaning here.
+        if (self.fields.contains_key("mod") || self.fields.contains_key("formlist"))
+            && !self.fields.contains_key("form")
+        {
             return Match::Unknown;
         }
         answer
@@ -283,17 +328,7 @@ impl Rule {
             return Match::No;
         };
         let matches = |v: &Json| {
-            let Some(text) = v.as_str() else {
-                return Match::Unknown;
-            };
-            let Some(local) = u32::from_str_radix(
-                text.strip_prefix("0x")
-                    .or_else(|| text.strip_prefix("0X"))
-                    .unwrap_or(text),
-                16,
-            )
-            .ok()
-            .filter(|n| *n <= 0x00ff_ffff) else {
+            let Some(local) = parse_local_form(v) else {
                 return Match::Unknown;
             };
             if index > 255 {
@@ -310,6 +345,55 @@ impl Rule {
             _ => matches(value),
         }
     }
+
+    fn formlist_member(&self, g: &Game<'_>, item: FormId, value: &Json) -> Match {
+        let Some(name) = self.fields.get("mod").and_then(Json::as_str) else {
+            return Match::Unknown;
+        };
+        let Some(index) = g
+            .data
+            .load_order
+            .iter()
+            .position(|p| p.eq_ignore_ascii_case(name))
+        else {
+            return Match::No;
+        };
+        let matches = |v: &Json| {
+            let Some(local) = parse_local_form(v) else {
+                return Match::Unknown;
+            };
+            if index > 255 {
+                return Match::Unknown;
+            }
+            let list_id = FormId(((index as u32) << 24) | local);
+            match g.data.sig(list_id) {
+                Some(sig) if &sig == b"FLST" => {
+                    if crate::functions::refs::list_members(g, list_id).contains(&item) {
+                        Match::Yes
+                    } else {
+                        Match::No
+                    }
+                }
+                _ => Match::Unknown,
+            }
+        };
+        match value {
+            Json::Array(values) => any(values.iter().map(matches)),
+            _ => matches(value),
+        }
+    }
+}
+
+fn parse_local_form(v: &Json) -> Option<u32> {
+    let text = v.as_str()?;
+    u32::from_str_radix(
+        text.strip_prefix("0x")
+            .or_else(|| text.strip_prefix("0X"))
+            .unwrap_or(text),
+        16,
+    )
+    .ok()
+    .filter(|n| *n <= 0x00ff_ffff)
 }
 
 fn any(values: impl Iterator<Item = Match>) -> Match {
@@ -410,4 +494,39 @@ fn commented_json(text: &str) -> Result<String, String> {
         }
     }
     String::from_utf8(out).map_err(|_| "invalid UTF-8 in ySI configuration".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_local_form_accepts_hex_and_rejects_out_of_range() {
+        assert_eq!(parse_local_form(&Json::String("00000820".into())), Some(0x820));
+        assert_eq!(parse_local_form(&Json::String("0x12AB".into())), Some(0x12AB));
+        assert_eq!(parse_local_form(&Json::String("0X00FFFFFF".into())), Some(0x00FF_FFFF));
+        assert_eq!(parse_local_form(&Json::String("01000000".into())), None);
+        assert_eq!(parse_local_form(&Json::String("not-hex".into())), None);
+        assert_eq!(parse_local_form(&Json::from(0x820)), None);
+    }
+
+    #[test]
+    fn commented_json_strips_comments_trailing_commas_and_bom() {
+        let input = "\u{feff}// lead\n{\"a\": \"http://x/*y*/\", /* mid */ \"b\": [1, 2,],}\n";
+        let cleaned = commented_json(input).unwrap();
+        let parsed: Json = serde_json::from_str(&cleaned).unwrap();
+        assert_eq!(parsed["a"], "http://x/*y*/");
+        assert_eq!(parsed["b"], serde_json::json!([1, 2]));
+        assert!(commented_json("/* unclosed").is_err());
+        assert_eq!(commented_json("// comment only\n/* block */").unwrap().trim(), "");
+    }
+
+    #[test]
+    fn number_set_handles_scalars_arrays_and_unknowns() {
+        assert_eq!(number_set(&Json::from(40), 40), Match::Yes);
+        assert_eq!(number_set(&Json::from(40), 31), Match::No);
+        assert_eq!(number_set(&serde_json::json!([31, 40]), 40), Match::Yes);
+        assert_eq!(number_set(&serde_json::json!([31, "bad"]), 40), Match::Unknown);
+        assert_eq!(number_set(&serde_json::json!([31, "bad"]), 31), Match::Yes);
+    }
 }

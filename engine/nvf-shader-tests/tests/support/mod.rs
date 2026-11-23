@@ -10,7 +10,7 @@ use bevy_shader::{Shader, ShaderCache, ShaderCacheSource, ShaderDefVal};
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
 #[path = "../../../nvforever/src/lights/display_shader.rs"]
-mod production_display_shader;
+pub mod production_display_shader;
 
 #[path = "../../../nvforever/src/fog/shader.rs"]
 mod production_fog_shader;
@@ -20,6 +20,9 @@ pub mod production_ambient_occlusion_hook;
 
 #[path = "../../../nvforever/src/sss/hook.rs"]
 pub mod production_sss_hook;
+
+#[path = "../../../nvforever/src/lights/reflection_gate.rs"]
+pub mod production_reflection_gate;
 
 pub struct Compiled {
     pub module: naga::Module,
@@ -33,6 +36,9 @@ pub struct Compiler {
     /// `pbr_functions` also takes the ambient occlusion's hook (nvforever ssao_lighting.rs),
     /// as lights.rs makes it in the game after the display-value patch.
     ambient_occlusion_hook: bool,
+    /// `pbr_functions` also takes the reflection gate (nvforever lights/reflection_gate.rs)
+    /// after the ambient occlusion's hook, as lights.rs makes it in the game.
+    reflection_gate: bool,
     /// `pbr_lighting` and `pbr_functions` take the physical PBR patches (`NVF_PHYSICAL_PBR=1`).
     physical_pbr: bool,
     /// `pbr_functions` also takes the subsurface scattering hook (`NVF_SSS=1`).
@@ -43,28 +49,39 @@ impl Compiler {
     /// `remove_invariance` restores the unannotated producer in memory. This runs
     /// through WESL and Naga too; it is not a source-text assertion.
     pub fn new(remove_invariance: &[&str]) -> Self {
-        Self::build(remove_invariance, false, false, false)
+        Self::build(remove_invariance, false, false, false, false)
     }
 
     /// The production sources with the ambient occlusion's hook in `pbr_functions` as well,
     /// and nvf_assets' shaders (the NIF material) registered.
     pub fn with_ambient_occlusion_hook() -> Self {
-        Self::build(&[], true, false, false)
+        Self::build(&[], true, false, false, false)
+    }
+
+    /// As [`Self::with_ambient_occlusion_hook`], with the reflection gate after the hook.
+    pub fn with_reflection_gate() -> Self {
+        Self::build(&[], true, true, false, false)
     }
 
     /// The production sources with the `NVF_PHYSICAL_PBR=1` patches (`Fd_OrenNayar`,
     /// full Cook-Torrance Fresnel, linear diffuse/ambient, and physical ambient occlusion hook).
     pub fn with_physical_pbr() -> Self {
-        Self::build(&[], true, true, false)
+        Self::build(&[], true, false, true, false)
     }
 
     /// The production sources with `NVF_SSS=1` (`sss.rs` hook) layered onto either the
     /// display-value or physical PBR pipeline.
     pub fn with_sss(physical_pbr: bool) -> Self {
-        Self::build(&[], true, physical_pbr, true)
+        Self::build(&[], true, false, physical_pbr, true)
     }
 
-    fn build(remove_invariance: &[&str], ambient_occlusion_hook: bool, physical_pbr: bool, sss: bool) -> Self {
+    fn build(
+        remove_invariance: &[&str],
+        ambient_occlusion_hook: bool,
+        reflection_gate: bool,
+        physical_pbr: bool,
+        sss: bool,
+    ) -> Self {
         let mut compiler = Self {
             cache: ShaderCache::new((), |_, source, _| {
                 let ShaderCacheSource::Wgsl(wgsl) = source else {
@@ -83,6 +100,7 @@ impl Compiler {
             shaders: HashMap::new(),
             assets: Assets::default(),
             ambient_occlusion_hook,
+            reflection_gate,
             physical_pbr,
             sss,
         };
@@ -161,6 +179,10 @@ impl Compiler {
                     if self.sss {
                         source = production_sss_hook::hook_patched(&source, self.physical_pbr)
                             .expect("the subsurface scattering hook's anchors match the selected shader");
+                    }
+                    if self.reflection_gate {
+                        source = production_reflection_gate::gate_patched(&source)
+                            .expect("the reflection gate's anchors match the selected shader");
                     }
                 }
                 if remove.contains(&name.as_str()) {

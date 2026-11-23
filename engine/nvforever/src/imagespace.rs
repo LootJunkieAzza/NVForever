@@ -590,7 +590,7 @@ fn effective_grade_base(base: fnv_world::imagespace::Cinematic, physical_agx: bo
 
 /// Copy the sky's grade, with the modifiers on the screen, onto every graded camera.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn update_grade(
+pub(crate) fn update_grade(
     time: Res<Time>,
     sky: Res<SkyState>,
     world: Option<Res<WorldData>>,

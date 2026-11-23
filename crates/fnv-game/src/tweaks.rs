@@ -633,11 +633,17 @@ pub struct Tweaks {
     pub weapon_requirements_matter: bool,
     /// `bImprovedHacking`'s options: a lone symbol does nothing; a word tried before
     /// does nothing; a bracket pair with full attempts removes a dud; removing a dud
-    /// spares the words tried.
+    /// spares the words tried; denied guesses turn into `.` in the dump (optionally
+    /// keeping matching characters, Stewie 9.50); compact one-line guess logs; bonus
+    /// attempts on Replenished instead of resetting to 4.
     pub hack_no_single_chars: bool,
     pub hack_no_repeat_words: bool,
     pub hack_dud_when_full: bool,
     pub hack_spare_guessed: bool,
+    pub hack_mark_guesses_as_duds: bool,
+    pub hack_keep_matching_chars: bool,
+    pub hack_compact_guesses: bool,
+    pub hack_replenish_bonus: u8,
     /// `bLocationalMeleeDamage`/`bNonPlayerAttacks`: an NPC's blow on the player takes
     /// the struck part's damage multiplier.
     pub npc_melee_part_damage: bool,
@@ -679,6 +685,9 @@ pub struct Tweaks {
     /// `bReloadingWithNoAmmoSwapsAmmoTypes`: reloading with none of the ammo in use left
     /// swaps to another carried type.
     pub empty_reload_swaps_ammo: bool,
+    /// `bMenuSearch`: Stewie menu search-bar tile publication (`ui_search_bar`) on
+    /// supported menus.
+    pub menu_search: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -699,7 +708,11 @@ impl crate::game::Game<'_> {
     /// `r` wears power armour on the upper body (for the tweaks).
     pub fn wears_power_armor(&self, r: fnv_sim::FormId) -> bool {
         use fnv_sim::forms::ItemKind;
-        self.world.equipment(r).unwrap_or_default().into_iter().filter_map(|i| self.world.forms.item(i)).any(|it| it.kind == ItemKind::Armor && it.power_armor && it.slots.is_some_and(|s| s & crate::detection::UPPER_BODY != 0))
+        self.world.equipment(r).unwrap_or_default().into_iter().any(|i| {
+            self.world.resolve_item(i).is_some_and(|it| it.kind == ItemKind::Armor)
+                && self.world.effective_power_armor(i)
+                && self.world.effective_slots(i).is_some_and(|s| s & crate::detection::UPPER_BODY != 0)
+        })
     }
 
     /// The player's Disarm Requires Skill tweak: the chances (percent) that the player
@@ -1024,6 +1037,10 @@ impl Default for Tweaks {
             hack_no_repeat_words: false,
             hack_dud_when_full: false,
             hack_spare_guessed: false,
+            hack_mark_guesses_as_duds: false,
+            hack_keep_matching_chars: false,
+            hack_compact_guesses: false,
+            hack_replenish_bonus: 0,
             npc_melee_part_damage: false,
             disarm_needs_skill: false,
             disarm_mult: 1.0,
@@ -1042,6 +1059,7 @@ impl Default for Tweaks {
             marker_shift_removes: false,
             marker_removed_on_it: false,
             empty_reload_swaps_ammo: false,
+            menu_search: false,
         }
     }
 }

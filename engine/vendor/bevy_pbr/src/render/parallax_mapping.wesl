@@ -20,19 +20,23 @@ fn sample_depth_map(uv: vec2<f32>, material_bind_group_slot: u32) -> f32 {
     // sample_depth_map in our loop.
     // See https://stackoverflow.com/questions/56581141/direct3d11-gradient-instruction-used-in-a-loop-with-varying-iteration-forcing
     @if(BINDLESS)
-    return textureSampleLevel(
+    let height = textureSampleLevel(
         bindless_textures_2d[material_indices[material_bind_group_slot].depth_map_texture],
         bindless_samplers_filtering[material_indices[material_bind_group_slot].depth_map_sampler],
         uv,
         0.0
     ).r;
     @else
-    return textureSampleLevel(
+    let height = textureSampleLevel(
         depth_map_texture,
         depth_map_sampler,
         uv,
         0.0
     ).r;
+    // NVForever height maps: the texture stores height (white = high, the authored `_p` of
+    // docs/spec-notes/pbr-materials.md), the march reads depth (white = deepest); one shared
+    // inversion for both bindings. Upstream returns the red channel as it is.
+    return 1.0 - height;
 }
 
 /// An implementation of parallax mapping, see https://en.wikipedia.org/wiki/Parallax_mapping

@@ -619,6 +619,13 @@ impl Gen<'_> {
         f.opcode.is_none() && self.table.unnumbered.get(&n.to_ascii_lowercase()).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "axis" || p.wiki_type.as_deref().is_some_and(axis_letters))
     }
 
+    /// JIP's `SetOnPlayGroupEventHandler` takes an animation group keyword in its fourth
+    /// argument (index 3) [documented: SetOnPlayGroupEventHandler].
+    fn anim_group_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(n) = &f.func else { return false };
+        f.opcode.is_none() && k == 3 && n.eq_ignore_ascii_case("setonplaygroupeventhandler")
+    }
+
     /// The function's parameter `k` takes a form, or is named for a global (the base
     /// game's GetGlobalValue included).
     fn form_param(&self, f: &XFn, k: usize) -> bool {
@@ -765,6 +772,15 @@ impl Gen<'_> {
             let enc = match f.opcode {
                 Some(o) => self.table.param_enc(o, args.len()),
                 None if self.axis_param(f, args.len()) => ParamEnc::Axis,
+                None if self.anim_group_param(f, args.len())
+                    && p.peek().is_some_and(|t| {
+                        t.kind == XKind::Word
+                            && !t.text.contains('.')
+                            && self.var(&t.text).is_none()
+                            && self.form(&t.text).is_none()
+                            && self.xfunction(&t.text).is_none()
+                            && self.enums.get("anim_group").is_some_and(|m| m.contains_key(&t.text.to_ascii_lowercase()))
+                    }) => ParamEnc::Enum("anim_group".into()),
                 None => ParamEnc::Value,
             };
             // Inside an expression an NVSE-aware function's argument stops at a comparison

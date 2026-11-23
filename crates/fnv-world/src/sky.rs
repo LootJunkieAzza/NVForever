@@ -581,8 +581,16 @@ impl Weather {
     /// all-zero weathers have black fog colours, which taken literally would draw their
     /// worlds solid black. docs/spec-notes/world.md §6].
     pub fn fog_at(&self, c: &Climate, hour: f32) -> Option<(f32, f32)> {
+        self.fog_at_with(c, hour, None)
+    }
+
+    /// [`Self::fog_at`] with optional JIP `SetWeatherTraitNumeric` fog overrides
+    /// (`15..=20`: day near/far, night near/far, day/night power) applied in place
+    /// without allocating. Non-finite override values are ignored.
+    pub fn fog_at_with(&self, c: &Climate, hour: f32, overrides: Option<[Option<f32>; 6]>) -> Option<(f32, f32)> {
+        let fog = self.merged_fog(overrides);
         let range = |near: f32, far: f32| (far > near).then_some((near, far));
-        let (day, night) = match (range(self.fog[0], self.fog[1]), range(self.fog[2], self.fog[3])) {
+        let (day, night) = match (range(fog[0], fog[1]), range(fog[2], fog[3])) {
             (Some(day), Some(night)) => (day, night),
             (Some(r), None) | (None, Some(r)) => (r, r),
             (None, None) => return None,
@@ -597,15 +605,34 @@ impl Weather {
     /// near))^power [hypothesis, fitted to Dead Money's frames: docs/spec-notes/world.md
     /// §6 "Fog power"]. Stored powers: 0.2 to 1.0 in the masters' 98 weathers [observed].
     pub fn fog_power_at(&self, c: &Climate, hour: f32) -> f32 {
+        self.fog_power_at_with(c, hour, None)
+    }
+
+    /// [`Self::fog_power_at`] with optional JIP `SetWeatherTraitNumeric` fog overrides
+    /// (`15..=20`) applied in place without allocating. Non-finite values are ignored.
+    pub fn fog_power_at_with(&self, c: &Climate, hour: f32, overrides: Option<[Option<f32>; 6]>) -> f32 {
+        let fog = self.merged_fog(overrides);
         let set = |near: f32, far: f32| far > near;
         let p = |v: f32| if v > 0.0 { v } else { 1.0 };
-        let (day, night) = (p(self.fog[4]), p(self.fog[5]));
-        let (day, night) = match (set(self.fog[0], self.fog[1]), set(self.fog[2], self.fog[3])) {
+        let (day, night) = (p(fog[4]), p(fog[5]));
+        let (day, night) = match (set(fog[0], fog[1]), set(fog[2], fog[3])) {
             (true, false) => (day, day),
             (false, true) => (night, night),
             _ => (day, night),
         };
         night + (day - night) * day_factor(c, hour)
+    }
+
+    fn merged_fog(&self, overrides: Option<[Option<f32>; 6]>) -> [f32; 6] {
+        let mut fog = self.fog;
+        if let Some(ov) = overrides {
+            for (dst, val) in fog.iter_mut().zip(ov) {
+                if let Some(v) = val.filter(|v| v.is_finite()) {
+                    *dst = v;
+                }
+            }
+        }
+        fog
     }
 }
 
@@ -1048,5 +1075,22 @@ mod tests {
         assert_eq!(region_at(&rs, 7, 50.0, 5.0).map(|r| r.form_id), None);
         assert_eq!(region_at(&rs, 8, 5.0, 5.0).map(|r| r.form_id), None);
         assert_eq!(region_at(&rs[..2], 7, 5.0, 5.0).map(|r| r.form_id), Some(2));
+    }
+
+    #[test]
+    fn fog_at_with_applies_session_overrides_and_ignores_non_finite() {
+        let c = Climate { sunrise: (6.0, 8.0), sunset: (18.0, 20.0), ..Default::default() };
+        let w = Weather { fog: [1000.0, 100_000.0, 500.0, 50_000.0, 1.0, 1.0], ..Default::default() };
+        assert_eq!(w.fog_at(&c, 12.0), Some((1000.0, 100_000.0)));
+        assert_eq!(w.fog_at(&c, 0.0), Some((500.0, 50_000.0)));
+        let ov = [Some(250.0), Some(12_000.0), Some(100.0), Some(8_000.0), Some(0.6), Some(0.4)];
+        assert_eq!(w.fog_at_with(&c, 12.0, Some(ov)), Some((250.0, 12_000.0)));
+        assert_eq!(w.fog_at_with(&c, 0.0, Some(ov)), Some((100.0, 8_000.0)));
+        assert!((w.fog_power_at_with(&c, 12.0, Some(ov)) - 0.6).abs() < 1e-6);
+        assert!((w.fog_power_at_with(&c, 0.0, Some(ov)) - 0.4).abs() < 1e-6);
+        // Partial override leaves untouched slots at authored values; non-finite is ignored.
+        let partial = [Some(f32::NAN), Some(20_000.0), None, Some(f32::INFINITY), None, None];
+        assert_eq!(w.fog_at_with(&c, 12.0, Some(partial)), Some((1000.0, 20_000.0)));
+        assert_eq!(w.fog_at_with(&c, 0.0, Some(partial)), Some((500.0, 50_000.0)));
     }
 }

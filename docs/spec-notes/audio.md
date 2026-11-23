@@ -787,6 +787,31 @@ Counts are of FalloutNV.esm alone [observed] unless they say otherwise.
    [hypothesis].
 8. Intro, outro and incidental sounds go through `crate::sfx` at the listener (the
    effects volume) and are not played with music off [design].
+9. **The Pip-Boy radio** (#3311): while it plays its station the place's music (its
+   marker's set, else the cell's or worldspace's type, and its outgoing crossfades) is
+   turned down to silence over 3 s; it plays on unheard, so when the radio stops it
+   fades back in over 3 s where it has got to. "Plays its station"
+   (`radio::pipboy_holds_music`, `radio::pipboy_line_seen`): on, tuned to a station
+   received here, sound on and the player's Radio volume above 0, not at the poker
+   table, the radios not held (the Esc menu, a loading screen), and one of that
+   station's lines or songs heard now or within the last 8 s (the gaps between lines, a
+   file still being read). Heard means played at a level above 0 after the volumes, the
+   Radio While Talking tweak and reception's static; a line at no level, or the
+   programme muted outright even between lines (a volume or that tweak at 0, the station
+   all static), lets the music back at once, and retuning or switching off forgets the
+   last station's line, which only counts for the station tuned. Static
+   alone (a station saying nothing, one whose lines have no file, a station all static
+   at the edge of its range) and a station out of reception leave the music alone. Only the level the mixer
+   is given changes: the player's Music volume, SetMusicState's pause and the layers
+   stay as they were. A world receiver (a placed radio, a jukebox, an actor made a
+   radio) does not turn the music down. Battle music keeps its level over the radio: a
+   battle set's loop, and a dungeon set's battle stem, which comes in and goes by its
+   own fade while the explore and suspense stems stay down; so do script music (item 7)
+   and the death and level-up music. Incidental phrases (item 6) are not changed
+   [hypothesis: a player's report says the music should stop while the radio is on;
+   battle music, how fast it goes, whether it resumes or starts again, and static or
+   out of range are observer check 266; design: the 3 s fades, the 8 s hold, resumed
+   rather than started again].
 
 Seen [observed 2026-10-11, `nvforever --play`, the owner's load order]:
 - Standing next to Violet (`--cell Goodsprings --pos=-46800,65000,4600 --hour 12`):
@@ -816,6 +841,10 @@ Seen [observed 2026-10-11, `nvforever --play`, the owner's load order]:
   a group, and whether the original plays the intro before the loop or over it.
 - What a dungeon set's "suspense" answers to, and how a controller with both dungeon
   sets and a battle list chooses.
+- What the Pip-Boy radio does to the music (§13.2 item 9): whether battle music cuts in
+  over it, whether the place's music fades or stops, whether it comes back when the
+  radio is turned off, and what static at the edge of a station's radius or a station
+  out of reception does (observer check 266).
 
 ### 13.5 Fallout 3 music (owner, list 5 item 69)
 

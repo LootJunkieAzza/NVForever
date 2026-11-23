@@ -3580,6 +3580,34 @@ End
 }
 
 #[test]
+fn refresh_items_list_sets_one_shot_transient_request() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default())
+    };
+    assert!(!g.refresh_items_list_pending());
+    assert!(!g.take_refresh_items_list());
+
+    // Calling RefreshItemsList returns 0 and latches a pending request; repeated calls coalesce.
+    assert_eq!(q(&mut g, "SetFunctionValue (RefreshItemsList)"), Ok(XVal::Num(0.0)));
+    assert!(g.refresh_items_list_pending());
+    assert_eq!(q(&mut g, "RefreshItemsList"), Ok(XVal::Num(0.0)));
+    assert!(g.refresh_items_list_pending());
+
+    // The request is transient (not carried across snapshot/restore).
+    let snap = g.snapshot();
+    let restored = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &snap.sim).unwrap(), g.cfg, &snap).unwrap();
+    assert!(!restored.refresh_items_list_pending());
+
+    // Engine consumption is one-shot.
+    assert!(g.take_refresh_items_list());
+    assert!(!g.refresh_items_list_pending());
+    assert!(!g.take_refresh_items_list());
+}
+
+#[test]
 fn queries_run_function_scripts_and_keep_what_they_change() {
     // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
     // query are read by the next, and the saved ones are in the snapshot.

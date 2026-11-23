@@ -81,7 +81,13 @@ impl Game<'_> {
     }
 
     pub(crate) fn persistent(&self, r: FormId) -> bool {
-        r == FormId::PLAYER_REF || self.world.placed.get(r).is_some_and(|p| p.flags & 0x400 != 0 || p.in_persistent_group)
+        if r == FormId::PLAYER_REF {
+            return true;
+        }
+        if let Some(&on) = self.other.persistent_overrides.get(&r) {
+            return on;
+        }
+        self.world.placed.get(r).is_some_and(|p| p.flags & fnv_sim::refs::FLAG_PERSISTENT != 0 || p.in_persistent_group)
     }
 }
 
@@ -144,12 +150,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "ispersistent" => {
             XVal::Num(f64::from(u8::from(subject.is_some_and(|r| g.persistent(r)))))
         }
-        // [documented: GetOwner] the reference's owner (XOWN): a faction or an NPC; for an
-        // inventory reference, its stack's [observed: nvse-fifth, AddItemOwnership's
-        // pistol gives Doc].
+        // [documented: GetOwner] the reference's own owner (live extra.owner from
+        // SetOwnership/ClearOwnership/SetOwnershipTemp, else the placed record's XOWN): a
+        // faction or an NPC; for an inventory reference, its stack's [observed: nvse-fifth,
+        // AddItemOwnership's pistol gives Doc].
         "getowner" => {
             let stack = subject.and_then(|r| g.temp_item(r)).and_then(|(c, it)| g.world.inventory_mut(c).ok()?.groups().find(|(i, _, _)| *i == it).and_then(|(_, e, _)| e.owner));
-            XVal::Ref(stack.or_else(|| subject.and_then(|r| g.world.placed.get(r)).and_then(|p| p.owner)).map_or(0, |o| o.0))
+            XVal::Ref(stack.or_else(|| subject.and_then(|r| Game::ref_owner_in(&g.world, r))).map_or(0, |o| o.0))
         }
         _ => return None,
     };

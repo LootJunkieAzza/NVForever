@@ -103,13 +103,20 @@
 //!   placed reference with a dynamic body for that long after its cell loads — offsets,
 //!   turns, speeds and the overlaps found after the first step (physics.md §4.3.1).
 //!
+//! - `NVF_PLAY_TEST_POSE_WATCH=[<seconds>:]<text>[,<text>...]` (nvforever's
+//!   `swimming.rs`): from that time on, a line whenever what a watched actor plays
+//!   changes (its name contains a text, any case): its base layer's and fading layer's
+//!   clips and weights, its set, its idle layers, whether it has a character and whether
+//!   that swims and rests on the bed (#2980). It only measures.
+//!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
 //! view (as with `--auto-walk`). Not the aids that only measure ([`MEASURING_AIDS`]:
 //! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`,
 //! `NVF_PLAY_TEST_PROFILE_HITCH_MS`, `NVF_PLAY_TEST_PROFILE_HITCH_SPANS`,
 //! `NVF_PLAY_TEST_TILE_COUNTS`, `NVF_PLAY_TEST_HITVOL_SCAN`,
-//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`): with them alone the run is played by
+//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`, `NVF_PLAY_TEST_GAME_DIGEST`,
+//! `NVF_PLAY_TEST_POSE_WATCH`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //!
@@ -458,7 +465,7 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 /// sets `NVF_PLAY_TEST_UNATTENDED`, which does nothing but drive the run: `drives_run` looks
 /// at the name alone, so any value counts, and a load's new run drops it like any driving
 /// aid (`profile-slow-frames`).
-pub const MEASURING_AIDS: [&str; 9] = [
+pub const MEASURING_AIDS: [&str; 11] = [
     "NVF_PLAY_TEST_SAMPLE",
     "NVF_PLAY_TEST_PROFILE",
     "NVF_PLAY_TEST_PROFILE_COUNTS",
@@ -469,6 +476,10 @@ pub const MEASURING_AIDS: [&str; 9] = [
     "NVF_PLAY_TEST_HITVOL_COMPARE",
     // The mod log is for a mod list played by hand (`crate::mod_log`).
     crate::mod_log::ENV,
+    // Logs digests of the game's state at given times (nvforever game_digest.rs).
+    "NVF_PLAY_TEST_GAME_DIGEST",
+    // Logs what watched actors play (nvforever swimming.rs pose watch, #2980).
+    "NVF_PLAY_TEST_POSE_WATCH",
 ];
 
 /// Whether this environment variable is a test aid that drives the run (any

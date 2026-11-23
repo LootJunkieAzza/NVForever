@@ -27,6 +27,8 @@ pub struct Motion {
     pub run_mode: bool,
     /// Its character swims (the physics' state: `fnv_phys` character `swimming`).
     pub swimming: bool,
+    /// Its character is airborne (physics: not grounded and not swimming; `IsInAir`).
+    pub in_air: bool,
 }
 
 /// What the engine told the scripts, and the switches scripts set for it.
@@ -71,6 +73,10 @@ pub struct Senses {
     pub rad_serial: u32,
     /// What each actor last activated and when ([`Game::time`]), for IsWaterObject.
     pub activating: BTreeMap<FormId, (FormId, f64)>,
+    /// The dead actors the player's camera saw at the engine's last measurement, each
+    /// with when ([`Game::time`]) it was told ([`Game::set_camera_sights`]): what
+    /// player.GetLineOfSight reads of a body, which the detection pairs leave out.
+    pub camera_sees: BTreeMap<FormId, f64>,
 }
 
 /// The ray under the crosshair, game space: where it starts (about the player's eye,
@@ -97,7 +103,7 @@ impl Reticle {
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, crosshair_ref: None, crosshair_far: None, grabbed: None, radiation: Default::default(), rad_zones: Vec::new(), rad_serial: 0, activating: BTreeMap::new() }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, crosshair_ref: None, crosshair_far: None, grabbed: None, radiation: Default::default(), rad_zones: Vec::new(), rad_serial: 0, activating: BTreeMap::new(), camera_sees: BTreeMap::new() }
     }
 }
 
@@ -252,21 +258,61 @@ pub fn is_swimming(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> 
     yes(r != FormId::PLAYER_REF && g.motion(r).swimming)
 }
 
+/// How long the engine's word that the camera sees a body holds, game seconds: as
+/// long as a detection pair is kept (`nvforever` detection.rs forgets pairs older than
+/// 1 s) [engineering choice].
+pub const CAMERA_SIGHT_SECONDS: f64 = 1.0;
+
+impl Game<'_> {
+    /// The engine tells which dead actors the player's camera sees at this measurement
+    /// (in its view, nothing solid between): the others are not seen.
+    pub fn set_camera_sights(&mut self, seen: impl IntoIterator<Item = FormId>) {
+        let now = self.time;
+        self.senses.camera_sees.clear();
+        self.senses.camera_sees.extend(seen.into_iter().map(|r| (r, now)));
+    }
+
+    /// Whether the player's camera saw `target` (a body) at the engine's last
+    /// measurement, within [`CAMERA_SIGHT_SECONDS`], and is still there: in the world,
+    /// enabled and in a loaded cell. A body disabled (or moved out) since the measurement
+    /// is not seen, even within the same frame or while a menu holds the clock
+    /// [documented: GECK wiki GetLineOfSight, "Will not return true when checking if a
+    /// disabled reference is in view"].
+    pub fn camera_sees(&self, target: FormId) -> bool {
+        self.senses.camera_sees.get(&target).is_some_and(|&t| self.time - t <= CAMERA_SIGHT_SECONDS)
+            && self.present(target)
+            && self.cell_of(target).is_some_and(|c| self.loaded_cells.contains(&c))
+    }
+}
+
 /// `actor.GetLineOfSight target`: 1 when the calling actor can see the target: nothing
 /// solid between them and within ±95° of where it looks [documented: GECK wiki
 /// GetLineOfSight]. Read from the detection the engine last measured for the pair
 /// (`crate::detection`, `Detection::seen`: line of sight and field of view): every two
-/// actors of the loaded area within detection reach of each other (`crate::sight`). On
-/// the player it is the camera that sees, from where the camera is and along its view
-/// [documented: same page, "it returns true if the *camera* can see the object";
-/// observed: player.GetLineOfSight Ringo 1, function probes fp1, 2026-10-17]. A pair not
-/// measured reads 0 [engineering choice]. A target that is not an actor is not
-/// measured: 0 [documented: on a non-player actor GetLOS returns false for anything but
-/// an actor; on the player the original also tests other objects, which NVForever does
-/// not yet].
+/// living actors of the loaded area within detection reach of each other
+/// (`crate::sight`). On the player it is the camera that sees, from where the camera is
+/// and along its view [documented: same page, "it returns true if the *camera* can see
+/// the object"; observed: player.GetLineOfSight Ringo 1, function probes fp1,
+/// 2026-10-17]. A pair not measured reads 0 [engineering choice].
+///
+/// A dead actor is in no detection pair; the engine measures the drawn bodies from the
+/// player's camera alone, the same view and wall check aimed at the body where it lies
+/// (its ragdoll's trunk), and tells which it sees ([`Game::set_camera_sights`]): the
+/// player reads those [documented: the page lets the player test any object, an actor
+/// dead or alive among them; Fallout3.esm's MS04Script (TTW "Those!") advances on
+/// `Player.GetLOS FredWilksRef == 1` with Fred Wilks lying dead, #3232]. On a dead
+/// target that is the only answer: a pair measured while it lived (kept up to a second
+/// after the death) is not read, so a body the player turned from reads 0 at the next
+/// measurement. Another actor's GetLOS on a body reads 0 [hypothesis: the page says only
+/// that its target must be an actor]. A target that is not an actor is not measured: 0 [documented: on a
+/// non-player actor GetLOS returns false for anything but an actor; on the player the
+/// original also tests other objects, which NVForever does not yet].
 pub fn get_line_of_sight(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let target = a.form(0)?;
+    if g.is_dead(target) {
+        return yes(r == FormId::PLAYER_REF && g.camera_sees(target));
+    }
     yes(g.detection.get(r, target).is_some_and(|d| d.seen))
 }
 

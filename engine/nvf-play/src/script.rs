@@ -295,6 +295,10 @@ pub struct Runtime {
     /// residents leave it alone, `Core::prepare` in `nvforever::residents`). A restore that
     /// fails installs no runtime ([`run_scripts`]), so `false` is always a new game.
     pub restored_from_save: bool,
+    /// Monotonic counter incremented only after a save restore commits (failed loads leave
+    /// this unchanged), so engine UI services can separate committed session epochs from
+    /// transient loading gates [design: docs/spec-notes/local-map-ui-service.md].
+    pub(crate) session_epoch: u64,
     /// `--new-game`: the opening starts on the first frame scripts run.
     opening_pending: bool,
     /// A run without a save: the Script Runner's new-game files (`gn_`, `ln_`) run on the
@@ -710,6 +714,7 @@ impl Runtime {
             skip: BTreeSet::new(),
             closing: None,
             restored_from_save: false,
+            session_epoch: 0,
             opening_pending: new_game,
             new_game_files: false,
             wake_talk: None,
@@ -782,6 +787,7 @@ impl Runtime {
         self.new_game_files = false;
         self.player_cell = None;
         self.restored_from_save = true;
+        self.session_epoch = self.session_epoch.saturating_add(1);
         with_world(self, sim, |rt| {
             // `Game::restore` above reached only the stand-in, and the Script Runner's files
             // and the LoadGame events run ahead of the first tick.
@@ -1019,6 +1025,29 @@ impl Runtime {
         r
     }
 
+    /// The player talks to `actor` through bars or a fence (#3233,
+    /// `crate::activate::see_through`): only the conversation opens (`Game::start_dialogue`).
+    /// Not an activation: no OnActivate block, perks' choices, companion wheel or default
+    /// action; an actor asleep is not woken through the bars [design].
+    fn talk_only(&mut self, actor: FormId) -> Result<ByHand, String> {
+        if self.game.asleep(actor) {
+            info!("dialogue: {} is asleep behind the bars: not woken", self.game.data.name(actor));
+            return Ok(ByHand::Refused);
+        }
+        self.observe_inventory();
+        let g = &mut self.game;
+        let r = g.start_dialogue(actor, None).map(|info| {
+            if g.dialogue.is_some() {
+                info!("dialogue: the player talks to {} through the bars: its greeting is {}", g.data.name(actor), g.data.name(info));
+                ByHand::Talk
+            } else {
+                ByHand::Greeted
+            }
+        });
+        self.snapshot_inventory();
+        r
+    }
+
     /// The player's activations among the events from index `from` on whose default
     /// action is to talk (`Outcome::Talk`: a living actor): the conversation starts with
     /// the actor's greeting (`Game::start_dialogue`). An actor with nothing to say starts
@@ -1177,7 +1206,17 @@ impl Runtime {
                 let (r, m) = (resolve(g, r)?, resolve(g, m)?);
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: MOVE_TO, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
                 let args: Vec<ArgValue> = std::iter::once(ArgValue::Value(Value::Ref(m.0))).chain(off.iter().map(|v| ArgValue::Value(Value::Num(f64::from(*v))))).collect();
+                // A MoveTo the game refuses fails the aid, as a `call:` does (#2841: a
+                // scenario's forbid on failed steps must see it). Only the aid's own call
+                // counts: a script the move sets off (a destination's OnLoad) may fail a
+                // call of its own in the same frame.
+                let from = g.events.len();
                 g.call_function(&ctx, &args);
+                let opcode = format!("0x{MOVE_TO:04X}");
+                let own = |k: &EventKind| matches!(k, EventKind::CallFailed { unit, opcode: o, .. } if unit == "test aid" && *o == opcode);
+                if let Some(EventKind::CallFailed { error, .. }) = g.events[from..].iter().map(|e| &e.kind).find(|k| own(k)) {
+                    return Err(format!("MoveTo: {error}"));
+                }
             }
             ScriptAid::Stop(q) => {
                 let q = resolve(g, q)?;
@@ -1263,9 +1302,7 @@ impl Runtime {
                 let r = resolve(g, r)?;
                 let code = match group.parse::<u16>() {
                     Ok(c) => c,
-                    Err(_) => (0..=u16::from(u8::MAX))
-                        .find(|c| g.anim_group_name(*c).is_some_and(|n| n.eq_ignore_ascii_case(group)))
-                        .ok_or_else(|| format!("{group} is not an animation group"))?,
+                    Err(_) => g.anim_group_code(group).ok_or_else(|| format!("{group} is not an animation group"))?,
                 };
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: PLAY_GROUP, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
                 g.call_function(&ctx, &[ArgValue::Enum(code), ArgValue::Value(Value::Num(f64::from(*flag)))]);
@@ -1415,6 +1452,15 @@ pub enum ByHand {
 /// anyway, seconds of game time [our choice: the getting-off clips of beds last a few
 /// seconds].
 pub const WAKE_TALK_SECONDS: f64 = 8.0;
+
+/// The player talks to `target` through bars or a fence (`Runtime::talk_only`): only
+/// the conversation opens. Without the scripts there is none.
+pub fn talk_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
+    match script.and_then(|s| s.rt.as_mut()) {
+        Some(rt) => with_world(rt, sim, |rt| rt.talk_only(FormId(target))),
+        None => Err("the scripts are not running".into()),
+    }
+}
 
 /// The player activates `target` by hand (E): through the scripts when they run.
 pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
@@ -2843,6 +2889,7 @@ impl ScriptState {
             skip: BTreeSet::new(),
             closing: None,
             restored_from_save: false,
+            session_epoch: 0,
             opening_pending: false,
             new_game_files: false,
             wake_talk: None,
@@ -2966,10 +3013,12 @@ mod restore_tests {
         assert_eq!(sim.world.snapshot(), played);
         assert_eq!(rt.game.world.snapshot(), stand_in);
         assert!(!rt.restored_from_save);
+        assert_eq!(rt.session_epoch, 0, "a refused restore must not advance the committed session epoch");
         // The successful neighbor still transfers this same active session.
         rt.restore_save(&mut sim, good).unwrap();
         assert_eq!(rt.game.save_files, before);
         assert!(rt.restored_from_save);
+        assert_eq!(rt.session_epoch, 1, "a committed restore advances the session epoch");
         assert_eq!(sim.world.peek(ACTOR).unwrap().cell, Some(MARKER_CELL));
     }
 

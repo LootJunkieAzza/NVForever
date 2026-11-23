@@ -58,7 +58,7 @@ game, so nothing here is `[observed]`. Changes last for the session.
 | StewieGetValue `"key:section"` (StewVal) | [documented: StewieGetValue] Reads a setting. [design] After handoff, the mapped [critical](stewie-stat-profile.md) and [inventory](#live-inventory-settings) keys read NVForever choices. Other keys and unbound games keep the layered `Data\NVSE\Plugins\nvse_stewie_tweaks.ini` lookup: a number when it reads as one, otherwise text, or 0 when absent. |
 | GetCellRegions `cell` | an exterior cell's regions (XCLR); none for an interior [documented] |
 | SetWorldspaceMapBounds `world nwX nwY seX seY` | the WRLD MNAM cells, read by every reader of the record (`Game::world_map_bounds`) [documented; follow-up: the engine's map reads its bounds once] |
-| ySIGetTrait / ySISetTrait `"tag"\|"icon" [value] [form]` | ySI's tag and icon, of the form else the calling reference's base; an icon set on a tagged form goes to every form of that tag [documented]; "" until set [decision: ySI's own files are not read] |
+| ySIGetTrait / ySISetTrait `"tag"\|"icon" [value] [form]` | ySI's sorting tag and icon texture path of the form, else the calling reference's base (uncloned), reading session `ySISetTrait` overrides first and falling back to the bounded `menus/ySI/*.json` rule snapshot (`ysi-filename.md`); an icon set on a tagged form (overridden or JSON-tagged) applies to every form of that tag [documented: `YSIGetTrait`, `YSISetTrait`]; "" when unset, cleared, or unmatched [design] |
 
 ### Live inventory settings
 
@@ -81,6 +81,8 @@ added. [hypothesis] The original plugin matches names the same way; not observed
 | `bIndividialItemStats:Tweaks` | `Tweaks::single_item_figures`; the Pip-Boy item figures choose one item or the stack's count |
 | `bDisableStealthEffectInPipboy:Tweaks` | `Tweaks::no_stealth_shimmer_in_pipboy`; disables the stealth shimmer while the Pip-Boy is open |
 | `bKeepPipboyLightOnCellChange:Tweaks` | `1` when bound; NVForever already keeps the Pip-Boy light on across cell changes ([tweaks](../design/tweaks.md)) |
+| `bWeightlessWornArmor:Tweaks` | `Tweaks::weightless_worn_armor`; worn armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
+| `bWeightlessWornPowerArmor:Tweaks` | `Tweaks::weightless_worn_power_armor`; worn power armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
 
 [hypothesis] The ammo query retains the child choice while its parent is disabled,
 as the plugin's own file keeps both keys; not observed in the original game. Its answer

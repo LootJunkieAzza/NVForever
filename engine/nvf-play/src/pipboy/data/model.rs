@@ -59,6 +59,17 @@ pub fn sort_quests(keys: &mut [QuestKey]) {
     keys.sort_by(|a, b| a.done.cmp(&b.done).then(b.seen.cmp(&a.seen)).then(b.form.cmp(&a.form)));
 }
 
+/// [`sort_quests`], then moves `top` (`PushUIQuestToTop` [documented: GECK wiki]) to the
+/// first entry if present, preserving the relative order of the remaining quests.
+pub fn sort_quests_with_top(keys: &mut [QuestKey], top: Option<u32>) {
+    sort_quests(keys);
+    if let Some(form) = top {
+        if let Some(pos) = keys.iter().position(|q| q.form == form) {
+            keys[..=pos].rotate_right(1);
+        }
+    }
+}
+
 /// An objective of the quest shown: its index in the quest, its text, done or not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectiveLine {
@@ -242,6 +253,12 @@ mod tests {
         sort_quests(&mut v);
         let forms: Vec<u32> = v.iter().map(|q| q.form).collect();
         assert_eq!(forms, vec![0x01, 0x01005229, 0x10A214, 0x0842DD, 0x104C1C]);
+        // PushUIQuestToTop promotes a listed quest to index 0 without disturbing the rest,
+        // and ignores an unlisted FormID.
+        sort_quests_with_top(&mut v, Some(0x0842DD));
+        assert_eq!(v.iter().map(|q| q.form).collect::<Vec<_>>(), vec![0x0842DD, 0x01, 0x01005229, 0x10A214, 0x104C1C]);
+        sort_quests_with_top(&mut v, Some(0x999999));
+        assert_eq!(v.iter().map(|q| q.form).collect::<Vec<_>>(), vec![0x01, 0x01005229, 0x10A214, 0x0842DD, 0x104C1C]);
     }
 
     #[test]

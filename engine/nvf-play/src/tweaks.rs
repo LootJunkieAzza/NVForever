@@ -652,6 +652,9 @@ pub struct TweakSettings {
     pub compass_quest_height: bool,
     /// `bPlacedMarkerHeightIndicator`: the same for the player's custom map marker.
     pub compass_marker_height: bool,
+    /// Remember the player's last chosen ammo type per weapon base form across
+    /// switching, unequipping, dropping and saving/loading (#3305) [design].
+    pub keep_chosen_ammo: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -976,6 +979,7 @@ impl Default for TweakSettings {
             npc_weapon_volume: 100.0,
             compass_quest_height: false,
             compass_marker_height: false,
+            keep_chosen_ammo: false,
         }
     }
 }
@@ -2075,6 +2079,29 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hack-no-repeat-words", "Hacking: No Repeat Guesses", "A word you have already tried cannot be tried again, so it costs no attempt. (Stewie's Tweaks bImprovedHacking)", game.hack_no_repeat_words);
         switch!(app, "hack-dud-when-full", "Hacking: Dud When Attempts Full", "A bracket pair found with all attempts left removes a dud instead of giving attempts back. (Stewie's Tweaks bImprovedHacking)", game.hack_dud_when_full);
         switch!(app, "hack-spare-guessed", "Hacking: Duds Spare Tried Words", "Removing a dud leaves the words you have already tried, unless only they are left. (Stewie's Tweaks bImprovedHacking)", game.hack_spare_guessed);
+        switch!(app, "hack-mark-guesses-as-duds", "Hacking: Mark Guesses as Duds", "Wrong guesses turn into dots in the dump like removed duds. (Stewie's Tweaks bImprovedHacking, bMarkGuessesAsDuds)", game.hack_mark_guesses_as_duds);
+        switch!(app, "hack-keep-matching-chars", "Hacking: Keep Matching Characters", "With Mark Guesses as Duds, letters matching the password stay visible in place. (Stewie's Tweaks bMarkGuessesAsDudsKeepMatchingCharacters)", game.hack_keep_matching_chars);
+        switch!(app, "hack-compact-guesses", "Hacking: Compact Guess Log", "Prints each wrong guess on one log line with its likeness instead of three lines. (Stewie's Tweaks bImprovedHacking, bCompactGuesses)", game.hack_compact_guesses);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-hack-replenish-bonus",
+                GROUP,
+                "Hacking: Replenish Bonus Attempts",
+                "Extra attempts a Replenished bracket adds instead of resetting to 4; 0 resets to 4. (Stewie's Tweaks iAllowanceReplenishedBonus)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| (f32::from(t.game.hack_replenish_bonus) / 10.0).clamp(0.0, 1.0)),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.hack_replenish_bonus = (v * 10.0).round() as u8;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.1,
+                    shown: Some(|v| format!("{:.0}", (v * 10.0).round())),
+                },
+            ),
+        );
         switch!(app, "run-overencumbered", "Run While Overencumbered", "Carrying too much, you can still run and jump by spending Action Points; with none left you walk. (Stewie's Tweaks bOverencumberedTweak)", run_overencumbered);
         amount!(app, "over-run-ap", "Overencumbered Running AP", "Action Points running costs each second while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 20.0, f32, over_run_ap);
         amount!(app, "over-jump-ap", "Overencumbered Jump AP", "Action Points a jump costs while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 50.0, f32, over_jump_ap);
@@ -2160,6 +2187,13 @@ impl Plugin for TweaksPlugin {
         switch!(app, "repeat-activate-takes-only", "Repeat Activate Takes Only", "Repeat Activate (Controls page, unbound at first), held, takes again and again; off, activates anything. (Stewie's Tweaks iRepeatActivateKey)", repeat_activate_takes_only);
         switch!(app, "hi-res-npc-weapons", "Fine Weapon Models for Everyone", "People hold the detailed first-person models of their weapons; weapons drawn after the change. (Stewie's Tweaks bForceHiResWeaponModels)", hi_res_npc_weapons);
         switch!(app, "empty-reload-swaps-ammo", "Reload Swaps Spent Ammo", "Reloading when none of the ammo in use is left changes to another kind you carry. (Stewie's Tweaks bReloadingWithNoAmmoSwapsAmmoTypes)", game.empty_reload_swaps_ammo);
+        switch!(
+            app,
+            "keep-chosen-ammo",
+            "Keep Chosen Ammo",
+            "Weapons remember the ammo type you picked for them after switching, unequipping or dropping them; falls back if none is carried.",
+            keep_chosen_ammo
+        );
         switch!(app, "objectives-on-arrival", "Objectives on Arrival", "Going through a door to a new place shows your active quest's open objectives again. (Stewie's Tweaks bShowQuestObjectivesOnCellChange)", objectives_on_arrival);
         amount!(app, "objectives-gap", "Objectives on Arrival Gap (s)", "The least time, up to 300 seconds, between two showings of Objectives on Arrival. (Stewie's Tweaks bShowQuestObjectivesOnCellChange)", 300.0, f32, objectives_gap);
         // ---- rest ----
@@ -2966,6 +3000,6 @@ mod tests {
         let t = TweakSettings::default();
         assert_eq!(t.game, Tweaks::default());
         assert_eq!(t.game.xp_multiplier, 1.0);
-        assert!(!t.no_karma_messages && !t.disable_fast_travel);
+        assert!(!t.no_karma_messages && !t.disable_fast_travel && !t.keep_chosen_ammo);
     }
 }

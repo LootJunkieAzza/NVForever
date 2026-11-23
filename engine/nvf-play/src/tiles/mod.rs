@@ -43,6 +43,7 @@ pub mod repair_cards;
 pub mod repair_menu;
 pub mod repair_services_menu;
 pub mod runtime_images;
+pub mod local_map_service;
 pub mod modern_minimap;
 mod item_menu;
 pub mod dialog_menu;
@@ -1037,6 +1038,7 @@ impl Plugin for TilesPlugin {
         vats_menu::setup(app);
         app.init_resource::<draw::TileFonts>()
             .init_resource::<runtime_images::RuntimeImages>()
+            .init_resource::<local_map_service::LocalMapService>()
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
@@ -1067,6 +1069,7 @@ impl Plugin for TilesPlugin {
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
             .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
             .add_systems(Update, global_image_metrics::update_globals.after(PlaySet::Scripts).before(update))
+            .add_systems(Update, local_map_service::system.after(PlaySet::Scripts).before(update))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
             .add_systems(Update, repair_services_menu::after_update.after(update).before(PlaySet::Ui))
             // The Pip-Boy's STATS page: written after the tile input and before the scripts;

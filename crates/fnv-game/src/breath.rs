@@ -114,11 +114,10 @@ impl Game<'_> {
         if actor::actor_value(self, r, WATER_BREATHING).is_ok_and(|v| v > 0.0) {
             return true;
         }
-        let data = self.data;
         self.effects.iter().any(|e| {
             e.target == r
                 && !e.inactive
-                && data.magic_effects.get(&e.effect).is_some_and(|m| m.archetype == ARCHETYPE_VALUE_MODIFIER && m.actor_value == Some(WATER_BREATHING))
+                && self.magic_effect_def(e.effect).is_some_and(|m| m.archetype == ARCHETYPE_VALUE_MODIFIER && m.actor_value == Some(WATER_BREATHING))
         })
     }
 }

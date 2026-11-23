@@ -177,7 +177,8 @@ impl Swapping<'_, '_> {
                                 fd.retarget(&copy);
                             }
                             models.materials.remove(f.copy());
-                            commands.entity(e).insert(MeshMaterial3d(copy)).remove::<Fading>();
+                            // The entity may go with its cell before this is applied (#2757).
+                            commands.entity(e).try_insert(MeshMaterial3d(copy)).try_remove::<Fading>();
                         }
                         (also_faded, Some(_)) => {
                             if let Some(fd) = also_faded {

@@ -96,9 +96,32 @@ impl SimState {
     /// reference of the base [documented: GECK wiki SetActorFullName].
     pub fn ref_name<'s>(&'s self, game: Option<&'s fnv_game::Game<'_>>, form_id: u32) -> Option<&'s str> {
         let base = self.base_of(form_id)?;
-        let shown = game.map_or(base, |g| g.display_base(base, FormId(form_id)));
+        let shown = self.shown_base(game, base, form_id);
         let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));
         renamed.or_else(|| self.name(shown)).or_else(|| self.name(base))
+    }
+
+    /// [`SimState::ref_name`] for the screen: the name the data (or a script) gives, never
+    /// an Editor ID. `None` for a reference with no name anywhere in its chain, which is
+    /// then shown without one (#3445: a Lonesome Road deathclaw placed from the nameless
+    /// `NVDLC04DeathclawAmbusherLVL` was named by that Editor ID in VATS).
+    pub fn ref_shown_name<'s>(&'s self, game: Option<&'s fnv_game::Game<'_>>, form_id: u32) -> Option<&'s str> {
+        let base = self.base_of(form_id)?;
+        let shown = self.shown_base(game, base, form_id);
+        let full = |id: FormId| self.forms.get(id).and_then(|b| b.name.as_deref()).filter(|n| !n.is_empty());
+        let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));
+        renamed.or_else(|| full(shown)).or_else(|| full(base))
+    }
+
+    /// The actor base whose name the reference `form_id` (placed with `base`) is shown
+    /// by: the "Base Data" source of its template chain, its leveled lists read with the
+    /// seed and at the level the drawn actor's are ([`SimState::pick`]). `base` itself
+    /// without the game data or a chain to follow.
+    fn shown_base(&self, game: Option<&fnv_game::Game<'_>>, base: FormId, form_id: u32) -> FormId {
+        game.map_or(base, |g| {
+            let (seed, at) = self.pick(g, FormId(form_id));
+            g.runtime_template_source(base, seed, at, |d| d.template_base).map_or(base, |(id, _)| id)
+        })
     }
 
     /// A placed reference's pose in the simulation (position, Euler angles in radians)
@@ -260,6 +283,29 @@ mod tests {
         let npc = sim.world.place(FormId(0x11), None, [0.0; 3], [0.0; 3], 1).unwrap().0;
         assert!(sim.is_creature(creature) && sim.is_actor(creature));
         assert!(!sim.is_creature(npc) && sim.is_actor(npc));
+    }
+
+    /// #3445: the screen never shows an Editor ID as a reference's name.
+    #[test]
+    fn a_nameless_base_is_shown_without_a_name() {
+        use fnv_sim::forms::{ActorBase, BaseData, BaseForm};
+        let actor = |id: u32, name: Option<&str>| BaseForm {
+            id: FormId(id),
+            sig: *b"CREA",
+            edid: Some(format!("Edid{id:X}")),
+            name: name.map(str::to_string),
+            script: None,
+            prompt: None,
+            voice_filter: false,
+            data: BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None }),
+        };
+        let sim = test_world::sim(vec![actor(0x10, None), actor(0x11, Some("Deathclaw")), actor(0x12, Some(""))], vec![test_world::placed(0x20, 0x10), test_world::placed(0x21, 0x11), test_world::placed(0x22, 0x12)]);
+        // The log's name falls back on the Editor ID; the screen's does not.
+        assert_eq!(sim.ref_name(None, 0x20), Some("Edid10"));
+        assert_eq!(sim.ref_shown_name(None, 0x20), None);
+        assert_eq!(sim.ref_shown_name(None, 0x21), Some("Deathclaw"));
+        assert_eq!(sim.ref_shown_name(None, 0x22), None);
+        assert_eq!(sim.ref_shown_name(None, 0x99), None);
     }
 
     #[test]

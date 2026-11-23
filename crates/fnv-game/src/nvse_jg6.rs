@@ -311,14 +311,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // 0 full … 4 new … 7 waxing gibbous [documented: GetMoonPhase]: the days passed
         // over the climate's phase length (TNAM, low six bits), as the sky draws it
-        // (`fnv_world::sky::moon_phase`); the climate of the player's worldspace, none
-        // indoors (phase 0) [hypothesis].
+        // (`fnv_world::sky::moon_phase`); the player's current climate (`Game::current_climate`,
+        // respecting ForceClimate / SetCurrentClimate / SetWorldspaceClimate / WNAM+PNAM
+        // parent inheritance), none indoors (phase 0) [hypothesis].
         "getmoonphase" => {
-            let w = g.cell_of(FormId::PLAYER_REF).and_then(|c| g.world.placed.world_of(c));
-            let climate = match w.and_then(|w| crate::nvse::record_value(g, w, "CNAM", "")) {
-                Some(XVal::Ref(c)) if c != 0 => Some(FormId(c)),
-                _ => None,
-            };
+            let climate = g.current_climate().map(|c| g.unclone(c));
             let len = match climate.and_then(|c| crate::nvse::record_value(g, c, "TNAM", "moons_phase_length")) {
                 Some(XVal::Num(x)) => (x as u64 & 0x3F) as u8,
                 _ => 0,

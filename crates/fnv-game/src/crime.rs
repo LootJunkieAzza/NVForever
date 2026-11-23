@@ -467,6 +467,22 @@ impl Game<'_> {
         self.forms.public_cells.get(&cell).copied().unwrap_or_else(|| self.data.cells.get(&cell).is_some_and(|c| c.public))
     }
 
+    /// The faction rank required to own `r`: SetOwningFactionRequiredRank's override,
+    /// else the placed record's XRNK.
+    pub fn owner_rank(&self, r: FormId) -> Option<i32> {
+        self.other.owner_ranks.get(&r).or_else(|| self.data.owner_ranks.get(&r)).copied()
+    }
+
+    /// The reference's own owner (without cell inheritance): live `extra.owner` when
+    /// loaded/edited (`SetOwnership`/`ClearOwnership`/`SetOwnershipTemp`), else the
+    /// placed record's XOWN.
+    pub(crate) fn ref_owner_in(world: &World<'_>, r: FormId) -> Option<FormId> {
+        match world.peek(r) {
+            Some(s) => s.extra.owner,
+            None => world.placed.get(r).and_then(|p| p.owner),
+        }
+    }
+
     /// Who owns a reference (module notes): its own owner, else its cell's. A reference
     /// made at run time (a dropped item) has no cell to inherit from [design].
     pub fn ownership(&self, r: FormId) -> Option<Ownership> {
@@ -476,14 +492,10 @@ impl Game<'_> {
     /// [`Game::ownership`] with the references' state of `world` (the engine keeps the
     /// world outside the game between script runs).
     pub fn ownership_in(&self, world: &World<'_>, r: FormId) -> Option<Ownership> {
-        let state = world.peek(r);
-        let own = match state {
-            Some(s) => s.extra.owner,
-            None => world.placed.get(r).and_then(|p| p.owner),
-        };
-        if let Some(owner) = own {
-            return Some(Ownership { owner, rank: self.data.owner_ranks.get(&r).copied(), from_cell: false });
+        if let Some(owner) = Self::ref_owner_in(world, r) {
+            return Some(Ownership { owner, rank: self.owner_rank(r), from_cell: false });
         }
+        let state = world.peek(r);
         let placed = world.placed.get(r)?;
         let cell = state.and_then(|s| s.cell).or(placed.cell)?;
         self.cell_ownership(cell)

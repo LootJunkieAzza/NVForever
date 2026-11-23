@@ -75,6 +75,39 @@ struct FileNode {
 
 /// A model file's nodes and shapes (under meshes), depth first from its root, children in
 /// stored order, as `walk` tells drawn ones.
+/// A reference's node tree from its model file's nodes (`file`): names (a repeated name
+/// as "name:0", "name:1" …), parents and local transforms, with the scripts' held
+/// transforms and materials over them.
+fn file_scene(
+    r: FormId,
+    file: &[FileNode],
+    table: &HashMap<String, [f32; 9]>,
+    held: &HashMap<(u32, ModelView, String), Held>,
+    materials: &HashMap<(u32, ModelView, String), [f32; 9]>,
+) -> Vec<SceneNode> {
+    let mut seen: HashMap<String, u32> = HashMap::new();
+    file.iter()
+        .map(|f| {
+            let n = seen.entry(f.name.to_ascii_lowercase()).or_insert(0);
+            let shown = if *n == 0 { f.name.clone() } else { format!("{}:{}", f.name, *n - 1) };
+            *n += 1;
+            let h = held.get(&(r.0, ModelView::Reference, shown.clone())).copied().unwrap_or_default();
+            let (z, y, x) = h.rotation.unwrap_or(f.rotation).to_euler(EulerRot::ZYX);
+            let material = materials.get(&(r.0, ModelView::Reference, shown.clone())).or_else(|| table.get(&f.name)).copied();
+            SceneNode {
+                name: shown,
+                parent: f.parent,
+                translation: h.translation.unwrap_or(f.translation).to_array(),
+                rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+                scale: h.scale.unwrap_or(f.scale),
+                flags: 0,
+                material,
+                info: None,
+            }
+        })
+        .collect()
+}
+
 fn file_tree(data: &GameData, model: &str) -> Vec<FileNode> {
     let mut out = Vec::new();
     if model.is_empty() {
@@ -174,7 +207,9 @@ fn node_bound(at: usize, tree: &[(Entity, Option<usize>)], globals: &Query<&Glob
 
 /// What the mirror reads beside the nodes: their places in the world and boxes (bounds),
 /// and the particle systems.
-type Extra<'w, 's> = (Query<'w, 's, &'static GlobalTransform>, Query<'w, 's, &'static Aabb>, Option<ResMut<'w, crate::particles::Particles>>, Option<Res<'w, crate::world::WorldData>>);
+/// With the simulation: the played world, where the references stand (outside a game turn
+/// the game's own world is a stand-in, `nvf_play::script::with_world`).
+type Extra<'w, 's> = (Query<'w, 's, &'static GlobalTransform>, Query<'w, 's, &'static Aabb>, Option<ResMut<'w, crate::particles::Particles>>, Option<Res<'w, crate::world::WorldData>>, Option<Res<'w, nvf_play::sim::SimState>>);
 
 /// Each named shape's NiMaterialProperty values in a model file (under meshes), in
 /// GetMaterialPropertyValue's order: specular R G B, emissive R G B, glossiness, alpha,
@@ -243,7 +278,9 @@ struct OrderedHeld {
     order: [u64; 3],
 }
 
-pub(crate) type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'static ChildOf>), crate::lights::NotLightSource>;
+/// Draw-only entities (the full-detail ring, `nvf_play::DrawOnly`) are not the game's: the
+/// scripts' NIF functions never find them.
+pub(crate) type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'static ChildOf>), (crate::lights::NotLightSource, Without<nvf_play::DrawOnly>)>;
 
 /// Distinguish an explicit NIF rename from factory entity labels on actor roots.
 /// The marker dies with the entity; it is not a FormId/name override for a new rig.
@@ -315,6 +352,16 @@ fn walk(root: Entity, nodes: &NodeQuery, rig: &RigNames) -> Vec<(Entity, Option<
 pub(crate) struct RigNames {
     root: Option<Entity>,
     names: HashMap<Entity, String>,
+}
+
+impl RigNames {
+    pub(crate) fn is_root(&self, e: Entity) -> bool {
+        self.root == Some(e)
+    }
+
+    pub(crate) fn name_of(&self, e: Entity) -> Option<&str> {
+        self.names.get(&e).map(String::as_str)
+    }
 }
 
 pub(crate) fn rig_names(r: u32, view: ModelView, rigs: &Rigs) -> RigNames {
@@ -406,10 +453,12 @@ fn merge_held(target: &mut OrderedHeld, source: OrderedHeld) {
     }
 }
 
+/// A held rotation is in the scripts' angles, whose rotation is the transpose (the
+/// inverse) of the one a node is drawn with (`fnv_game::nif_blocks::SceneNode::rotation`).
 fn apply_value(entity: Entity, held: Held, nodes: &mut NodeQuery) {
     if let Ok(mut t) = nodes.get_mut(entity) {
         if let Some(v) = held.translation { t.1.translation = v; }
-        if let Some(q) = held.rotation { t.1.rotation = q; }
+        if let Some(q) = held.rotation { t.1.rotation = q.inverse(); }
         if let Some(s) = held.scale { t.1.scale = Vec3::splat(s); }
     }
 }
@@ -417,7 +466,7 @@ fn apply_value(entity: Entity, held: Held, nodes: &mut NodeQuery) {
 fn apply_held(root: Entity, node: &str, held: Held, nodes: &mut NodeQuery, rig: &RigNames) {
     if let Some(mut t) = find(root, node, nodes, rig).and_then(|e| nodes.get_mut(e).ok()) {
         if let Some(v) = held.translation { t.1.translation = v; }
-        if let Some(q) = held.rotation { t.1.rotation = q; }
+        if let Some(q) = held.rotation { t.1.rotation = q.inverse(); }
         if let Some(s) = held.scale { t.1.scale = Vec3::splat(s); }
     }
 }
@@ -473,7 +522,7 @@ fn mirror_game(
     mem: &mut Memory,
     (data, drawn, mut assets): Materials,
     (shapes, meshes): Shapes,
-    (globals, boxes, mut particles, world): Extra,
+    (globals, boxes, mut particles, world, sim): Extra,
     dropped: Dropped,
 ) {
     let Memory { logged, held, bound_held, pending_held, edit_order, tables, materials, owned, attachment_materials, props, files } = mem;
@@ -619,7 +668,11 @@ fn mirror_game(
                 if let Some(l) = data.filter(|l| l.radius > 0.0) {
                     let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
                     let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
-                    commands.entity(new).insert(PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() });
+                    // It casts lamp shadows as a placed light does (`crate::light_shadows`).
+                    commands.entity(new).insert((
+                        PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() },
+                        crate::light_shadows::ShadowSource(crate::light_shadows::SourceKind::Attached),
+                    ));
                     info!("nif mirror: light {:08X} on {:08X}'s {target}, radius {:.0}", light.0, r.0, l.radius);
                 }
                 commands.entity(t).add_child(new);
@@ -751,28 +804,7 @@ fn mirror_game(
             let Some(d) = data.as_deref() else { continue };
             let file = files.entry(model.clone()).or_insert_with(|| file_tree(d, &model));
             let table = tables.entry(model.clone()).or_insert_with(|| material_table(d, &model));
-            let mut seen: HashMap<String, u32> = HashMap::new();
-            let tree: Vec<SceneNode> = file
-                .iter()
-                .map(|f| {
-                    let n = seen.entry(f.name.to_ascii_lowercase()).or_insert(0);
-                    let shown = if *n == 0 { f.name.clone() } else { format!("{}:{}", f.name, *n - 1) };
-                    *n += 1;
-                    let h = held.get(&(r.0, ModelView::Reference, shown.clone())).copied().unwrap_or_default();
-                    let (z, y, x) = h.rotation.unwrap_or(f.rotation).to_euler(EulerRot::ZYX);
-                    let material = materials.get(&(r.0, ModelView::Reference, shown.clone())).or_else(|| table.get(&f.name)).copied();
-                    SceneNode {
-                        name: shown,
-                        parent: f.parent,
-                        translation: h.translation.unwrap_or(f.translation).to_array(),
-                        rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
-                        scale: h.scale.unwrap_or(f.scale),
-                        flags: 0,
-                        material,
-                        info: None,
-                    }
-                })
-                .collect();
+            let tree = file_scene(r, file, table, held, materials);
             if logged.insert(r.0 ^ 0x4000_0000) {
                 info!("nif mirror: {:08X} told from its model file {model:?} (drawn flat), {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
@@ -816,6 +848,18 @@ fn mirror_game(
                 .map(|p| crate::particles::placed_systems(p, r.0).into_iter().map(|d| (d.name.clone(), d.emitter.object.clone(), crate::particles::script_values(d))).collect())
                 .unwrap_or_default() };
             let walked = walk(root, &nodes, &rig);
+            // A player rig's root is told in the reference's own frame (its position and
+            // angles), as the world positions compose it back (`fnv_game::nif_blocks::
+            // node_place`): its pose, not the entity's transform, which the first-person
+            // lens holds at the eye and the third person in the world. Without it a
+            // first-person node's world position was the player's feet [observed: B42
+            // True Leaning's `B42TLCamB` at the feet, its sideways ray along the ground].
+            let posed = rigs.1.as_deref().filter(|_| r == FormId::PLAYER_REF).and_then(|p| p.posed_root(view == ModelView::FirstPerson));
+            let placed = sim.as_deref().and_then(|s| s.world.peek(r)).map(|s| (s.pos, s.rot));
+            let root_told = posed.zip(placed).map(|(p, (rp, ra))| {
+                let rr = Quat::from_euler(EulerRot::ZYX, ra[2], ra[1], ra[0]);
+                Transform { translation: rr.inverse() * (p.translation - Vec3::from(rp)), rotation: rr.inverse() * p.rotation, scale: p.scale }
+            });
             let tree: Vec<SceneNode> = walked
                 .iter()
                 .enumerate()
@@ -823,11 +867,13 @@ fn mirror_game(
                 .filter_map(|(k, e, parent)| {
                     let base = name_of(e, &nodes, &rig);
                     let (_, t, _, hidden, _, attached) = nodes.get(e).ok()?;
+                    let t = root_told.filter(|_| k == 0 && rig.root == Some(e)).unwrap_or(*t);
                     // A name seen before gets ":0", ":1" … [observed: "Object", "Object:0"].
                     let n = seen.entry(base.to_ascii_lowercase()).or_insert(0);
                     let shown = if *n == 0 { base.clone() } else { format!("{base}:{}", *n - 1) };
                     *n += 1;
-                    let (z, y, x) = t.rotation.to_euler(EulerRot::ZYX);
+                    // Told in the scripts' angles: the drawn rotation's inverse (`apply_value`).
+                    let (z, y, x) = t.rotation.inverse().to_euler(EulerRot::ZYX);
                     let material = if let Some(attached) = attached { attachment_materials.get(&e).copied().or(attached.material) }
                         else if view == ModelView::FirstPerson { None }
                         else { materials.get(&(r.0, view, shown.clone())).or_else(|| table.get(&base)).copied() };
@@ -847,6 +893,22 @@ fn mirror_game(
                     })
                 })
                 .collect();
+            // A model drawn without its nodes' names, or without node entities (a cell model's,
+            // TestTraps' pitching machine, #3128), is told from its file instead, as
+            // a flat-drawn item is, so scripts and FireWeapon find its nodes by name.
+            let unnamed = tree.iter().all(|n| n.name.is_empty() || n.name.starts_with(':'));
+            if let (true, ModelView::Reference, Some(d), Some(model)) = (unnamed, view, data.as_deref(), model.as_deref()) {
+                let file = files.entry(model.to_string()).or_insert_with(|| file_tree(d, model));
+                if !file.is_empty() {
+                    let table = tables.entry(model.to_string()).or_insert_with(|| material_table(d, model));
+                    let tree = file_scene(r, file, table, held, materials);
+                    if logged.insert(r.0 ^ 0x2000_0000) {
+                        info!("nif mirror: {:08X} drawn without node names: told from its model file {model:?}, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
+                    }
+                    game.scene.set_tree(r, tree);
+                    continue;
+                }
+            }
             if logged.insert(r.0 | 0x8000_0000) {
                 info!("nif mirror: {:08X} told, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
@@ -892,7 +954,7 @@ mod tests {
     #[test]
     fn a_material_edit_keeps_an_authored_roughness_and_restores_the_scripted_gloss() {
         use nvf_assets::authored::{restore, LegacyLook, AUTHORED_MARK};
-        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None };
+        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None };
         let mut m = nvf_assets::nif_material(StandardMaterial { perceptual_roughness: 0.8, reflectance: 0.5, ..default() });
         m.extension.emissive_rule.w = AUTHORED_MARK;
         m.extension.legacy = Some(look.clone());
@@ -924,7 +986,7 @@ mod tests {
     #[test]
     fn an_alpha_edit_keeps_an_authored_highlight_whatever_the_stored_specular_colour() {
         use nvf_assets::authored::{restore, LegacyLook, AUTHORED_MARK};
-        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None };
+        let look = LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None };
         let black = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.5, 1.0];
         let mut m = nvf_assets::nif_material(StandardMaterial { reflectance: 0.5, ..default() });
         m.extension.emissive_rule.w = AUTHORED_MARK;
@@ -966,6 +1028,22 @@ mod tests {
         assert_eq!(root(&mut world), None, "its light sources alone");
         let drawn = world.spawn((Transform::IDENTITY, RefVisual(R))).id();
         assert_eq!(root(&mut world), Some(drawn), "not a light source beside it");
+    }
+
+    /// #2701: the full-detail ring's draw-only copy of a reference (`nvf_play::DrawOnly`) is
+    /// never what the scripts' NIF functions find: only the loaded cell's own entity.
+    #[test]
+    fn a_draw_only_entity_is_not_a_references_root() {
+        const R: u32 = 0x302;
+        fn root(world: &mut World) -> Option<Entity> {
+            world.run_system_once(|rigs: Rigs, visuals: Visuals| root_of(R, ModelView::Reference, &rigs, &visuals)).unwrap()
+        }
+        let mut world = World::new();
+        world.spawn((Transform::IDENTITY, RefVisual(R), nvf_play::DrawOnly));
+        assert_eq!(root(&mut world), None, "the ring's copy alone");
+        assert_eq!(world.run_system_once(|v: Visuals| v.iter().count()).unwrap(), 0);
+        let drawn = world.spawn((Transform::IDENTITY, RefVisual(R))).id();
+        assert_eq!(root(&mut world), Some(drawn), "the loaded cell's entity");
     }
 
     #[test]

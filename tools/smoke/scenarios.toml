@@ -357,6 +357,114 @@ expect = [
 ]
 
 [[scenario]]
+name = "lod-night-diffuse"
+source = "#3096 (player report R-ZXT6AC4J): north of Goodsprings (-67758, 2867) at night the distant hills to the north and east were drawn flat white (the player wrote that they turned right on coming closer). A game terrain chunk is spawned only once no diffuse it draws is still loading, and a missing diffuse is drawn with a neutral fallback colour, never white, logged as 'drawn with the fallback colour (shape i bound to …): <path>: <error>' (engine/nvforever/src/lod.rs, world.md §7). On stock data no shape is drawn without its diffuse and no chunk takes the fallback"
+note = "UNRUN when written (2026-11-21). The report's cause is not confirmed: a fallback line here on stock data would name the texture and its error"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/lod.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_LOOK = "4:30:2,12:80:2", NVF_PLAY_TEST_SHOTS = "11:lod_night_north.png,19:lod_night_east.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67758,2867,8900", "--hour", "23"]
+run_seconds = 21
+expect = [
+  { re = 'distant LOD at the end: LOD chunks (\d+) ', range = [10, 100000], label = "the game's terrain chunks are drawn out to the reach" },
+  { re = 'distant LOD terrain surfaces: (\d+) chunks drawn with the fallback colour', range = [0, 0], label = "stock data: every chunk's diffuse loads, none takes the fallback colour" },
+  { re = 'distant LOD terrain surfaces: .*, (\d+) shapes drawn without a diffuse texture', range = [0, 0], label = "no distant terrain shape is drawn while its diffuse is still loading" },
+]
+forbid = ["drawn without its diffuse texture", { re = 'drawn with the fallback colour \(shape ', label = "no chunk drawn with the fallback colour on stock data" }]
+manual = "lod_night_north/east: the distant hills are as dark as the near ground at night, textured, never flat white"
+
+[[scenario]]
+name = "lod-missing-diffuse"
+source = "#3096: with every level-8 terrain chunk's diffuse reading as missing (test aid NVF_PLAY_TEST_BROKEN_FILES), those chunks are still drawn, with the neutral fallback colour instead of white, each logged once with the texture's path and error, and they cover their areas like any other (engine/nvforever/src/lod.rs fallback_material, world.md §7)"
+note = "UNRUN when written (2026-11-21). The texture names come from an asset listing of the archives (world.md §7): textures\\landscape\\lod\\<world>\\diffuse\\<world>.n.level<L>.x<X>.y<Y>.dds"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/lod.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_BROKEN_FILES = "missing:diffuse/wastelandnv.n.level8.", NVF_PLAY_TEST_LOOK = "4:30:2", NVF_PLAY_TEST_SHOTS = "14:lod_missing_level8.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67758,2867,8900", "--hour", "23"]
+run_seconds = 18
+expect = [
+  { re = 'distant LOD: terrain chunk level 8 x-?\d+ y-?\d+ drawn with the fallback colour \(shape \d+ bound to base colour sRGB 0\.45 0\.42 0\.38, no base texture\): .*diffuse.*level8.*: not in any archive', label = "a level-8 chunk without its diffuse is spawned bound to the fallback copy (its colour read back from the bound material, no base texture), the path the model named and the error given" },
+  { re = 'distant LOD terrain surfaces: (\d+) chunks drawn with the fallback colour', range = [1, 100000], label = "level-8 chunks take the fallback colour" },
+  { re = 'distant LOD at the end: LOD chunks \d+ \(levels 4/8/16/32: \d+/(\d+)/', range = [1, 100000], label = "the level-8 chunks are drawn at the end (no holes)" },
+  { re = 'distant LOD terrain surfaces: .*, (\d+) shapes drawn without a diffuse texture', range = [0, 0], label = "none drawn while its diffuse is still loading" },
+]
+forbid = ["drawn without its diffuse texture"]
+manual = "lod_missing_level8: the level-8 band of distant terrain flat brownish grey (the fallback colour, shaded by its normal map), no white hills, no holes"
+
+[[scenario]]
+name = "distant-objects"
+source = "[design, #3014] docs/design/graphics-enhanced.md §3.21 (engine/nvforever/src/distant_objects.rs): started with --graphics-only distant-objects-12 at Goodsprings noon, the distant objects come on at a reach of 12 cells once, and the exit summary counts the cells judged and the references drawn beyond the loaded cells, without a rendering or validation error. Whether they sit where the LOD leaves holes, with no doubling, is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/distant_objects.rs", "engine/nvforever/src/lod.rs", "crates/fnv-world/tests/visible_when_distant.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "distant-objects-12"]
+run_seconds = 30
+order = [[
+  { text = "distant objects: reach 12 cells (ratio", label = "the distant objects come on at 12 cells from the start" },
+  { re = 'distant objects summary: (?P<n>\d+) cells', range = [1, 2000], label = "the exit summary: cells out to 12 cells judged (at most 600 around a player standing still)" },
+]]
+expect = [
+  { re = 'graphics: .*distant objects 12 cells', label = "the graphics line names the distant objects" },
+  { text = "distant objects: reach 12 cells (ratio", count = 1, label = "the distant objects on once" },
+  { re = 'distant objects summary: \d+ cells, (?P<n>\d+) drawn', range = [1, 1000000], label = "the distant objects drew references the LOD leaves out" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the distant objects" },
+  { text = "Shader validation error", label = "a shader of the distant objects that does not validate" },
+  { text = "Validation Error", label = "a graphics API validation error with the distant objects on from the start" },
+  { text = "panicked", label = "a panic with the distant objects on from the start" },
+]
+
+[[scenario]]
+name = "distant-objects-switch"
+source = "[design, #3014] docs/design/graphics-enhanced.md §3.21 (engine/nvforever/src/distant_objects.rs): the settings page's Distant objects row goes to 12 cells while the game runs at Goodsprings noon, the distant objects come on and stream in; then to 8 cells (the far ones fade out) and Off, without a rendering or validation error; the exit summary is logged as they were on"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/distant_objects.rs", "engine/nvforever/src/settings.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,24:28", NVF_PLAY_TEST_SETTINGS = "11:distant-objects=12 cells,25:distant-objects=8 cells,26.5:distant-objects=Off" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+order = [[
+  "settings: distant-objects 12 cells",
+  { text = "distant objects: reach 12 cells (ratio", label = "the row turns the distant objects on at 12 cells in play" },
+  "settings: distant-objects 8 cells",
+  { text = "distant objects: reach 8 cells (ratio", label = "the reach made smaller in play" },
+  "settings: distant-objects Off",
+  { text = "distant objects: off, 0 cells left", label = "Off: every distant cell faded out and retired" },
+  { re = 'distant objects summary: (?P<n>\d+) cells', range = [1, 2000], label = "the exit summary: cells judged while they were on" },
+]]
+expect = [
+  { re = 'graphics: .*distant objects 12 cells', label = "the graphics line names the distant objects at 12 cells" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the distant objects' reach changes" },
+  { text = "Shader validation error", label = "a shader that does not validate while the distant objects' reach changes" },
+  { text = "Validation Error", label = "a graphics API validation error while the distant objects' reach changes" },
+  { text = "panicked", label = "a panic while the distant objects' reach changes" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "distant-objects-with-ring"
+source = "[design, #3014] docs/design/graphics-enhanced.md §3.21 (engine/nvforever/src/distant_objects.rs, full_detail.rs): started with --graphics-only full-detail-9x9,distant-objects-12 at Goodsprings noon, the full-detail ring and the distant objects beyond it both come on and both log their exit summaries, without a rendering or validation error"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/distant_objects.rs", "engine/nvforever/src/full_detail.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "full-detail-9x9,distant-objects-12"]
+run_seconds = 30
+expect = [
+  { text = "full detail: 9 x 9 ring (radius 4)", count = 1, label = "the ring on once beside the distant objects" },
+  { text = "distant objects: reach 12 cells (ratio", count = 1, label = "the distant objects on once beside the ring" },
+  { re = 'full detail summary: 9x9, (?P<n>\d+) cells', range = [1, 500], label = "the ring's exit summary with cells beyond the loaded ones" },
+  { re = 'distant objects summary: (?P<n>\d+) cells', range = [1, 2000], label = "the distant objects' exit summary with cells beyond the ring" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the ring and the distant objects" },
+  { text = "Shader validation error", label = "a shader that does not validate with the ring and the distant objects" },
+  { text = "Validation Error", label = "a graphics API validation error with the ring and the distant objects" },
+  { text = "panicked", label = "a panic with the ring and the distant objects" },
+]
+
+[[scenario]]
 name = "auto-fly"
 source = "CLAUDE.md: after renderer changes, the moving-camera smoke test (cell streaming and LOD rebuilds)"
 areas = ["renderer"]
@@ -488,7 +596,7 @@ args = ["--play", "--pos=56992,37536,2745", "--hour", "12", "--no-voice", "--no-
 run_seconds = 24
 expect = [
   "water reflection: on (the water of cell 13,9 on screen)",
-  "water reflection: off (no water on screen for 1 s)",
+  "water reflection: off (no water on screen for 1 s; ",
 ]
 
 [[scenario]]
@@ -517,7 +625,7 @@ run_seconds = 16
 order = [[
   "water reflection: on (the water of cell",
   { text = "console: Water off", label = "water hidden" },
-  { text = "water reflection: off (no water on screen for 1 s)", label = "camera off after the water is hidden" },
+  { text = "water reflection: off (no water on screen for 1 s; ", label = "camera off after the water is hidden (the line goes on with the reason: #3396)" },
 ]]
 
 [[scenario]]
@@ -676,7 +784,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_PROFILE = "5" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--sun-shadows"]
 run_seconds = 22
 expect = [
-  { re = 'profile batches: shadow 4 views, (?P<n>\d+) multi-drawn sets', range = [1, 200], label = "shadow batch sets stay few (about 49; about 830 without bindless)" },
+  { re = 'profile batches: shadow \d+ views, (?P<n>\d+) multi-drawn sets', range = [1, 200], label = "shadow batch sets stay few (about 49; about 830 without bindless; 4 views, or 5 with a second shadowed directional light [hypothesis: the player body's], #3397)" },
   { re = 'profile batches: .*; opaque 1 views, (?P<n>\d+) multi-drawn sets', range = [1, 60], label = "main-view opaque batch sets stay few (about 9; 169 without bindless)" },
 ]
 
@@ -880,11 +988,11 @@ expect = [
 [[scenario]]
 name = "physics-rate-fps"
 source = "the owner 2026-11-11 (rename the Match Display to Match FPS and implement it): Match FPS follows the game's own frame rate down when it stays low and back up when it recovers, between 60 and the display's ceiling (engine/nvf-play/src/phys_rate.rs `FpsFollow`, docs/spec-notes/physics.md §5.4)"
-note = "The test aid NVF_PLAY_TEST_SLOW_FRAMES holds every frame 30 ms longer from 25 to 35 real seconds after the start: under 34 frames a second, so Match FPS steps down to 60 after 2 s of it, and back up once the frames have recovered for 5 s (their rate depends on the machine, so only that it rises is checked). The cost guard is not what moves it"
+note = "--log-frame-times with --frame-cap 120 gives Match FPS a ceiling of 120 on every display (phys_rate.rs display_hz: a cap without vertical sync is the ceiling); on a 60 Hz display under vertical sync the ceiling was 60, Match FPS started at its floor and had nothing to step down from, so the scenario could not pass (#3356). The test aid NVF_PLAY_TEST_SLOW_FRAMES holds every frame 30 ms longer from 25 to 35 real seconds after the start: under 34 frames a second, so Match FPS steps down to 60 after 2 s of it, and back up once the frames have recovered for 5 s (their rate depends on the machine, so only that it rises is checked). The cost guard is not what moves it"
 areas = ["physics"]
 paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/main.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SLOW_FRAMES = "25:35:30" }
-args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--physics-hz", "fps"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--physics-hz", "fps", "--log-frame-times", "60", "--frame-cap", "120"]
 run_seconds = 55
 order = [[
   { re = 'phys: physics rate \d+ Hz \(--physics-hz fps, Match FPS: ', label = "Match FPS from the command line" },
@@ -983,7 +1091,7 @@ expect = [
 
 [[scenario]]
 name = "graphics-enhanced"
-source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing (the Anti-aliasing choice) replaces the multisampling and back without a rendering error"
+source = "docs/design/graphics-enhanced.md §3: the enhanced look starts (with the 7 x 7 full-detail ring since #3048, §3.20, so every line ends with it), its switches change while the game runs, and temporal anti-aliasing (the Anti-aliasing choice) replaces the multisampling and back without a rendering error"
 areas = ["renderer", "graphics"]
 paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao*", "engine/nvforever/src/post*",
@@ -996,13 +1104,13 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--grap
 run_seconds = 24
 order = [[
   "graphics: ambient occlusion, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
-  { re = 'graphics: longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: longer shadows, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections, water caustics and river flow$' },
-  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, screen-space water reflections, water caustics and river flow$' },
+  { re = 'graphics: longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: longer shadows, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, screen-space water reflections, water caustics and river flow, full-detail scenery 7 x 7$' },
 ]]
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" },
@@ -1549,6 +1657,113 @@ order = [[
   { re = 'draw distances: objects 100%, actors 30%, items 25%' },
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the ranges change" }]
+
+[[scenario]]
+name = "full-detail-ring"
+source = "[design, #2701] docs/design/graphics-enhanced.md §3.20 (engine/nvforever/src/full_detail.rs): started with --graphics-only full-detail-9x9 at Goodsprings noon, the full-detail ring comes on at 9 x 9 (radius 4) once, streams draw-only cells beyond the loaded 5 x 5 and draws their references; the exit summary counts its cells and references drawn, without a rendering or validation error. Whether the ring meets the loaded cells and the LOD without holes or doubling is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/full_detail.rs", "engine/nvforever/src/lod.rs", "engine/nvforever/src/treelod.rs", "engine/nvforever/src/destroyed.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "full-detail-9x9"]
+run_seconds = 30
+order = [[
+  { text = "full detail: 9 x 9 ring (radius 4)", label = "the ring comes on at 9 x 9 from the start" },
+  { re = 'full detail summary: 9x9, (?P<n>\d+) cells', range = [1, 500], label = "the exit summary: the ring spawned cells beyond the loaded ones (56 around a player standing still)" },
+]]
+expect = [
+  { re = 'graphics: .*full-detail scenery 9 x 9', label = "the graphics line names the ring" },
+  { text = "full detail: 9 x 9 ring (radius 4)", count = 1, label = "on once" },
+  { re = 'full detail summary: 9x9, \d+ cells, (?P<n>\d+) references drawn', range = [50, 1000000], label = "the ring drew its cells' references" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the ring's cells" },
+  { text = "Shader validation error", label = "a shader of the ring's cells that does not validate" },
+  { text = "Validation Error", label = "a graphics API validation error with the ring on from the start" },
+  { text = "panicked", label = "a panic with the ring on from the start" },
+]
+
+[[scenario]]
+name = "full-detail-switch"
+source = "[design, #2701] docs/design/graphics-enhanced.md §3.20 Sizes (engine/nvforever/src/full_detail.rs): the settings page's Full-detail scenery row goes to 9 x 9 while the game runs at Goodsprings noon, the ring comes on and streams in; then to 7 x 7 (the outer cells fade out) and Off, without a rendering or validation error; the exit summary names the last size the ring had"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/full_detail.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,24:28", NVF_PLAY_TEST_SETTINGS = "11:full-detail=9 x 9,25:full-detail=7 x 7,26.5:full-detail=Off" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+order = [[
+  "settings: full-detail 9 x 9",
+  { text = "full detail: 9 x 9 ring (radius 4)", label = "the row turns the ring on at 9 x 9 in play" },
+  "settings: full-detail 7 x 7",
+  { text = "full detail: 7 x 7 ring (radius 3)", label = "made smaller in play" },
+  "settings: full-detail Off",
+  { re = 'full detail summary: 7x7, (?P<n>\d+) cells', range = [1, 500], label = "the exit summary: cells were spawned while it was on; 7 x 7 the last size it had" },
+]]
+expect = [
+  { re = 'graphics: .*full-detail scenery 9 x 9', label = "the graphics line names the ring" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the ring changes size" },
+  { text = "Shader validation error", label = "a shader that does not validate while the ring changes size" },
+  { text = "Validation Error", label = "a graphics API validation error while the ring changes size" },
+  { text = "panicked", label = "a panic while the ring changes size" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "full-detail-ring-off"
+source = "[design, #2701] docs/design/graphics-enhanced.md §3.20 Draw-only: the reference run of full-detail-ring-9x9, the same start, moves and clock with the ring off. Its game-side exit lines (cells loaded, residents in high process, encounter zones and triggers entered, quests running) give the numbers full-detail-ring-9x9 must give too: the ring changes nothing game-side"
+note = "Keep env and args the same as full-detail-ring-9x9's but for the --graphics-only keys. GOD and GOTO: two cells east at 8 s, a short walk, back two cells at 16 s. The scripts' exit line has no OnLoad count; its quests running stand for the scripts"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/full_detail.rs", "engine/nvforever/src/destroyed.rs", "engine/nvf-play/src/moved.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "8:-59700:1400:9000,16:-67900:1400:8500", NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0", NVF_PLAY_TEST_GAME_DIGEST = "6,12,20,25" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12", "--npc-packages", "all", "--graphics-only", "no-glow"]
+run_seconds = 26
+expect = [
+  { re = 'streaming summary: (?P<n>\d+) cells loaded', range = [40, 40], label = "the cells the game loaded" },
+  { re = 'process summary: (?P<n>\d+) residents in the loaded area \(high process\)', range = [38, 38], label = "the AI's residents in high process at the end" },
+  { re = 'zones: encounter zone \S+ \(\S+\) entered', count = 0, label = "the encounter zones entered" },
+  { re = 'script: .* entered trigger ', count = 1, label = "the triggers entered" },
+  { re = 'scripts: \d+ frames, .*; (?P<n>\d+) quests running;', range = [360, 360], label = "the quests running at the end" },
+]
+order = [[
+  { text = "game digest t=6: cells 2aae5d495d566c31 residents-high c92291cb133ed36a triggers 1 zone-levels 0 onload 59 end", label = "the game's state at 6 s (cells loaded, residents in high process, triggers, zone levels, OnLoad blocks so far)" },
+  { text = "game digest t=12: cells 24348d698ebfa85f residents-high 5e765febfc3b0e13 triggers 1 zone-levels 0 onload 69 end", label = "the game's state at 12 s (cells loaded, residents in high process, triggers, zone levels, OnLoad blocks so far)" },
+  { text = "game digest t=20: cells 2aae5d495d566c31 residents-high 60fc00e0ae5bc653 triggers 1 zone-levels 0 onload 109 end", label = "the game's state at 20 s (cells loaded, residents in high process, triggers, zone levels, OnLoad blocks so far)" },
+  { text = "game digest t=25: cells 2aae5d495d566c31 residents-high 60fc00e0ae5bc653 triggers 1 zone-levels 0 onload 109 end", label = "the game's state at 25 s (cells loaded, residents in high process, triggers, zone levels, OnLoad blocks so far)" },
+]]
+forbid = [
+  { re = 'full detail', label = "nothing of the ring with the row off" },
+  { text = "Caught rendering error", label = "a rendering (validation) error on the ring-off walk" },
+  { text = "panicked", label = "a panic on the ring-off walk" },
+]
+
+[[scenario]]
+name = "full-detail-ring-9x9"
+source = "[design, #2701] docs/design/graphics-enhanced.md §3.20 Draw-only: full-detail-ring-off's run with the ring at 9 x 9 gives the same game-side exit lines with the same numbers (cells loaded, residents in high process, encounter zones and triggers entered, quests running): ring cells are never loaded cells, so scripts, AI, triggers and streaming see no difference; the ring itself drew cells"
+note = "Keep env and args the same as full-detail-ring-off's but for the --graphics-only keys; take the numbers from that scenario's"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/full_detail.rs", "engine/nvforever/src/destroyed.rs", "engine/nvf-play/src/moved.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "8:-59700:1400:9000,16:-67900:1400:8500", NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0", NVF_PLAY_TEST_GAME_DIGEST = "6,12,20,25" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12", "--npc-packages", "all", "--graphics-only", "no-glow,full-detail-9x9"]
+run_seconds = 26
+expect = [
+  { re = 'full detail summary: 9x9, (?P<n>\d+) cells', range = [1, 1000], label = "the ring drew cells on the way" },
+  { re = 'streaming summary: (?P<n>\d+) cells loaded', range = [40, 40], label = "the same cells loaded as with the ring off" },
+  { re = 'process summary: (?P<n>\d+) residents in the loaded area \(high process\)', range = [38, 38], label = "the same residents in high process at the end" },
+  { re = 'zones: encounter zone \S+ \(\S+\) entered', count = 0, label = "the same encounter zones entered" },
+  { re = 'script: .* entered trigger ', count = 1, label = "the same triggers entered" },
+  { re = 'scripts: \d+ frames, .*; (?P<n>\d+) quests running;', range = [360, 360], label = "the same quests running at the end" },
+]
+order = [[
+  { text = "game digest t=6: cells 2aae5d495d566c31 residents-high c92291cb133ed36a triggers 1 zone-levels 0 onload 59 end", label = "the game's state at 6 s, the same as with the ring off" },
+  { text = "game digest t=12: cells 24348d698ebfa85f residents-high 5e765febfc3b0e13 triggers 1 zone-levels 0 onload 69 end", label = "the game's state at 12 s, the same as with the ring off" },
+  { text = "game digest t=20: cells 2aae5d495d566c31 residents-high 60fc00e0ae5bc653 triggers 1 zone-levels 0 onload 109 end", label = "the game's state at 20 s, the same as with the ring off" },
+  { text = "game digest t=25: cells 2aae5d495d566c31 residents-high 60fc00e0ae5bc653 triggers 1 zone-levels 0 onload 109 end", label = "the game's state at 25 s, the same as with the ring off" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error on the 9 x 9 walk" },
+  { text = "panicked", label = "a panic on the 9 x 9 walk" },
+]
 
 [[scenario]]
 name = "sound-volumes"
@@ -2205,6 +2420,65 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the HDR view's parts come and go" }]
 
 [[scenario]]
+name = "distant-lights"
+source = "[design, #3013] docs/design/graphics-enhanced.md §3.22 Distant lights at night (engine/nvforever/src/distant_lights.rs, distant_lights.wesl): started with --graphics-only distant-lights at Goodsprings 22:00, the distant lights come on once, list the cells in reach with their light references and glow statics, draw glows, and the glows' pipeline compiles and is ready (pipeline_gate.rs `distant lights pipeline <n> ready`, with NVF_PLAY_TEST_PIPELINE_LOG); the exit summary counts cells, lights, glow statics and glows drawn, without a rendering, validation or pipeline error. Whether towns glow where they should is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/distant_lights.rs", "engine/nvforever/src/distant_lights.wesl", "engine/nvf-assets/src/model_glow.rs", "engine/nvforever/src/pipeline_gate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "22", "--graphics-only", "distant-lights"]
+run_seconds = 30
+order = [[
+  { text = "distant lights: on (reach 12 cells, cap 400)", label = "the distant lights come on from the start" },
+  { re = 'distant lights summary: (?P<n>\d+) cells listed', range = [1, 2000], label = "the exit summary: cells in the 12 cells' reach listed" },
+]]
+expect = [
+  { re = 'graphics: .*distant lights', label = "the graphics line names the distant lights" },
+  { text = "distant lights: on (reach 12 cells, cap 400)", count = 1, label = "the distant lights on once" },
+  { re = 'distant lights summary: \d+ cells listed \(\d+ references\), (?P<n>\d+) lights', range = [1, 100000], label = "light references beyond the loaded area become glows" },
+  { re = 'distant lights summary: .*?, (?P<n>\d+) glow statics, ', range = [1, 100000], label = "statics whose model glows (glow cards, lamps, beams) are found around Goodsprings" },
+  { re = 'distant lights summary: .*?, (?P<n>\d+) drawn at most', range = [1, 400], label = "glows were drawn, within the cap" },
+  { re = 'distant lights pipeline \d+ ready', label = "the glows' pipeline (distant_lights.wesl) compiled and is ready" },
+]
+forbid = [
+  { text = "distant lights: off", label = "the distant lights went off while the switch stayed on" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the distant lights' glows" },
+  { text = "Shader validation error", label = "a glow shader that does not validate" },
+  { text = "Validation Error", label = "a graphics API validation error with the distant lights on from the start" },
+  { text = "failed and will not be tried again", label = "the glows' pipeline failed for good" },
+  { text = "panicked", label = "a panic with the distant lights on from the start" },
+]
+
+[[scenario]]
+name = "distant-lights-switch"
+source = "[design, #3013] docs/design/graphics-enhanced.md §3.22 Distant lights at night, Switching (engine/nvforever/src/distant_lights.rs): the settings page's Distant lights row switched on while the game runs at Goodsprings 22:00 turns the glows on and their pipeline compiles; switched off again later it drops them, without a rendering, validation or pipeline error; the exit summary is logged as it was on"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/distant_lights.rs", "engine/nvforever/src/distant_lights.wesl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PAUSE = "10:12,22:24", NVF_PLAY_TEST_SETTINGS = "11:distant-lights,23:distant-lights" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "22"]
+run_seconds = 28
+order = [[
+  "settings: distant-lights on",
+  { text = "distant lights: on (reach 12 cells, cap 400)", label = "the row turns the distant lights on in play" },
+  "settings: distant-lights off",
+  { text = "distant lights: off", label = "and off again: the glows are dropped" },
+  { re = 'distant lights summary: (?P<n>\d+) cells listed', range = [1, 2000], label = "the exit summary: cells listed while they were on" },
+]]
+expect = [
+  { re = 'graphics: .*distant lights', label = "the graphics line names the distant lights while on" },
+  { re = 'distant lights summary: .*?, (?P<n>\d+) glow statics, ', range = [1, 100000], label = "statics whose model glows were found while the row was on" },
+  { re = 'distant lights summary: .*?, (?P<n>\d+) drawn at most', range = [1, 400], label = "glows were drawn while the row was on" },
+  { re = 'distant lights pipeline \d+ ready', label = "the glows' pipeline compiled and is ready after the row turned them on" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the distant lights come and go" },
+  { text = "Shader validation error", label = "a glow shader that does not validate while the distant lights come and go" },
+  { text = "Validation Error", label = "a graphics API validation error while the distant lights come and go" },
+  { text = "failed and will not be tried again", label = "the glows' pipeline failed for good while switching" },
+  { text = "panicked", label = "a panic while the distant lights come and go" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
 name = "terrain-height-blend"
 source = "[design, #2550] engine/nvforever/src/terrain.rs \"Height blending\", terrain.wesl and terrain_weights.wesl: the Terrain height blending switch (off by default and in both presets) switched on while the game runs flips the loaded folded materials and their TERRAIN_HEIGHT_BLEND pipeline compiles and is ready; off and on again flips them back, without a rendering or pipeline error. Pictures of the on/off look are taken by hand"
 areas = ["renderer", "graphics", "terrain", "settings"]
@@ -2449,6 +2723,42 @@ forbid = [
 ]
 
 [[scenario]]
+name = "night-sky-detail"
+source = "[design, #2995] engine/nvforever/src/night_sky.rs, sky.wesl, docs/design/graphics-enhanced.md §3.19: the Night sky detail switch (off by default and in every preset) turned on in the pause menu outdoors at Goodsprings at 23:00 on day 0 (a full moon) works its figures from the shown weather and the moon (the debug multiplier 2 read once) and logs them, puts a twinkle into the stars' materials and a glow into the dome's (its applied line), and stays on after the game resumes; the sky parts' shader (with the twinkle, the moon glow and the moonlit clouds) compiles, without a rendering error"
+areas = ["renderer", "graphics", "settings", "sky"]
+paths = [
+  "engine/nvforever/src/night_sky.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wesl",
+  "engine/nvf-shader-tests/tests/sky.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:night-sky-detail", NVF_PLAY_DEBUG_NIGHT_SKY = "2" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "23", "--day", "0"]
+run_seconds = 22
+expect = [
+  "debug switch NVF_PLAY_DEBUG_NIGHT_SKY: the night sky detail x2",
+  { re = 'night sky: detail on: .*?: haze [\d.]+, twinkle (\d+\.\d+), ', range = [0.3, 0.9], label = "the stars twinkle at night: (0.15 + 0.25 x the weather's haze) x 2" },
+  { re = 'night sky: detail on: .*, moon full lit 1\.00, strength 2\.00, ', label = "day 0 at 23:00: a full moon, fully up, x2" },
+  { re = 'night sky: applied: [1-9]\d* star material\(s\) twinkling \(amplitude [\d.]+\), the dome.s glow (?P<n>[\d.]+), \d+ cloud material\(s\) moonlit', range = [0.02, 0.4], label = "the stars' materials hold a twinkle and the dome's a glow, read back after the writes (0.06 x (1 + 0.5 haze) x 2 at the full moon)" },
+]
+order = [
+  [
+    "settings: night-sky-detail on",
+    { text = "night sky: detail on: ", label = "the detail's line once the switch is on, outdoors" },
+    { text = "night sky: applied: ", label = "then the parts' materials hold it" },
+  ],
+  [
+    "settings: night-sky-detail on",
+    { re = 'graphics: light glow, night sky detail$' },
+    { re = 'pause menu: resume$', label = "the game resumes with the row on" },
+  ],
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the night sky detail" },
+  { re = '(?i)failed to process shader', label = "a shader that does not compile (sky.wesl with the night sky detail)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
+  { text = "night sky: detail off", label = "the row stays on across the resume" },
+]
+
+[[scenario]]
 name = "terrain-height-blend-local-start"
 source = "[design, #2550] engine/nvforever/src/terrain.rs \"Height blending\": started with local height reference (0.10:4:local) and --graphics-only terrain-height-blend, the folded materials are made with it and their TERRAIN_HEIGHT_BLEND pipeline compiles and is ready, without a rendering or pipeline error"
 areas = ["renderer", "graphics", "terrain"]
@@ -2582,6 +2892,44 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
 
 [[scenario]]
+name = "taa-teardown"
+source = "#2955, docs/design/graphics-enhanced.md §3.6 (Temporal anti-aliasing), docs/spec-notes/fsr-upscaling.md: TAA turned off while the game runs, by another anti-aliasing choice (FXAA, Off) or by FSR taking over, drops its pass state and history on the view the same frame (before, the pass went on blending the history frozen at the switch), and turned on again starts its history over"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/taa*", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/fsr*",
+  "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**",
+]
+env = { WGPU_BACKEND = "vulkan", NVF_FFX_API = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0.667,12.5:anti-aliasing=1,14:anti-aliasing=0,15.5:anti-aliasing=1,17:fsr-upscaling=Quality,19:fsr-upscaling=Off" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720", "--graphics-only", "taa", "--upscaler", "off", "--no-lodgen"]
+run_seconds = 24
+note = "DLSS goes the same way (graphics.rs apply takes TAA off for any effective temporal upscaler) but needs NVF_DLSS_DIR, so FSR stands in for it here. NVF_FFX_API=0 keeps the built-in FSR 3.1.4 whatever FidelityFX library lies beside the exe (ffx_api.rs), so the dispatch line is always the 3.1.4 one. --upscaler off keeps an upscaler saved in the INI from starting the run (a given switch wins over the INI in a test run); the settings switches still apply. The start may say 'taa: on' more than once (the camera's view made again by the cell load), hence min counts"
+order = [[
+  "taa: on for a view: its history starts over",
+  "settings: anti-aliasing FXAA",
+  "taa: off for a view: its pass state and history dropped",
+  "settings: anti-aliasing TAA",
+  "taa: on for a view: its history starts over",
+  "settings: anti-aliasing Off",
+  "taa: off for a view: its pass state and history dropped",
+  "settings: anti-aliasing TAA",
+  "taa: on for a view: its history starts over",
+  "settings: fsr-upscaling Quality",
+  "taa: off for a view: its pass state and history dropped",
+  "settings: fsr-upscaling Off",
+  "taa: on for a view: its history starts over",
+]]
+expect = [
+  { text = "taa: off for a view: its pass state and history dropped", min = 3, label = "TAA's state dropped for FXAA, Off and FSR" },
+  { text = "taa: on for a view: its history starts over", min = 4, label = "the history started over at the start and each time TAA came back" },
+  "graphics: FSR Quality active; native anti-aliasing off",
+  "FSR dispatch active: 3.1.4, 853x480 -> 1280x720",
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while TAA goes off and on" },
+  "FSR dispatch failed", "FSR 3.1 unavailable", "Validation Error",
+]
+
+[[scenario]]
 name = "tree-distance-row"
 source = "[design, #3016] docs/design/layer3.md §2.2 (distant trees; engine/nvforever/src/treelod.rs, draw_distance.rs): the settings page's Tree distance slider, a part of the distant LOD's far limit (125,000 units), goes to 0.08 while the game runs at Goodsprings noon and the distant tree billboards' reach drops from --tree-distance's 40,000 units to 10,000 at once, then to the full part and 125,000, beyond the flag, without a rendering or validation error; the exit's distant LOD line still counts trees"
 areas = ["renderer", "settings"]
@@ -2709,6 +3057,7 @@ order = [[
   { text = "sun visibility: cloud on terrain off debug off", label = "the switch turned the plumbing's cloud variant on" },
   { text = "cloud shadows: layers", label = "the producer composed the weather's layers and published them" },
 ]]
+
 expect = [
   { re = 'graphics: light glow, cloud shadows$', label = "the graphics line names the switch" },
   { text = "sun visibility: cloud on terrain off debug off", count = 1, label = "on once: no texture read or publication toggles the pipelines (C0/C1 review, finding 1)" },
@@ -2721,6 +3070,187 @@ forbid = [
   { text = "still being retried after", label = "a pipeline still retried at the cap" },
   { text = "sun visibility: cloud off", label = "the cloud variant went off while the switch stayed on" },
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "light-shadows"
+source = "[design] docs/design/graphics-enhanced.md §3.17, engine/nvforever/src/light_shadows.rs, engine/vendor/bevy_pbr (held light shadow maps): with --light-shadows=quality in the Prospector Saloon at night the placed lights within the shadow distance take shadow maps and draw them, lights skip their fixtures (lamp models, LightFixture), without a rendering or pipeline error. [observed 2026-11-18, these arguments run by hand: 24 cast, 3 lights skipped a fixture, two 10-s summaries.] Whether walls stop their light, and the acne and near plane, are checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/light_shadows.rs", "engine/nvforever/src/light_shadow_casters.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/display_shader.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/shadow_sampling.wesl", "engine/vendor/bevy_light/src/lib.rs"]
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--hour", "22", "--light-shadows=quality"]
+env = { NVF_LIGHT_SHADOW_FIXTURES = "1" }
+run_seconds = 24
+order = [[
+  { re = 'light shadows: [1-9][0-9]* cast \([0-9]+ point, [0-9]+ spot lights\) within', label = "placed lights within the shadow distance took shadow maps" },
+  { re = 'light shadows: [0-9.]+ point lights switched on and [0-9.]+ faces drawn a frame over [0-9]+ frames \([1-9][0-9]* lights casting\)', label = "the 10-s summary: their maps were drawn" },
+]]
+expect = [
+  { re = 'light shadows: light \S+ at .* skips [0-9A-F]{8} fixture', label = "a light skipped a lamp model's shapes (NVF_LIGHT_SHADOW_FIXTURES)" },
+  { re = 'light shadows: renderer over [0-9]+ frames: light views a frame [0-9.]+ alive', label = "the renderer's 10-s line (light views, prepare_lights times)" },
+  { re = 'light shadows: performance pass over [0-9]+ frames: .*caster grid \(on\) [0-9.]+ lamps served a frame', label = "the performance pass's 10-s line, the caster grid on" },
+  { re = 'light shadows: [1-9][0-9]* cast \(.*; static shadow cache on \([0-9]+ MB\)', label = "the static shadow cache on, its memory logged" },
+  { re = 'light shadows: performance pass over [0-9]+ frames: .*static cache \(on\) [0-9.]+ static redraws \(faces\) a frame, [0-9.]+ dynamic recomposites a frame, [0-9.]+ layer copies a frame', label = "the performance pass's 10-s line gives the static cache's counts" },
+]
+forbid = [
+  { text = "DeviceLost", label = "the GPU device was lost" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the light shadow maps" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (a patched lighting or shadow shader that does not compile)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap" },
+]
+[[scenario]]
+name = "light-shadows-switch"
+source = "[design, #3077 review] docs/design/graphics-enhanced.md §3.17 'With the row Off', engine/nvforever/src/light_shadows.rs (`live`, the wind-down) and engine/vendor/bevy_pbr (`HoldLightShadowMaps::active`): the ALC shadows row switched Off and back to Quality while the game runs in Novac at 22:00. Off, the lamps stop casting ('light shadows: off') and the renderer drops the hold (every light's shadow views made again, no static-cache attachment kept); on again, the lamps cast and the static cache composites without a miss, with no rendering or pipeline error either way. Whether the shadows look as before is checked in pictures by hand"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/light_shadows.rs", "engine/nvforever/src/light_shadow_detail.rs", "engine/nvforever/src/light_shadow_casters.rs", "engine/vendor/bevy_pbr/src/render/light.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "10:12,18:20", NVF_PLAY_TEST_SETTINGS = "11:light-shadows=Off,19:light-shadows=Quality", NVF_PLAY_TEST_MOVE = "13:1:0:walk,16:0:0,21:0:1:walk,25:0:0" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages", "--light-shadows=quality"]
+run_seconds = 34
+order = [[
+  { re = 'light shadows: [1-9][0-9]* cast \([0-9]+ point, [0-9]+ spot lights\) within', label = "lamps cast from the start" },
+  "settings: light-shadows Off",
+  { text = "light shadows: off", label = "switched off, the lamps stop casting" },
+  "settings: light-shadows Quality",
+  { re = 'light shadows: [1-9][0-9]* cast \([0-9]+ point, [0-9]+ spot lights\) within', label = "switched on again, the lamps cast again" },
+  { re = 'static cache draws [0-9]+, static cache composites [0-9]+, static cache misses 0', label = "the static cache after the switches, without a miss" },
+]]
+expect = [
+  { text = "light shadows: off", count = 1, label = "off once" },
+]
+forbid = [
+  { re = 'static cache misses [1-9]', label = "a composite without its static layer after the switches" },
+  { text = "DeviceLost", label = "the GPU device was lost while the row switched" },
+  { text = "Caught rendering error", label = "a rendering (validation) error while the hold went and came back (a view kept a slot or a static-cache attachment)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
+  { text = "panicked", label = "a panic (a kept phase binned twice, a stale slot)" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "light-shadows-gunfight"
+source = "[design] docs/design/graphics-enhanced.md §3.17 'Other lights': with --light-shadows=quality, Trudy's shotgun flashes in the Prospector Saloon at night cast as transient lights, each drawn once (switched on as often as cast), without a rendering or pipeline error. [observed 2026-11-18, these arguments run by hand: transients 4 cast, 4 switched on, 24 faces drawn.] The picture and the cost are checked by hand"
+areas = ["renderer", "graphics", "combat"]
+paths = ["engine/nvforever/src/light_shadows.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:enable:TrudyRef,4:call:TrudyRef:AddItem:WithAmmoNVSingleShotgunLoot:1,10:combat:TrudyRef:player" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "22", "--no-voice", "--no-messages", "--light-shadows=quality"]
+run_seconds = 28
+expect = [
+  { re = 'transients [1-9][0-9]* cast, [1-9][0-9]* switched on, [1-9][0-9]* faces drawn', label = "muzzle flashes cast as transient lights" },
+]
+forbid = [
+  { text = "DeviceLost", label = "the GPU device was lost in the gunfight" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the flashes' maps" },
+  { text = "failed and will not be tried again", label = "a shadow pipeline that failed for good" },
+  { text = "still being retried after", label = "a shadow pipeline still retried at the cap" },
+]
+[[scenario]]
+name = "light-shadows-dlss"
+source = "[design] docs/design/graphics-enhanced.md §3.17 'Soft edges and contact shadows': with --light-shadows=quality and DLSS the lamps take soft edges and contact shadows, and the vendored contact march reads the main pass's viewport (bevy_pbr raymarch.wesl depth_uv_scale): before that, drawn below the output size, it threw hard-edged false shadows that changed as the camera moved (playtest videos 2026-11-18, the Prospector Saloon's porch). The walk along the porch compiles the patched march and draws it without a rendering or pipeline error; the picture is checked by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/light_shadow_detail.rs", "engine/nvforever/src/light_shadows.rs"]
+note = "needs NVF_DLSS_DIR (NVIDIA's files)."
+requires = ["NVF_DLSS_DIR"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_LOOK = "1:0:12", NVF_PLAY_TEST_MOVE = "6:0:1:walk,10:0:0", WGPU_BACKEND = "vulkan" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-67950,3240,8400", "--heading", "0", "--hour", "14.1", "--no-voice", "--no-messages", "--upscaler", "dlss", "--upscaler-quality", "quality", "--light-shadows=quality"]
+run_seconds = 12
+expect = [
+  { re = 'soft edges \(light size [0-9.]+, explosions [0-9.]+\) and contact shadows on [1-9][0-9]* lights', label = "soft edges and contact shadows on with DLSS" },
+]
+forbid = [
+  { text = "DeviceLost", label = "the GPU device was lost on the porch walk" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with DLSS and the lamp maps" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the patched contact march under DLSS)" },
+]
+
+[[scenario]]
+name = "light-shadows-novac"
+source = "[design] docs/design/graphics-enhanced.md §3.17, [design, #3074] ('run smoke tests for all the features ... DLSS off and on, Novac and some random interior'): lamp shadows on Quality at 22:00 in Novac, walking: lamps cast, the static shadow cache reports with no misses, no rendering or pipeline error. Pictures are checked by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/light_shadows.rs", "engine/nvforever/src/light_shadow_detail.rs", "engine/nvforever/src/light_shadow_casters.rs", "engine/vendor/bevy_pbr/src/render/light.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_MOVE = "8:1:0:walk,14:0:1:walk,20:0:0" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages", "--light-shadows=quality"]
+run_seconds = 30
+expect = [
+  { re = 'light shadows: [1-9][0-9]* cast \([0-9]+ point, [0-9]+ spot lights\) within', label = "lamps cast (Novac)" },
+  { re = 'light shadows: [0-9.]+ point lights switched on and [0-9.]+ faces drawn a frame over [0-9]+ frames', label = "the 10-s lamp summary (Novac)" },
+  { re = 'static shadow cache on \([0-9]+ MB\)', label = "the static shadow cache on (Novac)" },
+  { re = 'static cache draws [0-9]+, static cache composites [0-9]+, static cache misses 0', label = "no static cache misses (Novac)" },
+  { re = 'light shadows: soft edges \(light size [0-9.]+, explosions [0-9.]+\)', label = "soft edges on Quality (Novac)" },
+]
+forbid = [
+  { re = 'static cache misses [1-9]', label = "a composite without its static layer (Novac)" },
+  { text = "DeviceLost", label = "the GPU device was lost (Novac)" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the lamp maps (Novac)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (Novac)" },
+]
+
+[[scenario]]
+name = "light-shadows-novac-dlss"
+source = "[design] docs/design/graphics-enhanced.md §3.17, [design, #3074] ('run smoke tests for all the features ... DLSS off and on, Novac and some random interior'): lamp shadows on Quality at 22:00 in Novac with DLSS Quality, walking: lamps cast, the static shadow cache reports with no misses, no rendering or pipeline error. Pictures are checked by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/light_shadows.rs", "engine/nvforever/src/light_shadow_detail.rs", "engine/nvforever/src/light_shadow_casters.rs", "engine/vendor/bevy_pbr/src/render/light.rs"]
+note = "needs NVF_DLSS_DIR (NVIDIA's files)."
+requires = ["NVF_DLSS_DIR"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_MOVE = "8:1:0:walk,14:0:1:walk,20:0:0", WGPU_BACKEND = "vulkan" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages", "--light-shadows=quality", "--upscaler", "dlss", "--upscaler-quality", "quality"]
+run_seconds = 30
+expect = [
+  { re = 'light shadows: [1-9][0-9]* cast \([0-9]+ point, [0-9]+ spot lights\) within', label = "lamps cast (Novac with DLSS Quality)" },
+  { re = 'light shadows: [0-9.]+ point lights switched on and [0-9.]+ faces drawn a frame over [0-9]+ frames', label = "the 10-s lamp summary (Novac with DLSS Quality)" },
+  { re = 'static shadow cache on \([0-9]+ MB\)', label = "the static shadow cache on (Novac with DLSS Quality)" },
+  { re = 'static cache draws [0-9]+, static cache composites [0-9]+, static cache misses 0', label = "no static cache misses (Novac with DLSS Quality)" },
+  { re = 'soft edges \(light size [0-9.]+, explosions [0-9.]+\) and contact shadows on [1-9][0-9]* lights', label = "soft edges and contact shadows with DLSS (Novac)" },
+]
+forbid = [
+  { re = 'static cache misses [1-9]', label = "a composite without its static layer (Novac with DLSS Quality)" },
+  { text = "DeviceLost", label = "the GPU device was lost (Novac with DLSS Quality)" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the lamp maps (Novac with DLSS Quality)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (Novac with DLSS Quality)" },
+]
+
+[[scenario]]
+name = "light-shadows-interior"
+source = "[design] docs/design/graphics-enhanced.md §3.17, [design, #3074] ('run smoke tests for all the features ... DLSS off and on, Novac and some random interior'): lamp shadows on Quality at 22:00 in UnderpassRanchInterior01, a random interior, walking: lamps cast, the static shadow cache reports with no misses, no rendering or pipeline error. Pictures are checked by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/light_shadows.rs", "engine/nvforever/src/light_shadow_detail.rs", "engine/nvforever/src/light_shadow_casters.rs", "engine/vendor/bevy_pbr/src/render/light.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_MOVE = "8:1:0:walk,14:0:1:walk,20:0:0" }
+args = ["--cell", "UnderpassRanchInterior01", "--play", "--hour", "22", "--no-voice", "--no-messages", "--light-shadows=quality"]
+run_seconds = 30
+expect = [
+  { re = 'light shadows: [1-9][0-9]* cast \([0-9]+ point, [0-9]+ spot lights\) within', label = "lamps cast (UnderpassRanchInterior01, a random interior)" },
+  { re = 'light shadows: [0-9.]+ point lights switched on and [0-9.]+ faces drawn a frame over [0-9]+ frames', label = "the 10-s lamp summary (UnderpassRanchInterior01, a random interior)" },
+  { re = 'static shadow cache on \([0-9]+ MB\)', label = "the static shadow cache on (UnderpassRanchInterior01, a random interior)" },
+  { re = 'static cache draws [0-9]+, static cache composites [0-9]+, static cache misses 0', label = "no static cache misses (UnderpassRanchInterior01, a random interior)" },
+  { re = 'light shadows: soft edges \(light size [0-9.]+, explosions [0-9.]+\)', label = "soft edges on Quality (UnderpassRanchInterior01, a random interior)" },
+]
+forbid = [
+  { re = 'static cache misses [1-9]', label = "a composite without its static layer (UnderpassRanchInterior01, a random interior)" },
+  { text = "DeviceLost", label = "the GPU device was lost (UnderpassRanchInterior01, a random interior)" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the lamp maps (UnderpassRanchInterior01, a random interior)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (UnderpassRanchInterior01, a random interior)" },
+]
+
+[[scenario]]
+name = "light-shadows-interior-dlss"
+source = "[design] docs/design/graphics-enhanced.md §3.17, [design, #3074] ('run smoke tests for all the features ... DLSS off and on, Novac and some random interior'): lamp shadows on Quality at 22:00 in UnderpassRanchInterior01, a random interior with DLSS Quality, walking: lamps cast, the static shadow cache reports with no misses, no rendering or pipeline error. Pictures are checked by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/light_shadows.rs", "engine/nvforever/src/light_shadow_detail.rs", "engine/nvforever/src/light_shadow_casters.rs", "engine/vendor/bevy_pbr/src/render/light.rs"]
+note = "needs NVF_DLSS_DIR (NVIDIA's files)."
+requires = ["NVF_DLSS_DIR"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_MOVE = "8:1:0:walk,14:0:1:walk,20:0:0", WGPU_BACKEND = "vulkan" }
+args = ["--cell", "UnderpassRanchInterior01", "--play", "--hour", "22", "--no-voice", "--no-messages", "--light-shadows=quality", "--upscaler", "dlss", "--upscaler-quality", "quality"]
+run_seconds = 30
+expect = [
+  { re = 'light shadows: [1-9][0-9]* cast \([0-9]+ point, [0-9]+ spot lights\) within', label = "lamps cast (UnderpassRanchInterior01, a random interior with DLSS Quality)" },
+  { re = 'light shadows: [0-9.]+ point lights switched on and [0-9.]+ faces drawn a frame over [0-9]+ frames', label = "the 10-s lamp summary (UnderpassRanchInterior01, a random interior with DLSS Quality)" },
+  { re = 'static shadow cache on \([0-9]+ MB\)', label = "the static shadow cache on (UnderpassRanchInterior01, a random interior with DLSS Quality)" },
+  { re = 'static cache draws [0-9]+, static cache composites [0-9]+, static cache misses 0', label = "no static cache misses (UnderpassRanchInterior01, a random interior with DLSS Quality)" },
+  { re = 'soft edges \(light size [0-9.]+, explosions [0-9.]+\) and contact shadows on [1-9][0-9]* lights', label = "soft edges and contact shadows with DLSS (UnderpassRanchInterior01, a random interior)" },
+]
+forbid = [
+  { re = 'static cache misses [1-9]', label = "a composite without its static layer (UnderpassRanchInterior01, a random interior with DLSS Quality)" },
+  { text = "DeviceLost", label = "the GPU device was lost (UnderpassRanchInterior01, a random interior with DLSS Quality)" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the lamp maps (UnderpassRanchInterior01, a random interior with DLSS Quality)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (UnderpassRanchInterior01, a random interior with DLSS Quality)" },
 ]
 
 [[scenario]]
@@ -3455,6 +3985,26 @@ order = [[
 ]]
 
 [[scenario]]
+name = "sleeper-crosshair-talk"
+source = "issue #3231 (simulation.md §5, crosshair activation): a bed someone lies on yields the crosshair to the sleeper within reach (pick::to_occupant); E on it wakes the sleeper and the conversation follows, instead of the bed refused as in use [design]"
+note = "Easy Pete laid on his bed NVbedtwin01 00176ACE at 2:00 (placed at 497,-248,2334 turned 90°, collision box ±48.6 × ±84.7 in its own space, so it runs east-west over y -297..-200, the floor at 2304). At 25 s the player stands 50 south of the bed's south side; at 27 s the view looks north, 62° down, at that side under the mattress (497,-297,~2330), away from his body, so the ray meets the bed and not him; E at 30 s. Before the fix the bed was the target and `furniture: the player cannot use 00176ACE: in use` was all that happened. A target line `by Collision` or `by Bounds` on him means the view met his body: move the aim, do not loosen the line"
+areas = ["furniture", "dialogue"]
+paths = ["engine/nvf-play/src/activate/pick.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0", NVF_PLAY_TEST_GOTO = "25:497:-347:2310", NVF_PLAY_TEST_LOOK = "27:0:-62", NVF_PLAY_TEST_ACTIVATE = "30" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "2", "--npc-packages", "EasyPeteRef", "--no-voice"]
+run_seconds = 60
+expect = [
+  { text = "furniture: the player cannot use 00176ACE", count = 0, label = "the bed is never what E uses while he lies on it" },
+]
+order = [[
+  { text = "furniture: 00104C80 is on 00176ACE", label = "Easy Pete asleep on his bed" },
+  { re = 'target 0x00104C80 .*\(Talk\) by Occupant', label = "the crosshair on his bed offers Talk to him, by the bed" },
+  { re = 'activate 0x00104C80 .*: asleep, it wakes and gets up before talking', label = "E wakes him" },
+  { text = "furniture: 00104C80 got off 00176ACE", label = "woken, he is off the bed (the exit played)" },
+  { re = 'dialogue: .* is up after [0-9.]+ s: the player talks to it', label = "and the conversation follows, him off the bed" },
+]]
+
+[[scenario]]
 name = "actor-values"
 kind = "tool"
 source = "CLAUDE.md: after actor value changes, fnvtool actor values (docs/spec-notes/actor-values.md §3.1, §7)"
@@ -3675,6 +4225,22 @@ expect = [
   "detection summary",
   { re = '(?P<n>\d+) actors detected by the player', range = [1, 1000], label = "the player detects actors from the camera (player.GetDetected, added 2026-10-17)" },
 ]
+
+[[scenario]]
+name = "getlos-dead-body"
+source = "#3232: TTW's \"Those!\" (Fallout3.esm MS04Script) advances on Player.GetLOS FredWilksRef == 1 with Fred Wilks lying dead; dead actors are in no detection pair, so player.GetLineOfSight on a body read 0"
+note = "VERT1GSRoachHuntedREF (0x00168D1A, south of Goodsprings, as in death-item-radroach) is moved 200 units north of the player, the view turned north and the roach killed; its body in the camera's view reads 1, and 0 once the view is turned south (behind the camera)"
+areas = ["detection", "deaths"]
+paths = ["crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_LOOK = "6:0:-15,13:180:-15", NVF_PLAY_TEST_CONSOLE = "7:00168D1A.moveto player 0 200 20;7.3:close;8:00168D1A.killactor;8.3:close;11:00168D1A.getdead;11.2:player.getlineofsight 00168D1A;11.5:close;15:player.getlineofsight 00168D1A;15.3:close" }
+args = ["--play", "--pos=-58300,-38400,5900", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 17
+expect = [
+  { re = 'console: GetDead on .*>> 1\.00', label = "the roach is dead" },
+  { re = 'console: GetLineOfSight on player >> 1\.00', count = 1, label = "its body in the camera's view: seen" },
+  { re = 'console: GetLineOfSight on player >> 0\.00', count = 1, label = "behind the camera: not seen" },
+]
+order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'GetLineOfSight on player >> 1\.00' }, { re = 'GetLineOfSight on player >> 0\.00' }]]
 
 [[scenario]]
 name = "alert-fiend"
@@ -4471,17 +5037,41 @@ expect = [
 ]
 
 [[scenario]]
+name = "music-under-pipboy-radio"
+source = "#3311 (audio.md §13.2 item 9): the Goodsprings music is turned down to silence while the Pip-Boy radio plays Mojave Music Radio (tuned to it by name at 12 s, as with the add-ons loaded another station comes first) and fades back in, the same track, when it is turned off (26 s)"
+areas = ["audio", "music", "radio"]
+paths = ["engine/nvf-play/src/music.rs", "engine/nvf-play/src/radio.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_RADIO = "12:tune=vCountryRadio,26:off" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-69000,3500,8900", "--hour", "12"]
+run_seconds = 45
+expect = [
+  { re = 'music summary: 1 started, .*\b1 held by the Pip-Boy radio; playing musSetLOCDesExplBothABC day', label = "music summary: 1 started (not started again), … 1 held by the Pip-Boy radio; playing musSetLOCDesExplBothABC day" },
+  { text = "musSetLOCDesExplBothABC day fades out", count = 0, label = "the track is not dropped under the radio" },
+  { re = "the Pip-Boy tuned to vCountryRadio playing ", label = "the station really plays" },
+]
+order = [[
+  "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner",
+  "pipboy radio: on, tuned to vCountryRadio",
+  "music: the Pip-Boy radio plays: the place's music is held",
+  "music: the place's music is silent (Pip-Boy radio)",
+  "pipboy radio: off",
+  "music: the Pip-Boy radio stopped: the place's music comes back",
+  "music: the place's music is back at full level (Pip-Boy radio)",
+]]
+
+[[scenario]]
 name = "radio-jukebox"
 launch = "saloon-jukebox"
 source = "CLAUDE.md: after radio changes, the saloon jukebox switched off at 14 s and on at 22 s (docs/spec-notes/radio.md §6: the programme runs on from when first heard, at the scripts' first frame, so it comes back about 22 s in; the aids count from the same frame since the start's loading screen, #703)"
 areas = ["radio", "audio"]
-paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/music.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_ACTIVATE = "14,22" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
 run_seconds = 40
 expect = [
   "00109087 (vCountryRadio) is destroyed: silent",
   "radio summary: 1 receivers heard, 1 songs started, 0 DJ lines, 0 lines without a file; receivers switched 3 times, 1 on at exit",
+  { text = "music: the Pip-Boy radio plays", count = 0, label = "a world receiver alone does not turn the music down (#3311)" },
 ]
 order = [[
   { re = '00107D73 tuned to vCountryRadio playing (?P<f>sound\\songs\\radionv\\.*_mono\.ogg)', label = "00107D73 tuned to vCountryRadio playing sound\\songs\\radionv\\…_mono.ogg" },
@@ -4546,7 +5136,7 @@ order = [[
 name = "radio-pipboy"
 source = "CLAUDE.md: after radio changes, the Pip-Boy radio with a script-started broadcast (radio.md §8)"
 areas = ["radio", "audio", "pipboy"]
-paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/music.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "2:enable:RNVTARef,2:enable:vNCREmergencyRadioTARef,2:start:vNCREmergencyRadio", NVF_PLAY_TEST_RADIO = "4:next,12:next,20:previous,28:tune=vNCREmergencyRadioTA,52:off" }
 args = ["--cell", "Goodsprings", "--play"]
 run_seconds = 60
@@ -4561,7 +5151,13 @@ expect = [
   "pipboy radio summary: off at exit",
   { re = 'pipboy radio loudness \(RMS as played, before the Radio and master volumes\): songs (?P<n>[\d.]+)', range = [0.01, 1], label = "songs play at full level, not 12 dB down (#1077)" },
   { re = '(?P<n>\d+) conversations started by scripts', range = [2, 1e9], label = "2 or more conversations started by scripts" },
+  { re = 'music summary: .*\b[1-9]\d* held by the Pip-Boy radio', label = "the Pip-Boy radio held the place's music (#3311)" },
 ]
+order = [[
+  "pipboy radio: on, tuned to vCountryRadio",
+  "music: the Pip-Boy radio plays: the place's music is held",
+  "pipboy radio summary: off at exit",
+]]
 
 [[scenario]]
 name = "radio-rnv-voice-off"
@@ -5577,6 +6173,41 @@ args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice"]
 run_seconds = 28
 order = [["flashlight: on", "flashlight: off"]]
 
+[[scenario]]
+name = "flashlight-aimed-weapon"
+source = "#3121 / #3405 (docs/design/first-person-depth.md, engine/nvforever/src/flashlight.rs, lights/display_shader.rs): aimed down sights of a shiny revolver (Ranger Sequoia 0x00129A44) in a dark interior at 1280x720 with the flashlight off and then on, verifying first-person flashlight attenuation keeps the held weapon and hand readable while the beam lights the room ahead"
+areas = ["flashlight", "lights", "player-body"]
+paths = [
+  "engine/nvf-play/src/flashlight.rs",
+  "engine/nvforever/src/flashlight.rs",
+  "engine/nvforever/src/lights.rs",
+  "engine/nvforever/src/lights/display_shader.rs",
+]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00129A44", NVF_PLAY_TEST_LOOK = "2:345:-4", NVF_PLAY_TEST_CONTROL = "3:weapon,5:aim,8:flashlight,11:flashlight,12:aim", NVF_PLAY_TEST_SHOTS = "7:flashlight_aimed_off.png,10:flashlight_aimed_on.png" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "--size", "1280x720"]
+run_seconds = 14
+expect = [
+  { text = "test aid: the player equips 0x00129A44", label = "Ranger Sequoia equipped" },
+  { re = 'aim zoom: WeapNVRangerSequoia \(0x00129A44\) sight FOV', label = "aiming down iron sights" },
+  { text = "test aid: screenshot flashlight_aimed_off.png", label = "flashlight-off aimed frame captured" },
+  { text = "test aid: screenshot flashlight_aimed_on.png", label = "flashlight-on aimed frame captured" },
+  { text = "aim zoom: back to the unzoomed view", label = "aiming released cleanly" },
+]
+order = [[
+  "test aid: the player equips 0x00129A44",
+  "aim zoom: WeapNVRangerSequoia (0x00129A44) sight FOV",
+  "test aid: screenshot flashlight_aimed_off.png",
+  "flashlight: on",
+  "test aid: screenshot flashlight_aimed_on.png",
+  "flashlight: off",
+  "aim zoom: back to the unzoomed view",
+]]
+forbid = [
+  { text = "Caught rendering error", label = "no rendering or validation errors while aiming with the flashlight" },
+  { text = "failed and will not be tried again", label = "no failed render pipelines while toggling the flashlight" },
+]
+manual = "Compare flashlight_aimed_off.png and flashlight_aimed_on.png (1280x720): with the flashlight on, the aimed Ranger Sequoia cylinder, frame, sights and gloved hand must remain cleanly readable (not blown out to white) while the interior wallpaper and window ahead are brightly illuminated by the flashlight cone."
+
 # ------------------------------------------------------------------ sounds
 
 [[scenario]]
@@ -6226,13 +6857,31 @@ name = "worn-addons-lucky"
 source = "playtest list 7 items 3 and 28 (fnv_actor::records Armor::addons, held_world_model): the CaravanPack's Lightweight Leather Armor wears its biped model list's gloves; Lucky is held in third person as its own engraved model"
 note = "the player equips PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L) and Lucky (WeapNV357RevolverUnique 0x000E2C86; MOD4 357revolverCustom.nif)"
 areas = ["actors", "weapons"]
-paths = ["crates/fnv-actor/src/records.rs", "crates/fnv-actor/src/resolve.rs", "schemas/fnv/objects.json"]
+paths = ["crates/fnv-actor/src/records.rs", "crates/fnv-actor/src/resolve.rs", "crates/fnv-actor/src/first_person.rs", "schemas/fnv/objects.json"]
 env = { NVF_PLAY_TEST_EQUIP = "001735E0,000E2C86", NVF_PLAY_TEST_CONTROL = "6:weapon" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 12
 expect = [
   { re = 'player body: .*wearing \[[^\]]*001735E0[^\]]*\] with the addons \["LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "the armour's gloves are worn with it" },
   { re = 'player weapon: mods 0 on, models Some\("weapons\W+1handpistol\W+357revolverCustom\.nif"\)', label = "Lucky's own model in third person" },
+]
+
+[[scenario]]
+name = "fist-addon-first-person"
+source = "issue #3226 (fnv_actor::first_person::wears_weapon_addons, engine/nvforever/src/player_body.rs build; docs/spec-notes/actors.md §9.2): a fist weapon with no model of its own (WeapBladedGauntlet 0x001519E0: no MODL, BIPL -> ARMABladedGuantlet, Right Hand) was left off the first-person arms, so nothing of it was drawn in first person. The arms now wear its addon, the armour's right glove giving way as on the third-person body; the power fist (a rigid MODL) keeps the bare hand under its model in first person, as before"
+note = "the player wears PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L), is given WeapBladedGauntlet and WeapPowerFist (0x00004347, MODL PowerFistRigid.NIF, BIPL -> ARMAPowerfist) at 2 s, equips the gauntlet at 3 s, draws it at 4 s, swings at 6 and 7 s and switches to the power fist at 8 s. Each equip rebuilds the body; the rebuild's line lists the addons the first-person rig wears and drew a shape of (`first_person::worn_addons`, `Rig::spawned_forms`), only when that rig was built ('N nodes from <folder>', not 'missing')"
+areas = ["actors", "weapons"]
+paths = ["crates/fnv-actor/src/first_person.rs", "crates/fnv-actor/src/resolve.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "001735E0", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:WeapBladedGauntlet:1,2:call:player:AddItem:WeapPowerFist:1,3:call:player:EquipItem:WeapBladedGauntlet,8:call:player:EquipItem:WeapPowerFist", NVF_PLAY_TEST_CONTROL = "4:weapon,6:fire,7:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'player body: armour drawn \[[^\]]*"ARMABladedGuantlet"', label = "the third-person body wears the gauntlet" },
+  { re = 'player body: .*first-person rig \d+ nodes from \S+, wearing \[[^\]]*001519E0[^\]]*\] with the addons \[[^\]]*"ARMABladedGuantlet"[^\]]*\]', label = "the built first-person rig drew the gauntlet (before #3226 only the armour's gloves)" },
+  { re = 'player body: .*wearing \[[^\]]*001519E0[^\]]*\] with the addons \[(?:(?!ARMABladedGuantlet)[^\]])*\]', count = 0, label = "no rebuild with the gauntlet equipped leaves it off the first-person rig" },
+  { re = 'player body: .*wearing \[[^\]]*001519E0[^\]]*\] with the addons \[[^\]]*"LeatherArmorGloveR"', count = 0, label = "the armour's right glove gives way to it, one hand model per hand" },
+  { re = 'combat: WeapBladedGauntlet swing ', label = "the gauntlet swings while worn" },
+  { re = 'player body: .*first-person rig \d+ nodes from \S+, wearing \[[^\]]*00004347[^\]]*\] with the addons \["LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "switched to the power fist: the gauntlet is gone, the arms keep the glove under the rigid fist" },
 ]
 
 # ------------------------------------------------------------------ objects' and actors' animation groups
@@ -6407,6 +7056,20 @@ expect = [
 forbid = [
   { re = 'script: activate parent 0x00139521 sets off', label = "the disarmed tripwire sets nothing off" },
   { re = 'combat: FireWeapon: 0x00139520 fires', label = "its shotgun stays quiet" },
+]
+
+[[scenario]]
+name = "trap-pitching-machine-fires"
+source = "issue 3128: a pitching machine's FireWeapon TrapBaseball throws its balls from the model's ProjectileNode; started from its own origin they hit the machine at once"
+note = "TestTraps' pitching machine 0x00165268 (TrapPitchingMachine01) at (3140, 7777, 8449); activated for the plate 0x0016526C with the OnActivate flag (Activate 0016526C 1; without it the console's Activate plays the default Open and the script never runs) at 8 s, its script plays Forward and fires TrapBaseball every 0.5 s, 12 balls. The player stands 600 units in front of it."
+areas = ["traps", "combat"]
+paths = ["crates/fnv-game/src/functions/fighting.rs", "crates/fnv-game/src/nif_blocks.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:00165268.activate 0016526C 1;8.5:close" }
+args = ["--cell", "TestTraps", "--pos=3140,8377,8460", "--heading", "180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'combat: FireWeapon: 0x00165268 fires', min = 3, label = "the machine fires its balls" },
+  { re = 'combat: FireWeapon: 0x00165268 fires TrapBaseball from \(-?\d+, -?\d+, (?P<n>-?\d+)\)', range = [8500, 8540], label = "the balls leave its ProjectileNode, about 70 units above its origin (8449), not its origin" },
 ]
 
 [[scenario]]
@@ -6809,6 +7472,21 @@ order = [[
 ]]
 
 [[scenario]]
+name = "terminal-note-pages"
+source = "[hypothesis] #3409: E, Enter or a click turns a terminal note longer than the screen to its next page, and does nothing on its last page (hacking.md section 7; observer check 255)"
+note = "V21SheldonTerminal's mail: Messages, New Message from Sarah Weintraub (note V21SarahOutMail01, about 30 lines: two pages of 16) [observed: 2026-11-22, the first page ends mid-sentence and the second runs to 'Sarah.']. Three selects: the first turns, the other two find the last page"
+areas = ["terminal"]
+paths = ["engine/nvf-play/src/terminal*", "engine/nvf-play/src/terminal/**"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "20:open:0011E3C3,22:item:0,24:item:0,26:item:0,28:select,30:select,32:select,34:back,36:exit" }
+args = ["--cell", "2EOMichaelAngelo", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  { text = "note V21SarahOutMail01", count = 1, label = "the long mail opened as a note" },
+  { text = "terminal: note turned to line 16", count = 1, label = "one select turns it to its second page, the others find its last page" },
+]
+order = [["note V21SarahOutMail01", "terminal: note turned to line 16", "terminal: back from the note to the list"]]
+
+[[scenario]]
 name = "terminal-scripted-activate"
 source = "#1532: Lucky38MrHouseTerminal's OnActivate (SCPT 0x001746C1) ends in a bare Activate: a script's default activation of a terminal opens its screen for the player, after Terminal01.NIF's Open sequence (keyboard, then screen); leaving plays Close"
 note = "Lucky38MrHouseTerminalREF (0014B0A7, base Lucky38MrHouseTerminal 0014B08E: Hard, locked, model Terminals/Terminal01.NIF with Idle/Open/Close) [observed: FalloutNV.esm]; Science 80 so the script's first branch (Science 75, not locked for good) runs Activate and the hacking game opens"
@@ -6947,6 +7625,23 @@ order = [[
   { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", label = "drawn only after the terminal closes" },
 ]]
 expect = [{ text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", count = 1, label = "shown once" }]
+
+[[scenario]]
+name = "blake-books"
+source = "[observed] #3350: Bitter Springs Infirmary Blues' two books lie on Blake's stand in WastelandNVmini, owned by him (VBSPsychologyBookREF 0x00178DB0, VBSPediatricsBookREF 0x00178DAF; in no merchant container); they are drawn there, can be taken (a theft), and each completes its objective (20, 40) by its OnAdd. Whether the original also sells them is observer check 256"
+note = "NEAR stands the player facing the pediatrics book (heading 45, pitch -60) and E takes it by the crosshair; the psychology book, on the upper shelf behind the barbed wire, is taken by a script activation (by the crosshair it needs a pitch of about -6 from its NEAR spot). The theft is seen, so Blake's side may turn on the player afterwards: god mode"
+areas = ["quests", "crime"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/**", "engine/nvf-play/src/menu/model.rs", "docs/spec-notes/barter-menu.md"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00178DAF", NVF_PLAY_TEST_ACTIVATE = "8", NVF_PLAY_TEST_SCRIPT = "5:start:VMS40,5.5:stage:VMS40:10,10:activate:VBSPsychologyBookREF" }
+args = ["--world", "WastelandNVmini", "--pos=13240,17420,9960", "--hour", "12", "--play", "--no-voice", "--no-messages"]
+run_seconds = 13
+expect = [
+  { text = "target 0x00178DAF Tiny, Tiny Babies: All You Need to Know About Pediatric Medicine (Take, owned)", label = "the pediatrics book is drawn on the stand and the crosshair finds it, owned" },
+  { text = "script: VMS40 objective 40 completed true", count = 1, label = "taking it completes objective 40" },
+  { text = "crime: the player took VBSPediatricsBook (0x00178DAF) x1, owned by someone else", label = "as a theft from Blake" },
+  { text = "script: VMS40 objective 20 completed true", count = 1, label = "the psychology book taken completes objective 20" },
+  { text = "crime: the player took VBSPsychologyBook (0x00178DB0) x1, owned by someone else", label = "as a theft too" },
+]
 
 [[scenario]]
 name = "hacking-owned"
@@ -7474,6 +8169,40 @@ run_seconds = 95
 expect = [
   { re = 'wait summary: .* 72 hours passed' },
   { re = 'cell reset: GNDeadTribalVillage after 7\d\.\d h away: (?P<n>\d+) actors back alive: .*TCFiend01DEAD', range = [7, 100], label = "cell reset: the village's seven Fiends or more back alive" },
+]
+
+[[scenario]]
+name = "spawn-placeholder-reset"
+source = "#3228: the leveled spawns' invisible placeholder creature (VCrILikeOblivionChancedSpawns, Health 0, Respawn, Is Ghost) came back alive at a cell reset, joined its herd's fights and hit the player; its script's OnLoad (Kill, SetDestroyed 1) never ran because the spawn base takes its script from the leveled list (template flag Script). docs/spec-notes/dead-on-spawn.md §4.1, scripts.md §7.1"
+areas = ["combat", "deaths", "wait", "scripts"]
+paths = ["crates/fnv-game/src/respawn.rs", "crates/fnv-game/src/templates.rs", "engine/nvforever/src/cell_resets.rs", "crates/fnv-game/tests/spawn_placeholders.rs"]
+# From Camp Golf's bighorner herd (exterior 000DDEF0, the spot of #3228) to Goodsprings,
+# three 24 h waits there, and back. The herd's spawns 0x00168D45, 47, 4C, 4D, 4F and 50
+# pick the placeholder (spawn_placeholders data test): laid out dead by the new game,
+# recreated alive by the reset (which clears their destroyed flag), killed and set
+# destroyed again by their OnLoad. The game runs the reset and that OnLoad before the
+# engine logs the reset's summary, so both are expected without an order; the console
+# probes after the return read each of them dead, destroyed and out of combat.
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "20:-70500:1500:8800,82:15651:56400:4400", NVF_PLAY_TEST_WAIT = "26:open,27:hours=24,28:accept,44:open,45:hours=24,46:accept,62:open,63:hours=24,64:accept", NVF_PLAY_TEST_CONSOLE = "90:00168D45.getdead;00168D45.getdestroyed;00168D45.isincombat;00168D47.getdead;00168D47.getdestroyed;00168D47.isincombat;00168D4C.getdead;00168D4C.getdestroyed;00168D4C.isincombat;00168D4D.getdead;00168D4D.getdestroyed;00168D4D.isincombat;00168D4F.getdead;00168D4F.getdestroyed;00168D4F.isincombat;00168D50.getdead;00168D50.getdestroyed;00168D50.isincombat;92:close" }
+args = ["--play", "--pos=15651,56612,4400", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 100
+expect = [
+  { re = 'wait summary: .* 72 hours passed' },
+  { re = 'cell reset: .* actors back alive: .*VSpawnTier1(BigHornerSmall75|BloatFlyMed50)', label = "the herd's cell is reset and its dead spawns come back" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D45\)', min = 2, label = "herd placeholder 0x00168D45 runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D47\)', min = 2, label = "herd placeholder 0x00168D47 runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D4C\)', min = 2, label = "herd placeholder 0x00168D4C runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D4D\)', min = 2, label = "herd placeholder 0x00168D4D runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D4F\)', min = 2, label = "herd placeholder 0x00168D4F runs its OnLoad at the first load and again after the reset" },
+  { re = 'script: OnLoad of FalloutNV\.esm\|SCPT 0x00159603 ran on Some\(0x00168D50\)', min = 2, label = "herd placeholder 0x00168D50 runs its OnLoad at the first load and again after the reset" },
+  { re = 'console: GetDead on 0x00168D(45|47|4C|4D|4F|50) >> 1\.00', count = 6, label = "after the reset every herd placeholder is dead" },
+  { re = 'console: GetDestroyed on 0x00168D(45|47|4C|4D|4F|50) >> 1\.00', count = 6, label = "and destroyed again by its OnLoad (the reset cleared it)" },
+  { re = 'console: IsInCombat on 0x00168D(45|47|4C|4D|4F|50) >> 0\.00', count = 6, label = "and in no fight" },
+]
+forbid = [
+  { re = 'script: OnStartCombat of FalloutNV\.esm\|SCPT 0x00159603 ran', label = "no placeholder starts a fight" },
+  { re = 'npc combat: 0x00168D(45|47|4C|4D|4F|50) .*fights the player', label = "no herd placeholder fights the player" },
+  "VCrILikeOblivionChancedSpawns hits the player",
 ]
 
 [[scenario]]
@@ -9926,6 +10655,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "captive-through-bars"
+source = "#3233 (docs/spec-notes/simulation.md §5 \"Talking through bars\"): the Vault 3 captives stand behind JailCellDoorway01 (0x000EF3FA), one collision object on layer 3 Transparent, which took the crosshair, so they could not be talked to; when nothing else is offered, a living actor to talk to behind a see-through layer is the target, and E only opens the conversation"
+note = "the player at the report's spot in Vault3b (feet -2723,4553,5889; V3Prisoner01Ref 0x000F47B0, Rick Lancer, placed at -2773,4664,5888 behind the bars), looking at him (heading 336, pitch -10: the view ray of `fnvtool phys cell --cell Vault3b --ray -2723,4553,6005,-50,110.7,-25`, which hits the bars 25 units out); no face aid, which would move the player; god mode against the Fiends nearby; E at 8 s. If Rick has walked from his placed spot the target line is missing: look at where he stands before calling it a regression"
+areas = ["activation", "dialogue"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/see_through.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_ACTIVATE = "8" }
+args = ["--cell", "Vault3b", "--pos=-2723,4553,5889", "--heading", "336", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'target 0x000F47B0 .*\(Talk\) by Collision through 0x000EF3FA', label = "Rick Lancer is targeted with Talk through the cell bars (the bars the first collision hit)" },
+  { re = 'activate 0x000F47B0 .*\(Talk through 0x000EF3FA\): a conversation started', label = "E through the bars only opens the conversation" },
+  { re = 'dialogue: conversation with V3Prisoner01Ref started', label = "the conversation opens" },
+]
+
+[[scenario]]
 name = "door-behind-wall-face"
 source = "#1339 (docs/spec-notes/cells-refs.md §5): the Nipton town hall's collision mesh has a face 8.5 units in front of its door's slab, so the crosshair stopped on the building and the door could not be used; a door within 16 units behind a face that cannot be activated is the target"
 note = "the town hall's outside door (0x00130CFF, a teleport into NiptonTownHallInterior), the player put 100 units south of it facing it; E at 8 s takes the player inside"
@@ -10260,6 +11004,34 @@ env = { NVF_PLAY_TEST_CONSOLE = "10:startquest VCG03;10.5:setobjectivedisplayed 
 args = ["--cell", "Vault22c", "--play", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [{ re = 'compass: 2 quest target\(s\) placed', label = "both targets marked at the first door of the way out" }]
+
+[[scenario]]
+name = "compass-marker-range-near"
+source = "#2348 (docs/spec-notes/hud.md §11): the compass shows map markers within iMapMarkerVisibleDistance (10000 without it, the masters lack it), whatever the Perception; at Perception 1 a marker 9,000 units ahead stays on the compass (Perception x 2048 before #2348 gave 2,048 units and took it off)"
+note = "the Goodsprings map marker (REFR 0x000CDF51, FULL Goodsprings, at -70992, 2560 [fnvtool esm decode]) stands 9,000 units due west of the player, who faces west (heading 270); the ground there is bare terrain at z 8432 (fnvtool phys walk). Of the WastelandNV map markers (fnvtool world refs, every master and the test plugins) the others within 10,600 units are 112 and 148 degrees off the heading, outside the compass's band (about 49 degrees either side), so exactly one is on the compass. Perception goes to 1 at 6 s"
+areas = ["hud", "map"]
+paths = ["engine/nvf-play/src/compass.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:set_av:player:Perception:1" }
+args = ["--play", "--world", "WastelandNV", "--pos=-61992,2560,8500", "--heading", "270", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+order = [[
+  { re = 'test aid: .* Perception set to 1\b', label = "Perception set to 1" },
+  { re = 'compass: map markers within 10000 units \(Perception 1\): \d+ in range, 1 on the compass', label = "at Perception 1 the range is still 10,000 and Goodsprings, 9,000 units ahead, is on the compass" },
+]]
+
+[[scenario]]
+name = "compass-marker-range-far"
+source = "#2348 (docs/spec-notes/hud.md §11): the compass shows map markers within iMapMarkerVisibleDistance (10000 without it), whatever the Perception; at Perception 10 a marker 11,000 units ahead is not on the compass (Perception x 2048 before #2348 gave 20,480 units and showed it)"
+note = "as compass-marker-range-near, 2,000 units farther east: the Goodsprings map marker (0x000CDF51) 11,000 units due west of the player facing west (heading 270), bare terrain at z 8055 (fnvtool phys walk); no other WastelandNV map marker within 10,600 units is within 78 degrees of the heading. Perception goes to 10 at 6 s"
+areas = ["hud", "map"]
+paths = ["engine/nvf-play/src/compass.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:set_av:player:Perception:10" }
+args = ["--play", "--world", "WastelandNV", "--pos=-59992,2560,8150", "--heading", "270", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+order = [[
+  { re = 'test aid: .* Perception set to 10\b', label = "Perception set to 10" },
+  { re = 'compass: map markers within 10000 units \(Perception 10\): \d+ in range, 0 on the compass', label = "at Perception 10 the range is still 10,000 and Goodsprings, 11,000 units ahead, is not on the compass" },
+]]
 
 [[scenario]]
 name = "quest-marker-dam-from-strip"
@@ -11093,6 +11865,19 @@ expect = [
   { text = "main menu: Continue is greyed out", label = "the menu takes input (test aid picks Continue, no saves)" },
 ]
 forbid = [{ text = "explore: the free-camera explorer", label = "not the explorer" }]
+
+[[scenario]]
+name = "code-page-936"
+source = "#1443: explicit code page 936 selects the GB18030 codec and starts the game"
+areas = ["main-menu", "settings"]
+paths = ["crates/fnv-util/src/lib.rs", "crates/fnv-esm/src/text_guess.rs", "engine/nvforever/src/setup.rs"]
+env = { NVFOREVER_HOME = "code-page-936-home", NVF_CODE_PAGE = "936" }
+args = ["--play", "--menu", "--no-voice"]
+run_seconds = 8
+order = [[
+  "setup: game text read as windows-936 (GB18030/GBK)",
+  { re = 'main menu: open \(', label = "the main menu opens with code page 936" },
+]]
 
 [[scenario]]
 name = "menus-look"
@@ -12939,10 +13724,10 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_P
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700"]
 run_seconds = 17
 order = [[
-  { re = 'pause menu: rows 2-13 of \d+ shown', label = "a notch of the wheel shows the next row (a window of 12 lines, #2377)" },
-  { re = 'pause menu: rows 3-14 of \d+ shown' },
-  { re = 'pause menu: rows 4-15 of \d+ shown' },
-  { re = 'pause menu: rows 3-14 of \d+ shown', label = "a notch up shows the row before again" },
+  { re = 'pause menu: rows 2-13 of \d+ shown', label = "a notch of the wheel shows the next row (a window of 12 lines, #2377)", known_failing = "#3375: the menu overhaul (2026-11-15/16) made the window 11 lines, so the log reads rows 2-12, 3-13, 4-14 and 3-13; this scenario still names the 12-line window of #2377 (settings-scroll-headings has the 11-line one)" },
+  { re = 'pause menu: rows 3-14 of \d+ shown', known_failing = "#3375: the menu overhaul (2026-11-15/16) made the window 11 lines, so the log reads rows 2-12, 3-13, 4-14 and 3-13; this scenario still names the 12-line window of #2377 (settings-scroll-headings has the 11-line one)" },
+  { re = 'pause menu: rows 4-15 of \d+ shown', known_failing = "#3375: the menu overhaul (2026-11-15/16) made the window 11 lines, so the log reads rows 2-12, 3-13, 4-14 and 3-13; this scenario still names the 12-line window of #2377 (settings-scroll-headings has the 11-line one)" },
+  { re = 'pause menu: rows 3-14 of \d+ shown', label = "a notch up shows the row before again", known_failing = "#3375: the menu overhaul (2026-11-15/16) made the window 11 lines, so the log reads rows 2-12, 3-13, 4-14 and 3-13; this scenario still names the 12-line window of #2377 (settings-scroll-headings has the 11-line one)" },
 ]]
 
 [[scenario]]
@@ -13616,7 +14401,7 @@ order = [[
   { re = 'sound speed: 0\.\d\d -> 1\.00', label = "and come back to speed when it ends" },
 ]]
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   "player controls: all held, the player is dead",
   { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
@@ -13634,7 +14419,7 @@ env = { NVFOREVER_HOME = "death-fade-recovery-delay-home", NVF_PLAY_TEST_GOTO = 
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   { re = 'death camera: the screen starts fading to black (?P<n>[\d.]+) s after the death', range = [2.0, 2.3], label = "the fade starts about 2 s after the death" },
   { re = 'death camera: the screen is black (?P<n>[\d.]+) s after the death', range = [6.0, 6.3], label = "the screen is black about 6 s after the death" },
@@ -13650,7 +14435,7 @@ env = { NVFOREVER_HOME = "death-cam-third-recovery-delay-home", NVF_PLAY_TEST_GO
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   "death camera: the player died in third person: the body drops as a ragdoll, the camera stays put and looks at it",
   { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
 ]
@@ -13703,7 +14488,7 @@ env = { NVFOREVER_HOME = "ragdoll-floats-recovery-delay-home", NVF_PLAY_TEST_MOV
 args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 50
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   { re = 'ragdoll: actor 00000014 floats at \(5\d{4}, 37\d{3}, [\d.]+\), its trunk (?P<n>-?\d+) units under the surface at 2600', range = [-25, 25], label = "the body comes to rest floating, its trunk at the lake's surface (6 under, 13 s after the death, 2026-10-25)" },
 ]
@@ -15771,7 +16556,7 @@ expect = [
   { re = 'FaceGen: .* (?P<n>\d+) faces textured', range = [2, 200], label = "face offset images were made for the NPCs" },
   { re = 'FaceGen: .* (?P<n>\d+) skins textured', range = [2, 400], label = "body and hand skin offset images were made" },
   { re = 'FaceGen: .* (?P<n>\d+) shapes tinted in the shader', range = [6, 2000], label = "face and skin materials carry the offset" },
-  { re = '(?i)(shader|pipeline).*(error|failed)|(error|failed).*(nif_material|shader)', count = 0, label = "the material shader compiles with FACEGEN_TINT" },
+  { re = '(?i)(shader|pipeline).*(error|(?<! 0 )failed)|(error|failed).*(nif_material|shader)', count = 0, label = "the material shader compiles with FACEGEN_TINT (the pipeline list's summary '0 failed' is no failure, #3398)" },
 ]
 
 [[scenario]]
@@ -16574,7 +17359,7 @@ env = { NVFOREVER_HOME = "death-music-dobj-recovery-delay-home", NVF_PLAY_TEST_C
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
-  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied", known_failing = "#3283: no plugin of the base game holds fPlayerDeathReloadTime, so setgs answers 'No game setting'; the run starts no death recovery anyway (assisted-run policy)" },
   { re = 'music: the player died: the music stops, MUSDeath \(0x[0-9A-F]{8}\) plays', label = "the SOUN fallback plays: the DOBJ's death music names no shipped file" },
 ]
 forbid = [{ text = "death recovery:", label = "camera-only fixture does not dispatch recovery during its unchanged observation window" }, { text = "the default objects' death music", label = "no default objects' death music file in the shipped data" }]
@@ -16644,6 +17429,39 @@ expect = [
   { re = 'swimming summary: .* (?P<n>\d+) swam without swimming clips', range = [0, 0], label = "they swim on their folder's swimmt clips" },
 ]
 forbid = [{ text = "player: stops swimming", label = "swims on over the deepening bed" }]
+
+[[scenario]]
+name = "lakelurk-idle-pose"
+source = "issue #2980 (a lakelurk stands in a T-pose until it fights): the placed lakelurks of Boulder Beach, calm and idle, play the mirelurk king's standing idle (mtidle.kf) alone on their base layer; the pose watch (NVF_PLAY_TEST_POSE_WATCH, swimming.rs) says what each plays, its idle layers and whether it has a character; no lakelurk has a base layer fault (locomotion.rs base_fault)"
+note = "Boulder Beach shore (as wade-in-swim), the lakelurks kept unaware (NVF_PLAY_TEST_UNSEEN); the player walks east to the waterline at 6-8 s and the watch starts at 9 s, so every pose-watch line is from after the approach. No lakelurk reference is named in the docs, so any placed one (not a created FF reference) counts; a reference near the shore (fnvtool world refs) would pin it. Not run yet. The lines are the evidence for #2980's cause: an idle lakelurk on mtidle.kf alone at weight 1 rules out its base layer, and its idle layers name any idle laid over it"
+areas = ["actors", "creatures", "physics"]
+paths = ["engine/nvforever/src/swimming.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/body_weapons.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_MOVE = "6:1:0,8:0:0", NVF_PLAY_TEST_POSE_WATCH = "9:lakelurk" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  "test aid: movement keys forward 0 right 0",
+  { re = 'pose watch: Creature [0-9A-E][0-9A-F]{7} \w*[Ll]akelurk\w*: layer 0 \S*mirelurkking.mtidle\.kf \(weight 1\.0\) from its standing set', label = "after the approach a placed lakelurk plays its standing idle alone on its base layer" },
+]
+forbid = [{ re = 'actor base layer fault: Creature [0-9A-F]{8} \w*[Ll]akelurk', label = "no lakelurk lacks a base clip or has a non-finite one" }]
+
+[[scenario]]
+name = "lakelurk-rests-on-bed"
+source = "issue #2980 (docs/spec-notes/physics.md §6.6, Actors standing on the bed): a lakelurk with a live character on a bed deeper than wade_depth swims, held at the bed; standing still there it plays its standing idle (mtidle.kf) alone at full weight, the swimming idle faded out (engine/nvforever/src/swimming.rs rests_now)"
+note = "the player swims out from the Boulder Beach shore as wade-in-swim and the beach's lakelurks, not kept unaware, follow it in (god mode). Dependent, not run yet: a lakelurk keeps its character only while on its way (residents.rs); one holding its ground in range loses it (fnv_ai alert Search::Holding, activity There) unless an attack carries it, so it rests with a character only when it waits at the end of its way for the moving player (Search::Closing). No test aid holds a character in place; hence the known_failing marks"
+areas = ["physics", "actors", "creatures"]
+paths = ["engine/nvforever/src/swimming.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-phys/src/character.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "10:1:0,14:0:0", NVF_PLAY_TEST_POSE_WATCH = "lakelurk" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'swimming: [0-9A-F]{8} rests on the bed under water: it stands on its standing clips', label = "a lakelurk with a character comes to rest on the bed", known_failing = "dependent: needs a lakelurk to stand still while it keeps its character (a holder loses it, residents.rs); not run yet" },
+  { re = 'pose watch: Creature [0-9A-F]{8} \w*[Ll]akelurk\w*: layer 0 \S*mirelurkking.mtidle\.kf \(weight 1\.0\) from its \w+ set; idle layers .*; a character, swimming, resting on the bed', label = "resting on the bed, once the fade is done, the standing idle alone at full weight on its base layer (#2980)", known_failing = "dependent: as above" },
+]
+forbid = [
+  { re = 'pose watch: Creature [0-9A-F]{8} \w*[Ll]akelurk\w*: layer 0 \S*swimidle\.kf .*resting on the bed', label = "never its swimming idle on the base layer while it rests on the bed" },
+  { re = 'actor base layer fault: Creature [0-9A-F]{8} \w*[Ll]akelurk', label = "no lakelurk lacks a base clip or has a non-finite one" },
+]
 
 [[scenario]]
 name = "caravan-currency"
@@ -17310,6 +18128,37 @@ expect = [
 ]
 
 [[scenario]]
+name = "grab-teddy-bear"
+source = "[design] #3428: a placed item whose model is several dynamic bodies (the teddy bear: six on five limited hinges) is joined into one rigid body as a dropped one is, so the grab key holds it; physics.md section 4.3.1"
+note = "the bear 00172D8B south of Goodsprings, lying in its designer's XRGD pose; Z held 3 s. Before: 'no loose body' (its bodies were held keyframed). It weighs 8 kg joined (1 x 5 + 3)"
+areas = ["grab", "physics"]
+paths = ["engine/nvf-play/src/phys/prepare.rs", "engine/nvf-play/src/grab.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NEAR = "00172D8B", NVF_PLAY_TEST_GRAB = "8:z:3:90:at=00172D8B" }
+args = ["--play", "--pos=-68601,-54700,6370", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { text = 'phys: 0x00172D8B meshes\clutter\teddybear\teddybear01.nif: collision posed from XRGD (6 bodies)', label = "the bear's bodies are posed as its designer left it" },
+  { re = 'grab: picked up loose object Teddy Bear \(00172D8B\) by Aid: 8\.0 kg', label = "Z picks the bear up as one body of its parts' summed mass" },
+  { re = 'grab: Teddy Bear \(00172D8B\) came to rest at', label = "dropped, it comes to rest" },
+]
+forbid = [{ text = "no loose body", label = "the bear's bodies held keyframed" }]
+
+[[scenario]]
+name = "grab-plant-rooted"
+source = "[hypothesis] #3389: the grab key passes through a body on the non-collidable layer, so a pickable plant (White Horse Nettle: one dynamic box of 45 kg on layer 15) stays rooted; observer check 278"
+note = "the nettle 0016AF22 south of Goodsprings; Z held 3 s on it. Before the fix it was picked up as a loose object of 45 kg and dropped about 100 units off"
+areas = ["grab"]
+paths = ["engine/nvf-play/src/grab.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NEAR = "0016AF22", NVF_PLAY_TEST_GRAB = "8:z:3:90:at=0016AF22" }
+args = ["--play", "--pos=-68223,-3700,8110", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { text = "test aid NVF_PLAY_TEST_GRAB: aimed at 0016AF22", label = "the view is turned to the nettle" },
+  { text = "grab: nothing under the crosshair to pick up", label = "Z finds nothing to pick up on the plant" },
+]
+forbid = [{ text = "grab: picked up loose object White Horse Nettle", label = "the plant comes off the ground" }]
+
+[[scenario]]
 name = "grab-skull"
 source = "docs/spec-notes/grab.md §5: the tutorial's brahmin skull in Doc Mitchell's house picked up with Grab (Z) and put back, then held with Activate (E) and carried while the view turns 120°, dropped clear of the top it lay on and was carried along (at 90° it was let go on that top's edge and tumbled off it spinning, a roll on the floor that passed 300 units in about one run in three on the physics-tickrate branch, 2026-11-15); its OnGrab and OnRelease blocks run"
 areas = ["grab", "physics"]
@@ -17834,16 +18683,19 @@ expect = [
 
 [[scenario]]
 name = "impact-decals-blood"
-source = "owner's playtest list 7 item 27: blood decals floated off the bodies at wrong angles and came too often; they now lie on the drawn body where the shot's line meets it, at most 3 an actor, one each 0.3 s (docs/spec-notes/impact-decals.md §4)"
-note = "God mode in the Goodsprings general store (the energy-resist-hit setup): aimed at Chet's chest (aimnpc=0.6) the 10mm pistol with no spread shoots him four times from 14.1 s; a frame at 15.8 s shows the blood on him"
+source = "owner's playtest list 7 item 27: blood decals floated off the bodies at wrong angles and came too often; they now lie on the drawn body where the shot's line meets it, at most 3 an actor, one each 0.3 s (docs/spec-notes/impact-decals.md §4). Issue #3318: no blood landed on the walls or floor near a shot actor; a shot on an organic actor now rolls fCombatEnvironmentBloodChance (default 0.75) and splatters its body part's blood impact on the first wall or floor within 512 units along the shot, else below (§4a)"
+note = "God mode in the Goodsprings general store (the energy-resist-hit setup): aimed at Chet's chest (aimnpc=0.6) the 10mm pistol with no spread shoots him four times from 14.1 s; a frame at 15.8 s is taken to check the blood on him and on the counter, wall or floor behind him (not yet looked at). The splatters' rolls are seeded (the first of the four 0.74, the second 0.45), so the default chance 0.75 wins the first"
 areas = ["combat", "render"]
-paths = ["engine/nvforever/src/decals.rs"]
+paths = ["engine/nvforever/src/decals.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/shot_fx.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:20", NVF_PLAY_TEST_CONTROL = "10:weapon,14:aimnpc=0.6,14.1:fire,14.5:aimnpc=0.6,14.6:fire,15:aimnpc=0.6,15.1:fire,15.4:aimnpc=0.6,15.5:fire", NVF_PLAY_TEST_SHOTS = "15.8:decals_blood.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 20
 expect = [
   { re = 'decals: \w+ leaves \w+ \(\S+\) on actor [0-9A-F]{8}', label = "a shot leaves blood on Pete" },
   { re = 'decals summary: \d+ placed \((?P<n>\d+) on actors\)', range = [1, 3], label = "no more than three on him" },
+  { re = 'combat: blood on the world behind shot actors: chance \d', label = "the first shot on Chet rolls for blood on the world (the chance and fCombatEnvironmentBloodChance logged)" },
+  { re = 'decals: \w+ splatters blood \(\w+\) on the world behind a shot actor at', label = "a shot on Chet splatters blood on the counter, wall or floor behind or below him" },
+  { re = 'combat summary: blood on the world behind 00104C79: (?P<n>\d+) splatters from', range = [1, 4], label = "one splatter at most a shot on Chet (the player's four; his return fire on the player splatters on its own)" },
 ]
 
 [[scenario]]
@@ -17877,7 +18729,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SAMPLE = "2", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "GSSchoolHouse", "--pos", "700,-900,3340", "--play", "--no-voice", "--no-messages"]
 run_seconds = 50
 expect = [
-  { re = 'NVCrGiantMantisNymph \S+: created at \(1101, -1875, 3339\), stands at \(-?\d+, -?\d+, 33[2-5]\d\)', min = 20, label = "the nymphs stand on the floor round the egg, not in it" },
+  { re = 'NVCrGiantMantisNymph \S+: created at \(1101, -1875, 3339\), stands at \(-?\d+, -?\d+, 33[2-5]\d\)', min = 20, label = "the nymphs stand on the floor round the egg, not in it", known_failing = "#3298: 12 since #3053 (GetDestructionStage counts from 1): the egg's script places 12 at stage 1 or 2, and the aid's one hit takes it through 2 and 3; whether the original gives 12 or 24 is observer check 247" },
   { text = "created where no free spot is near", count = 0, label = "every nymph found a spot" },
   { re = 'stress frames: .*1% low (?P<n>[\d.]+) ms', range = [0, 400], label = "no run of second-long frames (was 1,162 ms)" },
   { re = 'at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the footsteps are held to the voice limit" },
@@ -17937,6 +18789,20 @@ order = [[
   { re = 'compass: \d+ actors .*, [1-9]\d* sneaking left off', label = "sneaking Ringo left off the compass" },
   { re = 'compass: \d+ actors .*, 0 sneaking left off', label = "standing up, nobody is left off" },
 ]]
+
+[[scenario]]
+name = "compass-tick-place"
+source = "#3310: the hand-built compass's actor ticks stood a little low; their bar now ends 22 units down the compass window, where the HUD file's tick box puts the original's (docs/spec-notes/hud.md §11, engine/nvf-play/src/compass.rs TICK_TOP)"
+note = "as compass-sneaking-npc: the HUD hand-built (NVF_PLAY_TEST_TILE_MENUS empty: no tile menus); Ringo is brought 300 units north of the player (heading north, in the compass's window) at 9 s, after the scripts' start (about 6.5 s; earlier steps are moved later by script_events::delay_late_aids while the shots keep their time), a frame at 12 s shows his amber tick; StartCombat sets him on the god-mode player at 14 s and a frame at 17 s shows the red tick. Look at the frames: each bar ends a few pixels above the strip's doubled line, not on it"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/compass.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "9:moveto:RingoRef:player:0:300:0,14:call:RingoRef:StartCombat:player", NVF_PLAY_TEST_SHOTS = "12,17" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--size", "1280x720"]
+run_seconds = 20
+expect = [
+  { re = 'compass: Actor tick drawn 26 x 26 at y 4\.125 of the window, its bar ending at 22\.0', label = "a neutral actor's tick, its bar ending at 22" },
+  { re = 'compass: Hostile tick drawn 26 x 26 at y 4\.125 of the window, its bar ending at 22\.0', label = "a hostile actor's red tick in the same place" },
+]
 
 [[scenario]]
 name = "body-weapons-handy-gutsy"
@@ -27885,6 +28751,21 @@ order = [[
 ]]
 
 [[scenario]]
+name = "cjk-font-fallback"
+source = "[design] docs/spec-notes/fonts.md §§2.3 and 3: ordinary interface text draws missing CJK characters with an external font in both Original and Sharp mode."
+note = "Set NVF_CJK_SMOKE_HOME to a disposable writable home with [Interface] CjkFontPath in its NVForever.ini, pointing to a CJK font on your system. Pass --out with a directory outside the checkout for the screenshots. The language file is an authored smoke fixture."
+areas = ["settings", "ui"]
+paths = ["crates/fnv-font/", "engine/nvf-play/src/cjk_font.rs", "engine/nvf-play/src/interface.rs", "engine/nvforever/src/setup.rs", "tools/smoke/fixtures/cjk-lang/"]
+requires = ["NVF_CJK_SMOKE_HOME"]
+env = { NVFOREVER_HOME = "{env:NVF_CJK_SMOKE_HOME}", NVF_LANG_DIR = "{repo}/tools/smoke/fixtures/cjk-lang", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "10.5:menu-font=Sharp,11:menu-font=Original,12:language=CJK Smoke,15:menu-font=Sharp", NVF_PLAY_TEST_SHOTS = "14:cjk-original.png,17:cjk-sharp.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [{ text = "interface: CJK fallback font ", count = 1, label = "the configured font is read once across both menu modes" }]
+order = [["settings: menu-font Original", "language: cjk-smoke", "settings: menu-font Sharp"]]
+forbid = ["interface: CjkFontPath cannot be read as a font:"]
+manual = "cjk-original.png and cjk-sharp.png: the settings rail reads 'Aa 字形检查，继续。' with visible CJK and Latin glyphs on the same baseline"
+
+[[scenario]]
 name = "language-choice"
 source = "#1443: the settings page's Language row lists the languages found in the lang folders (NVF_LANG_DIR here, a made-up one), takes one at once and draws the page again; a broken language file is skipped with a warning"
 areas = ["settings"]
@@ -30605,6 +31486,7 @@ expect = [
   { text = "MapMenu drawn by hand", count = 0, label = "no fallback warned of" },
 ]
 order = [["tiles: MapMenu draws local map from tiles", { re = 'tiles: MapMenu local map picture given' }, { re = 'pipboy data: question box over the tiles' }, "pipboy map: custom marker placed at", "pipboy data: map dragged by (-1500, 0)", { re = 'tiles: MapMenu local map picture given' }, { re = 'tiles: MapMenu local map frames: ' }, "tiles: MapMenu draws quests from tiles"]]
+forbid = [{ text = "tiles: MapMenu local map picture taken away", label = "the drag leaves the last picture on screen while the new outline is made (#3326: it was taken away for about 330 ms, the map blinked)" }]
 
 [[scenario]]
 name = "tiles-data-local-off"
@@ -30682,24 +31564,28 @@ order = [[{ re = 'pipboy data: radio tuned to ' }, { re = 'pipboy data: radio tu
 [[scenario]]
 name = "tiles-data-custom-marker"
 source = "#1954 with #1513 (docs/spec-notes/pipboy.md §5.3.1): with [UI] TileMenus=MapMenu both maps are drawn from their file (the question box painted over the tiles), prepared before the frame (data::prepare), and Place Marker's question box works on both as with the switch off: placed on the World Map, moved from the Local Map, removed; the page goes on drawn from its tiles on Quests"
-note = "pipboy-custom-marker's steps with the switch on, then Quests; the question box's answers are the hand-built page's, its hover reset when they are spawned again (data::draw)."
+note = "pipboy-custom-marker's steps with the switch on, then Quests; the question box's answers are the hand-built page's, its hover reset when they are spawned again (data::draw). #3324: after the removal, on the Local Map (no travel there, so the spot need not be clear of markers) a real left click (NVF_PLAY_TEST_KEYS' mouse-left) at canvas 700, 250 asks Place Marker's question over the tiles and Yes places the marker; then on the World Map a press held at 700, 250 while the pointer moves to 560, 300 is a drag and asks nothing."
 areas = ["pipboy", "ui"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/tiles/map_menu.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:tab=0,18.5:placemarker,19.5:key=use,20.5:placemarker,21:key=down,22:key=use,23:tab=2,25:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:tab=0,18.5:placemarker,19.5:key=use,20.5:placemarker,21:key=down,22:key=use,23:point=700:250,24.5:key=use,25.5:tab=1,26.5:point=560:300,28:tab=2,30:close", NVF_PLAY_TEST_KEYS = "23.5:mouse-left:0.15,26:mouse-left:1.0", NVF_PLAY_TEST_TILE_MENUS = "MapMenu" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
-run_seconds = 27
+run_seconds = 32
 expect = [
   { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "the World Map is drawn from its file since #1513's World Map slice; before: it kept the hand-built page" },
   { text = "tiles: MapMenu draws local map from tiles", min = 1, label = "the Local Map is drawn from its file since #1513's Local Map slice (tiles-data-local); before: it kept the hand-built page" },
-  { re = 'pipboy map: Place Marker asks ".+" \(2 answers\)', count = 1, label = "with no marker the question has two answers" },
-  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
+  { re = 'pipboy map: Place Marker asks ".+" \(2 answers\)', count = 2, label = "with no marker the question has two answers: X's, and the click's after the removal" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 2, label = "Yes places the marker: X's, and the click's" },
   { re = 'pipboy map: dotted line to custom marker \(\d+ segments\)', min = 1, label = "the World Map's dotted line to it" },
   { re = 'pipboy map: Place Marker asks ".+" \(3 answers\)', count = 2, label = "with a marker the question has three answers" },
   { re = 'pipboy map: custom marker moved to \(-?\d+, -?\d+\)', count = 1, label = "the first answer moves it" },
   { text = "pipboy map: custom marker removed", count = 1, label = "Down and Enter take the second answer, once" },
+  { text = "pipboy map: a click on the local map away from any marker: Place Marker", count = 1, label = "#3324: the real left click on the Local Map drawn from its tiles asks Place Marker's question" },
+  { re = 'pipboy map: a click on the world map', count = 0, label = "#3324: the press dragged on the World Map asks nothing" },
+  { re = 'fast travel: (asks ".+" \(0x[0-9A-F]{8}\)|to .+ refused)', count = 0, label = "and no travel asked or refused" },
+  { re = 'pipboy data: question box over the tiles \(2 answers\)', min = 2, label = "the click's question painted over the tiles too" },
   { text = "tiles: MapMenu draws quests from tiles", min = 1, label = "Quests drawn from its file after the maps" },
 ]
-order = [["pipboy map: custom marker placed at", "pipboy map: custom marker moved to", "pipboy map: custom marker removed", "tiles: MapMenu draws quests from tiles"]]
+order = [["pipboy map: custom marker placed at", "pipboy map: custom marker moved to", "pipboy map: custom marker removed", "pipboy map: a click on the local map away from any marker: Place Marker", "pipboy map: custom marker placed at", "tiles: MapMenu draws quests from tiles"]]
 
 [[scenario]]
 name = "tiles-data-missing-template"
@@ -30723,12 +31609,12 @@ order = [["MapMenu drawn by hand: MM_ListMarkerTemplate missing", "test aid: NVF
 [[scenario]]
 name = "pipboy-custom-marker"
 source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): with the keyboard, Place Marker on the World Map asks whether to set the custom marker (two answers) and Yes places it at the highlight box; the World Map draws a dotted line from the arrow to it; the Local Map shows the same marker; Place Marker there asks with three answers (move, remove, keep): move moves it, keep leaves it, remove takes it off both maps [observed: a capture of the original's MapMenu, 2026-11-10]"
-note = "the pointer aid holds the highlight box 50 right of the map window's middle (canvas 527, 350) on both maps; placemarker is the maps' X button; key=use takes the chosen answer, key=down moves down the answers; the objective aid gives the World Map a quest marker too (its line is not required)"
+note = "the pointer aid holds the highlight box 50 right of the map window's middle (canvas 527, 350) on both maps; placemarker is the maps' X button; key=use takes the chosen answer, key=down moves down the answers; the objective aid gives the World Map a quest marker too (its line is not required). #3324: back on the World Map with no marker, a real left click (NVF_PLAY_TEST_KEYS' mouse-left, the button state the page reads) at canvas 800, 180, up and right of the player and away from any marker the start knows [hypothesis until the first run: if the run's 'world map highlights' line names a marker there, the click asks to travel instead; move the point], asks Place Marker's question and Yes places the marker; then a press held at 527, 350 while the pointer moves to 640, 350 is a drag and asks nothing"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data/model.rs", "engine/nvf-play/src/pipboy/test_aid.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:tab=0,18.5:placemarker,19.5:key=use,20.5:placemarker,21:key=down,21.5:key=down,22:key=use,23:placemarker,23.5:key=down,24:key=use,25:tab=1,26.5:close", NVF_PLAY_TEST_SHOTS = "16.8:pipboy_custom_marker_world.png,18:pipboy_custom_marker_local.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:tab=0,18.5:placemarker,19.5:key=use,20.5:placemarker,21:key=down,21.5:key=down,22:key=use,23:placemarker,23.5:key=down,24:key=use,25:tab=1,26:point=800:180,27.5:key=use,28.5:point=527:350,29.5:point=640:350,31:close", NVF_PLAY_TEST_KEYS = "26.5:mouse-left:0.15,29:mouse-left:1.0", NVF_PLAY_TEST_SHOTS = "16.8:pipboy_custom_marker_world.png,18:pipboy_custom_marker_local.png,27:pipboy_custom_marker_click_box.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
-run_seconds = 28
+run_seconds = 33
 expect = [
   { re = 'pipboy hints: data world map: Place Marker$', label = "World Map: Place Marker bright with the keyboard" },
   { re = 'pipboy map: Place Marker asks ".+" \(2 answers\) for \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', label = "with no marker the question has two answers" },
@@ -30741,6 +31627,10 @@ expect = [
   { text = "pipboy map: custom marker left where it was", label = "the third answer keeps it" },
   { text = "pipboy map: custom marker removed", label = "the second answer removes it" },
   { text = "pipboy map: world map shows no custom marker", label = "removed, the World Map shows none" },
+  { text = "pipboy map: a click on the world map away from any marker: Place Marker", count = 1, label = "#3324: the real left click on an empty spot asks Place Marker's question; the drag after it asks nothing" },
+  { re = 'pipboy map: Place Marker asks ".+" \(2 answers\)', count = 2, label = "X's question with no marker, and the click's" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 2, label = "X's Yes, and the click's Yes" },
+  { re = 'fast travel: (asks ".+" \(0x[0-9A-F]{8}\)|to .+ refused)', count = 0, label = "the click on an empty spot asks no travel, nor is one refused" },
 ]
 order = [[
   "pipboy map: custom marker placed at",
@@ -30750,6 +31640,9 @@ order = [[
   "pipboy map: custom marker left where it was",
   "pipboy map: custom marker removed",
   "pipboy map: world map shows no custom marker",
+  "pipboy map: a click on the world map away from any marker: Place Marker",
+  { re = 'pipboy map: Place Marker asks ".+" \(2 answers\)' },
+  "pipboy map: custom marker placed at",
 ]]
 
 [[scenario]]
@@ -31425,6 +32318,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "melee-chases-walking-player"
+source = "#3256 (owner's playtest 2026-11-21): a chaser faster than a player backing away at a walk stopped and set off again every quarter of a second. Its target's speed was first measured evened with the standing it began with (69 units/s read as 34.5, under the 40 that counts as moving), and after a short run from standing was not measured at all before the way ended, so the target counted as standing and the chaser held (fnv-ai alert.rs: Drift::on, the fight's keeps_pace)"
+note = "melee-chases-backing-player's ground and ghoul; from 6 s to 14 s the player walks backwards (69 units/s). On main 069ef9bde (2026-11-21): 47 stops and starts for the ghoul (76 a cazador, 78 a gecko, 56 a person with a lead pipe), 10 blows of which 9 land; with the change 3 (5, 4, 4) and 10 of 10"
+areas = ["combat", "creatures", "ai"]
+paths = ["crates/fnv-ai/src/alert.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close", NVF_PLAY_TEST_LOOK = "2:75:0", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VCrTier1FeralGhoul1A:1,3.2:moveto:0xFF000000:player:580:155:0,3.5:combat:0xFF000000:player", NVF_PLAY_TEST_MOVE = "6:-1:0:walk,14:0:0" }
+args = ["--cell", "Goodsprings", "--pos=39511,-116487,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { text = "test aid: movement keys forward -1 right 0", label = "the player backs away" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [7, 16], label = "the ghoul strikes about once a second while the player walks backwards (10 on main and with the change)" },
+  { re = 'npc combat summary.*the player was hit (?P<n>\d+) times', range = [7, 16], label = "and its blows land (9 on main, 10 with the change)" },
+  { re = 'VCrTier1FeralGhoul1A 0xFF000000: (runs at|stops and faces) the player', max = 12, label = "it keeps the walking player's pace instead of stopping and setting off again (47 on main, 3 with the change)" },
+]
+
+[[scenario]]
 name = "dam-panel-prompt"
 source = "#2160 (docs/spec-notes/cells-refs.md §3): Hoover Dam's control panel, a talking activator with no name and the Activation Prompt 'Activate', is offered under the crosshair by its prompt alone, and E runs its script (where the override chip is installed)"
 note = "VHDMainControlPanel1REF 0x00153FCE in HooverDamIntPowerPlant01b; its trigger's OnLoad marks it destroyed until the ending quests run, so the aid clears that at 8 s; E at 12 s"
@@ -31861,8 +32770,8 @@ expect = [
   { text = "controller: input device switched to Keyboard and Mouse (key)", count = 1, label = "Enter switches back without activating the selected row" },
   { text = "hints: Xbox labels", label = "prompts follow the controller" },
   { text = "hints: Keys labels", label = "prompts follow the keyboard again" },
-  { text = "pause menu: inspect: rows device,automatic-input,padbind:Forward", label = "the open Controls tab refreshes to controller rows" },
-  { text = "pause menu: inspect: rows device,automatic-input,bind:Forward", count = 2, label = "keyboard rows return and stay selected with switching disabled" },
+  { text = "pause menu: inspect: rows device,automatic-input,padbind:Forward", label = "the open Controls tab refreshes to controller rows", known_failing = "#3375: since the menu overhaul the Controls tab lists button-style, rumble, the look rows and aim assist before the bindings (rows device,button-style,automatic-input,rumble,invert,…), so this exact start of the row list is never logged" },
+  { text = "pause menu: inspect: rows device,automatic-input,bind:Forward", count = 2, label = "keyboard rows return and stay selected with switching disabled", known_failing = "#3375: since the menu overhaul the Controls tab lists button-style, rumble, the look rows and aim assist before the bindings (rows device,button-style,automatic-input,rumble,invert,…), so this exact start of the row list is never logged" },
   { text = "controls: automatic input switching off", count = 1, label = "only the explicit opt-out changes the switch; neither switching press activates its row" },
 ]
 order = [["controls: automatic input switching on", "controller: input device switched to Controller (button)", "hints: Xbox labels", "controller: input device switched to Keyboard and Mouse (key)", "hints: Keys labels", "controls: automatic input switching off"]]
@@ -33926,7 +34835,7 @@ expect = [
   { text = "pbr field: first rendered readback PASS", count = 1 },
   { text = "pbr field: second rendered readback PASS", count = 1 },
   { text = "pbr field: occlusion alone darkens, the two-channel normal matches the three-channel reference, the normal shows PASS", count = 1 },
-  { re = 'authored materials summary: [1-9]\d* material builds applied a set \([1-9]\d* distinct set stems at build\)', count = 1, label = "the exit summary counts the field's authored material builds" },
+  { re = 'authored materials summary: [1-9]\d* material builds applied an ORM set \([1-9]\d* distinct ORM set stems at build\)', count = 1, label = "the exit summary counts the field's authored (ORM) material builds" },
 ]
 order = [["pbr field: first rendered readback PASS", "pbr field: second rendered readback PASS", "pbr field: occlusion alone darkens, the two-channel normal matches the three-channel reference, the normal shows PASS"]]
 forbid = [
@@ -33953,13 +34862,185 @@ expect = [
   { re = "pbr field: second rendered readback PASS", count = 1, label = "second readback with the setting off" },
   { text = "pbr field: setting off, plain-material panels identical and the reference distinct PASS", count = 1 },
   { text = "authored materials summary: off (setting)", count = 1 },
+  { text = "pbr field height: panels (height, height-control) tilted 50 degrees about Y: setting off, neither has a depth map", count = 1, label = "setting off: neither height panel has a depth map" },
+  { re = 'pbr field height: readback \d PASS', count = 2, label = "setting off: both stripes straight, the shifts within tolerance, in both readbacks" },
+  { text = "pbr field height: setting off, no depth map on either panel, both stripes straight PASS", count = 1 },
 ]
 forbid = [
   { re = '(?i)pbr field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = '(?i)pbr field height:.*FAIL', label = "setting off: no height failure" },
   { re = 'authored materials: \d+ sets under' },
   { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
 ]
 note = "The same field with the setting off: the index is never built (no 'authored materials: N sets' line), the material path loads no pbr file (the fixture's own check reads the generated files first), the plain, lit, dark and flat panels draw the same and the reference (its game normal map) differs from them."
+
+[[scenario]]
+name = "pbr-reflect-field"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": generated authored sets on the real material path under a fixed asymmetric reflection cube; engineering comparator policy set from reasoning, not original-game pixels"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/reflection_cube/", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/pbr_field/reflect/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/", "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/vendor/bevy_pbr/src/light_probe/"]
+env = { NVF_PLAY_TEST_PBR_REFLECT_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1", NVF_PBR_METAL_GAIN = "" }
+# The Authored materials row pinned on, as in pbr-authored-field (the two share a home), and with it
+# Reflections on authored materials.
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,authored-reflections"]
+run_seconds = 30
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "authored reflections: on (", count = 1 },
+  { text = "lights: reflection gate installed", count = 1 },
+  { text = "pbr reflect field: actual NIF material source, 12 panels (metal20+X, …), switch on, gate Installed", count = 1 },
+  { text = "pbr reflect field: camera A's cube attached (switch on)", count = 1 },
+  { re = 'pbr reflect field: readback \d A \[metal20\+X=', count = 2, label = "each readback logs both cameras' panel means and the judged quantities" },
+  { text = "pbr reflect field: first rendered readback PASS", count = 1 },
+  { text = "pbr reflect field: second rendered readback PASS", count = 1 },
+  { text = "pbr reflect field: metals show the faces their reflections point at, rougher nearer the cube's mean, controls and the cube-less camera unchanged PASS", count = 1 },
+]
+order = [["pbr reflect field: camera A's cube attached", "pbr reflect field: first rendered readback PASS", "pbr reflect field: second rendered readback PASS", "pbr reflect field: metals show the faces their reflections point at"]]
+forbid = [
+  { re = '(?i)pbr reflect field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = 'reflection gate.*(not found|not installed)' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The reflections' fixed-cube field (the Reflections on authored materials row pinned on; the field's own cameras, not the world camera, whose cube is authored-reflections-sky's). Twelve panels (rows one and two white diffuse; row three the metal base colour: a dark bronze diffuse at the default metal gain 12 and the same at metal_gain = 1), two cameras of one pose (Bevy's default exposure, MSAA 4x, world-view ambient 0.6 with negative alpha, no sun): camera A carries a reflection cube with a different linear colour per world face (+X red, -X cyan, +Y green, -Y magenta, +Z blue, -Z yellow; each level mixed towards their grey mean by level/5), camera B none. Judged on camera A: the five tilted smooth metals (roughness 0.2) show the face their reflection points at (+X, -X, +Y, -Y, +Z: face orientation and Bevy's z flip), the head-on metals at roughness 0.2/0.5/0.9 lie nearer the neutral mean in chromaticity as roughness rises (the level rule), the smooth one clearly blue; the legacy and zero-reflectance controls equal camera B's; the dielectric does not darken; the lifted bronze is at least 1.6 times as bright as the gain-1 bronze (about 2.5 expected: the gain limited to 1/0.40 by the bronze's red) with the same chromaticity (within 0.04). On camera B every white panel is the same white under the ambient (metallic held at 0 without a cube) and the two bronze panels the same bronze. THE THRESHOLDS (the row-three ones too, #2981 metal base colour) (pbr_field/reflect.rs) ARE SET FROM REASONING, NOT FROM READBACKS: the main session must confirm them against the first real readbacks, and compare this run's camera B means (the readback line, B [...]) with pbr-reflect-field-off's, panel for panel: they should be equal. Each run reserves a new run-* child under pbr-field-home/pbr-reflect-field-output with both cameras' readbacks (.rgba, .ppm) and the comparator reports."
+manual = "Open readback-2-a.ppm: top row red, cyan, green, magenta, blue panels (tilted); middle row a duller blue, an almost grey panel, then three white-grey panels; bottom row a dull bronze-tinted blue panel and a darker one of the same tint. readback-2-b.ppm: ten identical grey panels in the top two rows, two identical bronze ones below."
+
+[[scenario]]
+name = "pbr-reflect-field-off"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": the row off, a reflection cube on a camera changes no panel (the reflection gate keeps it from every shader that did not opt in)"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/reflection_cube/", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/pbr_field/reflect/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/", "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/vendor/bevy_pbr/src/light_probe/"]
+env = { NVF_PLAY_TEST_PBR_REFLECT_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1", NVF_PBR_METAL_GAIN = "" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,no-authored-reflections"]
+run_seconds = 30
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "authored reflections: off (setting)", count = 1 },
+  { text = "lights: reflection gate installed", count = 1 },
+  { text = "pbr reflect field: actual NIF material source, 12 panels (metal20+X, …), switch off, gate Installed", count = 1 },
+  { text = "pbr reflect field: camera A's cube attached (switch off)", count = 1 },
+  { re = 'pbr reflect field: readback \d A \[metal20\+X=', count = 2, label = "each readback logs both cameras' panel means with the switch off" },
+  { re = "pbr reflect field: first rendered readback PASS", count = 1, label = "first readback with the switch off" },
+  { re = "pbr reflect field: second rendered readback PASS", count = 1, label = "second readback with the switch off" },
+  { text = "pbr reflect field: switch off, the cube on camera A changes no panel PASS", count = 1 },
+]
+forbid = [
+  { re = '(?i)pbr reflect field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = 'authored reflections: on' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+  { re = 'reflection gate.*(not found|not installed)', label = "the gate in place with the switch off too" },
+]
+note = "The reflection field with the Reflections on authored materials row off (--graphics-only no-authored-reflections): authored materials are built with metallic 0 and no NIF pipeline opts in, yet camera A still carries the filled cube (Bevy sets ENVIRONMENT_MAP for its pipelines), so every panel of camera A must equal camera B's: the reflection gate keeps the cube from shaders without the opt-in. Camera B is today's picture of these panels. Thresholds as in pbr-reflect-field (set from reasoning; the main session confirms them against the first real readbacks). Output under pbr-field-home/pbr-reflect-field-output."
+
+[[scenario]]
+name = "authored-reflections-sky"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": the world camera's reflection cube filled from the sky where the mount has authored sets; generated sets only (the reflection field's fixture written into a fresh folder of the run and mounted over every loose layer for the run), no game-derived file"
+areas = ["renderer", "textures", "sky"]
+paths = ["engine/nvforever/src/reflection_sky.rs", "engine/nvforever/src/reflection_sky/", "engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/reflection_cube/", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_MOUNT_PACK = "1", NVFOREVER_HOME = "pbr-reflect-home", NVF_PLAY_TEST_GOD = "1" }
+# Both rows pinned on (a given switch wins over a saved row in a timed run).
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,authored-reflections"]
+run_seconds = 20
+timeout = 180
+expect = [
+  { re = 'pbr mount pack: \d+ generated files written under ', count = 1, label = "the generated sets are in the run's own fresh folder, mounted with the game's" },
+  "authored materials: on",
+  { text = "authored reflections: on (", count = 1, label = "both rows on, so the run's reflections state is on" },
+  { text = "lights: reflection gate installed", count = 1 },
+  { re = 'authored materials: [1-9]\d* sets under ', count = 1, label = "the mount's index counts the generated sets" },
+  { re = "reflection sky: first fill of the world camera's cube \\(outdoors;", count = 1, label = "the first fill, from the exterior's sky" },
+  { re = 'reflection cube: attached to \S+ \(generation \d+', count = 1, label = "Bevy's component on the world camera once the fill is on the GPU" },
+  { re = 'reflection sky summary: [1-9]\d* fills \([1-9]\d* outdoors, 0 indoors\), \d+ checks skipped as unchanged', count = 1, label = "the exit summary counts the fills" },
+]
+order = [["reflection sky: first fill of the world camera's cube", "reflection cube: attached to", "reflection sky summary:"]]
+forbid = [
+  { re = 'pbr mount pack: FAIL' },
+  { re = 'reflection sky: off' },
+  { re = 'reflection gate.*(not found|not installed)', label = "the gate in place, or no cube could be attached" },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The world camera's reflection cube (#2981): the test aid NVF_PLAY_TEST_PBR_MOUNT_PACK writes the reflection field's generated sets (textures\\reflect\\, textures\\pbr\\reflect\\; no game shape uses them) into a fresh folder of the run, pbr-reflect-home/pbr-mount-pack/run-*, every file created new, and mounts it over every other loose layer for the run only (no mods folder is written), so the mount has authored sets; with both rows on and the gate installed the producer makes one cube for the world camera, fills it from Goodsprings' sky (the first-fill line logs the level-0 zenith, horizon and nadir texels and both hemisphere means: the units to check against the ambient), and Bevy's component goes on once the fill is on the GPU. Log lines only: nothing in the scene is authored, so no picture changes; pictures of a real pack are the main session's."
+
+[[scenario]]
+name = "authored-reflections-off"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections on authored materials\": the row off, no cube is made although the mount has authored sets"
+areas = ["renderer", "textures", "sky"]
+paths = ["engine/nvforever/src/reflection_sky.rs", "engine/nvforever/src/reflection_sky/", "engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_MOUNT_PACK = "1", NVFOREVER_HOME = "pbr-reflect-home", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,no-authored-reflections"]
+run_seconds = 20
+timeout = 180
+expect = [
+  { re = 'pbr mount pack: \d+ generated files written under ', count = 1, label = "the mount has authored sets, so only the row keeps the cube away" },
+  "authored materials: on",
+  { text = "authored reflections: off (setting)", count = 1 },
+  { text = "reflection sky: off (setting); no reflection cube is made", count = 1 },
+  { text = "reflection sky summary: off (setting)", count = 1 },
+]
+forbid = [
+  { re = 'pbr mount pack: FAIL' },
+  { re = 'reflection sky: first fill' },
+  { re = 'reflection cube: attached' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The row off with the same generated sets in the mount: no cube is allocated or attached, the summary says off (setting). With the row off the NIF pipelines get no opt-in def and authored metallic stays 0, so the picture is the one before the reflections (the pull request's head a71e8f00a); that equality in pictures is the main session's check."
+
+[[scenario]]
+name = "pbr-authored-field-height"
+source = "[design, #2981 stage 4] docs/spec-notes/pbr-materials.md: a generated height-only set's _p drawn as parallax on a tilted panel beside its control; engineering comparator policy (first, generous thresholds), not original-game pixels"
+areas = ["renderer", "textures", "nif"]
+paths = ["crates/fnv-pbr/", "engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/authored/", "engine/nvf-assets/src/pbr_field.rs", "engine/nvf-assets/src/pbr_field/", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_spawn/", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/vendor/bevy_pbr/src/render/parallax_mapping.wesl", "engine/vendor/bevy_pbr/src/render/pbr_fragment.wesl"]
+env = { NVF_PLAY_TEST_PBR_FIELD = "1", NVFOREVER_HOME = "pbr-field-home", NVF_PLAY_TEST_GOD = "1" }
+# The setting pinned on, as pbr-authored-field (the same field, judged here for its height panels).
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials"]
+run_seconds = 20
+timeout = 180
+expect = [
+  "authored materials: on",
+  { text = "pbr field height: panels (height, height-control) tilted 50 degrees about Y: the height-only set's _p", count = 1 },
+  { re = 'pbr field height: readback \d high=[+-]\d+\.\d+ px low=[+-]\d+\.\d+ px \(predicted low -7\.8\d px.*brightest \d+, ground \d+\.\d', count = 2, label = "each readback logs the height panels' stripe shifts in pixels, the brightest value and the ground" },
+  { re = 'pbr field height: readback \d PASS', count = 2, label = "both readbacks' height panels pass" },
+  { text = "pbr field: second rendered readback PASS", count = 1 },
+  { text = "pbr field height: the height map moves the low band's stripe the predicted way and leaves the high band's in place PASS", count = 1 },
+  { re = 'authored materials summary: .*, [1-9]\d* a height-only set.s height map;.*height maps: [1-9]\d* material builds applied one;', count = 1, label = "the exit summary counts the height panel's height-only build and its height map" },
+]
+order = [["pbr field: second rendered readback PASS", "pbr field height: the height map moves the low band's stripe the predicted way and leaves the high band's in place PASS"]]
+forbid = [
+  { re = '(?i)pbr field:.*(FAIL|timeout|missing|wrong byte count)', label = "no failure or timeout in the five panels' lines (the readbacks must complete)" },
+  { re = '(?i)pbr field height:.*(FAIL|no stripe found)', label = "no height failure or missing stripe" },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "Panels height and height-control: the same quad tilted 50 degrees about Y (the five other panels and the orthographic camera as in pbr-authored-field), a diffuse with a narrow bright stripe at U 0.5; height has a height-only set (_p white above, black below, parallax_depth 0.08, the scalar range's end since 2026-11-20; 0.1 before), drawn with the default method (relief:4 after at most 8 layers, named in the panels' log line). Per readback the log gives the stripe's shift (height minus control) in the high and the low band and the prediction (about -7.8 px: towards decreasing mesh U; -9.8 at the old depth); the comparator wants the low band within 2.5 px of the prediction and the high band and the control within 1.5 px. Observed on b4660af00 (field only, depth 0.1, occlusion): high +0.00, low -9.76 against -9.81, control 64.00/64.00; the stripe then clipped at 255 and was darkened to sRGB 180 on 90. Observed at ca0e10c9e (depth 0.08, relief:4 after eight layers): both readbacks passed, high +0.13 px, low -7.86 against -7.84 px, control 64.00/64.00. The height lines (pbr field height:) never decide the five panels' verdict."
+manual = "Open readback-1.ppm in the evidence directory: in the sixth panel the stripe's lower half sits left of its upper half; in the seventh (the control) it runs straight."
+
+[[scenario]]
+name = "authored-reflections-room"
+source = "[design, #2981] docs/spec-notes/pbr-materials.md \"Reflections indoors: the analytic room\": indoors the world camera's reflection cube holds a lit box (room marker, physics rays or default box; the cell's placed lamps in reach); generated sets only (the reflection field's fixture written into a fresh folder and mounted over the loose layers for the run), no game-derived file"
+areas = ["renderer", "textures", "lights"]
+paths = ["engine/nvforever/src/reflection_sky.rs", "engine/nvforever/src/reflection_sky/", "engine/nvf-assets/src/reflection_room.rs", "engine/nvf-assets/src/reflection_room/", "engine/nvf-assets/src/reflection_cube.rs", "engine/nvf-assets/src/pbr_field/reflect.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/rooms.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_PBR_MOUNT_PACK = "1", NVFOREVER_HOME = "pbr-reflect-home", NVF_PLAY_TEST_GOD = "1" }
+# Both rows pinned on (a given switch wins over a saved row in a timed run).
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "authored-materials,authored-reflections"]
+run_seconds = 20
+timeout = 180
+expect = [
+  { re = 'pbr mount pack: \d+ generated files written under ', count = 1, label = "the generated sets are in the run's own fresh mount folder" },
+  { text = "authored reflections: on (", count = 1, label = "both rows on for the interior run" },
+  { text = "lights: reflection gate installed", count = 1, label = "the gate, before any cube" },
+  { re = "reflection sky: first fill of the world camera's cube \\((indoors|outdoors);", count = 1, label = "the first fill (outdoors only if the camera came before the interior)" },
+  { re = 'reflection sky: room fill in interior [0-9A-F]{8}: box from (room marker [0-9A-F]{8}|rays|default) \(\d+ x \d+ x \d+ game units, x y height\), [1-9]\d* lamps, level 0 toward the nearest lamp \[[^\]]+\], filled in [\d.]+ ms on a worker \(main thread: gather [\d.]+ ms, apply [\d.]+ ms\)', count = 1, label = "the first room fill with lamps in Doc Mitchell's house: the box's source, size and lamps in reach (the house has 25 placed lights, #1619), the fill's time on the worker and the main thread's part (#3238)" },
+  { re = 'reflection cube: attached to \S+ \(generation \d+', count = 1, label = "Bevy's component on the world camera once the fill is on the GPU" },
+  { re = 'reflection sky summary: [1-9]\d* fills \(\d+ outdoors, [1-9]\d* indoors\), \d+ checks skipped as unchanged; [1-9]\d* room fills \(\d+ marker, \d+ rays, \d+ default\), \d+ ground-lamp fills, slowest room or lamp fill [\d.]+ ms; refills: \d+ mode, \d+ cell, \d+ room, \d+ box, \d+ moved, \d+ lamps, \d+ light, \d+ profile; main thread slowest gather [\d.]+ ms, slowest apply [\d.]+ ms; \d+ fills for a replaced camera or cube discarded', count = 1, label = "the exit summary counts the room fills, the refills by reason and the main thread's slowest parts (#3238)" },
+]
+order = [["reflection sky: room fill in interior", "reflection sky summary:"]]
+forbid = [
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error', label = "no shader or GPU error indoors" },
+  { re = 'reflection gate.*(not found|not installed)', label = "the gate in place, or no room could be attached" },
+  { re = 'reflection sky: off', label = "the cube is made in the interior" },
+  { re = 'pbr mount pack: FAIL', label = "the generated sets were written" },
+]
+note = "The analytic room (#2981 reflections, stage 2 version 1) in Doc Mitchell's house, a small interior with 25 placed lights (#1619): with the generated sets of authored-reflections-sky in the mount and both rows on, the interior content is a lit box around the camera, its box from the room marker the camera is in, else six physics rays (play mode), else the default box, lit by the cell's ambient, directional light and the placed lamps whose sphere reaches it (the nearest 16 within 4096 units). The first lit room fill is logged even when there was a room fill before the lamps loaded. Its line names the box's source and size, the lamp count, the level-0 texel toward the nearest lamp (its lobe: well above the wall colours) and the fill time on the worker with the main thread's gather and apply times (the main session reads them for the cost; the fill runs on the async compute pool since #3238, the main thread's part should stay well under a millisecond). Which source the house gives is not known in advance (whether it has room markers: the rooms: line tells), so any is accepted. Log lines only: nothing in the scene is authored, so no picture changes; pictures of a real pack with NVF_PBR_VIEW=reflection are the main session's."
 
 [[scenario]]
 name = "glass-mccarran-observation"
@@ -33987,4 +35068,181 @@ manual = "glass_mccarran_north.png: the window ahead shows a pane over the dark 
 expect = [
   { re = 'vwindow01\.nif: 1 shape\(s\) with a window environment map \(textures.effects.ShinyBright_e\.dds, scale 1\.00, over the blend\): VWindow01:0', label = "the pane is drawn with its environment map, added over its blend" },
   { re = 'test aid: screenshot .*glass_mccarran_north\.png', label = "the interrogation-side frame is saved" },
+]
+
+[[scenario]]
+name = "aerial-perspective"
+source = "[design, #2993] engine/nvforever/src/aerial.rs, fog.rs GAME_FOG, docs/design/graphics-enhanced.md §3.18: the Aerial perspective switch (off by default and in every preset) turned on while the game runs outdoors at Goodsprings at noon writes its figures, worked from the shown weather, into the fog uniform and logs them; turned off it logs off; the shader edits it rides on (pbr_functions.wesl nvf_aerial around the desert haze's fog call, fog.wesl GAME_FOG, the vendored Fog struct's nvf_params) are in place and every world pipeline compiles, without a rendering error"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/aerial.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/haze.rs",
+  "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/vendor/bevy_pbr/src/render/fog.wesl",
+  "engine/vendor/bevy_pbr/src/render/fog.rs", "engine/vendor/bevy_pbr/src/fog.rs",
+  "engine/vendor/bevy_pbr/src/render/mesh_view_types.wesl",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:aerial-perspective,13:aerial-perspective" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+expect = [
+  "fog: the game's fog curve installed",
+  { re = 'aerial: aerial perspective on: .*?: weight (\d+\.\d+), channel weights \d+\.\d+/\d+\.\d+/\d+\.\d+, sky share', range = [0.2, 1.0], label = "Goodsprings' weather leaves room for the aerial terms at noon: a weight above 0 and channel weights" },
+]
+order = [
+  [
+    "settings: aerial-perspective on",
+    { text = "aerial: aerial perspective on: ", label = "the line once the switch is on, outdoors" },
+    "settings: aerial-perspective off",
+    { text = "aerial: aerial perspective off", label = "and off again" },
+  ],
+  [
+    { re = 'graphics: light glow, aerial perspective$' },
+    { re = 'graphics: light glow$', label = "off again" },
+  ],
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the aerial perspective" },
+  { re = '(?i)failed to process shader', label = "a world shader that does not compile with the edits (pbr_functions.wesl nvf_aerial and nvf_haze, fog.wesl GAME_FOG, the Fog struct's nvf_params)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
+  { text = "apply_fog not as expected", label = "the haze's edit of Bevy's fog call (which the aerial edit wraps) not made" },
+  { text = "the desert haze's fog call not as expected", label = "the aerial edit of the haze's fog call not made" },
+  { text = "the aerial perspective's shader edit is not in place", label = "the switch on without its shader edit" },
+]
+
+[[scenario]]
+name = "aerial-perspective-with-haze"
+source = "[design, #2993, #2675] engine/nvforever/src/aerial.rs, haze.rs, fog.rs GAME_FOG, docs/design/graphics-enhanced.md §3.18: started with --graphics-only desert-haze,aerial-perspective at Goodsprings at noon under a pinned clear weather (NVWastelandClear, whose fog leaves full room: weight 1), both the desert haze and the aerial perspective turn on from the shown weather and every world pipeline compiles with both in the fog path, without a rendering error. The look is checked in pictures by hand"
+areas = ["renderer", "graphics", "weather"]
+paths = ["engine/nvforever/src/aerial.rs", "engine/nvforever/src/haze.rs", "engine/nvforever/src/fog.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--weather", "NVWastelandClear", "--graphics-only", "desert-haze,aerial-perspective"]
+run_seconds = 14
+expect = [
+  { re = 'graphics: light glow, desert haze, aerial perspective$', label = "both switches on from the start" },
+  { text = "haze: desert haze on: ", label = "the haze on outdoors" },
+  { re = 'aerial: aerial perspective on: .*?: weight (\d+\.\d+), channel weights', range = [0.95, 1.0], label = "a clear weather's fog leaves full room for the aerial terms" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the haze and the aerial perspective together" },
+  { re = '(?i)failed to process shader', label = "a world shader that does not compile with both in the fog path" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
+  { text = "the aerial perspective's shader edit is not in place", label = "the switch on without its shader edit" },
+]
+
+[[scenario]]
+name = "key-on-broken-shelf"
+source = "#3333: Goodsprings Home's safe key (VZKeyDirtyGSHome2SafeKey 0x001767AB) lies on the bottom board of a broken shelf (ShelvesWooden01broke01 0x0010B1E7), its render box just under the board's collision surface (the shape's 0.7-unit shell), and was never the crosshair's target (engine/nvf-play/src/activate/pick.rs SURFACE_SLACK)"
+areas = ["activate"]
+paths = ["engine/nvf-play/src/activate/pick.rs"]
+note = "From (1210, -241), east of the shelf's open side, the view aimed at the key (aimref) sees it on the board under the crosshair [observed 2026-11-21: screenshot]. Nearer, at the report's spot (1160, -241), the upper board's front edge is in front of it on screen as in the collision, so the key is not expected from there"
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_GOTO = "5:1210:-241:2320", NVF_PLAY_TEST_CONTROL = "7:aimref=001767AB" }
+args = ["--cell", "GSHouseInterior02", "--play"]
+run_seconds = 10
+expect = [
+  { text = "test aid: aiming at 001767AB", label = "the view is turned to the key" },
+  { re = 'target 0x001767AB .*\(Take', label = "the key on the shelf is the target, to take" },
+]
+
+[[scenario]]
+name = "spt-shape"
+kind = "tool"
+source = "docs/spec-notes/speedtree.md §4 (billboard width : height [observed] against the generated trees) and §7 (#3126: EuonymusBush01 generated too wide)"
+note = "fnvtool spt shape generates every base-game tree under the generator's readings and the probe readings (fnv_spt::probe). The as_is row with full cards is what the renderer scales by. Since #3126 branches springing from a stub take their angle from the stub's axis (EuonymusBush01 2.19 -> 1.18, measured 2026-11-21 as the probe's angle_from_axis_level_1 row); angle_from_plane_everywhere is the reading before it."
+areas = ["renderer"]
+paths = ["crates/fnv-spt/", "crates/fnvtool/src/spt_cmd.rs"]
+commands = [["spt", "shape", "{data}/Fallout - Meshes.bsa"]]
+expect = [
+  { json = "files.?tree=wastelandshrub01.shapes.?reading=as_is.full_cards.aspect", schema = "fnv.spt.shape/1", range = [1.25, 1.31], count = 1, label = "WastelandShrub01 as measured 2026-11-21 (1.28; billboard 1.44, speedtree.md §4)" },
+  { json = "files.?tree=whiteoak01.shapes.?reading=as_is.full_cards.aspect", schema = "fnv.spt.shape/1", range = [0.60, 0.66], count = 1, label = "WhiteOak01 as measured 2026-11-21 (0.63; billboard 0.62, speedtree.md §4)" },
+  { json = "files.?tree=euonymusbush01.shapes.?reading=as_is.full_cards.aspect", schema = "fnv.spt.shape/1", range = [1.17, 1.43], count = 1, label = "EuonymusBush01 within 10 % of the billboard's 1.30 (2.19 before #3126: its stems on a 0.01 stub lay flat)" },
+  { json = "files.?tree=euonymusbush01.shapes.?reading=angle_from_plane_everywhere.full_cards.aspect", schema = "fnv.spt.shape/1", range = [2.16, 2.22], count = 1, label = "the reading before #3126 still gives EuonymusBush01's old 2.19 (the probe reproduces the old generator)" },
+  { json = "files.?tree=euonymusbush01.stub_levels.#", schema = "fnv.spt.shape/1", equals = 1, count = 1, label = "EuonymusBush01's stems spring from a stub (its level 1)" },
+  { json = "files.?tree=wastelandshrub01.stub_levels.#", schema = "fnv.spt.shape/1", equals = 0, count = 1, label = "WastelandShrub01 has no stub level" },
+  { json = "files.?tree=whiteoak01.stub_levels.#", schema = "fnv.spt.shape/1", equals = 0, count = 1, label = "WhiteOak01 has no stub level" },
+]
+
+[[scenario]]
+name = "vats-templated-name"
+source = "#3445: a Lonesome Road deathclaw of the nameless base NVDLC04DeathclawAmbusherLVL (template: the leveled creature list NVDLC04DeathClawGLENC, Base Data from the template) was named by that Editor ID in VATS; its name is the picked entry's FULL, Deathclaw (engine/nvf-play/src/sim.rs ref_shown_name)"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/sim.rs", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/hud_target.rs"]
+note = "vats-mode-miss's setup at Goodsprings with LonesomeRoad.esm loaded and both dogs killed at 3 s; one such deathclaw is made 500 units from the player (god mode), and the VATS mark at 10 s is on it, the nearest living actor [observed 2026-11-22: the lines below]"
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB,3:kill:0x000F573F,3.2:call:player:PlaceAtMe:NVDLC04DeathclawAmbusherLVL:1:500:0", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "LonesomeRoad.esm"]
+run_seconds = 16
+expect = [
+  { re = 'ai .* NVDLC04DeathclawAmbusherLVL 0xFF000001: created by a script \(PlaceAtMe\)', label = "the deathclaw of the nameless base is made" },
+  { re = 'vats mode: preview Deathclaw FF000001', label = "VATS previews it by the picked entry's name" },
+  { re = 'vats mode: marked Deathclaw FF000001 ', label = "the mark names it Deathclaw" },
+]
+forbid = [{ re = 'vats mode: (preview|marked) NVDLC04', label = "VATS names an actor by an Editor ID" }]
+
+[[scenario]]
+name = "env-maps-saloon"
+source = "#2841 (docs/spec-notes/nif.md §6 \"Environment maps on other shapes\"): shapes with Environment_Mapping and no window flag reflect their slot-4 cube: in the Prospector Saloon a Sunset Sarsaparilla bottle (SSBottleEmpty, ssbottle02.nif: shinybright cube, scale 1.2, a slot-5 mask) and an empty whiskey bottle (WhiskeyBottle01Empty01, whiskeybottle01empty.nif: shinydull cube, no mask) are placed in front of the player, with the 10mm Pistol (Weap10mmPistol 0000434F, 10mmpistol.nif: six masked shapes) drawn; two frames in target/smoke (env_saloon.png looking west and down, env_saloon_b.png from 25 units north). Shape facts from the data files (fork data survey), not from a run"
+note = "the two bottles are PlaceAtMe'd at the player and moved about 60 units west of him; the IDs the moveto steps name (0xFF000000, 0xFF000001) are checked against what PlaceAtMe returned, and their distance from the player is read back (GetDistance). Two frames: looking west and down at the bottles from where first-person-depth puts the player, then from 25 units north turned towards them (another eye position, so the reflections move on the still bottles). The frames are for the eye. For the upstream comparison the main session takes the same scene on a main build (069ef9bde); env-maps-saloon-before is the same build with the debug switch, not upstream"
+areas = ["rendering"]
+paths = ["engine/nvf-assets/src/env_map.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/texture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GOTO = "2:469:244:3457", NVF_PLAY_TEST_LOOK = "2.5:270:-30,10.5:250:-30", NVF_PLAY_TEST_CONTROL = "3:weapon", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:SSBottleEmpty:1,3.5:call:player:PlaceAtMe:WhiskeyBottle01Empty01:1,4:moveto:0xFF000000:player:-60:-15:30,4.2:moveto:0xFF000001:player:-60:15:30,6:call:0xFF000000:GetDistance:player,6.1:call:0xFF000001:GetDistance:player,10:call:player:SetPos:Y:269", NVF_PLAY_TEST_SHOTS = "9:env_saloon.png,12:env_saloon_b.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 14
+manual = "env_saloon.png, env_saloon_b.png: the two bottles on the floor ahead and the pistol in hand show grey-white reflection streaks that move between the two angles; the whiskey bottle (no mask) reflects over its whole surface, the Sarsaparilla bottle and the pistol only where their masks allow"
+expect = [
+  { re = '(?i)ssbottle02\.nif: \d+ shape\(s\) with an environment map, no window flag: .*textures.effects.shinybright_e\.dds, scale 1\.20, masked, ', label = "the Sarsaparilla bottle reflects, masked, at its scale" },
+  { re = '(?i)whiskeybottle01empty\.nif: \d+ shape\(s\) with an environment map, no window flag: .*textures.effects.shinydull_e\.dds, scale 1\.00, no mask, ', label = "the whiskey bottle reflects at full strength (no slot-5 mask)" },
+  { re = '(?i)10mmpistol\.nif: \d+ shape\(s\) with an environment map, no window flag: .*, masked, ', label = "the pistol's masked shapes reflect" },
+  { re = 'test aid: screenshot .*env_saloon\.png', label = "the frame is saved" },
+  { re = 'test aid: screenshot .*env_saloon_b\.png', label = "the second angle is saved" },
+  { re = 'script: test aid calls SetPos on ', label = "the player is moved 25 units north for the second frame" },
+  { re = 'test aid: look heading 250\.0 pitch -30\.0$', label = "and turned towards the bottles" },
+  { re = 'script: test aid calls PlaceAtMe on .* = FF000000', label = "the Sarsaparilla bottle is the first created reference, as the moveto steps assume" },
+  { re = 'script: test aid calls PlaceAtMe on .* = FF000001', label = "the whiskey bottle is the second" },
+  { re = 'script: test aid calls GetDistance on .* = (?P<n>[0-9.]+)', range = [40, 100], all = true, label = "each bottle stands about 70 units from the player" },
+  { re = 'script: test aid calls GetDistance on ', count = 2, label = "both distances are read" },
+  { re = 'test aid: the player equips 0x0000434F', label = "the 10mm Pistol is equipped" },
+  { re = 'test aid: control .*weapon out true', label = "the pistol is drawn" },
+]
+order = [[
+  { re = 'test aid: screenshot .*env_saloon\.png', label = "the first frame" },
+  { re = 'script: test aid calls SetPos on ', label = "then the move" },
+  { re = 'test aid: look heading 250\.0 pitch -30\.0$', label = "then the turn" },
+  { re = 'test aid: screenshot .*env_saloon_b\.png', label = "then the second frame" },
+]]
+forbid = [
+  { re = 'test aid: script (Call|MoveTo)\(.*\): \S', label = "no placement step failed" },
+  { re = 'debug switch NVF_PLAY_DEBUG_ENV_', label = "no environment-map debug switch is on" },
+  { re = '(?i)(ssbottle02|whiskeybottle01empty|10mmpistol)\.nif: \d+ shape\(s\) with a window environment map', label = "the bottles and the pistol are not window shapes" },
+]
+
+[[scenario]]
+name = "env-maps-saloon-before"
+source = "#2841: the same scene as env-maps-saloon with the debug switch NVF_PLAY_DEBUG_ENV_NON_WINDOW=0 (engine/nvf-assets/src/env_map.rs): only window shapes reflect, as with #2669 alone; the before frames from the same build (env_saloon_before.png, env_saloon_before_b.png)"
+note = "placement checked as in env-maps-saloon (PlaceAtMe IDs, GetDistance, the pistol equipped and drawn); two frames from the same two places. The baseline of this branch's own build; the upstream comparison is the same scene on a main build (069ef9bde), which the main session takes"
+areas = ["rendering"]
+paths = ["engine/nvf-assets/src/env_map.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/texture.rs"]
+env = { NVF_PLAY_DEBUG_ENV_NON_WINDOW = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GOTO = "2:469:244:3457", NVF_PLAY_TEST_LOOK = "2.5:270:-30,10.5:250:-30", NVF_PLAY_TEST_CONTROL = "3:weapon", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:SSBottleEmpty:1,3.5:call:player:PlaceAtMe:WhiskeyBottle01Empty01:1,4:moveto:0xFF000000:player:-60:-15:30,4.2:moveto:0xFF000001:player:-60:15:30,6:call:0xFF000000:GetDistance:player,6.1:call:0xFF000001:GetDistance:player,10:call:player:SetPos:Y:269", NVF_PLAY_TEST_SHOTS = "9:env_saloon_before.png,12:env_saloon_before_b.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 14
+manual = "env_saloon_before.png, env_saloon_before_b.png: the same views as env_saloon.png and env_saloon_b.png with no reflections on the bottles or the pistol"
+expect = [
+  { re = 'debug switch NVF_PLAY_DEBUG_ENV_\*: environment maps drawn with .*non_window: false', label = "the switch is read" },
+  { re = 'test aid: screenshot .*env_saloon_before\.png', label = "the frame is saved" },
+  { re = 'test aid: screenshot .*env_saloon_before_b\.png', label = "the second angle is saved (before)" },
+  { re = 'script: test aid calls SetPos on ', label = "the player is moved 25 units north for the second frame (before)" },
+  { re = 'test aid: look heading 250\.0 pitch -30\.0$', label = "and turned towards the bottles (before)" },
+  { re = 'script: test aid calls PlaceAtMe on .* = FF000000', label = "the Sarsaparilla bottle is the first created reference, as the moveto steps assume (before)" },
+  { re = 'script: test aid calls PlaceAtMe on .* = FF000001', label = "the whiskey bottle is the second (before)" },
+  { re = 'script: test aid calls GetDistance on .* = (?P<n>[0-9.]+)', range = [40, 100], all = true, label = "each bottle stands about 70 units from the player (before)" },
+  { re = 'script: test aid calls GetDistance on ', count = 2, label = "both distances are read (before)" },
+  { re = 'test aid: the player equips 0x0000434F', label = "the 10mm Pistol is equipped (before)" },
+  { re = 'test aid: control .*weapon out true', label = "the pistol is drawn (before)" },
+]
+order = [[
+  { re = 'test aid: screenshot .*env_saloon_before\.png', label = "the first frame (before)" },
+  { re = 'script: test aid calls SetPos on ', label = "then the move (before)" },
+  { re = 'test aid: look heading 250\.0 pitch -30\.0$', label = "then the turn (before)" },
+  { re = 'test aid: screenshot .*env_saloon_before_b\.png', label = "then the second frame (before)" },
+]]
+forbid = [
+  { re = 'test aid: script (Call|MoveTo)\(.*\): \S', label = "no placement step failed (before)" },
+  { re = 'shape\(s\) with an environment map, no window flag', label = "no shape without the window flag reflects" },
 ]

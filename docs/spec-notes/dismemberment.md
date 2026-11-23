@@ -504,7 +504,8 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
   hit, and FireWeapon with a machete does nothing; with the game window held in front (both game
   locks taken, no smoke run) `TapControl 4` swings land (a machete trial killed a target).
 
-- Decals (blood on the ground and walls).
+- Decals (blood on the ground and walls) of a severed or exploded part cast onto a surface; an
+  ordinary shot's blood on the world is built (impact-decals.md §4a).
 - Pins Limbs projectiles (two in the masters) pinning a severed part to a wall.
 - Creature gore beyond the BPTD data: insect and robot bits come from their own BPTD records and
   need nothing more, but no creature has been checked by eye.

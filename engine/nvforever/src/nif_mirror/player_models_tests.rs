@@ -426,7 +426,9 @@ fn cold_transform_writes_survive_frames_before_the_first_actor_is_drawn() {
     let transform = app.world().get::<Transform>(actor.nodes[1]).unwrap();
     assert_eq!(transform.translation, Vec3::new(4.0, 5.0, 6.0));
     assert_eq!(transform.scale, Vec3::splat(5.0));
-    for (axis, expected) in [(Vec3::X, Vec3::Y), (Vec3::Y, Vec3::NEG_X), (Vec3::Z, Vec3::Z)] {
+    // Z 90 in the scripts' angles is drawn with that rotation's transpose
+    // (`fnv_game::nif_blocks::SceneNode::rotation`): X goes to -Y.
+    for (axis, expected) in [(Vec3::X, Vec3::NEG_Y), (Vec3::Y, Vec3::X), (Vec3::Z, Vec3::Z)] {
         let actual = transform.rotation.mul_vec3(axis);
         assert!(actual.abs_diff_eq(expected, 1e-5),
             "quarter-turn of {axis:?}: {actual:?}, expected {expected:?}; rotation {:?}", transform.rotation);
@@ -822,7 +824,7 @@ fn authored_shape(app: &mut App, shape: Entity) -> Handle<NifMaterial> {
     use nvf_assets::authored::{LegacyLook, AUTHORED_MARK};
     let mut m = nvf_assets::nif_material::nif_material(StandardMaterial { reflectance: 0.5, ..default() });
     m.extension.emissive_rule.w = AUTHORED_MARK;
-    m.extension.legacy = Some(LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, scripted_tint: None });
+    m.extension.legacy = Some(LegacyLook { normal: None, specular: None, roughness: 0.6, reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None });
     let h = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(m);
     app.world_mut().entity_mut(shape).insert(MeshMaterial3d(h.clone()));
     h

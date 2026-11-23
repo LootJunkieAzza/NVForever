@@ -150,6 +150,7 @@ fn group(dir: MoveDir, fast: bool) -> &'static str {
 fn tell(
     time: Res<Time>,
     mut script: Option<ResMut<ScriptState>>,
+    mut sim: Option<ResMut<nvf_play::sim::SimState>>,
     actors: Query<Body>,
     combat: Option<Res<Combat>>,
     weapon: Option<Res<WeaponAnim>>,
@@ -162,10 +163,10 @@ fn tell(
     mut throw_began: Local<Option<(f32, bool)>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    let g = &mut rt.game;
     let dt = time.delta_secs().min(0.1);
     let clock = time.elapsed_secs();
     let mut now = HashSet::new();
+    let mut updates: Vec<(FormId, AnimState)> = Vec::new();
     for (rig, vis, lo, hold, pose, idle, flinch, dying) in &actors {
         if rig.reference == FormId::PLAYER_REF.0 || !vis.get() || dying {
             continue;
@@ -214,7 +215,7 @@ fn tell(
             }
         }
         stats.note(rig.reference, &st);
-        g.set_anim_state(FormId(rig.reference), st);
+        updates.push((FormId(rig.reference), st));
         now.insert(rig.reference);
     }
     // The player.
@@ -243,14 +244,26 @@ fn tell(
     let mine = throwing && combat.as_deref().is_some_and(|c| c.player_weapon_is_mine());
     let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, throwing, mine, forced_hit: false, at: 0.0, clip: None };
     stats.note(FormId::PLAYER_REF.0, &st);
-    g.set_anim_state(FormId::PLAYER_REF, st);
-    // Actors no longer drawn are forgotten (they read as doing nothing).
-    for gone in told.difference(&now) {
-        g.forget_anim_state(FormId(*gone));
+    updates.push((FormId::PLAYER_REF, st));
+    let gone_list: Vec<u32> = told.difference(&now).copied().collect();
+    for &gone in &gone_list {
         stats.forgotten += 1;
         if stats.forgotten <= LOGGED_CHANGES {
             info!("anim state: {gone:08X} no longer told (not drawn, hidden or dying)");
         }
+    }
+    let apply = |g: &mut fnv_game::game::Game<'_>| {
+        for (actor, st) in updates {
+            g.set_anim_state(actor, st);
+        }
+        for gone in gone_list {
+            g.forget_anim_state(FormId(gone));
+        }
+    };
+    if let Some(sim) = sim.as_deref_mut() {
+        nvf_play::script::with_world(rt, sim, |rt| apply(&mut rt.game));
+    } else {
+        apply(&mut rt.game);
     }
     *told = now;
 }

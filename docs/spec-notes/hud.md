@@ -206,7 +206,14 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   long and 20 high [documented: the size], the bar at brightness 175 over an opaque
   ground at 100 [observed: §14.7, the original's 175/255 and 100/255 of the HUD's colour;
   T12e]; until T12e the bar at 255 over the bar's colour at a quarter's alpha
-  [hypothesis: as `meter.xml`'s ground]. The bar ends 17 before the divider (x 130–190)
+  [hypothesis: as `meter.xml`'s ground]. A player report (#3309) says the original's
+  bar has transparent parts. The shots of §14.7 read it as above [observed]; the
+  ground's template `MeterBackground` has no `alpha` trait [documented:
+  hudtemplates.xml] and `vats_bar.dds`'s block is opaque [documented: the texture],
+  which is static evidence, not proof that the original never shows it translucent
+  (a translucent fill over an opaque ground would read the same on those shots)
+  [hypothesis]. It stays opaque until observer check 264 says otherwise [design].
+  The bar ends 17 before the divider (x 130–190)
   [observed: §14, read through xNVSE and on its screenshot; 10 before stood 7 too far
   right],
   "CND" ending 11 before it, and its bottom stands 2 above the line "CND" stands on
@@ -494,14 +501,53 @@ menu's (`dialogue_menu.rs`).
   colour) otherwise; a map marker is a small triangle under the letters, hollow before
   the player has been there (`glow_hud_compass_landmark.dds`) and filled after
   (`…_landmark_discovered.dds`). The sizes and places NVForever uses are fitted to those
-  screenshots: the tick drawn 26 units high with its top 9 below the window's (its bar
-  from under the bracket's line to the strip's), the triangle drawn at 0.6 of its
-  texture with its middle 46.7 down the window.
+  screenshots: the tick drawn 26 units high, the triangle drawn at 0.6 of its texture
+  with its middle 46.7 down the window. Until #3310 the hand-built tick's top stood 9
+  below the window's (its bar from under the bracket's line to the strip's).
+- [#3310: a player's report and screenshot of the hand-built HUD, v0.8.1 at 1920 x 1080,
+  the log's `[UI] TileMenus` without `HUDMainMenu`] The actor ticks stood "slightly
+  lower" than the original's. The original's box puts them higher. The template's
+  actor group stands at y 5 [documented: `hudtemplates.xml`,
+  `template_compass_npc_icon_group`], but the copy the original's code makes reads y 10
+  at run time [observed: §14.4, read from the original]: the code overrides the
+  template's 5, and NVForever writes the 10 (`ui_hud::copies`). Each tick is at y -10
+  in the group, 32 x 32 [documented: `hudtemplates.xml`, `compass_npc_icon`], so the
+  box's top is the window's top, where the tile HUD draws it. [observed: the
+  screenshot, a crop resized to about 2.28 pixels a unit (N and NE 292 pixels apart;
+  1.125 a unit at 1920 x 1080, §4)] The hand-built bar fades in over about 18 units and
+  ends solid on the strip's upper line.
+  [hypothesis] The tick picture's bar is its top 22 of 32 texel rows (18 units at 26/32
+  of a unit a row; as the corner bars' `hud_tick_mark.dds`'s 22-row block, §3). Then
+  the window's top lies 9 units over where the bar's fade starts (the old `TICK_TOP`),
+  which puts the strip's upper line about 26 units down the window (inferred from that
+  origin, not measured; the left bracket's line at texels 66-70 falls where this origin
+  puts it, a check), and the original, drawing the picture a texel a unit in its box,
+  ends its bar 22 down the window, about 4 above the strip's upper line, where the
+  hand-built's ended on it. The row count, the window origin, the strip line's 26 and
+  that alignment are all this hypothesis; observer check 261 measures the original's
+  bar against the strip's line on a raw 1920 x 1080 frame.
+  [design] NVForever keeps the fitted 26-unit size and the bar's middle on the bearing
+  and stands the hand-built tick so its bar ends at 22 (`compass::TICK_BAR_END`,
+  `TICK_TOP` 4.125): 4.9 units higher than before, for neutral, hostile and companion
+  ticks alike; the map marker, quest and player icons are unchanged. Observer check 261
+  says where the original's bar ends against the strip's line (test
+  `compass::tests::an_actor_tick_stands_where_the_originals_box_puts_its_bar`).
 - [hypothesis] Which actors: the living NPCs and creatures of the loaded cells within
-  Perception × 300 units of the player; which markers: those of the worldspace within
-  Perception × 2048, while outdoors. No game setting for these ranges is in the masters.
-  Hostile is the enemy bar's rule (§8). Each mark stands at its bearing from the
+  Perception × 300 units of the player; no game setting for this range is in the
+  masters. Hostile is the enemy bar's rule (§8). Each mark stands at its bearing from the
   player's heading at 1024 units for 360 degrees, the strip's scale.
+- Which markers: those of the worldspace within `iMapMarkerVisibleDistance` of the player
+  (measured across the ground), found and unfound alike and whatever the Perception,
+  while outdoors. The setting is not in the masters; its default in the executable is
+  10000, and `iMapMarkerRevealDistance`'s 1000 [documented: GECK wiki "Complete List of
+  GameSettings"; the wiki does not describe either]. NVForever reads the load order's
+  setting and falls back on 10000 (`engine/nvf-play/src/compass.rs`, `marker_range`).
+  That this setting is the compass's cut-off for markers is [hypothesis]: its name, and
+  Oblivion's setting of the same name; nothing on the wiki ties the marker range to
+  Perception (its SPECIAL page links Perception only to hostile marks on the compass).
+  Observer check 227 asks the original (#2348). Until #2348 the range was Perception ×
+  2048, built for the owner's playtest list 5 item 12 ("range by Perception"); the
+  change back to the original's fixed range is in docs/owner-review.md for the owner.
 - [observed: the owner, 2026-10-23] An actor that sneaks gets no tick. NVForever's
   "sneaks" is IsSneaking's (`fnv_game::Game::is_sneaking`: the engine's measure, else
   SetForceSneak, an Always Sneak package, a crouch to fire or reload, a teammate

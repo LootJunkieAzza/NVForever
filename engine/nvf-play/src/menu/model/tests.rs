@@ -1359,3 +1359,137 @@ fn every_opening_of_a_pocket_rolls_afresh() {
     }
     assert!((8_300..=8_700).contains(&unseen), "{unseen} of 10,000 first takes at 85% went unnoticed");
 }
+
+#[test]
+fn refresh_items_list_rebuilds_open_inventory_container_barter_preserves_selection_and_is_one_shot() {
+    let f: &'static Fixture = Box::leak(Box::new(fixture()));
+    let mut world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut inv = MenuModel::open_inventory(&mut world).unwrap();
+    // Switch to Weapons (player holds Pistol) and select it.
+    inv.category[Side::Player as usize] = Category::Weapons;
+    inv.refresh(&mut world).unwrap();
+    assert_eq!(inv.selected_row(Side::Player).map(|r| r.item), Some(FormId(PISTOL)));
+    assert_eq!(inv.list(Side::Player).rows.len(), 1);
+
+    let script = crate::script::ScriptState::over_no_plugins();
+    let mut app = App::new();
+    app.insert_resource(crate::sim::SimState { forms: &f.forms, refs: &f.refs, world })
+        .insert_resource(crate::menu::ActiveMenu(Some(inv)))
+        .insert_resource(script)
+        .add_systems(Update, crate::menu::sync_refresh_items_list);
+
+    // Script adds RIFLE to player inventory and calls RefreshItemsList.
+    app.world_mut().resource_mut::<crate::sim::SimState>().world.add_item(FormId(0x14), FormId(RIFLE), 1).unwrap();
+    app.world_mut()
+        .resource_mut::<crate::script::ScriptState>()
+        .rt
+        .as_mut()
+        .unwrap()
+        .game
+        .run_query("Begin Function { }\nRefreshItemsList\nEnd\n", Default::default())
+        .unwrap();
+    assert!(app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.refresh_items_list_pending());
+
+    app.update();
+    // One-shot flag consumed; menu stays open with refreshed rows and preserved selection on Pistol.
+    assert!(!app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.refresh_items_list_pending());
+    let active = app.world().resource::<crate::menu::ActiveMenu>();
+    let m = active.0.as_ref().expect("inventory menu stays open");
+    assert_eq!(m.list(Side::Player).rows.len(), 2, "new RIFLE row appears immediately");
+    assert_eq!(m.selected_row(Side::Player).map(|r| r.item), Some(FormId(PISTOL)), "selection stays on Pistol");
+
+    // Second frame with no RefreshItemsList does not mutate ActiveMenu.
+    app.world_mut().resource_mut::<crate::sim::SimState>().world.add_item(FormId(0x14), FormId(CAN), 1).unwrap();
+    app.update();
+    assert!(!app.world().is_resource_changed::<crate::menu::ActiveMenu>(), "no spurious change when no refresh was requested");
+
+    // Container mode: mutating container stock + RefreshItemsList rebuilds container rows & keeps selection.
+    {
+        let mut sim = app.world_mut().resource_mut::<crate::sim::SimState>();
+        let mut cont = MenuModel::open_container(&mut sim.world, FormId(BOX_REF)).unwrap();
+        select(&mut cont, Side::Container, "Varmint Rifle");
+        app.world_mut().resource_mut::<crate::menu::ActiveMenu>().0 = Some(cont);
+    }
+    app.world_mut().resource_mut::<crate::sim::SimState>().world.add_item(FormId(BOX_REF), FormId(AID), 2).unwrap();
+    app.world_mut()
+        .resource_mut::<crate::script::ScriptState>()
+        .rt
+        .as_mut()
+        .unwrap()
+        .game
+        .run_query("Begin Function { }\nRefreshItemsList\nEnd\n", Default::default())
+        .unwrap();
+    app.update();
+    {
+        let m = app.world().resource::<crate::menu::ActiveMenu>().0.as_ref().expect("container menu stays open");
+        assert!(m.list(Side::Container).rows.iter().any(|r| r.item == FormId(AID) && r.count == 2));
+        assert_eq!(m.selected_row(Side::Container).map(|r| r.item), Some(FormId(RIFLE)));
+    }
+
+    // Barter mode: mutating vendor stock + RefreshItemsList rebuilds barter rows & keeps selection.
+    {
+        let mut sim = app.world_mut().resource_mut::<crate::sim::SimState>();
+        let mut barter = MenuModel::open_barter(&mut sim.world, FormId(BOX_REF), FormId(BOX_REF), FormId(CAPS), 50.0, 0).unwrap();
+        select(&mut barter, Side::Container, "Varmint Rifle");
+        app.world_mut().resource_mut::<crate::menu::ActiveMenu>().0 = Some(barter);
+    }
+    app.world_mut().resource_mut::<crate::sim::SimState>().world.add_item(FormId(BOX_REF), FormId(PISTOL), 1).unwrap();
+    app.world_mut()
+        .resource_mut::<crate::script::ScriptState>()
+        .rt
+        .as_mut()
+        .unwrap()
+        .game
+        .run_query("Begin Function { }\nRefreshItemsList\nEnd\n", Default::default())
+        .unwrap();
+    app.update();
+    {
+        let m = app.world().resource::<crate::menu::ActiveMenu>().0.as_ref().expect("barter menu stays open");
+        assert!(m.list(Side::Container).rows.iter().any(|r| r.item == FormId(PISTOL)));
+        assert_eq!(m.selected_row(Side::Container).map(|r| r.item), Some(FormId(RIFLE)));
+    }
+
+    // Closed menu: RefreshItemsList is still consumed cleanly as a one-shot no-op.
+    app.world_mut().resource_mut::<crate::menu::ActiveMenu>().0 = None;
+    app.world_mut()
+        .resource_mut::<crate::script::ScriptState>()
+        .rt
+        .as_mut()
+        .unwrap()
+        .game
+        .run_query("Begin Function { }\nRefreshItemsList\nEnd\n", Default::default())
+        .unwrap();
+    app.update();
+    assert!(!app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.refresh_items_list_pending());
+}
+
+#[test]
+fn hide_item_barter_ex_filters_vendor_player_and_both_sides() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    // Give both sides CAN, PISTOL, and RIFLE so each side flag is exercised distinctly.
+    w.inventory_mut(FormId(0x14)).unwrap().add(FormId(CAN), 1);
+    w.inventory_mut(FormId(0x14)).unwrap().add(FormId(RIFLE), 1);
+    w.inventory_mut(FormId(BOX_REF)).unwrap().add(FormId(PISTOL), 1);
+
+    let mut m = MenuModel::open_barter(&mut w, FormId(BOX_REF), FormId(BOX_REF), FormId(CAPS), 50.0, 0).unwrap();
+    let has = |m: &MenuModel, side: Side, item: u32| m.list(side).rows.iter().any(|r| r.item == FormId(item));
+    assert!(has(&m, Side::Container, CAN) && has(&m, Side::Player, CAN));
+    assert!(has(&m, Side::Container, PISTOL) && has(&m, Side::Player, PISTOL));
+    assert!(has(&m, Side::Container, RIFLE) && has(&m, Side::Player, RIFLE));
+
+    // Flag 1: shown on player's side only (hidden on vendor's side).
+    // Flag 2: shown on vendor's side only (hidden on player's side).
+    // Flag 3: hidden on both sides.
+    let hidden = BTreeMap::from([(FormId(CAN), 1), (FormId(PISTOL), 2), (FormId(RIFLE), 3)]);
+    m.set_barter_hidden(&mut w, hidden).unwrap();
+    assert!(!has(&m, Side::Container, CAN) && has(&m, Side::Player, CAN), "flag 1 hides vendor side only");
+    assert!(has(&m, Side::Container, PISTOL) && !has(&m, Side::Player, PISTOL), "flag 2 hides player side only");
+    assert!(!has(&m, Side::Container, RIFLE) && !has(&m, Side::Player, RIFLE), "flag 3 hides both sides");
+
+    // Clearing the script overrides restores all items on both sides.
+    m.set_barter_hidden(&mut w, BTreeMap::new()).unwrap();
+    assert!(has(&m, Side::Container, CAN) && has(&m, Side::Player, CAN));
+    assert!(has(&m, Side::Container, PISTOL) && has(&m, Side::Player, PISTOL));
+    assert!(has(&m, Side::Container, RIFLE) && has(&m, Side::Player, RIFLE));
+}

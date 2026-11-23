@@ -28,6 +28,7 @@
 //! in the home and passes `fnv_install::guard_write`.
 
 pub mod anomaly;
+pub mod asset_sources;
 pub mod snapshot;
 mod controls;
 mod delete;
@@ -522,7 +523,7 @@ impl Plugin for ReportsPlugin {
                 detectors: Default::default(),
             })
             .add_systems(Startup, (read_gpu, read_window))
-            .add_systems(Update, (collect, track_loads, detect.after(nvf_play::control::enforce_locks)).chain())
+            .add_systems(Update, (collect, track_loads, list_model_sources, detect.after(nvf_play::control::enforce_locks)).chain())
             // After Bevy's window-closed exit (AppExit in Last): else a window closed by the
             // player missed the clean end and the run was sent as a native crash (#2203).
             .add_systems(Last, (controls::detect, write_summary.after(bevy::window::ExitSystems)).chain());
@@ -799,6 +800,14 @@ mod stuck_tests {
         assert!(!asks_to_move("menu", Some(&forward), false));
         assert!(!asks_to_move("playing", Some(&MoveIntent::default()), false));
         assert!(!asks_to_move("playing", None, false));
+    }
+}
+
+/// Whose record names each model file, listed once on a thread of its own as soon as the
+/// load order is there (#3045, asset_sources.rs).
+fn list_model_sources(world: Option<Res<crate::world::WorldData>>) {
+    if let Some(world) = world {
+        anomaly::list_model_sources(world.lo);
     }
 }
 

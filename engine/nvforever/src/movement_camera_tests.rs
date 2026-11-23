@@ -157,6 +157,7 @@ impl Fixture {
                 worn: Vec::new(), look: None, change: Default::default(), female: false, scale: 1.0,
                 third: build_rig(&mut commands, parent, &world, &mut ctx, &a, View::Third, None).unwrap(),
                 first: Some(build_rig(&mut commands, parent, &world, &mut ctx, &a, View::First, None).unwrap()),
+                first_addons: Vec::new(),
             }
         }).unwrap();
         app.world_mut().resource_mut::<PlayerBody>().body = Some(body);

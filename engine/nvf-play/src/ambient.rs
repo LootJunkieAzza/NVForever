@@ -207,6 +207,13 @@ fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, setting
         return None;
     }
     let Resolved { s, name, path } = resolve(sfx, vfs, FormId(sound))?;
+    // A loop the game's own record names and no archive has (`AMBLimestoneLP`, #2757) is
+    // no fault: said once at debug level, never read.
+    if crate::game_files::games_own(sound) && amb.files.peek(&path).is_none() && !vfs.exists(&path) {
+        crate::game_files::say_missing(true, &format!("ambient: {name}: {path}: not in the game's files"));
+        amb.files.mark_broken(path);
+        return None;
+    }
     // Read off the main thread (#1993): `file_pending` holds the start back until it is in.
     let crate::file_bytes::Got::Ready(bytes) = amb.files.fetch(&path, vfs, "ambient") else { return None };
     let bytes = bytes?;

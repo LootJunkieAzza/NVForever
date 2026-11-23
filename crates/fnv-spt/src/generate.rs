@@ -78,13 +78,27 @@ impl Geometry {
 
 /// Generate the tree. Deterministic: the same parameters give the same geometry.
 pub fn generate(tree: &Tree) -> Geometry {
+    generate_with(tree, &angle_from_axis(tree))
+}
+
+/// Per level: whether its 6007 angle is measured from the parent's axis
+/// ([`springs_from_stub`]) rather than from the plane across the parent.
+pub fn angle_from_axis(tree: &Tree) -> Vec<bool> {
+    (0..tree.levels.len()).map(|i| springs_from_stub(tree, i)).collect()
+}
+
+/// [`generate`] with the angle reading of each level given (`from_axis[i]`; missing
+/// entries read from the plane): for the measuring aids of `crate::probe`, which hold the
+/// readings fixed while they edit other parameters.
+pub fn generate_with(tree: &Tree, from_axis: &[bool]) -> Geometry {
     let mut g = Geometry::default();
     let mut rng = Rng::new(tree.seed);
     let trunk = &tree.levels[0];
     let length = trunk.length().sample(0.0, rng.f()).max(1e-4);
     let radius = trunk.radius().sample(0.0, rng.f()).max(0.0);
     let mut budget = Budget { branches: MAX_BRANCHES };
-    grow(tree, 0, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], length, radius, &mut rng, &mut g, &mut budget);
+    let at = Branch { li: 0, base: [0.0, 0.0, 0.0], dir: [0.0, 0.0, 1.0], length, radius };
+    grow(tree, from_axis, at, &mut rng, &mut g, &mut budget);
     light_leaves(&mut g.leaves);
     let zs = || g.leaves.iter().map(|l| l.position[2]);
     g.crown = if g.leaves.is_empty() {
@@ -116,8 +130,17 @@ struct Budget {
 /// Golden angle: successive children turn this far around their parent.
 const GOLDEN: f32 = 2.399_963;
 
-#[allow(clippy::too_many_arguments)]
-fn grow(tree: &Tree, li: usize, base: V, dir: V, length: f32, radius: f32, rng: &mut Rng, g: &mut Geometry, budget: &mut Budget) {
+/// One branch to grow: its level, base point, direction, length and base radius.
+struct Branch {
+    li: usize,
+    base: V,
+    dir: V,
+    length: f32,
+    radius: f32,
+}
+
+fn grow(tree: &Tree, from_axis: &[bool], b: Branch, rng: &mut Rng, g: &mut Geometry, budget: &mut Budget) {
+    let Branch { li, base, dir, length, radius } = b;
     if budget.branches == 0 || g.positions.len() >= MAX_VERTICES {
         return;
     }
@@ -148,6 +171,7 @@ fn grow(tree: &Tree, li: usize, base: V, dir: V, length: f32, radius: f32, rng: 
     }
     let cl = &tree.levels[child];
     let leafy = child == levels - 1;
+    let axis_reading = from_axis.get(child).copied().unwrap_or(false);
     // Children per unit of length (6012), rounded up or down at random.
     let n = (lv.frequency.max(0.0) * length + rng.f()).floor().min(MAX_CHILDREN) as usize;
     let mut azimuth = rng.f() * std::f32::consts::TAU;
@@ -168,12 +192,20 @@ fn grow(tree: &Tree, li: usize, base: V, dir: V, length: f32, radius: f32, rng: 
         let parent_r = radius * lv.taper().y(t).max(0.0);
         let crad = cl.radius().sample(t, rng.f()).clamp(0.0, parent_r.max(0.0));
         // Measured from the plane across the parent, positive towards its tip
-        // [hypothesis: WhiteOak01's level-1 range −10° to 60° only makes sense so].
-        let angle = std::f32::consts::FRAC_PI_2 - cl.angle().sample(t, rng.f()).to_radians();
+        // [hypothesis: WhiteOak01's level-1 range −10° to 60° only makes sense so]; from
+        // the parent's axis for branches springing from a stub (`springs_from_stub`).
+        let angle = if axis_reading {
+            // The spread taken as 1 − r: the same branches, up to rounding, as the curve
+            // mirrored about 90° under the plane reading (the probe rows measured in
+            // speedtree.md §7 before this reading).
+            cl.angle().sample(t, 1.0 - rng.f()).to_radians()
+        } else {
+            std::f32::consts::FRAC_PI_2 - cl.angle().sample(t, rng.f()).to_radians()
+        };
         azimuth += GOLDEN + 0.3 * (2.0 * rng.f() - 1.0);
         let axis = rotate(perpendicular(along), along, azimuth);
         let cdir = norm(rotate(along, axis, angle));
-        grow(tree, child, at, cdir, clen, crad, rng, g, budget);
+        grow(tree, from_axis, Branch { li: child, base: at, dir: cdir, length: clen, radius: crad }, rng, g, budget);
     }
 }
 
@@ -208,6 +240,32 @@ fn tube(lv: &Level, pts: &[V], dirs: &[V], radius: f32, g: &mut Geometry) {
             g.indices.extend([a, b, c, a, c, d]);
         }
     }
+}
+
+/// How many times its parent's length level i's shortest branch must be at least for the
+/// parent to count as a stub [design: a clear margin; EuonymusBush01's stems are 10 times
+/// its trunk, WastelandShrub01's stems half its trunk, WhiteOak01's branches under a
+/// tenth of its trunk (speedtree.md §7)].
+pub const STUB_RATIO: f32 = 2.0;
+
+/// Level i's shortest branch over its parent's longest (6004 ranges and spreads; infinite
+/// under a parent of no length), or None for the trunk or a missing level.
+pub fn length_ratio(tree: &Tree, i: usize) -> Option<f32> {
+    let parent = tree.levels.get(i.checked_sub(1)?)?;
+    let (p, c) = (parent.length(), tree.levels.get(i)?.length());
+    let longest_parent = p.min.max(p.max) + p.variance.abs();
+    let shortest = c.min.min(c.max) - c.variance.abs();
+    Some(if longest_parent > 0.0 { shortest / longest_parent } else if shortest > 0.0 { f32::INFINITY } else { 0.0 })
+}
+
+/// Whether level `i`'s branches spring from a stub: its shortest branch is at least
+/// [`STUB_RATIO`] times its parent's longest. Their 6007 angle is then measured from the
+/// parent's axis, not from the plane across it (speedtree.md §4, §7) [hypothesis: fitted
+/// to the three base-game trees' billboards; EuonymusBush01's stems (10-40°) on a 0.01
+/// trunk stand up only so, while WhiteOak01's branches on its 0.5 trunk fit the plane
+/// reading].
+pub fn springs_from_stub(tree: &Tree, i: usize) -> bool {
+    length_ratio(tree, i).is_some_and(|r| r >= STUB_RATIO)
 }
 
 /// Point and direction at fraction t of a centre line.

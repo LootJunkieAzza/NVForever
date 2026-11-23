@@ -87,17 +87,17 @@ pub fn get_pc_sleep_hours(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, 
 
 /// `SetPCYoung flag`: the player counts as young (Fallout 3's childhood in Vault 101):
 /// only the race's default hair, no face attachments [documented: catalogue summary].
-/// Kept for the engine to draw by ([`crate::game::PlayerState::young`]).
+/// Kept in [`crate::game::PlayerState::young`] and triggers a player body rebuild on change.
 pub fn set_pc_young(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.young = a.num_or(0, 1.0) != 0.0;
+    g.set_pc_young(a.num_or(0, 1.0) != 0.0);
     none()
 }
 
 /// `SetPCToddler flag`: the player moves with the toddler's walk animations (1) or
-/// the normal ones (0) [documented: catalogue summary]. Kept for the engine
-/// ([`crate::game::PlayerState::toddler`]).
+/// the normal ones (0) [documented: catalogue summary]. Kept in
+/// [`crate::game::PlayerState::toddler`], read by player movement and locomotion clips.
 pub fn set_pc_toddler(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.toddler = a.num_or(0, 1.0) != 0.0;
+    g.set_pc_toddler(a.num_or(0, 1.0) != 0.0);
     none()
 }
 

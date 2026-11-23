@@ -127,8 +127,49 @@ not decode yet.
 - `Get/SetWaterSound`, `Get/SetWaterNoiseTexture`: WATR SNAM and NNAM [documented]. NVCleanWater:
   sound 167340, noise `Data\Textures\Water\WastelandWaterPotomac.dds`. Not built:
   GetWaterTrait's 51 IDs, many of which its page leaves "Unknown".
-- `GetSoundFlag sound id` [documented: IDs 0–13]: SNDD flags (SNDX in older records),
-  bits the schema names the same way. EMTMedicalBeep01: loop (4) 1, 2D (6) 0.
+- `GetSoundFlag sound id` / `SetSoundFlag sound id newValue` [documented: GECK wiki
+  GetSoundFlag, SetSoundFlag; `schemas/fnv/objects.json` `SOUN.SNDD.flags`/`SNDX.flags`
+  bits `0..=13` (`0` Random Frequency Shift, `1` Play At Random, `2` Environment Ignored,
+  `3` Random Location, `4` Loop, `5` Menu Sound, `6` 2D, `7` 360 LFE, `8` Dialogue Sound,
+  `9` Envelope Fast, `10` Envelope Slow, `11` 2D Radius, `12` Mute When Submerged, `13`
+  Start at Random Position); observed: gaps4, SetSoundFlag returns 0]: SNDD flags (SNDX
+  in older records), bits the schema names the same way. EMTMedicalBeep01: loop (4) 1,
+  2D (6) 0. `SetSoundFlag` stores per-`SOUN` session bitmask overrides
+  (`Game::sound_flags`, `Game::sound_flag`, `Game::set_sound_flag`,
+  `Game::sound_flags_override`) with `TempCloneForm` snapshotting and post-clone isolation
+  (`Game::snapshot_sound_flags`) [design; hypothesis: session-only lifetime and rejection
+  of fractional/out-of-range flag IDs and non-`SOUN` forms].
+
+### 9.1 `TempCloneForm` SOUN aliases and engine sound overrides
+
+- [documented: GECK wiki `TempCloneForm`, `SetSoundSourceFile`, `SetSoundTraitNumeric`]
+  A temporary clone of a `SOUN` record keeps its own FormID while inheriting the
+  original sound's `FNAM` path and `SNDD` traits. Session overrides via
+  `SetSoundSourceFile` and `SetSoundTraitNumeric` apply to the target FormID without
+  mutating the original.
+- [design] `TempCloneForm` snapshots the source form's active `SetSoundSourceFile` and
+  `SetSoundTraitNumeric` (`0..=12`) overrides onto the new clone at creation time
+  (`Game::snapshot_sound_traits`), and `Game::sound_source_override` /
+  `Game::sound_trait_override` read only the queried FormID's own entry before falling
+  back to the authored ESM `FNAM` / `SNDD` record. Pre-clone edits on an original or
+  parent clone carry onto newly created clones, while post-clone edits on the original
+  or parent clone stay isolated from already-created clones (e.g., silencing an original
+  `SOUN` with trait `3 = -99` after cloning a playable copy).
+  `engine/nvf-play/src/world_sounds.rs` (`sync_script_sounds`) runs in `PlaySet::Sync`
+  (before `SfxSet` resolves `PlaySound` requests): it materializes cloned `SOUN` entries
+  in `sfx.forms.sounds` from their original's authored `Sound` with `edid = None`
+  (preventing accidental EDID-lookup collisions), applies `SetSoundSourceFile` (mapping
+  empty/whitespace paths to `sound.file = None` so empty-path shadowing silences
+  playback cleanly) and `SetSoundTraitNumeric` traits `0..=11` (`min_distance`,
+  `max_distance`, `frequency_adjust_percent`, `static_attenuation_db`, `stop_hour`,
+  `start_hour`, `attenuation_curve[0..5]`, `reverb_attenuation_percent`) to both
+  authored and cloned `SOUN` entries, and restores mutated authored `SOUN`s while
+  pruning all stale clones across sessions (including when a new session reuses a
+  deterministic clone FormID such as `0x00FE_0000` for a non-`SOUN` form).
+- [hypothesis] Trait `12` (`priority`) is stored by `SetSoundTraitNumeric` / read by
+  `GetSoundTraitNumeric` in `fnv-game` but is not yet carried on `fnv_combat::fx::Sound`.
+  Clone-of-clone override snapshotting and original-game audio parity remain unqualified
+  against original-game captures.
 
 ## 10. Game-state getters
 

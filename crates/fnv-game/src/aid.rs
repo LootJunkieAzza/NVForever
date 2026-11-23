@@ -315,8 +315,9 @@ impl Game<'_> {
     /// screenshot; one line per value, owner's playtest list 7 item 5].
     pub fn aid_preview(&mut self, actor: FormId, item: FormId) -> Vec<(u16, f64)> {
         let data = self.data;
-        let Some(items) = data.effect_items.get(&item) else { return Vec::new() };
-        let def = data.ingestibles.get(&item).cloned().unwrap_or_default();
+        let base = self.unclone(item);
+        let Some(items) = data.effect_items.get(&base) else { return Vec::new() };
+        let def = self.ingestible_def(item).unwrap_or_default();
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
@@ -325,14 +326,14 @@ impl Game<'_> {
         let mods = Mods { potency, duration, health, ..Mods::default() };
         let mut out: Vec<(u16, f64)> = Vec::new();
         for (index, e) in items.iter().enumerate() {
-            let label = format!("{} effect {index} (preview)", data.name(item));
+            let label = format!("{} effect {index} (preview)", data.name(base));
             if !self.conditions_pass(&e.conditions, Some(actor), Some(actor), &label) {
                 continue;
             }
-            let m = data.magic_effects.get(&e.effect);
-            let Some(c) = m.and_then(|m| value_change(m, e, potency, false)).map(|c| mods.on_change(c)) else { continue };
+            let m = self.magic_effect_def(e.effect);
+            let Some(c) = m.as_ref().and_then(|m| value_change(m, e, potency, false)).map(|c| mods.on_change(c)) else { continue };
             let amount = match c.kind {
-                ChangeKind::PerSecond => c.amount * mods.seconds(m, e),
+                ChangeKind::PerSecond => c.amount * mods.seconds(m.as_ref(), e),
                 ChangeKind::Once | ChangeKind::Modifier => c.amount,
             };
             match out.iter_mut().find(|(code, _)| *code == c.code) {
@@ -350,13 +351,14 @@ impl Game<'_> {
     /// its layout is not captured].
     pub fn aid_preview_names(&mut self, actor: FormId, item: FormId) -> Vec<FormId> {
         let data = self.data;
-        let Some(items) = data.effect_items.get(&item) else { return Vec::new() };
+        let base = self.unclone(item);
+        let Some(items) = data.effect_items.get(&base) else { return Vec::new() };
         let mut out: Vec<FormId> = Vec::new();
         for (index, e) in items.iter().enumerate() {
-            if out.contains(&e.effect) || !data.magic_effects.get(&e.effect).is_some_and(|m| m.shows_name()) {
+            if out.contains(&e.effect) || !self.magic_effect_def(e.effect).is_some_and(|m| m.shows_name()) {
                 continue;
             }
-            let label = format!("{} effect {index} (preview)", data.name(item));
+            let label = format!("{} effect {index} (preview)", data.name(base));
             if self.conditions_pass(&e.conditions, Some(actor), Some(actor), &label) {
                 out.push(e.effect);
             }
@@ -377,11 +379,7 @@ impl Game<'_> {
     pub fn ingest_on(&mut self, actor: FormId, item: FormId, limb: Option<u16>) -> Ingested {
         // [documented: SetOnUseAidItemEventHandler] this = the actor, the item.
         self.jip_event("useaiditem", Some(actor), vec![fnv_script::vm::XVal::Ref(item.0)]);
-        let mut def = self.data.ingestibles.get(&item).cloned().unwrap_or_default();
-        // LU's SetIngestibleFlag (`nvse_lu2`).
-        if let Some(f) = crate::nvse::record_value(self, item, "ENIT", "flags").and_then(|v| v.num().ok()) {
-            def.flags = f as u8;
-        }
+        let def = self.ingestible_def(item).unwrap_or_default();
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
@@ -408,7 +406,7 @@ impl Game<'_> {
             self.challenge_used(item);
         }
         let effects = applied.iter().filter(|a| !a.extended).map(|a| a.id).collect();
-        let has_monitor = self.data.effect_items.get(&item).is_some_and(|l| l.iter().any(|e| e.effect == USAGE_MONITOR));
+        let has_monitor = self.data.effect_items.get(&self.unclone(item)).is_some_and(|l| l.iter().any(|e| e.effect == USAGE_MONITOR));
         let usage = has_monitor.then(|| self.spell_usage(actor, item));
         let threshold = self.aid_setting("fAddictionUsageMonitorThreshold");
         let mut chance = addiction_chance(&def, usage, threshold);
@@ -465,7 +463,7 @@ impl Game<'_> {
     /// The addictions (spells of type Addiction) an actor has.
     pub fn addictions(&self, actor: FormId) -> Vec<FormId> {
         let Some(e) = self.extra.get(&actor) else { return Vec::new() };
-        e.spells.iter().copied().filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ADDICTION)).collect()
+        e.spells.iter().copied().filter(|&s| self.spell_type(s) == Some(SPELL_ADDICTION)).collect()
     }
 
     /// Whether an addiction is sated: an effect (not the usage monitor) of an ingestible
@@ -476,7 +474,7 @@ impl Game<'_> {
         self.effects.iter().any(|e| {
             e.target == actor
                 && e.effect != USAGE_MONITOR
-                && self.data.ingestibles.get(&e.source).is_some_and(|d| d.withdrawal == Some(spell))
+                && self.ingestible_def(e.source).is_some_and(|d| d.withdrawal == Some(spell))
         })
     }
 
@@ -574,10 +572,10 @@ impl Game<'_> {
             ChangeKind::Modifier => {
                 // A player's ability without conditions changes the permanent pool
                 // [documented: GECK wiki ActorValue, the Life Giver example].
-                let unconditional = self.data.effect_items.get(&source).and_then(|l| l.get(index)).is_none_or(|e| e.conditions.is_empty());
-                let ability = permanent && self.data.spell_types.get(&source) == Some(&4);
+                let unconditional = self.data.effect_items.get(&self.unclone(source)).and_then(|l| l.get(index)).is_none_or(|e| e.conditions.is_empty());
+                let ability = permanent && self.spell_type(source) == Some(4);
                 c.permanent_pool = ability && target == FormId::PLAYER_REF && unconditional;
-                c.suspended = self.data.spell_types.get(&source) == Some(&SPELL_ADDICTION) && self.sated(target, source);
+                c.suspended = self.spell_type(source) == Some(SPELL_ADDICTION) && self.sated(target, source);
                 if !c.suspended {
                     self.hold_modifier(target, &mut c);
                 }
@@ -632,7 +630,7 @@ impl Game<'_> {
             .effects
             .iter()
             .filter(|e| e.permanent && !e.inactive && e.change.is_some_and(|c| c.kind == ChangeKind::Modifier))
-            .filter(|e| self.data.spell_types.get(&e.source) == Some(&SPELL_ADDICTION))
+            .filter(|e| self.spell_type(e.source) == Some(SPELL_ADDICTION))
             .map(|e| (e.id, e.target, e.source))
             .collect();
         for (id, target, spell) in ids {
@@ -658,8 +656,9 @@ impl Game<'_> {
     pub(crate) fn effect_archetype_start(&mut self, id: u32) {
         let Some(e) = self.effects.iter().find(|e| e.id == id) else { return };
         let (target, effect) = (e.target, e.effect);
-        let archetype = self.data.magic_effects.get(&effect).map(|m| m.archetype);
-        if let Some(a) = archetype.filter(|_| self.data.magic_effects.get(&effect).is_some_and(crate::magic_archetypes::acts_on_start)) {
+        let mgef = self.magic_effect_def(effect);
+        let archetype = mgef.as_ref().map(|m| m.archetype);
+        if let Some(a) = archetype.filter(|_| mgef.as_ref().is_some_and(crate::magic_archetypes::acts_on_start)) {
             self.archetype_start(id, a);
         }
         if archetype == Some(ARCHETYPE_CURE_ADDICTION) {

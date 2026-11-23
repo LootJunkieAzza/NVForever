@@ -1979,3 +1979,45 @@ fn a_declarations_value_declares_inline_in_a_lambda() {
         assert_eq!(c.errors().count(), 0, "{body}: {:?}", c.errors().collect::<Vec<_>>());
     }
 }
+
+/// `SetOnPlayGroupEventHandler` parameter index 3 resolves bare known `anim_group` keywords
+/// to `XExpr::Enum`, while leaving quoted strings (including names outside `encodings.json`),
+/// runtime `string_var`s, numeric codes, globals, dotted quest variables, and function calls
+/// as ordinary `ParamEnc::Value` expressions.
+#[test]
+fn set_on_play_group_event_handler_anim_group_arg_forms() {
+    let (_, p) = build(
+        "ref fnH\nstring_var sGrp\nbegin GameMode\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF Idle\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF Equip\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF \"Equip\"\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF \"TurnRight\"\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF sGrp\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF 0\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF 24\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF TestGlobal\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF TestQuest.bDone\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF GetAnimAction\n\
+         end\n",
+    );
+    let fourth_args: Vec<String> = body(&p)
+        .iter()
+        .map(|s| match s {
+            Stmt::Eval { expr } => match expr {
+                XExpr::Call { call } => x(&call.args[3]),
+                other => panic!("expected call, got {other:?}"),
+            },
+            other => panic!("expected eval stmt, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(fourth_args[0], "#0", "bare keyword Idle");
+    assert_eq!(fourth_args[1], "#24", "bare keyword Equip");
+    assert_eq!(fourth_args[2], "\"Equip\"", "quoted string must stay XExpr::Str for runtime normalization");
+    assert_eq!(fourth_args[3], "\"TurnRight\"", "unknown quoted string must compile as XExpr::Str");
+    assert_eq!(fourth_args[4], "v2", "string_var stays a variable reference");
+    assert_eq!(fourth_args[5], "0", "numeric 0");
+    assert_eq!(fourth_args[6], "24", "numeric 24");
+    assert!(fourth_args[7].starts_with('g'), "global variable must stay global var, got {}", fourth_args[7]);
+    assert_eq!(fourth_args[8], "v1", "dotted quest variable must compile as variable, not unknown enum");
+    assert!(fourth_args[9].contains('('), "zero-arg function call must compile as call, got {}", fourth_args[9]);
+}

@@ -15,14 +15,21 @@ setters of batch 5 were observed to, jip-records-5.md].
 
 | Function | NVForever |
 |---|---|
-| SetAmmoTraitNumeric `ammo trait value` | 0 speed (DATA), 1 projectiles per shot (DAT2), 2 ammo consumed percent (DAT2), 3 clip rounds (DATA) [documented: the page's table, which lists 0-3 though its argument says 0-2] |
-| SetAmmoProjectile, SetAmmoCasing `ammo [form]` | DAT2's projectile and consumed ammo; left out, none [documented] |
-| AddAmmoEffect, RemoveAmmoEffect `ammo effect` | the RCIL list: 1 when it changed, 0 for an effect already there or not there [documented: `successful`; hypothesis: the 0 cases]; GetNumAmmoEffects, GetNthAmmoEffect, ApplyAmmoEffects and GetCalculatedWeaponDegradation read the changed list |
-| SetAmmoEffectTraitNumeric `effect trait value` | AMEF DATA: 0 type, 1 operation, 2 value [documented] |
+| SetAmmoTraitNumeric `ammo trait value` | 0 speed (DATA), 1 projectiles per shot (DAT2), 2 ammo consumed percent (DAT2), 3 clip rounds (DATA) [documented: the page's table, which lists 0-3 though its argument says 0-2]; accepts `TempCloneForm` `AMMO` clones [design] |
+| SetAmmoProjectile, SetAmmoCasing `ammo [form]` | DAT2's projectile and consumed ammo; left out, none [documented]; accepts `TempCloneForm` `AMMO` clones, and `SetAmmoProjectile` validates `PROJ` (following clones) when a non-null form is supplied [hypothesis] |
+| AddAmmoEffect, RemoveAmmoEffect `ammo effect` | the RCIL list: 1 when it changed, 0 for an effect already there or not there [documented: `successful`; hypothesis: the 0 cases]; accepts `TempCloneForm` `AMMO` and `AMEF` clones [design]; `GetNumAmmoEffects`, `GetNthAmmoEffect`, `ApplyAmmoEffects`, `GetCalculatedWeaponDegradation`, and `Game::ammo_traits` / `Game::ammo_effect_defs` read the changed list |
+| SetAmmoEffectTraitNumeric `effect trait value` | AMEF DATA: 0 type, 1 operation, 2 value [documented]; accepts `TempCloneForm` `AMEF` clones [design] |
 
-Combat builds each ammunition's effects once, when the data loads (`fnv_combat::data`,
-`ammo`), so a list changed by these functions does not reach a shot's damage, DT or
-spread (follow-up: combat's ammo effects through `Game::ammo_effects`).
+Session `AMMO` and `AMEF` overrides are exposed canonically through `Game::ammo_traits`,
+`Game::ammo_flag`, `Game::ammo_effect_traits`, `Game::ammo_effect_defs`, and
+`Game::apply_ammo_effects_value` (`crates/fnv-game/src/nvse_jip7.rs`), and `TempCloneForm`
+snapshots all effective `AMMO` / `AMEF` fields (`Game::snapshot_ammo_traits`) so pre-clone
+edits carry over while post-clone edits on the original or parent clone remain isolated
+[design]. `fnv-combat` provides `AmmoEffect::from_numeric` and `CombatForms::chain_with_ammo`
+for live overridden `AmmoStats` / `AmmoEffect` evaluation in shot chains, damage, spread,
+and weapon wear [design]. Wiring engine combat (`engine/nvf-play`) to read
+`Game::ammo_traits` at shot creation remains a follow-up, and original-game capture parity
+for wrong-type `SetAmmoProjectile` rejection and clone-of-clone isolation remain unqualified.
 
 ## 2. Projectiles and explosions
 
@@ -31,10 +38,18 @@ spread (follow-up: combat's ammo effects through `Game::ammo_effects`).
 | SetProjectileTraitNumeric `projectile trait value` | DATA: 0 type, 1 gravity, 2 speed, 3 range, 4 tracer chance, 5 explosion proximity, 6 explosion timer, 7 muzzle flash duration, 8 fade duration, 9 impact force, 10-12 rotation x/y/z, 13 bouncy mult; 14 the detection sound level (VNAM) [documented: the page's table] |
 | SetProjectileLight `projectile [light]` | DATA's light; left out, none [documented] |
 | SetProjectileMuzzleFlash `projectile path` | NAM1, the muzzle flash model |
-| SetExplosionTraitNumeric `explosion trait value` | DATA: 0 force, 1 damage, 2 radius, 3 IS radius, 4 radiation level, 5 dissipation time, 6 radiation radius, 7 sound level [documented] |
+| SetExplosionTraitNumeric `explosion trait value` | DATA: 0 force, 1 damage, 2 radius, 3 IS radius, 4 radiation level, 5 dissipation time, 6 radiation radius, 7 sound level [documented]; accepts `TempCloneForm` `EXPL` clones and feeds `Game::explosion_traits`, `Game::add_explosion_radiation_zone`, `Game::explosive_from_explosion`, `Game::explosion_hit_damage`, and `Game::explosion_placed` radius overrides [design] |
 
-The engine's projectiles and explosions still read the records as loaded (follow-up: the
-game's projectile and explosion data through the session's changes).
+The engine's projectiles and explosions still read most visual/audio fields as loaded;
+session `DATA/speed`, `DATA/impact_force`, and `DATA/flags` overrides
+(`SetProjectileTraitNumeric`, `SetProjectileFlag`) are exposed clone-first through
+`Game::projectile_launch_traits`, `Game::projectile_flags_override`,
+`Game::projectile_flags`, and `Game::projectile_can_be_disabled`, `EXPL` session trait
+and flag overrides are exposed through `Game::explosion_traits`, and
+`fnv_combat::data::ProjectileStats::apply_flags` (alongside `WeaponStats::apply_flags1`
+for `WEAP` `DNAM/flags1`) projects bitmasks onto typed combat records [design]
+(follow-up: wire the remaining engine projectile, weapon, and explosion visual/audio/blast
+readers through these views).
 
 ## 3. Impact data and materials
 
@@ -69,7 +84,7 @@ transitions take their own time (follow-up: the sky through these changes).
 |---|---|
 | SetArmorClass `armor class` | 1 light, 2 medium, 3 heavy [documented]: BMDT's general flags Medium (bit 3) and Heavy (bit 7), read by `Game::armor_class` |
 | SetArmorRCT `armor path` | BMCT, the ragdoll constraint template |
-| SetArmorConditionPenalty `[multiplier]` | kept; returns the value before the call; left out, unchanged; 1.0 until set [documented; observed: jip7 armor.condpenalty]; any number is taken (3, -1) [observed: jip7b armor.condpenalty.neg] |
+| SetArmorConditionPenalty `[multiplier]` | kept; returns the value before the call; left out, unchanged; defaults to Stewie's `Tweaks::armor_condition_penalty` (1.0 by default) until a script sets it [documented; observed: jip7 armor.condpenalty; design: docs/design/tweaks.md]; any number is taken (3, -1) [observed: jip7b armor.condpenalty.neg] |
 | SetDamageToArmorMaxPercent `[share]` | kept, 0-1 only (2 and -1 set nothing); returns the value before the call; left out, unchanged; 1 until set [observed: jip7 armor.maxpercent, jip7b armor.maxpercent.range] |
 
 Combat still uses the fixed multiplier 1.0 and no cap (`fnv_combat::condition`), and the

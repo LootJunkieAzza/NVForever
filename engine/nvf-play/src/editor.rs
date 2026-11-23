@@ -792,7 +792,7 @@ fn pick(
     windows: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     phys: Option<ResMut<PhysState>>,
-    visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
+    visuals: crate::PickVisuals,
     panel: Query<&PointerState, With<EditorRoot>>,
     sim: Res<SimState>,
     script: Option<ResMut<ScriptState>>,
@@ -894,7 +894,7 @@ fn set_down(
     console: Res<Console>,
     free: Res<crate::free_cam::FreeCam>,
     phys: Option<ResMut<PhysState>>,
-    visuals: Query<(&RefVisual, &Aabb, &GlobalTransform)>,
+    visuals: Query<(&RefVisual, &Aabb, &GlobalTransform), Without<crate::DrawOnly>>,
     sim: Res<SimState>,
     script: Option<ResMut<ScriptState>>,
 ) {
@@ -1291,7 +1291,7 @@ fn draw(ed: Res<Editor>, mut texts: Query<&mut Text, With<EditorText>>) {
 }
 
 /// A box around the selected reference's drawn parts.
-fn outline(ed: Res<Editor>, visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>, mut gizmos: Gizmos) {
+fn outline(ed: Res<Editor>, visuals: crate::PickVisuals, mut gizmos: Gizmos) {
     let (true, Some(id)) = (ed.on, ed.selected) else { return };
     for (r, aabb, gt, v) in &visuals {
         if r.0 != id || !v.get() {

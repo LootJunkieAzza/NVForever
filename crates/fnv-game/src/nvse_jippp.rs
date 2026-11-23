@@ -60,6 +60,28 @@ impl Game<'_> {
     pub fn take_clamp_requests(&mut self) -> Vec<FormId> {
         std::mem::take(&mut self.jippp.clamp)
     }
+
+    /// A reference's InsertNode entries in each of its drawn models that lacks them: a
+    /// model drawn after the call (the player's before its 3D is built, as a Script Runner
+    /// file at a load) or drawn anew (the player's body rebuilt) [documented: the
+    /// addOrRemove table as ext-jippp.md §1 gives it, mode 3 also at once on a drawn
+    /// reference; hypothesis: the list's nodes are built into the 3D whenever it is
+    /// built]. Each frame (`Game::tick`); base forms' lists are not replayed
+    /// (ext-jippp.md §1).
+    pub(crate) fn insert_runtime_nodes(&mut self) {
+        if self.jippp.nodes.is_empty() {
+            return;
+        }
+        let wanted: Vec<(FormId, String)> = self.jippp.nodes.iter().flat_map(|(f, l)| l.iter().filter(|n| !n.attached).map(|n| (*f, n.spec.clone()))).collect();
+        for (f, spec) in wanted {
+            let Some((target, what)) = spec.split_once('|') else { continue };
+            let (as_parent, name) = match what.strip_prefix('^') {
+                Some(n) => (true, n),
+                None => (false, what),
+            };
+            self.scene.insert_node(f, target, name, as_parent);
+        }
+    }
 }
 
 /// An InsertNode or AttachModel call into the form's runtime node list: modes 1 and 3
@@ -111,20 +133,10 @@ fn weapon_degradation(g: &Game, weapon: FormId, ammo: Option<FormId>) -> f64 {
     } else {
         g.world.setting_f32("fDamageToWeaponValue").map_or(0.0, f64::from)
     };
-    // AddAmmoEffect's and RemoveAmmoEffect's changes first (`crate::nvse_jip7`).
-    let effects: Vec<FormId> = ammo.map(|a| g.ammo_effects(a)).unwrap_or_default();
-    for e in effects {
-        // AMEF DATA: type 4 Weapon Condition Mod; operation 0 add, 1 multiply, 2 subtract.
-        if n(e, "DATA", "type") != Some(4.0) {
-            continue;
-        }
-        let x = n(e, "DATA", "value").unwrap_or(0.0);
-        v = match n(e, "DATA", "operation").map(|o| o as i64) {
-            Some(0) => v + x,
-            Some(1) => v * x,
-            Some(2) => v - x,
-            _ => v,
-        };
+    // AddAmmoEffect's, RemoveAmmoEffect's, and live AMEF trait changes first
+    // (`crate::nvse_jip7`), type 4 = Weapon Condition Mod.
+    if let Some(a) = ammo {
+        v = g.apply_ammo_effects_value(a, 4, v);
     }
     crate::nvse::record_float(v.max(0.0))
 }

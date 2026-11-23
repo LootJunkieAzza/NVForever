@@ -75,12 +75,16 @@ impl<'a> Game<'a> {
 
     /// Minor actor flags from the same runtime list view as drawing and gameplay.
     pub fn runtime_minor_flags(&self, base: FormId, seed: FormId, at: LevelAt) -> crate::templates::MinorFlags {
-        self.runtime_template_source(base, seed, at, |d| d.template_base).map_or(Default::default(), |(_, d)| crate::templates::MinorFlags {
-            not_pushable: d.not_pushable,
-            no_head_track: d.no_head_track,
-            no_head: d.no_head,
-            no_right_arm: d.no_right_arm,
-            no_left_arm: d.no_left_arm,
+        use crate::actor_values::acbs;
+        self.runtime_template_source(base, seed, at, |d| d.template_base).map_or(Default::default(), |(id, d)| {
+            let crea = &d.sig == b"CREA";
+            crate::templates::MinorFlags {
+                not_pushable: self.acbs_flag(id, d, acbs::NOT_PUSHABLE, |d| d.not_pushable),
+                no_head_track: self.acbs_flag(id, d, acbs::NO_HEAD_TRACK, |d| d.no_head_track),
+                no_head: crea && self.acbs_flag(id, d, acbs::NO_HEAD, |d| d.no_head),
+                no_right_arm: crea && self.acbs_flag(id, d, acbs::NO_RIGHT_ARM, |d| d.no_right_arm),
+                no_left_arm: crea && self.acbs_flag(id, d, acbs::NO_LEFT_ARM, |d| d.no_left_arm),
+            }
         })
     }
 
@@ -120,6 +124,7 @@ impl<'a> Game<'a> {
         }
         for z in zones {
             if let Some(level) = self.world.enter_zone(z, player_level) {
+                self.zone_levels_set += 1;
                 let min_level = self.world.forms.zones.get(&z).map_or(0, |d| d.min_level);
                 self.push_level_news(LevelNews::Zone { zone: z, level, min_level, player_level });
             }

@@ -607,6 +607,46 @@ pub(crate) fn position(g: &Game, r: FormId) -> Option<[f32; 3]> {
     g.world.peek(r).map(|s| s.pos).or_else(|| g.world.placed.get(r).map(|p| p.pos))
 }
 
+/// What [`Game::would_attack`]'s rule decided for a pair, and by which of its rules: the
+/// first that held, in the order the rule asks them. Only [`Hostile::No`] is not hostile.
+/// For the log of a fight's start ([`Game::hostility_text`]): a player's report showed an
+/// actor going for the companion with nothing in the log saying why (#3335).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hostile {
+    No,
+    /// StartCombat made the pair hostile.
+    Forced,
+    /// `actor` holds a grudge against `other` (it was attacked, `crate::provocation`).
+    Grudge,
+    /// `other` is the player's teammate, and `actor` would attack the player.
+    AsAgainstThePlayer,
+    /// `actor` is the player's teammate and `other` would attack the player.
+    DefendsThePlayer,
+    /// `actor` is a passive teammate and `other` fights the player's side.
+    FightsThePlayersSide,
+    /// The player's crimes made `actor` an enemy (GetActorCrimePlayerEnemy).
+    CrimeEnemy,
+    /// The player is an enemy of one of `actor`'s factions (GetActorFactionPlayerEnemy).
+    FactionFlag,
+    /// `actor`'s Aggression against its relation to `other` (`GetFactionRelation`'s codes:
+    /// 0 neutral, 1 enemy, 2 ally, 3 friend).
+    Aggression { aggression: i64, relation: i64 },
+}
+
+impl Hostile {
+    pub fn is(self) -> bool {
+        self != Hostile::No
+    }
+
+    fn of(hostile: bool, why: Hostile) -> Hostile {
+        if hostile {
+            why
+        } else {
+            Hostile::No
+        }
+    }
+}
+
 /// What [`Game::kin`] reads of one actor (kept by `detection::Round::kin`).
 #[derive(Debug, Clone)]
 pub(crate) struct KinFacts {
@@ -671,7 +711,8 @@ impl Game<'_> {
         if self.data.actors.get(&base).is_some_and(|d| &d.sig == b"NPC_") {
             return false;
         }
-        self.template_source(base, r, |d| d.template_base).is_some_and(|(_, d)| d.is_ghost)
+        self.template_source(base, r, |d| d.template_base)
+            .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::IS_GHOST, |d| d.is_ghost))
     }
 
     /// `target` is a ghost that `detector` would otherwise attack: such an enemy does not
@@ -703,7 +744,70 @@ impl Game<'_> {
         self.keep_kin_facts(actor);
         self.keep_kin_facts(other);
         let aggression = |r: FormId| (r == actor).then_some(of_actor).or((r == other).then_some(of_other));
-        self.hostility(actor, other, &aggression).unwrap_or(false)
+        self.hostility(actor, other, &aggression).is_some_and(Hostile::is)
+    }
+
+    /// Why `actor` would attack `other` now, for the log ([`Hostile`]); `None` when it
+    /// would not. Worked out afresh, outside any detection round's kept answers.
+    pub fn hostility_reason(&mut self, actor: FormId, other: FormId) -> Option<Hostile> {
+        if self.is_ghost(other) {
+            return None;
+        }
+        let (of_actor, of_other) = (self.aggression_kept(actor), self.aggression_kept(other));
+        let aggression = |r: FormId| (r == actor).then_some(of_actor).or((r == other).then_some(of_other));
+        self.hostility(actor, other, &aggression).filter(|h| h.is())
+    }
+
+    /// [`Game::hostility_reason`] in words, for the `hostility:` log line: the rule, and for a
+    /// faction's flag which factions and since when; for a teammate, the reason against
+    /// the player too.
+    pub fn hostility_text(&mut self, actor: FormId, other: FormId) -> Option<String> {
+        let why = self.hostility_reason(actor, other)?;
+        let name = |g: &Game, r: FormId| g.data.name(r);
+        Some(match why {
+            Hostile::No => unreachable!("filtered"),
+            Hostile::Forced => "StartCombat made them hostile".to_string(),
+            Hostile::Grudge => format!("it holds a grudge against {} (it was attacked)", name(self, other)),
+            Hostile::AsAgainstThePlayer => {
+                let inner = self.hostility_text(actor, FormId::PLAYER_REF).unwrap_or_else(|| "?".to_string());
+                format!("{} is the player's teammate, and it would attack the player: {inner}", name(self, other))
+            }
+            Hostile::DefendsThePlayer => {
+                let inner = self.hostility_text(other, FormId::PLAYER_REF).unwrap_or_else(|| "?".to_string());
+                format!("it is the player's teammate, and {} would attack the player: {inner}", name(self, other))
+            }
+            Hostile::FightsThePlayersSide => format!("a passive teammate, and {} fights the player's side", name(self, other)),
+            Hostile::CrimeEnemy => {
+                let since = self.player.crime_enemy_since.get(&actor).copied();
+                let days = since.zip(self.game_days()).map_or(String::new(), |(d, now)| format!(", {:.2} days ago", now - d));
+                format!("the player's crimes made it an enemy{days}")
+            }
+            Hostile::FactionFlag => {
+                let now = self.game_days();
+                let flags: Vec<String> = crate::functions::actor::factions_of(self, actor)
+                    .into_iter()
+                    .filter(|f| self.player.enemy_of.contains(f))
+                    .map(|f| {
+                        let by = match (self.player.enemy_of_crimes.get(&f), self.player.enemy_of_script.contains(&f)) {
+                            (Some(&d), _) => now.map_or("a crime's flag".to_string(), |n| format!("a crime's flag, {:.2} days old", n - d)),
+                            (None, true) => "a script's flag (or one kept from a save made before crimes were dated)".to_string(),
+                            (None, false) => "flagged".to_string(),
+                        };
+                        format!("{} ({by})", name(self, f))
+                    })
+                    .collect();
+                format!("the player is an enemy of its faction {}", flags.join(", "))
+            }
+            Hostile::Aggression { aggression, relation } => {
+                let rel = match relation {
+                    1 => "enemy",
+                    2 => "ally",
+                    3 => "friend",
+                    _ => "neutral",
+                };
+                format!("its Aggression {aggression} against its relation {rel} ({relation}) to {}", name(self, other))
+            }
+        })
     }
 
     /// Whether `r` is a fixture that never fights: a creature flagged Immobile whose AI
@@ -724,7 +828,11 @@ impl Game<'_> {
     /// ghost while sealed (its script's SetGhost 1) and House's body killable once the
     /// terminal unseals it (owner ruling 2026-11-13).
     pub fn is_fixture(&self, r: FormId) -> bool {
-        if r == FormId::PLAYER_REF || !self.base_data_def(r).is_some_and(|d| d.immobile && &d.sig == b"CREA") {
+        if r == FormId::PLAYER_REF
+            || !self
+                .base_data_source(r)
+                .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::IMMOBILE, |d| d.immobile))
+        {
             return false;
         }
         let calm = self.def_following(r, |d| d.template_ai).is_some_and(|d| d.aggression == Some(0) && d.assistance == Some(0));
@@ -741,24 +849,35 @@ impl Game<'_> {
         calm && !armed()
     }
 
+    /// Whether `SetCombatDisabled 1` keeps `r` out of combat: the actor never enters
+    /// combat with other actors (though others may still attack it, and UseWeapon /
+    /// Use Weapon packages still work); reset on every load [documented: GECK wiki
+    /// SetCombatDisabled].
+    pub fn combat_disabled(&self, r: FormId) -> bool {
+        self.gaps.combat_disabled.contains(&r)
+    }
+
     /// The rule of [`Game::hostile_to`], read-only: `aggression` gives an actor's
     /// Aggression; `None` when it gives none for an actor the rule asks about.
-    fn hostility(&self, actor: FormId, other: FormId, aggression: &dyn Fn(FormId) -> Option<i64>) -> Option<bool> {
+    fn hostility(&self, actor: FormId, other: FormId, aggression: &dyn Fn(FormId) -> Option<i64>) -> Option<Hostile> {
         if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
-            return Some(false);
+            return Some(Hostile::No);
         }
-        // A fixture never fights (issue #2431): before StartCombat, grudges and crimes.
-        if self.is_fixture(actor) {
-            return Some(false);
+        // A fixture or combat-disabled actor never fights (issue #2431; SetCombatDisabled).
+        if self.is_fixture(actor) || self.combat_disabled(actor) {
+            return Some(Hostile::No);
         }
         let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
         // A knocked-down player stays a target (unconscious.md §5.4) [design].
         let player_down = other == FormId::PLAYER_REF && self.extra.get(&other).is_some_and(|e| e.knocked_out.is_some() && !e.unconscious && !e.restrained);
         if out(self, actor) || (out(self, other) && !player_down) || self.is_dead(other) {
-            return Some(false);
+            return Some(Hostile::No);
         }
-        if self.awareness.forced.contains(&(actor, other)) || self.provocations.holds(actor, other) {
-            return Some(true);
+        if self.awareness.forced.contains(&(actor, other)) {
+            return Some(Hostile::Forced);
+        }
+        if self.provocations.holds(actor, other) {
+            return Some(Hostile::Grudge);
         }
         // The player's teammates "act and react as if in the player faction for the
         // purposes of combat. Other actors will treat the actor as if he were in the
@@ -769,51 +888,53 @@ impl Game<'_> {
         // Boone's for the Legion] (`crate::followers`).
         let (mate, other_mate) = (self.is_teammate(actor), self.is_teammate(other));
         if mate && (other_mate || other == FormId::PLAYER_REF) {
-            return Some(false);
+            return Some(Hostile::No);
         }
         if other_mate {
-            return self.hostility(actor, FormId::PLAYER_REF, aggression);
+            return Some(Hostile::of(self.hostility(actor, FormId::PLAYER_REF, aggression)?.is(), Hostile::AsAgainstThePlayer));
         }
         // A companion set passive on the wheel (`FollowerSwitchAggressive` 0) leaves alone
         // whoever does not fight the player's side, its own enmities too; a grudge (a hit)
         // counted above [hypothesis: the wheel's Passive "follows your lead",
         // docs/spec-notes/companion-wheel.md §4].
         if mate && self.is_passive_teammate(actor) {
-            return Some(self.fights_the_players_side(other));
+            return Some(Hostile::of(self.fights_the_players_side(other), Hostile::FightsThePlayersSide));
         }
-        if mate && self.hostility(other, FormId::PLAYER_REF, aggression)? {
-            return Some(true);
+        if mate && self.hostility(other, FormId::PLAYER_REF, aggression)?.is() {
+            return Some(Hostile::DefendsThePlayer);
         }
         if other == FormId::PLAYER_REF {
             if self.extra.get(&actor).is_some_and(|e| e.teammate) {
-                return Some(false);
+                return Some(Hostile::No);
             }
-            // The player's crimes (`crate::crime`).
+            // The player's crimes (`crate::crime`): its own crime enmity, else a flag on
+            // one of its factions.
             if self.crime_enemy(actor) {
-                return Some(true);
+                return Some(if self.player.crime_enemies.contains(&actor) { Hostile::CrimeEnemy } else { Hostile::FactionFlag });
             }
         } else {
             if !self.world.is_enabled(other).unwrap_or(false) {
-                return Some(false);
+                return Some(Hostile::No);
             }
             if self.kin_in_round(actor, other) {
-                return Some(false);
+                return Some(Hostile::No);
             }
             // "Defensive Combat": "The actor will not attack an NPC or creature, unless he
             // is attacked first" [documented: GECK wiki Packages, Flags tab]; being
             // attacked is a grudge, which counts above.
             if self.package_has(actor, flags::DEFENSIVE_COMBAT) {
-                return Some(false);
+                return Some(Hostile::No);
             }
         }
         let relation = self.relation_in_round(actor, other);
         let aggression = aggression(actor)?;
-        Some(match aggression {
+        let hostile = match aggression {
             a if a >= 3 => true,
             2 => relation != 2 && relation != 3,
             1 => relation == 1,
             _ => false,
-        })
+        };
+        Some(Hostile::of(hostile, Hostile::Aggression { aggression, relation }))
     }
 
     /// Whether `actor`'s current package keeps it out of Alert: the package flag "No
@@ -968,9 +1089,10 @@ impl Game<'_> {
                 self.awareness.tactics.calm(id);
                 continue;
             }
-            // A fixture keeps no targets or alarms, from whatever gave them (an ally's
-            // call, a hit, a crime): it stays Normal (`Game::is_fixture`, issue #2431).
-            if self.is_fixture(id) {
+            // A fixture or combat-disabled actor keeps no targets or alarms, from whatever
+            // gave them (an ally's call, a hit, a crime): it stays Normal
+            // (`Game::is_fixture`, `Game::combat_disabled`, issue #2431).
+            if self.is_fixture(id) || self.combat_disabled(id) {
                 if let Some(a) = self.awareness.actors.remove(&id).filter(|a| a.state != State::Normal) {
                     self.awareness.changes.push(Change { actor: id, from: a.state, to: State::Normal, time: now, about: None, cause: None, at: None, value: None });
                 }
@@ -1160,7 +1282,7 @@ impl Game<'_> {
         if let Some(&h) = kept.get(&(actor, other)) {
             return Some(h);
         }
-        self.hostility(actor, other, &|r| round.aggression.get(&r).copied())
+        self.hostility(actor, other, &|r| round.aggression.get(&r).copied()).map(Hostile::is)
     }
 
     /// Keep answers of [`Game::round_hostility`] for the rest of the round's hostility.
@@ -1217,8 +1339,9 @@ impl Game<'_> {
     /// other (`Awareness::settle`) [engineering choice]. The target's combat group (the
     /// catalogue's second case) is not built: there are no combat groups yet.
     pub fn start_combat(&mut self, actor: FormId, target: FormId) {
-        // A fixture takes no combat target (`Game::is_fixture`, issue #2431).
-        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) || self.is_fixture(actor) {
+        // A fixture or combat-disabled actor takes no combat target (`Game::is_fixture`,
+        // `Game::combat_disabled`, issue #2431).
+        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) || self.is_fixture(actor) || self.combat_disabled(actor) {
             return;
         }
         self.awareness.forced.insert((actor, target));

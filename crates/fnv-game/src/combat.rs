@@ -254,9 +254,12 @@ pub fn worn_armor_class(world: &fnv_sim::World, id: FormId) -> fnv_sim::forms::A
         .equipment(id)
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|i| world.forms.item(i))
-        .find(|it| it.kind == ItemKind::Armor && it.slots.is_some_and(|s| s & crate::detection::UPPER_BODY != 0))
-        .map_or(ArmorClass::Light, |it| it.armor_class)
+        .find(|&i| {
+            world.resolve_item(i).is_some_and(|it| it.kind == ItemKind::Armor)
+                && world.effective_slots(i).is_some_and(|s| s & crate::detection::UPPER_BODY != 0)
+        })
+        .and_then(|i| world.effective_armor_class(i))
+        .unwrap_or(ArmorClass::Light)
 }
 
 /// Settings with their documented defaults (GECK wiki Experience Settings).
@@ -278,8 +281,8 @@ impl Game<'_> {
         if let Some(l) = self.extra.get(&r).and_then(|e| e.level) {
             return l as f64;
         }
-        let Some(d) = self.stats_def(r) else { return 1.0 };
-        if d.pc_level_mult {
+        let Some((id, d)) = self.stats_source(r) else { return 1.0 };
+        if self.acbs_flag(id, d, crate::actor_values::acbs::PC_LEVEL_MULT, |d| d.pc_level_mult) {
             let l = (self.player_level() * d.level_raw as f64 / 1000.0).round().max(d.calc_min as f64);
             if d.calc_max > 0 {
                 l.min(d.calc_max as f64)
@@ -295,7 +298,7 @@ impl Game<'_> {
     /// Maximum health before any script changed it (see the module notes).
     pub fn max_health(&mut self, r: FormId) -> f64 {
         let level = self.actor_level(r);
-        let Some(d) = self.stats_def(r) else { return 100.0 };
+        let Some((id, d)) = self.stats_source(r) else { return 100.0 };
         // The permanent value, as before the other actor values were read
         // [hypothesis: whether damage to Endurance lowers the maximum].
         let end = actor::actor_value_base(self, r, crate::actor_values::ENDURANCE);
@@ -308,7 +311,8 @@ impl Game<'_> {
         if &d.sig == b"CREA" {
             return (d.base_health as f64).max(1.0);
         }
-        let by_level = if d.autocalc { (level - 1.0).max(0.0) * setting(self, "fAVDNPCHealthLevelMult", 5.0) } else { 0.0 };
+        let autocalc = self.acbs_flag(id, d, crate::actor_values::acbs::AUTOCALC, |d| d.autocalc);
+        let by_level = if autocalc { (level - 1.0).max(0.0) * setting(self, "fAVDNPCHealthLevelMult", 5.0) } else { 0.0 };
         (d.base_health as f64 + (end - 1.0).max(0.0) * setting(self, "fAVDNPCHealthEnduranceMult", 5.0) + by_level).max(1.0)
     }
 
@@ -330,7 +334,7 @@ impl Game<'_> {
     /// Whether `r`'s base has "No Low Level Processing": its AI is not updated outside
     /// the loaded area [documented: GECK wiki Category:NPC].
     pub fn no_low_level_processing(&self, r: FormId) -> bool {
-        self.base_data_def(r).is_some_and(|d| d.no_low_level)
+        self.base_data_source(r).is_some_and(|(id, d)| self.acbs_flag(id, d, crate::actor_values::acbs::NO_LOW_LEVEL, |d| d.no_low_level))
     }
 
     /// Lay out the corpses of a new game: every placed actor that starts dead
@@ -357,7 +361,9 @@ impl Game<'_> {
     /// ghosted player is still hurt: "Though NPCs and creatures can not be damaged in this
     /// state, the player can" [documented: GECK wiki SetGhost notes].
     pub fn is_immune(&self, r: FormId) -> bool {
-        let invulnerable = self.base_data_def(r).is_some_and(|d| d.invulnerable);
+        let invulnerable = self
+            .base_data_source(r)
+            .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::INVULNERABLE, |d| d.invulnerable));
         let ghost = r != FormId::PLAYER_REF && self.is_ghost(r);
         invulnerable || ghost || self.actor_race(r).is_some_and(|race| self.data.child_races.contains(&race))
     }
@@ -424,8 +430,13 @@ impl Game<'_> {
         }
         // Its effects end, but those whose base effect has "No Death Dispel" (a flamer's
         // burning) and abilities (docs/spec-notes/hit-effects.md §4).
-        let data = self.data;
-        self.dispel(r, None, |e| !e.permanent && !data.magic_effects.get(&e.effect).is_some_and(|m| m.has(MagicEffectDef::NO_DEATH_DISPEL)));
+        let keep: Vec<u32> = self
+            .effects
+            .iter()
+            .filter(|e| e.target == r && (e.permanent || self.magic_effect_def(e.effect).is_some_and(|m| m.has(MagicEffectDef::NO_DEATH_DISPEL))))
+            .map(|e| e.id)
+            .collect();
+        self.dispel(r, None, |e| !keep.contains(&e.id));
         self.death_line(r, killer);
         true
     }
@@ -624,6 +635,14 @@ impl Game<'_> {
         if let Some(a) = info.attacker {
             self.extra.entry(a).or_default().last_target = Some(target);
         }
+        if info.critical {
+            // [documented: SetOnCriticalHitEventHandler] this = struck actor;
+            // arguments: source, weapon. Fired after `last_hit` is recorded so
+            // `GetHitLocation` reads this hit as in the wiki example.
+            let source = fnv_script::vm::XVal::Ref(info.attacker.map_or(0, |a| a.0));
+            let weapon = fnv_script::vm::XVal::Ref(info.weapon.map_or(0, |w| w.0));
+            self.jip_event("criticalhit", Some(target), vec![source, weapon]);
+        }
         if dealt > 0.0 {
             // [documented: SetOnHealthDamageEventHandler] the amount negative, the source.
             let source = fnv_script::vm::XVal::Ref(info.attacker.map_or(0, |a| a.0));
@@ -814,6 +833,21 @@ impl Game<'_> {
                 (l.condition, after, crippled)
             })
             .collect()
+    }
+
+    /// Apply an explosion's live object effect (`EITM`, respecting `SetExplosionTraitForm`
+    /// trait 5 and `TempCloneForm` snapshots via [`Game::explosion_traits`]) to `target`
+    /// as a hit effect. Dead or immune targets and explosions without an enchantment
+    /// apply nothing. Returns the active-effect ids started on `target`.
+    pub fn apply_explosion_effect(&mut self, explosion: FormId, target: FormId, caster: Option<FormId>) -> Vec<u32> {
+        if self.is_dead(target) || self.is_immune(target) {
+            return Vec::new();
+        }
+        let Some(ench) = self.explosion_traits(explosion).and_then(|t| t.enchantment) else {
+            return Vec::new();
+        };
+        let mods = crate::aid::Mods { hit: true, ..crate::aid::Mods::default() };
+        self.apply_magic_item_with(target, ench, caster, false, &mods).into_iter().filter(|a| !a.extended).map(|a| a.id).collect()
     }
 
     /// Lower a limb's condition by a hit (see the module notes): its condition after, and
@@ -1085,9 +1119,12 @@ impl Game<'_> {
 
     /// Run the OnFire blocks of the weapon `actor` fired (its object script)
     /// [documented: block name; observed: the detonator's script, `DetonatorOnFire`, is
-    /// an OnFire block].
+    /// an OnFire block], and fire JIP's `SetOnFireWeaponEventHandler` event
+    /// [documented: SetOnFireWeaponEventHandler]. Returns whether an OnFire block ran.
     pub fn weapon_fired(&mut self, actor: FormId, weapon: FormId) -> bool {
-        self.item_event(actor, weapon, event::ON_FIRE, None)
+        let ran = self.item_event(actor, weapon, event::ON_FIRE, None);
+        self.fire_weapon_jip_event(actor, weapon, false);
+        ran
     }
 
     /// The XP the player earns for killing `target` (see the module notes): none for the

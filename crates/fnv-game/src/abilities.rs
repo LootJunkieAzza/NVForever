@@ -68,7 +68,7 @@ impl Game<'_> {
     /// SporeCarrierPoisonResist read IsSpellTarget 1 and Poison Resistance base 20 + 100;
     /// docs/spec-notes/area-effects.md §3].
     fn abilities_of<'s>(&'s self, spells: &'s [FormId]) -> impl Iterator<Item = FormId> + 's {
-        spells.iter().copied().filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ABILITY))
+        spells.iter().copied().filter(|&s| self.spell_type(s) == Some(SPELL_ABILITY))
     }
 
     /// The abilities of the actor's record: the SPLO list of the record that supplies
@@ -129,7 +129,7 @@ impl Game<'_> {
 
     /// Whether an effect is an ability's (an effect of a listed spell of type Ability).
     pub fn is_ability_effect(&self, e: &crate::game::ActiveEffect) -> bool {
-        e.permanent && e.worn.is_none() && self.data.spell_types.get(&e.source) == Some(&SPELL_ABILITY)
+        e.permanent && e.worn.is_none() && self.spell_type(e.source) == Some(SPELL_ABILITY)
     }
 
     /// The abilities in an actor's spell list are active while it is loaded: each one
@@ -139,10 +139,9 @@ impl Game<'_> {
     /// same way, and a dispelled one comes back when the actor is loaded again].
     pub fn sync_abilities(&mut self, r: FormId) {
         if !self.effects_loaded(r) {
-            let data = self.data;
-            let ability = |e: &crate::game::ActiveEffect| e.permanent && e.worn.is_none() && data.spell_types.get(&e.source) == Some(&SPELL_ABILITY);
-            if self.effects.iter().any(|e| e.target == r && ability(e)) {
-                self.dispel(r, None, ability);
+            let ids: Vec<u32> = self.effects.iter().filter(|e| e.target == r && self.is_ability_effect(e)).map(|e| e.id).collect();
+            if !ids.is_empty() {
+                self.dispel(r, None, |e| ids.contains(&e.id));
             }
             if let Some(x) = self.extra.get_mut(&r) {
                 x.dispelled.clear();
@@ -154,7 +153,7 @@ impl Game<'_> {
             .spells
             .iter()
             .copied()
-            .filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ABILITY) && !x.dispelled.contains(s))
+            .filter(|&s| self.spell_type(s) == Some(SPELL_ABILITY) && !x.dispelled.contains(&s))
             .filter(|s| !self.effects.iter().any(|e| e.target == r && e.source == *s && e.permanent && e.worn.is_none()))
             .collect();
         for spell in missing {

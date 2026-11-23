@@ -40,7 +40,10 @@ fn text(args: &[XVal], k: usize) -> String {
 /// The session state of batch 3.
 #[derive(Debug, Clone, Default)]
 pub struct Lu3State {
-    /// Perks whose entries a script changed: a copy of the record with the changes.
+    /// Perks whose definition a script changed for the session (entries, `SetPerkLevel`,
+    /// `SetPerkFlag`, `LNSetIsPlayable`): a copy of the record with the changes. Carried
+    /// across same-run loads via `Game::take_session` / `put_session`, not saved
+    /// [hypothesis: session-only, like other record setters].
     pub perk_edits: HashMap<FormId, PerkDef>,
     /// CopyFaceGenFrom's backup of an actor's look before its first copy, to undo it:
     /// its race, its sex and how many face matches it had.
@@ -54,6 +57,16 @@ impl Game<'_> {
     /// record's.
     pub fn perk_def(&self, perk: FormId) -> Option<&PerkDef> {
         self.lu3.perk_edits.get(&perk).or_else(|| self.data.perks.get(&perk))
+    }
+
+    /// Mutable session copy of a perk's definition (cloned from the authored record on
+    /// first edit); `None` when `perk` is not a `PERK` form.
+    pub(crate) fn perk_def_mut(&mut self, perk: FormId) -> Option<&mut PerkDef> {
+        if !self.lu3.perk_edits.contains_key(&perk) {
+            let def = self.data.perks.get(&perk)?.clone();
+            self.lu3.perk_edits.insert(perk, def);
+        }
+        self.lu3.perk_edits.get_mut(&perk)
     }
 
     /// Each frame (`Game::tick`): the player's cell changed, so OnCellExit with the cell
@@ -115,11 +128,7 @@ pub(crate) fn nth_entry_of<'g>(g: &'g Game, perk: FormId, i: f64) -> Option<&'g 
 
 /// The perk's Nth entry to change for the session (a copy made the first time).
 pub(crate) fn perk_entry_mut<'g>(g: &'g mut Game, perk: FormId, i: f64) -> Option<&'g mut crate::data::PerkEntry> {
-    if !g.lu3.perk_edits.contains_key(&perk) {
-        let def = g.data.perks.get(&perk)?.clone();
-        g.lu3.perk_edits.insert(perk, def);
-    }
-    let d = g.lu3.perk_edits.get_mut(&perk)?;
+    let d = g.perk_def_mut(perk)?;
     let k = nth_entry(d, i)?;
     d.entries.get_mut(k)
 }

@@ -149,7 +149,7 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
     // Neutral locomotion inputs are explicit authored fixture state. None is a
     // known absent weapon choice; it does not fabricate a successful asset read.
     let clips = [
-        (ClipKey::Idle(Stance::Stand, false), Some(base)),
+        (ClipKey::Idle(Stance::Stand, false, false), Some(base)),
         (ClipKey::Equip(Stance::Stand, UNARMED, true), None),
         (ClipKey::Equip(Stance::Stand, UNARMED, false), None),
         (ClipKey::Holster(Stance::Stand, UNARMED), None),
@@ -170,6 +170,9 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
         eye_local: Vec3::ZERO,
         looking: None,
         camera: None,
+        script_turn: None,
+        posed_root: None,
+        script_used: None,
         translate: None,
         weapon_node: None,
         weapon_parent: None,
@@ -188,6 +191,7 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
         use_lens: false,
         sight_relief: None,
         drawn: vec![],
+        spawned_forms: vec![],
         shown: None,
         seen: None,
         furniture: None,
@@ -224,6 +228,7 @@ fn neutral_frame(dt: f32) -> Frame {
         fast: false,
         female: false,
         limping: false,
+        toddler: false,
         prefix: UNARMED,
         grip: None,
         drawn: None,
@@ -269,9 +274,9 @@ fn pose_frame(
     pipboy: Option<f32>,
 ) {
     let mut state =
-        SystemState::<(ResMut<ActorParts>, ModelCtx, Query<&mut Transform>)>::new(world);
+        SystemState::<(ResMut<ActorParts>, ModelCtx, Query<&mut Transform>, Query<&ChildOf>)>::new(world);
     {
-        let (mut parts, mut models, mut transforms) = state.get_mut(world).expect("authored fixture resources are installed");
+        let (mut parts, mut models, mut transforms, parents) = state.get_mut(world).expect("authored fixture resources are installed");
         let mut ctx = ActorCtx {
             cache: &mut parts,
             models: &mut models,
@@ -294,7 +299,7 @@ fn pose_frame(
                 sights: None,
             },
             &mut ctx,
-            &mut transforms,
+            (&mut transforms, &parents),
         );
     }
     state.apply(world);

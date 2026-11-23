@@ -29,6 +29,8 @@ fnv-actor.workspace = true
 fnv-voice.workspace = true
 fnv-vfs.workspace = true
 fnv-font.workspace = true
+# Rasterize the interface's on-demand CJK fallback with the version Bevy already uses.
+swash = "0.2.10"
 fnv-dds.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

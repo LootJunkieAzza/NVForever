@@ -19,6 +19,7 @@ use bevy::math::Affine3A;
 use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline};
 use bevy::prelude::*;
+use bevy::tasks::{futures::check_ready, Task};
 use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
 use bevy::shader::ShaderRef;
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject};
@@ -29,7 +30,7 @@ use fnv_world::land_surface::Surface;
 use fnv_world::CELL_SIZE;
 use nvf_play::grass_fire::GrassFires;
 use nvf_assets::model::ModelCtx;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub type GrassMaterial = ExtendedMaterial<StandardMaterial, GrassSway>;
@@ -386,31 +387,136 @@ impl GrassCtx<'_> {
 
     #[allow(clippy::too_many_arguments)]
     fn grow(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land: &Land, surface: &Surface, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
+        let Some(seed) = self.seed(world, land, models) else { return };
+        let grown = seed.grow(land, surface, grid, water);
+        self.take_in(commands, cell, grid, grown, models);
+    }
+
+    /// What growing a cell's grass reads besides its landscape: the types its textures
+    /// grow (their records read on first use) and those types' models (made on first use).
+    /// Both need this thread, and both are kept, so later cells find them. `None`: none of
+    /// the landscape's textures grows grass.
+    fn seed(&mut self, world: &WorldData, land: &Land, models: &mut ModelCtx) -> Option<GrassSeed> {
         let max_types = self.config.generate.max_types_per_texture;
+        let mut texture_types: HashMap<u32, Vec<usize>> = HashMap::new();
         for t in land.layers.iter().filter_map(|l| l.texture) {
-            if self.cache.texture_types.contains_key(&t) {
-                continue;
+            if !self.cache.texture_types.contains_key(&t) {
+                // The first types named, in stored order [hypothesis, grass.md §3].
+                let kinds: Vec<usize> = texture_grasses(world.lo, world.schema, t).into_iter().filter_map(|g| self.kind(world, g)).take(max_types).collect();
+                self.cache.texture_types.insert(t, kinds);
             }
-            // The first types named, in stored order [hypothesis, grass.md §3].
-            let kinds: Vec<usize> = texture_grasses(world.lo, world.schema, t).into_iter().filter_map(|g| self.kind(world, g)).take(max_types).collect();
-            self.cache.texture_types.insert(t, kinds);
+            texture_types.insert(t, self.cache.texture_types[&t].clone());
         }
-        let plants = place_on(land, surface, grid, water, &self.cache.types, &self.cache.texture_types, &self.config.generate);
+        let kinds: HashSet<usize> = texture_types.values().flatten().copied().collect();
+        if kinds.is_empty() {
+            return None;
+        }
+        let grass_models: HashMap<usize, Arc<GrassModel>> = kinds.into_iter().filter_map(|k| Some((k, self.model(k, models)?))).collect();
+        Some(GrassSeed { types: self.cache.types.clone(), texture_types, models: grass_models, settings: self.config.generate, patches: self.fires.is_some() })
+    }
+
+    /// Put a cell's grown grass under `cell`: its meshes, the grass fires' fuel, the counts.
+    fn take_in(&mut self, commands: &mut Commands, cell: Entity, grid: (i32, i32), grown: Grown, models: &mut ModelCtx) {
+        self.cache.plants_generated += grown.plants;
+        if let Some(fires) = self.fires.as_deref_mut().filter(|_| !grown.patches.is_empty()) {
+            fires.fires.add_fuel(grid, grown.patches);
+        }
+        for (mesh, material, chunk) in grown.chunks {
+            commands.entity(cell).with_child((
+                Mesh3d(models.meshes.add(mesh)),
+                MeshMaterial3d(material),
+                Transform::IDENTITY,
+                chunk,
+                // The plants are small and many: they take the sun's shadows but
+                // cast none [chosen].
+                NotShadowCaster,
+            ));
+        }
+    }
+
+    /// [design] As [`GrassCtx::spawn`], with the placing and the meshes on a read thread
+    /// (docs/design/streaming-hitches.md §3.5): what needs this thread is done here (the
+    /// types and their models, [`GrassCtx::seed`]), the plants are placed and their meshes
+    /// merged on the read pool, and [`GrassCtx::finish`] puts them under the cell when
+    /// [`GrassGrowth::ready`] has them. `None`: nothing will grow (grass switched off, the
+    /// cell owed it as in `spawn`; or no texture of the landscape grows any).
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land_id: u32, land: Land, surface: Surface, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) -> Option<GrassGrowth> {
+        if !self.config.enabled {
+            commands.entity(cell).insert(GrassOwed { land: land_id, grid, water });
+            return None;
+        }
+        let t0 = std::time::Instant::now();
+        let seed = self.seed(world, &land, models);
+        self.cache.build_ms += t0.elapsed().as_secs_f64() * 1000.0;
+        let seed = seed?;
+        let task = nvf_assets::read_pool::read_pool().spawn(async move { seed.grow(&land, &surface, grid, water) });
+        Some(GrassGrowth { task, grid })
+    }
+
+    /// The grass [`GrassCtx::begin`] started, grown: under its cell.
+    pub fn finish(&mut self, commands: &mut Commands, cell: Entity, grid: (i32, i32), grown: Grown, models: &mut ModelCtx) {
+        let t0 = std::time::Instant::now();
+        self.take_in(commands, cell, grid, grown, models);
+        self.cache.build_ms += t0.elapsed().as_secs_f64() * 1000.0;
+    }
+}
+
+/// What a cell's grass grows from, besides its landscape ([`GrassCtx::seed`]): owned, so
+/// the growing can run on a read thread.
+struct GrassSeed {
+    types: Vec<Grass>,
+    /// LTEX FormID → indices into `types`, for the landscape's own textures.
+    texture_types: HashMap<u32, Vec<usize>>,
+    models: HashMap<usize, Arc<GrassModel>>,
+    settings: GrassSettings,
+    /// The grass fires want the patches the plants stand on.
+    patches: bool,
+}
+
+/// A cell's grass, grown: the plants placed and their meshes merged, by quadrant and type.
+pub struct Grown {
+    plants: usize,
+    /// The grass fires' fuel: the patches the plants stand on, at the lowest plant's ground.
+    patches: HashMap<nvf_play::grass_fire::Key, f32>,
+    chunks: Vec<(Mesh, Handle<GrassMaterial>, GrassChunk)>,
+}
+
+/// A cell's grass being grown on a read thread ([`GrassCtx::begin`]).
+pub struct GrassGrowth {
+    task: Task<Grown>,
+    pub grid: (i32, i32),
+}
+
+impl std::fmt::Debug for GrassGrowth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GrassGrowth({}, {})", self.grid.0, self.grid.1)
+    }
+}
+
+impl GrassGrowth {
+    /// The grown grass, once the read thread is done with it.
+    pub fn ready(&mut self) -> Option<Grown> {
+        check_ready(&mut self.task)
+    }
+}
+
+impl GrassSeed {
+    /// Place the plants on `land` (drawn on `surface`, grid square `grid`) and merge their
+    /// meshes. Reads nothing but its arguments.
+    fn grow(&self, land: &Land, surface: &Surface, grid: (i32, i32), water: Option<f32>) -> Grown {
+        let plants = place_on(land, surface, grid, water, &self.types, &self.texture_types, &self.settings);
+        let mut grown = Grown { plants: plants.len(), patches: HashMap::new(), chunks: Vec::new() };
         if plants.is_empty() {
-            return;
+            return grown;
         }
-        self.cache.plants_generated += plants.len();
         let origin = Vec3::new(grid.0 as f32 * CELL_SIZE, grid.1 as f32 * CELL_SIZE, 0.0);
-        // The patches the plants stand on are the grass fires' fuel, at the lowest plant's
-        // ground.
-        if let Some(fires) = self.fires.as_deref_mut() {
-            let mut patches: HashMap<nvf_play::grass_fire::Key, f32> = HashMap::new();
+        if self.patches {
             for p in &plants {
                 let at = origin + Vec3::from_array(p.position);
-                let z = patches.entry(nvf_play::grass_fire::key(at.x, at.y)).or_insert(at.z);
+                let z = grown.patches.entry(nvf_play::grass_fire::key(at.x, at.y)).or_insert(at.z);
                 *z = z.min(at.z);
             }
-            fires.fires.add_fuel(grid, patches);
         }
         // By quadrant and type: smaller meshes to cull and to leave out beyond the distance.
         let mut groups: HashMap<(usize, usize), Vec<&Plant>> = HashMap::new();
@@ -419,22 +525,15 @@ impl GrassCtx<'_> {
             groups.entry((q, p.kind)).or_default().push(p);
         }
         for ((_, kind), group) in groups {
-            let Some(model) = self.model(kind, models) else { continue };
-            let fit_to_slope = self.cache.types[kind].fit_to_slope;
+            let Some(model) = self.models.get(&kind) else { continue };
+            let fit_to_slope = self.types[kind].fit_to_slope;
             for shape in &model.shapes {
                 let (mesh, lo, hi) = merged_mesh(shape, &group, fit_to_slope);
                 let chunk = GrassChunk { centre: origin + (lo + hi) / 2.0, radius: (hi - lo).length() / 2.0, plants: group.len() as u32 };
-                commands.entity(cell).with_child((
-                    Mesh3d(models.meshes.add(mesh)),
-                    MeshMaterial3d(shape.material.clone()),
-                    Transform::IDENTITY,
-                    chunk,
-                    // The plants are small and many: they take the sun's shadows but
-                    // cast none [chosen].
-                    NotShadowCaster,
-                ));
+                grown.chunks.push((mesh, shape.material.clone(), chunk));
             }
         }
+        grown
     }
 }
 

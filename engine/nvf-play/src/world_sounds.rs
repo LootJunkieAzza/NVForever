@@ -1022,37 +1022,422 @@ fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
     );
 }
 
-/// SetSoundSourceFile (`fnv_game::nvse_traits`): a SOUN whose file or folder a script
-/// changed plays from there [documented: SetSoundSourceFile, "Sets the source sound
-/// file/folder path used by the specified Sound"; observed: Titans of the New West points FSTArmorPowerL/R at its silence
-/// folders (`fx\fst\TNW_SilenceL\`) and plays its own footsteps when it hears them
-/// (#2541); before, the engine kept the record's file and the vanilla step sounded too].
-/// Only new or changed sources are applied: a source that leaves the map later (a new
-/// game, a load) is not put back to the record's file.
-fn script_sound_files(script: Option<Res<crate::script::ScriptState>>, sfx: Option<ResMut<Sfx>>, mut seen: Local<std::collections::HashMap<FormId, String>>) {
-    let (Some(script), Some(mut sfx)) = (script, sfx) else { return };
-    let Some(rt) = script.rt.as_ref() else { return };
-    let now = &rt.game.traits.sources;
-    if now.len() == seen.len() && now.iter().all(|(k, v)| seen.get(k) == Some(v)) {
-        return;
+/// Session state kept by [`script_sound_files`] so `SetSoundSourceFile`,
+/// `SetSoundTraitNumeric`, and `TempCloneForm` SOUN aliases reach `Sfx` before
+/// playback and reset cleanly on a new session or load.
+#[derive(Default)]
+struct ScriptSoundSync {
+    seen_sources: HashMap<FormId, String>,
+    seen_traits: HashMap<(FormId, i64), u64>,
+    seen_clones: HashMap<FormId, FormId>,
+    originals: HashMap<FormId, fnv_combat::fx::Sound>,
+    active_clones: HashSet<FormId>,
+}
+
+/// Apply the direct `SetSoundSourceFile` and `SetSoundTraitNumeric` (`0..=11`) overrides
+/// for `id` (including overrides snapshotted at `TempCloneForm` time) onto `sound`.
+fn apply_sound_overrides(game: &fnv_game::Game, id: FormId, sound: &mut fnv_combat::fx::Sound) {
+    if let Some(path) = game.sound_source_override(id) {
+        let trimmed = path.trim();
+        sound.file = (!trimmed.is_empty()).then(|| trimmed.to_string());
     }
-    for (k, v) in now {
-        if seen.get(k) == Some(v) {
+    for slot in 0..=11 {
+        let Some(v) = game.sound_trait_override(id, slot) else { continue };
+        match slot {
+            0 => sound.min_distance = v.max(0.0) as f32,
+            1 => sound.max_distance = v.max(0.0) as f32,
+            2 => sound.frequency_adjust_percent = v as f32,
+            3 => sound.static_attenuation_db = (-v).max(0.0) as f32,
+            4 => sound.stop_hour = (v.clamp(0.0, 255.0) * 24.0 / 256.0) as f32,
+            5 => sound.start_hour = (v.clamp(0.0, 255.0) * 24.0 / 256.0) as f32,
+            6..=10 => {
+                let curve = sound.attenuation_curve.get_or_insert(fnv_combat::fx::DEFAULT_ATTENUATION_CURVE);
+                curve[(slot - 6) as usize] = v.clamp(0.0, 100.0) as f32;
+            }
+            11 => sound.reverb_attenuation_percent = v.clamp(0.0, 100.0) as f32,
+            _ => {}
+        }
+    }
+}
+
+/// Sync `SetSoundSourceFile`, `SetSoundTraitNumeric`, and `TempCloneForm` SOUN aliases
+/// from `game` into `sounds`. Returns `true` when any entry changed.
+fn sync_script_sounds(game: &fnv_game::Game, sounds: &mut HashMap<FormId, fnv_combat::fx::Sound>, state: &mut ScriptSoundSync) -> bool {
+    let family = fnv_game::nvse_traits::SOUND_TRAIT_FAMILY;
+    let sources_same = game.traits.sources.len() == state.seen_sources.len()
+        && game.traits.sources.iter().all(|(k, v)| state.seen_sources.get(k) == Some(v));
+    let mut sound_trait_count = 0usize;
+    let mut traits_same = true;
+    for (&(id, fam, slot), &val) in &game.traits.values {
+        if fam != family || !(0..=11).contains(&slot) {
             continue;
         }
-        if let Some(sound) = sfx.forms.sounds.get_mut(k) {
-            info!("world sounds: {} plays from {v} (SetSoundSourceFile)", sound.edid.as_deref().unwrap_or("a sound"));
-            sound.file = Some(v.clone());
+        sound_trait_count += 1;
+        if state.seen_traits.get(&(id, slot)) != Some(&val.to_bits()) {
+            traits_same = false;
         }
     }
-    *seen = now.clone();
+    traits_same &= sound_trait_count == state.seen_traits.len();
+
+    let mut sound_clone_count = 0usize;
+    let mut clones_same = true;
+    for (&clone_id, &parent) in game.clones() {
+        let origin = game.unclone(clone_id);
+        let is_sound = !game.clones().contains_key(&origin)
+            && (state.originals.contains_key(&origin) || (sounds.contains_key(&origin) && !state.active_clones.contains(&origin)));
+        if !is_sound {
+            continue;
+        }
+        sound_clone_count += 1;
+        if state.seen_clones.get(&clone_id) != Some(&parent) {
+            clones_same = false;
+        }
+    }
+    clones_same &= sound_clone_count == state.seen_clones.len();
+
+    if sources_same && traits_same && clones_same {
+        return false;
+    }
+
+    // Drain all previously materialized clone entries before rebuilding so disappeared
+    // clones and FormIDs reused for non-SOUN clones in a fresh session never leak.
+    for id in state.active_clones.drain() {
+        sounds.remove(&id);
+    }
+
+    // Collect authored SOUN IDs that currently have a direct source or numeric trait override.
+    let mut overridden_authored: HashSet<FormId> = HashSet::new();
+    for &id in game.traits.sources.keys() {
+        if !game.clones().contains_key(&id) && (state.originals.contains_key(&id) || sounds.contains_key(&id)) {
+            overridden_authored.insert(id);
+        }
+    }
+    for &(id, fam, slot) in game.traits.values.keys() {
+        if fam == family && (0..=11).contains(&slot) && !game.clones().contains_key(&id) && (state.originals.contains_key(&id) || sounds.contains_key(&id)) {
+            overridden_authored.insert(id);
+        }
+    }
+
+    // Restore previously mutated authored SOUNs before re-applying active overrides.
+    state.originals.retain(|id, orig| {
+        if let Some(entry) = sounds.get_mut(id) {
+            *entry = orig.clone();
+        }
+        overridden_authored.contains(id)
+    });
+
+    // Apply overrides to authored SOUN records, snapshotting each authored record once.
+    for id in overridden_authored {
+        let Some(entry) = sounds.get_mut(&id) else { continue };
+        state.originals.entry(id).or_insert_with(|| entry.clone());
+        apply_sound_overrides(game, id, entry);
+        if let Some(v) = game.traits.sources.get(&id) {
+            if state.seen_sources.get(&id) != Some(v) {
+                let label = entry.edid.as_deref().unwrap_or("a sound");
+                if v.trim().is_empty() {
+                    info!("world sounds: {label} cleared sound file (SetSoundSourceFile)");
+                } else {
+                    info!("world sounds: {label} plays from {v} (SetSoundSourceFile)");
+                }
+            }
+        }
+    }
+
+    // Materialize/update every TempCloneForm SOUN alias from its authored origin's base Sound,
+    // clearing `edid` so EDID-based lookups never accidentally pick a clone over the original.
+    let mut next_clones: HashMap<FormId, FormId> = HashMap::new();
+    for (&clone_id, &parent) in game.clones() {
+        let origin = game.unclone(clone_id);
+        if game.clones().contains_key(&origin) || state.active_clones.contains(&origin) {
+            continue;
+        }
+        let Some(mut cloned) = state.originals.get(&origin).or_else(|| sounds.get(&origin)).cloned() else {
+            continue;
+        };
+        cloned.edid = None;
+        apply_sound_overrides(game, clone_id, &mut cloned);
+        if let Some(v) = game.traits.sources.get(&clone_id) {
+            if state.seen_sources.get(&clone_id) != Some(v) {
+                if v.trim().is_empty() {
+                    info!("world sounds: {clone_id} (clone of {origin}) cleared sound file (SetSoundSourceFile)");
+                } else {
+                    info!("world sounds: {clone_id} (clone of {origin}) plays from {v} (SetSoundSourceFile)");
+                }
+            }
+        }
+        sounds.insert(clone_id, cloned);
+        state.active_clones.insert(clone_id);
+        next_clones.insert(clone_id, parent);
+    }
+
+    state.seen_sources = game.traits.sources.clone();
+    state.seen_traits = game
+        .traits
+        .values
+        .iter()
+        .filter(|&(&(_, fam, slot), _)| fam == family && (0..=11).contains(&slot))
+        .map(|(&(id, _, slot), &v)| ((id, slot), v.to_bits()))
+        .collect();
+    state.seen_clones = next_clones;
+    true
+}
+
+/// SetSoundSourceFile, SetSoundTraitNumeric, and TempCloneForm SOUN sync
+/// (`fnv_game::nvse_traits`): a SOUN (or temporary clone) whose file or numeric traits
+/// a script changed plays with those values [documented: SetSoundSourceFile,
+/// SetSoundTraitNumeric, TempCloneForm; observed: Titans of the New West points
+/// FSTArmorPowerL/R at its silence folders (`fx\fst\TNW_SilenceL\`) (#2541)].
+fn script_sound_files(script: Option<Res<crate::script::ScriptState>>, sfx: Option<ResMut<Sfx>>, mut state: Local<ScriptSoundSync>) {
+    let (Some(script), Some(mut sfx)) = (script, sfx) else { return };
+    let Some(rt) = script.rt.as_ref() else { return };
+    sync_script_sounds(&rt.game, &mut sfx.forms.sounds, &mut state);
+}
+
+/// Session state kept for syncing `Game::weapon_sound_changes` (slots `0..=11`) and
+/// `TempCloneForm` `WEAP` aliases into `Sfx::forms::weapons` (docs/spec-notes/weapon-sound-bridge.md).
+#[derive(Default)]
+struct WeaponFxSync {
+    stamp: Option<(u64, u64)>,
+    originals: HashMap<FormId, fnv_combat::fx::WeaponFx>,
+    inserted: HashSet<FormId>,
+    active_clones: HashSet<FormId>,
+}
+
+/// Session state kept for syncing `Game::weapon_sound_changes` (slots `12..=13`, `YNAM`
+/// pickup and `ZNAM` putdown) and `TempCloneForm` `WEAP` aliases into `WorldSounds::forms::items`.
+#[derive(Default)]
+struct WeaponItemSoundSync {
+    stamp: Option<(u64, u64)>,
+    originals: HashMap<FormId, (Option<FormId>, Option<FormId>)>,
+    inserted: HashSet<FormId>,
+    active_clones: HashSet<FormId>,
+}
+
+/// Shared resource holding weapon-sound sync state across both frame sync points
+/// (before `PlaySet::Activation` and after `PlaySet::Scripts` before `PlaySet::Ui`) so
+/// combat, UI, world pickup/drop, and NPC idle audio all observe live `SetWeaponSound`
+/// overrides without 1-frame lag or stale state across loads [design].
+#[derive(Resource, Default)]
+pub struct WeaponSoundSync {
+    weapons: WeaponFxSync,
+    items: WeaponItemSoundSync,
+}
+
+/// Order-independent digest of `game.clones()`, so adding, removing, or reassigning a
+/// `TempCloneForm` entry invalidates weapon-sound sync even when no sound slot changed yet.
+fn weapon_clones_stamp(game: &fnv_game::Game) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut n = 0u64;
+    let mut sum = 0u64;
+    for (&clone_id, &parent) in game.clones() {
+        let origin = game.unclone(clone_id);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (clone_id.0, parent.0, origin.0).hash(&mut h);
+        sum = sum.wrapping_add(h.finish());
+        n += 1;
+    }
+    sum ^ n.rotate_left(32)
+}
+
+/// Apply JIP `SetWeaponSound` slots `0..=11` onto `fx`, preserving untouched slots and
+/// non-sound fields (`shell_casing_model`, `impact_dataset`) [documented: GECK wiki
+/// SetWeaponSound; design: docs/spec-notes/weapon-sound-bridge.md].
+fn apply_weapon_fx_change(fx: &mut fnv_combat::fx::WeaponFx, change: &fnv_game::nvse_gaps::WeaponSoundChange) {
+    if let Some(s) = change.slots[0] { fx.shoot_3d = s; }
+    if let Some(s) = change.slots[1] { fx.shoot_dist = s; }
+    if let Some(s) = change.slots[2] { fx.shoot_2d = s; }
+    if let Some(s) = change.slots[3] { fx.shoot_loop = s; }
+    if let Some(s) = change.slots[4] { fx.no_ammo = s; }
+    if let Some(s) = change.slots[5] { fx.block = s; }
+    if let Some(s) = change.slots[6] { fx.idle = s; }
+    if let Some(s) = change.slots[7] { fx.equip = s; }
+    if let Some(s) = change.slots[8] { fx.unequip = s; }
+    if let Some(s) = change.slots[9] { fx.mod_shoot_3d = s; }
+    if let Some(s) = change.slots[10] { fx.mod_shoot_dist = s; }
+    if let Some(s) = change.slots[11] { fx.mod_shoot_2d = s; }
+}
+
+/// Apply JIP `SetWeaponSound` slots `12..=13` (`YNAM` pickup / `ZNAM` putdown, shared with
+/// `SetPickupSound` / `SetPutdownSound`) onto `(pickup, putdown)` [documented: GECK wiki
+/// SetWeaponSound; design: docs/spec-notes/weapon-sound-bridge.md].
+fn apply_weapon_item_change(pair: &mut (Option<FormId>, Option<FormId>), change: &fnv_game::nvse_gaps::WeaponSoundChange) {
+    if let Some(s) = change.slots[12] { pair.0 = s; }
+    if let Some(s) = change.slots[13] { pair.1 = s; }
+}
+
+/// Sync live `Game::weapon_sound_changes` (slots `0..=11`) and `TempCloneForm` `WEAP`
+/// aliases from `game` into `weapons`. Returns `true` when the sync ran (stamp changed).
+fn sync_script_weapon_fx(
+    game: &fnv_game::Game,
+    weapons: &mut HashMap<FormId, fnv_combat::fx::WeaponFx>,
+    state: &mut WeaponFxSync,
+) -> bool {
+    let key = (game.weapon_sound_stamp(), weapon_clones_stamp(game));
+    if state.stamp == Some(key) {
+        return false;
+    }
+
+    // Drain previously materialized clone and synthetic entries before rebuilding so
+    // disappeared clones and FormIDs reused across sessions never leak.
+    for id in state.active_clones.drain() {
+        weapons.remove(&id);
+    }
+    for id in state.inserted.drain() {
+        weapons.remove(&id);
+    }
+
+    let changes = game.weapon_sound_changes();
+    let mut overridden_authored: HashSet<FormId> = HashSet::new();
+    for (&id, change) in &changes {
+        if !game.clones().contains_key(&id) && change.slots[..12].iter().any(Option::is_some) {
+            overridden_authored.insert(id);
+        }
+    }
+
+    // Restore previously mutated authored weapons before re-applying active overrides.
+    state.originals.retain(|id, orig| {
+        if let Some(entry) = weapons.get_mut(id) {
+            *entry = orig.clone();
+        }
+        overridden_authored.contains(id)
+    });
+
+    for &id in &overridden_authored {
+        let Some(change) = changes.get(&id) else { continue };
+        if let Some(entry) = weapons.get_mut(&id) {
+            state.originals.entry(id).or_insert_with(|| entry.clone());
+            apply_weapon_fx_change(entry, change);
+        } else {
+            let mut fx = fnv_combat::fx::WeaponFx::default();
+            apply_weapon_fx_change(&mut fx, change);
+            weapons.insert(id, fx);
+            state.inserted.insert(id);
+        }
+    }
+
+    // Materialize every TempCloneForm WEAP alias from its authored origin's base WeaponFx
+    // plus its own (or snapshotted) weapon-sound overrides.
+    for &clone_id in game.clones().keys() {
+        let origin = game.unclone(clone_id);
+        if game.clones().contains_key(&origin) || state.active_clones.contains(&origin) || state.inserted.contains(&origin) {
+            continue;
+        }
+        let Some(mut cloned) = state.originals.get(&origin).or_else(|| weapons.get(&origin)).cloned() else {
+            continue;
+        };
+        if let Some(change) = changes.get(&clone_id) {
+            apply_weapon_fx_change(&mut cloned, change);
+        }
+        weapons.insert(clone_id, cloned);
+        state.active_clones.insert(clone_id);
+    }
+
+    state.stamp = Some(key);
+    true
+}
+
+/// Sync live `Game::weapon_sound_changes` (slots `12..=13`, `YNAM` pickup / `ZNAM` putdown)
+/// and `TempCloneForm` `WEAP` aliases from `game` into `items`. Returns `true` when synced.
+fn sync_script_weapon_items(
+    game: &fnv_game::Game,
+    items: &mut HashMap<FormId, (Option<FormId>, Option<FormId>)>,
+    state: &mut WeaponItemSoundSync,
+) -> bool {
+    let key = (game.weapon_sound_stamp(), weapon_clones_stamp(game));
+    if state.stamp == Some(key) {
+        return false;
+    }
+
+    for id in state.active_clones.drain() {
+        items.remove(&id);
+    }
+    for id in state.inserted.drain() {
+        items.remove(&id);
+    }
+
+    let changes = game.weapon_sound_changes();
+    let mut overridden_authored: HashSet<FormId> = HashSet::new();
+    for (&id, change) in &changes {
+        if !game.clones().contains_key(&id) && (change.slots[12].is_some() || change.slots[13].is_some()) {
+            overridden_authored.insert(id);
+        }
+    }
+
+    state.originals.retain(|id, orig| {
+        if let Some(entry) = items.get_mut(id) {
+            *entry = *orig;
+        }
+        overridden_authored.contains(id)
+    });
+
+    for &id in &overridden_authored {
+        let Some(change) = changes.get(&id) else { continue };
+        if let Some(entry) = items.get_mut(&id) {
+            state.originals.entry(id).or_insert(*entry);
+            apply_weapon_item_change(entry, change);
+        } else {
+            let mut pair = (None, None);
+            apply_weapon_item_change(&mut pair, change);
+            items.insert(id, pair);
+            state.inserted.insert(id);
+        }
+    }
+
+    // Materialize TempCloneForm WEAP entries into items (checking WEAP signature so non-weapon
+    // clones stay untouched).
+    for &clone_id in game.clones().keys() {
+        let origin = game.unclone(clone_id);
+        if game.clones().contains_key(&origin)
+            || state.active_clones.contains(&origin)
+            || state.inserted.contains(&origin)
+            || game.data.sig(origin) != Some(*b"WEAP")
+        {
+            continue;
+        }
+        let Some(mut cloned) = state.originals.get(&origin).or_else(|| items.get(&origin)).copied() else {
+            continue;
+        };
+        if let Some(change) = changes.get(&clone_id) {
+            apply_weapon_item_change(&mut cloned, change);
+        }
+        items.insert(clone_id, cloned);
+        state.active_clones.insert(clone_id);
+    }
+
+    state.stamp = Some(key);
+    true
+}
+
+/// Sync live `SetWeaponSound` / `SetPickupSound` / `SetPutdownSound` overrides and
+/// `TempCloneForm` `WEAP` aliases from `ScriptState` into `Sfx::forms::weapons` (slots
+/// `0..=11`) and `WorldSounds::forms::items` (slots `12..=13`) [design:
+/// docs/spec-notes/weapon-sound-bridge.md].
+pub fn script_weapon_sounds(
+    script: Option<Res<crate::script::ScriptState>>,
+    mut sfx: Option<ResMut<Sfx>>,
+    mut ws: Option<ResMut<WorldSounds>>,
+    mut sync: ResMut<WeaponSoundSync>,
+) {
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
+    if let Some(sfx) = sfx.as_deref_mut() {
+        sync_script_weapon_fx(&rt.game, &mut sfx.forms.weapons, &mut sync.weapons);
+    }
+    if let Some(ws) = ws.as_deref_mut() {
+        sync_script_weapon_items(&rt.game, &mut ws.forms.items, &mut sync.items);
+    }
 }
 
 pub struct WorldSoundsPlugin;
 
 impl Plugin for WorldSoundsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init)
+        app.init_resource::<WeaponSoundSync>()
+            .add_systems(Startup, init)
+            // Before Activation so combat (weapon_sounds, fire, melee, actor_attacks) sees
+            // overrides from console, load, or previous frame; after Scripts before Ui so
+            // UI sounds, world pickup/drop, and NPC weapon idles see same-frame script edits.
+            .add_systems(Update, script_weapon_sounds.before(PlaySet::Activation))
+            .add_systems(Update, script_weapon_sounds.after(PlaySet::Scripts).before(PlaySet::Ui))
             .add_systems(Update, (knocks, objects, object_sources, water_sources, script_sound_files).in_set(PlaySet::Sync))
             .add_systems(Last, report);
     }
@@ -1305,5 +1690,518 @@ mod tests {
         // A new world: every state gone, every source at its placement again.
         sim.world = fnv_sim::World::new(sim.forms, sim.refs, fnv_sim::SimConfig::default());
         check(&mut index, &list, &sim, &eyes);
+    }
+
+    fn test_sound_game() -> (fnv_game::GameData, fnv_sim::FormStore, fnv_sim::RefTable) {
+        fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(6 + data.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(data);
+            out
+        }
+        fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+            let body: Vec<u8> = subs.concat();
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&[0u8; 8]);
+            out.extend_from_slice(&body);
+            out
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(b"GRUP");
+            out.extend_from_slice(&((24 + body.len()) as u32).to_le_bytes());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&[0u8; 12]);
+            out.extend_from_slice(body);
+            out
+        }
+        let mut bytes = rec(b"TES4", 0, &[sub(b"HEDR", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0])]);
+        bytes.extend(top(
+            b"SOUN",
+            &rec(b"SOUN", 0x0000_0D60, &[sub(b"EDID", b"OwnedMenuFocus\0"), sub(b"FNAM", b"fx\\ui\\owned_focus.wav\0")]),
+        ));
+        bytes.extend(top(b"STAT", &rec(b"STAT", 0x0000_0D61, &[sub(b"EDID", b"OwnedStatic\0")])));
+        let plugins = vec![fnv_esm::Plugin::parse(&bytes, "Owned.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = fnv_esm::Schema::load_dir(root.join("fnv")).unwrap();
+        let functions = root.join("script/functions.json");
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&functions).unwrap()).unwrap();
+        let forms = fnv_sim::FormStore::build(&lo, &schema);
+        let refs = fnv_sim::RefTable::build(&lo, &schema);
+        let data = fnv_game::GameData::build(&lo, &schema, fnv_script::FunctionTable::load(&functions).unwrap(), &json, &refs);
+        (data, forms, refs)
+    }
+
+    #[test]
+    fn sync_script_sounds_admits_cloned_sounds_applies_traits_and_resets_across_sessions() {
+        use fnv_combat::fx::Sound;
+        use fnv_script::vm::XVal;
+
+        let (data, forms, refs) = test_sound_game();
+        let mut game = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let orig = FormId(0x0000_0D60);
+        let non_sound = FormId(0x0000_0D61);
+
+        let mut sounds: HashMap<FormId, Sound> = HashMap::from([(
+            orig,
+            Sound {
+                edid: Some("OwnedMenuFocus".into()),
+                file: Some("fx\\ui\\owned_focus.wav".into()),
+                min_distance: 100.0,
+                max_distance: 1500.0,
+                static_attenuation_db: 6.0,
+                frequency_adjust_percent: 0.0,
+                ..Sound::default()
+            },
+        )]);
+        let mut sync = ScriptSoundSync::default();
+
+        // Create an unmodified SOUN clone BEFORE mutating orig, plus a non-SOUN clone.
+        let XVal::Ref(c_unmod_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(orig.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected unmodified sound clone");
+        };
+        let c_unmod = FormId(c_unmod_raw);
+        let XVal::Ref(bad_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(non_sound.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected non-sound clone");
+        };
+        let bad = FormId(bad_raw);
+
+        // Silence/redirect orig AFTER c_unmod exists (B42 Inject silence-original pattern):
+        // c_unmod must keep orig's authored file and attenuation, while c1 cloned AFTER
+        // this edit snapshots orig's active overrides.
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundsourcefile", None, &[XVal::Ref(orig.0), XVal::Str("fx\\owned\\silence.wav".into())]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(orig.0), XVal::Num(3.0), XVal::Num(-99.0)]).unwrap().unwrap();
+
+        let XVal::Ref(c1_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(orig.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected sound clone 1");
+        };
+        let c1 = FormId(c1_raw);
+
+        assert!(sync_script_sounds(&game, &mut sounds, &mut sync));
+        // Second call with unchanged state is a zero-work no-op.
+        assert!(!sync_script_sounds(&game, &mut sounds, &mut sync));
+
+        // Non-SOUN clone is never admitted into sounds.
+        assert!(!sounds.contains_key(&bad));
+
+        // c_unmod was created before orig was silenced, so it keeps orig's authored Sound.
+        let su = sounds.get(&c_unmod).expect("unmodified clone materialized");
+        assert_eq!(su.edid, None);
+        assert_eq!(su.file.as_deref(), Some("fx\\ui\\owned_focus.wav"));
+        assert_eq!(su.static_attenuation_db, 6.0);
+
+        // c1 was created after orig was mutated, so it snapshotted orig's session overrides.
+        let s1_initial = sounds.get(&c1).expect("clone 1 materialized");
+        assert_eq!(s1_initial.edid, None);
+        assert_eq!(s1_initial.file.as_deref(), Some("fx\\owned\\silence.wav"));
+        assert_eq!(s1_initial.static_attenuation_db, 99.0);
+
+        // Apply SetSoundSourceFile and SetSoundTraitNumeric to clone 1, then clone c2 from c1,
+        // then mutate c1 again; c2 must stay isolated at the snapshot taken from c1.
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundsourcefile", None, &[XVal::Ref(c1.0), XVal::Str("fx\\owned\\scope_click.wav".into())]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(0.0), XVal::Num(250.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(1.0), XVal::Num(3200.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(2.0), XVal::Num(12.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(3.0), XVal::Num(-25.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(6.0), XVal::Num(80.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(11.0), XVal::Num(55.0)]).unwrap().unwrap();
+
+        let XVal::Ref(c2_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(c1.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected sound clone 2");
+        };
+        let c2 = FormId(c2_raw);
+
+        // Post-clone edits on c1 do not leak into c2; empty SetSoundSourceFile clears file to None.
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundsourcefile", None, &[XVal::Ref(c1.0), XVal::Str("fx\\owned\\later_c1.wav".into())]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundtraitnumeric", None, &[XVal::Ref(c1.0), XVal::Num(3.0), XVal::Num(-40.0)]).unwrap().unwrap();
+        fnv_game::nvse::call(&mut game, &Default::default(), "setsoundsourcefile", None, &[XVal::Ref(c_unmod.0), XVal::Str(String::new())]).unwrap().unwrap();
+
+        assert!(sync_script_sounds(&game, &mut sounds, &mut sync));
+        assert!(!sync_script_sounds(&game, &mut sounds, &mut sync));
+
+        let su_empty = sounds.get(&c_unmod).expect("c_unmod present");
+        assert_eq!(su_empty.file, None);
+
+        let s1 = sounds.get(&c1).expect("clone 1 present");
+        assert_eq!(s1.edid, None);
+        assert_eq!(s1.file.as_deref(), Some("fx\\owned\\later_c1.wav"));
+        assert_eq!((s1.min_distance, s1.max_distance, s1.frequency_adjust_percent, s1.static_attenuation_db), (250.0, 3200.0, 12.0, 40.0));
+        assert_eq!(s1.attenuation_curve.unwrap()[0], 80.0);
+        assert_eq!(s1.reverb_attenuation_percent, 55.0);
+
+        let s2 = sounds.get(&c2).expect("clone 2 present");
+        assert_eq!(s2.edid, None);
+        assert_eq!(s2.file.as_deref(), Some("fx\\owned\\scope_click.wav"));
+        assert_eq!(s2.static_attenuation_db, 25.0);
+
+        // Original received its own overrides while keeping its authored EDID.
+        let so = sounds.get(&orig).expect("original present");
+        assert_eq!(so.edid.as_deref(), Some("OwnedMenuFocus"));
+        assert_eq!(so.file.as_deref(), Some("fx\\owned\\silence.wav"));
+        assert_eq!(so.static_attenuation_db, 99.0);
+
+        // Fresh session (new game / load): cloned SOUNs are pruned and authored original is restored.
+        let fresh = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        assert!(sync_script_sounds(&fresh, &mut sounds, &mut sync));
+        assert!(!sounds.contains_key(&c_unmod));
+        assert!(!sounds.contains_key(&c1));
+        assert!(!sounds.contains_key(&c2));
+        let restored = sounds.get(&orig).expect("original restored");
+        assert_eq!(restored.file.as_deref(), Some("fx\\ui\\owned_focus.wav"));
+        assert_eq!(restored.static_attenuation_db, 6.0);
+    }
+
+    #[test]
+    fn sync_script_sounds_prunes_reused_clone_form_id_when_new_session_clones_non_sound() {
+        use fnv_combat::fx::Sound;
+        use fnv_script::vm::XVal;
+
+        let (data, forms, refs) = test_sound_game();
+        let orig = FormId(0x0000_0D60);
+        let non_sound = FormId(0x0000_0D61);
+
+        let mut sounds: HashMap<FormId, Sound> = HashMap::from([(
+            orig,
+            Sound {
+                edid: Some("OwnedMenuFocus".into()),
+                file: Some("fx\\ui\\owned_focus.wav".into()),
+                ..Sound::default()
+            },
+        )]);
+        let mut sync = ScriptSoundSync::default();
+
+        // Session 1: first local clone is a SOUN at deterministic FormId 0x00FE_0000.
+        let mut s1 = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let XVal::Ref(c1_raw) = fnv_game::nvse::call(&mut s1, &Default::default(), "tempcloneform", None, &[XVal::Ref(orig.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected session 1 SOUN clone");
+        };
+        let c1 = FormId(c1_raw);
+        assert!(sync_script_sounds(&s1, &mut sounds, &mut sync));
+        assert!(sounds.contains_key(&c1));
+        assert!(sync.active_clones.contains(&c1));
+
+        // Session 2: before sync runs, a non-SOUN (STAT) clone reuses the exact same FormId.
+        let mut s2 = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let XVal::Ref(reused_raw) = fnv_game::nvse::call(&mut s2, &Default::default(), "tempcloneform", None, &[XVal::Ref(non_sound.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected session 2 STAT clone");
+        };
+        let reused_id = FormId(reused_raw);
+        assert_eq!(reused_id, c1, "fresh session deterministically reuses first local clone FormId");
+
+        assert!(sync_script_sounds(&s2, &mut sounds, &mut sync));
+        assert!(!sounds.contains_key(&reused_id), "stale Session 1 SOUN must be removed when FormId is reused by a non-SOUN");
+        assert!(!sync.active_clones.contains(&reused_id), "active_clones must prune reused non-SOUN FormId");
+    }
+
+    fn test_weapon_sound_game() -> (fnv_game::GameData, fnv_sim::FormStore, fnv_sim::RefTable, Vec<fnv_esm::Plugin>) {
+        fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(6 + data.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(data);
+            out
+        }
+        fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+            let body: Vec<u8> = subs.concat();
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&[0u8; 8]);
+            out.extend_from_slice(&body);
+            out
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(b"GRUP");
+            out.extend_from_slice(&((24 + body.len()) as u32).to_le_bytes());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&[0u8; 12]);
+            out.extend_from_slice(body);
+            out
+        }
+        let mut sounds = Vec::new();
+        for (id, edid) in [
+            (0x0000_0E00u32, "AuthS0"),
+            (0x0000_0E01, "AuthS1"),
+            (0x0000_0E02, "AuthS2"),
+            (0x0000_0E03, "AuthS3"),
+            (0x0000_0E04, "AuthS4"),
+            (0x0000_0E05, "AuthS5"),
+            (0x0000_0E06, "AuthS6"),
+            (0x0000_0E07, "AuthS7"),
+            (0x0000_0E08, "AuthS8"),
+            (0x0000_0E09, "AuthS9"),
+            (0x0000_0E0A, "AuthS10"),
+            (0x0000_0E0B, "AuthS11"),
+            (0x0000_0E0C, "AuthUp"),
+            (0x0000_0E0D, "AuthDown"),
+            (0x0000_0E20, "NewS0"),
+            (0x0000_0E21, "NewS1"),
+            (0x0000_0E22, "NewS2"),
+            (0x0000_0E23, "NewS3"),
+            (0x0000_0E24, "NewS4"),
+            (0x0000_0E25, "NewS5"),
+            (0x0000_0E26, "NewS6"),
+            (0x0000_0E27, "NewS7"),
+            (0x0000_0E28, "NewS8"),
+            (0x0000_0E29, "NewS9"),
+            (0x0000_0E2A, "NewS10"),
+            (0x0000_0E2B, "NewS11"),
+            (0x0000_0E2C, "NewUp"),
+            (0x0000_0E2D, "NewDown"),
+            (0x0000_0E2E, "UIItemGenericUp"),
+            (0x0000_0E2F, "UIItemGenericDown"),
+        ] {
+            let mut z = edid.as_bytes().to_vec();
+            z.push(0);
+            sounds.extend(rec(b"SOUN", id, &[sub(b"EDID", &z), sub(b"FNAM", b"fx\\owned\\w.wav\0")]));
+        }
+        let weap = rec(
+            b"WEAP",
+            0x0000_0E50,
+            &[
+                sub(b"EDID", b"OwnedWeap\0"),
+                sub(b"SNAM", &0x0000_0E00u32.to_le_bytes()),
+                sub(b"SNAM", &0x0000_0E01u32.to_le_bytes()),
+                sub(b"XNAM", &0x0000_0E02u32.to_le_bytes()),
+                sub(b"NAM7", &0x0000_0E03u32.to_le_bytes()),
+                sub(b"TNAM", &0x0000_0E04u32.to_le_bytes()),
+                sub(b"NAM6", &0x0000_0E05u32.to_le_bytes()),
+                sub(b"UNAM", &0x0000_0E06u32.to_le_bytes()),
+                sub(b"NAM9", &0x0000_0E07u32.to_le_bytes()),
+                sub(b"NAM8", &0x0000_0E08u32.to_le_bytes()),
+                sub(b"WMS1", &0x0000_0E09u32.to_le_bytes()),
+                sub(b"WMS1", &0x0000_0E0Au32.to_le_bytes()),
+                sub(b"WMS2", &0x0000_0E0Bu32.to_le_bytes()),
+                sub(b"YNAM", &0x0000_0E0Cu32.to_le_bytes()),
+                sub(b"ZNAM", &0x0000_0E0Du32.to_le_bytes()),
+            ],
+        );
+        let stat = rec(b"STAT", 0x0000_0E51, &[sub(b"EDID", b"OwnedNonWeap\0")]);
+        let mut bytes = rec(b"TES4", 0, &[sub(b"HEDR", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0])]);
+        bytes.extend(top(b"SOUN", &sounds));
+        bytes.extend(top(b"WEAP", &weap));
+        bytes.extend(top(b"STAT", &stat));
+        let plugins = vec![fnv_esm::Plugin::parse(&bytes, "OwnedWeapSounds.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = fnv_esm::Schema::load_dir(root.join("fnv")).unwrap();
+        let functions = root.join("script/functions.json");
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&functions).unwrap()).unwrap();
+        let forms = fnv_sim::FormStore::build(&lo, &schema);
+        let refs = fnv_sim::RefTable::build(&lo, &schema);
+        let data = fnv_game::GameData::build(&lo, &schema, fnv_script::FunctionTable::load(&functions).unwrap(), &json, &refs);
+        (data, forms, refs, plugins)
+    }
+
+    #[test]
+    fn sync_script_weapon_sounds_covers_all_slots_clones_clears_and_session_reset() {
+        use fnv_combat::fx::{Sound, WeaponFx};
+        use fnv_game::game::RunCtx;
+        use fnv_script::vm::XVal;
+
+        let (data, forms, refs, _) = test_weapon_sound_game();
+        let mut game = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let weap = FormId(0x0000_0E50);
+        let non_weap = FormId(0x0000_0E51);
+        let generic_up = FormId(0x0000_0E2E);
+        let generic_down = FormId(0x0000_0E2F);
+
+        let authored_fx = WeaponFx {
+            shoot_3d: Some(FormId(0x0E00)),
+            shoot_dist: Some(FormId(0x0E01)),
+            shoot_2d: Some(FormId(0x0E02)),
+            shoot_loop: Some(FormId(0x0E03)),
+            no_ammo: Some(FormId(0x0E04)),
+            block: Some(FormId(0x0E05)),
+            idle: Some(FormId(0x0E06)),
+            equip: Some(FormId(0x0E07)),
+            unequip: Some(FormId(0x0E08)),
+            mod_shoot_3d: Some(FormId(0x0E09)),
+            mod_shoot_dist: Some(FormId(0x0E0A)),
+            mod_shoot_2d: Some(FormId(0x0E0B)),
+            shell_casing_model: Some("weapons\\casing.nif".into()),
+            impact_dataset: Some(FormId(0x0F00)),
+        };
+
+        let mut fx_forms = fnv_combat::fx::FxForms::default();
+        fx_forms.weapons.insert(weap, authored_fx.clone());
+        fx_forms.sounds.insert(generic_up, Sound { edid: Some("UIItemGenericUp".into()), ..Sound::default() });
+        fx_forms.sounds.insert(generic_down, Sound { edid: Some("UIItemGenericDown".into()), ..Sound::default() });
+        let mut sfx = Sfx::new(fx_forms);
+        let mut ws = WorldSounds::default();
+        ws.forms.items.insert(weap, (Some(FormId(0x0E0C)), Some(FormId(0x0E0D))));
+        let mut sync = WeaponSoundSync::default();
+
+        // Clone BEFORE mutating `weap` + clone a non-WEAP (STAT).
+        let XVal::Ref(c_before_raw) = fnv_game::nvse::call(&mut game, &RunCtx::default(), "tempcloneform", None, &[XVal::Ref(weap.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected weapon clone");
+        };
+        let c_before = FormId(c_before_raw);
+        let XVal::Ref(stat_clone_raw) = fnv_game::nvse::call(&mut game, &RunCtx::default(), "tempcloneform", None, &[XVal::Ref(non_weap.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected stat clone");
+        };
+        let stat_clone = FormId(stat_clone_raw);
+
+        // Compiled NVSE script overrides all 14 slots on `OwnedWeap` (0..=11 via SetWeaponSound,
+        // 12 via SetPickupSound, 13 via SetPutdownSound).
+        game.run_query(
+            "Begin Function {}\n\
+             SetWeaponSound OwnedWeap 0 NewS0\n\
+             SetWeaponSound OwnedWeap 1 NewS1\n\
+             SetWeaponSound OwnedWeap 2 NewS2\n\
+             SetWeaponSound OwnedWeap 3 NewS3\n\
+             SetWeaponSound OwnedWeap 4 NewS4\n\
+             SetWeaponSound OwnedWeap 5 NewS5\n\
+             SetWeaponSound OwnedWeap 6 NewS6\n\
+             SetWeaponSound OwnedWeap 7 NewS7\n\
+             SetWeaponSound OwnedWeap 8 NewS8\n\
+             SetWeaponSound OwnedWeap 9 NewS9\n\
+             SetWeaponSound OwnedWeap 10 NewS10\n\
+             SetWeaponSound OwnedWeap 11 NewS11\n\
+             SetPickupSound OwnedWeap NewUp\n\
+             SetPutdownSound OwnedWeap NewDown\n\
+             End",
+            RunCtx::default(),
+        )
+        .unwrap();
+
+        // Clone AFTER mutating `weap` snapshots the active overrides onto `c_after`.
+        let XVal::Ref(c_after_raw) = fnv_game::nvse::call(&mut game, &RunCtx::default(), "tempcloneform", None, &[XVal::Ref(weap.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected post-edit weapon clone");
+        };
+        let c_after = FormId(c_after_raw);
+
+        assert!(sync_script_weapon_fx(&game, &mut sfx.forms.weapons, &mut sync.weapons));
+        assert!(!sync_script_weapon_fx(&game, &mut sfx.forms.weapons, &mut sync.weapons), "unchanged sync is a no-op");
+        assert!(sync_script_weapon_items(&game, &mut ws.forms.items, &mut sync.items));
+        assert!(!sync_script_weapon_items(&game, &mut ws.forms.items, &mut sync.items), "unchanged item sync is a no-op");
+
+        // Non-WEAP clone never enters weapons or items.
+        assert!(!sfx.forms.weapons.contains_key(&stat_clone));
+        assert!(!ws.forms.items.contains_key(&stat_clone));
+
+        // Original received all 12 WeaponFx overrides while keeping casing model and impact dataset.
+        let fx = &sfx.forms.weapons[&weap];
+        assert_eq!(fx.shoot_3d, Some(FormId(0x0E20)));
+        assert_eq!(fx.shoot_dist, Some(FormId(0x0E21)));
+        assert_eq!(fx.shoot_2d, Some(FormId(0x0E22)));
+        assert_eq!(fx.shoot_loop, Some(FormId(0x0E23)));
+        assert_eq!(fx.no_ammo, Some(FormId(0x0E24)));
+        assert_eq!(fx.block, Some(FormId(0x0E25)));
+        assert_eq!(fx.idle, Some(FormId(0x0E26)));
+        assert_eq!(fx.equip, Some(FormId(0x0E27)));
+        assert_eq!(fx.unequip, Some(FormId(0x0E28)));
+        assert_eq!(fx.mod_shoot_3d, Some(FormId(0x0E29)));
+        assert_eq!(fx.mod_shoot_dist, Some(FormId(0x0E2A)));
+        assert_eq!(fx.mod_shoot_2d, Some(FormId(0x0E2B)));
+        assert_eq!(fx.shell_casing_model.as_deref(), Some("weapons\\casing.nif"));
+        assert_eq!(fx.impact_dataset, Some(FormId(0x0F00)));
+
+        // Pickup/putdown via item_sound_of (used by world_sounds & ui_sounds) reflect slots 12/13.
+        assert_eq!(ws.item_sound_of(Some(&sfx), weap, true), Some(FormId(0x0E2C)));
+        assert_eq!(ws.item_sound_of(Some(&sfx), weap, false), Some(FormId(0x0E2D)));
+
+        // Pre-edit clone keeps authored sounds; post-edit clone keeps snapshotted overrides.
+        assert_eq!(sfx.forms.weapons[&c_before].shoot_2d, Some(FormId(0x0E02)));
+        assert_eq!(ws.item_sound_of(Some(&sfx), c_before, true), Some(FormId(0x0E0C)));
+        assert_eq!(sfx.forms.weapons[&c_after].shoot_2d, Some(FormId(0x0E22)));
+        assert_eq!(ws.item_sound_of(Some(&sfx), c_after, true), Some(FormId(0x0E2C)));
+
+        // Clearing slots 12 and 13 via SetWeaponSound falls back to UIItemGenericUp / UIItemGenericDown.
+        game.run_query(
+            "Begin Function {}\nSetWeaponSound OwnedWeap 12 0\nSetWeaponSound OwnedWeap 13 0\nEnd",
+            RunCtx::default(),
+        )
+        .unwrap();
+        assert!(sync_script_weapon_items(&game, &mut ws.forms.items, &mut sync.items));
+        assert_eq!(ws.item_sound_of(Some(&sfx), weap, true), Some(generic_up));
+        assert_eq!(ws.item_sound_of(Some(&sfx), weap, false), Some(generic_down));
+        // Post-edit clone remains isolated from later clear on original.
+        assert_eq!(ws.item_sound_of(Some(&sfx), c_after, true), Some(FormId(0x0E2C)));
+
+        // Fresh session (new game / load): clones are pruned (even if FormID is reused by a STAT)
+        // and authored WEAP sounds are restored in full.
+        let mut fresh = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let XVal::Ref(reused_raw) = fnv_game::nvse::call(&mut fresh, &RunCtx::default(), "tempcloneform", None, &[XVal::Ref(non_weap.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected reused clone id");
+        };
+        assert_eq!(FormId(reused_raw), c_before, "fresh session deterministically reuses first clone FormId");
+        assert!(sync_script_weapon_fx(&fresh, &mut sfx.forms.weapons, &mut sync.weapons));
+        assert!(sync_script_weapon_items(&fresh, &mut ws.forms.items, &mut sync.items));
+        assert!(!sfx.forms.weapons.contains_key(&c_before));
+        assert!(!sfx.forms.weapons.contains_key(&c_after));
+        assert!(!ws.forms.items.contains_key(&c_before));
+        assert!(!ws.forms.items.contains_key(&c_after));
+        assert_eq!(sfx.forms.weapons[&weap].shoot_2d, authored_fx.shoot_2d);
+        assert_eq!(sfx.forms.weapons[&weap].equip, authored_fx.equip);
+        assert_eq!(ws.item_sound_of(Some(&sfx), weap, true), Some(FormId(0x0E0C)));
+        assert_eq!(ws.item_sound_of(Some(&sfx), weap, false), Some(FormId(0x0E0D)));
+    }
+
+    #[test]
+    fn world_pickup_and_drop_play_set_weapon_sound_slots_12_and_13() {
+        use crate::sim::test_world::{item_base, placed, sim};
+        use fnv_game::game::RunCtx;
+
+        let (_, _, _, plugins) = test_weapon_sound_game();
+        let leaked = Box::leak(plugins.into_boxed_slice());
+        let script = crate::script::ScriptState::over_plugins(leaked);
+        let weap_u32 = 0x0000_0E50u32;
+        let weap = FormId(weap_u32);
+        let auth_up = FormId(0x0000_0E0C);
+        let auth_down = FormId(0x0000_0E0D);
+        let new_up = FormId(0x0000_0E2C);
+        let new_down = FormId(0x0000_0E2D);
+
+        let mut world = sim(vec![item_base(weap_u32)], vec![placed(0x310, weap_u32), placed(0x311, weap_u32)]);
+        world.world.activate(FormId::PLAYER_REF, FormId(0x310)).unwrap();
+        world.world.activate(FormId::PLAYER_REF, FormId(0x311)).unwrap();
+        let drop_a = world.world.place(weap, None, [0.0; 3], [0.0; 3], 1).unwrap().0;
+        let drop_b = world.world.place(weap, None, [0.0; 3], [0.0; 3], 1).unwrap().0;
+
+        let mut ws = WorldSounds::default();
+        ws.forms.items.insert(weap, (Some(auth_up), Some(auth_down)));
+
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<PlayState>()
+            .insert_resource(script)
+            .insert_resource(world)
+            .insert_resource(ws)
+            .init_resource::<WeaponSoundSync>()
+            .init_resource::<crate::sfx::ScriptSounds>()
+            .add_message::<RefChanged>()
+            .add_message::<Activated>()
+            .add_message::<DoorPassed>()
+            .add_message::<ImpactPicked>()
+            .add_message::<crate::ui_sounds::UiSound>()
+            .add_message::<PlaySound>()
+            .add_systems(Update, (script_weapon_sounds, objects).chain());
+
+        // Before override: world pickup & drop play static authored YNAM / ZNAM.
+        assert_eq!(hear(&mut app, &[RefChanged::new(0x310), RefChanged::new(drop_a)]), vec![auth_up, auth_down]);
+
+        // Compiled NVSE SetWeaponSound overrides slots 12 & 13: next pickup & drop play NewUp / NewDown.
+        app.world_mut()
+            .resource_mut::<crate::script::ScriptState>()
+            .rt
+            .as_mut()
+            .unwrap()
+            .game
+            .run_query(
+                "Begin Function {}\nSetWeaponSound OwnedWeap 12 NewUp\nSetWeaponSound OwnedWeap 13 NewDown\nEnd",
+                RunCtx::default(),
+            )
+            .unwrap();
+        assert_eq!(hear(&mut app, &[RefChanged::new(0x311), RefChanged::new(drop_b)]), vec![new_up, new_down]);
     }
 }

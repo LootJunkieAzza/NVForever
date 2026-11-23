@@ -945,6 +945,9 @@ struct Conversion<'w, 's> {
     blends: ResMut<'w, Assets<NifBlendMaterial>>,
     shapes: ShapeQueries<'w, 's>,
     removals: Removals<'w, 's>,
+    /// Above 60 fps a frame gets the same share of [`CLONE_WORK_PER_FRAME`]
+    /// (stream_pace.rs); `None` in tests that build no pace.
+    pace: Option<Res<'w, crate::stream_pace::StreamPace>>,
 }
 
 fn apply_variants(state: Res<BlendState>, mut conversion: Conversion) {
@@ -1076,15 +1079,17 @@ struct Outcome { pending: bool, census: Census, commands: usize, created: usize,
 // quiet frame follows the coverage, stores `settled` again and refreshes a deferred ready
 // line from the last pass's census.
 fn apply_configured_variants(p: &mut Conversion, c: BlendConfig) {
-    let Conversion { commands, cache, variants, materials, blends, shapes, removals } = p;
+    let Conversion { commands, cache, variants, materials, blends, shapes, removals, pace } = p;
     let variants: &mut Variants = variants;
     let published = cache.published.as_ref().map(publication_key);
     let revision = published.map_or(0, |k| k.0);
-    let restricted = follow_coverage(cache, variants, blends, CLONE_WORK_PER_FRAME);
-    let create_budget = CLONE_WORK_PER_FRAME.saturating_sub(restricted);
+    let clone_work = pace.as_deref().map_or(CLONE_WORK_PER_FRAME, |p| p.count(CLONE_WORK_PER_FRAME));
+    let _spending = pace.as_deref().map(|p| p.spending());
+    let restricted = follow_coverage(cache, variants, blends, clone_work);
+    let create_budget = clone_work.saturating_sub(restricted);
     // A follow that used its whole budget may have left clones for the next frame: not a
     // divergence, so the verify aid checks only after a follow that finished.
-    if variants.verify.on && restricted < CLONE_WORK_PER_FRAME {
+    if variants.verify.on && restricted < clone_work {
         // The verify aid: the per-clone check of every recorded publication, as before.
         let restricted: usize = variants.publications.iter().map(|(id, publication)| restrict_clone(cache, blends, *id, publication)).sum();
         if restricted > 0 { variants.verify.diverged(&format!("coverage-clones={restricted}")); }
@@ -1709,6 +1714,13 @@ mod tests {
             (m(default(), NifSurface { add_linear: true, ..default() }), reason::ADD_LINEAR),
             (m(default(), NifSurface { soft: Vec4::X, ..default() }), reason::SOFT),
             (m(StandardMaterial { depth_bias: f32::NAN, ..default() }, default()), reason::DEPTH_BIAS),
+            // [design] #2841: a reflecting shape without the window flag (env_how z 0) is
+            // left out like a window one (z 1): the reflection wins over the blend
+            // (docs/design/graphics-enhanced.md "Selection").
+            (m(default(), NifSurface { env: Vec4::new(1.0, 1.0, 0.0, 0.0), env_how: Vec4::new(0.0, 2.0, 0.0, 1.0), env_cube: Some(image.clone()), ..default() }), reason::ENVIRONMENT_MAP),
+            (m(default(), NifSurface { env: Vec4::new(1.0, 0.0, 0.0, 0.0), env_how: Vec4::new(0.0, 0.0, 1.0, 1.0), env_cube: Some(image.clone()), ..default() }), reason::ENVIRONMENT_MAP),
+            // A strength-0 run (NVF_PLAY_DEBUG_ENV_STRENGTH=0) still binds the cube: still out.
+            (m(default(), NifSurface { env_how: Vec4::new(0.0, 2.0, 0.0, 1.0), env_cube: Some(image.clone()), ..default() }), reason::ENVIRONMENT_MAP),
         ];
         for (material, bit) in &cases {
             assert_eq!(material_reasons(material), *bit, "{}", reason::list(*bit));

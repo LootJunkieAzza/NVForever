@@ -30,6 +30,11 @@ pub fn installed() -> bool {
     INSTALLED.load(Ordering::Relaxed)
 }
 
+/// The systems that write into the main camera's fog after the sky does (haze.rs, aerial.rs):
+/// the cameras that copy that fog (the 3D scope's lens) run after them.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FogWriters;
+
 pub struct FogPlugin;
 
 impl Plugin for FogPlugin {

@@ -553,6 +553,32 @@ impl Game<'_> {
         self.detection.detected_by(FormId::PLAYER_REF, |d| !self.with_player(d) && !self.is_dead(d))
     }
 
+    /// Living, present actors currently in `Band::Detected` against actor `target`,
+    /// excluding self-pairs, sorted by FormID (`GetDetectingActors`). Non-actor targets
+    /// return an empty list.
+    pub fn detecting_actors(&self, target: FormId) -> Vec<FormId> {
+        let is_actor = target == FormId::PLAYER_REF
+            || crate::functions::base_of(self, target).is_some_and(|b| crate::ai::is_actor_base(self.world.forms, b));
+        if !is_actor {
+            return Vec::new();
+        }
+        let mut out: Vec<FormId> = self
+            .detection
+            .pairs
+            .iter()
+            .filter_map(|(&(detector, seen), (det, _))| {
+                (seen == target
+                    && detector != target
+                    && det.band == Band::Detected
+                    && !self.is_dead(detector)
+                    && (detector == FormId::PLAYER_REF || self.present(detector)))
+                    .then_some(detector)
+            })
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
     pub fn player_detected_for_sneak(&self) -> bool {
         self.detection.highest_among(FormId::PLAYER_REF, |d| !self.with_player(d)).is_some_and(|(_, d)| d.band == Band::Detected)
     }
@@ -668,12 +694,14 @@ impl Game<'_> {
 
     /// The weight and class of the armour an actor wears in the torso slot.
     pub fn body_armor(&mut self, actor: FormId) -> Option<(f64, ArmorClass)> {
-        let forms = self.world.forms;
-        let inv = self.world.get(actor).ok()?.inventory.as_ref()?;
-        inv.equipped().into_iter().find_map(|i| {
-            let it = forms.item(i)?;
-            (it.kind == ItemKind::Armor && it.slots.is_some_and(|s| s & UPPER_BODY != 0))
-                .then(|| (it.weight.unwrap_or(0.0) as f64, it.armor_class))
+        let equipped = self.world.get(actor).ok()?.inventory.as_ref()?.equipped();
+        equipped.into_iter().find_map(|i| {
+            let it = self.world.resolve_item(i)?;
+            (it.kind == ItemKind::Armor && self.world.effective_slots(i).is_some_and(|s| s & UPPER_BODY != 0)).then(|| {
+                let weight = self.world.effective_weight(i).unwrap_or(0.0) as f64;
+                let class = self.world.effective_armor_class(i).unwrap_or(it.armor_class);
+                (weight, class)
+            })
         })
     }
 

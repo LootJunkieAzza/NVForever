@@ -432,19 +432,30 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // SetExplosionSound], read by GetExplosionTraitForm; `projectile which sound`:
         // 1 the projectile's sound, 2 countdown, 3 disable (PROJ DATA) [documented:
         // SetProjectileSound]. A form that is not a sound changes nothing [hypothesis].
-        "setexplosionsound" | "setprojectilesound" => {
-            let expl = name == "setexplosionsound";
-            let f = of_sig(g, form(args, 0), if expl { b"EXPL" } else { b"PROJ" });
-            let key = match (expl, index(args, 1)) {
-                (true, Some(1)) => "DATA/sound_1",
-                (true, Some(2)) => "DATA/sound_2",
-                (false, Some(1)) => "DATA/sound",
-                (false, Some(2)) => "DATA/sound_countdown",
-                (false, Some(3)) => "DATA/sound_disable",
+        "setexplosionsound" => {
+            let f = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"EXPL"));
+            let key = match index(args, 1) {
+                Some(1) => "DATA/sound_1",
+                Some(2) => "DATA/sound_2",
                 _ => "",
             };
-            if let (Some(f), Some(s), false) = (f, of_sig(g, form(args, 2), b"SOUN"), key.is_empty()) {
+            let s = form(args, 2).filter(|&s| g.data.sig(g.unclone(s)) == Some(*b"SOUN"));
+            if let (Some(f), Some(s), false) = (f, s, key.is_empty()) {
                 g.field_overrides.insert((f, key.into()), XVal::Ref(s.0));
+            }
+            zero
+        }
+        "setprojectilesound" => {
+            let p = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"PROJ"));
+            let s = form(args, 2).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"SOUN"));
+            let key = match index(args, 1) {
+                Some(1) => "DATA/sound",
+                Some(2) => "DATA/sound_countdown",
+                Some(3) => "DATA/sound_disable",
+                _ => "",
+            };
+            if let (Some(p), Some(s), false) = (p, s, key.is_empty()) {
+                g.field_overrides.insert((p, key.into()), XVal::Ref(s.0));
             }
             zero
         }
@@ -488,7 +499,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `effect`: the actor effect's type (SPEL SPIT), 0 actor effect, 1 disease,
         // 2 power, 3 lesser power, 4 ability, 5 poison, 10 addiction; -1 for anything
         // else [documented: GetActorEffectType].
-        "getactoreffecttype" => XVal::Num(of_sig(g, form(args, 0), b"SPEL").and_then(|s| g.data.spell_types.get(&s)).map_or(-1.0, |&t| t as f64)),
+        "getactoreffecttype" => XVal::Num(form(args, 0).and_then(|s| g.spell_type(s)).map_or(-1.0, |t| t as f64)),
         // ---- camera shots ----
         // `shot [flags]`: CAMS DATA flags, bits 0-5 [documented: Get/SetCameraShotFlags].
         "getcamerashotflags" => XVal::Num(form(args, 0).and_then(|s| camera_shot(g, s)).map_or(0.0, |c| f64::from(c.flags))),

@@ -17,20 +17,30 @@
 //!
 //! Which chunks are drawn [hypothesis; names and values from the owner's
 //! `FalloutPrefs.ini`, meanings not documented, layer3.md "Distant LOD"]: a quadtree over
-//! the level-32 grid. Nothing farther than [`LodSettings::far`] (fBlockLoadDistance) is
-//! drawn; a chunk coarser than level 4 is replaced by its four quarters while the camera
-//! is nearer (horizontally, to the chunk's closest point) than
-//! max([`LodSettings::near`] (fBlockLoadDistanceLow), [`LodSettings::split`]
-//! (fSplitDistanceMult) × the chunk's side). Every level has 256 texels per chunk side,
-//! so each level takes over where its texels look about as large as the finer level's
-//! did at its own limit. At the owner's values level 4 reaches 50,000 units, level 8
-//! 98,304 and level 16 the rest of the 125,000; level 32 only shows with a larger `far`
-//! (from 196,608). The two INI values agree on where level 4 ends at the "Very High"
-//! (8 cells × 1.5 = 49,152 against 50,000) and "Low" presets (24,576 against 25,000),
-//! not at "Medium" and "High" (32,768 against 50,000) [observed: `low.ini` …
-//! `VeryHigh.ini` in the game folder]. The choice is redone when the camera enters another cell; levels switch at once. Object
-//! blocks are drawn over every 4 × 4-cell square nearer than `far`, whatever the terrain
-//! level there.
+//! the level-32 grid. No terrain chunk farther than the terrain reach
+//! ([`LodSettings::terrain_reach`]: [`LodSettings::terrain_far`], 250,000, or
+//! [`LodSettings::far`] when that is larger) is drawn; a chunk coarser than level 4 is
+//! replaced by its four quarters while the camera is nearer (horizontally, to the
+//! chunk's closest point) than max([`LodSettings::near`] (fBlockLoadDistanceLow),
+//! [`LodSettings::split`] (fSplitDistanceMult) × the chunk's side). Every level has 256
+//! texels per chunk side, so each level takes over where its texels look about as large
+//! as the finer level's did at its own limit. At the owner's values level 4 reaches
+//! 50,000 units, level 8 98,304, level 16 196,608 and level 32 the rest of the 250,000.
+//! The two INI values agree on where level 4 ends at the "Very High" (8 cells × 1.5 =
+//! 49,152 against 50,000) and "Low" presets (24,576 against 25,000), not at "Medium" and
+//! "High" (32,768 against 50,000) [observed: `low.ini` … `VeryHigh.ini` in the game
+//! folder]. The choice is redone when the camera enters another cell; levels switch at
+//! once. Object blocks are drawn over every 4 × 4-cell square nearer than `far`
+//! (fBlockLoadDistance, 125,000), whatever the terrain level there. The terrain's reach
+//! of 250,000 is a calibrated default: at one pose, the hill above Goodsprings (-65347,
+//! 5770, z 13970, heading 27°), our render's skyline matched the original's from the
+//! first tested `--lod-distance` of 250,000, and 150,000, 175,000 and 200,000 did not
+//! (that sweep, before the two reaches were split, also moved the object blocks and the
+//! distant water) [observed: capture of the original and our runs, 2026-11-19, #3055].
+//! How far the original actually draws terrain, and whether it is one reach for every
+//! place and preset, is [hypothesis]; no INI key gives 250,000 [observed: the game's INI
+//! files]. Distant water (water.rs) covers the cells under the chosen chunks
+//! ([`LodState::chosen_chunks`]).
 //!
 //! Neighbouring chunks do not share their edge vertices, at the same level or across
 //! levels [observed: level4.x8.y8 / x12.y8 share 14 of 16 + 52 edge positions], so every
@@ -68,10 +78,20 @@
 //! the renderer's tangent-space normal mapping read the map as model-space normals. The
 //! untextured second shape in each chunk (flat at the water height) is not drawn; the
 //! water planes cover it [hypothesis: a water LOD surface].
+//!
+//! Diffuse textures (#3096) [design]: a game terrain chunk is spawned, and counts as
+//! covering the chunks it replaces, only once no shape it draws waits for its diffuse
+//! ([`Surface`]); until then the old chunks stay drawn. A shape whose diffuse is missing
+//! (not named, or its file failed to load, a failure that is not retried) would draw
+//! white, so it is drawn with a neutral fallback colour instead ([`fallback_material`]:
+//! a copy owned by the shape's entity alone, released with it), logged once per chunk
+//! when spawned, with the texture's path and error, and the chunk counts as covering like
+//! any other. A player's report showed distant hills flat white at night
+//! [observed: report R-ZXT6AC4J's screenshot]; its cause is not confirmed.
 
 use crate::fade;
 use crate::lodgen::{self, Baker, GenJob};
-use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
+use crate::world::{bevy_to_game, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::VisibilityRange;
 use bevy::image::{CompressedImageFormats, ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
@@ -81,7 +101,7 @@ use bevy::prelude::*;
 use fnv_world::{cell_of, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::texture::dds_image;
-use nvf_assets::{nif_material, NifMaterial, PreparedModel};
+use nvf_assets::{nif_material, NifMaterial, PreparedModel, PreparedShape};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -105,8 +125,19 @@ type Pieces = Vec<Vec<(Handle<Mesh>, Handle<NifMaterial>, Transform)>>;
 /// [hypothesis] (module docs, layer3.md).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LodSettings {
-    /// `[TerrainManager] fBlockLoadDistance`: no terrain chunk or object block beyond.
+    /// `[TerrainManager] fBlockLoadDistance`: no object block beyond (and the terrain
+    /// reaches at least this far, [`LodSettings::terrain_reach`]).
     pub far: f32,
+    /// No terrain chunk beyond this (or beyond `far`, when that is larger). The default,
+    /// 250,000, is calibrated at one pose, the hill above Goodsprings (-65347, 5770,
+    /// z 13970, heading 27°): our render's skyline matched the original's from the first
+    /// tested `--lod-distance` of 250,000; 150,000, 175,000 and 200,000 did not (that
+    /// sweep also moved the object blocks and the distant water) [observed: capture of
+    /// the original and our runs, 2026-11-19, #3055]. How far the original draws terrain
+    /// is [hypothesis], as is one fixed number for every place and preset; the game's INI
+    /// files hold no `[TerrainManager]` key that gives it [observed: `Fallout_default.ini`
+    /// and the four presets].
+    pub terrain_far: f32,
     /// `[TerrainManager] fBlockLoadDistanceLow`: level-4 terrain chunks within.
     pub near: f32,
     /// `[TerrainManager] fSplitDistanceMult`: coarser chunks split while the camera is
@@ -122,7 +153,15 @@ pub const DEFAULT_FAR: f32 = 125_000.0;
 
 impl Default for LodSettings {
     fn default() -> LodSettings {
-        LodSettings { far: DEFAULT_FAR, near: 50_000.0, split: 1.5, trees: 40_000.0 }
+        LodSettings { far: DEFAULT_FAR, terrain_far: 250_000.0, near: 50_000.0, split: 1.5, trees: 40_000.0 }
+    }
+}
+
+impl LodSettings {
+    /// How far terrain chunks are drawn: `terrain_far`, or `far` when that is larger
+    /// (the terrain never stops short of the object blocks standing on it).
+    pub fn terrain_reach(&self) -> f32 {
+        self.terrain_far.max(self.far)
     }
 }
 
@@ -135,37 +174,58 @@ pub fn square_distance(p: Vec2, (x, y): Grid, n: i32) -> f32 {
     (dx * dx + dy * dy).sqrt()
 }
 
+/// Level-4 squares (of 4 × 4 cells) it takes to reach `d` game units (0 for none).
+pub fn squares_within(d: f32) -> i32 {
+    (d / (LEVEL as f32 * CELL_SIZE)).ceil().max(0.0) as i32
+}
+
 /// The terrain chunks to draw for a camera at `p` (module docs): leaves of a quadtree
 /// over the coarsest level, none of them overlapping, nearest level 4.
 pub fn select_chunks(p: Vec2, s: &LodSettings, origin: Grid) -> Vec<Chunk> {
     let top = LEVELS[LEVELS.len() - 1];
     let mut out = Vec::new();
-    if s.far <= 0.0 {
+    let reach = s.terrain_reach();
+    if reach <= 0.0 {
         return out;
     }
-    let r = (s.far / CELL_SIZE).ceil() as i32 + top;
+    let r = (reach / CELL_SIZE).ceil() as i32 + top;
     let (cx, cy) = cell_of(p.x, p.y);
     for x in (align(cx - r, origin.0, top)..=cx + r).step_by(top as usize) {
         for y in (align(cy - r, origin.1, top)..=cy + r).step_by(top as usize) {
-            visit(p, s, (top, x, y), &mut out);
+            visit(p, s, reach, (top, x, y), &mut out);
         }
     }
     out
 }
 
-fn visit(p: Vec2, s: &LodSettings, (l, x, y): Chunk, out: &mut Vec<Chunk>) {
+fn visit(p: Vec2, s: &LodSettings, reach: f32, (l, x, y): Chunk, out: &mut Vec<Chunk>) {
     let d = square_distance(p, (x, y), l);
-    if d >= s.far {
+    if d >= reach {
         return;
     }
     if l > LEVEL && d < s.near.max(s.split * l as f32 * CELL_SIZE) {
         let h = l / 2;
         for (dx, dy) in [(0, 0), (h, 0), (0, h), (h, h)] {
-            visit(p, s, (h, x + dx, y + dy), out);
+            visit(p, s, reach, (h, x + dx, y + dy), out);
         }
     } else {
         out.push((l, x, y));
     }
+}
+
+/// The level-4 squares (south-west cells, on the grid from `origin`) whose object blocks
+/// are drawn for a camera at `p`: those nearer than `far` (not the terrain's reach,
+/// module docs), nearest first, so squares put off by the rebuild budget are the far ones.
+pub fn block_squares(p: Vec2, s: &LodSettings, origin: Grid) -> Vec<Grid> {
+    let (cx, cy) = cell_of(p.x, p.y);
+    let centre = ((cx - origin.0).div_euclid(LEVEL), (cy - origin.1).div_euclid(LEVEL));
+    let r = squares_within(s.far) + 1;
+    let mut out: Vec<Grid> = (-r..=r)
+        .flat_map(|dx| (-r..=r).map(move |dy| (origin.0 + (centre.0 + dx) * LEVEL, origin.1 + (centre.1 + dy) * LEVEL)))
+        .filter(|&sq| square_distance(p, sq, LEVEL) < s.far)
+        .collect();
+    out.sort_by(|&a, &b| square_distance(p, a, LEVEL).total_cmp(&square_distance(p, b, LEVEL)));
+    out
 }
 
 /// The first cell of the level-`l` chunk holding cell `c`, on a grid starting at `o`.
@@ -241,9 +301,6 @@ fn despawn_all(commands: &mut Commands, entities: impl IntoIterator<Item = Entit
 #[derive(Resource)]
 pub struct LodState {
     pub settings: LodSettings,
-    /// Level-4 squares around the camera's square that reach `settings.far` (water.rs
-    /// draws distant water that far).
-    pub radius: i32,
     pub enabled: bool,
     world_name: String,
     /// The south-west cell of the world's LOD grid ([`grid_origin`]).
@@ -253,6 +310,8 @@ pub struct LodState {
     /// Terrain chunks and object-block squares chosen for `centre`.
     chosen: Vec<Chunk>,
     squares: Vec<Grid>,
+    /// Counts the times `chosen` was replaced (water.rs redoes its cells when it moves).
+    choice: u64,
     terrain: HashMap<Chunk, TerrainEntities>,
     /// Chunks no longer chosen, kept drawn until every chosen chunk over their area is
     /// spawned: those wait for their models on worker threads, and dropping the old ones
@@ -280,6 +339,12 @@ pub struct LodState {
     pub terrain_rebuilds: usize,
     /// What the object-block loop did since the start (logged at the exit).
     pub block_stats: BlockStats,
+    /// What the diffuse checks did since the start (#3096, logged at the exit).
+    pub surfaces: SurfaceStats,
+    /// Chunks already logged as drawn with the fallback colour, and as drawn while a
+    /// diffuse was still on its way.
+    warned: HashSet<Chunk>,
+    unguarded: HashSet<Chunk>,
 }
 
 /// Object-block work over a run, for the exit log (stress runs and smoke read it).
@@ -314,6 +379,29 @@ pub struct BlockStats {
     pub slow_updates: usize,
 }
 
+/// The diffuse checks of game terrain chunks over a run (#3096), for the exit log.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct SurfaceStats {
+    /// Chunks drawn with the fallback colour for a missing diffuse (each counted once), and
+    /// the shapes spawned with it.
+    pub fallback_chunks: usize,
+    pub fallback_shapes: usize,
+    /// Frames a chunk waited for its diffuse to reach the image store (one per chunk and
+    /// frame).
+    pub texture_waits: usize,
+    /// Terrain shapes spawned while their diffuse was still on its way (0 expected).
+    pub drawn_without_diffuse: usize,
+}
+
+impl SurfaceStats {
+    pub fn describe(&self) -> String {
+        format!(
+            "{} chunks drawn with the fallback colour ({} shapes), {} waits for a chunk's textures, {} shapes drawn without a diffuse texture",
+            self.fallback_chunks, self.fallback_shapes, self.texture_waits, self.drawn_without_diffuse
+        )
+    }
+}
+
 /// An LOD update this long (ms) counts as slow in [`BlockStats`]: twice the budget.
 const SLOW_UPDATE_MS: f32 = 2.0 * REBUILD_BUDGET_MS;
 
@@ -331,6 +419,104 @@ impl LodState {
     pub fn terrain_entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.terrain.values().chain(self.outgoing.values()).flat_map(|t| t.entities.iter().copied())
     }
+
+    /// The terrain chunks chosen for the camera's cell ([`select_chunks`]; none while
+    /// distant LOD is off or before the first update). Distant water (water.rs) covers
+    /// the cells under them, so it ends where the terrain does.
+    pub fn chosen_chunks(&self) -> &[Chunk] {
+        &self.chosen
+    }
+
+    /// Changes whenever [`LodState::chosen_chunks`] is replaced.
+    pub fn choice(&self) -> u64 {
+        self.choice
+    }
+
+    /// Tests: the chunks `update_lod` would have chosen (counts as a new choice).
+    #[cfg(test)]
+    pub fn choose_for_test(&mut self, chunks: Vec<Chunk>) {
+        self.chosen = chunks;
+        self.choice += 1;
+    }
+}
+
+/// What each level-4 square's object block holds, by cell: bit `y * 4 + x` of its mask
+/// ([`chunk_bit`]) is set when the block's segment for that cell is not empty (#3014; read
+/// by `crate::distant_objects`, which leaves a reference to the block when the block may
+/// hold it). A square is known once its block has been prepared for drawing
+/// ([`update_lod`]): a square without a block file, or whose file did not load, holds
+/// nothing (mask 0); a block shape without usable segments counts as holding every cell
+/// ([`segment_mask`]). Unknown until then [design].
+#[derive(Resource, Default)]
+pub struct BlockContents {
+    /// The LOD files' worldspace name and grid origin the masks are of.
+    world: String,
+    origin: Grid,
+    squares: HashMap<Grid, u16>,
+    /// Counts the changes (a settled distant frame compares it).
+    rev: u64,
+}
+
+impl BlockContents {
+    /// Whether the object block of cell `c`'s square has a non-empty segment for `c`;
+    /// `None` while that block is not known yet.
+    pub fn segment(&self, c: Grid) -> Option<bool> {
+        let (sq, bit) = chunk_bit(c, self.origin);
+        self.squares.get(&sq).map(|m| m & bit != 0)
+    }
+
+    /// Square `sq` holds the cells of `mask`, for other modules' tests.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, sq: Grid, mask: u16) {
+        self.set(sq, mask);
+    }
+
+    /// Counts the changes of the masks.
+    pub fn rev(&self) -> u64 {
+        self.rev
+    }
+
+    /// The masks known (squares).
+    #[cfg(test)]
+    pub fn known(&self) -> usize {
+        self.squares.len()
+    }
+
+    /// Forget everything when the LOD files change (another worldspace's).
+    fn follow(&mut self, world: &str, origin: Grid) {
+        if self.world != world || self.origin != origin {
+            self.world = world.to_string();
+            self.origin = origin;
+            self.squares.clear();
+            self.rev += 1;
+        }
+    }
+
+    /// Square `sq` (its south-west cell) holds the cells of `mask`.
+    fn set(&mut self, sq: Grid, mask: u16) {
+        if self.squares.insert(sq, mask) != Some(mask) {
+            self.rev += 1;
+        }
+    }
+}
+
+/// The cells of a level-4 square an object block holds anything for ([`BlockContents`]),
+/// from its shapes' segments (triangle ranges, one per cell in [`segment_cell`] order): a
+/// non-empty segment sets its cell's bit; a shape with no segments or more than the
+/// square has cells sets every bit (its objects cannot be told apart by cell).
+pub fn segment_mask<'a>(shapes: impl IntoIterator<Item = &'a [std::ops::Range<usize>]>) -> u16 {
+    let mut mask = 0u16;
+    for segments in shapes {
+        if segments.is_empty() || segments.len() > CELLS {
+            return u16::MAX;
+        }
+        for (i, r) in segments.iter().enumerate() {
+            if !r.is_empty() {
+                mask |= 1 << segment_cell(i);
+            }
+        }
+    }
+    mask
 }
 
 /// Threads baking generated terrain (lodgen::Baker, at the lowest priority).
@@ -391,13 +577,13 @@ impl LodState {
         let name = world.index.worldspaces[&world.index.lod_world(world.world)].edid.clone().unwrap_or_default().to_ascii_lowercase();
         LodState {
             settings,
-            radius: (settings.far / (LEVEL as f32 * CELL_SIZE)).ceil().max(0.0) as i32,
             enabled,
             world_name: name,
             origin: (0, 0),
             centre: None,
             chosen: Vec::new(),
             squares: Vec::new(),
+            choice: 0,
             terrain: HashMap::new(),
             outgoing: HashMap::new(),
             block_entities: HashMap::new(),
@@ -412,6 +598,9 @@ impl LodState {
             blocks: 0,
             terrain_rebuilds: 0,
             block_stats: BlockStats::default(),
+            surfaces: SurfaceStats::default(),
+            warned: HashSet::new(),
+            unguarded: HashSet::new(),
         }
     }
 
@@ -430,6 +619,8 @@ impl LodState {
     pub fn set_enabled(&mut self, commands: &mut Commands, enabled: bool) {
         self.enabled = enabled;
         self.centre = None;
+        self.chosen.clear();
+        self.choice += 1;
         for (_, t) in self.terrain.drain().chain(self.outgoing.drain()) {
             despawn_all(commands, t.entities);
         }
@@ -583,17 +774,167 @@ fn open_edges(idx: &[u32]) -> Vec<(u32, u32)> {
     out
 }
 
+/// Whether [`terrain_mesh`] draws a shape with this mesh: positions, UVs and a triangle
+/// list (the untextured water shape has no UVs).
+fn drawable(mesh: &Mesh) -> bool {
+    matches!(mesh.attribute(Mesh::ATTRIBUTE_POSITION), Some(VertexAttributeValues::Float32x3(_))) && mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some() && mesh.indices().is_some()
+}
+
+/// Where a terrain shape's diffuse texture stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Diffuse {
+    /// In the image store: the shape draws textured.
+    Ready,
+    /// Named, not in the image store yet (decoded on a worker, put in by the main thread);
+    /// the renderer skips such a material until it is.
+    Loading,
+    /// None: not named, or it failed to load (cached, not tried again). The material
+    /// would draw with Bevy's white fallback image.
+    Missing,
+}
+
+fn diffuse_of(material: Option<&NifMaterial>, images: &Assets<Image>) -> Diffuse {
+    match material.map(|m| &m.base.base_color_texture) {
+        // Not in the store yet (a model's materials go in with it).
+        None => Diffuse::Loading,
+        Some(None) => Diffuse::Missing,
+        Some(Some(h)) if images.contains(h.id()) => Diffuse::Ready,
+        Some(Some(_)) => Diffuse::Loading,
+    }
+}
+
+/// Where a game terrain chunk's textures stand, its model prepared (#3096, module docs).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Surface {
+    /// Every shape it draws has its diffuse.
+    Ready,
+    /// A shape's diffuse is on its way: not spawned yet, the old chunks stay drawn.
+    Pending,
+    /// Nothing to draw: no textured shape, or every one cut out by the loaded cells.
+    Empty,
+    /// A shape it draws has no diffuse: drawn with the fallback colour (why).
+    Failed(String),
+}
+
+/// The surface of a chunk whose drawable shapes are `shapes`. `cut_away`: the loaded cells
+/// cut every triangle of the shape out, so it draws nothing whatever its textures (asked
+/// only of shapes not ready).
+fn surface<S>(shapes: &[S], diffuse: impl Fn(&S) -> Diffuse, cut_away: impl Fn(&S) -> bool) -> Surface {
+    let mut drawn = false;
+    let mut loading = false;
+    let mut missing = false;
+    for s in shapes {
+        let d = diffuse(s);
+        if d != Diffuse::Ready && cut_away(s) {
+            continue;
+        }
+        drawn = true;
+        loading |= d == Diffuse::Loading;
+        missing |= d == Diffuse::Missing;
+    }
+    if loading {
+        Surface::Pending
+    } else if missing {
+        Surface::Failed("a shape it draws has no diffuse texture (none named, or it failed to load)".into())
+    } else if drawn {
+        Surface::Ready
+    } else {
+        Surface::Empty
+    }
+}
+
+/// [`surface`] of a game chunk's prepared model, drawn with the fully drawn cells `trim`
+/// cut out (`None`: whole).
+fn chunk_surface(model: &PreparedModel, materials: &Assets<NifMaterial>, images: &Assets<Image>, trim: Option<&HashSet<Grid>>) -> Surface {
+    let shapes: Vec<&PreparedShape> = model.shapes.iter().filter(|s| s.cpu.as_deref().is_some_and(drawable)).collect();
+    surface(
+        &shapes,
+        |s| diffuse_of(materials.get(&s.material), images),
+        |s| {
+            let (Some(full), Some(m)) = (trim, s.cpu.as_deref()) else { return false };
+            terrain_mesh(m, Some((&(model.root * s.transform), full)), 0.0).is_none()
+        },
+    )
+}
+
+/// Whether a chunk with this surface is spawned now (and so counts as covering the chunks
+/// it replaces): all but one whose diffuse is still on its way (#3096).
+fn admit(surface: &Surface) -> bool {
+    *surface != Surface::Pending
+}
+
+/// Whether the chosen chunks over outgoing chunk `o` are all spawned (`spawned`): only
+/// then does it go.
+fn covered(o: Chunk, chosen: &[Chunk], spawned: impl Fn(&Chunk) -> bool) -> bool {
+    chosen.iter().filter(|&&ch| chunks_overlap(ch, o)).all(spawned)
+}
+
+/// The material a terrain shape whose diffuse is missing is drawn with (#3096): its own,
+/// with the generated LOD's colour for a missing base texture (`lodgen::NO_BASE_SRGB`, as
+/// terrain.rs draws one) as its base colour and no base texture, instead of white.
+fn fallback_material(m: &NifMaterial) -> NifMaterial {
+    let mut f = m.clone();
+    let [r, g, b] = lodgen::NO_BASE_SRGB;
+    f.base.base_color = Color::srgba(r, g, b, m.base.base_color.alpha());
+    f.base.base_color_texture = None;
+    f
+}
+
+/// A new fallback copy of material `src` ([`fallback_material`]) for one spawned shape:
+/// its handle is the copy's only owner, so the copy (and the textures it holds) goes with
+/// the entity, and nothing outlives the source material's own eviction.
+fn fallback_for(materials: &mut Assets<NifMaterial>, src: &Handle<NifMaterial>) -> Option<Handle<NifMaterial>> {
+    let f = materials.get(src).map(fallback_material)?;
+    Some(materials.add(f))
+}
+
+/// A material's base colour (sRGB) and base texture, for the log.
+fn describe_base(m: &StandardMaterial) -> String {
+    let c = m.base_color.to_srgba();
+    let tex = if m.base_color_texture.is_some() { "a base texture" } else { "no base texture" };
+    format!("base colour sRGB {:.2} {:.2} {:.2}, {tex}", c.red, c.green, c.blue)
+}
+
+/// "<path>: <error>" for a diffuse a model named and could not load (`path`, resolved as
+/// the texture cache resolves it): the error the cache reported for it, if any.
+fn texture_failure(failures: &[String], path: &str) -> String {
+    let prefix = format!("{}: ", path.to_ascii_lowercase());
+    failures.iter().rev().find(|f| f.to_ascii_lowercase().starts_with(&prefix)).cloned().unwrap_or_else(|| format!("{path}: not loaded"))
+}
+
+/// The masks of the level-4 squares holding `cells` (cell, fully drawn; on the grid from
+/// `o`): cells fully drawn, cells drawn at all (bit `y * 4 + x`, [`chunk_bit`]).
+pub(crate) fn block_masks(cells: &[(Grid, bool)], o: Grid) -> HashMap<Grid, (u16, u16)> {
+    let mut masks: HashMap<Grid, (u16, u16)> = HashMap::new();
+    for &(c, full) in cells {
+        let (ch, bit) = chunk_bit(c, o);
+        let m = masks.entry(ch).or_default();
+        m.1 |= bit;
+        if full {
+            m.0 |= bit;
+        }
+    }
+    masks
+}
+
+/// Distant LOD each frame. The cells it gives way to are the loaded ones and, with the
+/// full-detail ring on, the ring's (`crate::full_detail::DrawnCells`): both cut the LOD
+/// terrain out and hide their object-block segments alike.
+#[allow(clippy::too_many_arguments)]
 pub fn update_lod(
     mut commands: Commands,
-    streamer: Res<Streamer>,
+    drawn: crate::full_detail::DrawnCells,
     mut lod: ResMut<LodState>,
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
+    pace: Res<crate::stream_pace::StreamPace>,
+    mut contents: ResMut<BlockContents>,
 ) {
     if !lod.enabled {
         return;
     }
+    contents.follow(&lod.world_name, lod.origin);
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let update_started = std::time::Instant::now();
     let g = bevy_to_game(cam.translation());
@@ -609,13 +950,8 @@ pub fn update_lod(
         let p = g.truncate();
         let s = lod.settings;
         lod.chosen = select_chunks(p, &s, o);
-        let r = lod.radius + 1;
-        lod.squares = (-r..=r)
-            .flat_map(|dx| (-r..=r).map(move |dy| (o.0 + (centre_chunk.0 + dx) * LEVEL, o.1 + (centre_chunk.1 + dy) * LEVEL)))
-            .filter(|&sq| square_distance(p, sq, LEVEL) < s.far)
-            .collect();
-        // Nearest first, so squares put off by the rebuild budget are the far ones.
-        lod.squares.sort_by(|&a, &b| square_distance(p, a, LEVEL).total_cmp(&square_distance(p, b, LEVEL)));
+        lod.choice += 1;
+        lod.squares = block_squares(p, &s, o);
         let finest: Vec<Grid> = lod.chosen.iter().filter(|ch| ch.0 == LEVEL).map(|ch| (ch.1, ch.2)).filter(near_gen).collect();
         schedule_generated(&mut lod, centre_chunk, &finest);
         let chosen: HashSet<Chunk> = lod.chosen.iter().copied().collect();
@@ -643,21 +979,16 @@ pub fn update_lod(
             }
         }
     }
-    // Which cells are loaded, and which are fully drawn, per level-4 square.
-    let full: HashSet<Grid> = streamer.loaded.keys().filter(|c| !streamer.fades.contains_key(c)).copied().collect();
-    let mut masks: HashMap<Grid, (u16, u16)> = HashMap::new();
-    for c in streamer.loaded.keys() {
-        let (ch, bit) = chunk_bit(*c, o);
-        let m = masks.entry(ch).or_default();
-        m.1 |= bit;
-        if full.contains(c) {
-            m.0 |= bit;
-        }
-    }
+    // Which cells are drawn (loaded, or the full-detail ring's), and which are fully
+    // drawn, per level-4 square.
+    let full: HashSet<Grid> = drawn.full();
+    let masks = block_masks(&drawn.cells(true), o);
     let mut changed = false;
     let started = std::time::Instant::now();
     let mut rebuilt = 0usize;
-    let over_budget = |rebuilt: usize| rebuilt > 0 && started.elapsed().as_secs_f32() * 1000.0 >= REBUILD_BUDGET_MS;
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let budget_ms = pace.time(std::time::Duration::from_secs_f32(REBUILD_BUDGET_MS / 1000.0)).as_secs_f32() * 1000.0;
+    let over_budget = |rebuilt: usize| rebuilt > 0 && started.elapsed().as_secs_f32() * 1000.0 >= budget_ms;
     let chosen = std::mem::take(&mut lod.chosen);
     for &chunk in &chosen {
         let mut cut: Vec<Grid> = full.iter().filter(|&&c| in_chunk(c, chunk)).copied().collect();
@@ -670,12 +1001,23 @@ pub fn update_lod(
             continue;
         }
         // The game's chunk model is prepared on a worker thread, as object blocks' are
-        // (below); the old chunk stays drawn until it is.
+        // (below), and its diffuse textures must be in the image store (#3096); the old
+        // chunk stays drawn until they are. A missing diffuse is drawn with the fallback
+        // colour (spawn_terrain).
         if !generated {
             let tp = lod.terrain_path(chunk);
-            if models.data.vfs.exists(&tp) && models.model_with_cpu_ready(&tp).is_none() {
-                lod.block_stats.terrain_waited += 1;
-                continue;
+            if models.data.vfs.exists(&tp) {
+                let Some(model) = models.model_with_cpu_ready(&tp) else {
+                    lod.block_stats.terrain_waited += 1;
+                    continue;
+                };
+                // A model that did not load draws nothing, as before.
+                let trim = (!key.full.is_empty()).then_some(&full);
+                let surface = model.as_deref().map_or(Surface::Empty, |m| chunk_surface(m, &models.materials, &models.images, trim));
+                if !admit(&surface) {
+                    lod.surfaces.texture_waits += 1;
+                    continue;
+                }
             }
         }
         if over_budget(rebuilt) {
@@ -693,8 +1035,7 @@ pub fn update_lod(
     // Drop the outgoing chunks whose area the chosen chunks now cover.
     if !lod.outgoing.is_empty() {
         let terrain = &lod.terrain;
-        let covered = |o: Chunk| chosen.iter().filter(|&&ch| chunks_overlap(ch, o)).all(|ch| terrain.contains_key(ch));
-        let done: Vec<Chunk> = lod.outgoing.keys().copied().filter(|&o| covered(o)).collect();
+        let done: Vec<Chunk> = lod.outgoing.keys().copied().filter(|&o| covered(o, &chosen, |ch| terrain.contains_key(ch))).collect();
         for ch in done {
             if let Some(t) = lod.outgoing.remove(&ch) {
                 despawn_all(&mut commands, t.entities);
@@ -715,7 +1056,7 @@ pub fn update_lod(
         let key = BlockKey { full: full_mask, present };
         let steps: [u8; CELLS] = match present {
             0 => [0; CELLS],
-            _ => std::array::from_fn(|i| fade::step(streamer.cell_level(chunk_cell(sq, i)))),
+            _ => std::array::from_fn(|i| fade::step(drawn.block_level(chunk_cell(sq, i)))),
         };
         match lod.block_entities.get_mut(&sq) {
             Some(b) if b.key == key => {
@@ -766,6 +1107,8 @@ pub fn update_lod(
                     }
                 };
                 lod.put_off_runs.remove(&sq);
+                // What the block holds by cell, for the distant objects (#3014).
+                contents.set(sq, model.as_ref().map_or(0, |m| segment_mask(m.shapes.iter().map(|s| s.segments.as_slice()))));
                 if had {
                     lod.block_stats.rebuilt += 1;
                 } else {
@@ -783,6 +1126,9 @@ pub fn update_lod(
         }
     }
     lod.squares = squares;
+    if rebuilt > 0 {
+        pace.spent(started.elapsed());
+    }
     let ms = |t: std::time::Instant| t.elapsed().as_secs_f32() * 1000.0;
     let (blocks_ms, update_ms) = (ms(blocks_started), ms(update_started));
     let st = &mut lod.block_stats;
@@ -871,7 +1217,34 @@ fn spawn_terrain(
                 mat.base.flip_normal_map_y = false;
             }
         }
-        out.entities.push(spawn_entity(commands, root, mesh, s.material.clone(), Transform::from_matrix(Mat4::from(st)), None));
+        // A missing diffuse would draw white: the fallback colour instead (#3096). The gate
+        // in `update_lod` leaves none still on its way; one would be counted (0 expected).
+        let material = match diffuse_of(models.materials.get(&s.material), &models.images) {
+            Diffuse::Ready => s.material.clone(),
+            Diffuse::Missing => {
+                let Some(h) = fallback_for(&mut models.materials, &s.material) else { continue };
+                lod.surfaces.fallback_shapes += 1;
+                if lod.warned.insert(chunk) {
+                    lod.surfaces.fallback_chunks += 1;
+                    // What the entity is bound to, read back from the store.
+                    let bound = models.materials.get(&h).map_or_else(|| "not in the store".to_string(), |m| describe_base(&m.base));
+                    let missing = s.missing_diffuse.as_deref().map_or_else(
+                        || "no diffuse named".to_string(),
+                        |raw| texture_failure(&models.textures.failures, &nvf_assets::texture::resolved_path(raw, |p| models.data.vfs.exists(p))),
+                    );
+                    warn!("distant LOD: terrain chunk level {level} x{cx} y{cy} drawn with the fallback colour (shape {i} bound to {bound}): {missing}");
+                }
+                h
+            }
+            Diffuse::Loading => {
+                lod.surfaces.drawn_without_diffuse += 1;
+                if lod.unguarded.insert(chunk) {
+                    warn!("distant LOD: terrain chunk level {level} x{cx} y{cy} drawn without its diffuse texture (shape {i}, still loading)");
+                }
+                s.material.clone()
+            }
+        };
+        out.entities.push(spawn_entity(commands, root, mesh, material, Transform::from_matrix(Mat4::from(st)), None));
     }
     out.drawn = Some(false);
     out
@@ -1161,9 +1534,6 @@ mod tests {
         assert!((d - ((CELL_SIZE - 100.0).powi(2) + (CELL_SIZE - 200.0).powi(2)).sqrt()).abs() < 1e-2);
     }
 
-    /// The chosen chunks tile the ground without overlaps, use level 4 within `near` and
-    /// reach no farther than `far`; at the owner's settings levels 4 to 16 appear
-    /// (16 only where a level-16 chunk lies beyond 98,304 units).
     #[test]
     fn chunks_overlap_by_cells() {
         // A level-8 chunk holds the four level-4 chunks of its area, and touches no other.
@@ -1174,9 +1544,16 @@ mod tests {
         assert!(chunks_overlap((32, -32, -32), (4, -4, -4)));
     }
 
+    /// The chosen chunks tile the ground without overlaps, use level 4 within `near` and
+    /// reach no farther than the terrain's reach (250,000 at the defaults, past the object
+    /// blocks' 125,000). Levels 4, 8 and 16 appear everywhere: each level's band of
+    /// distances (50,000..98,304 for 8, 98,304..196,608 for 16) is wider than its chunk
+    /// side (32,768, 65,536), so the chunks in the camera's own row hit it.
     #[test]
     fn chunk_choice() {
         let s = LodSettings::default();
+        let reach = s.terrain_reach();
+        assert_eq!(reach, 250_000.0);
         for p in [Vec2::new(-69_500.0, 2_500.0), Vec2::new(0.0, 0.0), Vec2::new(55_500.0, 37_536.0), Vec2::new(-1.0, -1.0)] {
             let chosen = select_chunks(p, &s, (0, 0));
             let mut cells: HashMap<Grid, Chunk> = HashMap::new();
@@ -1184,15 +1561,15 @@ mod tests {
                 let (l, x, y) = ch;
                 assert!(LEVELS.contains(&l));
                 assert_eq!((x.rem_euclid(l), y.rem_euclid(l)), (0, 0), "{ch:?} aligned");
-                assert!(square_distance(p, (x, y), l) < s.far);
+                assert!(square_distance(p, (x, y), l) < reach);
                 for cx in x..x + l {
                     for cy in y..y + l {
                         assert!(cells.insert((cx, cy), ch).is_none(), "cell ({cx}, {cy}) twice");
                     }
                 }
             }
-            // Every cell nearer than `far` is covered; those nearer than `near` at level 4.
-            let r = (s.far / CELL_SIZE) as i32 + 2;
+            // Every cell nearer than the reach is covered; those nearer than `near` at level 4.
+            let r = (reach / CELL_SIZE) as i32 + 2;
             let (cx, cy) = cell_of(p.x, p.y);
             for x in cx - r..=cx + r {
                 for y in cy - r..=cy + r {
@@ -1200,29 +1577,93 @@ mod tests {
                     if d < s.near {
                         assert_eq!(cells.get(&(x, y)).map(|c| c.0), Some(4), "cell ({x}, {y}) at {d}");
                     }
-                    // Up to rounding at the chunk scale: a cell inside `far` lies in a chunk
-                    // whose nearest point is no farther.
-                    if d < s.far {
+                    // Up to rounding at the chunk scale: a cell inside the reach lies in a
+                    // chunk whose nearest point is no farther.
+                    if d < reach {
                         assert!(cells.contains_key(&(x, y)), "cell ({x}, {y}) at {d} not covered");
                     }
                 }
             }
-            for l in [4, 8] {
+            for l in [4, 8, 16] {
                 assert!(chosen.iter().any(|c| c.0 == l), "level {l} at {p}");
             }
-            assert!(!chosen.iter().any(|c| c.0 == 32), "level 32 at {p}");
-            // Level 32 beyond its split distance when `far` reaches it.
+            // Terrain is drawn past the object blocks' `far`.
+            assert!(chosen.iter().any(|&(l, x, y)| square_distance(p, (x, y), l) >= s.far), "nothing beyond far at {p}");
+            // Level 32 beyond its split distance when the reach goes far enough past it.
             assert!(select_chunks(p, &LodSettings { far: 400_000.0, ..s }, (0, 0)).iter().any(|c| c.0 == 32));
         }
-        // Level 16 where a level-16 chunk lies between its split distance and `far`.
-        assert!(select_chunks(Vec2::new(20_000.0, 20_000.0), &s, (0, 0)).iter().any(|c| c.0 == 16));
         // Coarser chunks stay outside their split distance.
         let p = Vec2::new(0.0, 0.0);
         for (l, x, y) in select_chunks(p, &s, (0, 0)) {
             let d = square_distance(p, (x, y), l);
             assert!(l == 4 || d >= s.near.max(s.split * l as f32 * CELL_SIZE), "({l}, {x}, {y}) at {d}");
         }
-        assert!(select_chunks(p, &LodSettings { far: 0.0, ..s }, (0, 0)).is_empty());
+        assert!(select_chunks(p, &LodSettings { far: 0.0, terrain_far: 0.0, ..s }, (0, 0)).is_empty());
+    }
+
+    /// From the hill above Goodsprings where the original was captured (#3055), on
+    /// WastelandNV's grid (origin -64, -64): level-32 chunks appear. The level-32 columns
+    /// lie at x distances 0, 65,725 and 196,797 to the west and 65,347 and 196,419 to the
+    /// east, the rows at 0 (its own), 5,770 south and 125,302 north. So (32, -96, 0) is
+    /// 196,797 away (past level 32's split distance 1.5 × 32 × 4,096 = 196,608, inside
+    /// 250,000) and (32, 32, 32) √(196,419² + 125,302²) ≈ 232,983.
+    #[test]
+    fn level_32_from_the_goodsprings_hill() {
+        let s = LodSettings::default();
+        let p = Vec2::new(-65_347.0, 5_770.0);
+        let chosen = select_chunks(p, &s, (-64, -64));
+        assert!(chosen.contains(&(32, -96, 0)), "{chosen:?}");
+        assert!(chosen.contains(&(32, 32, 32)), "{chosen:?}");
+        let d = square_distance(p, (32, 32), 32);
+        assert!((d - 232_983.0).abs() < 10.0, "{d}");
+        // With the old single reach (the terrain stopping at `far`) neither is drawn.
+        let old = select_chunks(p, &LodSettings { terrain_far: 0.0, ..s }, (-64, -64));
+        assert!(!old.iter().any(|c| c.0 == 32));
+        assert!(old.iter().all(|&(l, x, y)| square_distance(p, (x, y), l) < s.far));
+    }
+
+    /// The terrain's reach is `terrain_far`, or `far` when that is larger; a larger `far`
+    /// draws terrain past 250,000.
+    #[test]
+    fn terrain_reach_follows_a_larger_far() {
+        let s = LodSettings::default();
+        assert_eq!(LodSettings { far: 300_000.0, ..s }.terrain_reach(), 300_000.0);
+        assert_eq!(LodSettings { terrain_far: 100_000.0, ..s }.terrain_reach(), 125_000.0);
+        assert_eq!(LodSettings { far: 0.0, ..s }.terrain_reach(), 250_000.0);
+        // From (0, 0) the level-32 chunk two columns east is 262,144 away: beyond the
+        // default reach, inside a `far` of 300,000.
+        let p = Vec2::new(0.0, 0.0);
+        assert_eq!(square_distance(p, (64, 0), 32), 262_144.0);
+        assert!(!select_chunks(p, &s, (0, 0)).iter().any(|&(_, x, y)| x >= 64 || y >= 64));
+        assert!(select_chunks(p, &LodSettings { far: 300_000.0, ..s }, (0, 0)).contains(&(32, 64, 0)));
+        // Object blocks gone (`far` 0), the terrain stays.
+        assert!(!select_chunks(p, &LodSettings { far: 0.0, ..s }, (0, 0)).is_empty());
+        assert!(block_squares(p, &LodSettings { far: 0.0, ..s }, (0, 0)).is_empty());
+    }
+
+    /// Object blocks stop at `far` (125,000) though the terrain reaches 250,000: exactly
+    /// the level-4 squares nearer than `far` are listed, nearest first.
+    #[test]
+    fn block_squares_stop_at_far() {
+        let s = LodSettings::default();
+        let o = (-64, -64);
+        for p in [Vec2::new(-65_347.0, 5_770.0), Vec2::new(0.0, 0.0), Vec2::new(-1.0, -1.0)] {
+            let squares = block_squares(p, &s, o);
+            assert!(!squares.is_empty());
+            let ds: Vec<f32> = squares.iter().map(|&sq| square_distance(p, sq, LEVEL)).collect();
+            assert!(ds.windows(2).all(|w| w[0] <= w[1]), "nearest first at {p}");
+            let set: HashSet<Grid> = squares.iter().copied().collect();
+            assert_eq!(set.len(), squares.len());
+            let (cx, cy) = cell_of(p.x, p.y);
+            // 40 cells = 163,840 units: past `far` plus a square's side.
+            for x in (align(cx - 40, o.0, LEVEL)..=cx + 40).step_by(LEVEL as usize) {
+                for y in (align(cy - 40, o.1, LEVEL)..=cy + 40).step_by(LEVEL as usize) {
+                    let d = square_distance(p, (x, y), LEVEL);
+                    assert_eq!(set.contains(&(x, y)), d < s.far, "square ({x}, {y}) at {d}");
+                }
+            }
+        }
+        assert_eq!((squares_within(250_000.0), squares_within(125_000.0), squares_within(0.0), squares_within(-1.0)), (16, 8, 0, 0));
     }
 
     #[test]
@@ -1271,6 +1712,34 @@ mod tests {
         assert_eq!(b.count_vertices(), 3);
         let Some(VertexAttributeValues::Float32x2(uv)) = b.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
         assert_eq!(uv, &vec![[4.0, 0.0], [5.0, 0.0], [6.0, 0.0]]);
+    }
+
+    /// #3014: a block's mask sets the cells of its non-empty segments (segment i is cell
+    /// (i / 4, i mod 4), x-major); a shape without segments, or with too many, holds every
+    /// cell; no shape holds nothing; shapes add up. The contents answer per cell.
+    #[test]
+    fn block_contents_from_segments() {
+        let segments = [0..0, 0..2, 2..2, 2..2, 2..2, 2..2, 2..3];
+        assert_eq!(segment_mask([&segments[..]]), (1 << segment_cell(1)) | (1 << segment_cell(6)));
+        assert_eq!(segment_mask([&segments[..]]), (1 << 4) | (1 << 9), "cells (0, 1) and (1, 2)");
+        assert_eq!(segment_mask(std::iter::empty::<&[std::ops::Range<usize>]>()), 0, "a block with no shape");
+        assert_eq!(segment_mask([&[][..]]), u16::MAX, "a shape without segments: every cell");
+        assert_eq!(segment_mask([&vec![0..1; CELLS + 1][..]]), u16::MAX, "too many segments");
+        let other = 0..1;
+        assert_eq!(segment_mask([&segments[..], std::slice::from_ref(&other)]), (1 << 4) | (1 << 9) | 1, "two shapes");
+        let mut c = BlockContents::default();
+        c.follow("wastelandnv", (-64, -64));
+        assert_eq!(c.segment((-20, 1)), None, "unknown until its block is prepared");
+        // Square (-20, 0) on the grid from (-64, -64); cell (-20, 1) is its bit 4.
+        c.set((-20, 0), 1 << 4);
+        assert_eq!(c.segment((-20, 1)), Some(true));
+        assert_eq!(c.segment((-19, 1)), Some(false), "an empty segment");
+        assert_eq!(c.segment((-17, 3)), Some(false), "same square");
+        assert_eq!(c.segment((-16, 0)), None, "the next square");
+        c.follow("wastelandnv", (-64, -64));
+        assert_eq!(c.known(), 1, "the same files: kept");
+        c.follow("freeside", (-10, -8));
+        assert_eq!((c.known(), c.segment((-20, 1))), (0, None), "another worldspace's files: forgotten");
     }
 
     #[test]
@@ -1333,6 +1802,149 @@ mod tests {
         let id = Affine3A::IDENTITY;
         let m = terrain_mesh(&quad(true), Some((&id, &square((0, 0), (0, 0)))), 0.0).unwrap();
         assert_eq!(m.indices().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn diffuse_states_from_the_material() {
+        let mut images = Assets::<Image>::default();
+        let loaded = images.add(Image::default());
+        let on_its_way = images.reserve_handle();
+        let with = |t: Option<Handle<Image>>| nif_material(StandardMaterial { base_color_texture: t, ..default() });
+        assert_eq!(diffuse_of(Some(&with(Some(loaded))), &images), Diffuse::Ready);
+        assert_eq!(diffuse_of(Some(&with(Some(on_its_way))), &images), Diffuse::Loading);
+        assert_eq!(diffuse_of(Some(&with(None)), &images), Diffuse::Missing, "the white fallback");
+        assert_eq!(diffuse_of(None, &images), Diffuse::Loading, "material not in the store yet");
+    }
+
+    /// A shape for [`surface`]: its diffuse, and whether the loaded cells cut it all out.
+    type Fake = (Diffuse, bool);
+
+    fn surface_of(shapes: &[Fake]) -> Surface {
+        surface(shapes, |s: &Fake| s.0, |s: &Fake| s.1)
+    }
+
+    #[test]
+    fn surface_of_a_chunk() {
+        use Diffuse::*;
+        assert_eq!(surface_of(&[(Ready, false), (Ready, false)]), Surface::Ready);
+        assert_eq!(surface_of(&[(Ready, false), (Loading, false)]), Surface::Pending);
+        assert_eq!(surface_of(&[(Loading, false), (Missing, false)]), Surface::Pending, "waits for what is on its way first");
+        assert!(matches!(surface_of(&[(Missing, false), (Ready, false)]), Surface::Failed(_)));
+        // Nothing textured to draw: empty, not failed.
+        assert_eq!(surface_of(&[]), Surface::Empty);
+        // Fully trimmed by the loaded cells: empty whatever its diffuse, never failed.
+        assert_eq!(surface_of(&[(Missing, true), (Loading, true)]), Surface::Empty);
+        // Partly trimmed: the cut shape no longer matters, the drawn one does.
+        assert_eq!(surface_of(&[(Missing, true), (Ready, false)]), Surface::Ready);
+        assert!(matches!(surface_of(&[(Missing, false), (Ready, true)]), Surface::Failed(_)));
+    }
+
+    #[test]
+    fn chunk_surface_reads_the_prepared_shapes() {
+        let mut images = Assets::<Image>::default();
+        let mut materials = Assets::<NifMaterial>::default();
+        let mat = |materials: &mut Assets<NifMaterial>, t: Option<Handle<Image>>| materials.add(nif_material(StandardMaterial { base_color_texture: t, ..default() }));
+        let shape = |m: Mesh, material: Handle<NifMaterial>| PreparedShape {
+            mesh: Handle::default(),
+            material,
+            transform: Affine3A::IDENTITY,
+            name: None,
+            ancestors: Vec::new(),
+            node: None,
+            own: Affine3A::IDENTITY,
+            cpu: Some(Arc::new(m)),
+            segments: Vec::new(),
+            external_emittance: false,
+            look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
+            missing_diffuse: None,
+        };
+        let white = mat(&mut materials, None);
+        let textured = mat(&mut materials, Some(images.add(Image::default())));
+        let loading = mat(&mut materials, Some(images.reserve_handle()));
+        // The untextured water shape (no UVs) is never drawn, so its lack of a diffuse
+        // does not count.
+        let model = PreparedModel { shapes: vec![shape(quad(true), textured.clone()), shape(quad(false), white.clone())], ..default() };
+        assert_eq!(chunk_surface(&model, &materials, &images, None), Surface::Ready);
+        let model = PreparedModel { shapes: vec![shape(quad(true), loading)], ..default() };
+        assert_eq!(chunk_surface(&model, &materials, &images, None), Surface::Pending);
+        let model = PreparedModel { shapes: vec![shape(quad(true), white.clone())], ..default() };
+        assert!(matches!(chunk_surface(&model, &materials, &images, None), Surface::Failed(_)));
+        // Cell (0, 0) loaded: the quad's east triangle still draws.
+        let cell = square((0, 0), (0, 0));
+        assert!(matches!(chunk_surface(&model, &materials, &images, Some(&cell)), Surface::Failed(_)));
+        // Cells (0, 0) to (2, 0) loaded: every triangle is cut out, nothing is drawn.
+        let cells = square((0, 0), (2, 0));
+        assert_eq!(chunk_surface(&model, &materials, &images, Some(&cells)), Surface::Empty);
+    }
+
+    /// The camera comes closer: a level-16 chunk gives way to four level-8 quarters. One
+    /// whose diffuse is on its way is not spawned, so the level-16 chunk stays drawn (no
+    /// untextured quarter, no hole); one whose diffuse failed is spawned (with the fallback
+    /// colour) and counts as covering, as a ready one does (#3096).
+    #[test]
+    fn loading_keeps_the_outgoing_chunk_failed_covers() {
+        use Diffuse::*;
+        let coarse: Chunk = (16, 0, 0);
+        let quarters = [(8, 0, 0), (8, 8, 0), (8, 0, 8), (8, 8, 8)];
+        let spawn_with = |of: &dyn Fn(Chunk) -> Surface| -> HashSet<Chunk> { quarters.iter().copied().filter(|&q| admit(&of(q))).collect() };
+        let ready = |_: Chunk| surface_of(&[(Ready, false)]);
+        let one_loading = |q: Chunk| if q == quarters[1] { surface_of(&[(Loading, false)]) } else { ready(q) };
+        let spawned = spawn_with(&one_loading);
+        assert!(!spawned.contains(&quarters[1]), "not spawned while its diffuse loads");
+        assert!(!covered(coarse, &quarters, |c| spawned.contains(c)), "the outgoing chunk stays drawn");
+        let one_failed = |q: Chunk| if q == quarters[1] { surface_of(&[(Missing, false)]) } else { ready(q) };
+        let spawned = spawn_with(&one_failed);
+        assert!(spawned.contains(&quarters[1]), "a failed diffuse is drawn (fallback colour)");
+        assert!(covered(coarse, &quarters, |c| spawned.contains(c)), "and covers like a ready one");
+        let one_trimmed = |q: Chunk| if q == quarters[1] { surface_of(&[(Missing, true)]) } else { ready(q) };
+        assert_eq!(one_trimmed(quarters[1]), Surface::Empty);
+        assert!(covered(coarse, &quarters, |c| spawn_with(&one_trimmed).contains(c)));
+    }
+
+    #[test]
+    fn fallback_colour_is_not_white() {
+        let mut images = Assets::<Image>::default();
+        let normal = images.add(Image::default());
+        let m = nif_material(StandardMaterial { base_color_texture: None, normal_map_texture: Some(normal.clone()), ..default() });
+        let f = fallback_material(&m);
+        assert!(f.base.base_color_texture.is_none());
+        assert_ne!(f.base.base_color, Color::WHITE, "never Bevy's white");
+        let c = f.base.base_color.to_srgba();
+        let [r, g, b] = lodgen::NO_BASE_SRGB;
+        assert!((c.red - r).abs() < 1e-6 && (c.green - g).abs() < 1e-6 && (c.blue - b).abs() < 1e-6, "the generated LOD's missing-base colour");
+        assert_eq!(f.base.normal_map_texture, Some(normal), "the normal map still shades it");
+        assert_eq!(f.base.depth_bias, m.base.depth_bias);
+    }
+
+    #[test]
+    fn texture_failure_names_the_shapes_own_texture() {
+        let failures = vec![
+            "textures\\landscape\\lod\\wastelandnv\\normals\\wastelandnv.n.level8.x-16.y0.dds: bad".to_string(),
+            "textures\\landscape\\lod\\wastelandnv\\diffuse\\wastelandnv.n.level8.x-16.y0.dds: not in any archive".to_string(),
+        ];
+        let f = texture_failure(&failures, "textures\\landscape\\lod\\wastelandnv\\diffuse\\wastelandnv.n.level8.x-16.y0.dds");
+        assert!(f.ends_with("diffuse\\wastelandnv.n.level8.x-16.y0.dds: not in any archive"), "{f}");
+        // A path the cache reported nothing for is still named.
+        assert_eq!(texture_failure(&failures, "textures\\a.dds"), "textures\\a.dds: not loaded");
+    }
+
+    /// Each spawned shape gets its own fallback copy, owned by its handle alone: despawning
+    /// the entity drops the last handle and releases the copy; the source material is not
+    /// held by it, so it can be evicted as before.
+    #[test]
+    fn fallback_copy_is_owned_by_the_entity() {
+        let mut materials = Assets::<NifMaterial>::default();
+        let src = materials.add(nif_material(StandardMaterial::default()));
+        let a = fallback_for(&mut materials, &src).unwrap();
+        let b = fallback_for(&mut materials, &src).unwrap();
+        assert_ne!(a.id(), b.id(), "no shared cache entry");
+        for h in [&a, &b, &src] {
+            let Handle::Strong(arc) = h else { panic!("strong handle") };
+            assert_eq!(Arc::strong_count(arc), 1, "only the entity's handle holds it");
+        }
+        assert!(materials.get(&a).is_some_and(|m| m.base.base_color_texture.is_none() && m.base.base_color != Color::WHITE));
+        assert!(describe_base(&materials.get(&a).unwrap().base).starts_with("base colour sRGB 0.45 0.42 0.38, no base texture"));
+        assert!(fallback_for(&mut materials, &Handle::default()).is_none(), "no source material: none");
     }
 
     #[test]

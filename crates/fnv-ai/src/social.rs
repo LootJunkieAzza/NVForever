@@ -305,6 +305,18 @@ fn fight_centre(fighters: &[(FormId, Place)], actor: FormId, at: Place) -> [f32;
 }
 
 /// Whether an actor is in the world and alive.
+/// Whether the player's foe is within [`OBSERVE_DISTANCE`] of the player at `p`: a
+/// resident by where it walks (in the same space); another by `seen`, its place when it
+/// is present and alive. A foe with no place is near no one (#3223: a hunter left in a
+/// cell no longer loaded, its Combat against the player kept, had townsfolk comment on a
+/// fight from anywhere).
+fn foe_near(resident: Option<Place>, seen: Option<[f32; 3]>, p: Place) -> bool {
+    match resident {
+        Some(r) => r.space == p.space && dist(r.pos, p.pos) <= OBSERVE_DISTANCE,
+        None => seen.is_some_and(|at| dist(at, p.pos) <= OBSERVE_DISTANCE),
+    }
+}
+
 fn here(game: &Game, actor: FormId) -> bool {
     game.present(actor) && !game.extra.get(&actor).is_some_and(|e| e.dead)
 }
@@ -332,11 +344,10 @@ impl Ai {
         self.face_listeners(game, dt);
         // A script's Look turning the body wins over facing a listener: last.
         self.face_looks(game, dt);
-        let data = game.data;
         let now = game.time;
         let mut free: Vec<Free> = Vec::new();
         for (&actor, a) in &self.agents {
-            let Some(def) = a.package.and_then(|p| data.package_defs.get(&p)) else { continue };
+            let Some(def) = a.package.and_then(|p| game.package_def(&p)) else { continue };
             let busy = a.activity == Activity::Travelling || a.talk.is_some() || a.chat.is_some() || a.search.is_some() || def.ty == PackageType::Sleep;
             // Only actors in the loaded area talk (`crate::process`).
             if busy || !self.is_high(actor) || !here(game, actor) || game.is_talking(actor) || game.in_actor_conversation(actor) {
@@ -533,11 +544,10 @@ impl Ai {
     /// allowing `behaviour`, not asleep, talking or in a combat state. Walking ones too: a
     /// shot or a fight is reacted to on the way.
     fn onlookers(&self, game: &Game, player: Place, behaviour: u16) -> Vec<(FormId, Place, f32)> {
-        let data = game.data;
         self.agents
             .iter()
             .filter(|(id, a)| a.walker.space == player.space && self.is_high(**id) && here(game, **id) && a.chat.is_none() && a.talk.is_none())
-            .filter(|(_, a)| a.package.and_then(|p| data.package_defs.get(&p)).is_some_and(|d| allows(d, behaviour) && d.ty != PackageType::Sleep))
+            .filter(|(_, a)| a.package.and_then(|p| game.package_def(&p)).is_some_and(|d| allows(d, behaviour) && d.ty != PackageType::Sleep))
             .filter(|(id, _)| !in_combat(game, **id) && !game.is_talking(**id))
             .map(|(id, a)| (*id, Place { space: a.walker.space, pos: a.walker.feet }, dist(a.walker.feet, player.pos)))
             .filter(|(_, _, d)| *d <= REACT_DISTANCE)
@@ -546,7 +556,8 @@ impl Ai {
 
     /// The fighters now: residents in Combat, and the player while someone in Combat (not
     /// Alert or Lost: a search is no fight) fights it within [`OBSERVE_DISTANCE`] of it
-    /// (its foe may be no resident: then where it last measured from, else anywhere).
+    /// (its foe may be no resident: then where the world has it while present and alive,
+    /// else where it last measured from; a foe with no place is near no one: [`foe_near`]).
     fn fighters(&self, game: &Game, player: Option<Place>) -> Vec<(FormId, Place)> {
         use fnv_game::awareness::State;
         let mut fighters: Vec<(FormId, Place)> = self
@@ -557,10 +568,14 @@ impl Ai {
             .collect();
         let fought = |p: Place| {
             game.awareness.actors.iter().any(|(id, w)| {
-                let near = match self.agents.get(id) {
-                    Some(a) => a.walker.space == p.space && dist(a.walker.feet, p.pos) <= OBSERVE_DISTANCE,
-                    None => w.at.is_none_or(|at| dist(at, p.pos) <= OBSERVE_DISTANCE),
+                let resident = self.agents.get(id).map(|a| Place { space: a.walker.space, pos: a.walker.feet });
+                // Where the world has it, while present and alive; a foe the world does not
+                // know of: where it last measured from.
+                let seen = match game.world.peek(*id).map(|s| s.pos).or_else(|| game.world.placed.get(*id).map(|r| r.pos)) {
+                    Some(pos) => here(game, *id).then_some(pos),
+                    None => w.at,
                 };
+                let near = foe_near(resident, seen, p);
                 w.state == State::Combat && w.targets.contains_key(&FormId::PLAYER_REF) && near
             })
         };
@@ -575,7 +590,7 @@ impl Ai {
     /// the player, and an ally or friend of the fighter by their factions (who will join
     /// it) [design: review of #1216].
     fn takes_sides(&self, game: &Game, actor: FormId, fighter: FormId) -> bool {
-        let follows = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| game.data.package_defs.get(&p)).is_some_and(|d| matches!(d.ty, PackageType::Follow | PackageType::Accompany));
+        let follows = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| game.package_def(&p)).is_some_and(|d| matches!(d.ty, PackageType::Follow | PackageType::Accompany));
         game.is_teammate(actor) || follows || fnv_game::functions::faction_relation(game, actor, fighter) >= 2
     }
 
@@ -604,12 +619,11 @@ impl Ai {
             }
         }
         // Spectators too close run, wherever the player is.
-        let data = game.data;
         let close: Vec<(FormId, FormId, [f32; 3], f32)> = self
             .agents
             .iter()
             .filter(|(id, a)| self.is_high(**id) && here(game, **id) && a.chat.is_none() && a.talk.is_none() && a.search.is_none() && !self.social.fleeing.contains_key(id))
-            .filter(|(_, a)| a.package.and_then(|p| data.package_defs.get(&p)).is_some_and(|d| allows(d, fallout::OBSERVE_COMBAT) && d.ty != PackageType::Sleep))
+            .filter(|(_, a)| a.package.and_then(|p| game.package_def(&p)).is_some_and(|d| allows(d, fallout::OBSERVE_COMBAT) && d.ty != PackageType::Sleep))
             .filter(|(id, _)| !in_combat(game, **id) && !game.is_talking(**id))
             .filter_map(|(id, a)| {
                 let place = Place { space: a.walker.space, pos: a.walker.feet };
@@ -913,6 +927,20 @@ mod tests {
 
     fn def(ty: PackageType, general: u32, behaviour: u16, specific: u16) -> PackageDef {
         PackageDef { ty, flags: general, fallout_flags: behaviour, type_flags: specific, ..PackageDef::default() }
+    }
+
+    #[test]
+    fn a_foe_with_no_place_is_near_no_one() {
+        let space = Space::World(0xDA726);
+        let p = Place { space, pos: [0.0, 0.0, 0.0] };
+        // #3223: a hunter in a cell no longer loaded: no resident, no place.
+        assert!(!foe_near(None, None, p));
+        // Where the world has it: near or far.
+        assert!(foe_near(None, Some([1000.0, 0.0, 0.0]), p));
+        assert!(!foe_near(None, Some([9200.0, 0.0, 0.0]), p));
+        // A resident: by where it walks, in the same space only.
+        assert!(foe_near(Some(Place { space, pos: [0.0, 1400.0, 0.0] }), None, p));
+        assert!(!foe_near(Some(Place { space: Space::Interior(0x103DF9), pos: [0.0, 10.0, 0.0] }), None, p));
     }
 
     #[test]

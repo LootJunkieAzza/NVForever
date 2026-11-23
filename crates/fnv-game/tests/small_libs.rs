@@ -468,6 +468,17 @@ fn vheyes_moon_stamps_and_queued_command() {
 }
 
 #[test]
+fn interactive_console_evaluation_prints_compiled_results_before_cleanup() {
+    let f = fixture();
+    let mut g = game(&f);
+    let eval = |g: &mut fnv_game::Game<'_>, expression| g.eval_console_expression(expression, Default::default()).unwrap();
+    assert_eq!(eval(&mut g, "5 + 5"), "10");
+    assert_eq!(eval(&mut g, "GetModelPath TestBox"), r#""Test\\Box.nif""#);
+    assert_eq!(eval(&mut g, "ar_List 1, 9"), "[0: 1, 1: 9]");
+    assert!(g.eval_console_expression("5 +", Default::default()).is_err());
+}
+
+#[test]
 fn cacheui_anh_and_the_small_plugins() {
     files();
     let f = fixture();
@@ -836,4 +847,49 @@ fn stewie_pipboy_queries_keep_unbound_fallback_and_follow_current_choices_after_
     restored.bind_stewie_stat_settings(&chosen);
     assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bDisableStealthEffectInPipboy:Tweaks\")"), n(0.0));
     assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bKeepPipboyLightOnCellChange:Tweaks\")"), n(1.0));
+}
+
+#[test]
+fn stewie_worn_armor_weightless_queries_follow_handoff_and_keep_item_mask_fallback() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    let ini = b"[Tweaks]\nbWeightlessWornArmor=1\nbWeightlessWornPowerArmor=1\nbWeightlessItems=1\n[Other]\nbWeightlessWornArmor=5\n";
+    assert!(g.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+
+    // Unbound headless games retain the layered INI fallback.
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \"bWeightlessWornArmor:Tweaks\")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \"bWeightlessWornPowerArmor:Tweaks\")"), n(1.0));
+
+    // After handoff, both worn-armor switches read NVForever choices while bWeightlessItems stays on INI fallback.
+    let chosen = fnv_game::tweaks::Tweaks {
+        weightless_worn_armor: false,
+        weightless_worn_power_armor: true,
+        ..Default::default()
+    };
+    g.bind_stewie_stat_settings(&chosen);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"), n(941.0));
+    for name in ["StewVal", "StewieGetValue"] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bWeightlessWornArmor : Tweaks \")")), n(0.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bWeightlessWornPowerArmor : Tweaks \")")), n(1.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bWeightlessItems:Tweaks\")")), n(1.0));
+        assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bWeightlessWornArmor:Other\")")), n(5.0));
+    }
+
+    g.tweaks.weightless_worn_armor = true;
+    g.tweaks.weightless_worn_power_armor = false;
+    let before = g.tweaks.clone();
+    assert_eq!(q(&mut g, "SetFunctionValue (StewVal \" bweightlesswornarmor : tweaks \")"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \" bweightlesswornpowerarmor : tweaks \")"), n(0.0));
+    assert_eq!(g.tweaks, before, "queries do not mutate settings");
+
+    // Snapshot/restore clears application authority until rebound.
+    let saved = g.snapshot();
+    let mut restored = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..Default::default() }, &saved).unwrap();
+    assert!(restored.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", ini));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bWeightlessWornArmor:Tweaks\")"), n(1.0));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bWeightlessWornPowerArmor:Tweaks\")"), n(1.0));
+    restored.bind_stewie_stat_settings(&chosen);
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bWeightlessWornArmor:Tweaks\")"), n(0.0));
+    assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bWeightlessWornPowerArmor:Tweaks\")"), n(1.0));
 }

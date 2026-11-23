@@ -24,6 +24,47 @@ pub struct ConsoleCtx {
     pub active_quest: Option<FormId>,
 }
 
+/// A bounded first-level preview. Nested arrays are labeled rather than traversed.
+pub(crate) fn expression_result(g: &Game, value: &fnv_script::vm::XVal) -> String {
+    use fnv_script::vm::{number_text, XKey, XVal};
+    use std::fmt::Write as _;
+
+    fn atom(g: &Game, line: &mut String, value: &XVal) {
+        match value {
+            XVal::Num(n) => line.push_str(&number_text(*n)),
+            XVal::Ref(0) => line.push_str("none"),
+            XVal::Ref(r) => { let _ = write!(line, "{} {}", FormId(*r), g.data.name(FormId(*r))); }
+            XVal::Str(s) => { let _ = write!(line, "{s:?}"); }
+            XVal::Array(id) => { let _ = write!(line, "array #{id}"); }
+        }
+    }
+
+    let mut line = String::new();
+    if let XVal::Array(id) = value {
+        let Some(array) = g.ext.array(*id) else { return "(no array)".into() };
+        const PREVIEW: usize = 16;
+        line.push('[');
+        for (i, (key, value)) in array.entries.iter().take(PREVIEW).enumerate() {
+            if i > 0 {
+                line.push_str(", ");
+            }
+            match key {
+                XKey::Num(n) => line.push_str(&number_text(*n)),
+                XKey::Str(s) => { let _ = write!(line, "{s:?}"); }
+            }
+            line.push_str(": ");
+            atom(g, &mut line, value);
+        }
+        if array.entries.len() > PREVIEW {
+            let _ = write!(line, ", … ({} more)", array.entries.len() - PREVIEW);
+        }
+        line.push(']');
+    } else {
+        atom(g, &mut line, value);
+    }
+    line
+}
+
 /// Something only the engine can do, asked by a console command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleRequest {
@@ -90,6 +131,7 @@ pub fn registry() -> &'static [(&'static str, ConsoleImpl)] {
         ("PersistentRefCount", persistent_ref_count),
         ("TestRaceSexTerimnal", test_race_sex_terminal),
         ("ClearScreenBlood", clear_screen_blood),
+        ("SetDefaultOpen", set_default_open),
     ]
 }
 
@@ -110,7 +152,7 @@ pub fn unhandled_unused(table_json: &serde_json::Value) -> (Vec<String>, Vec<Str
         if f["family"] != "vanilla" || f["script_calls"].as_u64().unwrap_or(0) > 0 {
             continue;
         }
-        if super::lookup_name(name).is_some() || lookup(name).is_some() || super::player_source::handles(name) || crate::vats::handles_area_query(name) || ENGINE_WORDS.iter().any(|w| w.eq_ignore_ascii_case(name)) {
+        if super::lookup_name(name).is_some() || lookup(name).is_some() || super::player_source::handles(name) || super::refs::handles_source(name) || crate::vats::handles_area_query(name) || ENGINE_WORDS.iter().any(|w| w.eq_ignore_ascii_case(name)) {
             continue;
         }
         let in_console = f["categories"].as_array().into_iter().flatten().any(|c| c == "Console Functions");
@@ -954,6 +996,17 @@ pub fn has_expression_operator(line: &str) -> bool {
     })
 }
 
+/// `ref.SetDefaultOpen defaultOpen`: set the calling reference's default open state
+/// [documented: GECK wiki SetDefaultOpen].
+pub fn set_default_open(g: &mut Game, ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
+    let r = ctx.on.ok_or("SetDefaultOpen requires a calling reference")?;
+    let [flag] = a else { return Err("SetDefaultOpen expects 1 argument (0 or 1)".into()) };
+    let v: i32 = flag.parse().map_err(|_| format!("SetDefaultOpen: {flag:?} is not an integer"))?;
+    let open = v != 0;
+    g.world.set_default_open(r, open).map_err(|e| e.to_string())?;
+    Ok(vec![format!("SetDefaultOpen >> {r} default_open = {}", usize::from(open))])
+}
+
 /// Decide before calling a host function. Numeric words are literals, and a
 /// string parameter retains the word reader's path/name syntax even when unquoted.
 pub fn call_has_expression(g: &Game, line: &str, func: &str, args: &[String]) -> bool {
@@ -1025,7 +1078,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (33, 89), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (33, 85), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));

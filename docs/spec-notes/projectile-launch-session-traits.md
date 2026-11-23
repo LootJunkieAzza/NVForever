@@ -189,3 +189,41 @@ baseline/candidate boundaries; they are not a statement that any revision has
 compiled or passed. Exact execution and native/rendered/mod-profile qualification
 must be reported separately. Disable-only visual suppression is not established
 by this deletion-only change.
+
+
+## Full non-flag projectile trait overrides
+
+[documented: GECK wiki `GetProjectileTraitNumeric`, `SetProjectileTraitNumeric`,
+`GetProjectileExplosion`, `SetProjectileExplosion`, `GetProjectileLight`,
+`SetProjectileLight`, `GetProjectileMuzzleFlash`, `SetProjectileMuzzleFlash`,
+`SetProjectileSound`; xEdit `wbDefinitionsFNV.pas` `PROJ`; observed: `jip7`, `jip7b`,
+`gaps6`] Session overrides for all 15 non-flag numeric `PROJ` traits (`DATA/type`,
+`gravity`, `speed`, `range`, `tracer_chance`, `explosion_alt_trigger_proximity`,
+`explosion_alt_trigger_timer`, `muzzle_flash_duration`, `fade_duration`, `impact_force`,
+`rotation.{x,y,z}`, `bouncy_mult`, and `VNAM` detection sound level), form traits
+(`DATA/explosion`, `DATA/light`, `DATA/sound`, `DATA/sound_countdown`,
+`DATA/sound_disable`), and `NAM1` muzzle-flash model path are exposed through the
+canonical helpers `fnv_game::Game::projectile_traits`,
+`Game::projectile_trait_overrides`, and `Game::projectile_sound` (`DATA/flags` stays
+separate).
+
+- **Validation** [design; observed: `gaps6` null explosion leaves existing explosion;
+  `jip7`/`jip7b` type and VNAM ranges]: `SetProjectileExplosion` requires a `PROJ`
+  target and an `EXPL` form (including `TempCloneForm` aliases) and leaves the explosion
+  unchanged on null; `SetProjectileLight` clears on omitted/null and requires a `LIGH`
+  (or cloned `LIGH`) otherwise; `SetProjectileSound` accepts `PROJ`/`SOUN` (including
+  `TempCloneForm` aliases) for slots `1..=3`; `SetProjectileTraitNumeric` rejects
+  non-integer/out-of-range trait IDs without mutating state.
+- **`TempCloneForm` snapshotting and fallback** [design]: cloning a `PROJ` snapshots
+  active non-flag overrides from the cloned source onto the new clone
+  (`Game::snapshot_projectile_traits`), so pre-clone edits carry onto clones and
+  clone-of-clone chains and stay isolated from later edits on the source, while fields
+  left untouched on the original before cloning keep the existing clone-to-original
+  fallback required by initial-launch controls.
+- **Headless combat consumer adapter** [design]: `fnv_combat::projectile_overrides::ProjectileOverrides`
+  applies sparse non-flag overrides onto per-shot / per-mine `ProjectileStats`,
+  `ShotChain`, and `ProjectileFx` copies (feeding `Projectile::spawn`, `fire_projectile`,
+  `MineRules::trigger_radius`, `MineRules::fuse`, `mine::is_mine`, and
+  `ProjectileStats::explodes`) without mutating loaded `CombatForms`/`CombatFx` caches or
+  touching `DATA/flags`. Engine call-site wiring into `nvf-play` remains a separate
+  engine step.

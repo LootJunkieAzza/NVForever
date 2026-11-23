@@ -143,7 +143,7 @@ pub fn get_is_used_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
 /// `GetIsUsedItemType type`: 1 when what the subject uses is of that form type (a code,
 /// or a type name) [documented: GECK wiki GetIsUsedItemType].
 pub fn get_is_used_item_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let Some(sig) = used(g, ctx.subject()?).and_then(|b| g.data.sig(b)) else { return none() };
+    let Some(sig) = used(g, ctx.subject()?).and_then(|b| g.data.sig(g.unclone(b))) else { return none() };
     let want = match a.peek_str(0) {
         Some(name) => TYPE_NAMES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).and_then(|(_, s)| used_type_code(s)),
         None => a.num(0).ok().map(|c| c as i32),
@@ -157,7 +157,7 @@ pub fn get_is_used_item_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value,
 pub fn get_is_used_item_equip_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let Some(item) = used(g, ctx.subject()?) else { return none() };
     let want = a.num(0)? as i64;
-    yes(g.data.ingestibles.get(&item).is_some_and(|d| d.equip_type == want))
+    yes(g.ingestible_def(item).is_some_and(|d| d.equip_type == want))
 }
 
 /// `actor.GetUsedItemActivate`: 1 while the actor uses something ([`used`])

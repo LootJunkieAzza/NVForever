@@ -30,6 +30,9 @@ pub struct GpuFog {
     bi: Vec3,
     /// Unsigned int representation of the active fog falloff mode
     mode: u32,
+    /// NVForever fog parameters: `DistanceFog::nvf_params` as they are (`mesh_view_types.wesl`
+    /// `Fog::nvf_params`).
+    nvf_params: [Vec4; 3],
 }
 
 // Important: These must be kept in sync with `mesh_view_types.wesl`
@@ -63,7 +66,7 @@ pub fn prepare_fog(
         return;
     };
     for (entity, fog) in views_iter {
-        let gpu_fog = {
+        let mut gpu_fog = {
             match &fog.falloff {
                 FogFalloff::Linear { start, end } => GpuFog {
                     mode: GPU_FOG_MODE_LINEAR,
@@ -103,9 +106,12 @@ pub fn prepare_fog(
                     directional_light_exponent: fog.directional_light_exponent,
                     be: *extinction,
                     bi: *inscattering,
+                    ..Default::default()
                 },
             }
         };
+        // NVForever fog parameters: copied for every mode.
+        gpu_fog.nvf_params = fog.nvf_params;
 
         // This is later read by `SetMeshViewBindGroup<I>`
         commands.entity(entity).insert(ViewFogUniformOffset {

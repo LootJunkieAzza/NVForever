@@ -20,6 +20,7 @@ use super::{Hacking, MenuView, Page, Session};
 use crate::interface::{at, face, line_anchor, plain_font, set_line, set_marked, texture, u, Face};
 use bevy::prelude::*;
 use fnv_font::{Font, Line};
+use fnv_sim::FormId;
 use fnv_game::data::NoteDef;
 use fnv_game::hacking::{Puzzle, Target, ROWS, ROW_CHARS};
 use nvf_assets::GameData;
@@ -185,6 +186,36 @@ pub const LIST_ROWS: usize = 12;
 /// the screenshot shows one item only].
 pub const LIST_ROW: f32 = 30.0;
 pub const NOTE_LINES: usize = 16;
+
+/// What the screen drew that the input reads back: the menu's rows on the canvas (for the
+/// pointer) and an open note's window (for paging it, #3409).
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct Drawn {
+    pub rows: Vec<(usize, Rect)>,
+    pub note: Option<NoteWindow>,
+}
+
+/// The lines of an open note on the screen: `shown` of its `total` from line `first`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoteWindow {
+    pub note: FormId,
+    pub first: usize,
+    pub shown: usize,
+    pub total: usize,
+}
+
+impl NoteWindow {
+    /// The scroll that shows the note's last lines (the most it scrolls).
+    pub fn last_first(&self) -> usize {
+        self.total.saturating_sub(self.shown)
+    }
+
+    /// The scroll of the next page: the line after the last one shown, kept to
+    /// [`NoteWindow::last_first`]; `None` on the last page.
+    pub fn next_page(&self) -> Option<usize> {
+        (self.first + self.shown < self.total).then(|| (self.first + self.shown).min(self.last_first()))
+    }
+}
 /// The result's prompt: 30 above the bottom; its text 34 right of the prompt.
 pub const RESULT_GAP: f32 = 30.0;
 pub const RESULT_X: f32 = 34.0;
@@ -548,18 +579,88 @@ pub fn spawn_backdrop(commands: &mut Commands, under: Under) {
 #[derive(Component)]
 pub struct Blink;
 
+/// The characters a second the screen's text types out at, in reading order as the page draws
+/// its lines [hypothesis: the original types a page's text out as it comes up (#3327, the
+/// player's report and video); its rate is not measured, observer check 254; this is about a
+/// second for a menu page].
+pub const TYPE_RATE: f32 = 600.0;
+/// How far a typing line's clip reaches left of the line and past its end, canvas units: a
+/// glyph's ink may stand a little out of its advance [design].
+const TYPE_MARGIN: f32 = 4.0;
+
+/// A line of text that types out (#3327): its clip widens from nothing to the whole line,
+/// `chars` characters at [`TYPE_RATE`], from `start` seconds after its page came up.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Typed {
+    pub start: f32,
+    pub chars: f32,
+    pub width: f32,
+}
+
+impl Typed {
+    /// The clip's width `elapsed` seconds after the page came up.
+    pub fn shown(&self, elapsed: f32) -> f32 {
+        ((elapsed - self.start) * TYPE_RATE / self.chars.max(1.0)).clamp(0.0, 1.0) * self.width
+    }
+
+    /// Whether the line is typed out by `elapsed`.
+    pub fn done(&self, elapsed: f32) -> bool {
+        elapsed >= self.start + self.chars / TYPE_RATE
+    }
+}
+
+thread_local! {
+    /// While [`spawn`] draws a page: the seconds since the page came up and the characters
+    /// drawn before the line being drawn (the lines type out one after another).
+    static TYPING: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((f32::INFINITY, 0.0)) };
+}
+
+/// The [`Typed`] of the next line of `chars` characters `width` wide, in the order drawn.
+fn next_typed(chars: usize, width: f32) -> (Typed, f32) {
+    TYPING.with(|t| {
+        let (elapsed, before) = t.get();
+        t.set((elapsed, before + chars as f32));
+        (Typed { start: before / TYPE_RATE, chars: chars as f32, width: width + 2.0 * TYPE_MARGIN }, elapsed)
+    })
+}
+
+/// Draw a line that types out: `draw` puts it at `x` within a clip that starts
+/// [`TYPE_MARGIN`] left of it (its own left edge), as wide as [`Typed::shown`] says.
+fn typed_line(p: &mut ChildSpawnerCommands, line: &Line, x: f32, draw: impl FnOnce(&mut ChildSpawnerCommands, f32)) {
+    typed_span(p, line.glyphs.len(), line.width, x, draw);
+}
+
+/// [`typed_line`] for `chars` characters over `width` (what is drawn may be wider than the
+/// text, as the chosen row's box).
+fn typed_span(p: &mut ChildSpawnerCommands, chars: usize, width: f32, x: f32, draw: impl FnOnce(&mut ChildSpawnerCommands, f32)) {
+    let (typed, elapsed) = next_typed(chars, width);
+    let clip = Node { overflow: Overflow::clip(), ..at(x - TYPE_MARGIN, 0.0, typed.shown(elapsed), CANVAS.y) };
+    p.spawn((clip, typed)).with_children(|c| draw(c, TYPE_MARGIN));
+}
+
+/// [`set_line`], typing out ([`typed_line`]).
+fn typed_set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color) {
+    typed_line(p, line, x, |c, x| set_line(c, face, line, x, base, color));
+}
+
 /// One line of text from its top.
 fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32, color: Color) -> f32 {
     let Some(line) = face.font.lines(s, None).into_iter().next() else { return 0.0 };
-    set_line(p, face, &line, x, top + BASE, color);
+    typed_set_line(p, face, &line, x, top + BASE, color);
     line.width
 }
 
 /// A line of text whose characters have colours of their own, by the column each stands
 /// in (every character of font 5 is [`CHAR`] wide): the lit cells of the dump.
+/// The addresses, puzzle words and filler are ASCII (`fnv_game::hacking`).
 /// `is_lit` explicitly selects the dark colour, `lit`'s picture (the same layout as
 /// `face`'s), and the ordering above fills.
 fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Line, x: f32, top: f32, is_lit: impl Fn(usize) -> bool) {
+    typed_line(p, line, x, |p, x| text_colored_now(p, face, lit, line, x, top, is_lit));
+}
+
+/// [`text_colored`]'s line, drawn at once.
+fn text_colored_now(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Line, x: f32, top: f32, is_lit: impl Fn(usize) -> bool) {
     let base = top + BASE;
     let bright = bright();
     let Some((image, size)) = &face.image else {
@@ -598,10 +699,14 @@ fn centred(p: &mut ChildSpawnerCommands, face: &Face, s: &str, width: f32, top: 
 }
 
 /// Draw the screen into the picture `camera` renders; returns the menu's rows on the
-/// canvas, for the pointer.
+/// canvas, for the pointer, and an open note's window ([`Drawn`]).
 /// `read`: the entries drawn dimmer (the Grey Read Notes tweak on).
-pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, game: &fnv_game::Game, cursor_on: bool, read: Option<&super::ReadEntries>) -> Vec<(usize, Rect)> {
-    let mut rows = Vec::new();
+/// `typed_for`: the seconds since the page came up, how far its text has typed out
+/// ([`Typed`]).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, game: &fnv_game::Game, cursor_on: bool, read: Option<&super::ReadEntries>, typed_for: f32) -> Drawn {
+    TYPING.with(|t| t.set((typed_for, 0.0)));
+    let mut rows = Drawn::default();
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((ScreenRoot, root, UiTargetCamera(camera), Name::new("Terminal screen"))).with_children(|c| {
         // [design] Keep the texture/vignette, accounting for its contribution in the
@@ -703,8 +808,18 @@ pub fn note_text(n: Option<&NoteDef>) -> String {
     }
 }
 
+/// Menu choices and the result prompt have a single row. Keep long CJK text within it.
+fn fit_cjk_line<'a>(font: &Font, text: &'a str, room: f32) -> std::borrow::Cow<'a, str> {
+    if crate::cjk_font::enabled() && text.chars().any(fnv_font::is_cjk) {
+        crate::pause::fit_text(|s| font.width(s), text, room).into()
+    } else {
+        text.into()
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, rows: &mut Vec<(usize, Rect)>, read: Option<&super::ReadEntries>) {
+fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, drawn: &mut Drawn, read: Option<&super::ReadEntries>) {
+    let rows = &mut drawn.rows;
     let bright = bright();
     let data = game.data;
     let Some(t) = data.terminals.get(&m.terminal) else { return };
@@ -722,7 +837,7 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
     for para in welcome.replace('\r', "").split('\n') {
         for line in face.font.lines(para, Some(WELCOME_WRAP)) {
             widest = widest.max(line.width);
-            set_line(c, face, &line, MENU_X, y + BASE, bright);
+            typed_set_line(c, face, &line, MENU_X, y + BASE, bright);
             y += LINE;
         }
         if para.trim().is_empty() {
@@ -748,9 +863,10 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
             // result line [design], from the line scrolled to.
             let room = (((CANVAS.y - LINE - RESULT_GAP) - (y + 10.0)) / LINE).floor().max(1.0) as usize;
             let first = m.scroll.min(lines.len().saturating_sub(room.min(NOTE_LINES)));
+            drawn.note = Some(NoteWindow { note: n, first, shown: NOTE_LINES.min(room).min(lines.len()), total: lines.len() });
             for (i, line) in lines.into_iter().skip(first).take(NOTE_LINES.min(room)).enumerate() {
                 if let Some(line) = line {
-                    set_line(c, face, &line, MENU_X, y + 10.0 + i as f32 * LINE + BASE, bright);
+                    typed_set_line(c, face, &line, MENU_X, y + 10.0 + i as f32 * LINE + BASE, bright);
                 }
             }
         }
@@ -762,12 +878,16 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
                 rows.push((row, Rect::new(MENU_X, top, MENU_X + LIST_WIDTH, top + LIST_ROW)));
                 c.spawn(at(MENU_X, top, LIST_WIDTH, LIST_ROW)).with_children(|b| {
                     let s = format!("> {label}");
+                    let s = fit_cjk_line(&face.font, &s, LIST_WIDTH - CHAR);
                     let w = face.font.width(&s);
                     if lit {
-                        // [documented] A filled box (224 of 255) behind the chosen row.
-                        b.spawn((at(0.0, 2.0, w + CHAR, LIST_ROW - 4.0), BackgroundColor(bright.with_alpha(224.0 / 255.0)), OVER_LINES));
+                        // [documented] A filled box (224 of 255) behind the chosen row; it types
+                        // out with its text [design].
                         if let Some(line) = face.font.lines(&s, None).into_iter().next() {
-                            set_marked(b, lit_face, &line, 0.0, (LIST_ROW - LINE) / 2.0 + BASE, lit_text(), ON_FILLS);
+                            typed_span(b, line.glyphs.len(), w + CHAR, 0.0, |b, x| {
+                                b.spawn((at(x, 2.0, w + CHAR, LIST_ROW - 4.0), BackgroundColor(bright.with_alpha(224.0 / 255.0)), OVER_LINES));
+                                set_marked(b, lit_face, &line, x, (LIST_ROW - LINE) / 2.0 + BASE, lit_text(), ON_FILLS);
+                            });
                         }
                     } else {
                         let was_read = read.zip(m.items.get(row)).is_some_and(|(r, &item)| r.has(m.terminal, item));
@@ -780,7 +900,9 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
     // The result line at the bottom: the prompt, the last result, the cursor.
     let top = CANVAS.y - LINE - RESULT_GAP;
     text(c, face, ">", MENU_X, top, bright);
-    let w = text(c, face, &m.result, MENU_X + RESULT_X, top, bright);
+    let result_room = CANVAS.x - 2.0 * MENU_X - RESULT_X - CHAR - BLOCK;
+    let result = fit_cjk_line(&face.font, &m.result, result_room);
+    let w = text(c, face, &result, MENU_X + RESULT_X, top, bright);
     let x = MENU_X + RESULT_X + if m.result.is_empty() { 0.0 } else { w + CHAR };
     c.spawn((Blink, at(x, top + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright), OVER_LINES, if cursor_on { Visibility::Inherited } else { Visibility::Hidden }));
 }
@@ -794,6 +916,44 @@ pub fn lit(p: &Puzzle, cursor: usize, index: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #3327: a page's lines type out one after another in the order drawn, each widening
+    /// to its whole width; a page drawn again (the selection moved) types on from where it was.
+    #[test]
+    fn lines_type_out_one_after_another() {
+        TYPING.with(|t| t.set((0.5, 0.0)));
+        let (a, elapsed) = next_typed(300, 600.0);
+        let (b, _) = next_typed(60, 120.0);
+        assert_eq!(elapsed, 0.5);
+        assert_eq!((a.start, b.start), (0.0, 300.0 / TYPE_RATE));
+        assert_eq!(a.shown(0.0), 0.0);
+        assert!((a.shown(150.0 / TYPE_RATE) - a.width / 2.0).abs() < 1e-3, "half the line by half its time");
+        assert_eq!(a.shown(1.0), a.width);
+        assert!(a.done(300.0 / TYPE_RATE) && !b.done(300.0 / TYPE_RATE));
+        assert_eq!(b.shown(300.0 / TYPE_RATE), 0.0, "the next line waits for the one before");
+        assert_eq!(b.width, 120.0 + 2.0 * TYPE_MARGIN);
+        // A page drawn again later starts counting from its first line again.
+        TYPING.with(|t| t.set((9.0, 0.0)));
+        assert_eq!(next_typed(300, 600.0), (a, 9.0));
+    }
+
+    #[test]
+    fn cjk_terminal_labels_fit_on_one_row() {
+        let mut font = plain_font(25.0, 10.0);
+        let glyph = fnv_font::Glyph {
+            width: 18.0,
+            ..default()
+        };
+        for c in "甲乙丙丁".chars() {
+            font.extra.insert(c, glyph);
+        }
+        assert_eq!(fit_cjk_line(&font, "甲乙丙丁甲", 66.0), "甲乙丙丁甲");
+        crate::cjk_font::with_enabled_for_test(|| {
+            assert_eq!(fit_cjk_line(&font, "甲乙", 66.0), "甲乙");
+            assert_eq!(fit_cjk_line(&font, "甲乙丙丁甲", 66.0), "甲乙...");
+            assert_eq!(fit_cjk_line(&font, "abcdefghi", 66.0), "abcdefghi");
+        });
+    }
 
     #[test]
     fn composed_layers_match_the_measured_screen_in_both_modes() {

@@ -300,14 +300,16 @@ mod tests {
     /// #2198's upscaler rows, #2169's FSR library row, #2242's upscaling counter row, #2317's
     /// Generated frames row, the field of view rows, the menu scale and Physics rate rows,
     /// #2662's grass fires, #2550's terrain height blending, #2551's terrain anti-tiling,
-    /// #2688's sound cover, #2670's cloud shadows, #2671's terrain shadows, #2149's smooth terrain and its Debug row terrain wireframe, the
+    /// #2688's sound cover, #2670's cloud shadows, #2671's terrain shadows, the ALC shadows (light_shadows.rs), #2149's smooth terrain and its Debug row terrain wireframe, the
     /// overhaul's menu font, the Advanced Movement rows of tech/movement-inertia, Weapon
     /// Inertia and Camera Motion in place of weapon sway and head bob, #2843's Shadow
     /// resolution row, Gore Shake and #2670's Cloud shadows; #2661's mesh terrain blend row, the
     /// Quick Loot rows; #2965's heat haze row; #2675's desert haze row; Sprint; #2671's terrain
-    /// shadows row; #2981's authored materials row; Physical PBR & Subsurface scattering),
-    /// by the group it registers with.
-    const KNOWN: [(&str, &str); 143] = [
+    /// shadows row; #2981's authored materials row and its reflections row; #2701's
+    /// full-detail scenery row; #3014's distant objects row; #2993's aerial perspective row;
+    /// #2995's night sky detail row; #3013's distant lights row; Physical PBR & Subsurface
+    /// scattering), by the group it registers with.
+    const KNOWN: [(&str, &str); 150] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -416,6 +418,7 @@ mod tests {
         ("fine-shadows", "Graphics"),
         ("cloud-shadows", "Graphics"),
         ("terrain-shadows", "Graphics"),
+        ("light-shadows", "Graphics"),
         ("bloom", "Graphics"),
         ("glow", "Graphics"),
         ("eye-adaptation", "Graphics"),
@@ -425,13 +428,19 @@ mod tests {
         ("sharpen", "Graphics"),
         ("anisotropic", "Graphics"),
         ("authored-materials", "Graphics"),
+        ("authored-reflections", "Graphics"),
         ("terrain-height-blend", "Graphics"),
         ("terrain-anti-tiling", "Graphics"),
         ("mesh-terrain-blend", "Graphics"),
+        ("full-detail", "Graphics"),
+        ("distant-objects", "Graphics"),
         ("smooth-terrain", "Graphics"),
         ("light-shafts", "Graphics"),
         ("heat-haze", "Graphics"),
         ("desert-haze", "Graphics"),
+        ("aerial-perspective", "Graphics"),
+        ("night-sky-detail", "Graphics"),
+        ("distant-lights", "Graphics"),
         ("water-reflections", "Graphics"),
         ("water-effects", "Graphics"),
         ("water-mirror", "Graphics"),
@@ -546,7 +555,8 @@ mod tests {
         mark-recurring-challenges hide-hotkeyed-containers hide-hotkeyed-barter hide-hotkeyed-repair \
         map-zoom-at-pointer console-homes shift-screenshot-hides print-plugin-names \
         weapon-requirements-matter console-model-details back-pace strafe-pace hack-no-single-chars \
-        hack-no-repeat-words hack-dud-when-full hack-spare-guessed run-overencumbered over-run-ap over-jump-ap \
+        hack-no-repeat-words hack-dud-when-full hack-spare-guessed hack-mark-guesses-as-duds \
+        hack-keep-matching-chars hack-compact-guesses hack-replenish-bonus run-overencumbered over-run-ap over-jump-ap \
         npc-melee-part-damage disarm-needs-skill disarm-mult disarm-explode-mult cap-skills-by-special skill-cap-base \
         skill-cap-per-special skill-cap-per-luck skill-cap-most cap-skills-spare-tagged hold-breath breath-sway \
         breath-ap scope-wheel-zoom wheel-cycles-hotkeys dpad-cycles-hotkeys keys-with-pad double-tap-ammo \
@@ -558,7 +568,7 @@ mod tests {
         marker-name-hide-unfound marker-name-units hide-hud-compass hide-hud-ammo hide-hud-needs hide-hud-sneak \
         hide-hud-on-load grey-read-notes remember-item-places player-weapon-volume npc-weapon-volume \
         keep-fall-height-on-load no-marker-popup marker-shift-removes marker-removed-on-it clear-marker-within \
-        place-marker-here-says repeat-activate-takes-only hi-res-npc-weapons empty-reload-swaps-ammo \
+        place-marker-here-says repeat-activate-takes-only hi-res-npc-weapons empty-reload-swaps-ammo keep-chosen-ammo \
         objectives-on-arrival objectives-gap sleep-in-owned-beds power-armor-no-training";
 
     /// [`TWEAK_ROWS`] as keys, under the Tweaks tab's group.
@@ -668,9 +678,11 @@ mod tests {
         assert_eq!(at("authored-materials"), "Graphics > Detail and Distance", "beside anisotropic filtering, the other texture row (#2981)");
         assert_eq!(at("physical-pbr"), "Graphics > Lighting and Effects");
         assert_eq!(at("subsurface-scattering"), "Graphics > Lighting and Effects");
+        assert_eq!(at("authored-reflections"), "Graphics > Detail and Distance", "right after Authored materials (#2981 reflections)");
         assert_eq!(at("mesh-terrain-blend"), "Graphics > Detail and Distance", "beside the terrain rows (#2661)");
         assert_eq!(at("cloud-shadows"), "Graphics > Shadows", "after Longer sun shadows (#2670)");
         assert_eq!(at("terrain-shadows"), "Graphics > Shadows", "after Cloud shadows (#2671)");
+        assert_eq!(at("light-shadows"), "Graphics > Shadows", "after Terrain shadows (light_shadows.rs)");
         assert_eq!(at("sound-cover"), "Gameplay > Game", "#2688");
         assert_eq!(l.control_placement("bind:Jump").unwrap().path(), "Controls > Movement");
         assert_eq!(l.control_placement("bind:Sprint").unwrap().path(), "Controls > Movement", "beside the movement controls (#3000)");
@@ -749,8 +761,9 @@ mod tests {
     #[test]
     fn every_tweak_of_1892_has_its_group_and_category() {
         let tweaks = tweak_rows();
-        // 560 less the console and screenshot keys, bindings since 2026-11-16 (Controls).
-        assert_eq!(tweaks.len(), 558);
+        // 564 less the console and screenshot keys, bindings since 2026-11-16 (Controls),
+        // plus Keep Chosen Ammo (#3305).
+        assert_eq!(tweaks.len(), 563);
         let mut rows: Vec<(&'static str, &'static str)> = KNOWN.to_vec();
         rows.extend(&tweaks);
         let list = registry(&rows);
@@ -767,10 +780,12 @@ mod tests {
         assert_eq!(at("tweak-no-xp-messages"), "Tweaks > HUD > Messages");
         assert_eq!(at("tweak-weightless-ammo"), "Tweaks > Cheats > Weight");
         assert_eq!(at("tweak-weightless-worn-armor"), "Tweaks > Gameplay > Weight");
+        assert_eq!(at("tweak-keep-chosen-ammo"), "Tweaks > Combat > Weapons and Armour");
         // A row that only matters with another comes right after it.
         let next = |k: &str| list[l.ordered_settings().skip_while(|&i| list[i].key != k).nth(1).unwrap()].key;
         assert_eq!(next("tweak-take-all-confirm"), "tweak-take-all-confirm-min");
         assert_eq!(next("tweak-revive-companions"), "tweak-revive-down-seconds");
+        assert_eq!(next("tweak-hack-mark-guesses-as-duds"), "tweak-hack-keep-matching-chars");
         // The engine's own tabs are as they were.
         assert_eq!(keys(&list, &l, "Audio"), keys(&registry(&KNOWN), &resolve_layout(&registry(&KNOWN)), "Audio"));
     }

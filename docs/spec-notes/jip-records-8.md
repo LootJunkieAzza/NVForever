@@ -41,11 +41,13 @@ The actor records keep INAM, TPLT and SPLO for these (`ACTOR_SUBS`, data.rs).
 
 | Function | NVForever |
 |---|---|
-| Get/SetAddictionChance `alch [chance]` | ENIT addiction chance, kept as given (50, 1.5 and -0.5 too) [observed] |
-| Get/SetAddictionEffect `alch [effect]` | ENIT withdrawal effect, an actor effect; none is ignored [observed: Cateye's stays] |
-| Get/SetBaseEffectScript `mgef [script]` | the associated script of a script-type base effect (archetype 1); any other, none and unchanged [documented: "script-type Base Effect"] |
-| SetBaseEffectFlag `mgef flag set` | any of MGEF DATA's 32 bits, not only the page's table's [documented: the table; observed: flag 11 is set] |
-| SetEffectFlag `form flag set` | any bit 0-7 of an actor effect's SPIT or an object effect's or ingestible's ENIT flags, not only the tables' [documented: the three tables; observed: every bit tried sticks]. GetEffectFlag now reads an actor effect's SPIT (it read ENIT for every kind) |
+| Get/SetAddictionChance `alch [chance]` | ENIT addiction chance, kept as given (50, 1.5 and -0.5 too) [observed]; accepts `TempCloneForm` `ALCH` clones and feeds `Game::ingest_on` through `Game::ingestible_def` [design] |
+| Get/SetAddictionEffect `alch [effect]` | ENIT withdrawal effect, an actor effect; none is ignored [observed: Cateye's stays]; accepts `TempCloneForm` `ALCH` and `SPEL` clones and feeds `Game::ingest_on` and `Game::sated` through `Game::ingestible_def` [design] |
+| Get/SetBaseEffectScript `mgef [script]` | the associated script of a script-type base effect (archetype 1); any other, none and unchanged [documented: "script-type Base Effect"]; accepts `TempCloneForm` `MGEF` clones and feeds `Game::apply_magic_item_with` through `Game::magic_effect_def` [design] |
+| SetBaseEffectFlag `mgef flag set` | any of MGEF DATA's 32 bits, not only the page's table's [documented: the table; observed: flag 11 is set]; accepts `TempCloneForm` `MGEF` clones and feeds `Game::magic_effect_def` across magic application, aid preview/names, poison detection (`Game::is_poison`, `GetIsPoison`, `GetIsPoisoned`), hit resistance, death dispel, pickpocket explosive harm, and item effect text [design] |
+| SetEffectFlag `form flag set` | any bit 0-7 of an actor effect's SPIT or an object effect's or ingestible's ENIT flags, not only the tables' [documented: the three tables; observed: every bit tried sticks]. GetEffectFlag reads SPIT for SPEL and ENIT for ENCH/ALCH through `Game::effect_flags` (including `TempCloneForm` clones), `Game::area_targets` reads SPEL SPIT bit 4 ("Area Effect Ignores LOS") via `Game::spell_ignores_los`, `Dispel` uses `Game::is_ability_effect` for cloned Ability spells, and `Game::aid_preview` / `Game::ingest_on` / `Game::item_service` / `GetIsUsedItemEquipType` read ALCH ENIT flags and `ETYP` via `Game::ingestible_def` [design] |
+
+`TempCloneForm` snapshots effective `SPEL`, `ALCH`, `MGEF`, and `ENCH` trait/flag overrides (`Game::snapshot_magic_traits`) so pre-clone edits carry over while post-clone edits on the source remain isolated [design]. Original-game capture parity for `TempCloneForm` clone-of-clone isolation and live mid-session consumer re-evaluation of `SetBaseEffectFlag`/`SetBaseEffectScript`/`SetEffectFlag` remains unqualified; cloned magic items' `EFID`/`EFIT` slot edits (`AddNewEffect`/`RemoveNthEffect`) are outside this scope.
 
 ## 3. Weapons
 
@@ -94,9 +96,10 @@ jip8]. NVForever gives the record's 0 [decision: no record value to give].
   needs those readers moved onto one lookup first.
 - Get/SetActorUnarmedEffect: the NPC and creature records' unarmed attack effect is not
   in the schema yet (`schemas/fnv` NPC_ and CREA list no EITM).
-- The engine and the game rules still read these records as loaded: the combat AI does
+- The engine and the game rules still read some of these records as loaded: the combat AI does
   not skip excluded actions; spawned actors take their abilities from the record's SPLO;
-  magic effects apply with the record's flags and script; combat reads the weapon's mods,
+  engine-side UI/audio readers (`engine/nvf-play`) still read loaded MGEF/ALCH maps;
+  combat reads the weapon's mods,
   on-hit setting, delays and sound level as loaded; the idle player its loop counts;
   dismemberment its limb models; the level calculation ACBS as loaded; drinking-water
   radiation (`radiation::water_rads`) the record's effect.

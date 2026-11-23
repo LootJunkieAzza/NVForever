@@ -153,13 +153,110 @@ pub fn capped(code: u16, v: f64) -> f64 {
 /// Creatures, "Small Guns, Big Guns, Energy Weapons, Explosives, Melee Weapons"].
 const CREATURE_COMBAT_SKILLS: [u16; 5] = [BIG_GUNS, ENERGY_WEAPONS, EXPLOSIVES, MELEE_WEAPONS, GUNS];
 
+/// Actor base configuration flags (`ACBS/flags`, `u32` bitmask)
+/// [documented: GECK wiki GetActorBaseFlagsLow, GetActorBaseFlagsHigh, ActorHasBaseFlag;
+/// `schemas/fnv/gameplay.json` NPC_ and CREA ACBS].
+pub(crate) mod acbs {
+    pub const FEMALE: u32 = 0; // NPC_ only (bit 0 on CREA is Biped)
+    pub const ESSENTIAL: u32 = 1;
+    pub const RESPAWN: u32 = 3;
+    pub const AUTOCALC: u32 = 4; // NPC_ only
+    pub const SWIMS: u32 = 4; // CREA only
+    pub const FLIES: u32 = 5; // CREA only
+    pub const WALKS: u32 = 6; // CREA only
+    pub const PC_LEVEL_MULT: u32 = 7;
+    pub const NO_LOW_LEVEL: u32 = 9;
+    pub const NO_BLOOD_SPRAY: u32 = 11;
+    pub const NO_BLOOD_DECAL: u32 = 12;
+    pub const NO_HEAD: u32 = 15; // CREA only
+    pub const NO_RIGHT_ARM: u32 = 16; // CREA only
+    pub const NO_LEFT_ARM: u32 = 17; // CREA only
+    pub const NO_COMBAT_IN_WATER: u32 = 18; // CREA only
+    pub const NO_VATS_MELEE: u32 = 20;
+    pub const ALLOW_PC_DIALOGUE: u32 = 21; // CREA only
+    pub const CANT_OPEN_DOORS: u32 = 22; // CREA only (bit 22 on NPC_ is Can be all races)
+    pub const IMMOBILE: u32 = 23; // CREA only
+    pub const AUTOCALC_SERVICE: u32 = 23; // NPC_ only
+    pub const NO_KNOCKDOWNS: u32 = 26;
+    pub const NOT_PUSHABLE: u32 = 27;
+    pub const ALLOW_PICKPOCKET: u32 = 28; // CREA only
+    pub const IS_GHOST: u32 = 29; // CREA only
+    pub const NO_HEAD_TRACK: u32 = 30;
+    pub const INVULNERABLE: u32 = 31; // CREA only
+}
+
 impl<'a> Game<'a> {
-    /// The actor definition supplying one group of `r`'s data: its base, or the base's
-    /// template while `from_template` says the template supplies that group, a leveled
-    /// list on the way standing for one of its entries
+    /// Session-only `ACBS/flags` override on actor base `id` (or its uncloned original),
+    /// from `SetActorBaseFlagsLow`/`SetActorBaseFlagsHigh` — O(1), zero-allocation.
+    pub(crate) fn acbs_flags_override(&self, id: FormId) -> Option<u32> {
+        if self.other.acbs_flags.is_empty() {
+            return None;
+        }
+        self.other.acbs_flags.get(&id).copied().or_else(|| {
+            let orig = self.unclone(id);
+            (orig != id).then(|| self.other.acbs_flags.get(&orig).copied()).flatten()
+        })
+    }
+
+    /// Effective `ACBS` flag bit on resolved actor base `(id, d)`: reads a live
+    /// `SetActorBaseFlagsLow`/`SetActorBaseFlagsHigh` override first, falling back to
+    /// `authored(d)` when no session override exists.
+    pub(crate) fn acbs_flag(&self, id: FormId, d: &ActorDef, bit: u32, authored: impl FnOnce(&ActorDef) -> bool) -> bool {
+        match self.acbs_flags_override(id) {
+            Some(flags) => (flags >> bit) & 1 != 0,
+            None => authored(d),
+        }
+    }
+
+    /// Resolve the target actor base for `Get/SetActorBaseFlagsLow/High`: a placed
+    /// reference resolves through `LVLN`/`LVLC` carriers to its spawned `NPC_`/`CREA`
+    /// base without following template links; a base form is returned as-is.
+    pub(crate) fn actor_flags_target(&self, form: FormId) -> FormId {
+        let b = base_of(self, form).unwrap_or(form);
+        if b != form {
+            self.template_source(b, form, |_| false).map_or(b, |(id, _)| id)
+        } else {
+            b
+        }
+    }
+
+    /// Current 32-bit `ACBS/flags` of actor base `b`: session override first, then raw
+    /// decoded record field (`record_value`), then `ActorDef::authored_acbs_flags`.
+    pub(crate) fn actor_base_flags_raw(&self, b: FormId) -> u32 {
+        if let Some(flags) = self.acbs_flags_override(b) {
+            return flags;
+        }
+        if let Some(fnv_script::vm::XVal::Num(x)) = crate::nvse::record_value(self, b, "ACBS", "flags") {
+            return x as u32;
+        }
+        self.data.actors.get(&self.unclone(b)).map_or(0, ActorDef::authored_acbs_flags)
+    }
+
+    /// Write the low (`high == false`) or high (`high == true`) 16 bits of actor base
+    /// `b`'s `ACBS/flags` for this session, keeping the other half intact.
+    pub(crate) fn set_actor_base_flags(&mut self, b: FormId, high: bool, half: u16) {
+        let cur = self.actor_base_flags_raw(b);
+        let new = if high { (cur & 0xFFFF) | (u32::from(half) << 16) } else { (cur & !0xFFFF) | u32::from(half) };
+        self.other.acbs_flags.insert(b, new);
+        self.field_overrides.insert((b, "ACBS/flags".into()), fnv_script::vm::XVal::Num(f64::from(new)));
+    }
+
+    /// The resolved `(base_id, ActorDef)` supplying one group of `r`'s data: its base, or
+    /// the base's template while `from_template` says the template supplies that group, a
+    /// leveled list on the way standing for one of its entries
     /// ([`crate::GameData::template_source`]) [documented: xEdit template flags].
+    pub(crate) fn source_following(&self, r: FormId, from_template: fn(&ActorDef) -> bool) -> Option<(FormId, &'a ActorDef)> {
+        self.template_source(base_of(self, r)?, r, from_template)
+    }
+
+    /// The actor definition supplying one group of `r`'s data.
     pub(crate) fn def_following(&self, r: FormId, from_template: fn(&ActorDef) -> bool) -> Option<&'a ActorDef> {
-        self.template_source(base_of(self, r)?, r, from_template).map(|(_, d)| d)
+        self.source_following(r, from_template).map(|(_, d)| d)
+    }
+
+    /// The resolved `(base_id, ActorDef)` supplying `r`'s stats (template flag "Stats").
+    pub(crate) fn stats_source(&self, r: FormId) -> Option<(FormId, &'a ActorDef)> {
+        self.source_following(r, |d| d.template_stats)
     }
 
     /// The definition supplying `r`'s stats (template flag "Stats").
@@ -187,6 +284,11 @@ impl<'a> Game<'a> {
         crate::nvse::record_value(self, id, "TNAM", "").and_then(|v| v.num().ok()).map(|v| v as f32)
     }
 
+    /// The resolved `(base_id, ActorDef)` supplying `r`'s traits (template flag "Traits").
+    pub(crate) fn traits_source(&self, r: FormId) -> Option<(FormId, &'a ActorDef)> {
+        self.source_following(r, |d| d.template_traits)
+    }
+
     /// The definition supplying `r`'s traits: race, sex, voice type, class (template
     /// flag "Traits") [documented: GECK wiki Category:NPC, Template Data: each flag stands
     /// for a tab; the Traits tab holds these].
@@ -209,6 +311,11 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// The resolved `(base_id, ActorDef)` supplying `r`'s base data (template flag "Base Data").
+    pub(crate) fn base_data_source(&self, r: FormId) -> Option<(FormId, &'a ActorDef)> {
+        self.source_following(r, |d| d.template_base)
+    }
+
     /// The definition supplying `r`'s base data: its name and the configuration flags
     /// (Essential, Respawn, No Low Level Processing, Invulnerable) (template flag "Base
     /// Data") [documented: GECK wiki Category:NPC, Template Data, "Base Data does not
@@ -222,7 +329,8 @@ impl<'a> Game<'a> {
     /// VATS Melee" on its own record, which a template's Base Data does not supply
     /// [documented: GECK wiki Category:NPC] (docs/spec-notes/actor-flags.md §1).
     pub fn no_vats_melee(&self, r: FormId) -> bool {
-        r != FormId::PLAYER_REF && self.def_following(r, |_| false).is_some_and(|d| d.no_vats_melee)
+        r != FormId::PLAYER_REF
+            && self.source_following(r, |_| false).is_some_and(|(id, d)| self.acbs_flag(id, d, acbs::NO_VATS_MELEE, |d| d.no_vats_melee))
     }
 
     /// Whether hits on `r` leave no blood spray and no blood decal (ACBS "No Blood Spray",
@@ -230,28 +338,31 @@ impl<'a> Game<'a> {
     /// Model/Animation includes the Blood … tabs" [documented: GECK wiki Category:NPC];
     /// hypothesis: the two flags go with that tab) (actor-flags.md §2).
     pub fn no_blood(&self, r: FormId) -> (bool, bool) {
-        self.def_following(r, |d| d.template_model).map_or((false, false), |d| (d.no_blood_spray, d.no_blood_decal))
+        self.source_following(r, |d| d.template_model).map_or((false, false), |(id, d)| {
+            (self.acbs_flag(id, d, acbs::NO_BLOOD_SPRAY, |d| d.no_blood_spray), self.acbs_flag(id, d, acbs::NO_BLOOD_DECAL, |d| d.no_blood_decal))
+        })
     }
 
     /// Whether creature `r` may be talked to: CREA ACBS "Allow PC Dialogue", from the
     /// definition supplying its base data (actor-flags.md §4) [hypothesis: not among the
     /// flags the wiki says Base Data leaves out].
     pub fn allows_pc_dialogue(&self, r: FormId) -> bool {
-        self.base_data_def(r).is_some_and(|d| d.allow_pc_dialogue)
+        self.base_data_source(r).is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, acbs::ALLOW_PC_DIALOGUE, |d| d.allow_pc_dialogue))
     }
 
     /// Whether `r` is a creature flagged "Can't Open Doors" (ACBS), from the definition
     /// supplying its base data [hypothesis: the flag is not among those the wiki says
     /// Base Data leaves out, so the template's counts].
     pub fn cant_open_doors(&self, r: FormId) -> bool {
-        r != FormId::PLAYER_REF && self.base_data_def(r).is_some_and(|d| d.cant_open_doors)
+        r != FormId::PLAYER_REF
+            && self.base_data_source(r).is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, acbs::CANT_OPEN_DOORS, |d| d.cant_open_doors))
     }
 
-    /// The record that gives `r` its movement flags (Swims, Walks, Flies, No Combat in
-    /// Water: the Animation tab's [documented: GECK wiki Animation Tab]): through a
-    /// template with "Use Model/Animation" [hypothesis: the tab goes with the model].
-    fn movement_def(&self, r: FormId) -> Option<&'a ActorDef> {
-        self.def_following(r, |d| d.template_model)
+    /// The resolved `(base_id, ActorDef)` giving `r` its movement flags (Swims, Walks,
+    /// Flies, No Combat in Water: the Animation tab's [documented: GECK wiki Animation Tab]):
+    /// through a template with "Use Model/Animation" [hypothesis: the tab goes with the model].
+    fn movement_source(&self, r: FormId) -> Option<(FormId, &'a ActorDef)> {
+        self.source_following(r, |d| d.template_model)
     }
 
     /// Whether `r` keeps out of water: a creature that moves (Walks or Flies) without the
@@ -259,13 +370,25 @@ impl<'a> Game<'a> {
     /// Creation Workflow] (its paths close them, `fnv_ai`). People swim by their
     /// packages' Allow Swimming; a creature with none of the three flags is left as it is.
     pub fn keeps_out_of_water(&self, r: FormId) -> bool {
-        r != FormId::PLAYER_REF && self.movement_def(r).is_some_and(ActorDef::keeps_out_of_water)
+        r != FormId::PLAYER_REF
+            && self.movement_source(r).is_some_and(|(id, d)| {
+                if &d.sig != b"CREA" {
+                    return false;
+                }
+                let walks = self.acbs_flag(id, d, acbs::WALKS, |d| d.walks);
+                let flies = self.acbs_flag(id, d, acbs::FLIES, |d| d.flies);
+                let swims = self.acbs_flag(id, d, acbs::SWIMS, |d| d.swims);
+                (walks || flies) && !swims
+            })
     }
 
     /// Whether `r` holds its attacks while it swims: CREA "No Combat in Water", "will not
     /// perform attacks in water" [documented: GECK wiki Animation Tab].
     pub fn no_combat_in_water(&self, r: FormId) -> bool {
-        r != FormId::PLAYER_REF && self.movement_def(r).is_some_and(|d| d.no_combat_in_water)
+        r != FormId::PLAYER_REF
+            && self
+                .movement_source(r)
+                .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, acbs::NO_COMBAT_IN_WATER, |d| d.no_combat_in_water))
     }
 
     /// The current value of an actor value as the formulas read it: within its range, 0

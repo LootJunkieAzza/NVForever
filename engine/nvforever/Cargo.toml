@@ -18,6 +18,14 @@ fnv-install.workspace = true
 fnv-util.workspace = true
 # The DLSS download, its checks and the DLSS folder, shared with the launcher (#2765).
 nvf-dlss-files.workspace = true
+# Player reports (reports/upload.rs): HTTPS through the system's TLS (Windows: SChannel;
+# Linux: the system's OpenSSL, the same build nvf-dlss-files already brings there, #3144)
+# and the system's certificates, not rustls. `native-tls-no-default`, not `native-tls`:
+# the latter also bundles webpki's root certificates (webpki-root-certs,
+# CDLA-Permissive-2.0, outside deny.toml), which the reports never use (they ask for
+# RootCerts::PlatformVerifier, the system's roots) (#1998). ureq and native-tls
+# MIT/Apache-2.0, schannel MIT, openssl Apache-2.0, openssl-sys MIT.
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
 fnv-save.workspace = true
 texpresso.workspace = true
 fnv-spt.workspace = true
@@ -63,12 +71,6 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
-# Player reports (reports/upload.rs): HTTPS through the system's TLS (SChannel, the system's
-# certificates), not rustls. `native-tls-no-default`, not `native-tls`: the latter also
-# bundles webpki's root certificates (webpki-root-certs, CDLA-Permissive-2.0, outside
-# deny.toml), which the reports never use (they ask for RootCerts::PlatformVerifier, the
-# system's roots) (#1998). ureq and native-tls MIT/Apache-2.0, schannel MIT.
-ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
 # `common-controls-v6`: the Task Dialog, whose buttons can carry words of our own (the
 # reports popup's "Send reports" / "Not now"); needs the manifest build.rs embeds.
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
@@ -82,7 +84,7 @@ rfd = { version = "0.15", default-features = false, features = ["common-controls
 # page" and "Open dlss folder" (dlss_download/: ShellExecuteW in UI_Shell, its show flag in
 # UI_WindowsAndMessaging, COM set up for it in System_Com); a version already in the build;
 # MIT/Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # [design, #2249] Optional NVML at runtime; reuse engine/Cargo.lock's libloading.

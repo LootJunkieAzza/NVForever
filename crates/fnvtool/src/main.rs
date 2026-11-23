@@ -930,6 +930,14 @@ pub enum SptCmd {
         #[arg(long)]
         path: Option<String>,
     },
+    /// Level parameters and generated width : height of each .spt under several readings
+    /// and measuring rules (docs/spec-notes/speedtree.md §7; fnv.spt.shape/1).
+    Shape {
+        archive: PathBuf,
+        /// Only paths containing this text (e.g. `euonymus`).
+        #[arg(long)]
+        filter: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

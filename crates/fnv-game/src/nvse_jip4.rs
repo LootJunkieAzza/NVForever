@@ -413,12 +413,7 @@ impl Game<'_> {
     /// `nvse_gaps`) [documented: GetIsPoisoned, "under the influence of a poison-type
     /// effect"; hypothesis: the rule].
     fn jip4_poisoned(&self, a: FormId) -> bool {
-        self.effects.iter().filter(|e| e.target == a).any(|e| {
-            self.data.sig(e.source) == Some(*b"ALCH") && {
-                let list = self.data.effect_items.get(&e.source).map(Vec::as_slice).unwrap_or_default();
-                !list.is_empty() && list.iter().all(|x| self.data.magic_effects.get(&x.effect).is_some_and(|m| m.flags & 0x5 == 0x5))
-            }
-        })
+        self.effects.iter().filter(|e| e.target == a).any(|e| self.is_poison(e.source))
     }
 }
 
@@ -537,6 +532,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "setcellclimate" | "setcelllightingtemplate" => {
             let sub = if name == "setcellclimate" { "XCCM" } else { "LTMP" };
             set(g, f0, sub, "", XVal::Ref(form(args, 1).map_or(0, |r| r.0)));
+            if name == "setcelllightingtemplate" {
+                g.bump_lighting_revision();
+            }
             zero
         }
         "setcellnoisetexture" => {
@@ -554,12 +552,6 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "setwaternoisetexture" => {
             set(g, f0, "NNAM", "", XVal::Str(text(args, 1)));
             zero
-        }
-        // Sounds: the IDs are SNDD flags' bits (SNDX in older records) [documented:
-        // GetSoundFlag; the schema's SOUN].
-        "getsoundflag" => {
-            let sub = if json(g, f0, "SNDD", "").is_some() { "SNDD" } else { "SNDX" };
-            yes(get_bit(g, f0, sub, "flags", k))
         }
         // [documented: GetGameDifficulty, SetGameDifficulty: 0 very easy … 4 very hard].
         "getgamedifficulty" => XVal::Num(g.difficulty.code() as f64),

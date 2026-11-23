@@ -29,14 +29,15 @@ use crate::draw_distance::DrawDistances;
 use crate::fade;
 use crate::lod::{square_distance, LodState};
 use crate::tree::{BillboardMaterial, TreeBillboards};
-use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
+use crate::world::{bevy_to_game, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::NoAutoAabb;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use fnv_world::placed::{base_object, placement, tree_billboard};
+use bevy::tasks::{futures::check_ready, Task};
+use fnv_world::placed::{base_object, tree_billboard};
 use fnv_world::{cell_of, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
 use std::collections::{HashMap, HashSet};
@@ -69,6 +70,8 @@ pub struct DistantTrees {
     want: Vec<Grid>,
     /// TREE references per cell (enabled at the start), read once.
     cells: HashMap<Grid, Arc<Vec<Placed>>>,
+    /// Cells whose references are being read on a read thread ([`READS_IN_FLIGHT`]).
+    reading: HashMap<Grid, Task<Vec<Placed>>>,
     bases: HashMap<u32, Board>,
     drawn: HashMap<Grid, DrawnCell>,
     /// Trees drawn as distant billboards.
@@ -92,6 +95,7 @@ impl DistantTrees {
         }
         self.centre = None;
         self.want.clear();
+        self.reading.clear();
         self.count = 0;
     }
 
@@ -109,8 +113,9 @@ impl DistantTrees {
 }
 
 /// The Tree distance slider's part of the distant LOD's far limit `far` in whole game
-/// units. The slider ends at `far`: billboards beyond it would stand where no distant
-/// terrain is drawn (lod.rs draws no chunk beyond `far`) [design, #3016].
+/// units. The slider ends at `far`, where the object blocks stop, so billboards never
+/// stand beyond the buildings and rocks around them (the terrain reaches farther,
+/// `LodSettings::terrain_reach`) [design, #3016, #3055].
 pub fn part_reach(far: f32, part: f32) -> f32 {
     (far.max(0.0) * part.clamp(0.0, 1.0)).round()
 }
@@ -152,20 +157,52 @@ pub fn cells_within(p: Vec2, dist: f32) -> Vec<Grid> {
     out.into_iter().map(|(_, g)| g).collect()
 }
 
-/// The TREE references of an exterior cell (its own and the persistent ones standing
-/// in it) that are enabled at the start.
-fn cell_trees(world: &WorldData, g: Grid) -> Vec<Placed> {
+/// Whether base `b` is a tree the distant billboards draw (a TREE with a SpeedTree), for a
+/// reference `enabled` at the start ([`distant_tree_enabled`]); the full-detail ring draws
+/// exactly these trees in full (full_detail.rs).
+pub fn distant_tree(b: &fnv_world::placed::BaseObject, enabled: bool) -> bool {
+    &b.sig == b"TREE" && b.is_speedtree() && distant_tree_enabled(enabled)
+}
+
+/// The billboards' enable rule: the state at the start, not the game's now.
+pub fn distant_tree_enabled(enabled_at_start: bool) -> bool {
+    enabled_at_start
+}
+
+/// Whether placed reference `p` of base `b` is a tree the distant billboards draw, and so
+/// the one the full-detail ring draws in full (full_detail.rs): a [`distant_tree`] that is
+/// no imposter (drawn by region, imposters.rs) and no primitive (editor-only), enabled at
+/// the start. The one rule both use, so they cannot drift apart.
+pub fn distant_tree_ref(p: &fnv_world::placed::Placement, b: &fnv_world::placed::BaseObject, enabled_at_start: bool) -> bool {
+    !p.imposter && p.draws_base_model() && distant_tree(b, enabled_at_start)
+}
+
+/// [design] Cells whose TREE references are read at once on the read pool
+/// (docs/design/streaming-hitches.md §3.5): two frames' worth of [`CELLS_PER_FRAME`], so
+/// the cards always have cells to be built from.
+const READS_IN_FLIGHT: usize = 48;
+
+/// The references of an exterior cell: its own and the persistent ones standing in it.
+fn cell_refs(world: &WorldData, g: Grid) -> Vec<u32> {
     let mut refs: Vec<u32> = world.grid_cell(g).map(|c| c.refs.clone()).unwrap_or_default();
     if let Some(p) = world.persistent_by_grid.get(&g) {
         refs.extend(p);
     }
+    refs
+}
+
+/// The TREE references among `refs` that are enabled at the start. Reads the load order's
+/// records only, so it runs on a read thread ([`update_distant_trees`]): it took up to
+/// 5 ms of a frame for a step's cells on the main thread [observed 2026-11-20,
+/// `profile hitch`: `treelod::update_distant_trees`].
+fn trees_of(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, index: &fnv_world::WorldIndex, refs: &[u32]) -> Vec<Placed> {
     let mut out = Vec::new();
-    let mut is_tree: HashMap<u32, bool> = HashMap::new();
-    for r in refs {
-        let Some(p) = placement(world.lo, world.schema, r) else { continue };
+    let mut bases: HashMap<u32, Option<fnv_world::placed::BaseObject>> = HashMap::new();
+    for &r in refs {
+        let Some(p) = index.placement(lo, schema, r) else { continue };
         let Some(base) = p.base else { continue };
-        let tree = *is_tree.entry(base).or_insert_with(|| base_object(world.lo, world.schema, base).is_some_and(|b| &b.sig == b"TREE" && b.is_speedtree()));
-        if tree && world.enabled(&p, 0) {
+        let b = bases.entry(base).or_insert_with(|| base_object(lo, schema, base).filter(|b| distant_tree(b, true)));
+        if b.as_ref().is_some_and(|b| distant_tree_ref(&p, b, crate::world::enabled(lo, schema, &p, 0))) {
             out.push(Placed { base, pos: p.position, scale: p.scale });
         }
     }
@@ -228,20 +265,21 @@ fn board(world: &WorldData, base: u32, models: &mut ModelCtx, materials: &mut As
 #[allow(clippy::too_many_arguments)]
 pub fn update_distant_trees(
     mut commands: Commands,
-    streamer: Res<Streamer>,
+    drawn: crate::full_detail::DrawnCells,
     world: Res<WorldData>,
     mut lod: ResMut<LodState>,
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
     mut materials: ResMut<Assets<BillboardMaterial>>,
+    pace: Res<crate::stream_pace::StreamPace>,
     distances: Option<Res<DrawDistances>>,
 ) {
     let (flag, far) = (lod.settings.trees, lod.settings.far);
     let dist = reach(flag, far, distances.map_or_else(|| start_part(flag, far), |d| d.trees));
     let lod = &mut *lod;
     let trees = &mut lod.trees;
-    if !lod.enabled || dist <= 0.0 || streamer.interior.is_some() {
+    if !lod.enabled || dist <= 0.0 || drawn.streamer.interior.is_some() {
         if !trees.drawn.is_empty() {
             trees.clear(&mut commands);
         }
@@ -269,10 +307,11 @@ pub fn update_distant_trees(
         // Keep the reference lists of cells a little beyond the range.
         let r = (dist / CELL_SIZE).ceil() as i32 + 3;
         trees.cells.retain(|g, _| (g.0 - c.0).abs() <= r && (g.1 - c.1).abs() <= r);
+        trees.reading.retain(|g, _| (g.0 - c.0).abs() <= r && (g.1 - c.1).abs() <= r);
     }
     // Fade steps of the drawn cells follow their cells (culled when fully drawn).
     for (g, d) in trees.drawn.iter_mut() {
-        let k = fade::step(streamer.cell_level(*g));
+        let k = fade::step(drawn.tree_level(*g));
         if k != d.step {
             d.step = k;
             for &e in &d.entities {
@@ -280,9 +319,45 @@ pub fn update_distant_trees(
             }
         }
     }
-    let missing: Vec<Grid> = trees.want.iter().filter(|g| !trees.drawn.contains_key(g)).take(CELLS_PER_FRAME).copied().collect();
+    // The cells' TREE references are read on the read pool, nearest first; a cell's cards
+    // are built once its list is in.
+    let mut read = Vec::new();
+    trees.reading.retain(|g, task| match check_ready(task) {
+        Some(list) => {
+            read.push((*g, list));
+            false
+        }
+        None => true,
+    });
+    for (g, list) in read {
+        trees.cells.insert(g, Arc::new(list));
+    }
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let per_frame = pace.count(CELLS_PER_FRAME);
+    let mut missing: Vec<Grid> = Vec::new();
+    let on_read_threads = crate::stream_pace::on_read_threads();
+    for &g in trees.want.iter().filter(|g| !trees.drawn.contains_key(g)) {
+        if !on_read_threads && missing.len() < per_frame {
+            // As before: read here, within the frame's count.
+            trees.cells.entry(g).or_insert_with(|| Arc::new(trees_of(world.lo, world.schema, world.index, &cell_refs(&world, g))));
+        }
+        if trees.cells.contains_key(&g) {
+            if missing.len() < per_frame {
+                missing.push(g);
+            }
+        } else if on_read_threads {
+            let in_flight = trees.reading.len();
+            if let std::collections::hash_map::Entry::Vacant(reading) = trees.reading.entry(g) {
+                if in_flight < READS_IN_FLIGHT {
+                    let (lo, schema, index, refs) = (world.lo, world.schema, world.index, cell_refs(&world, g));
+                    reading.insert(nvf_assets::read_pool::read_pool().spawn(async move { trees_of(lo, schema, index, &refs) }));
+                }
+            }
+        }
+    }
+    let _spending = (!missing.is_empty()).then(|| pace.spending());
     for g in missing {
-        let placed = trees.cells.entry(g).or_insert_with(|| Arc::new(cell_trees(&world, g))).clone();
+        let Some(placed) = trees.cells.get(&g).cloned() else { continue };
         let mut by_base: HashMap<u32, Vec<Placed>> = HashMap::new();
         for t in placed.iter() {
             by_base.entry(t.base).or_default().push(*t);
@@ -290,7 +365,7 @@ pub fn update_distant_trees(
         let mut bases: Vec<u32> = by_base.keys().copied().collect();
         bases.sort_unstable();
         let origin = Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0);
-        let step = fade::step(streamer.cell_level(g));
+        let step = fade::step(drawn.tree_level(g));
         let mut d = DrawnCell { entities: Vec::new(), trees: 0, step };
         for b in bases {
             let board = trees.bases.entry(b).or_insert_with(|| board(&world, b, &mut models, &mut materials)).clone();

@@ -142,6 +142,17 @@ screen's height):
   lists of 300; his own inventory holds a few items and pocket change]. The merchant's
   own inventory is not offered [hypothesis]. Without a merchant container, the actor's
   own inventory is used [design].
+- **Owned items lying at a merchant's stand** are not in its barter list [design: the
+  stock is the merchant container's alone]. Open question (#3350, observer check 256):
+  Bitter Springs Infirmary Blues (VMS40) sends the player to Blake for two books
+  (`VBSPsychologyBook` 0x00134995, `VBSPediatricsBook` 0x00134996). They are not in his
+  merchant container or its leveled lists, and no script gives them out. Each is one
+  persistent reference owned by Blake (XOWN 0x000F1863) on his stand in WastelandNVmini
+  (`VBSPsychologyBookREF` 0x00178DB0 on the upper shelf, `VBSPediatricsBookREF`
+  0x00178DAF on the lower one) [observed: FalloutNV.esm]. In NVForever both are drawn
+  there and can be taken (a theft from Blake), which completes objectives 20 and 40
+  [observed: 2026-11-22, smoke blake-books]. Whether the original also offers them in
+  Blake's barter list is not known.
 - **What the merchant sells** is limited to its service categories (AIDT "Buys/Sells",
   or its class's): the other items of its stock are held back; it buys anything
   [documented: GECK wiki Class; the categories: vendor-services.md §2].

@@ -143,6 +143,12 @@ impl Spot {
     /// The bet's name for the menu's "Bet:" line: the kind, then the numbers of an inside
     /// bet ("Split 17-20") [design].
     pub fn label(&self) -> String {
+        self.label_with(&|kind| kind)
+    }
+
+    /// [`Spot::label`] with the kind's name put through `word` (the screen's language,
+    /// #3146); the numbers are the same in every language.
+    pub fn label_with(&self, word: &dyn Fn(&'static str) -> &'static str) -> String {
         match self.kind {
             Kind::StraightUp | Kind::Split | Kind::Street | Kind::SixLine | Kind::Corner | Kind::Basket => {
                 let mut n = self.numbers.clone();
@@ -157,9 +163,9 @@ impl Spot {
                 } else {
                     n.iter().map(|&p| pocket_name(p)).collect()
                 };
-                format!("{} {}", self.kind.name(), names.join("-"))
+                format!("{} {}", word(self.kind.name()), names.join("-"))
             }
-            _ => self.kind.name().to_string(),
+            _ => word(self.kind.name()).to_string(),
         }
     }
 }
@@ -538,6 +544,8 @@ mod tests {
         assert_eq!(spot("A13").unwrap().label(), "Six Line 16-21");
         assert_eq!(spot("D01").unwrap().label(), "Basket 0-00-2");
         assert_eq!(spot("S11").unwrap().label(), "Odd");
+        // The kind's name in another language, the numbers as they are (#3146).
+        assert_eq!(spot("D13").unwrap().label_with(&|w| if w == "Split" { "Geteilt" } else { w }), "Geteilt 17-20");
     }
 
     #[test]

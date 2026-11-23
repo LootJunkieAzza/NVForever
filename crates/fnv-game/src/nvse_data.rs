@@ -40,6 +40,11 @@ impl Game<'_> {
         }
         f
     }
+
+    /// Read-only view of active `TempCloneForm` alias -> parent mappings.
+    pub fn clones(&self) -> &std::collections::HashMap<FormId, FormId> {
+        &self.clones
+    }
 }
 
 /// The functions of this file; `None` for any other name.
@@ -109,9 +114,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 Err(error) => return Some(Err(error)),
             };
             g.snapshot_combat_style(f, id);
+            g.snapshot_sound_traits(f, id);
+            g.snapshot_explosion_traits(f, id);
+            g.snapshot_sound_flags(f, id);
+            g.snapshot_magic_traits(f, id);
+            g.snapshot_ammo_traits(f, id);
+            g.snapshot_projectile_traits(f, id);
+            g.snapshot_weapon_sounds(f, id);
             g.clones.insert(id, f);
             // A clone of an item goes into containers (MCM's list of mods, `World`).
             g.world.add_clone_item(id, f);
+            g.snapshot_armor_overrides(f, id);
             XVal::Ref(id.0)
         }
         "isclonedform" => yes(form(args, 0).or(subject).is_some_and(|f| g.clones.contains_key(&f))),

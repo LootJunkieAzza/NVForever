@@ -79,3 +79,68 @@ fn a_shifted_plugin_namespace_keeps_the_cold_template_identity() {
     assert_eq!(g.session_cell_lighting(f.lo, f.schema, SHIFTED_CELL), fnv_world::lighting::cell_lighting(f.lo, f.schema, SHIFTED_CELL.0));
     assert_eq!(g.session_cell_lighting(f.lo, f.schema, SHIFTED_CELL).unwrap().fog_clip_dist, 45000.0);
 }
+
+#[test]
+fn interior_lighting_traits_reach_own_xcll_and_respect_template_inheritance() {
+    let f = fixture(); let mut g = game(&f);
+    // Clear all inheritance bits (8..=16) so every field resolves from CELL XCLL.
+    for flag in 8..=16 { set(&mut g, &format!("SetCellFlag OwnedLightCell {flag} 0")); }
+    let values = [
+        41.0, 42.0, 43.0, 51.0, 52.0, 53.0, 120.0, 240.0, 0.85,
+        61.0, 62.0, 63.0, 125.5, 4500.25, 2.25, 18000.0,
+    ];
+    for (id, value) in values.into_iter().enumerate() {
+        set(&mut g, &format!("SetInteriorLightingTraitNumeric OwnedLightCell {id} {value}"));
+    }
+    assert_eq!(g.session_cell_lighting(f.lo, f.schema, CELL), Some(CellLighting {
+        ambient: [41, 42, 43],
+        directional: [51, 52, 53],
+        directional_rotation_xy: 120,
+        directional_rotation_z: 240,
+        directional_fade: 0.85,
+        fog_color: [61, 62, 63],
+        fog_near: 125.5,
+        fog_far: 4500.25,
+        fog_power: 2.25,
+        fog_clip_dist: 18000.0,
+    }), "SetInteriorLightingTraitNumeric traits 0..=15 must reach CELL XCLL fields");
+
+    // Re-enabling clip inheritance (flag 15) lets template A's clip win over own XCLL clip.
+    set(&mut g, "SetCellFlag OwnedLightCell 15 1");
+    let merged = g.session_cell_lighting(f.lo, f.schema, CELL).unwrap();
+    assert_eq!(merged.fog_clip_dist, 10000.0);
+    assert_eq!(merged.ambient, [41, 42, 43], "uninherited fields keep the edited XCLL values");
+    assert_eq!(g.session_cell_lighting(f.lo, f.schema, OTHER_CELL).unwrap().ambient, [1, 2, 3]);
+}
+
+#[test]
+fn lighting_token_tracks_only_lighting_edits_and_distinguishes_restored_games() {
+    let f = fixture(); let mut g = game(&f);
+    let t0 = g.lighting_token();
+    // Non-lighting cell flag (0..=7) does not bump the lighting revision.
+    set(&mut g, "SetCellFlag OwnedLightCell 0 1");
+    assert_eq!(g.lighting_token(), t0, "DATA cell flags 0..=7 must not trigger lighting refresh");
+
+    // Each of the four lighting setters bumps the monotonic revision within the same Game instance.
+    set(&mut g, "SetCellLightingTemplate OwnedLightCell OwnedLightB");
+    let t1 = g.lighting_token();
+    assert_eq!(t1.0, t0.0);
+    assert!(t1.1 > t0.1);
+
+    set(&mut g, "SetCellFlag OwnedLightCell 8 1");
+    let t2 = g.lighting_token();
+    assert!(t2.1 > t1.1);
+
+    set(&mut g, "SetLightingTemplateTraitNumeric OwnedLightB 1 99");
+    let t3 = g.lighting_token();
+    assert!(t3.1 > t2.1);
+
+    set(&mut g, "SetInteriorLightingTraitNumeric OwnedLightCell 0 55");
+    let t4 = g.lighting_token();
+    assert!(t4.1 > t3.1);
+
+    // A restored Game has a distinct instance ID so engine systems cannot confuse revisions across runs.
+    let loaded = restore(&f, &g.snapshot());
+    assert_ne!(loaded.lighting_token().0, g.lighting_token().0);
+    assert_eq!(loaded.lighting_token().1, 0);
+}

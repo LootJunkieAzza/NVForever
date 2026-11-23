@@ -122,6 +122,9 @@ pub struct WorldIndex {
     /// Two cells of one worldspace with the same grid square: (world, grid, earlier
     /// cell, later cell by FormID); the later one is used.
     pub grid_conflicts: Vec<(u32, (i32, i32), u32, u32)>,
+    /// Optional compiled Base Object Swapper rules (`Data/BaseObjectSwapper/*.ini`).
+    /// Empty unless populated via [`WorldIndex::apply_bos`].
+    pub bos: crate::bos::BosTable,
 }
 
 /// WRLD PNAM bits [documented: xEdit wbDefinitionsFNV.pas WRLD, schemas/fnv/world.json].
@@ -347,6 +350,23 @@ impl WorldIndex {
             }
         }
         self.cells.values().find(|c| c.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name)))
+    }
+
+    /// Attach a compiled [`crate::bos::BosTable`] so placement consumers sharing this
+    /// index resolve swapped base objects consistently.
+    pub fn apply_bos(&mut self, bos: crate::bos::BosTable) {
+        self.bos = bos;
+    }
+
+    /// Resolve the effective base FormID for placed reference `ref_id` with original
+    /// `orig_base`, applying [`Self::bos`] when non-empty.
+    pub fn resolve_base(&self, ref_id: u32, orig_base: u32) -> u32 {
+        self.bos.resolve(ref_id, orig_base)
+    }
+
+    /// Winning placement of reference `fid` with [`Self::bos`] applied to `base`.
+    pub fn placement(&self, lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<crate::placed::Placement> {
+        crate::placed::placement_with_bos(lo, schema, &self.bos, fid)
     }
 }
 

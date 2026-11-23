@@ -11,13 +11,39 @@ use fnv_script::vm::XVal;
 use fnv_sim::FormId;
 use serde_json::Value as Json;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_TRAIT_STATE_ID: AtomicU64 = AtomicU64::new(1);
 
 /// The session's trait changes: (form, function family, trait or colour slot) -> value.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TraitState {
     pub values: HashMap<(FormId, u8, i64), f64>,
     pub sources: HashMap<FormId, String>,
     pub ism: HashMap<(FormId, i64), u32>,
+    /// Unique per-`Game` instance identity so renderer caches never reuse session trait
+    /// state across a restored or recreated `Game`.
+    pub instance_id: u64,
+    /// Monotonic revision bumped whenever `SetImageSpaceTrait` (`0..=32`) changes an
+    /// `IMGS` trait value (`SetCellImageSpace` applies on next cell load and does not
+    /// bump this revision).
+    pub image_space_revision: u64,
+    /// Monotonic revision bumped whenever `SetWeatherTraitNumeric` changes a weather fog
+    /// trait (`15..=20`: day/night near/far/power).
+    pub weather_fog_revision: u64,
+}
+
+impl Default for TraitState {
+    fn default() -> Self {
+        Self {
+            values: HashMap::new(),
+            sources: HashMap::new(),
+            ism: HashMap::new(),
+            instance_id: NEXT_TRAIT_STATE_ID.fetch_add(1, Ordering::Relaxed),
+            image_space_revision: 0,
+            weather_fog_revision: 0,
+        }
+    }
 }
 
 impl TraitState {
@@ -25,9 +51,20 @@ impl TraitState {
     pub fn image_modifier_override(&self, form: FormId, trait_id: i64) -> Option<f64> {
         self.values.get(&(form, IMAD, trait_id)).copied()
     }
+
+    /// Record a live change to an `IMGS` trait (`SetImageSpaceTrait`).
+    fn note_image_space_change(&mut self) {
+        self.image_space_revision = self.image_space_revision.wrapping_add(1);
+    }
+
+    /// Record a live change to a weather fog trait (`15..=20`).
+    pub(crate) fn note_weather_fog_change(&mut self) {
+        self.weather_fog_revision = self.weather_fog_revision.wrapping_add(1);
+    }
 }
 
-const SOUND: u8 = 0;
+pub const SOUND_TRAIT_FAMILY: u8 = 0;
+const SOUND: u8 = SOUND_TRAIT_FAMILY;
 const WEATHER: u8 = 1;
 const COLOR: u8 = 2;
 const IMGS: u8 = 3;
@@ -53,6 +90,91 @@ impl Game<'_> {
     /// A decoded subrecord of a record (the first with that signature).
     fn sub(&self, f: FormId, sig: [u8; 4]) -> Option<&Json> {
         self.data.record_fields.get(&self.unclone(f))?.iter().find(|(s, _)| *s == sig).map(|(_, v)| v)
+    }
+
+    /// Snapshot any active session `SetSoundSourceFile` and `SetSoundTraitNumeric`
+    /// (`0..=12`) overrides from `source` onto `clone` at `TempCloneForm` creation time.
+    /// Pre-clone edits on `source` carry onto `clone`, while later edits on `source` stay
+    /// isolated from already-created clones.
+    pub(crate) fn snapshot_sound_traits(&mut self, source: FormId, clone: FormId) {
+        if let Some(path) = self.traits.sources.get(&source).cloned() {
+            self.traits.sources.insert(clone, path);
+        }
+        for slot in 0..=12 {
+            if let Some(&v) = self.traits.values.get(&(source, SOUND, slot)) {
+                self.traits.values.insert((clone, SOUND, slot), v);
+            }
+        }
+    }
+
+    /// The session `SetSoundSourceFile` override directly stored for `f` (including any
+    /// override snapshotted at `TempCloneForm` creation time).
+    pub fn sound_source_override(&self, f: FormId) -> Option<&str> {
+        self.traits.sources.get(&f).map(String::as_str)
+    }
+
+    /// The session `SetSoundTraitNumeric` override directly stored for `f` and trait `slot`
+    /// (including any override snapshotted at `TempCloneForm` creation time).
+    pub fn sound_trait_override(&self, f: FormId, slot: i64) -> Option<f64> {
+        self.traits.values.get(&(f, SOUND, slot)).copied()
+    }
+
+    /// Unique `(game_instance_id, image_space_revision)` token for renderer consumers
+    /// tracking live `SetImageSpaceTrait` (`0..=32`) updates without work on unchanged
+    /// frames. `SetCellImageSpace` follows the documented next-load rule and does not
+    /// bump this revision.
+    pub fn image_space_sync_token(&self) -> (u64, u64) {
+        (self.traits.instance_id, self.traits.image_space_revision)
+    }
+
+    /// Unique `(game_instance_id, weather_fog_revision)` token for renderer consumers
+    /// tracking live `SetWeatherTraitNumeric` fog updates (`15..=20`) without work on
+    /// unchanged frames.
+    pub fn weather_fog_sync_token(&self) -> (u64, u64) {
+        (self.traits.instance_id, self.traits.weather_fog_revision)
+    }
+
+    /// Active session `SetImageSpaceTrait` overrides (`0..=32`) for `form`.
+    pub fn image_space_trait_overrides(&self, form: FormId) -> Vec<(i64, f64)> {
+        let mut out = Vec::new();
+        for slot in 0..=32 {
+            if let Some(&v) = self.traits.values.get(&(form, IMGS, slot)) {
+                out.push((slot, v));
+            }
+        }
+        out
+    }
+
+    /// Active session `SetWeatherTraitNumeric` fog overrides (`15..=20`: day near/far,
+    /// night near/far, day/night power) for `weather`, if any slot was overridden.
+    pub fn weather_fog_override(&self, weather: FormId) -> Option<[Option<f32>; 6]> {
+        let mut slots = [None; 6];
+        let mut any = false;
+        for (i, dst) in slots.iter_mut().enumerate() {
+            if let Some(&v) = self.traits.values.get(&(weather, WEATHER, 15 + i as i64)) {
+                let v = v as f32;
+                if v.is_finite() {
+                    *dst = Some(v);
+                    any = true;
+                }
+            }
+        }
+        any.then_some(slots)
+    }
+
+    /// Active session `SetWeatherTraitNumeric` fog overrides (`15..=20`) across all
+    /// overridden `WTHR` forms, keyed by weather FormID.
+    pub fn weather_fog_overrides(&self) -> HashMap<u32, [Option<f32>; 6]> {
+        let mut out: HashMap<u32, [Option<f32>; 6]> = HashMap::new();
+        for (&(form, fam, slot), &v) in &self.traits.values {
+            if fam == WEATHER && (15..=20).contains(&slot) {
+                let v = v as f32;
+                if v.is_finite() {
+                    out.entry(form.0).or_insert([None; 6])[(slot - 15) as usize] = Some(v);
+                }
+            }
+        }
+        out
     }
 }
 
@@ -208,7 +330,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
     let t = num(args, 1, -1.0) as i64;
     let changed = |g: &Game, fam: u8, slot: i64| g.traits.values.get(&(x, fam, slot)).copied();
     let v = match name {
-        "getsoundtraitnumeric" => XVal::Num(if (0..=12).contains(&t) { changed(g, SOUND, t).unwrap_or_else(|| sound_trait(g, x, t)) } else { 0.0 }),
+        "getsoundtraitnumeric" => XVal::Num(if (0..=12).contains(&t) { g.sound_trait_override(x, t).unwrap_or_else(|| sound_trait(g, x, t)) } else { 0.0 }),
         // Static attenuation is kept negated and whole [observed: 7 reads -7, -26.43
         // reads -26]; the distances keep their stored steps.
         "setsoundtraitnumeric" => {
@@ -224,7 +346,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             }
             zero
         }
-        "getsoundsourcefile" => XVal::Str(g.traits.sources.get(&x).cloned().unwrap_or_else(|| g.sub(x, *b"FNAM").and_then(Json::as_str).unwrap_or("").to_string())),
+        "getsoundsourcefile" => XVal::Str(g.sound_source_override(x).map(str::to_string).unwrap_or_else(|| g.sub(x, *b"FNAM").and_then(Json::as_str).unwrap_or("").to_string())),
         "setsoundsourcefile" => {
             if let Some(XVal::Str(p)) = args.get(1) {
                 g.traits.sources.insert(x, p.clone());
@@ -242,7 +364,10 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
                     Some(s) => (v * s).trunc().clamp(0.0, 255.0) / s,
                     None => v,
                 };
-                g.traits.values.insert((x, WEATHER, t), kept);
+                let prev = g.traits.values.insert((x, WEATHER, t), kept);
+                if (15..=20).contains(&t) && prev.map(f64::to_bits) != Some(kept.to_bits()) {
+                    g.traits.note_weather_fog_change();
+                }
             }
             zero
         }
@@ -286,7 +411,11 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         "getimagespacetrait" => XVal::Num(if (0..=32).contains(&t) { changed(g, IMGS, t).unwrap_or_else(|| imgs_trait(g, x, t)) } else { 0.0 }),
         "setimagespacetrait" => {
             if (0..=32).contains(&t) {
-                g.traits.values.insert((x, IMGS, t), num(args, 2, 0.0));
+                let v = num(args, 2, 0.0);
+                let prev = g.traits.values.insert((x, IMGS, t), v);
+                if prev.map(f64::to_bits) != Some(v.to_bits()) {
+                    g.traits.note_image_space_change();
+                }
             }
             zero
         }

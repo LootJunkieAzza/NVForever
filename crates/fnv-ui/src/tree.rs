@@ -792,16 +792,18 @@ impl Ui {
     /// trait the including file set too depend on it].
     fn put_trait(&mut self, src: &dyn Source, tile: TileId, e: &Element) {
         let asked = RefCell::new(Vec::new());
-        let string = |n: &str| {
+        let string = |n: &str, explicit: bool| {
             let text = src.game_string(n);
-            asked.borrow_mut().push((n.to_ascii_lowercase(), text.is_some()));
+            if explicit || text.is_some() {
+                asked.borrow_mut().push((n.to_ascii_lowercase(), text.is_some()));
+            }
             text
         };
         let mut warns = Vec::new();
         let (value, expr) = if expr::has_ops(e) {
-            (Value::default(), Some(expr::ops_of(&e.children, &string, &mut |w| warns.push(w))))
+            (Value::default(), Some(expr::ops_of_with(&e.children, &string, &mut |w| warns.push(w))))
         } else {
-            (expr::literal(&e.children, &string), None)
+            (expr::literal_with(&e.children, &string), None)
         };
         let asked = asked.into_inner();
         let built_in_label = match asked.as_slice() {
@@ -961,6 +963,43 @@ impl Ui {
         let mut at = self.tile(id).parent;
         while let Some(p) = at {
             names.push(self.tile(p).name.clone());
+            at = self.tile(p).parent;
+        }
+        names.reverse();
+        names.join("/")
+    }
+
+    /// The tile's name, with `:<index>` (0-based among same-named siblings in child order)
+    /// when its parent holds more than one child of that name (case-insensitively)
+    /// [documented: SetOnMenuClickEventHandler, "list items get :<index>"; hypothesis:
+    /// 0-based among same-named siblings].
+    pub fn indexed_name_of(&self, id: TileId) -> String {
+        let name = &self.tile(id).name;
+        if let Some(parent) = self.tile(id).parent {
+            let mut count = 0usize;
+            let mut pos = 0usize;
+            for &child in &self.tile(parent).children {
+                if self.tile(child).name.eq_ignore_ascii_case(name) {
+                    if child == id {
+                        pos = count;
+                    }
+                    count += 1;
+                }
+            }
+            if count > 1 {
+                return format!("{name}:{pos}");
+            }
+        }
+        name.clone()
+    }
+
+    /// The path of a tile with [`Ui::indexed_name_of`] on each segment:
+    /// `BarterMenu/BarterCategories/BC_Category:1`.
+    pub fn indexed_path_of(&self, id: TileId) -> String {
+        let mut names = vec![self.indexed_name_of(id)];
+        let mut at = self.tile(id).parent;
+        while let Some(p) = at {
+            names.push(self.indexed_name_of(p));
             at = self.tile(p).parent;
         }
         names.reverse();
@@ -1542,7 +1581,9 @@ impl Ui {
                     // `_filename_0`/`_Filename_1` are the two pictures; T15a].
                     let name = match (&acc, name.ends_with('_')) {
                         (Value::Num(n), true) if op.kind == OpKind::Copy => format!("{name}{}", *n as i64),
-                        (Value::Sym(s), true) if op.kind == OpKind::Copy && crate::value::sym_number(s).is_some() => format!("{name}{}", acc.num() as i64),
+                        (v, true) if op.kind == OpKind::Copy && v.sym_name().as_deref().and_then(crate::value::sym_number).is_some() => {
+                            format!("{name}{}", acc.num() as i64)
+                        }
                         _ => name.clone(),
                     };
                     self.read_trait(me, src, &name, deps, sources)
@@ -1786,5 +1827,28 @@ mod write_serial_tests {
         ]).is_none());
         assert_eq!(ui.trait_write_counts(), before);
         assert_eq!(ui.tile(current).get("x"), Some(&Value::Num(1.)));
+    }
+
+    #[test]
+    fn indexed_name_and_path_number_repeated_siblings_only() {
+        let xml = r#"<menu name="BarterMenu">
+            <rect name="BarterCategories">
+                <rect name="Header"/>
+                <rect name="BC_Category"/>
+                <rect name="BC_Category"/>
+                <rect name="BC_Category"/>
+            </rect>
+        </menu>"#;
+        let src = MemSource::default().with("barter.xml", xml);
+        let mut ui = Ui::new();
+        let root = ui.load_menu(&src, "barter.xml").unwrap();
+        let group = ui.tile(root).children[0];
+        let children = ui.tile(group).children.clone();
+        assert_eq!(ui.indexed_name_of(children[0]), "Header");
+        assert_eq!(ui.indexed_path_of(children[0]), "BarterMenu/BarterCategories/Header");
+        assert_eq!(ui.indexed_name_of(children[1]), "BC_Category:0");
+        assert_eq!(ui.indexed_path_of(children[1]), "BarterMenu/BarterCategories/BC_Category:0");
+        assert_eq!(ui.indexed_name_of(children[2]), "BC_Category:1");
+        assert_eq!(ui.indexed_name_of(children[3]), "BC_Category:2");
     }
 }

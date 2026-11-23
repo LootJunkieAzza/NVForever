@@ -48,6 +48,9 @@ original what the [hypothesis] values below leave open.
 | SwapTextureEx `ref block path slot` | slot 0, the diffuse map, as SwapTexture [documented]; other slots are not drawn [decision: NVForever's texture swaps change the diffuse map only] |
 | GetBlockTextureSet `block` | no array [decision: NVForever's scene mirror keeps no texture sets; the page's answer for a block without one] |
 | Get/SetAnimSequenceFrequency `sequence [f]` | a script's frequency, "*" every sequence [documented]; 1 when none set for a sequence the drawn model has [hypothesis]; -1 for a sequence it lacks [observed: jip14 seqfreq.doc]. The engine tells the game each drawn object's sequence names (`object_anims::publish_sequences`); an actor's animation files are not told, so an actor's unset sequence is -1 [decision]. Kept, not yet played at [decision, follow-up] |
+| UpdatePlayer3D | queues a transient one-shot full player 3D rebuild (`Game::take_update_player_3d`, not saved) and immediately refreshes the player's `AnimGroupOverride` folder entries [documented: UpdatePlayer3D; design]; `engine/nvforever`'s `player_body::ensure_body` rebuilds the third- and first-person rigs and equipped weapon models on the next frame (bypassing the `LOOK_REBUILD` slider throttle) and triggers `apply_anim_overrides` to clear cached clips |
+| AttachExtraCamera `cameraName addOrRemove [parentNode]` | attaches (`addOrRemove != 0`) or detaches (`0`) a named session-transient extra camera anchored to `parentNode` (or the reference root when omitted/empty) on the calling reference; returns `1` on success, `0` on invalid name, unknown reference, detach of an absent name, or cap exceeded [documented: GECK wiki `AttachExtraCamera`; design: capped at 8 simultaneous cameras (`EXTRA_CAMERA_MAX`), cleared on save restore/new game] |
+| ProjectExtraCamera `cameraName targetGeometry FoV [pixelSize] [grayscale]` | projects an attached named extra camera onto a 3D geometry node of the calling reference (or records a `*`-prefixed UI image tile path without requiring a calling reference), returning `1` on success and `0` when the camera is not attached, invalid, or outside the player's current interior cell / worldspace [documented: GECK wiki `ProjectExtraCamera`]. `pixelSize` defaults to `256` when omitted or `<= 0` [documented: GECK wiki] and is clamped to `16..=1024` [design]; `FoV` must be finite and `> 0` and is clamped to `0.5..=170.0` degrees [design]. `engine/nvforever`'s `extra_camera::ExtraCameraPlugin` spawns a bounded secondary Bevy `Camera3d` rendering the world and water layers (excluding `ARMS_LAYER` and `DECAL_LAYER` so PiP cameras do not require a per-camera `DepthPrepass`) into an `Rgba16Float` `Image` target, runs in `PostUpdate` before frustum, directional-shadow-cascade, and camera updates, safely deactivates on degenerate/zero-scale anchor transforms, binds onto a private cloned `NifMaterial` of `targetGeometry` with per-target original-material ownership across multi-camera contention, restores the original material on detach/cleanup, and does zero work when no extra cameras are registered [design]. UI tile projection (`*path`), `grayscale` shader desaturation, and live GPU visual scope verification remain follow-ups [hypothesis: NIF camera anchor looks along local +Y with +Z up, matching `WorldRoot`'s `game_to_bevy` basis] |
 
 ## 5. Projectiles and inventory references
 
@@ -58,16 +61,21 @@ original what the [hypothesis] values below leave open.
 | SetProjectileRefWeapon `weapon` | the weapon of the live projectile's record; returns it [documented]; what the impact takes from it is the engine's [hypothesis] |
 | GetSelfAsInventoryRef | from an item's script in a container: the item as an inventory reference [documented]; elsewhere the call fails [observed: jip14 selfinvref, "script call failed"] |
 
-## 6. Nothing values by decision
+## 6. Keyword condition and nothing values by decision
 
-AttachExtraCamera, ProjectExtraCamera (render-to-texture cameras are not built; 0, the
-pages' failure), AttachLine (line meshes; 0), HasKeywordCond (the page is marked
-Incomplete), FreePlayer (the page: "don't use this"), UpdatePlayer3D (NVForever draws the
-player's 3D from the game each frame: nothing to reload).
+- `HasKeywordCond`: evaluates `Game::has_keyword` (shared with `HasKeyword` over
+  `Jip2State::keywords`, case-insensitive, resolving references to base forms and
+  `TempCloneForm` origins), accepting both `ref.HasKeywordCond "keyword"` and
+  `HasKeywordCond form "keyword"` [documented: GECK wiki HasKeywordCond, HasKeyword;
+  hypothesis: both calling conventions share `Game::has_keyword`].
+- Nothing values by decision: AttachLine (line meshes; 0), FreePlayer (the page: "don't
+  use this").
 
 ## 7. Follow-ups
 
-- The extra cameras and AttachLine.
+- `AttachLine`.
+- `ProjectExtraCamera` UI image tile projection (`*path`), `grayscale` shader output, and
+  live GPU PiP scope visual verification.
 - A CollisionMarker's primitive as a collider.
 - GetVATSTargets from the engine's VATS.
 - The animation sequence frequency played.

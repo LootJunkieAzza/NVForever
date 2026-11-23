@@ -1297,6 +1297,8 @@ fn a_spectator_runs_from_a_fight_that_comes_too_close() {
     let a = s.game.awareness.actors.entry(foe).or_default();
     a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
     a.settle(foe, now, &t, true);
+    // It stands in the room's corner (a foe with no place is near no one, #3223).
+    a.at = Some([0.0; 3]);
     assert!(s.game.awareness.hunted(FormId::PLAYER_REF));
     // Far off: it watches.
     let feet = s.agent(R_IDLE).walker.feet;

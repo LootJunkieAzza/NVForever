@@ -88,7 +88,9 @@ fn setup() -> (App, Entity, EmptyData) {
         dropped_plugins: Vec::new(),
     };
     let mut lod = LodState::new(&world, crate::lod::LodSettings::default(), true, None);
-    lod.radius = 0;
+    // The chunks the old LOD square of radius 0 covered round (0, 0): cells -4..=3 by
+    // 0..=3, so (-1, 0), (0, 0) and (1, 0), not (4, 0).
+    lod.choose_for_test(vec![(4, -4, 0), (4, 0, 0)]);
     let streamer = Streamer {
         radius: 1,
         loaded: HashMap::new(),
@@ -110,6 +112,7 @@ fn setup() -> (App, Entity, EmptyData) {
         centre: None,
         waiting: Vec::new(),
         model_overrides: HashMap::new(),
+        travels: 0,
     };
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let dir = EmptyData(std::env::temp_dir().join(format!(
@@ -134,7 +137,9 @@ fn setup() -> (App, Entity, EmptyData) {
         .init_resource::<Assets<ShaderBuffer>>()
         .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
         .init_resource::<ModelCache>()
-        .init_resource::<TextureCache>();
+        .init_resource::<TextureCache>()
+        // Whole budgets, as main's: `distant_water`'s surface reads follow the pace.
+        .insert_resource(crate::stream_pace::StreamPace::new(crate::stream_pace::Mode::Off));
     a.world_mut().spawn((WorldRoot, game_to_bevy()));
     let camera = a
         .world_mut()
@@ -271,14 +276,15 @@ fn lod_and_interior_changes_reconcile_real_planes_without_camera_or_count_change
         .resource::<DistantWater>()
         .planes
         .contains_key(&(4, 0)));
-    a.world_mut().resource_mut::<LodState>().radius = 1;
+    // A wider choice now also covers (4, 0).
+    a.world_mut().resource_mut::<LodState>().choose_for_test(vec![(4, -4, 0), (4, 0, 0), (4, 4, 0)]);
     settle_distant_water(&mut a);
     assert!(
         a.world()
             .resource::<DistantWater>()
             .planes
             .contains_key(&(4, 0)),
-        "changed LOD radius must update actual water coverage"
+        "a changed LOD chunk choice must update actual water coverage"
     );
     a.world_mut().resource_mut::<LodState>().enabled = false;
     a.update();

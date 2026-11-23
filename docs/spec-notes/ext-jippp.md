@@ -16,6 +16,24 @@ call (`crate::nif_blocks`) adds its `"Target|Name"` spec, and removes it with mo
 script called. A spec without `|` is refused (0) and not kept. The scene mirror adds the
 node only with modes 1 and 3; a remove leaves the mirror as it is (mode 0 waits for the
 3D to load again; mode 2's instant removal of an inserted node is a follow-up).
+A reference's InsertNode entries go into each of its drawn models that has the target
+and lacks the node, each frame (`Game::insert_runtime_nodes`): a model drawn after the
+call (a Script Runner file runs at a load before the player's 3D is told) and one drawn
+anew (the player's body rebuilt) get them, once per drawn model [hypothesis: the list's
+nodes are part of the 3D whenever it is built]. On the player one call goes into both
+models, third and first person [hypothesis: B42 True Leaning inserts under `Camera1st`,
+a node of the first-person skeleton only, and names no model; observed: its
+`ln_B42Leaning.txt`].
+A node a script takes out of a drawn model stays out of that model, though its entry
+stays in the list: RemoveNifBlock's block with what is under it [hypothesis: what is
+under it goes with it, and the list does not undo the removal], and the old name of
+RenameNifBlock's [documented: RenameNifBlock changes the block's name,
+nif-script-root-renames.md; hypothesis: the list does not undo the rename]. It goes in
+again when that model is drawn anew (another identity, or its 3D forgotten) or
+InsertNode is called for it again [hypothesis: the list is applied when the 3D is built
+and by the call, not over a script's later change]. A model told without an identity
+counts as the same one until its 3D is forgotten [design: nothing else tells the two
+apart].
 
 | Function | NVForever |
 |---|---|

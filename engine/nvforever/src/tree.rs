@@ -345,6 +345,12 @@ pub struct TreeCtx<'w> {
 }
 
 impl TreeCtx<'_> {
+    /// Whether TREE `tree`'s geometry was built (or found missing) already, so
+    /// [`Self::visual`] reads nothing.
+    pub fn built(&self, tree: u32) -> bool {
+        self.cache.0.contains_key(&tree)
+    }
+
     pub fn visual(&mut self, world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<Arc<TreeVisual>> {
         if let Some(v) = self.cache.0.get(&tree) {
             return v.clone();

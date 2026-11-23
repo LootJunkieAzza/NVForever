@@ -117,8 +117,8 @@ impl Game<'_> {
     /// AI data's as SetServiceFlag left them (`nvse_lutana`). 0 for what is no actor.
     pub fn services(&self, actor: FormId) -> u32 {
         let Some(b) = crate::functions::base_of(self, actor) else { return 0 };
-        let Some((_, ai)) = self.template_source(b, actor, |d| d.template_ai) else { return 0 };
-        if ai.autocalc_service {
+        let Some((ai_id, ai)) = self.template_source(b, actor, |d| d.template_ai) else { return 0 };
+        if &ai.sig == b"NPC_" && self.acbs_flag(ai_id, ai, crate::actor_values::acbs::AUTOCALC_SERVICE, |d| d.autocalc_service) {
             let class = self.traits_class(actor);
             if let Some(s) = class.and_then(|c| self.data.class_services.get(&c)) {
                 return *s;
@@ -130,6 +130,17 @@ impl Game<'_> {
         self.other.lutana.services.get(&b).copied().unwrap_or(ai.services)
     }
 
+    /// The service category `item` is sold under in this session, reading live
+    /// ingestible flags and equip-type overrides (`SetIngestibleFlag`, `SetEffectFlag`,
+    /// `SetEquipType`) and `TempCloneForm` clones.
+    pub fn item_service(&self, item: FormId) -> Option<u32> {
+        let base = self.unclone(item);
+        match &self.data.sig(base)? {
+            b"ALCH" => Some(ingestible_service(self.ingestible_def(item).as_ref())),
+            _ => item_service(self.data, base),
+        }
+    }
+
     /// Whether `vendor` sells `item`: the item's category is among its services. Caps and
     /// what is no item are always let through (the barter menu handles the caps itself).
     pub fn sells(&self, vendor: FormId, item: FormId) -> bool {
@@ -138,7 +149,7 @@ impl Game<'_> {
 
     /// The category `vendor` does not sell `item` under, when it does not.
     pub fn refused_category(&self, vendor: FormId, item: FormId) -> Option<u32> {
-        let c = item_service(self.data, item)?;
+        let c = self.item_service(item)?;
         (self.services(vendor) & c == 0).then_some(c)
     }
 

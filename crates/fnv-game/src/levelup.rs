@@ -302,14 +302,18 @@ impl PerkSheet {
         let offered: Vec<FormId> = g
             .data
             .perks
-            .iter()
-            .filter(|(id, p)| !p.is_trait && p.playable && !p.hidden && p.min_level > 0 && g.player.perks.get(id).copied().unwrap_or(0) < p.ranks.max(1))
-            .map(|(&id, _)| id)
+            .keys()
+            .copied()
+            .filter(|id| {
+                g.perk_def(*id).is_some_and(|p| {
+                    !p.is_trait && p.playable && !p.hidden && p.min_level > 0 && g.player.perks.get(id).copied().unwrap_or(0) < p.ranks.max(1)
+                })
+            })
             .collect();
         let mut rows: Vec<(bool, u8, String, FormId)> = offered
             .into_iter()
             .map(|id| {
-                let p = &g.data.perks[&id];
+                let p = g.perk_def(id).expect("offered perk exists");
                 let (min, name) = (p.min_level, p.name.to_lowercase());
                 (min as i32 <= level && chargen::requirements_met(g, id), min, name, id)
             })

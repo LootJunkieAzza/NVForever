@@ -574,6 +574,8 @@ pub fn hover_boxes(mut pip: ResMut<PipBoy>, mut boxes: Query<(&TabHoverBox, &mut
     }
 }
 
+type ShownFrame = (Page, usize, Frame, bool, u32);
+
 /// Rebuild the frame (and with it every page's body) when the Pip-Boy's page or tab
 /// changed, or it came up, or a page went over to its tiles or back. A page drawn from its
 /// file (`crate::tiles::stats_menu::StatsTiles::ready` or
@@ -596,7 +598,7 @@ pub fn draw(
     repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>,
     map_tiles: Option<Res<crate::tiles::map_menu::MapTiles>>,
     item_mod_tiles: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>,
-    mut shown: Local<Option<(Page, usize, Frame, bool)>>,
+    mut shown: Local<Option<ShownFrame>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
@@ -608,7 +610,7 @@ pub fn draw(
     let tiled = tiled || item_mod_tiles.is_some_and(|t| t.ready.is_some());
     // The DATA page likewise, on the tabs it draws (`crate::tiles::map_menu::MapTiles::ready`).
     let tiled = tiled || map_tiles.is_some_and(|t| t.ready.is_some());
-    let want = pip.shown().then(|| (pip.page, pip.tab(), pip.frame, tiled));
+    let want = pip.shown().then(|| (pip.page, pip.tab(), pip.frame, tiled, crate::cjk_font::revision()));
     if want == *shown && (want.is_none() || !roots.is_empty()) {
         return;
     }
@@ -616,7 +618,7 @@ pub fn draw(
     for e in &roots {
         commands.entity(e).despawn();
     }
-    let Some((page, tab, frame, tiled)) = want else { return };
+    let Some((page, tab, frame, tiled, _)) = want else { return };
     // The screen menu is plain, as the barter menu is: the device's own screen around the
     // pages is `device_screen.rs`'s, on the device only (docs/design/screen-menu.md §2).
     let device = frame == Frame::Device;
@@ -680,7 +682,7 @@ fn header(r: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page) {
         // 2026-10-31; the font's own baseline left the names high].
         let name = c.first_line(HEADER_FONT, p.title());
         let face = c.kit.face(HEADER_FONT);
-        let rise = name.glyphs.iter().map(|g| face.font.glyph(g.code).ascent).fold(0.0, f32::max);
+        let rise = name.glyphs.iter().map(|g| face.font.bitmap_glyph(g).ascent).fold(0.0, f32::max);
         let (x, base) = ((b.width() - name.width) / 2.0, (b.height() + rise) / 2.0);
         r.spawn((at(b.min.x, b.min.y, b.width(), b.height()), Clickable(PipBoyInput::Page(p)), Pickable::default()))
             .with_children(|n| {

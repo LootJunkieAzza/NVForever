@@ -1,7 +1,7 @@
 use bevy_camera::Camera;
 use bevy_color::{Color, ColorToComponents, LinearRgba};
 use bevy_ecs::prelude::*;
-use bevy_math::{ops, Vec3};
+use bevy_math::{ops, Vec3, Vec4};
 use bevy_reflect::{std_traits::ReflectDefault, Reflect};
 use bevy_render::{extract_component::ExtractComponent, RenderApp};
 
@@ -73,6 +73,11 @@ pub struct DistanceFog {
 
     /// Determines which falloff mode to use, and its parameters.
     pub falloff: FogFalloff,
+
+    /// NVForever fog parameters: three more vectors for the application's fog path (nvforever's
+    /// aerial perspective, `aerial.rs`), copied into the fog uniform as they are. Zero by
+    /// default; Bevy's own fog functions never read them.
+    pub nvf_params: [Vec4; 3],
 }
 
 /// Allows switching between different fog falloff modes, and configuring their parameters.
@@ -476,6 +481,8 @@ impl Default for DistanceFog {
             },
             directional_light_color: Color::NONE,
             directional_light_exponent: 8.0,
+            // NVForever fog parameters: zero, unused.
+            nvf_params: [Vec4::ZERO; 3],
         }
     }
 }

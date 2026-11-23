@@ -443,7 +443,7 @@ impl Game<'_> {
         for faction in evil {
             let mut alerted = 0;
             for (&m, &at) in &hearers {
-                if m == FormId::PLAYER_REF || m == victim || self.is_dead(m) || !self.present(m) || self.is_teammate(m) {
+                if m == FormId::PLAYER_REF || m == victim || self.is_dead(m) || !self.present(m) || self.is_teammate(m) || self.combat_disabled(m) {
                     continue;
                 }
                 let near = if indoors {
@@ -561,7 +561,7 @@ impl Game<'_> {
             }
             let watchers = watching.get(&victim).cloned().unwrap_or_default();
             for helper in watchers {
-                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) {
+                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.combat_disabled(helper) {
                     continue;
                 }
                 // The player's teammates take up its fights by their own rule
@@ -645,7 +645,7 @@ impl Game<'_> {
             .collect();
         let mut joined = 0;
         for (escort, charge) in escorts {
-            if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) {
+            if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) || self.combat_disabled(escort) {
                 continue;
             }
             // It must at least notice its charge [hypothesis: an escort keeps track of the
@@ -735,7 +735,7 @@ impl Game<'_> {
                 if victim != FormId::PLAYER_REF && helper != victim {
                     continue;
                 }
-                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat {
+                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat || self.combat_disabled(helper) {
                     continue;
                 }
                 if self.provocations.holds(helper, attacker) || self.would_attack(helper, attacker) || !self.would_attack(attacker, helper) {

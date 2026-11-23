@@ -22,14 +22,17 @@
 //! Water that is not drawn does not count (#1059): a placed water object not visible (a
 //! disabled reference, a hidden model) and any water while the console hides water.
 //!
-//! Nor does water hidden behind the scene (#1060): the water shader counts the pixels it
-//! draws at the reflected height that no opaque surface hides (water.rs
-//! `WaterMaterial::seen`), the count is read back from the GPU a few frames later
-//! ([`WaterPixels`]), and water inside the view counts only while that count grew. In Primm
-//! facing south-west (cell -16,-15's water behind the walls) the camera stays off. Turning
-//! to water, the camera comes on a few frames after the water shows, which reflects only
-//! the sky until then; the texture it shows is drawn in the frame it comes on (it renders
-//! before the main camera, order -1), never an old one.
+//! The CPU view test cannot see opaque occluders (#1060). For the current candidate
+//! plane, the water shader counts unoccluded fragments on a rotating 4×4 sample grid.
+//! The render world resets and tags each frame's count before drawing; asynchronous
+//! readbacks carry the probe identity, source frame and source time, not delivery time.
+//! Delayed results for another plane and out-of-order results cannot drive the camera.
+//!
+//! Visible samples turn the camera on. To turn it off on GPU evidence requires a
+//! sustained run of zero samples, not a single flat interval. Missing results are
+//! not zeros. The CPU still turns it off after [`KEEP_UNSEEN`] out of view, or at
+//! once with no eligible plane. The mirror texture is drawn before the main camera
+//! (order -1), including the frame in which the material starts using it.
 //!
 //! Switched off by the `water-mirror` setting (graphics.rs `Graphics::water_mirror`;
 //! #1380): water then reflects the sky, and the screen where screen-space reflections are
@@ -54,7 +57,11 @@ use bevy::math::reflection_matrix;
 use bevy::pbr::DistanceFog;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
+use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+use bevy::render::renderer::RenderQueue;
+use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::transform::TransformSystems;
 use bevy::window::{PrimaryWindow, WindowResized};
 use fnv_world::cell_of;
@@ -71,9 +78,17 @@ const SCALE: u32 = 2;
 /// Cells (in grid steps from the camera's cell) searched for the water to reflect in.
 const SEARCH: i32 = 2;
 
-/// Seconds the camera keeps rendering after water was last on screen, so turning
+/// Seconds the camera keeps rendering after water was last inside the view, so turning
 /// along the edge of a lake does not switch it on and off [engineering choice].
 const KEEP_UNSEEN: f32 = 1.0;
+
+/// Real seconds of consecutive empty GPU frames required to switch off an active
+/// mirror. Short gaps in coverage should not switch the water between mirror and SSR.
+const GPU_HIDDEN_HOLD: f32 = 4.0;
+/// Also cover a full cycle of the shader's 4×4 sampling grid.
+const SAMPLE_PHASES: u32 = 16;
+/// Ignore stale samples, and use the CPU view test alone if a probe never answers.
+const READBACK_WAIT: f32 = 2.0;
 
 /// Below the water plane by this much, so the water surface itself is clipped away.
 const CLIP_MARGIN: f32 = 1.0;
@@ -90,7 +105,7 @@ pub struct ReflectionPlugin;
 
 impl Plugin for ReflectionPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WaterPixels>().add_systems(Startup, setup_reflection).add_systems(
+        app.init_resource::<WaterPixels>().init_resource::<WaterProbe>().add_systems(Startup, setup_reflection).add_systems(
             PostUpdate,
             (resize_reflection, read_water_pixels, update_reflection)
                 .chain()
@@ -101,6 +116,12 @@ impl Plugin for ReflectionPlugin {
                 // the renderer finds an active view without sun shadow cascades.
                 .before(SimulationLightSystems::UpdateDirectionalLightCascades),
         );
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render
+                .init_resource::<WaterProbe>()
+                .add_systems(ExtractSchedule, extract_water_probe)
+                .add_systems(Render, reset_water_pixels.in_set(RenderSystems::PrepareResources));
+        }
     }
 }
 
@@ -160,54 +181,165 @@ fn resize_reflection(
     }
 }
 
-/// What the GPU's count of drawn water pixels (#1060, module notes) last said.
-#[derive(Resource, Default, Debug)]
-pub struct WaterPixels {
-    /// The counter's last value read back.
-    last: Option<u32>,
-    /// Whether it grew between the last two readbacks: water at the reflected height was
-    /// drawn, not hidden by the scene. `None` before two readbacks.
-    drawn: Option<bool>,
-    /// When the readback was asked for (real seconds), once it has been.
-    started: Option<f32>,
+/// Identifies the current visibility request. A new view candidate starts a new probe
+/// even if it has the same height as a former one (e.g. after an interior transition).
+#[derive(Resource, Default, Clone, Copy)]
+struct WaterProbe {
+    target: Option<(u32, f32)>,
+    buffer: Option<AssetId<ShaderBuffer>>,
+    generation: u32,
+    frame: u32,
+    time: f32,
 }
 
-/// Seconds without any readback after which the GPU check is taken to be broken and
-/// left out (#1047's view check alone) [engineering choice].
-const READBACK_WAIT: f32 = 2.0;
+impl WaterProbe {
+    fn seen_plane(&self) -> Vec4 {
+        self.target.map_or(Vec4::ZERO, |(_, height)| {
+            Vec4::new(height, 1.0, (self.generation & 0xffff) as f32, (self.generation >> 16) as f32)
+        })
+    }
+
+    fn sample(&self, count: u32) -> WaterSample {
+        WaterSample { count, generation: self.generation, frame: self.frame, time: self.time }
+    }
+}
+
+fn extract_water_probe(source: Extract<Res<WaterProbe>>, mut probe: ResMut<WaterProbe>) {
+    *probe = **source;
+}
+
+/// WGPU uploads this reset before the frame's draw commands execute. Bevy copies the
+/// buffer for readback after the render graph. Never reset the asset itself: the
+/// materials keep the same GPU buffer bound across frames.
+fn reset_water_pixels(probe: Res<WaterProbe>, buffers: Res<RenderAssets<GpuShaderBuffer>>, queue: Res<RenderQueue>) {
+    if let Some(buffer) = probe.buffer.and_then(|id| buffers.get(id)).filter(|_| probe.target.is_some()) {
+        queue.write_buffer(&buffer.buffer, 0, &probe.sample(0).bytes());
+    }
+}
+
+/// GPU buffer ABI (four successive u32s, see `water.wesl` and `water_material`).
+#[derive(Debug, Clone, Copy)]
+struct WaterSample {
+    count: u32,
+    generation: u32,
+    frame: u32,
+    time: f32,
+}
+
+impl WaterSample {
+    fn bytes(self) -> [u8; 16] {
+        let words = [self.count, self.generation, self.frame, self.time.to_bits()];
+        std::array::from_fn(|i| words[i / 4].to_le_bytes()[i % 4])
+    }
+
+    fn decode(bytes: &[u8]) -> Option<Self> {
+        let &[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p] = bytes else { return None };
+        Some(Self {
+            count: u32::from_le_bytes([a, b, c, d]),
+            generation: u32::from_le_bytes([e, f, g, h]),
+            frame: u32::from_le_bytes([i, j, k, l]),
+            time: f32::from_le_bytes([m, n, o, p]),
+        })
+    }
+}
+
+#[derive(Resource, Default)]
+struct WaterPixels {
+    requested: Option<(AssetId<ShaderBuffer>, Entity)>,
+    /// Start of the current probe and the newest result for it.
+    started: f32,
+    last: Option<WaterSample>,
+    /// A positive result survives a batch that also contains newer empty frames.
+    last_drawn: Option<f32>,
+    /// Frame and source time of the first zero in an uninterrupted run.
+    empty_since: Option<(u32, f32)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GpuWater {
+    Drawn,
+    Hidden,
+    Unknown,
+    Unavailable,
+}
 
 impl WaterPixels {
-    /// Take in a value read back.
-    fn read(&mut self, v: u32) {
-        if let Some(l) = self.last {
-            self.drawn = Some(v != l);
+    fn read(&mut self, sample: WaterSample, probe: &WaterProbe, now: f32) {
+        if probe.target.is_none()
+            || sample.generation != probe.generation
+            || !(0.0..=READBACK_WAIT).contains(&(now - sample.time))
+        {
+            return;
         }
-        self.last = Some(v);
+        let consecutive = if let Some(last) = self.last {
+            let steps = sample.frame.wrapping_sub(last.frame);
+            if steps == 0 || steps >= 1 << 31 || sample.time < last.time {
+                return;
+            }
+            steps == 1 && sample.time - last.time <= READBACK_WAIT
+        } else {
+            false
+        };
+        // A newer zero does not erase a sighting, but a new probe does.
+        if sample.count != 0 {
+            self.last_drawn = Some(sample.time);
+        }
+        self.empty_since = if sample.count != 0 {
+            None
+        } else if consecutive {
+            self.empty_since.or(Some((sample.frame, sample.time)))
+        } else {
+            Some((sample.frame, sample.time))
+        };
+        self.last = Some(sample);
     }
 
-    /// Whether water may be on screen as far as the GPU knows, at real time `now`. Before
-    /// two readbacks: not yet (no camera for the frames the world fades in), unless none
-    /// came for [`READBACK_WAIT`] seconds.
-    fn may_be_drawn(&self, now: f32) -> bool {
-        self.drawn.unwrap_or_else(|| self.started.is_some_and(|t| now - t > READBACK_WAIT))
+    fn state(&self, now: f32) -> GpuWater {
+        let Some(last) = self.last else {
+            return if now - self.started >= READBACK_WAIT { GpuWater::Unavailable } else { GpuWater::Unknown };
+        };
+        if now - last.time > READBACK_WAIT {
+            return GpuWater::Unknown;
+        }
+        if self.last_drawn.is_some_and(|time| now - time <= READBACK_WAIT) {
+            return GpuWater::Drawn;
+        }
+        if self.empty_since.is_some_and(|(frame, time)| {
+            last.frame.wrapping_sub(frame) >= SAMPLE_PHASES - 1 && last.time - time >= GPU_HIDDEN_HOLD
+        }) {
+            GpuWater::Hidden
+        } else {
+            GpuWater::Unknown
+        }
     }
 }
 
-/// Ask for the water-pixel counter to be read back every frame, once a water material
-/// made it.
-fn read_water_pixels(mut commands: Commands, cache: Res<WaterCache>, mut px: ResMut<WaterPixels>, time: Res<Time<Real>>) {
-    if px.started.is_some() {
+/// Follow the shared counter asset. Old observers cannot deliver into a new probe.
+fn read_water_pixels(mut commands: Commands, cache: Res<WaterCache>, mut px: ResMut<WaterPixels>) {
+    let counter = cache.seen_counter();
+    if px.requested.map(|(id, _)| id) == counter.map(Handle::id) {
         return;
     }
-    let Some(counter) = cache.seen_counter() else { return };
-    px.started = Some(time.elapsed_secs());
-    commands.spawn((Name::new("Water pixel readback"), Readback::buffer(counter.clone()))).observe(
-        |ev: On<ReadbackComplete>, mut px: ResMut<WaterPixels>| {
-            if ev.data.len() >= 4 {
-                px.read(u32::from_le_bytes([ev.data[0], ev.data[1], ev.data[2], ev.data[3]]));
+    if let Some((_, entity)) = px.requested.take() {
+        commands.entity(entity).despawn();
+    }
+    let Some(counter) = counter else { return };
+    let entity = commands.spawn((Name::new("Water pixel readback"), Readback::buffer(counter.clone()))).observe(
+        |ev: On<ReadbackComplete>, probe: Res<WaterProbe>, mut px: ResMut<WaterPixels>, time: Res<Time<Real>>| {
+            if let Some(sample) = WaterSample::decode(&ev.data) {
+                px.read(sample, &probe, time.elapsed_secs());
             }
         },
-    );
+    ).id();
+    px.requested = Some((counter.id(), entity));
+}
+
+/// CPU retention is independent of GPU coverage. Track the selected world and height
+/// even while out of view so the grace period never holds an unrelated plane on.
+#[derive(Default)]
+struct ReflectionGate {
+    plane: Option<(u32, f32)>,
+    last_in_view: Option<f32>,
 }
 
 /// Placed water objects (models of a placed reference with the water material): where
@@ -406,7 +538,7 @@ fn update_reflection(
     world: Res<WorldData>,
     streamer: Res<Streamer>,
     mut dw: ResMut<DistantWater>,
-    main: Query<(&GlobalTransform, &Projection, &DistanceFog), crate::fly::WorldCamera>,
+    main: Query<(&Camera, &GlobalTransform, &Projection, &DistanceFog), crate::fly::WorldCamera>,
     mut refl: Query<
         (&mut Camera, &mut Transform, &mut GlobalTransform, &mut Projection, &mut DistanceFog),
         With<ReflectionCamera>,
@@ -417,36 +549,56 @@ fn update_reflection(
     placed: PlacedWater,
     time: Res<Time<Real>>,
     hidden: Option<Res<crate::console_toggles::Hidden>>,
-    pixels: Res<WaterPixels>,
-    mut unseen_for: Local<f32>,
+    mut probe: ResMut<WaterProbe>,
+    mut pixels: ResMut<WaterPixels>,
+    mut gate: Local<ReflectionGate>,
 ) {
-    let (Ok((main_gt, main_proj, main_fog)), Ok((mut camera, mut t, mut gt, mut proj, mut fog))) = (main.single(), refl.single_mut())
-    else {
-        return;
-    };
-    let cam = main_gt.translation();
+    let Ok((mut camera, mut t, mut gt, mut proj, mut fog)) = refl.single_mut() else { return };
+    let main = main.single().ok().filter(|(camera, ..)| camera.is_active);
     let mirror = graphics.as_ref().is_none_or(|g| g.water_mirror);
-    let near_water = match (streamer.interior, main_proj) {
-        (None, Projection::Perspective(_)) if mirror => reflection_height(&world, &mut dw, bevy_to_game(cam)),
+    let water_drawn = !hidden.is_some_and(|h| h.water);
+    let near_water = match (streamer.interior, main) {
+        (None, Some((_, main_gt, Projection::Perspective(_), _))) if mirror && water_drawn && !no_reflection() => {
+            reflection_height(&world, &mut dw, bevy_to_game(main_gt.translation()))
+        }
         _ => None,
     };
-    // Only while water is on screen (module notes, "Only when water is seen"), and never
-    // while the console hides water (#1059).
-    let water_drawn = !hidden.is_some_and(|h| h.water);
-    // The shader counts the water at the reflected height (#1060).
-    cache.set_seen_plane(&mut materials, near_water.map_or(Vec4::ZERO, |h| Vec4::new(h, 1.0, 0.0, 0.0)));
-    let gpu_drawn = pixels.may_be_drawn(time.elapsed_secs());
-    let seen = near_water.filter(|_| water_drawn && gpu_drawn).and_then(|h| {
+    let seen = near_water.zip(main).and_then(|(h, (_, main_gt, main_proj, _))| {
         let clip_from_world = main_proj.get_clip_from_view() * main_gt.to_matrix().inverse();
-        water_on_screen(&world, &streamer, &mut dw, &placed, clip_from_world, h, cam)
+        water_on_screen(&world, &streamer, &mut dw, &placed, clip_from_world, h, main_gt.translation())
     });
-    if seen.is_some() {
-        *unseen_for = 0.0;
-    } else {
-        *unseen_for += time.delta_secs();
+    let now = time.elapsed_secs();
+    let candidate = near_water.map(|h| (world.world, h));
+    let target = candidate.filter(|_| seen.is_some());
+    let buffer = cache.seen_counter().map(Handle::id);
+    if probe.target != target || probe.buffer != buffer {
+        probe.target = target;
+        probe.buffer = buffer;
+        probe.generation = probe.generation.wrapping_add(1);
+        pixels.started = now;
+        pixels.last = None;
+        pixels.last_drawn = None;
+        pixels.empty_since = None;
     }
-    let height = near_water.filter(|_| seen.is_some() || (camera.is_active && *unseen_for <= KEEP_UNSEEN));
-    let height = height.filter(|_| !no_reflection());
+    probe.frame = probe.frame.wrapping_add(1);
+    probe.time = now;
+    cache.set_seen_plane(&mut materials, probe.seen_plane());
+
+    let same_plane = gate.plane == candidate;
+    if !same_plane {
+        gate.last_in_view = None;
+    }
+    gate.plane = candidate;
+    if seen.is_some() {
+        gate.last_in_view = Some(now);
+    }
+    let gpu = pixels.state(now);
+    let keep_active = camera.is_active
+        && same_plane
+        && gate.last_in_view.is_some_and(|last| now - last <= KEEP_UNSEEN)
+        && gpu != GpuWater::Hidden;
+    let start = buffer.is_some() && seen.is_some() && matches!(gpu, GpuWater::Drawn | GpuWater::Unavailable);
+    let height = near_water.filter(|_| keep_active || start);
     // z: screen-space reflections stand in where this plane is not (graphics.rs).
     let ssr = if graphics.is_some_and(|g| g.water_reflections) { 1.0 } else { 0.0 };
     let plane = match height {
@@ -461,15 +613,17 @@ fn update_reflection(
             (Some(_), Some(SeenWater::Placed(r))) => info!("water reflection: on (placed water {r:08X} on screen)"),
             (Some(_), None) => {}
             (None, _) if !mirror => info!("water reflection: off (mirrored water switched off)"),
-            // Which check failed last, to tell the GPU pixel count from the view test.
-            (None, _) if near_water.is_some() => info!(
-                "water reflection: off (no water on screen for {KEEP_UNSEEN} s; {})",
-                if !water_drawn { "water hidden" } else if gpu_drawn { "out of view" } else { "no water pixels drawn" }
+            (None, _) if !water_drawn => info!("water reflection: off (water hidden)"),
+            (None, _) if gpu == GpuWater::Hidden => info!(
+                "water reflection: off (no water pixels sampled for {GPU_HIDDEN_HOLD} s)"
             ),
-            (None, _) => info!("water reflection: off (no water near)"),
+            (None, _) if near_water.is_some() && !same_plane => info!("water reflection: off (plane changed)"),
+            (None, _) if near_water.is_some() => info!("water reflection: off (out of view for {KEEP_UNSEEN} s)"),
+            (None, _) => info!("water reflection: off (no eligible plane)"),
         }
     }
-    let (Some(h), Projection::Perspective(p)) = (height, main_proj) else { return };
+    let (Some(h), Some((_, main_gt, Projection::Perspective(p), main_fog))) = (height, main) else { return };
+    let cam = main_gt.translation();
 
     // Mirror the camera in the plane y = h.
     let mirror = Mat4::from_translation(Vec3::Y * h)
@@ -490,6 +644,18 @@ fn update_reflection(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authored_test_records::{record, sub, tes4, top, z};
+    use crate::fly::FlyCam;
+    use crate::lod::LodState;
+    use crate::world::{game_to_bevy, ReadAhead, StreamStats, WorldRoot};
+    use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+    use fnv_esm::{LoadOrder, Plugin as EsmPlugin, Schema};
+    use fnv_world::index::{Cell, Worldspace};
+    use nvf_assets::{GameData, ModelCache, NifMaterial, TextureCache};
+    use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::LazyLock;
 
     /// The clip-from-world matrix of a camera at `eye` (Bevy space) turned `pitch` degrees
     /// up from looking along -z, with the game's 75° view and Bevy's reverse-z projection.
@@ -584,26 +750,317 @@ mod tests {
         assert_eq!(two(false), Some(SeenWater::Placed(0x1)));
     }
 
-    /// #1060: the counter only grows; water was drawn between two readbacks when it
-    /// changed, wrapping included. Before two readbacks it is not, unless the readback
-    /// never answers.
+    const WATER: u32 = 0x800;
+
+    struct EmptyData(PathBuf);
+    impl Drop for EmptyData {
+        fn drop(&mut self) {
+            std::fs::remove_dir(&self.0).unwrap();
+        }
+    }
+
+    // WorldData intentionally borrows process-lifetime game records. Share the
+    // synthetic records across tests without leaking a separate fixture per app.
+    static PLUGINS: LazyLock<[EsmPlugin; 1]> = LazyLock::new(|| {
+        // WaterVisual's documented record fields, as decoded by schemas/fnv/sky.json.
+        // No image files or installed records are needed by this authored water type.
+        let mut visual = vec![0; 196];
+        visual[44..48].copy_from_slice(&[20, 170, 210, 0]);
+        visual[144..148].copy_from_slice(&7_f32.to_le_bytes());
+        visual[148..152].copy_from_slice(&321_f32.to_le_bytes());
+        let bytes = [
+            tes4(),
+            top(
+                b"WATR",
+                &record(
+                    b"WATR",
+                    0,
+                    WATER,
+                    &[
+                        sub(b"EDID", z("AuthoredReflectionWater")),
+                        sub(b"DNAM", visual),
+                    ],
+                ),
+            ),
+        ]
+        .concat();
+        [EsmPlugin::parse(&bytes, "AuthoredReflection.esm".into()).unwrap()]
+    });
+    static LOAD_ORDER: LazyLock<LoadOrder<'static>> = LazyLock::new(|| LoadOrder::new(&*PLUGINS).unwrap());
+    static SCHEMA: LazyLock<Schema> = LazyLock::new(|| Schema::load_dir(schemas().join("fnv")).unwrap());
+    static IMPOSTERS: LazyLock<fnv_world::imposter::ImposterRegions> =
+        LazyLock::new(|| fnv_world::imposter::ImposterRegions::build(&LOAD_ORDER, &SCHEMA));
+    static INDEX: LazyLock<fnv_world::WorldIndex> = LazyLock::new(|| {
+        let mut index = fnv_world::WorldIndex::default();
+        let mut ws = Worldspace {
+            form_id: 1,
+            water: Some(WATER),
+            ..Default::default()
+        };
+        for (n, grid) in [(-1, 0), (0, 0), (1, 0), (4, 0)].into_iter().enumerate() {
+            let id = 0x900 + n as u32;
+            ws.grid.insert(grid, id);
+            index.cells.insert(
+                id,
+                Cell {
+                    form_id: id,
+                    world: Some(1),
+                    grid: Some(grid),
+                    data_flags: 2,
+                    water_height: Some(100.0),
+                    water_type: Some(WATER),
+                    ..Default::default()
+                },
+            );
+        }
+        index.worldspaces.insert(1, ws);
+        index
+    });
+
+    fn schemas() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas")
+    }
+
+    fn reflection_fixture() -> (App, Entity, EmptyData) {
+        let decoded = fnv_world::sky::water(&LOAD_ORDER, &SCHEMA, WATER).unwrap();
+        assert_eq!(decoded.deep, [20, 170, 210]);
+        assert_eq!(decoded.under_fog, [7.0, 321.0, 0.0]);
+        let world = WorldData {
+            lo: &LOAD_ORDER,
+            schema: &SCHEMA,
+            index: &INDEX,
+            world: 1,
+            persistent_by_grid: HashMap::new(),
+            imposters: &IMPOSTERS,
+            weather_regions: &[],
+            dropped_plugins: Vec::new(),
+        };
+        let mut lod = LodState::new(&world, crate::lod::LodSettings::default(), true, None);
+        // The chunks the old LOD square of radius 0 covered round (0, 0): cells -4..=3 by
+        // 0..=3, so (-1, 0), (0, 0) and (1, 0), not (4, 0).
+        lod.choose_for_test(vec![(4, -4, 0), (4, 0, 0)]);
+        let streamer = Streamer {
+            radius: 1,
+            loaded: HashMap::new(),
+            fades: HashMap::new(),
+            fade_secs: 0.0,
+            settled: true,
+            arrival: None,
+            per_frame: 1,
+            spawning: HashMap::new(),
+            dying: Vec::new(),
+            ahead: ReadAhead::default(),
+            hide: Vec::new(),
+            interior: None,
+            light_scale: 1.0,
+            managed: HashSet::new(),
+            manage_actors: false,
+            stats: StreamStats::default(),
+            buffer: Default::default(),
+            centre: None,
+            waiting: Vec::new(),
+            model_overrides: HashMap::new(),
+            travels: 0,
+        };
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = EmptyData(std::env::temp_dir().join(format!(
+            "nvf-water-reflection-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        std::fs::create_dir(&dir.0).unwrap();
+        let data = GameData::open_for_plugins(&dir.0, &[] as &[&str], &schemas().join("nif")).unwrap();
+        let mut a = App::new();
+        a.add_plugins(TransformPlugin)
+            .insert_resource(world)
+            .insert_resource(lod)
+            .insert_resource(streamer)
+            .insert_resource(data)
+            .insert_resource(crate::stream_pace::StreamPace::new(crate::stream_pace::Mode::Off))
+            .init_resource::<DistantWater>()
+            .init_resource::<WaterCache>()
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<NifMaterial>>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<WaterMaterial>>()
+            .init_resource::<Assets<ShaderBuffer>>()
+            .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .init_resource::<ModelCache>()
+            .init_resource::<TextureCache>();
+        a.world_mut().spawn((WorldRoot, game_to_bevy()));
+        let camera = a
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                FlyCam {
+                    yaw: 0.0,
+                    pitch: 0.0,
+                    speed: 0.0,
+                },
+                Transform::from_xyz(1024.0, 200.0, -1024.0),
+                DistanceFog::default(),
+            ))
+            .id();
+        (a, camera, dir)
+    }
+
+    fn scheduled_reflection() -> (App, Entity, EmptyData) {
+        let (mut app, camera, data) = reflection_fixture();
+        app.add_message::<WindowResized>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<crate::console_toggles::Hidden>()
+            .insert_resource(crate::graphics::Graphics::preset(crate::graphics::Preset::Enhanced))
+            .add_plugins(ReflectionPlugin)
+            .add_systems(Update, crate::water::distant_water);
+        // distant_water budgets uncached surface reads per frame (#2956), so settle the
+        // initial r = 3 square around (0, 0) at t = 0 before timed reflection checks.
+        for _ in 0..6 {
+            app.update();
+            if app.world().resource::<DistantWater>().plane_cells().count() == 3 {
+                break;
+            }
+        }
+        assert_eq!(app.world().resource::<DistantWater>().plane_cells().count(), 3);
+        (app, camera, data)
+    }
+
+    fn tick(app: &mut App, seconds: f32) {
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(std::time::Duration::from_secs_f32(seconds));
+        app.update();
+    }
+
+    fn probe_sample(app: &App, count: u32) -> WaterSample {
+        let probe = app.world().resource::<WaterProbe>();
+        assert_eq!(probe.target, Some((1, 100.0)), "the real water producer must supply a visible plane");
+        assert!(probe.buffer.is_some());
+        let materials = app.world().resource::<Assets<WaterMaterial>>();
+        let (_, material) = materials.iter().next().unwrap();
+        assert_eq!(Some(material.seen.id()), probe.buffer);
+        assert_eq!(
+            material.params.seen_plane,
+            Vec4::new(100.0, 1.0, (probe.generation & 0xffff) as f32, (probe.generation >> 16) as f32)
+        );
+        probe.sample(count)
+    }
+
+    fn deliver(app: &mut App, sample: WaterSample) {
+        let (_, entity) = app.world().resource::<WaterPixels>().requested.unwrap();
+        app.world_mut().trigger(ReadbackComplete { entity, data: sample.bytes().to_vec() });
+    }
+
+    fn assert_reflection(app: &mut App, active: bool) {
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<(&Camera, &GlobalTransform), With<ReflectionCamera>>();
+        let (camera, transform) = query.single(world).unwrap();
+        assert_eq!(camera.is_active, active);
+        assert_eq!(camera.order, -1);
+        if active {
+            assert!(transform.translation().y.abs() < 0.001, "mirror camera must use the 100-unit water plane");
+        }
+        let materials = world.resource::<Assets<WaterMaterial>>();
+        assert_eq!(materials.len(), 1);
+        let (_, material) = materials.iter().next().unwrap();
+        let expected = if active { Vec4::new(100.0, 1.0, 1.0, 0.0) } else { Vec4::new(0.0, 0.0, 1.0, 0.0) };
+        assert_eq!(material.params.reflection_plane, expected);
+    }
+
     #[test]
-    fn water_pixels_drawn_when_the_count_changed() {
-        let mut px = WaterPixels { started: Some(10.0), ..default() };
-        assert!(!px.may_be_drawn(10.5));
-        px.read(10);
-        assert!(!px.may_be_drawn(10.5));
-        px.read(10);
-        assert!(!px.may_be_drawn(10.5));
-        px.read(25);
-        assert!(px.may_be_drawn(10.5));
-        px.read(25);
-        px.read(u32::MAX);
-        px.read(3);
-        assert!(px.may_be_drawn(10.5));
-        // No readback for READBACK_WAIT seconds: the GPU check is left out.
-        assert!(WaterPixels { started: Some(10.0), ..default() }.may_be_drawn(12.5));
-        assert!(!WaterPixels::default().may_be_drawn(100.0));
+    fn scheduled_reflection_does_not_start_for_occluded_water() {
+        let (mut app, _, _data) = scheduled_reflection();
+        tick(&mut app, 0.25);
+        // The actual plane and material exist, but the GPU never sees through the
+        // occluder. A working stream of zeros must not trigger the missing-stream fallback.
+        for _ in 0..=SAMPLE_PHASES {
+            let empty = probe_sample(&app, 0);
+            deliver(&mut app, empty);
+            tick(&mut app, 0.25);
+            assert_reflection(&mut app, false);
+        }
+    }
+
+    #[test]
+    fn scheduled_reflection_uses_batched_feedback_and_sustained_empty_frames() {
+        let (mut app, _, _data) = scheduled_reflection();
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, false);
+        let drawn = probe_sample(&app, 25);
+        tick(&mut app, 0.25);
+        let empty = probe_sample(&app, 0);
+        // Extraction can deliver several completions ahead of a single camera update.
+        deliver(&mut app, drawn);
+        deliver(&mut app, empty);
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, true);
+
+        for _ in 0..15 {
+            let empty = probe_sample(&app, 0);
+            deliver(&mut app, empty);
+            tick(&mut app, 0.25);
+            assert_reflection(&mut app, true);
+        }
+        let empty = probe_sample(&app, 0);
+        deliver(&mut app, empty);
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, false);
+
+        // A late older result does not reactivate the camera; a fresh one does.
+        deliver(&mut app, WaterSample { count: 1, frame: empty.frame.wrapping_sub(1), time: empty.time - 0.25, ..empty });
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, false);
+        let drawn = probe_sample(&app, 1);
+        deliver(&mut app, drawn);
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, true);
+    }
+
+    #[test]
+    fn scheduled_reflection_requires_current_feedback_and_honors_cpu_shutdown() {
+        let (mut app, main, _data) = scheduled_reflection();
+        tick(&mut app, 0.25);
+        let stale = probe_sample(&app, 1);
+        // No feedback at all: keep the existing CPU-only fallback.
+        tick(&mut app, READBACK_WAIT);
+        assert_reflection(&mut app, true);
+
+        let look_away = Quat::from_rotation_x(80f32.to_radians());
+        app.world_mut().get_mut::<Transform>(main).unwrap().rotation = look_away;
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, true);
+        tick(&mut app, KEEP_UNSEEN);
+        assert_reflection(&mut app, false);
+
+        app.world_mut().get_mut::<Transform>(main).unwrap().rotation = Quat::IDENTITY;
+        tick(&mut app, 0.25);
+        let current = probe_sample(&app, 1);
+        assert_ne!(current.generation, stale.generation);
+        deliver(&mut app, WaterSample { generation: stale.generation, ..current });
+        deliver(&mut app, WaterSample { time: stale.time, ..current });
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, false);
+        deliver(&mut app, current);
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, true);
+
+        // Wall time with missing completions is not a run of empty drawn frames.
+        tick(&mut app, GPU_HIDDEN_HOLD + 1.0);
+        let resumed = probe_sample(&app, 0);
+        deliver(&mut app, resumed);
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, true);
+
+        app.world_mut().resource_mut::<crate::console_toggles::Hidden>().water = true;
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, false);
+        app.world_mut().resource_mut::<crate::console_toggles::Hidden>().water = false;
+        tick(&mut app, 0.25);
+        let drawn = probe_sample(&app, 1);
+        deliver(&mut app, drawn);
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, true);
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().water_mirror = false;
+        tick(&mut app, 0.25);
+        assert_reflection(&mut app, false);
+        assert!(app.world().resource::<WaterProbe>().target.is_none());
     }
 
     #[test]

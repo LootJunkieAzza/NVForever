@@ -399,6 +399,7 @@ def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_ar
         "crossing_hitches": crossing_hitches(r.lines),
         "windows_across_changes": windows_across_changes(samples),
         "machine": lib.machine_load(r.cpu, r.cpu_skipped),
+        "session_lock_checks": list(r.lock_checks),
         "profile_hitches": lib.profile_hitches(r.lines),
         "crash_groups": lib.group_crashes([("tour", c) for c in r.crashes]),
         "stray_commands": lib.stray_commands(r.lines),
@@ -440,6 +441,7 @@ def report(res: dict) -> list[str]:
                 "or going (`phase changes`): their frame mean and worst cover only the seen frames, and their place "
                 "is where the window ended."]
     out += lib.load_report(res.get("machine"))
+    out += lib.locked_report(res.get("session_lock_checks"))
     out += lib.profile_hitch_report(res.get("profile_hitches", []))
     out += ["", "## Peaks", "", "| count | peak |", "|---|---|"]
     for k, v in res["peak"].items():

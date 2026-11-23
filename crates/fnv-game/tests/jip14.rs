@@ -235,7 +235,10 @@ fn requests_and_switches() {
     // reference that is no projectile.
     assert!(g.run_query(&format!("{VARS}Begin Function {{ }}\nSetFunctionValue GetSelfAsInventoryRef\nEnd\n"), RunCtx::default()).is_err());
     assert_eq!(n(&mut g, "StatRef.GetDetonationTimer"), -1.0);
+    // Extra cameras: attach, project, detach.
+    assert_eq!(n(&mut g, "StatRef.AttachExtraCamera \"Cam\" 1 \"Scene Root\""), 1.0);
+    assert_eq!(n(&mut g, "StatRef.ProjectExtraCamera \"Cam\" \"Box:0\" 12 512"), 1.0);
+    assert_eq!(n(&mut g, "StatRef.AttachExtraCamera \"Cam\" 0"), 1.0);
     // The nothing values by decision.
-    assert_eq!(n(&mut g, "StatRef.AttachExtraCamera \"Cam\" 1 \"Scene Root\""), 0.0);
     assert_eq!(n(&mut g, "ar_Size (StatRef.GetBlockTextureSet \"Box:0\")"), -1.0);
 }
